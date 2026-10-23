@@ -44,7 +44,9 @@ export function PresetMatrix({ draft, names, activeName, roles, onCompare }: Pre
                   onClick={() => onCompare(n)}
                   title={`Compare with ${n}`}
                 >
+                  {differs ? <span className="agents-change-dot" aria-hidden="true" /> : null}
                   {roleText(value)}
+                  {differs ? <span className="sr-only"> differs from {activeName}</span> : null}
                 </button>
               );
             })}

@@ -35,6 +35,9 @@ function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
           <span aria-hidden="true">{t.chip}</span>
           <span className="sr-only">{t.label}</span>
         </Chip>
+        {/* The reason stays reachable without a pointer (UI-R19, R22): `title` is
+            supplemental, never the only carrier. */}
+        <span className="sr-only">{t.why}</span>
       </span>
     );
   }
@@ -44,6 +47,8 @@ function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
         <TablerIcon name={source === 'pin' ? 'pin' : 'stack-2'} size={12} />
         <span>{t.chip}</span>
       </Chip>
+      {/* The reason stays reachable without a pointer (UI-R19, R22). */}
+      <span className="sr-only">{t.why}</span>
     </span>
   );
 }

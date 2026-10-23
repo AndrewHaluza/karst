@@ -22,6 +22,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -78,12 +79,25 @@ function appReducer(state: SettingsAppState, action: AppAction): SettingsAppStat
   }
 }
 
+/**
+ * A section's own gate on a Settings-section switch. Called with the switch it
+ * would perform: return `true` to block it, and call `proceed` later (after
+ * Save or Discard) when the switch may run. A section registers one while it
+ * holds edits that live outside the manifest draft — the profile buffers on the
+ * Agents page would otherwise be lost with the unmount.
+ */
+export type LeaveGuard = (proceed: () => void) => boolean;
+
 export interface SettingsApp {
   readonly state: SettingsAppState;
   /** The tab on screen. Owned here so the nav, the shell and the section mount
    *  cannot disagree about what is visible. */
   readonly section: SettingsSection;
   readonly setSection: (target: SettingsSection) => void;
+  /** Register the current section's leave guard, or `null` to clear it. */
+  readonly setLeaveGuard: (guard: LeaveGuard | null) => void;
+  /** Run the registered guard; `true` means it blocked and will call `proceed`. */
+  runLeaveGuard(proceed: () => void): boolean;
   readonly send: SettingsHostBridge['send'];
   /** Is `target` holding uncommitted edits? */
   isDirty(target: SettingsSection): boolean;
@@ -154,6 +168,17 @@ export function SettingsAppProvider({
   const [section, setSection] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
   const { send } = host;
 
+  // The mounted section's leave guard. A ref, not state: registering a guard
+  // must not re-render the app, and the guard is read at switch time.
+  const leaveGuard = useRef<LeaveGuard | null>(null);
+  const setLeaveGuard = useCallback((guard: LeaveGuard | null) => {
+    leaveGuard.current = guard;
+  }, []);
+  const runLeaveGuard = useCallback(
+    (proceed: () => void) => leaveGuard.current?.(proceed) ?? false,
+    [],
+  );
+
   // The message listener is external sync — the one effect the boundary owns.
   // Every host message goes through the pure reducer; nothing here interprets a
   // message's payload beyond handing it over.
@@ -217,6 +242,8 @@ export function SettingsAppProvider({
       state,
       section,
       setSection,
+      setLeaveGuard,
+      runLeaveGuard,
       send,
       isDirty,
       valid: state.validation.ok,
@@ -231,6 +258,8 @@ export function SettingsAppProvider({
     [
       state,
       section,
+      setLeaveGuard,
+      runLeaveGuard,
       send,
       isDirty,
       errorSection,

@@ -19,6 +19,7 @@ import { FIXTURE_MANIFEST } from '../testFixtures.js';
 import { buildSettingsState, type SettingsAgentRow } from '../../state.js';
 import type { AgentPickerOptions } from '../hostBridge.js';
 import { AgentsSection } from './AgentsSection.js';
+import { AppShell } from './AppShell.js';
 import { AppProbe, readProbe, type AppProbeShape } from './AppProbe.js';
 
 const pickers = new Map<HTMLElement, AgentPickerOptions>();
@@ -84,6 +85,51 @@ const pickerOf = (cap: string): AgentPickerOptions => {
 };
 const draftOf = (probe: () => AppProbeShape): Manifest => probe().draft as Manifest;
 
+/** Mount the Agents page inside the real shell, for the Settings-section guard. */
+function mountWithShell(manifest: Manifest = BASE): { bridge: TestBridge } {
+  const bridge = createTestBridge();
+  render(
+    <AnnouncerProvider>
+      <SettingsAppProvider bridge={bridge} initialSection="agents">
+        <AppShell>
+          <AgentsSection />
+        </AppShell>
+      </SettingsAppProvider>
+    </AnnouncerProvider>,
+  );
+  act(() =>
+    bridge.push({
+      type: 'state',
+      state: buildSettingsState(manifest, null, [], true, ['claude', 'opencode'], AGENTS, {}, undefined, '/repo/karst.yml'),
+    }),
+  );
+  return { bridge };
+}
+
+const activeSection = (): string | null =>
+  document.querySelector('.nav-btn.active')?.getAttribute('data-section') ?? null;
+
+const openProfiles = (): void => {
+  fireEvent.click(screen.getAllByRole('tab')[1]!);
+};
+
+const editReviewer = (text: string): HTMLElement => {
+  openProfiles();
+  fireEvent.click(screen.getByText('reviewer'));
+  const area = document.querySelector('[name="agent-body-reviewer"]') as HTMLTextAreaElement;
+  fireEvent.change(area, { target: { value: text } });
+  return area;
+};
+
+const itemButton = (name: string): HTMLElement => {
+  const item = [...document.querySelectorAll<HTMLElement>('.agents-item')].find(
+    (el) => el.querySelector('.agents-item-name')?.textContent === name,
+  );
+  if (!item) throw new Error(`no profile item ${name}`);
+  return item;
+};
+
+
 describe('Agents page — tabs and location', () => {
   it('renders a tablist with Roles and Agent profiles (n), arrow keys switch, the hash follows', () => {
     mount();
@@ -101,6 +147,17 @@ describe('Agents page — tabs and location', () => {
     window.location.hash = '#presets';
     mount();
     expect(screen.getAllByRole('tab')[0]!.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('Home and End jump to the first and last tab', () => {
+    mount();
+    const tabs = (): HTMLElement[] => screen.getAllByRole('tab');
+    fireEvent.keyDown(tabs()[0]!, { key: 'End' });
+    expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/profiles');
+    fireEvent.keyDown(tabs()[1]!, { key: 'Home' });
+    expect(tabs()[0]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/roles');
   });
 });
 
@@ -170,7 +227,8 @@ describe('Agents page — compare', () => {
   it('summarises the differing roles from EFFECTIVE values and copies B into A', () => {
     const { probe } = mount();
     fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
-    expect(screen.getByRole('status').textContent).toBe('2 of 11 roles differ');
+    const compareBar = document.querySelector('.agents-compare-bar') as HTMLElement;
+    expect(within(compareBar).getByRole('status').textContent).toBe('2 of 11 roles differ');
     fireEvent.click(within(row('planning')).getByRole('button', { name: /Copy from B/ }));
     expect(draftOf(probe).agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(draftOf(probe).agentPresets!.B).toEqual(BASE.agentPresets!.B);
@@ -238,6 +296,149 @@ describe('Agents page — agent profiles', () => {
     expect((document.querySelector('[name="agent-body-reviewer"]') as HTMLTextAreaElement).value).toBe('edited');
     fireEvent.click(screen.getByText('Save'));
     expect(bridge.last('save-agent-file')).toMatchObject({ name: 'reviewer', body: 'edited' });
+  });
+});
+
+describe('Agents page — the unsaved bar is reachable and reversible (UI-R23, R27)', () => {
+  it('moves focus to Save, describes itself by the message, and Escape returns focus', () => {
+    mount();
+    editReviewer('edited');
+    const plan = itemButton('plan');
+    plan.focus();
+    fireEvent.click(plan);
+
+    const bar = screen.getByRole('alertdialog');
+    const save = within(bar).getByRole('button', { name: 'Save' });
+    expect(document.activeElement).toBe(save);
+    const described = bar.getAttribute('aria-describedby');
+    expect(described).toBeTruthy();
+    expect(document.getElementById(described!)!.textContent).toBe('Unsaved changes to reviewer');
+
+    fireEvent.keyDown(save, { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(document.activeElement).toBe(plan);
+  });
+
+  it('Keep editing closes the bar and returns focus to the item that opened it', () => {
+    mount();
+    editReviewer('edited');
+    const plan = itemButton('plan');
+    plan.focus();
+    fireEvent.click(plan);
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(document.activeElement).toBe(plan);
+  });
+
+  it('Save commits the buffer and moves focus to the newly selected item', () => {
+    const { bridge } = mount();
+    editReviewer('edited');
+    fireEvent.click(itemButton('plan'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }));
+    expect(bridge.last('save-agent-file')).toMatchObject({ name: 'reviewer', body: 'edited' });
+    expect(document.activeElement).toBe(itemButton('plan'));
+  });
+
+  it('Discard drops the buffer, then moves focus to the newly selected item', () => {
+    const { bridge } = mount();
+    editReviewer('edited');
+    fireEvent.click(itemButton('plan'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard' }));
+    expect(bridge.last('save-agent-file')).toBeUndefined();
+    expect(document.activeElement).toBe(itemButton('plan'));
+  });
+
+  it('a tab switch resolves onto that tab, which takes focus', () => {
+    mount();
+    editReviewer('edited');
+    fireEvent.click(screen.getAllByRole('tab')[0]!);
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }));
+    const roles = screen.getAllByRole('tab')[0]!;
+    expect(roles.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(roles);
+  });
+});
+
+describe('Agents page — a Settings-section switch is guarded while profile text is unsaved', () => {
+  it('blocks the switch and shows the same bar; Discard switches without saving', () => {
+    const { bridge } = mountWithShell();
+    editReviewer('edited');
+    fireEvent.click(document.querySelector('[data-section="git"]')!);
+    expect(screen.getByRole('alertdialog').textContent).toContain('Unsaved changes to reviewer');
+    expect(activeSection()).toBe('agents');
+
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard' }));
+    expect(bridge.last('save-agent-file')).toBeUndefined();
+    expect(activeSection()).toBe('git');
+  });
+
+  it('Save writes the buffer through the host, then completes the switch', () => {
+    const { bridge } = mountWithShell();
+    editReviewer('edited');
+    fireEvent.click(document.querySelector('[data-section="git"]')!);
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }));
+    expect(bridge.last('save-agent-file')).toMatchObject({ name: 'reviewer', body: 'edited' });
+    expect(activeSection()).toBe('git');
+  });
+
+  it('a page with no unsaved profile text switches straight away', () => {
+    mountWithShell();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    fireEvent.click(document.querySelector('[data-section="git"]')!);
+    expect(activeSection()).toBe('git');
+  });
+});
+
+describe('Agents page — Source reasons without a tooltip (UI-R19, R22)', () => {
+  it('every source chip carries its reason as screen-reader text after it', () => {
+    mount({
+      ...BASE,
+      processes: { ...BASE.processes, uatTester: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } },
+    } as unknown as Manifest);
+    expect(row('planning').querySelector('[data-source="preset"] .sr-only')!.textContent).toBe(
+      'From the selected preset.',
+    );
+    expect(row('uatTester').querySelector('[data-source="pin"] .sr-only')!.textContent).toBe(
+      'Pinned: the same in all presets, and it beats the preset.',
+    );
+    const inherited = row('implementation').querySelector('[data-source="default"]')!;
+    expect(inherited.textContent).toContain("uses Karst's built-in default.");
+    // `title` stays as the supplemental pointer path.
+    expect(inherited.getAttribute('title')).toContain("uses Karst's built-in default.");
+  });
+
+  it("shows the selected row's Source reason in the status line under the table", () => {
+    window.location.hash = '#agents/roles/planning';
+    mount();
+    const status = document.querySelector('.agents-status') as HTMLElement;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toBe('Planner: From the selected preset.');
+  });
+});
+
+describe('Agents page — draft pin actions are announced (UI-R27, R28)', () => {
+  it('names the role and what the draft now does for pin, unpin and clear', () => {
+    mount();
+    const status = (): string => (document.querySelector('.agents-status') as HTMLElement).textContent ?? '';
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Pin' }));
+    expect(status()).toBe('Planner pinned: same agent in every preset.');
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Unpin' }));
+    expect(status()).toBe('Planner unpinned: uses the preset value.');
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear override' }));
+    expect(status()).toBe("Planner cleared: uses Karst's default.");
+  });
+});
+
+describe('Agents page — the all-presets matrix is not colour-only (UI-R28)', () => {
+  it('marks a differing cell with a dot and says so in text', () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all presets' }));
+    const differing = document.querySelectorAll('.agents-matrix-cell.differs');
+    expect(differing.length).toBeGreaterThan(0);
+    for (const cell of differing) {
+      expect(cell.querySelector('.agents-change-dot')).not.toBeNull();
+      expect(cell.querySelector('.sr-only')!.textContent).toContain('differs from A');
+    }
   });
 });
 

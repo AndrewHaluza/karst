@@ -45,7 +45,13 @@ const REQUIRED_ARTIFACTS = [
 // Raised 366 → 368 KB when the stopServersOnDone select in General settings
 // (D205, ~0.3 KB) merged with develop's three-tier click feedback in useHostMutation:
 // merged bundle is 375569 bytes (~1.2 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 368 * 1024;
+// Raised 368 → 370 KB for the Agents page accessibility work (T773): unsaved-bar
+// focus/Escape, the section-leave guard (context + shell + Agents), Source
+// reasons as SR text plus the status line, the matrix differs dot and Home/End
+// on the tabs — ~2.3 KB of genuine app code on a 375569-byte base, so the merged
+// bundle is 377860 bytes. This is the first raise where the previous 1.2 KB
+// cushion was smaller than the feature, hence the 2 KB step.
+const APP_BUNDLE_BUDGET_BYTES = 370 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge } from '../testBridge.js';
@@ -76,7 +76,8 @@ describe('RolesTab — presets toolbar and compare bar', () => {
   it('renders diffs summary, Only show differences, and Swap A/B button when compare preset is selected', () => {
     mount({ tab: 'roles', compare: 'Preset2' });
 
-    expect(screen.getByRole('status').textContent).toContain('roles differ');
+    const compareBar = document.querySelector('.agents-compare-bar') as HTMLElement;
+    expect(within(compareBar).getByRole('status').textContent).toContain('roles differ');
     expect(screen.getByLabelText('Only show differences')).toBeDefined();
     const swapBtn = screen.getByRole('button', { name: 'Swap A/B' });
     expect(swapBtn.className).toContain('k-btn--ghost');

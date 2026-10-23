@@ -165,12 +165,14 @@
   border-left-color: var(--k-link);
 }
 
-#section-agents .agents-row.is-inherited .agents-cell-picker .ap-field {
-  opacity: 0.65;
-}
-
-#section-agents .agents-row.is-disabled {
-  opacity: 0.55;
+/* Disabled rows read as dim TEXT, never as a whole-row opacity: opacity
+   multiplies the ink and the surface together, so the pair's contrast is
+   whatever the theme happens to give (UI-R29). Controls inside keep their own
+   disabled styling. The inherited picker needs no extra dimming: the Source chip
+   already says Karst default (D110 removed the shared row tint too). */
+#section-agents .agents-row.is-disabled .agents-role-name,
+#section-agents .agents-row.is-disabled .agents-cell {
+  color: var(--k-text-dim);
 }
 
 #section-agents .agents-row.is-flash {
@@ -196,7 +198,7 @@
 }
 
 #section-agents .agents-compare-row.same {
-  opacity: 0.6;
+  color: var(--k-text-dim);
 }
 
 #section-agents .agents-change-dot {
@@ -209,6 +211,15 @@
 }
 
 #section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); }
+
+/* The status line under the table (UI-R27): announcements and the selected
+   row's Source reason. Kept mounted so a later message is announced; it takes
+   no space while it is empty. */
+#section-agents .agents-status {
+  margin-top: var(--k-space-2);
+  color: var(--k-text-dim);
+}
+#section-agents .agents-status:empty { display: none; }
 #section-agents .agents-profile-cell { display: flex; flex-direction: column; gap: var(--k-space-1); width: 100%; min-width: 0; }
 #section-agents .agents-profile-fields { display: flex; align-items: center; gap: var(--k-space-1); min-width: 0; }
 #section-agents .agents-profile-select { position: relative; flex: 1 1 auto; min-width: 0; }
