@@ -126,7 +126,7 @@ function ProfileCell({
 
 export function RoleRow(props: RoleRowProps) {
   const { capability, label, effective, selected, flash, sharesProfile } = props;
-  const { catalog, recent, cores } = usePickerInputs();
+  const { catalog, recent, cores, routes } = usePickerInputs();
   const pinnable = pinKeyOf(capability) !== undefined;
   const classes = [
     'agents-row',
@@ -160,6 +160,7 @@ export function RoleRow(props: RoleRowProps) {
         <AgentPickerIsland
           cores={cores}
           catalog={catalog}
+          routes={routes}
           recent={recent}
           inherit={NO_INHERIT}
           value={{ core: effective.core, model: effective.model, effort: effective.effort }}

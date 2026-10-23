@@ -14,6 +14,8 @@
  *   mountAgentPicker(root, {
  *     cores,            // [{id, label}] — implemented cores offered
  *     catalog,          // { provider: [ModelOption] } with model `efforts`
+ *     routes,           // { [route]: { name, badge?, iconSvg } } from
+ *                       // routeIdentity.ts; omitted = the pre-route look
  *     recent,           // { provider: [modelId] } recently used, newest first (≤5)
  *     value,            // { core, model, effort } current selection
  *     inherit,          // { core?, model?, effort? } labels for "Inherit (settings: X)"
@@ -81,6 +83,21 @@ import type { AgentProvider } from '../manifest/types.js';
 import type { ModelOption } from '../agent/modelCatalog.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { routeIdentityJs } from './routeIdentity.js';
+
+/**
+ * One registered model route as the picker runtime consumes it: the display
+ * name, the optional subscription badge, and the inline SVG mark. Built by
+ * `routeIdentity.ts` (the host asset reader) and passed to every host as the
+ * `routes` option — a host that omits it keeps the pre-route look.
+ */
+export interface AgentPickerRoute {
+  readonly name: string;
+  readonly badge?: string;
+  readonly iconSvg?: string;
+}
+
+/** Route id → identity; the `routes` option. */
+export type AgentPickerRoutes = Readonly<Record<string, AgentPickerRoute>>;
 
 /** Placeholder swapped for the picker CSS; sits inside each webview's `<style>`. */
 export const AGENT_PICKER_CSS_MARKER = '/*KARST_AGENT_PICKER_CSS*/';

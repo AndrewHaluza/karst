@@ -35,7 +35,7 @@ export interface RolesTabProps {
 export function RolesTab({ route, navigate }: RolesTabProps) {
   const { state, edit } = useSettingsApp();
   const draft = state.draft;
-  const { catalog, recent, cores } = usePickerInputs();
+  const { catalog, recent, cores, routes } = usePickerInputs();
 
   const names = useMemo(() => presetNames(draft), [draft]);
   const activeName = activePresetName(draft);
@@ -264,6 +264,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
         <AgentPickerIsland
           cores={cores}
           catalog={catalog}
+          routes={routes}
           recent={recent}
           inherit={NO_INHERIT}
           value={defaultRow(draft)}

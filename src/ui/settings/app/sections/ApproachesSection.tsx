@@ -56,7 +56,7 @@ import {
 } from '../../../../manifest/graphConfig.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
-import type { AgentPickerIdentity } from '../hostBridge.js';
+import { pageRoutes, type AgentPickerIdentity, type AgentPickerRoutes } from '../hostBridge.js';
 import { Field } from '../primitives/Field.js';
 import { PendingOutputs } from './PendingOutputs.js';
 import { Button } from '../primitives/Button.js';
@@ -275,6 +275,9 @@ export function ApproachesSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
     [implementedKey],
   );
+  // The route identity map is a page global emitted with the picker blob — it
+  // never changes within a page, so one read is enough.
+  const routes = useMemo(() => pageRoutes(), []);
 
   const open = useCallback(
     (next: DrawerMode, approach: ApproachDef | null) => {
@@ -475,6 +478,7 @@ export function ApproachesSection() {
                 catalog={catalog}
                 recent={recent}
                 cores={cores}
+                routes={routes}
                 onToggle={(next) => onToggle(approach, next)}
                 onEdit={() => open('edit', approach)}
                 onWriteProfile={(profile, identity) =>
@@ -516,6 +520,7 @@ function ApproachCard({
   catalog,
   recent,
   cores,
+  routes,
   onToggle,
   onEdit,
   onWriteProfile,
@@ -527,6 +532,7 @@ function ApproachCard({
   readonly catalog: unknown;
   readonly recent: Readonly<Record<string, readonly string[]>>;
   readonly cores: ReturnType<typeof pickerCores>;
+  readonly routes: AgentPickerRoutes;
   readonly onToggle: (next: boolean) => void;
   readonly onEdit: () => void;
   /** Write one profile's identity into the draft entry (spread, not rebuild). */
@@ -660,6 +666,7 @@ function ApproachCard({
                       cores={cores}
                       catalog={catalog}
                       recent={recent}
+                      routes={routes}
                       inherit={NO_INHERIT}
                       value={{
                         core: (profiles[name]?.provider as string) || '',

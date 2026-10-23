@@ -4557,6 +4557,7 @@
     switchPicker = mountAgentPicker(root, {
       cores,
       catalog: (lastState.agentSwitch.modelsByCore || lastState.agentSwitch.models) || {},
+      routes: AP_ROUTES,
       recent: lastState.agentSwitch.recentByCore || {},
       value: { core: draftCore || '', model: draftModel, effort: draftEffort },
       // The model/effort inherit rows describe the SETTINGS default core; the
