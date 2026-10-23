@@ -63,6 +63,66 @@ function apParseModelId(id, label) {
   return out;
 }
 
+/** The host-supplied route meta for a parsed route, or null. */
+function apRouteMeta(routes, route) {
+  if (!route || !routes || !Object.prototype.hasOwnProperty.call(routes, route)) return null;
+  return routes[route] || null;
+}
+
+/** The route's display name; the raw id for an unknown route. */
+function apRouteName(routes, route) {
+  var meta = apRouteMeta(routes, route);
+  return meta && meta.name ? meta.name : (route || '');
+}
+
+/** Stable hue (0-359) for a route's monogram — same id, same colour, always. */
+function apRouteHue(route) {
+  var s = String(route || '');
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+
+/**
+ * The 16px route mark: the host icon plus its subscription badge, or — for an
+ * unknown route, or a known one whose asset is missing — a letter monogram on a
+ * hue derived from the id. `ui:ICONS-05` item 4 records both as approved.
+ */
+function apRouteIconHtml(route, routes) {
+  if (!route) return '';
+  var meta = apRouteMeta(routes, route);
+  var icon = meta && meta.iconSvg ? meta.iconSvg : '';
+  var mark = icon || ('<span class="ap-mono">' + apEsc(String(route).charAt(0).toUpperCase()) + '</span>');
+  var badge = meta && meta.badge ? '<span class="ap-route-badge">' + apEsc(meta.badge) + '</span>' : '';
+  var hue = icon ? '' : ' style="--ap-hue:' + apRouteHue(route) + '"';
+  return '<span class="ap-route" title="' + apEsc(apRouteName(routes, route)) + '"' + hue
+    + ' aria-hidden="true">' + mark + badge + '</span>';
+}
+
+/**
+ * The two-line model stack: the model name (with its variant) over the gateway
+ * vendor. Both lines clip with an ellipsis and point at the trigger, whose
+ * accessible name carries the full text (UI-R44).
+ */
+function apModelStackHtml(parsed, triggerId) {
+  var variant = parsed.variant ? '<span class="ap-variant"> ' + apEsc(parsed.variant) + '</span>' : '';
+  var vendor = parsed.vendor
+    ? '<span class="ap-mvendor" aria-describedby="' + apEsc(triggerId) + '">' + apEsc(parsed.vendor) + '</span>'
+    : '';
+  return '<span class="ap-mstack">'
+    + '<span class="ap-mname" aria-describedby="' + apEsc(triggerId) + '">'
+    + apEsc(parsed.model) + variant + '</span>'
+    + vendor
+    + '</span>';
+}
+
+/** The trigger's accessible name for a routed model: model, vendor, route, full id. */
+function apRoutedTriggerName(caption, parsed, routes) {
+  var via = ' via ' + apRouteName(routes, parsed.route);
+  var who = parsed.vendor ? parsed.model + ', ' + parsed.vendor + via : parsed.model + via;
+  return caption + ': ' + who + ' \u2014 ' + parsed.id + (parsed.free ? ', free' : '');
+}
+
 /** One row of capability-tag chips; empty when the model advertises none. */
 function apModelTagsHtml(tags) {
   if (!tags || tags.length === 0) return '';
@@ -287,6 +347,9 @@ function mountAgentPicker(root, opts) {
   var cores = o.cores || [];
   var catalog = o.catalog || {};
   var recent = o.recent || {};
+  // Route identity (routeIdentity.ts, emitted as AP_ROUTES): route id → name,
+  // badge, icon. Absent = the pre-route look (no icon, no vendor line).
+  var routes = o.routes || {};
   var value = o.value || {};
   var inherit = o.inherit || {};
   // The core the inherit labels came from (settings / the parent level). The
@@ -366,11 +429,26 @@ function mountAgentPicker(root, opts) {
       coreTrigger.setAttribute('aria-label', apCoreTriggerName(
         o.labels && o.labels.core ? o.labels.core : 'Agent core', (coreTrigger.textContent || '').trim()));
     }
-    modelTrigger.innerHTML = apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
-      + '<span class="chev" aria-hidden="true"></span>';
-    var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
-    modelTrigger.title = triggerName;
-    if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
+    // A routed model (opencode/…, openrouter/…) renders the route mark, then the
+    // model name over its gateway vendor. An unrouted id renders exactly as before.
+    var parsed = apParseModelId(state.model, coreLabel);
+    if (parsed.route) {
+      modelTrigger.innerHTML = apRouteIconHtml(parsed.route, routes)
+        + apModelStackHtml(parsed, apId + '-model')
+        + (parsed.free ? '<span class="ap-free">free</span>' : '')
+        + '<span class="chev" aria-hidden="true"></span>';
+      var stackName = apRoutedTriggerName(labelModel, parsed, routes);
+      modelTrigger.title = stackName;
+      modelTrigger.setAttribute('aria-label', stackName);
+    } else {
+      modelTrigger.innerHTML =
+        apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
+        + '<span class="chev" aria-hidden="true"></span>';
+      var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
+      modelTrigger.title = triggerName;
+      if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
+      else modelTrigger.removeAttribute('aria-label');
+    }
     renderEffort();
   }
 
@@ -550,6 +628,7 @@ function mountAgentPicker(root, opts) {
       cores = (next && next.cores) || [];
       catalog = (next && next.catalog) || {};
       recent = (next && next.recent) || {};
+      routes = (next && next.routes) || {};
       inherit = (next && next.inherit) || {};
       inheritCore = (next && next.inheritCore) || '';
       showEffort = next ? next.showEffort !== false : true;

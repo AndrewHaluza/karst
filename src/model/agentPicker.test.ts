@@ -490,6 +490,82 @@ describe('the picker carries the route map', () => {
   });
 });
 
+describe('route identity in the closed control', () => {
+  const fns = load() as {
+    apParseModelId: (id: string, label?: string) => unknown;
+    apRouteIconHtml: (route: string, routes?: unknown) => string;
+    apRoutedTriggerName: (caption: string, parsed: unknown, routes?: unknown) => string;
+    apRouteHue: (route: string) => number;
+  };
+  const routes = {
+    openrouter: { name: 'OpenRouter', badge: '', iconSvg: '<svg id="or"></svg>' },
+    opencode: { name: 'OpenCode Zen', badge: 'Z', iconSvg: '<svg id="oc"></svg>' },
+    unknown: { name: '', badge: '', iconSvg: '' },
+  };
+
+  it('renders the host icon and badge for a known route', () => {
+    const out = fns.apRouteIconHtml('opencode', routes);
+    expect(out).toContain('class="ap-route"');
+    expect(out).toContain('title="OpenCode Zen"');
+    expect(out).toContain('<svg id="oc"></svg>');
+    expect(out).toContain('class="ap-route-badge">Z<');
+    expect(out).toContain('aria-hidden="true"');
+  });
+
+  it('falls back to a letter monogram with a derived hue for an unknown route', () => {
+    const out = fns.apRouteIconHtml('weaver-net', routes);
+    expect(out).toContain('class="ap-mono"');
+    expect(out).toContain('>W<');
+    expect(out).toMatch(/style="--ap-hue:\d+"/);
+    expect(out).toContain('title="weaver-net"');
+    expect(out).not.toContain('ap-route-badge');
+  });
+
+  it('renders no mark at all for an empty route', () => {
+    expect(fns.apRouteIconHtml('', routes)).toBe('');
+  });
+
+  it('derives a stable hue per route id', () => {
+    expect(fns.apRouteHue('openrouter')).toBe(fns.apRouteHue('openrouter'));
+    expect(fns.apRouteHue('openrouter')).toBeGreaterThanOrEqual(0);
+    expect(fns.apRouteHue('openrouter')).toBeLessThan(360);
+  });
+
+  it('names the trigger with the model, the vendor, the route and the full id', () => {
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('openrouter/mancer/weaver', 'weaver'), routes))
+      .toBe('Model: weaver, mancer via OpenRouter \u2014 openrouter/mancer/weaver');
+  });
+
+  it('names a two-segment route without a vendor, and appends free', () => {
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('opencode/big-pickle', 'big-pickle'), routes))
+      .toBe('Model: big-pickle via OpenCode Zen \u2014 opencode/big-pickle');
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('openrouter/x/y:free', ''), routes))
+      .toContain(', free');
+  });
+
+  it('ships the two-line stack, the never-shrinking free tag and the container query', () => {
+    expect(js).toContain('ap-mstack');
+    expect(js).toContain('ap-mvendor');
+    expect(js).toContain('ap-mname');
+    const css = agentPickerCss();
+    expect(css).toContain('.ap-mstack{display:flex;flex-direction:column');
+    expect(css).toMatch(/\.ap-mname,\.ap-mvendor\{[^}]*text-overflow:ellipsis/);
+    expect(css).toMatch(/\.ap-free\{[^}]*flex:none/);
+    expect(css).toContain('.ap-shell[data-ap-shell="model"]{container-type:inline-size}');
+    expect(css).toContain('@container (max-width: 130px){.ap-free{display:none}}');
+  });
+
+  it('clips only with a described trigger name (UI-R44)', () => {
+    const stack = new Function(`${js}\nreturn apModelStackHtml;`)() as (
+      parsed: unknown,
+      triggerId: string,
+    ) => string;
+    const out = stack(fns.apParseModelId('openrouter/mancer/weaver#high', 'weaver'), 'ap-7-model');
+    expect(out).toContain('aria-describedby="ap-7-model"');
+    expect(out).toContain('<span class="ap-variant">');
+  });
+});
+
 describe('agentPickerCss', () => {  it('defines the picker primitives with token-only values', () => {
     const css = agentPickerCss();
     expect(css).toContain('.ap{');
