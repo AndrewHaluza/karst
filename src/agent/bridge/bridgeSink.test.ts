@@ -223,7 +223,7 @@ describe('reattach after a reload (events file truncated or rewritten)', () => {
     await stateDir();
     const run = okRunner();
     await write(markerLine(), markerLine());
-    await settle(make(run));
-    expect(run).toHaveBeenCalledTimes(2);
+    await make(run).pollOnce();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
   });
 });
