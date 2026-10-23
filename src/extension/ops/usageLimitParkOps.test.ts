@@ -43,30 +43,34 @@ function advanceToReview(store: Store, ticketId: number): void {
   transition(store, ticketId, 'uat', { kind: 'passed' });
 }
 
-function seedGateEvidence(store: Store, ticketId: number): number {
+function seedGateEvidence(
+  store: Store,
+  ticketId: number,
+  stageKey: 'review' | 'uat' = 'review',
+): number {
   const runAt = '2026-10-14T00:00:00.000Z';
   const stageRunId = openStageRun(store, {
     ticketId,
-    stageKey: 'review',
+    stageKey,
     attempt: 0,
     runAt,
     startedAt: runAt,
   });
   recordGateRun(store, {
     ticketId,
-    stageKey: 'review',
+    stageKey,
     attempt: 0,
     runAt,
     stageRunId,
     gates: [
       {
-        gateName: 'lint (repo)',
+        gateName: stageKey === 'uat' ? 'test (repo)' : 'lint (repo)',
         exitCode: 0,
         startedAt: runAt,
         endedAt: runAt,
         repo: 'repo',
         command: 'npm',
-        args: ['run', 'lint'],
+        args: stageKey === 'uat' ? ['test'] : ['run', 'lint'],
       },
     ],
   });
@@ -1279,6 +1283,7 @@ describe('usageLimitParkOps', () => {
       updateTicketFields(store, ticket.id, { selectedRepos: ['repo'] });
       transition(store, ticket.id, 'scope', { kind: 'passed' });
       transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+      const uatStageRunId = seedGateEvidence(store, ticket.id, 'uat');
       setStage(store, ticket.id, 'uat', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -1287,6 +1292,7 @@ describe('usageLimitParkOps', () => {
       insertOpenPark(store, {
         ticketId: ticket.id,
         stage: 'uat',
+        stageRunId: uatStageRunId,
         kind: 'stage-block',
         lane: 'uat',
         target: 'repo',
@@ -1419,6 +1425,63 @@ describe('usageLimitParkOps', () => {
       });
       await actions.usageLimitRetry(ticket.id, 'uat');
       expect(listOpenParks(store, ticket.id)).toHaveLength(0);
+    });
+
+    it('refuses an action whose message names another ticket than the panel', async () => {
+      const store = openStore(':memory:');
+      const panelTicket = createTicketFlow(store, { key: 'PANEL-1', title: 'Panel ticket' });
+      const otherTicket = createTicketFlow(store, { key: 'OTHER-1', title: 'Other ticket' });
+      // The OTHER ticket is the one a forged/stale message would target: it is
+      // parked, so acting on the message's id would claim and resolve it.
+      advanceToReview(store, otherTicket.id);
+      const stageRunId = seedGateEvidence(store, otherTicket.id);
+      setStage(store, otherTicket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: otherTicket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        stageRunId,
+        keptOutcome: null,
+      });
+
+      const warn = vi.fn();
+      const redrive = vi.fn();
+      const pickCore = vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' });
+      const actions = makeUsageLimitParkActions({
+        store,
+        ticketId: panelTicket.id,
+        notify: { info: vi.fn(), warn, error: vi.fn() },
+        catalog: () => fakeCatalog,
+        manifest: () => undefined,
+        redrive,
+        refresh: vi.fn(),
+        pickCore,
+        pickModel: vi.fn(),
+        adapterFor: vi.fn(),
+        artifactDir: () => '',
+        cwd: () => '/tmp',
+      });
+
+      await actions.usageLimitPick(otherTicket.id, 'review');
+      await actions.usageLimitRetry(otherTicket.id, 'review');
+      await actions.usageLimitDismiss(otherTicket.id, 'review');
+
+      expect(warn).toHaveBeenCalledWith(
+        `Ignored: this panel drives ticket ${panelTicket.id}, not ${otherTicket.id}.`,
+      );
+      // Nothing ran and nothing was claimed: the other ticket keeps its park.
+      expect(pickCore).not.toHaveBeenCalled();
+      expect(redrive).not.toHaveBeenCalled();
+      expect(listOpenParks(store, otherTicket.id)).toHaveLength(1);
     });
 
     it('delegates makeUsageLimitParkActions without cwd option without crashing', async () => {

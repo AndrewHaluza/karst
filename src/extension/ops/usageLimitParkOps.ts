@@ -153,6 +153,16 @@ export interface UsageLimitActionCommonDeps {
    */
   spin?: UatSpin;
   stopServers?: UatStopServers;
+  /**
+   * The driver's sandbox preflight (AC-32): a re-run must see the tree the
+   * stage would, so the host gets the same sync and provisioning check
+   * `driveTicket` runs before every stage. Absent → no preflight (host ticket).
+   */
+  syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  provisionSandbox?: (
+    ticketId: number,
+    signal?: AbortSignal,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps {
@@ -201,6 +211,8 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
       contextCommand: deps.contextCommand,
       spin: deps.spin,
       stopServers: deps.stopServers,
+      syncSandbox: deps.syncSandbox,
+      provisionSandbox: deps.provisionSandbox,
       signal,
       debug: deps.debug,
     });
@@ -281,6 +293,8 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
       contextCommand: deps.contextCommand,
       spin: deps.spin,
       stopServers: deps.stopServers,
+      syncSandbox: deps.syncSandbox,
+      provisionSandbox: deps.provisionSandbox,
       signal,
       debug: deps.debug,
     });
@@ -362,6 +376,12 @@ export interface UsageLimitParkActionsDeps {
   /** The service spin/stop seams (D155) for a UAT re-run. */
   spin?: UatSpin;
   stopServers?: UatStopServers;
+  /** The driver's sandbox preflight (AC-32) for a UAT/review re-run. */
+  syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  provisionSandbox?: (
+    ticketId: number,
+    signal?: AbortSignal,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>;
   debug?: (msg: string) => void;
 }
 
@@ -372,11 +392,27 @@ export interface UsageLimitParkActions {
 }
 
 export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): UsageLimitParkActions {
+  /**
+   * The PANEL owns the ticket. A dashboard message still names one
+   * (`routeAction` fills it from `msg.ticketId`), but every other per-ticket
+   * seam these actions hold — the driver single-flight lock, the artifact dir,
+   * the assignment, the conformance artifacts — belongs to `deps.ticketId`.
+   * Acting on the message's id would let a stale or forged message claim,
+   * unblock and FAIL another ticket's stage while holding this panel's lock.
+   * Refuse on mismatch, exactly like `resumeBlockedStage` does for the same
+   * pair (`.../stageResume.ts`).
+   */
+  const ownsTicket = (ticketId: number): boolean => {
+    if (ticketId === deps.ticketId) return true;
+    deps.notify.warn(`Ignored: this panel drives ticket ${deps.ticketId}, not ${ticketId}.`);
+    return false;
+  };
   return {
-    usageLimitPick: (ticketId: number, stageKey: StageKey) =>
-      handleUsageLimitPick({
+    usageLimitPick: async (ticketId: number, stageKey: StageKey) => {
+      if (!ownsTicket(ticketId)) return;
+      await handleUsageLimitPick({
         store: deps.store,
-        ticketId,
+        ticketId: deps.ticketId,
         stageKey,
         notify: deps.notify,
         catalog: deps.catalog(),
@@ -396,12 +432,16 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         assignmentFor: deps.assignmentFor,
         spin: deps.spin,
         stopServers: deps.stopServers,
+      syncSandbox: deps.syncSandbox,
+      provisionSandbox: deps.provisionSandbox,
         debug: deps.debug,
-      }),
-    usageLimitRetry: (ticketId: number, stageKey: StageKey) =>
-      handleUsageLimitRetry({
+      });
+    },
+    usageLimitRetry: async (ticketId: number, stageKey: StageKey) => {
+      if (!ownsTicket(ticketId)) return;
+      await handleUsageLimitRetry({
         store: deps.store,
-        ticketId,
+        ticketId: deps.ticketId,
         stageKey,
         notify: deps.notify,
         manifest: deps.manifest,
@@ -418,12 +458,16 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         assignmentFor: deps.assignmentFor,
         spin: deps.spin,
         stopServers: deps.stopServers,
+      syncSandbox: deps.syncSandbox,
+      provisionSandbox: deps.provisionSandbox,
         debug: deps.debug,
-      }),
-    usageLimitDismiss: (ticketId: number, stageKey: StageKey) =>
-      handleUsageLimitDismiss({
+      });
+    },
+    usageLimitDismiss: async (ticketId: number, stageKey: StageKey) => {
+      if (!ownsTicket(ticketId)) return;
+      await handleUsageLimitDismiss({
         store: deps.store,
-        ticketId,
+        ticketId: deps.ticketId,
         stageKey,
         notify: deps.notify,
         manifest: deps.manifest,
@@ -432,6 +476,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         runExclusive: deps.runExclusive,
         artifactDir: deps.artifactDir(),
         debug: deps.debug,
-      }),
+      });
+    },
   };
 }

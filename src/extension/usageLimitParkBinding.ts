@@ -9,6 +9,8 @@ import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import type { GitRunner } from '../integrations/git.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { runProcess } from '../workflow/gates/run.js';
+import type { GateProcessRunner } from '../workflow/gates/run.js';
+import { sandboxGateDeps } from '../workflow/gates/sandboxGates.js';
 import type { ReviewArtifacts } from '../workflow/review/conformance.js';
 import type { TesterGateRunner } from '../workflow/uat/testerVerifier.js';
 import type { UatSpin, UatStopServers } from '../workflow/stages/uat.js';
@@ -112,6 +114,26 @@ export interface UsageLimitParkBindingDeps {
    */
   spin: UatSpin;
   stopServers: UatStopServers;
+  /**
+   * The driver's sandbox preflight (AC-32). A re-run must read the SAME tree
+   * the stage does: without the sync, a sandboxed ticket's host worktree is
+   * stale and its verifier runs on the wrong copy. The host passes
+   * `sandboxLife.ensureInSync` / `sandboxB.provision`, exactly as it does for
+   * `driveTicket`; a refusal parks `sandbox-sync`/`sandbox-setup`.
+   */
+  syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  provisionSandbox?: (
+    ticketId: number,
+    signal?: AbortSignal,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
+   * The per-ticket sandbox gate runner for the optional `uat.testerVerifier`.
+   * The stage runs the verifier INSIDE the sandbox (`sandboxGateDeps`); a raw
+   * host `runProcess` under a sandbox row would fail a toolchain that only
+   * exists inside, turning a resumable park into `capability-missing`.
+   */
+  gateProcessFor?: (ticketId: number) => GateProcessRunner | undefined;
+  hostGateFor?: (ticketId: number) => (() => GateProcessRunner) | undefined;
   debug?: (msg: string) => void;
 }
 
@@ -160,7 +182,13 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
         cwd: deps.cwd,
         git,
         loadArtifacts,
-        runVerifier,
+        // The verifier runs through the ticket's sandbox gate runner when the
+        // host has one (AC-32), exactly like the stage's `sandboxGateDeps`.
+        runVerifier:
+          sandboxGateDeps(deps.gateProcessFor?.(ticketId), deps.hostGateFor?.(ticketId))
+            .runVerifier ?? runVerifier,
+        syncSandbox: deps.syncSandbox,
+        provisionSandbox: deps.provisionSandbox,
         contextCommand: deps.contextCommand,
         spin: deps.spin,
         stopServers: deps.stopServers,

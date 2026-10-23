@@ -29,6 +29,22 @@ import type { GitRunner } from '../integrations/git.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
 import { SpinCancelledError } from '../runtime/spin.js';
 
+/**
+ * The deterministic gate a parked run already passed. A UAT park only ever
+ * happens AFTER its gates (the Tester runs last), so the re-run must see that
+ * evidence — without it `aggregateUat` correctly reads "asked nothing" (R3) and
+ * blocks instead of re-running the lane.
+ */
+const UAT_GREEN_GATE: GateRunInput = {
+  gateName: 'test (web)',
+  exitCode: 0,
+  startedAt: '2026-10-13T10:00:00.000Z',
+  endedAt: '2026-10-13T10:00:01.000Z',
+  repo: 'web',
+  command: 'npm',
+  args: ['test'],
+};
+
 /** Register one ticket worktree exactly as the stage's target planner would. */
 function registerWorktree(
   store: Store,
@@ -686,7 +702,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic/claude-3-7-sonnet out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -763,6 +779,192 @@ describe('rerunParkedStage', () => {
     );
   });
 
+  it('a UAT re-run whose parked gates were all disabled commits BYPASSED, never passed', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-BYPASS', title: 'Test uat bypass rerun' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      // The user disabled the only gate: the stage asked nothing, so its
+      // verdict is `bypassed` — the state aggregateUat is the sole producer of.
+      gates: [
+        {
+          gateName: 'test (web)',
+          exitCode: null,
+          repo: 'web',
+          command: 'npm',
+          args: ['test'],
+          skipped: true,
+        },
+      ],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: null,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest: { uat: { testerObservations: { blockingSeverity: 'none' } } } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    // Recorded as the gate's own answer: BYPASSED, not a green nobody ran.
+    expect(getStage(store, ticket.id, 'uat')?.status).toBe('bypassed');
+  });
+
+  it('a sandbox preflight refusal parks the stage and never runs the lane', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-SANDBOX', title: 'Test uat sandbox preflight' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [UAT_GREEN_GATE],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: null,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest: { uat: { testerObservations: { blockingSeverity: 'none' } } } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      syncSandbox: async () => ({ ok: false, reason: 'sandbox has changes that cannot sync' }),
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    // Refusing to read a stale host tree is a PARK, exactly like the driver's
+    // own preflight — never a UAT of the wrong copy.
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'sandbox-sync' });
+    expect(mockAdapter.runHeadless).not.toHaveBeenCalled();
+    expect(stageBlock(store, ticket.id, 'uat')).toMatchObject({ kind: 'sandbox-sync' });
+  });
+
+  it('a sandbox provisioning refusal parks sandbox-setup after a successful sync', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-PROVISION', title: 'Test uat sandbox provision' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [UAT_GREEN_GATE],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: null,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+    const syncSandbox = vi.fn(async () => ({ ok: true as const }));
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest: { uat: { testerObservations: { blockingSeverity: 'none' } } } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      syncSandbox,
+      provisionSandbox: async () => ({ ok: false, reason: 'docker image missing' }),
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(syncSandbox).toHaveBeenCalledWith(ticket.id);
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'sandbox-setup' });
+    expect(mockAdapter.runHeadless).not.toHaveBeenCalled();
+    expect(stageBlock(store, ticket.id, 'uat')).toMatchObject({ kind: 'sandbox-setup' });
+  });
+
   it('fails a UAT re-run whose tester could not execute when a sibling already blocks', async () => {
     const ticket = createTicketFlow(store, { key: 'TEST-UAT-EXEC-SIBLING', title: 'Test exec-failed sibling' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
@@ -792,7 +994,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -1394,6 +1596,7 @@ describe('rerunParkedStage', () => {
     const gateRun: GateRunInput = {
       gateName: 'test',
       exitCode: 0,
+      repo: 'web',
       command: 'npm',
       args: ['run', 'test'],
     };
@@ -1541,7 +1744,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -1731,7 +1934,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -1833,7 +2036,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -1920,7 +2123,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -2004,7 +2207,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -2458,7 +2661,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -2538,7 +2741,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -2632,7 +2835,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -2744,7 +2947,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -3161,7 +3364,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -3243,7 +3446,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -3308,7 +3511,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -3375,7 +3578,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',
@@ -3442,7 +3645,7 @@ describe('rerunParkedStage', () => {
       kind: 'usage-limit',
       reason: 'anthropic out of quota',
       runAt: '2026-10-13T10:00:00.000Z',
-      gates: [],
+      gates: [UAT_GREEN_GATE],
       stageRunId: parkedRunId,
       park: {
         provider: 'anthropic',

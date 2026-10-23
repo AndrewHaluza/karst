@@ -42,6 +42,12 @@ import {
   type FindingsLaneOutcome,
 } from './review/aggregate.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
+import { parkGateStage } from '../store/stageBlocks.js';
+import {
+  aggregateUat,
+  reviewIdentitiesFrom,
+  type AggregateOutcome,
+} from './uat/aggregate.js';
 import { finishProcessRun, listProcessRuns, setProcessRunResultKind } from '../store/processRuns.js';
 import { collapseDiagnostic } from '../model/diagnosticText.js';
 import {
@@ -354,6 +360,19 @@ export interface RerunParkOptions {
    */
   contextCommand?: string;
   /**
+   * The driver's sandbox preflight (`driveTicket`'s `syncSandbox`), run before
+   * the lane: for a sandboxed ticket the host worktree only holds the sandbox's
+   * work after this sync, so a re-run that skipped it would review a stale tree.
+   * A refusal parks `sandbox-sync`/`sandbox-setup` and runs nothing. Absent (a
+   * host ticket, a unit test) → no preflight.
+   */
+  syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** `driveTicket`'s `provisionSandbox`: the sandbox must be usable before the lane. */
+  provisionSandbox?: (
+    ticketId: number,
+    signal?: AbortSignal,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
    * Start the ticket's runnable services before the Tester, exactly like the
    * UAT stage (D155). Without it a browser re-run is told its change is not
    * live even though the stage would have started the app. Absent, or no
@@ -477,17 +496,122 @@ function commitUnresolvedTargets(args: {
 }
 
 /**
- * The parked run's rows as aggregate entries — actual gate invocations only.
+ * Commit a parked UAT run's own gate outcome when it is not a pass/bypass.
+ *
+ * The stage never reaches its Tester with a gate that blocked or failed, so a
+ * re-run must not either. The verdict's causal source is `gates` (no AI process
+ * ran), exactly like the stage's `recoveryTriggerFor`, so the fix round is
+ * attributed to the gates and not to a Tester that never spoke.
+ */
+function commitParkedGateOutcome(args: {
+  store: Store;
+  parkRow: UsageLimitParkRow;
+  stageKey: GateStageKey;
+  runAt: string;
+  artifactDir: string;
+  stageRunId: number;
+  manifest: Manifest | undefined;
+  gateOutcome: AggregateOutcome;
+  now: () => string;
+  debug?: (m: string) => void;
+}): StageRunResult {
+  const artifactPath = args.artifactDir
+    ? join(args.artifactDir, `uat-ticket-${args.parkRow.ticketId}-${args.stageRunId}.log`)
+    : '';
+  const decided =
+    args.gateOutcome.kind === 'blocked'
+      ? args.gateOutcome.reason
+      : args.gateOutcome.verdict.kind === 'failed'
+        ? (args.gateOutcome.verdict.reason ?? 'gates failed')
+        : 'gates did not pass';
+  if (artifactPath) {
+    mkdirSync(args.artifactDir, { recursive: true });
+    writeFileSync(
+      artifactPath,
+      `! re-run parked uat: the parked run's gates decided before the Tester\n! ${decided}\n`,
+    );
+  }
+  const failedVerdict =
+    args.gateOutcome.kind === 'verdict' && args.gateOutcome.verdict.kind === 'failed'
+      ? args.gateOutcome.verdict
+      : null;
+  return commitGateOutcome(args.store, {
+    ticketId: args.parkRow.ticketId,
+    stageKey: args.stageKey,
+    runAt: args.runAt,
+    artifactPath,
+    gates: [],
+    outcome: args.gateOutcome,
+    stageRunId: args.stageRunId,
+    recoveryTrigger: failedVerdict
+      ? {
+          sourceProcessId: 'gates',
+          sourceStageRunId: args.stageRunId,
+          sourceProcessRunId: null,
+          triggerKind: 'gate-failure',
+          triggerDetail: failedVerdict.reason ?? 'uat gates failed',
+          maxRounds: capForGate(
+            'uat',
+            args.manifest?.uat?.maxFixAttempts,
+            args.manifest?.review?.maxFixAttempts,
+          ),
+        }
+      : undefined,
+    now: args.now,
+    debug: args.debug,
+  });
+}
+
+/**
+ * The gate rows that decided the ticket's CURRENT attempt.
+ *
+ * Normally those are the parked run's own rows. A re-park is the exception: the
+ * re-run opens its own stage run and records NO gate rows (it stands in for the
+ * lane only), so the park row it writes names a run whose gate evidence is
+ * empty. A second re-run must still aggregate the gates this attempt actually
+ * ran — walk back to the newest earlier run that has invocations — or every
+ * chain of re-parks would block `nothing-to-run` after the first. The attempt
+ * never changes across parks (a park spends no attempt), so this can never
+ * borrow another attempt's gates.
+ */
+function gateRowsForParkedAttempt(
+  store: Store,
+  ticketId: number,
+  stageKey: GateStageKey,
+  stageRunId: number | null,
+  attempt: number,
+): GateRun[] {
+  const rows = listGateRuns(store, ticketId).filter(
+    (r) => r.stageKey === stageKey && r.attempt === attempt,
+  );
+  const invocationsOf = (runId: number | null): number =>
+    rows.filter(
+      (r) => r.stageRunId === runId && !r.skipped && r.repo !== null && r.command !== null,
+    ).length;
+  const ofRun = (runId: number | null): GateRun[] => rows.filter((r) => r.stageRunId === runId);
+
+  if (invocationsOf(stageRunId) > 0) return ofRun(stageRunId);
+  const candidates = [...new Set(rows.map((r) => r.stageRunId))]
+    .filter((id): id is number => id !== null && (stageRunId === null || id < stageRunId))
+    .sort((a, b) => b - a);
+  for (const id of candidates) {
+    if (invocationsOf(id) > 0) return ofRun(id);
+  }
+  return ofRun(stageRunId);
+}
+
+/**
+ * A parked run's rows as aggregate entries — actual gate invocations only.
  *
  * A stage run also records NON-gate evidence under the same `stage_run_id`: the
  * `changes` row (Changes panel opened) carries `exitCode: 0` but no invocation
  * identity, and a skipped row names a gate the user disabled. Feeding either to
- * `aggregateReview` would count a question nobody asked as a gate that RAN (R3)
- * and as an identity UAT never asked (R7), letting the re-run pass a review that
- * asked nothing. A real invocation is exactly a non-skipped row that recorded
- * its `{repo, command}` (v21 identity).
+ * the aggregate would count a question nobody asked as a gate that RAN (R3) and
+ * as an identity UAT never asked (R7), letting a re-run pass a stage that asked
+ * nothing. A real invocation is exactly a non-skipped row that recorded its
+ * `{repo, command}` (v21 identity).
  */
-function reviewEntriesFrom(runs: readonly GateRun[]): AggregateEntry[] {
+function gateEntriesFrom(runs: readonly GateRun[]): AggregateEntry[] {
   return runs
     .filter((r) => !r.skipped && r.repo !== null && r.command !== null)
     .map((r) => ({
@@ -517,6 +641,35 @@ function manifestNamesFor(manifest: Manifest | undefined, repoPath: string): str
   return Object.entries(manifest.repositories)
     .filter(([, def]) => def.repoPath === repoPath)
     .map(([name]) => name);
+}
+
+/**
+ * A sandbox refusal for a re-run (AC-32), mirroring `driveTicket`'s
+ * `parkSandboxRefusal` byte for byte in effect: the stage is parked with the
+ * driver's own blocker and a bounded reason, and the lane is never run against
+ * the host copy. Resume offers the same retry the driver would.
+ */
+const SANDBOX_REFUSAL_MAX = 600;
+
+function parkSandboxRefusal(
+  store: Store,
+  ticketId: number,
+  stageKey: GateStageKey,
+  kind: 'sandbox-sync' | 'sandbox-setup',
+  reason: string,
+  debug?: (m: string) => void,
+): StageRunResult {
+  const brief = reason.length > SANDBOX_REFUSAL_MAX ? `${reason.slice(0, SANDBOX_REFUSAL_MAX)}…` : reason;
+  debug?.(`[usageLimit] ticket ${ticketId}: ${kind} refused — ${brief}`);
+  parkGateStage(store, {
+    ticketId,
+    stageKey,
+    kind,
+    reason: brief,
+    runAt: nowIso(),
+    gates: [],
+  });
+  return { kind: 'blocked', blocker: kind, reason: brief };
 }
 
 export async function rerunParkedStage(opts: RerunParkOptions): Promise<RerunParkResult> {
@@ -570,7 +723,23 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<RerunPar
   };
 
   try {
-    // 2. Build the adapter ONLY after the claim. The host hands a factory so the
+    // 2. The driver's SANDBOX PREFLIGHT, in the order `driveTicket` runs it:
+    // sync the sandbox's work back to the host tree, then verify the sandbox is
+    // provisioned. Without it a sandboxed ticket's re-run reads and reviews the
+    // HOST worktree — missing every commit the sandbox made since the parked
+    // run synced — and asks the verifier about the host copy. A refusal parks
+    // the stage with the driver's own blocker; the lane was never run.
+    const synced = (await opts.syncSandbox?.(parkRow.ticketId)) ?? { ok: true as const };
+    if (!synced.ok) {
+      return parkSandboxRefusal(store, parkRow.ticketId, stageKey, 'sandbox-sync', synced.reason, opts.debug);
+    }
+    const provisioned =
+      (await opts.provisionSandbox?.(parkRow.ticketId, opts.signal)) ?? { ok: true as const };
+    if (!provisioned.ok) {
+      return parkSandboxRefusal(store, parkRow.ticketId, stageKey, 'sandbox-setup', provisioned.reason, opts.debug);
+    }
+
+    // 3. Build the adapter ONLY after the claim. The host hands a factory so the
     // override (and its injected resilient/instrumented chain) exists for this
     // one run and never for a loser.
     const adapter = opts.adapter ?? opts.buildAdapter?.(opts.provider, opts.model);
@@ -786,14 +955,19 @@ async function rerunReviewParkedStage(
           }
         : laneOutcome;
 
-  // The deterministic gates this review stands in for ran in the PARKED run.
-  // Only its actual gate invocations are inputs to the aggregate: the run's
+  // The deterministic gates this review stands in for ran in the PARKED run
+  // (or, after a re-park, in the run whose gates decided this attempt). Only
+  // its actual gate invocations are inputs to the aggregate: the run's
   // non-gate evidence (the `changes` row, skipped rows) asked nothing and must
   // not let R3/R7 read the re-run as having asked a question.
-  const previousGateRuns = listGateRuns(store, parkRow.ticketId).filter(
-    (r) => r.stageKey === 'review' && r.stageRunId === parkRow.stageRunId,
+  const previousGateRuns = gateRowsForParkedAttempt(
+    store,
+    parkRow.ticketId,
+    'review',
+    parkRow.stageRunId,
+    attempt,
   );
-  const entries: AggregateEntry[] = reviewEntriesFrom(previousGateRuns);
+  const entries: AggregateEntry[] = gateEntriesFrom(previousGateRuns);
 
   const uatIdentities = uatIdentitiesFrom(listGateRuns(store, parkRow.ticketId));
   const blockingSeverity = config.blockingSeverity;
@@ -953,6 +1127,46 @@ async function rerunUatParkedStage(
   });
   const newStageRunId = evidence.runId;
   const attempt = evidence.attempt;
+
+  // The deterministic gates this UAT stands in for ran in the PARKED run, and
+  // they must decide exactly as they would have there. `aggregateUat` is the
+  // ONLY producer of `bypassed` (every gate deliberately disabled) and of the
+  // zero-ran block, and a hard-coded `passed` would record a gate outcome
+  // nobody proved — the very bug R3 exists to close. Skipped rows are evidence
+  // that a gate was switched off, never an invocation; they only name why a
+  // zero-ran run is bypassed rather than blocked.
+  const parkedGateRuns = gateRowsForParkedAttempt(
+    store,
+    parkRow.ticketId,
+    'uat',
+    parkRow.stageRunId,
+    attempt,
+  );
+  const gateOutcome: AggregateOutcome = aggregateUat(
+    gateEntriesFrom(parkedGateRuns),
+    reviewIdentitiesFrom(listGateRuns(store, parkRow.ticketId)),
+    parkedGateRuns.filter((r) => r.skipped).map((r) => r.gateName),
+  );
+  if (gateOutcome.kind === 'blocked' || gateOutcome.verdict.kind === 'failed') {
+    // The stage never runs its Tester on a gate that blocked or failed, so the
+    // re-run must not either: commit the gates' own outcome (a block spends no
+    // attempt; a failure opens the gate's recovery round).
+    return commitParkedGateOutcome({
+      store,
+      parkRow,
+      stageKey,
+      runAt,
+      artifactDir,
+      stageRunId: newStageRunId,
+      manifest,
+      gateOutcome,
+      now,
+      debug,
+    });
+  }
+  // Narrowed once, here: the verdict this re-run may commit when the Tester and
+  // the verifier add nothing (passed, or bypassed when every gate was disabled).
+  const gateVerdict = gateOutcome.verdict;
 
   const targetRepo = parkRow.target ?? cwd;
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
@@ -1284,18 +1498,17 @@ async function rerunUatParkedStage(
       });
     }
 
-    // Gates passed, the Tester had no blocking observations, and the verifier
-    // (when configured) passed.
+    // Gates passed (or were all deliberately disabled by the user: BYPASSED,
+    // never `passed` — no outcome was proven), the Tester had no blocking
+    // observations, and the verifier (when configured) passed. The verdict is
+    // the parked run's own gate verdict, exactly as the stage would commit it.
     return commitGateOutcome(store, {
       ticketId: parkRow.ticketId,
       stageKey,
       runAt,
       artifactPath,
       gates: [],
-      outcome: {
-        kind: 'verdict',
-        verdict: { kind: 'passed' },
-      },
+      outcome: { kind: 'verdict', verdict: gateVerdict },
       stageRunId: newStageRunId,
       now,
       debug,

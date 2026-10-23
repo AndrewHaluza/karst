@@ -50,6 +50,7 @@ import { openStore } from '../store/db.js';
 import { insertOpenPark, listOpenParks, listParks } from '../store/usageLimitParks.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { setStage, getStage } from '../store/stages.js';
+import { stageBlock } from '../store/stageBlocks.js';
 import { openStageRun } from '../store/stageRuns.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { updateTicketFields } from '../store/tickets.js';
@@ -170,6 +171,42 @@ describe('createUsageLimitParkBinding', () => {
     store.db
       .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
       .run(ticketId, 'repo', '/tmp', 'karst/repo', 'develop');
+  }
+
+  /**
+   * The gate rows a UAT park stands in for. A UAT park only happens AFTER the
+   * gates (the Tester runs last), so the re-run aggregates that evidence — with
+   * none it correctly blocks `nothing-to-run` (R3) and never reaches the seam
+   * a test is exercising.
+   */
+  function seedUatGateEvidence(store: ReturnType<typeof openStore>, ticketId: number): number {
+    const runAt = '2026-10-14T00:00:00.000Z';
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt,
+      startedAt: runAt,
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt,
+      stageRunId,
+      gates: [
+        {
+          gateName: 'test (repo)',
+          exitCode: 0,
+          startedAt: runAt,
+          endedAt: runAt,
+          repo: 'repo',
+          command: 'npm',
+          args: ['test'],
+        },
+      ],
+    });
+    return stageRunId;
   }
 
   function setup() {
@@ -354,6 +391,7 @@ describe('createUsageLimitParkBinding', () => {
     insertOpenPark(store, {
       ticketId: ticket.id,
       stage: 'uat',
+      stageRunId: seedUatGateEvidence(store, ticket.id),
       kind: 'stage-block',
       lane: 'uat',
       target: 'repo',
@@ -380,6 +418,101 @@ describe('createUsageLimitParkBinding', () => {
     expect(mockedRunProcess).toHaveBeenCalled();
   });
 
+  it('runs the UAT verifier through the ticket sandbox gate runner when the host has one', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicketFlow(store, { key: 'TEST-VERIFIER-SANDBOX', title: 'UAT ticket' });
+    registerWorktree(store, ticket.id);
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    const stageRunId = seedUatGateEvidence(store, ticket.id);
+    setStage(store, ticket.id, 'uat', {
+      blockedKind: 'usage-limit',
+      blockedReason: 'out of credits',
+      blockedAt: '2026-10-14T00:00:00Z',
+    });
+    insertOpenPark(store, {
+      ticketId: ticket.id,
+      stage: 'uat',
+      stageRunId,
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'repo',
+      provider: 'claude',
+      model: 'claude-3-7-sonnet',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    const sandboxRunner = vi
+      .fn()
+      .mockResolvedValue({ kind: 'completed', exitCode: 0, stdout: '', stderr: '' });
+    const hostRunner = vi.fn();
+    showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
+    showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    const manifest = {
+      uat: { testerVerifier: { name: 'verify', kind: 'script', script: 'verify' } },
+    } as unknown as Manifest;
+
+    // The host names the ticket's SANDBOX gate runner (AC-32). A raw host
+    // `runProcess` under a sandbox row would run the verifier against a copy
+    // the sandbox's toolchain may not have — pass the sandbox seam through.
+    const actions = binding(store, ticket.id, {
+      manifest: () => manifest,
+      git: failingGit,
+      adapterFor: vi.fn().mockReturnValue(uatAdapter),
+      runVerifier: hostRunner,
+      gateProcessFor: () => sandboxRunner,
+    }).forTicket(ticket.id);
+    await actions.usageLimitPick(ticket.id, 'uat');
+
+    expect(sandboxRunner).toHaveBeenCalled();
+    expect(hostRunner).not.toHaveBeenCalled();
+    expect(mockedRunProcess).not.toHaveBeenCalled();
+  });
+
+  it('parks the driver sandbox blockers when the host preflight refuses', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicketFlow(store, { key: 'TEST-SANDBOX-REFUSAL', title: 'UAT ticket' });
+    registerWorktree(store, ticket.id);
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    const stageRunId = seedUatGateEvidence(store, ticket.id);
+    setStage(store, ticket.id, 'uat', {
+      blockedKind: 'usage-limit',
+      blockedReason: 'out of credits',
+      blockedAt: '2026-10-14T00:00:00Z',
+    });
+    insertOpenPark(store, {
+      ticketId: ticket.id,
+      stage: 'uat',
+      stageRunId,
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'repo',
+      provider: 'claude',
+      model: 'claude-3-7-sonnet',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
+    showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    const syncSandbox = vi.fn(async () => ({ ok: true as const }));
+
+    const actions = binding(store, ticket.id, {
+      manifest: () => ({ uat: { testerObservations: { blockingSeverity: 'none' } } }) as unknown as Manifest,
+      git: failingGit,
+      adapterFor: vi.fn().mockReturnValue(uatAdapter),
+      syncSandbox,
+      provisionSandbox: async () => ({ ok: false, reason: 'docker image missing' }),
+    }).forTicket(ticket.id);
+    await actions.usageLimitPick(ticket.id, 'uat');
+
+    // The host's preflight reached the re-run: a refusal parks the stage and
+    // the lane never runs against the host tree.
+    expect(syncSandbox).toHaveBeenCalledWith(ticket.id);
+    expect(stageBlock(store, ticket.id, 'uat')).toMatchObject({ kind: 'sandbox-setup' });
+    expect(uatAdapter.runHeadless).not.toHaveBeenCalled();
+  });
+
   it('boots and reaps a UAT re-run through the HOST-provided service seams', async () => {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-SPIN', title: 'UAT ticket' });
@@ -395,6 +528,7 @@ describe('createUsageLimitParkBinding', () => {
     insertOpenPark(store, {
       ticketId: ticket.id,
       stage: 'uat',
+      stageRunId: seedUatGateEvidence(store, ticket.id),
       kind: 'stage-block',
       lane: 'uat',
       target: 'repo',
@@ -448,6 +582,7 @@ describe('createUsageLimitParkBinding', () => {
     insertOpenPark(store, {
       ticketId: ticket.id,
       stage: 'uat',
+      stageRunId: seedUatGateEvidence(store, ticket.id),
       kind: 'stage-block',
       lane: 'uat',
       target: 'repo',
