@@ -1545,7 +1545,7 @@ Expected: FAIL — the page still renders the one-group table, no "Ticket servic
 
 - [ ] **Step 3: Write the implementation**
 
-**(a) CSS.** In `src/ui/dashboard/webview.html`, after the line `.svpanel td .g{display:inline-flex;gap:var(--k-space-1);justify-content:flex-end}` (line 1669), insert:
+**(a) CSS.** In `src/ui/dashboard/webview.html`, after the line `.svpanel td .g{display:inline-flex;gap:var(--k-space-1);justify-content:flex-end}`, insert:
 
 ```css
   /* Two groups, ONE grid (D203): the ticket's own services, then the shared ones
@@ -1556,20 +1556,29 @@ Expected: FAIL — the page still renders the one-group table, no "Ticket servic
     background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border);
     border-top:var(--k-border-w) solid var(--k-border);text-align:left;
     font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
-    letter-spacing:.6px;color:var(--k-text-faint);white-space:normal}
-  .svpanel tr.srvgroup .gcount{margin-left:var(--k-space-2);color:var(--k-text-dim);
-    font-variant-numeric:tabular-nums}
-  .svpanel tr.srvgroup .gnote{margin-left:var(--k-space-4);font-weight:var(--k-weight-normal);
-    text-transform:none;letter-spacing:0}
+    color:var(--k-text-dim);white-space:normal}
+  /* A flex row, not inline spans: a wrapped inline element's bounding box spans
+     every line it broke across, which reads as an overlap to the layout gate
+     (and visually collides at narrow widths). Flex items wrap as boxes. */
+  .svpanel tr.srvgroup .gwrap{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2)}
+  .svpanel tr.srvgroup .gcount{font-variant-numeric:tabular-nums}
+  .svpanel tr.srvgroup .gnote{font-weight:var(--k-weight-normal);text-transform:none}
   /* The shared row's meta line WRAPS (UI-R44): the branch and "shared with" text
      are the row's whole meaning, so they are never ellipsised. Only the name
-     ellipsises, and its cell carries the full value as a title. */
-  .svpanel td.c-name .srvmeta{display:block;font-size:var(--k-text-sm);color:var(--k-text-dim);
+     ellipsises, and its cell carries the full value as a title. Flex for the
+     same bounding-box reason as the caption; the chip is shrinkable so a branch
+     name wraps rather than escaping a narrow column. */
+  .svpanel td.c-name .srvmeta{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2);font-size:var(--k-text-sm);color:var(--k-text-dim);
     line-height:1.45;white-space:normal;overflow-wrap:anywhere}
-  .svpanel td.c-name .srvmeta .srvbranch{margin-right:var(--k-space-2)}
+  .svpanel td.c-name .srvmeta .srvbranch{flex:0 1 auto;min-width:0;
+    white-space:normal;overflow-wrap:anywhere}
+  .svpanel td.c-name .srvmeta .srvnote{min-width:0}
   .svpanel td.c-addr .offword{font-style:normal;color:var(--k-text-dim)}
-  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-faint)}
+  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-dim)}
 ```
+
 
 **(b) Header copy.** Replace the body of `panelOps` (lines 3898-3918) with:
 
@@ -1653,10 +1662,10 @@ Expected: FAIL — the page still renders the one-group table, no "Ticket servic
 
   /** One group's caption row: name, count and where its rows run. */
   function serverGroupHead(label, count, note) {
-    return `<tr class="srvgroup"><th colspan="5" scope="colgroup">`
+    return `<tr class="srvgroup"><th colspan="5" scope="colgroup"><div class="gwrap">`
       + `<span class="gname">${label}</span>`
       + `<span class="gcount">${count}</span>`
-      + `<span class="gnote">${note}</span></th></tr>`;
+      + `<span class="gnote">${note}</span></div></th></tr>`;
   }
 ```
 
@@ -1838,19 +1847,46 @@ Expected: PASS.
 Run: `npm run -s test:visual:docker:update 2>&1 | tail -20`
 Expected: the sweep records the missing snapshot(s) and exits 0.
 
-Then check that ONLY the new files were added — the notes record that develop-head has known useId/mtime noise, so a rewritten pre-existing baseline must be reverted, not committed:
+Then classify every baseline the update touched:
 
 ```bash
 git status --short tests/visual/__baselines__
 ```
 
-Expected: exactly `?? tests/visual/__baselines__/dark/dashboard--shared-services.png`, `?? …/light/…`, `?? …/hc/…`. If any existing `dashboard-*.png` appears as modified, revert it (`git checkout -- <path>`) and report the diff rather than committing it.
+- **`dashboard-*`/`dashboard--*` changes are expected.** The "Ticket services" caption row is a NEW row in the Servers panel, so every dashboard state that shows servers renders differently. Keep those.
+- **The new `dashboard--shared-services.png`** (dark only — `variant()` defaults to `DARK_ONLY`) is expected.
+- **Anything else is host churn, not this change.** The implementer of this plan observed `status-primitives.png` rewritten in three themes on a fresh container checkout; revert those (`git checkout -- <path>`) and never commit them.
+
+```bash
+git status --short tests/visual/__baselines__ | awk '$1=="M"{print $2}' \
+  | grep -v '/dashboard' | xargs -r git checkout --
+```
 
 Run: `npm run -s test:visual:docker 2>&1 | tail -40`
-Expected: PASS, including the new `dashboard--shared-services` screenshot in all three themes.
+Expected: PASS for every dashboard baseline, including `dashboard--shared-services`. Pre-existing non-dashboard diffs (observed: `status-primitives`) stay red; they are the advisory CI job, not this change — do not re-record them.
 
 Run: `npm run -s test:layout:docker 2>&1 | tail -40`
-Expected: PASS. The dashboard is uncapped and the layout is unchanged in width; if the ledger reports a new failure, do NOT add it to `layout-known-failures.json` — report it.
+Expected: PASS. A NEW `dashboard/shared-services` route needs its known dashboard-wide failures backfilled (the ledger's `seed` refuses once the file exists, and `prune` only removes). This is the same backfill #722 performed for every variant route, and it is allowed ONLY for entries whose `(width, check, selector)` already exists for a sibling dashboard route:
+
+```bash
+node - <<'JS'
+const fs = require('node:fs');
+const ledgerPath = 'tests/visual/layout-known-failures.json';
+const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+const report = JSON.parse(fs.readFileSync('tests/visual/.layout-report.json', 'utf8'));
+const sib = new Set(ledger.filter((k) => k.startsWith('dashboard/') && !k.startsWith('dashboard/shared-services|'))
+  .map((k) => k.split('|').slice(1).join('|')));
+const add = report.failures
+  .filter((f) => f.route === 'dashboard/shared-services')
+  .filter((f) => sib.has([f.width, f.check, f.selector].join('|')))
+  .map((f) => `dashboard/shared-services|${f.width}|${f.check}|${f.selector}`);
+const merged = [...new Set([...ledger, ...add])].sort();
+fs.writeFileSync(ledgerPath, `${JSON.stringify(merged, null, 2)}\n`);
+console.log(`backfilled ${add.length} sibling-identical entr(ies)`);
+JS
+```
+
+If any `dashboard/shared-services` failure is NOT matched by a sibling, it is a real layout bug in the new rows: fix the CSS, never backfill it.
 
 - [ ] **Step 5: Commit**
 
@@ -1921,6 +1957,16 @@ git commit -m "docs(arch): record the shared-services read model"
 ```
 
 ---
+
+## Execution notes (what the gates changed)
+
+Recorded after the plan was executed, so the next reader knows which parts were revised under a gate rather than at design time.
+
+1. **Inline spans vs flex (Task 7).** The first render used inline `<span>`s for the group caption and the shared meta line. The layout gate read a wrapped inline element's multi-line bounding box as a `sibling-overlap` (group caption at 480 px, meta chip/note at 699-900 px). Both are now flex rows with a wrap and a gap; the branch chip is shrinkable so a long branch name wraps inside a narrow name column instead of escaping it. No layout-ledger entry was created for either.
+2. **Contrast (Task 7).** `--k-text-faint` on `--k-surface-hover` failed WCAG AA in the light theme (2.13:1). The caption and the "No ticket services" note now use `--k-text-dim`.
+3. **Existing dashboard baselines DO change (Task 8).** The caption row is a new visible row, so every dashboard state that shows servers is re-recorded. Only `dashboard*` baselines are legitimate; a fresh container also rewrote `status-primitives.png` (three themes) with no code change — that is host churn, revert it.
+4. **New layout route needs a ledger backfill (Task 8).** `dashboard/shared-services` reports the same known dashboard-wide failures as its siblings (rail segment overlap, PR row overlap, `#ticketDataClose` off-viewport) under a new route key. `seed` refuses an existing ledger and `prune` only removes, so the 89 sibling-identical keys were appended (the #722 precedent). Zero unmatched failures remained, which is the proof no new layout bug was accepted.
+5. **`extension.ts` line ratchet.** The `openResources` binding fits the recorded cap only without a comment: the file sat one line under `MAX_EXTENSION_LINES`. That is why the binding is bare in the factory.
 
 ## Self-Review
 
