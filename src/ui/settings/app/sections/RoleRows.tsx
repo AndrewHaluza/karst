@@ -40,7 +40,10 @@ function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
   }
   return (
     <span title={t.why} data-source={source}>
-      <Chip tone={source === 'pin' ? 'success' : 'neutral'}>{t.chip}</Chip>
+      <Chip tone={source === 'pin' ? 'success' : 'neutral'}>
+        <TablerIcon name={source === 'pin' ? 'pin' : 'stack-2'} size={12} />
+        <span>{t.chip}</span>
+      </Chip>
     </span>
   );
 }
@@ -72,9 +75,10 @@ function ProfileCell({
   capability,
   view,
   profile,
+  sharesProfile,
   onProfile,
   onOpenProfile,
-}: Pick<RoleRowProps, 'capability' | 'view' | 'profile' | 'onProfile' | 'onOpenProfile'>) {
+}: Pick<RoleRowProps, 'capability' | 'view' | 'profile' | 'sharesProfile' | 'onProfile' | 'onOpenProfile'>) {
   const options = useMemo(() => {
     const listed = view?.profileOptions ?? [];
     const kept = profile !== '' && !listed.includes(profile) ? [profile] : [];
@@ -106,6 +110,15 @@ function ProfileCell({
         >
           {builtIn ? <KarstMark /> : <TablerIcon name="file-text" />}
         </IconButton>
+        {sharesProfile ? (
+          <span
+            className="agents-shared-icon"
+            title="Shares this profile with the selected role"
+          >
+            <TablerIcon name="share" />
+            <span className="sr-only">Shares this profile with the selected role</span>
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -174,7 +187,7 @@ export function RoleRow(props: RoleRowProps) {
         ) : (
           <span className="agents-slot" aria-hidden="true" />
         )}
-        <IconButton label="Clear" disabled={effective.source === 'default'} onClick={props.onClear}>
+        <IconButton label="Clear override" disabled={effective.source === 'default'} onClick={props.onClear}>
           <TablerIcon name="eraser" />
         </IconButton>
       </div>
@@ -217,7 +230,7 @@ export function CompareRow({ capability, label, a, b, differs, aName, bName, onC
       <div className="agents-cell agents-cell-actions" role="cell">
         {differs && a.source !== 'pin' ? (
           <Button variant="ghost" size="sm" onClick={onCopy}>
-            ← Copy from B
+            <TablerIcon name="arrow-left" /> Copy from {bName}
           </Button>
         ) : null}
       </div>

@@ -5,12 +5,13 @@
  * duplicate name) show on one fault line under the bar — the draft is never
  * written by a refused op.
  */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Manifest } from '../../../../manifest/types.js';
 import { Button } from '../primitives/Button.js';
 import { Chip } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
 import { InlineTextInput } from '../primitives/InlineTextInput.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import { activatePreset, addPreset, deletePreset, duplicatePreset, renamePreset, type PresetOpResult } from './presetOps.js';
 
 export interface PresetToolbarProps {
@@ -22,6 +23,7 @@ export interface PresetToolbarProps {
   readonly roleLabelOf: (key: string) => string | undefined;
   readonly onSelect: (name: string | null) => void;
   readonly edit: (update: (draft: Manifest) => Manifest) => void;
+  readonly compareSlot?: ReactNode;
 }
 
 export function PresetToolbar({
@@ -33,6 +35,7 @@ export function PresetToolbar({
   roleLabelOf,
   onSelect,
   edit,
+  compareSlot,
 }: PresetToolbarProps) {
   const [fault, setFault] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -50,72 +53,83 @@ export function PresetToolbar({
   };
 
   const isActive = selected !== null && selected === activeName;
-  const options = names.map((n) => ({ value: n, label: n === activeName ? `${n} (active)` : n }));
+  const options = names.map((n) => ({ value: n, label: n }));
 
   return (
     <div className="agents-toolbar">
       <div className="agents-toolbar-row">
-        {renaming && selected !== null ? (
-          <InlineTextInput
-            initialValue={selected}
-            label="Preset name"
-            onCancel={() => setRenaming(false)}
-            onCommit={(value) => apply(renamePreset(draft, lastSaved, selected, value, roleLabelOf), true)}
-          />
-        ) : (
-          <Field
-            label="Presets"
-            control={{
-              kind: 'select',
-              name: 'agents-preset',
-              value: selected ?? '',
-              options: names.length === 0 ? [{ value: '', label: 'No presets yet' }] : options,
-              disabled: names.length === 0,
-              onChange: (value) => {
+        <div className="agents-tgroup" role="group" aria-label="Preset">
+          {renaming && selected !== null ? (
+            <InlineTextInput
+              initialValue={selected}
+              label="Preset name"
+              onCancel={() => setRenaming(false)}
+              onCommit={(value) => apply(renamePreset(draft, lastSaved, selected, value, roleLabelOf), true)}
+            />
+          ) : (
+            <Field
+              label="Presets"
+              help={isActive ? <span className="sr-only">active</span> : undefined}
+              control={{
+                kind: 'select',
+                name: 'agents-preset',
+                value: selected ?? '',
+                ariaDescription: isActive ? 'active' : undefined,
+                options: names.length === 0 ? [{ value: '', label: 'No presets yet' }] : options,
+                disabled: names.length === 0,
+                onChange: (value) => {
+                  setFault(null);
+                  onSelect(value === '' ? null : value);
+                },
+              }}
+            />
+          )}
+          {isActive ? (
+            <Chip tone="success">active</Chip>
+          ) : selected !== null ? (
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => {
                 setFault(null);
-                onSelect(value === '' ? null : value);
-              },
-            }}
-          />
-        )}
-        {isActive ? <Chip tone="success">active</Chip> : null}
-        <Button variant="secondary" size="sm" onClick={() => apply(addPreset(draft), true)}>
-          New
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={selected === null}
-          onClick={() => selected !== null && apply(duplicatePreset(draft, selected), true)}
-        >
-          Duplicate
-        </Button>
-        <Button variant="secondary" size="sm" disabled={selected === null} onClick={() => setRenaming(true)}>
-          Rename
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={selected === null}
-          onClick={() => {
-            if (selected === null) return;
-            if (apply(deletePreset(draft, lastSaved, selected, roleLabelOf), false)) onSelect(null);
-          }}
-        >
-          Delete
-        </Button>
-        {selected !== null && !isActive ? (
+                edit((current) => activatePreset(current, selected));
+              }}
+            >
+              Activate
+            </Button>
+          ) : null}
+        </div>
+        <div className="agents-tgroup" role="group" aria-label="Edit preset">
+          <Button variant="secondary" size="lg" onClick={() => apply(addPreset(draft), true)}>
+            New
+          </Button>
           <Button
-            variant="primary"
-            size="sm"
+            variant="ghost"
+            size="lg"
+            disabled={selected === null}
+            onClick={() => selected !== null && apply(duplicatePreset(draft, selected), true)}
+          >
+            Duplicate
+          </Button>
+          <Button variant="ghost" size="lg" disabled={selected === null} onClick={() => setRenaming(true)}>
+            Rename
+          </Button>
+        </div>
+        {compareSlot}
+        <div className="agents-tgroup agents-tgroup--end" role="group" aria-label="Delete preset">
+          <Button
+            variant="danger"
+            size="lg"
+            disabled={selected === null}
             onClick={() => {
-              setFault(null);
-              edit((current) => activatePreset(current, selected));
+              if (selected === null) return;
+              if (apply(deletePreset(draft, lastSaved, selected, roleLabelOf), false)) onSelect(null);
             }}
           >
-            Activate
+            <TablerIcon name="trash" />
+            Delete preset
           </Button>
-        ) : null}
+        </div>
       </div>
       {fault !== null ? (
         <div className="agents-fault" role="alert">
