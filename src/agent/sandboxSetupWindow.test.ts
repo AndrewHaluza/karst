@@ -98,7 +98,13 @@ describe('setup hosts', () => {
     expect(setupHostsOf(undefined)).toEqual(DEFAULT_SETUP_HOSTS);
     expect(setupHostsOf([])).toEqual(DEFAULT_SETUP_HOSTS);
     expect(setupHostsOf(['a.io'])).toEqual(['a.io']);
-    expect(DEFAULT_SETUP_HOSTS).toEqual(['registry.npmjs.org', 'github.com', 'objects.githubusercontent.com']);
+    expect(DEFAULT_SETUP_HOSTS).toEqual([
+      'registry.npmjs.org',
+      'github.com',
+      'objects.githubusercontent.com',
+      'release-assets.githubusercontent.com',
+      'nodejs.org',
+    ]);
     for (const ok of ['registry.npmjs.org', '*.githubusercontent.com', 'localhost']) expect(setupHostError(ok)).toBeUndefined();
     for (const bad of ['a b', 'x:443', 'https://x.io', '-x.io', 'host.docker.internal', '*', 'a,b']) expect(setupHostError(bad)).toBeDefined();
   });
