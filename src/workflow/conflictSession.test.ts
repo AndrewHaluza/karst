@@ -133,6 +133,48 @@ describe('buildConflictBrief', () => {
     expect(buildConflictBrief(store, t.id, 'api')).toContain('origin/develop');
   });
 
+  // A conflict at ship has no done marker (arch:BLOCKED): the stage is decided
+  // by gate exit codes, and Karst delivers the merge to the open PR.
+  it('ends a ship-stage conflict with no marker and the automatic delivery', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    seedWorktree(store, t.id, 'api', '/wt/api');
+    conflict(store, t.id, 'api', ['src/a.ts']);
+
+    const brief = buildConflictBrief(store, t.id, 'api');
+
+    expect(brief).not.toContain('`fix` marker');
+    expect(brief).toContain('there is no marker');
+    expect(brief).toContain('Do not push');
+    expect(brief).toContain('delivers it to the open PR');
+  });
+
+  // A fix-stage resolve does have a marker, and it must be the fix one rather
+  // than the impl marker the session was seeded with.
+  it('names the fix marker for a fix-stage conflict', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    seedWorktree(store, t.id, 'api', '/wt/api');
+    conflict(store, t.id, 'api', ['src/a.ts']);
+
+    const brief = buildConflictBrief(store, t.id, 'api');
+
+    expect(brief).toContain('`fix` marker');
+    expect(brief).toContain('delivers it to the open PR');
+  });
+
+  it('carries the sandboxed flag into the brief', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    seedWorktree(store, t.id, 'api', '/wt/api');
+    conflict(store, t.id, 'api', ['src/a.ts']);
+
+    const brief = buildConflictBrief(store, t.id, 'api', true);
+
+    expect(brief).toContain('refs/karst/base/main');
+    expect(brief).not.toContain('git merge origin/main');
+  });
+
   // Legacy rows predate the key, and the label is the first thing the agent
   // reads — "Ticket null cannot merge" names nothing.
   it('labels a keyless ticket by id rather than printing "null"', () => {

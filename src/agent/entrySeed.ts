@@ -104,18 +104,25 @@ export function composeResumeSeed(input: {
  * kickoff as before.
  */
 export function composeConflictSeed(input: {
-  ticketKey: string;
+  /** The ONE argument token the resolve-conflict command takes as the ticket. */
+  keyToken: string;
+  /** The repo the clicked conflict belongs to, passed through as the second argument. */
+  repo?: string;
   conflictBrief: string;
   invocation?: string;
   markerInstruction?: string;
   factsContext?: string;
   inlineInstructions?: boolean;
 }): SessionSeed {
-  const { ticketKey, conflictBrief, invocation, markerInstruction } = input;
+  const { keyToken, repo, conflictBrief, invocation, markerInstruction } = input;
   const brief = conflictBrief.trim();
   const facts = input.factsContext?.trim();
   const marker = markerInstruction?.trim();
-  const invLine = invocation ? `${invocation} ${ticketKey}`.trim() : null;
+  // The command grammar is `<invocation> <key> <repo>` (arch:AC-20). The key is a
+  // single token: `formatTicketRef`'s `T758 · KEY` display form splits into two
+  // tokens and made T758's agent guess the repo.
+  const args = repo ? `${keyToken} ${repo}` : keyToken;
+  const invLine = invocation ? `${invocation} ${args}`.trim() : null;
 
   if (invLine && !input.inlineInstructions) {
     return {

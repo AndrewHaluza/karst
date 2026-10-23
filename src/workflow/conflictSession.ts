@@ -4,6 +4,7 @@ import { listWorktreesByTicket, listPrsByTicket } from '../store/dashboard.js';
 import { getMergeCheck } from '../store/mergeChecks.js';
 import { renderConflictBrief } from './conflictBrief.js';
 import { formatTicketRef } from '../model/entityId.js';
+import type { StageKey } from '../model/types.js';
 
 /**
  * The prompt for a "Resolve conflicts" click, assembled from what the store
@@ -39,5 +40,7 @@ export function buildConflictBrief(store: Store, ticketId: number, repo: string,
     files: check.files,
     prUrl: pr?.url ?? null,
     sandboxed,
+    // The ending follows the stage: impl/fix name their marker, ship has none.
+    stageCurrent: ticket.stageCurrent as StageKey | null,
   });
 }

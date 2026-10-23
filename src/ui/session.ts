@@ -135,6 +135,12 @@ export interface OpenSessionOptions {
    */
   seedPrompt?: string;
   /**
+   * The repo the seed's brief is about, carried into the conflict kickoff as the
+   * command's second argument (`<invocation> <key> <repo>`, arch:AC-20). Host-only
+   * alongside `seedPrompt`: the resolve-conflict handlers own both.
+   */
+  seedRepo?: string;
+  /**
    * The resolved effort/variant for this launch (per-ticket or manifest
    * default), threaded as the provider's effort flag. Host-internal: no webview
    * message can reach it.

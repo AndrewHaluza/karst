@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { buildConflictBrief } from '../workflow/conflictSession.js';
+import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { quoteArg } from '../agent/cliEnv.js';
 
@@ -65,7 +66,33 @@ export function runConflictBriefCommand(store: Store, parsed: ParsedConflictBrie
   }
   const brief = buildConflictBrief(store, found.id, parsed.repo);
   if (brief === null) {
-    return `No merge conflict is recorded for "${parsed.repo}" on this ticket — nothing to resolve.`;
+    return withRecordedRepos(
+      store,
+      found.id,
+      `No merge conflict is recorded for "${parsed.repo}" on this ticket — nothing to resolve.`,
+    );
   }
   return brief;
+}
+
+/**
+ * The stored record is what decides a conflict, and its `repo` is the exact
+ * string the merge check is keyed by — usually an absolute path. A caller that
+ * passes a display name (T758 asked for `extention` when the record said
+ * `/Users/nd/Work/projects/karst/`) used to get a flat "nothing to resolve",
+ * which reads as "the conflict is gone" rather than "you named the wrong repo".
+ * Append the recorded conflicted repo(s) so the agent corrects its own argument.
+ *
+ * Read-only: no git probe, no store write. With no recorded conflict the caller
+ * gets today's exact line unchanged.
+ */
+function withRecordedRepos(store: Store, ticketId: number, line: string): string {
+  const recorded = listMergeChecksByTicket(store, ticketId).filter((c) => c.state === 'conflicted');
+  if (recorded.length === 0) return line;
+  const named = recorded.map((c) => `${c.repo} (base ${c.baseRef ?? 'unknown'})`).join(', ');
+  return [
+    line,
+    `Recorded conflicts: ${named}.`,
+    'Pass the repo exactly as recorded.',
+  ].join('\n');
 }
