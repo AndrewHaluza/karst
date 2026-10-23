@@ -1855,7 +1855,7 @@ git status --short tests/visual/__baselines__
 
 - **`dashboard-*`/`dashboard--*` changes are expected.** The "Ticket services" caption row is a NEW row in the Servers panel, so every dashboard state that shows servers renders differently. Keep those.
 - **The new `dashboard--shared-services.png`** (dark only — `variant()` defaults to `DARK_ONLY`) is expected.
-- **Anything else is host churn, not this change.** The implementer of this plan observed `status-primitives.png` rewritten in three themes on a fresh container checkout; revert those (`git checkout -- <path>`) and never commit them.
+- **`status-primitives.png` changes too, and is NOT churn.** Despite its name, `tests/visual/status.visual.ts` screenshots the **dashboard running view** in the `dark`, `dark-grayscale` and `dark-reduced-motion` projects, so the new Servers caption row changes all three. Keep them. A first pass of this plan wrongly reverted them as "host churn"; the review gate caught it, and the old-vs-new images show the Servers table header replaced by the `TICKET SERVICES 2 run from this ticket's worktrees` caption. Any baseline outside `dashboard*` and `status-primitives*` IS churn — revert it.
 
 ```bash
 git status --short tests/visual/__baselines__ | awk '$1=="M"{print $2}' \
@@ -1863,7 +1863,7 @@ git status --short tests/visual/__baselines__ | awk '$1=="M"{print $2}' \
 ```
 
 Run: `npm run -s test:visual:docker 2>&1 | tail -40`
-Expected: PASS for every dashboard baseline, including `dashboard--shared-services`. Pre-existing non-dashboard diffs (observed: `status-primitives`) stay red; they are the advisory CI job, not this change — do not re-record them.
+Expected: PASS for every dashboard baseline, including `dashboard--shared-services` and the three `status-primitives` baselines. Any remaining red baseline is outside this change — report it, never re-record it.
 
 Run: `npm run -s test:layout:docker 2>&1 | tail -40`
 Expected: PASS. A NEW `dashboard/shared-services` route needs its known dashboard-wide failures backfilled (the ledger's `seed` refuses once the file exists, and `prune` only removes). This is the same backfill #722 performed for every variant route, and it is allowed ONLY for entries whose `(width, check, selector)` already exists for a sibling dashboard route:
@@ -1964,7 +1964,7 @@ Recorded after the plan was executed, so the next reader knows which parts were 
 
 1. **Inline spans vs flex (Task 7).** The first render used inline `<span>`s for the group caption and the shared meta line. The layout gate read a wrapped inline element's multi-line bounding box as a `sibling-overlap` (group caption at 480 px, meta chip/note at 699-900 px). Both are now flex rows with a wrap and a gap; the branch chip is shrinkable so a long branch name wraps inside a narrow name column instead of escaping it. No layout-ledger entry was created for either.
 2. **Contrast (Task 7).** `--k-text-faint` on `--k-surface-hover` failed WCAG AA in the light theme (2.13:1). The caption and the "No ticket services" note now use `--k-text-dim`.
-3. **Existing dashboard baselines DO change (Task 8).** The caption row is a new visible row, so every dashboard state that shows servers is re-recorded. Only `dashboard*` baselines are legitimate; a fresh container also rewrote `status-primitives.png` (three themes) with no code change — that is host churn, revert it.
+3. **Existing dashboard baselines DO change (Task 8).** The caption row is a new visible row, so every dashboard state that shows servers is re-recorded, and that includes the three `status-primitives.png` baselines: `tests/visual/status.visual.ts` screenshots the **dashboard running view** under the status projects, despite the file's name. The first pass reverted them as "host churn"; the review gate flagged that as a medium finding, and the images confirm the Servers table header became the group caption. Never revert them for this change.
 4. **New layout route needs a ledger backfill (Task 8).** `dashboard/shared-services` reports the same known dashboard-wide failures as its siblings (rail segment overlap, PR row overlap, `#ticketDataClose` off-viewport) under a new route key. `seed` refuses an existing ledger and `prune` only removes, so the 89 sibling-identical keys were appended (the #722 precedent). Zero unmatched failures remained, which is the proof no new layout bug was accepted.
 5. **`extension.ts` line ratchet.** The `openResources` binding fits the recorded cap only without a comment: the file sat one line under `MAX_EXTENSION_LINES`. That is why the binding is bare in the factory.
 
