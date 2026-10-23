@@ -127,15 +127,8 @@
   .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1);background:var(--k-scrim)}
   .attachopen{display:flex;width:100%;justify-content:center;
     border-top:var(--k-border-w) solid var(--k-border)}
-  /* The Attach… button reports its outcome through the strip — the tile
-     appearing IS the success acknowledgement (DESIGN-SYSTEM §11.1: success is
-     "optional transient acknowledgement when changed state is not already
-     obvious"). So the `.k-btn` primitive's green-border + checkmark settle
-     (`.is-success`) is suppressed here, the same call the agent-core trigger
-     makes above: the control stays a regular ghost button through the cycle,
-     and the strip's new tile is the flash (UI-R13). */
-  #attachBtn.is-success{color:var(--k-text-dim);border-color:var(--k-border)}
-  #attachBtn.is-success::before{content:none}
+  /* The Attach… button reports its outcome through the strip — the tile appearing IS
+     the result (UI-R13); the shared primitive shows no success treatment. */
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
@@ -191,9 +184,6 @@
      the two pages must not drift. */
   .agentselect-trigger:active:not(:disabled){transform:none}
   .agentselect-trigger[aria-busy="true"]::before{content:none}
-  .agentselect-trigger.is-success:not(.k-btn--row){color:var(--vscode-input-foreground);
-    border-color:var(--vscode-input-border,var(--vscode-panel-border))}
-  .agentselect-trigger.is-success:not(.k-btn--row)::before{content:none}
   .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));

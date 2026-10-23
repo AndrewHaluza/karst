@@ -68,15 +68,6 @@
     padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) 0;
     border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
-  /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
-     success flash only has to say "that one". `.k-btn--row` already replaces the
-     check badge with the selection wash, but `.rowopen` is only the middle of
-     the row (the chevron sits left of it, the hover actions overlay its right),
-     so tinting the BUTTON alone would paint a bar across part of a row. The
-     wash moves to the row and the button stays clear of it — one surface, no
-     second translucent layer stacking on top of the first. */
-  .row:has(.rowopen.is-success){background:var(--k-surface-selected)}
-  .rowopen.is-success{background:transparent}
   /* The row whose ticket view (dashboard/edit/diffs) is the window's ACTIVE
      view. "Currently active" is its own meaning, deliberately NOT the
      selection wash (STYLE-GUIDE §10): `--k-surface-selected` says "this item

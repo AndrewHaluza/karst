@@ -818,18 +818,6 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(bound).toHaveLength(1);
   });
 
-  it('suppresses the k-btn success flash on the Attach button — the strip tile is the acknowledgement (UI-R13)', () => {
-    // DESIGN-SYSTEM §11.1: success is "optional transient acknowledgement when
-    // changed state is not already obvious". For Attach the tile appearing in
-    // the strip IS the changed state, so the green-border + checkmark settle
-    // must not recolour the control (it read as a weird done state on a button
-    // that stays active for the next file). Same call the agent-core trigger
-    // makes for the same reason.
-    const [main] = styleBlocks();
-    expect(main).toContain('#attachBtn.is-success{color:var(--k-text-dim);border-color:var(--k-border)}');
-    expect(main).toContain('#attachBtn.is-success::before{content:none}');
-  });
-
   it('handles action-result by settling the pending control (UI-R13)', () => {
     const script = scriptBlock();
     expect(script).toContain("case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;");
@@ -978,7 +966,7 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const [main] = styleBlocks();
     expect(main).toMatch(/\.agentselect-trigger:active:not\(:disabled\)\{[^}]*transform:none/);
     expect(main).toMatch(/\.agentselect-trigger\[aria-busy="true"\]::before\{[^}]*content:none/);
-    expect(main).toMatch(/\.agentselect-trigger\.is-success[^{]*::before\{[^}]*content:none/);
+    expect(main).not.toContain('.agentselect-trigger.is-success');
   });
 
   it('pairs the selection foreground on the agent-core option (light-theme contrast)', () => {

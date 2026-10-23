@@ -189,7 +189,7 @@
     }
     .commit > summary:hover .copy-hash,
     .copy-hash:focus-visible,
-    .copy-hash.is-success { opacity: 1; }
+    .copy-hash[data-copied] { opacity: 1; }
     .commit > summary > span {
       color: var(--k-text-dim);
       font-family: var(--k-font-mono);
@@ -622,11 +622,14 @@
     function flashCopied(button) {
       if (button.dataset.flash) clearTimeout(Number(button.dataset.flash));
       button.textContent = '✓';
-      button.classList.add('is-success');
+      button.classList.add('is-success'); // tier 3 (confirm): in-place check, no colour change
+      button.dataset.copied = '1';
       button.setAttribute('aria-label', 'Copied');
+      if (typeof karstToast === 'function') karstToast('success', 'Copied');
       button.dataset.flash = String(setTimeout(() => {
         button.textContent = COPY_GLYPH;
         button.classList.remove('is-success');
+        delete button.dataset.copied;
         button.setAttribute('aria-label', 'Copy commit hash');
         delete button.dataset.flash;
       }, COPIED_MS));

@@ -765,8 +765,7 @@ describe('ticket changes webview protocol', () => {
     expect(button.defaultPrevented).toBe(true);
     expect(button.textContent).toBe('✓');
     expect(button.label).toBe('Copied');
-    // Reuses the shared .is-success state class (designComponents.ts) rather
-    // than a bespoke "copied" one, so it also gets --k-success for free.
+    // Tier 3 (confirm): the shared .is-success class is the in-place check.
     expect(button.classes).toContain('is-success');
   });
 

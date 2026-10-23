@@ -111,4 +111,34 @@ describe('useHostMutation', () => {
     expect(hook.result.current.status).toBe('idle');
     expect(hook.result.current.disabled).toBe(false);
   });
+
+  describe('spinner timing (mirrors designRuntime, SG-19)', () => {
+    it('fast reply: busy at once, spinning never', () => {
+      vi.useFakeTimers();
+      const { hook } = setup();
+      act(() => hook.result.current.trigger('x'));
+      expect(hook.result.current.busy).toBe(true);
+      expect(hook.result.current.spinning).toBe(false);
+      act(() => void vi.advanceTimersByTime(399));
+      act(() => hook.result.current.settle({ requestId: 'r1', result: 'success' }));
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(hook.result.current.spinning).toBe(false);
+    });
+
+    it('slow reply: spinning after 400ms and held for 500ms', () => {
+      vi.useFakeTimers();
+      const { hook } = setup();
+      act(() => hook.result.current.trigger('x'));
+      act(() => void vi.advanceTimersByTime(400));
+      expect(hook.result.current.spinning).toBe(true);
+      act(() => void vi.advanceTimersByTime(100));
+      act(() => hook.result.current.settle({ requestId: 'r1', result: 'success' }));
+      expect(hook.result.current.busy).toBe(false);
+      expect(hook.result.current.spinning).toBe(true);
+      act(() => void vi.advanceTimersByTime(399));
+      expect(hook.result.current.spinning).toBe(true);
+      act(() => void vi.advanceTimersByTime(1));
+      expect(hook.result.current.spinning).toBe(false);
+    });
+  });
 });

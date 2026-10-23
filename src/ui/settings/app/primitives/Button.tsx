@@ -33,6 +33,8 @@ export interface ButtonProps
   size?: ButtonSize;
   /** The action is in flight (UI-R11); exposes `aria-busy` and prevents re-activation. */
   busy?: boolean;
+  /** Visible spinner (tier 2): pass `useHostMutation().spinning`. Passing it reserves the leading icon slot so width never changes (UI-R18). */
+  spinning?: boolean;
   className?: string;
   children: ReactNode;
 }
@@ -41,13 +43,14 @@ export function Button({
   variant = 'secondary',
   size = 'md',
   busy = false,
+  spinning,
   disabled = false,
   className,
   type = 'button',
   children,
   ...rest
 }: ButtonProps) {
-  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], className]
+  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], spinning === undefined ? null : 'k-btn--slot', spinning ? 'is-spinning' : null, className]
     .filter((c): c is string => Boolean(c))
     .join(' ');
   return (

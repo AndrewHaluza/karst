@@ -42,7 +42,9 @@ const REQUIRED_ARTIFACTS = [
 // plus the shared pure `deriveEffectiveBackends`).
 // Raised 364 → 366 KB when the sandbox branch merged with develop's per-core
 // quota card (D163): each fit alone, the merged bundle is 372815 bytes.
-const APP_BUNDLE_BUDGET_BYTES = 366 * 1024;
+// Raised 366 → 368 KB for the three-tier click feedback in useHostMutation
+// (delayed spinner, min-visible timer, tier option; ~0.5 KB over the old cap).
+const APP_BUNDLE_BUDGET_BYTES = 368 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
