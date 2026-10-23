@@ -1,25 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
-import { ALL_VIEWS } from './corpora.js';
-import type { ViewId } from './corpora.js';
-import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute.js';
-import { COMPARE_PRESET, LONG_BODY_PROFILE } from './realisticSettings.js';
+import { VARIANTS } from './variants.js';
+import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 
 /**
- * Projects that take full-page screenshots (UI-R07 coverage).
- * The dark-grayscale, dark-reduced-motion, and catalog projects have their
- * own dedicated specs (status.visual.ts, catalog.visual.ts).
- */
-const SCREENSHOT_PROJECTS = new Set(['dark', 'light', 'hc']);
-
-/**
- * Full-page screenshot baselines for all nine webviews in three themes.
+ * Full-page screenshot baselines: every registered variant of every webview
+ * (tests/visual/variants.ts, ui:UI-R49), in the theme projects the variant
+ * declares. A variant outside the running project's theme list is skipped, so
+ * the matrix is: populated variants in dark/light/hc, every other variant in dark
+ * (split documented in ui:VISUAL-VARIANTS). variants.test.ts fails when a
+ * declared baseline PNG is missing or a PNG has no variant.
  *
  * Masks:
  * - Dashboard terminal region (D12: xterm not injected)
  * - Any element with a live clock or elapsed-time readout
- *
- * Dashboard renders six scenarios as six named shots.
  */
 
 /** Selectors for elements that display live time and must be masked. */
@@ -30,61 +24,19 @@ const TIME_MASKS = [
 ].join(', ');
 
 karstTest.describe('full-page screenshots', () => {
-  for (const viewId of ALL_VIEWS) {
-    if (viewId === 'dashboard') {
-      // Dashboard: one shot per scenario.
-      const scenarios = ['pending', 'running', 'passed', 'failed', 'waiting', 'exhausted'] as const;
-      for (const scenario of scenarios) {
-        karstTest(`dashboard-${scenario}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
-          if (!SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
-            testInfo.skip();
-            return;
-          }
-          await gotoView(viewId, { scenario });
-          await expect(page).toHaveScreenshot(`dashboard-${scenario}.png`, {
-            fullPage: true,
-            mask: [page.locator(TIME_MASKS)],
-          });
-        });
-      }
-    } else {
-      karstTest(`${viewId}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
-        if (!SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
+  for (const view of WEBVIEW_NAMES) {
+    for (const v of VARIANTS[view]) {
+      karstTest(`${view}/${v.id}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
+        if (!v.themes.includes(testInfo.project.name)) {
           testInfo.skip();
           return;
         }
-        await gotoView(viewId);
-        await expect(page).toHaveScreenshot(`${viewId}.png`, {
+        await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
+        await expect(page).toHaveScreenshot(`${v.baseline}.png`, {
           fullPage: true,
           mask: [page.locator(TIME_MASKS)],
         });
       });
     }
-  }
-});
-
-/**
- * The Agents settings page (D93), `realistic` scenario: roles, compare and a
- * profile. Baselines are container-authored and need the user's approval (D92).
- */
-const AGENTS_SHOTS = [
-  { name: 'agents-roles', hash: formatAgentsHash({ tab: 'roles' }) },
-  { name: 'agents-compare', hash: formatAgentsHash({ tab: 'roles', compare: COMPARE_PRESET }) },
-  { name: 'agents-profile', hash: formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE }) },
-] as const;
-
-karstTest.describe('agents page screenshots', () => {
-  for (const shot of AGENTS_SHOTS) {
-    karstTest(`${shot.name}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
-      if (!SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
-        testInfo.skip();
-        return;
-      }
-      await gotoView('settings', { scenario: 'realistic', route: { section: 'agents', hash: shot.hash } });
-      await expect(page).toHaveScreenshot(`${shot.name}.png`, {
-        fullPage: true,
-        mask: [page.locator(TIME_MASKS)],
-      });
-    });
   }
 });

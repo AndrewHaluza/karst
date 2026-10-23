@@ -1,6 +1,7 @@
 /**
  * Layout-sanity gate (project `layout`): opens EVERY settings route at each
- * LAYOUT_WIDTHS with the `realistic` corpus, runs checks a–h
+ * LAYOUT_WIDTHS with the `realistic` corpus, plus every other registered view x
+ * variant (tests/visual/variants.ts, ui:UI-R49), runs checks a–h
  * (src/ui/layout/layoutChecks.ts) and writes one shard per route x width. These
  * tests NEVER fail on geometry — the ledger verdict lives in layout.teardown.ts —
  * so a harness error is the only way they go red. No screenshots, no baselines.
@@ -16,6 +17,7 @@ import { runChecks, stateSurvivesResize, type ResizeState } from '../../src/ui/l
 import { collectSnapshot } from './layoutSnapshot.js';
 import { readExpectations, writeShard } from './layoutShards.js';
 import { resizeRouteId, settingsRoutes } from './settingsRoutes.js';
+import { extraLayoutTargets } from './variants.js';
 
 const RESIZE_NARROW = 480;
 const RESIZE_WIDE = 1280;
@@ -50,6 +52,22 @@ for (const route of settingsRoutes()) {
       await page.waitForTimeout(100);
       const failures = stateSurvivesResize(before, await readState()).map((f) => ({ ...f, route: resizeRouteId(route.id), width: RESIZE_NARROW }));
       writeShard({ route: resizeRouteId(route.id), width: RESIZE_NARROW, failures, unchecked: false });
+    });
+  }
+}
+
+// Every registered variant that is not a settings route (those run above).
+for (const target of extraLayoutTargets()) {
+  for (const width of LAYOUT_WIDTHS) {
+    test(`${target.id} @${width}`, async ({ gotoView, page }) => {
+      await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
+      await gotoView(target.view, { variant: target.variant.id });
+      // Entrance animations (toasts) shift geometry mid-flight; measure the settled page.
+      await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))));
+      const expectations = readExpectations(target.view);
+      const snapshot = await collectSnapshot(page);
+      const failures = runChecks(snapshot, expectations?.[tierFor(width)]).map((f) => ({ ...f, route: target.id, width }));
+      writeShard({ route: target.id, width, failures, unchecked: expectations === undefined });
     });
   }
 }
