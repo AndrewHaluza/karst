@@ -80,6 +80,7 @@ import { join } from 'node:path';
 import type { AgentProvider } from '../manifest/types.js';
 import type { ModelOption } from '../agent/modelCatalog.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
+import { routeIdentityJs } from './routeIdentity.js';
 
 /** Placeholder swapped for the picker CSS; sits inside each webview's `<style>`. */
 export const AGENT_PICKER_CSS_MARKER = '/*KARST_AGENT_PICKER_CSS*/';
@@ -106,7 +107,10 @@ export function agentPickerCss(): string {
  * by `injectCsp`'s nonce pass — the same contract as `agentIdentityJs`.
  */
 export function agentPickerJs(): string {
-  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/agentPicker.webview.js'), 'utf8').trim();
+  // The route identity map travels INSIDE the picker blob so every picker host
+  // (settings, ticket form, dashboard) has `AP_ROUTES` in script scope without a
+  // second injection point; a host that passes no `routes` keeps the old look.
+  return `${routeIdentityJs()}\n${readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/agentPicker.webview.js'), 'utf8').trim()}`;
 }
 
 /** Replace the picker CSS/JS markers; no-op per marker if absent. */

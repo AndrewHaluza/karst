@@ -28,6 +28,41 @@ function apTags(catalog, provider, modelId) {
   return undefined;
 }
 
+// ── model id parsing (design § model menu: routes, vendors, free) ────────────
+/**
+ * Split a model id into the parts the picker renders (pure, no DOM):
+ * `opencode/<m>` → route `opencode`; `openrouter/<vendor>/<m>` → route +
+ * vendor; a `#variant` or `:variant` suffix → variant; `:free`/`-free` → free.
+ * A curated catalog label that is more than the raw id wins as the model name.
+ */
+function apParseModelId(id, label) {
+  var raw = String(id === null || id === undefined ? '' : id);
+  var seg = raw.split('/');
+  var out;
+  if (seg.length < 2) {
+    out = { id: id, route: '', vendor: '', model: label || id || '', free: false, variant: '' };
+  } else {
+    var last = seg[seg.length - 1];
+    var variant = '';
+    var free = false;
+    var h = last.indexOf('#');
+    if (h >= 0) { variant = last.slice(h + 1); last = last.slice(0, h); }
+    var c = last.indexOf(':');
+    if (c >= 0) {
+      var suf = last.slice(c + 1);
+      last = last.slice(0, c);
+      if (suf === 'free') free = true; else variant = suf;
+    }
+    if (/-free$/.test(last)) free = true;
+    out = {
+      id: id, route: seg[0], vendor: seg.slice(1, -1).join('/'),
+      model: last, free: free, variant: variant,
+    };
+  }
+  if (label && label !== id) out.model = label;
+  return out;
+}
+
 /** One row of capability-tag chips; empty when the model advertises none. */
 function apModelTagsHtml(tags) {
   if (!tags || tags.length === 0) return '';

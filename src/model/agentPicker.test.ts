@@ -28,6 +28,14 @@ function load(): Record<string, unknown> {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
     apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
+    apParseModelId: typeof apParseModelId === 'function' ? apParseModelId : undefined,
+    apRouteIconHtml: typeof apRouteIconHtml === 'function' ? apRouteIconHtml : undefined,
+    apRouteName: typeof apRouteName === 'function' ? apRouteName : undefined,
+    apRouteHue: typeof apRouteHue === 'function' ? apRouteHue : undefined,
+    apRoutedTriggerName: typeof apRoutedTriggerName === 'function' ? apRoutedTriggerName : undefined,
+    apModelGroups: typeof apModelGroups === 'function' ? apModelGroups : undefined,
+    apModelListHtml: typeof apModelListHtml === 'function' ? apModelListHtml : undefined,
+    apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
   };`)();
@@ -393,8 +401,96 @@ describe('agentPickerJs', () => {
   });
 });
 
-describe('agentPickerCss', () => {
-  it('defines the picker primitives with token-only values', () => {
+describe('apParseModelId', () => {
+  const { apParseModelId } = load() as {
+    apParseModelId: (id: string, label?: string) => {
+      id: string; route: string; vendor: string; model: string; free: boolean; variant: string;
+    };
+  };
+
+  it('leaves an id with no slash unrouted, exactly as today', () => {
+    expect(apParseModelId('claude-opus-5', 'Opus 5')).toEqual({
+      id: 'claude-opus-5', route: '', vendor: '', model: 'Opus 5', free: false, variant: '',
+    });
+  });
+
+  it('splits a two-segment id into route and model', () => {
+    expect(apParseModelId('opencode/big-pickle', 'big-pickle')).toEqual({
+      id: 'opencode/big-pickle', route: 'opencode', vendor: '', model: 'big-pickle', free: false, variant: '',
+    });
+  });
+
+  it('keeps the middle segment as the vendor', () => {
+    expect(apParseModelId('openrouter/mancer/weaver', 'weaver')).toEqual({
+      id: 'openrouter/mancer/weaver', route: 'openrouter', vendor: 'mancer', model: 'weaver', free: false, variant: '',
+    });
+  });
+
+  it('joins a multi-segment vendor path', () => {
+    expect(apParseModelId('openrouter/inference-net/schematron-v2-turbo', '').vendor)
+      .toBe('inference-net');
+    expect(apParseModelId('openrouter/a/b/c/model', '').vendor).toBe('a/b/c');
+    expect(apParseModelId('openrouter/a/b/c/model', '').model).toBe('model');
+  });
+
+  it('reads :free as the free flag, not as part of the name', () => {
+    const p = apParseModelId('openrouter/liquid/lfm-2.5-2.6b:free', '');
+    expect(p.model).toBe('lfm-2.5-2.6b');
+    expect(p.free).toBe(true);
+    expect(p.variant).toBe('');
+  });
+
+  it('reads a -free suffix as the free flag', () => {
+    const p = apParseModelId('opencode/big-pickle-free', '');
+    expect(p.free).toBe(true);
+    expect(p.model).toBe('big-pickle-free');
+  });
+
+  it('reads #high as the variant', () => {
+    const p = apParseModelId('opencode-go/space-bunny#high', '');
+    expect(p.route).toBe('opencode-go');
+    expect(p.model).toBe('space-bunny');
+    expect(p.variant).toBe('high');
+    expect(p.free).toBe(false);
+  });
+
+  it('reads a non-free colon suffix as the variant', () => {
+    const p = apParseModelId('openrouter/x/y:nitro', '');
+    expect(p.model).toBe('y');
+    expect(p.variant).toBe('nitro');
+    expect(p.free).toBe(false);
+  });
+
+  it('tolerates empty segments', () => {
+    expect(apParseModelId('a//b', '')).toEqual({
+      id: 'a//b', route: 'a', vendor: '', model: 'b', free: false, variant: '',
+    });
+  });
+
+  it('lets a curated label that differs from the id win as the model name', () => {
+    expect(apParseModelId('opencode-go/deepseek-v4.1-flash', 'DeepSeek v4.1 Flash').model)
+      .toBe('DeepSeek v4.1 Flash');
+    expect(apParseModelId('opencode-go/deepseek-v4.1-flash', 'opencode-go/deepseek-v4.1-flash').model)
+      .toBe('deepseek-v4.1-flash');
+  });
+
+  it('handles empty input without throwing', () => {
+    expect(apParseModelId('', '')).toEqual({
+      id: '', route: '', vendor: '', model: '', free: false, variant: '',
+    });
+  });
+});
+
+describe('the picker carries the route map', () => {
+  it('defines AP_ROUTES inside the emitted picker runtime', () => {
+    expect(js).toContain('var AP_ROUTES = ');
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const map = new Function(`${js}\nreturn AP_ROUTES;`)() as Record<string, { name: string }>;
+    expect(map.openrouter?.name).toBe('OpenRouter');
+  });
+});
+
+describe('agentPickerCss', () => {  it('defines the picker primitives with token-only values', () => {
     const css = agentPickerCss();
     expect(css).toContain('.ap{');
     expect(css).toContain('.ap-trigger{');
