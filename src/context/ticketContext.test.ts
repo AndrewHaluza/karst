@@ -1,3 +1,4 @@
+import { recordPlacement } from '../store/placement.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
@@ -937,6 +938,18 @@ describe('renderTicketContext', () => {
     expect(md).toContain('## Worktrees & branches');
     expect(md).toContain('feat/x');
     expect(md).toContain('## Repositories in scope');
+  });
+
+  describe('placement (D245)', () => {
+    const md = (t: number) => renderTicketContext(buildTicketContext(store, manifest({ frontend: svc() }), t));
+    it('states Runs on: host / Runs in: sbx sandbox <name> per recorded placement, nothing when unrecorded', () => {
+      const t = createTicket(store, { key: 'PL-1', title: 'p' });
+      expect(md(t.id)).not.toContain('## Placement');
+      recordPlacement(store, t.id, { backend: 'host', core: 'claude', sandboxName: null, reason: null }, null);
+      expect(md(t.id)).toContain('## Placement\nRuns on: host');
+      recordPlacement(store, t.id, { backend: 'sbx', core: 'claude', sandboxName: 'karst-x', reason: null }, null);
+      expect(md(t.id)).toContain('## Placement\nRuns in: sbx sandbox karst-x — commit only, no push, host syncs');
+    });
   });
 
   describe('merge checks', () => {

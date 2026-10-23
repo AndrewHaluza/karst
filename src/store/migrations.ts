@@ -2733,5 +2733,15 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 88) {
+    // v88: `tickets.placement_*` — the recorded answer to "where does this ticket
+    // run" (arch:AC-32). NULL = not recorded: the host backfills it once on
+    // activation from the runners' listing (a migration cannot list sandboxes).
+    const cols88 = ticketColumns(db);
+    for (const col of ['placement_backend', 'placement_core', 'placement_sandbox', 'placement_reason']) {
+      if (cols88.size > 0 && !cols88.has(col)) db.exec(`ALTER TABLE tickets ADD COLUMN ${col} TEXT`);
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

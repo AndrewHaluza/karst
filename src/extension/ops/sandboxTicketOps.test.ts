@@ -644,3 +644,64 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     expect(m.ran).toHaveLength(0);
   });
 });
+
+describe('recorded placement is the source of truth (D245)', () => {
+  const host = { backend: 'host', core: 'claude', sandboxName: null, reason: null } as const;
+  const sbx = { backend: 'sbx', core: 'claude', sandboxName: SBX, reason: null } as const;
+  it('recorded host: no runner, no listing, no gate override, even for an sbx-capable core', async () => {
+    const proc = fakeSbxProcess();
+    const inventory = vi.fn(async () => []);
+    const d = deps({ proc, inventory, placementOf: () => host });
+    expect(ticketSandboxRunner(d, 7)).toBeUndefined();
+    expect(await resolveTicketSandbox(d, 7)).toStrictEqual({ found: undefined, listed: undefined });
+    expect(ticketGateProcess(d, 7)).toBeUndefined();
+    expect(inventory).not.toHaveBeenCalled();
+    expect(proc.calls).toEqual([]);
+  });
+  it('recorded sandbox: the recorded core and backend win over a null session provider and a changed config', () => {
+    const d = deps({ coreOf: () => null, backends: () => ({}), placementOf: () => sbx });
+    expect(ticketSandboxRunner(d, 7)).toMatchObject({ sandboxName: SBX, runner: { kind: 'sbx' } });
+  });
+  it('recorded sandbox: the listing only confirms existence, with the recorded core as the hint', async () => {
+    const d = deps({ coreOf: () => null, placementOf: () => sbx, inventory: async () => [{ name: SBX, ticketId: 7, core: 'claude', runner: 'sbx', state: 'running' } as never] });
+    const r = await resolveTicketSandbox(d, 7);
+    expect(r.listed?.name).toBe(SBX);
+    expect(r.found?.sandboxName).toBe(SBX);
+  });
+  it('recorded host ignores a listed sandbox of the same ticket', async () => {
+    const inventory = vi.fn(async () => [{ name: SBX, ticketId: 7, core: 'claude', runner: 'sbx', state: 'running' } as never]);
+    expect(await resolveTicketSandbox(deps({ placementOf: () => host, inventory }), 7)).toStrictEqual({ found: undefined, listed: undefined });
+  });
+  it('unrecorded (legacy) keeps the old core-derived behaviour', () => {
+    expect(ticketSandboxRunner(deps({ placementOf: () => null }), 7)?.runner.kind).toBe('sbx');
+  });
+});
+
+describe('bindings read the recorded placement from the store (D245)', () => {
+  const mk = async (backend: 'host' | 'sbx') => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const { createTicket } = await import('../../store/tickets.js');
+    const { recordPlacement } = await import('../../store/placement.js');
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'K-9', title: 't' }).id;
+    const name = sbxName({ projectRoot: '/p', ticketId: id, core: 'claude' });
+    recordPlacement(store, id, { backend, core: 'claude', sandboxName: backend === 'sbx' ? name : null, reason: null }, null);
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${name}\n` } });
+    const b = createTicketSandboxBindings({ ...deps({ proc, coreOf: () => null }), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => '/g' });
+    b.remember(id, 'claude');
+    return { b, id, proc };
+  };
+  it('recorded host: no gate runner, no channel, no sandbox, nothing spawned', async () => {
+    const { b, id, proc } = await mk('host');
+    expect(b.gateProcessFor(id)).toBeUndefined();
+    expect(b.sandboxChannel(id)).toBeUndefined();
+    expect(await b.hasSandbox(id)).toBe(false);
+    expect(proc.calls).toEqual([]);
+  });
+  it('recorded sandbox: channel and gate runner exist with no remembered core and a null session provider', async () => {
+    const { b, id } = await mk('sbx');
+    expect(b.gateProcessFor(id)).toBeTypeOf('function');
+    expect(b.sandboxChannel(id)).toBeDefined();
+    expect(await b.hasSandbox(id)).toBe(true);
+  });
+});

@@ -6,6 +6,8 @@ import type { Store } from '../../store/db.js';
 import { parseDbTimeMs } from '../../doctor/applyFixes.js';
 import { STUCK_IDLE_MINUTES } from '../../doctor/stuckCheck.js';
 import { getTicket, listTickets, setSessionId } from '../../store/tickets.js';
+import type { AgentProvider } from '../../manifest/types.js';
+import { backfillPlacement, getPlacement, recordPlacement, type TicketPlacement } from '../../store/placement.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { doneMergedTicketIds, isDoneMerged } from '../../store/doneMerged.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
@@ -78,7 +80,10 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   const target = (ticketId: number): SandboxSyncTarget => {
     const t = getTicket(w.store, ticketId);
     const worktrees = listWorktreesByTicket(w.store, ticketId);
-    return { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
+    // The recorded placement is the source of truth: host = no sandbox core at all, so nothing is ever spawned (arch:AC-32).
+    const placement = getPlacement(w.store, ticketId);
+    const core = placement ? (placement.backend === 'host' ? null : placement.core) : (t.sessionProvider ?? null);
+    return { ticketId, ticketLabel: t.key ?? String(ticketId), core, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
   };
   const deps = (): SandboxLifecycleDeps | undefined => {
     const projectRoot = w.projectRoot();
@@ -115,6 +120,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (t.projectId === null || t.projectId !== w.projectId()) return false;
     return w.sessionOpen(id) || t.agentState !== 'running';
   };
+  /** Recorded host: there is no sandbox to stop, sync or remove, so lifecycle hooks never list a runner for it (arch:AC-32). */
+  const recordedHost = (id: number): boolean => getPlacement(w.store, id)?.backend === 'host';
+  /** A verified removal ends the recorded sandbox: the ticket now runs on host until a launch records otherwise. */
+  const markRemoved = (id: number): void => {
+    const p = getPlacement(w.store, id);
+    if (p && p.backend !== 'host') recordPlacement(w.store, id, { backend: 'host', core: p.core, sandboxName: null, reason: 'sandbox removed' }, getTicket(w.store, id).sessionProvider ?? null);
+  };
+  const removeGuarded = async (d: SandboxLifecycleDeps, t: SandboxSyncTarget, opts?: { readonly skipSync?: boolean }): Promise<boolean> => {
+    const ok = await removeSandboxGuarded(d, t, opts);
+    if (ok) markRemoved(t.ticketId);
+    return ok;
+  };
   const clearSession = (id: number): void => setSessionId(w.store, id, null, null);
   const liveTickets = () => {
     const projectId = w.projectId();
@@ -125,6 +142,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
+    // Recorded: no listing guess. The runner's tri-state probe later confirms the sandbox exists (arch:AC-39).
+    if (getPlacement(w.store, ticketId)) return t;
     try {
       const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
       const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
@@ -259,16 +278,37 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     stop: stopTicket,
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
+      if (recordedHost(ticketId)) return;
       const { d, t } = await manualDeps(ticketId);
-      await removeSandboxGuarded(d, t);
+      await removeGuarded(d, t);
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot }, t);
     },
-    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
+    /** Launch records where the ticket runs, with its core, in one write; only the controlling window writes (AC-37). */
+    recordLaunchPlacement: (ticketId: number, placement: TicketPlacement, sessionProvider: AgentProvider | null): boolean => {
+      if (!controls(ticketId)) return false;
+      recordPlacement(w.store, ticketId, placement, sessionProvider);
+      return true;
+    },
+    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d && !recordedHost(ticketId) ? removeGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
     /** Done: merged → remove (verified), else stop only (arch:AC-37). */
-    onDone: (ticketId: number): void => { const d = deps(); if (d) void resolved(ticketId, d.projectRoot).then((t) => onDoneOp(d, t, isDoneMerged(w.store, ticketId))).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
+    onDone: (ticketId: number): void => { const d = deps(); if (d && !recordedHost(ticketId)) void resolved(ticketId, d.projectRoot).then(async (t) => { const merged = isDoneMerged(w.store, ticketId); const ok = await onDoneOp(d, t, merged); if (ok && merged) markRemoved(ticketId); }).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
+    /** Activation backfill (D245): record placement for this project's unrecorded tickets from a CLEAN listing; a failed listing records nothing. Never throws. */
+    backfillPlacements: async (): Promise<void> => {
+      const d = deps();
+      const projectId = w.projectId();
+      if (!d || projectId === undefined) return;
+      try {
+        const inv = await inventoryOf(d);
+        if (inv.errors.length > 0) return;
+        const n = backfillPlacement(w.store, inv.sandboxes.filter((s) => s.invalidCore !== true), projectId);
+        if (n > 0) w.info(`karst: recorded placement for ${n} ticket(s)`);
+      } catch (err) {
+        w.logError('karst: placement backfill failed', err);
+      }
+    },
     /** Activation backfill: remove sandboxes that done+merged tickets still hold. Never throws. */
     removeDoneMerged: async (): Promise<void> => {
       const d = deps();
@@ -290,7 +330,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     onProviderSwitch: async (ticketId: number, newCore: string): Promise<boolean> => {
       const d = deps();
-      return d ? switchProviderOp({ ...d, clearSession }, await resolved(ticketId, d.projectRoot), newCore) : true;
+      return d && !recordedHost(ticketId) ? switchProviderOp({ ...d, clearSession: (id) => { clearSession(id); markRemoved(id); } }, await resolved(ticketId, d.projectRoot), newCore) : true;
     },
     reconcile: async (): Promise<void> => {
       const d = deps();
