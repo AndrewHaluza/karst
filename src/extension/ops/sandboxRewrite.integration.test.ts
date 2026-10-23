@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
+import { removeTempDir } from '../../runtime/fixtures.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 import { carryCommits } from './sandboxCarry.js';
 import { carrySandboxOp } from './sandboxCarryOp.js';
@@ -45,7 +46,7 @@ describe('rewrite classification and carry (real git)', () => {
     root = mkdtempSync(join(tmpdir(), 'karst-rw-'));
     vi.stubEnv('GIT_COMMITTER_NAME', 't'); vi.stubEnv('GIT_COMMITTER_EMAIL', 't@t');
   });
-  afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
+  afterEach(() => { vi.unstubAllEnvs(); removeTempDir(root); });
   const run = nodeGit(NODE_SBX_PROCESS);
 
   it('rewritten: the recorded head is in the clone and not in the rebased host branch', async () => {
