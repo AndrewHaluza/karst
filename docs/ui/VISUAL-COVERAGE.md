@@ -95,7 +95,7 @@ The `layout` Playwright projects run inside the existing `visual` UAT gate (`tes
   - i `state-survives-resize`: on each Agents hash, resize 1280 to 480 to 1280; the hash and the selected item are unchanged.
 - **Output**: failures print grouped as route, width, check, selector, numbers (teardown test output), and the full list is in `tests/visual/.layout-report.json` (gitignored with the shards).
 - **Ratchet ledger** `tests/visual/layout-known-failures.json` is the only exemption (no per-element opt-out attribute). Keys are `route|width|check|selector`. A failure not in the ledger fails the gate; a ledger entry that no longer reproduces ALSO fails the gate. Stale entries are judged only over routes x widths that ran. Docker is authoritative (host rendering differs): `npm run test:layout:docker:seed` seeds once (refused if the file exists), `npm run test:layout:docker:prune` removes stale entries only and never adds; both refuse on a filtered run and without `KARST_LAYOUT_AUTHORITATIVE=1`. Host `npm run test:layout` is advisory and cannot seed or prune. Never reseed to make a branch green.
-- **Gate**: `scripts/visual-sweep-gate.mjs` fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. Screenshot diffs in the other projects stay advisory.
+- **Gate**: `scripts/visual-sweep-gate.mjs` fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. In the other projects it also fails a **pull request's own** added/changed baseline that does not match its screenshot (`ui:RUNNING-SWEEP`); every other screenshot diff stays advisory.
 - **Cannot catch**: a wrong control in a sane-looking place (until a page ships region expectations), wrong copy, wrong colours, or a layout bug that only appears in a state the corpus does not render (add the state to the corpus).
 END_DOC_BLOCK: [@ui:LAYOUT-SANITY]
 
@@ -138,7 +138,7 @@ END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 
 **Update baselines only with `npm run test:visual:docker:update`.** Never `npm run test:visual:update` on a developer machine, and never hand-edit a PNG. The image tag must stay in lockstep with the pinned `@playwright/test` version — a different tag ships a different Chromium and invalidates every baseline at once.
 
-**CI runs the same image.** `.github/workflows/ci.yml`'s `visual` job is advisory for screenshot **diff failures** while the suite settles: the Playwright exit code is published to the run summary, but a run that executed tests does not fail the job, and the job uploads `tests/visual/.report/` as the `visual-report` artifact. A sweep that executed **zero tests** — a webServer/startup crash — is never advisory: `scripts/visual-sweep-gate.mjs` fails the step outright, because `continue-on-error: true` used to record conclusion=success on a job whose sweep had never run (NDL-218). Promote diff failures to blocking — by letting the step exit with Playwright's code instead of the gate's zero-tests-only verdict — once the sweep has run green on `develop` for a week with no baseline churn attributable to the environment.
+**CI runs the same image.** `.github/workflows/ci.yml`'s `visual` job is advisory for **pre-existing** screenshot **diff failures** while the suite settles: the Playwright exit code is published to the run summary, a run that executed tests with only pre-existing diffs does not fail the job, and the job uploads `tests/visual/.report/` as the `visual-report` artifact. Two things are never advisory: a sweep that executed **zero tests** — a webServer/startup crash, because `continue-on-error: true` used to record conclusion=success on a job whose sweep had never run (NDL-218) — and, on a pull request, a baseline the PR itself **added or changed** that fails its own screenshot (#769, how 9 sandbox-recorded baselines from #722 landed on develop and stayed red). `scripts/visual-sweep-gate.mjs` enforces both. Promote the remaining pre-existing failures to blocking — by letting the step exit with Playwright's code instead of the gate's verdict — once the sweep has run green on `develop` for a week with no baseline churn attributable to the environment.
 
 **No karst UAT gate for `test:visual`.** The gate was intentionally omitted because `test:visual` always exits non-zero on macOS (container-authored baselines vs. macOS font rendering), and karst's gate system treats any non-zero exit as a failure — creating an unrecoverable loop. CI's `visual` job is the authoritative run.
 
@@ -148,8 +148,10 @@ END_DOC_BLOCK: [@ui:RUNNING-SWEEP]
 ## [@ui:UPDATE-BASELINE] How to update a baseline
 
 ```bash
-npm run test:visual:update
+npm run test:visual:docker:update
 ```
+
+Baselines are container-authored (`ui:RUNNING-SWEEP`), so the update runs in the pinned Playwright image. A bare `npm run test:visual:update` records whatever the developer's machine renders, which is not the environment CI compares against.
 
 The commit MUST cite the rule id (UI-R35) and say what changed and why. A diff in `__baselines__/` without an accompanying source diff is a review red flag.
 END_DOC_BLOCK: [@ui:UPDATE-BASELINE]
