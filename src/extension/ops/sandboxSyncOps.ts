@@ -18,6 +18,7 @@ import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
+import type { TicketPlacement } from '../../store/placement.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
@@ -91,6 +92,8 @@ export interface LaunchBackend {
   readonly options: ReturnType<typeof backendSessionOptions>;
   /** The runner enforces a sandbox: compose sandbox instructions, not the host CLI ones. */
   readonly sandboxed: boolean;
+  /** Where this launch runs: what the host records on the ticket (arch:AC-32), including a fail-closed fallback and its reason. */
+  readonly placement: TicketPlacement;
   /** The bridge dir as the agent sees it (ends in the ticket id); absent when no bridge is attached. */
   readonly runDir?: string;
   /** Host paths of the attached bridge dir (the mirror target for attachments and gate logs). */
@@ -105,12 +108,13 @@ export interface LaunchBackend {
  */
 export async function resolveLaunchBackend(input: BackendSessionInput, remember?: (core: string | null) => void): Promise<LaunchBackend> {
   const options = backendSessionOptions(input);
-  if (!options.resolveRunner) return { options, sandboxed: false };
+  if (!options.resolveRunner) return { options, sandboxed: false, placement: { backend: 'host', core: input.core, sandboxName: null, reason: null } };
   const resolved = await options.resolveRunner();
   // Pointer text follows THIS launch's runner (arch:AC-34).
   remember?.(resolved.runner.enforcesSandbox ? input.core : null);
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
-  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false };
+  const placement = placementOfResolved(resolved, input.core);
+  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement };
   if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
     const synced = await input.syncExisting();
     if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
@@ -118,7 +122,15 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
+  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
+}
+
+/** The placement a resolved runner means: its kind, the name inside `sbx (<name>)` / `docker (<name>)`, or the host fallback reason. */
+export function placementOfResolved(resolved: ResolvedBackend, core: string): TicketPlacement {
+  const inParens = /^\w+ \((.*)\)$/s.exec(resolved.line)?.[1] ?? null;
+  const { kind, enforcesSandbox } = resolved.runner;
+  if (kind === 'host' || !enforcesSandbox) return { backend: 'host', core, sandboxName: null, reason: inParens };
+  return { backend: kind, core, sandboxName: inParens, reason: null };
 }
 
 /** `host (<reason>)` → `<reason>`. */

@@ -133,3 +133,18 @@ describe('makeSessionHandOff', () => {
     expect(deps.open).not.toHaveBeenCalled();
   });
 });
+
+describe('resolveConflictClick arm', () => {
+  it('arms the repo right before the brief goes out', async () => {
+    const order: string[] = [];
+    const { input } = click({ arm: (r) => order.push(`arm:${r}`), deliver: () => order.push('deliver') });
+    await resolveConflictClick(input);
+    expect(order).toEqual(['arm:/repos/api', 'deliver']);
+  });
+  it('does not arm when there is no brief to send', async () => {
+    const arm = vi.fn();
+    const { input } = click({ arm, briefFor: () => null });
+    await resolveConflictClick(input);
+    expect(arm).not.toHaveBeenCalled();
+  });
+});

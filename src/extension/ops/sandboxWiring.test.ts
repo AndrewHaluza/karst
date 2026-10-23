@@ -6,6 +6,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
+import { getPlacement, recordPlacement } from '../../store/placement.js';
 
 let store: Store;
 let id: number;
@@ -462,5 +463,143 @@ describe('makeSandboxWiring carry (T714)', () => {
     const { w, notify } = wiring({ backendOn: () => true, projectId: () => 1 });
     await w.carry(id);
     expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('reopening is not available'));
+  });
+});
+
+describe('makeSandboxWiring reads the recorded placement, not the core (D245)', () => {
+  const ROOT = '/p/karst.yml';
+  it('a recorded-host ticket with an sbx-capable core never spawns sbx or docker, on any sync path', async () => {
+    recordPlacement(store, id, { backend: 'host', core: 'claude', sandboxName: null, reason: null }, 'claude');
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    const { w } = wiring({ proc, dockerProc, projectRoot: () => ROOT, backendOn: () => true });
+    await expect(w.ensureInSync(id)).resolves.toEqual({ ok: true });
+    await expect(w.ensureSynced(id)).resolves.toEqual({ ok: true });
+    await w.stashUpdate(id);
+    expect(proc.calls).toEqual([]);
+    expect(dockerProc.calls).toEqual([]);
+  });
+  it('a recorded sandbox placement names the core even when the session provider is null after a reload', async () => {
+    const t = createTicket(store, { key: 'K-9', title: 'n' }).id;
+    recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: sbxName({ projectRoot: ROOT, ticketId: t, core: 'claude' }), reason: null }, null);
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
+    const { w } = wiring({ proc, projectRoot: () => ROOT, backendOn: () => true });
+    await w.ensureInSync(t);
+    // the recorded core is probed directly: no inventory listing needed to guess it
+    expect(proc.calls.some((c) => c.args.includes('ls'))).toBe(true);
+  });
+  it('a recorded sandbox whose CLI cannot answer blocks instead of passing', async () => {
+    const t = createTicket(store, { key: 'K-10', title: 'n' }).id;
+    recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null }, 'claude');
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'sbx: not found' } });
+    const { w } = wiring({ proc, projectRoot: () => ROOT, backendOn: () => true });
+    const r = await w.ensureInSync(t);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('makeSandboxWiring lifecycle on a recorded-host ticket (D245)', () => {
+  const ROOT = '/p/karst.yml';
+  it('archive, done, stop and remove spawn no CLI and pass', async () => {
+    recordPlacement(store, id, { backend: 'host', core: 'claude', sandboxName: null, reason: null }, 'claude');
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, id);
+    const { w } = wiring({ proc, dockerProc, projectRoot: () => ROOT, backendOn: () => true, projectId: () => projectId });
+    await expect(w.beforeArchive(id)).resolves.toBe(true);
+    w.onDone(id);
+    await w.stop(id);
+    await w.remove(id);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(proc.calls).toEqual([]);
+    expect(dockerProc.calls).toEqual([]);
+  });
+  it('a verified removal of a recorded sandbox records host (sandbox removed)', async () => {
+    const t = createTicket(store, { key: 'K-11', title: 'n' }).id;
+    recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null }, 'claude');
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
+    const { w } = wiring({ proc, projectRoot: () => ROOT, backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
+    await w.remove(t);
+    expect(getPlacement(store, t)).toMatchObject({ backend: 'host', reason: 'sandbox removed' });
+  });
+});
+
+describe('makeSandboxWiring.recordLaunchPlacement (D245)', () => {
+  const sbxP = { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null } as const;
+  it('the owning window records placement with the session provider, in one write', () => {
+    const t = createTicket(store, { key: 'K-20', title: 'n' }).id;
+    const { w } = wiring({ proc: fakeSbxProcess(), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
+    expect(w.recordLaunchPlacement(t, sbxP, 'claude')).toBe(true);
+    expect(getPlacement(store, t)).toEqual(sbxP);
+    expect(getTicket(store, t).sessionProvider).toBe('claude');
+  });
+  it('a window that does not control the ticket writes nothing (two-window ownership, AC-37)', () => {
+    const t = createTicket(store, { key: 'K-21', title: 'n' }).id;
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(t);
+    const { w } = wiring({ proc: fakeSbxProcess(), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => undefined, owned: new Set<number>() });
+    expect(w.recordLaunchPlacement(t, sbxP, 'claude')).toBe(false);
+    expect(getPlacement(store, t)).toBeNull();
+  });
+  it('a recorded placement survives a reload: a fresh wiring reads it with no session provider', () => {
+    const t = createTicket(store, { key: 'K-22', title: 'n' }).id;
+    recordPlacement(store, t, sbxP, null);
+    const { w } = wiring({ proc: fakeSbxProcess(), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => undefined });
+    expect(getPlacement(store, t)).toEqual(sbxP);
+    expect(w).toBeDefined();
+  });
+});
+
+describe('makeSandboxWiring.backfillPlacements (D245)', () => {
+  it('records listed sandboxes and host for the rest, once; a failed listing records nothing', async () => {
+    const projectId = upsertProject(store, { slug: 'bf' }).id;
+    const t = createTicket(store, { key: 'K-30', title: 'n', projectId }).id;
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'not found' } });
+    const { w } = wiring({ proc, projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    await w.backfillPlacements();
+    expect(getPlacement(store, t)).toBeNull();
+    const ok = wiring({ proc: fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } }), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    await ok.w.backfillPlacements();
+    expect(getPlacement(store, t)).toMatchObject({ backend: 'host' });
+  });
+});
+
+describe('makeSandboxWiring placement transitions and backfill edges (D245)', () => {
+  const ROOT = '/p/karst.yml';
+  const mkDone = (merged: boolean) => {
+    const t = createTicket(store, { key: merged ? 'K-40' : 'K-41', title: 'n' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t);
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, status, merged_at) VALUES (?, ?, ?, ?, ?)').run(t, 'r', 1, merged ? 'merged' : 'open', merged ? '2026-01-01T00:00:00Z' : null);
+    recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null }, 'claude');
+    return t;
+  };
+  it('done+merged: the verified removal records host, keeping core and session provider', async () => {
+    const t = mkDone(true);
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
+    const { w } = wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, owned: new Set([t]) });
+    w.onDone(t);
+    await vi.waitFor(() => expect(getPlacement(store, t)).toEqual({ backend: 'host', core: 'claude', sandboxName: null, reason: 'sandbox removed' }));
+    expect(getTicket(store, t).sessionProvider).toBe('claude');
+  });
+  it('done but not merged: the sandbox is only stopped, placement stays', async () => {
+    const t = mkDone(false);
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
+    const { w } = wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, owned: new Set([t]) });
+    w.onDone(t);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getPlacement(store, t)?.backend).toBe('sbx');
+  });
+  it('backfill: a listed sandbox is recorded with its name and logs the count; no project or no backend writes nothing', async () => {
+    const projectId = upsertProject(store, { slug: 'bf2' }).id;
+    const t = createTicket(store, { key: 'K-42', title: 'n', projectId }).id;
+    const name = sbxName({ projectRoot: ROOT, ticketId: t, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude running\n` } });
+    const info = vi.fn();
+    await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => undefined, info }).w.backfillPlacements();
+    await wiring({ proc, backendOn: () => false, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
+    expect(getPlacement(store, t)).toBeNull();
+    await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
+    expect(getPlacement(store, t)).toMatchObject({ backend: 'sbx', core: 'claude', sandboxName: name });
+    expect(info).toHaveBeenCalledWith(expect.stringMatching(/recorded placement for [1-9]\d* ticket/));
   });
 });

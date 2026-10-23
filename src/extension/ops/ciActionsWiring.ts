@@ -12,6 +12,8 @@ import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
+import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
+import { autoDeliverAfterConflict, conflictRounds, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
 /** Host-side seams shared by both ship actions; `extension.ts` supplies them (vscode lives only there). */
@@ -143,12 +145,37 @@ export function refreshUndeliveredFor(i: Pick<CiActionsInput, 'store' | 'ticketI
   });
 }
 
-export function deliverToPrAction(i: CiActionsInput): Promise<void> {
+export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
-  return deliverToPr({
+  await deliverToPr({
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
+    blocked: h.blocked,
+    runShip: h.runShip,
+    reprobe: async () => {
+      await i.reprobe();
+      await refreshUndeliveredFor(i, h.tracker);
+    },
+    info: i.info, error: i.error, logError: i.logError, afterServerChange: i.afterServerChange,
+  });
+}
+
+/** Karst's own delivery of a resolved merge conflict, run when the Resolve-conflicts session goes idle (D247). */
+export function autoDeliverAction(
+  i: CiActionsInput,
+  extra: Pick<AutoDeliverDeps, 'key' | 'status' | 'log'> & { readonly gate: ShipGatesDeps },
+): Promise<void> {
+  const h = i.deliver;
+  return autoDeliverAfterConflict({
+    ticketId: i.ticketId,
+    key: extra.key, status: extra.status, log: extra.log,
+    rounds: conflictRounds,
+    runGates: (prs) => runShipGates(prs, extra.gate),
+    targets: () => deliverTargets(i.store, i.ticketId),
+    agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
+    ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
+    verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,
     reprobe: async () => {

@@ -37,6 +37,7 @@ describe('direct approach launch path (integration)', () => {
         prompt: 'Brute-force protection missing on the auth endpoint.',
         brief: 'Cap login attempts per IP; return 429 past the threshold.',
         baseShas: {},
+        placement: null,
         intent: null,
         codePointers: null,
         approach: 'direct',

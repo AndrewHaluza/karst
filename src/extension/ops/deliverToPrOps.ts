@@ -90,6 +90,11 @@ export interface DeliverDeps {
   readonly ensureSynced: () => Promise<EnsureSyncResult>;
   /** The existing sync blocker (Open sync diff / Carry); nothing is pushed. */
   readonly blocked: (reason: string, rewritten: boolean, cliUnknown?: boolean) => Promise<void>;
+  /**
+   * Runs after the sync and before the push; a reason refuses the push (nothing
+   * is pushed). The auto-delivery after a conflict resolve gates the merged tree here.
+   */
+  readonly verify?: () => Promise<string | null>;
   /** Ship's push with `deliverToOpenPr`, saga-recorded. */
   readonly runShip: () => Promise<void>;
   /** Re-probe the PRs (@arch:GH-03). */
@@ -105,28 +110,49 @@ const NOT_AVAILABLE = 'Deliver to PR is not available: the ticket has no open pu
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export async function deliverToPr(d: DeliverDeps): Promise<void> {
+/** What a delivery did, for callers that act on it (the auto-delivery's disarm and log). */
+export type DeliverOutcome =
+  | { readonly kind: 'delivered' }
+  | { readonly kind: 'skipped' }
+  | { readonly kind: 'blocked'; readonly reason: string }
+  | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'failed'; readonly reason: string };
+
+export async function deliverToPr(d: DeliverDeps): Promise<DeliverOutcome> {
   try {
-    await run(d);
+    return await run(d);
   } catch (err) {
     d.logError('deliverToPr failed', err);
     d.error(`Deliver to PR failed: ${message(err)}`);
+    return { kind: 'failed', reason: message(err) };
   } finally {
     d.afterServerChange();
   }
 }
 
-async function run(d: DeliverDeps): Promise<void> {
-  if (d.agentActive()) return d.error(BUSY);
+const SKIPPED: DeliverOutcome = { kind: 'skipped' };
+
+async function run(d: DeliverDeps): Promise<DeliverOutcome> {
+  if (d.agentActive()) return d.error(BUSY), SKIPPED;
   const targets = d.targets();
   if (!targets.available) {
-    return targets.reason === 'in-flight' ? d.error('Deliver to PR: another ship run is in flight; try when idle.') : d.info(NOT_AVAILABLE);
+    if (targets.reason === 'in-flight') d.error('Deliver to PR: another ship run is in flight; try when idle.');
+    else d.info(NOT_AVAILABLE);
+    return SKIPPED;
   }
   const synced = await d.ensureSynced();
-  if (!synced.ok) return synced.unknown === true ? d.blocked(synced.reason, false, true) : d.blocked(synced.reason, synced.rewritten === true);
+  if (!synced.ok) {
+    await (synced.unknown === true ? d.blocked(synced.reason, false, true) : d.blocked(synced.reason, synced.rewritten === true));
+    return { kind: 'blocked', reason: synced.reason };
+  }
   // The sync can take a while: a turn or a ship run may have started meanwhile.
-  if (d.agentActive()) return d.error(BUSY);
+  if (d.agentActive()) return d.error(BUSY), SKIPPED;
+  const refusal = d.verify ? await d.verify() : null;
+  if (refusal !== null) return { kind: 'refused', reason: refusal };
+  // The gates can take minutes: a turn may have started, and what they checked is no longer what would be pushed.
+  if (d.verify && d.agentActive()) return d.error(BUSY), SKIPPED;
   await d.runShip();
   await d.reprobe();
   d.info('Delivered the ticket branch to the open pull request.');
+  return { kind: 'delivered' };
 }

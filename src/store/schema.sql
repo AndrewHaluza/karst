@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS tickets (
   base_shas         TEXT,                 -- v80: JSON object of per-repo base commit shas
   session_launch_id TEXT,                 -- v86: launch generation that bound session_id; NULL = unknown (pre-v86)
   agent_backend     TEXT,                 -- v85: NULL = project agentBackend; 'host' = opt OUT of the sandbox backend
+  placement_backend TEXT,                 -- v88: recorded placement 'host'|'sbx'|'docker'; NULL = not recorded (arch:AC-32)
+  placement_core    TEXT,                 -- v88: core the placement was resolved for
+  placement_sandbox TEXT,                 -- v88: sandbox name (sbx/docker only)
+  placement_reason  TEXT,                 -- v88: why a sandbox backend fell back to host
   -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
   intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
   code_pointers     TEXT,                 -- unverified implementer hints; NULL = none
