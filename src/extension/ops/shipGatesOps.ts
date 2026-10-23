@@ -38,6 +38,7 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
     });
     if (ran.kind === 'stopped') return `${pr.repo}: gate run was stopped`;
     for (const r of ran.results) {
+      if (r.exitCode === null && r.hostRefused) return `${pr.repo}: gate "${r.name}" could not run (refused by the host boundary), so the merge is not verified`;
       if (r.exitCode === null || r.exitCode === 0) continue;
       return `${pr.repo}: gate "${r.name}" failed (exit ${r.exitCode})${summaryOf(r.output)}`;
     }

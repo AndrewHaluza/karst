@@ -54,4 +54,11 @@ describe('runShipGates', () => {
     const runProcess: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'ENOENT' }) as never;
     expect(await runShipGates([repoWith({ test: 'x' })], { uat: undefined, runProcess })).toBeNull();
   });
+  it('blocks when a host-only gate was refused by the host boundary (no verdict is not a pass)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const uat = { gates: [{ name: 'docs', kind: 'command', command: 'x', args: [], sandbox: 'host' }], repositories: {} } as never;
+    const refuse: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'no exec', output: 'refused' }) as never;
+    const r = await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse });
+    expect(r).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
+  });
 });
