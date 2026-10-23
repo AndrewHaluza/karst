@@ -16,6 +16,8 @@ import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import { capForGate, type GateStageKey } from './fixAttempts.js';
 import { nowIso } from '../model/time.js';
+import { stageAttempt } from '../store/stages.js';
+import { runReview } from './stages/review.js';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
@@ -38,6 +40,7 @@ import {
   DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
   uatIdentitiesFrom,
   FINDINGS_FAILURE_PREFIX,
+  gateEntriesFrom,
   type AggregateEntry,
   type FindingsLaneOutcome,
 } from './review/aggregate.js';
@@ -64,6 +67,8 @@ import {
   type TesterGateRunner,
 } from './uat/testerVerifier.js';
 import { laneTargetsToAsk, type KeptTarget } from './usageLimitKept.js';
+import { parseReviewKeptOutcome, mergeReviewKeptOutcome } from './review/keptOutcome.js';
+import { targetTree, unresolvedTargets } from './rerunTargets.js';
 import { latestBaselineDecisions } from '../store/baselineDecisions.js';
 import { unapprovedBaselines } from './gates/baselineReview.js';
 import { detectTicketBaselines } from './gates/baselineReviewTicket.js';
@@ -71,11 +76,6 @@ import { detectTicketBaselines } from './gates/baselineReviewTicket.js';
 /** A sibling target's status carried on a UAT park row's `keptOutcome`. */
 interface UatKeptTarget extends KeptTarget {
   observations?: number;
-}
-
-/** A sibling target's status carried on a Review park row's `keptOutcome`. */
-interface ReviewKeptTarget extends KeptTarget {
-  findings?: number;
 }
 
 /**
@@ -118,48 +118,6 @@ function parseUatKeptOutcome(raw: string | null): {
     // A malformed kept outcome keeps nothing — never a crash.
   }
   return { observations, targets };
-}
-
-function parseReviewKeptOutcome(raw: string | null): {
-  findings: number;
-  targets: ReviewKeptTarget[];
-} {
-  try {
-    const parsed = raw ? JSON.parse(raw) : null;
-    return {
-      findings: typeof parsed?.findings === 'number' ? parsed.findings : 0,
-      targets: Array.isArray(parsed?.targets)
-        ? parsed.targets.filter(
-            (t: unknown): t is ReviewKeptTarget =>
-              !!t && typeof t === 'object' && typeof (t as { repo?: unknown }).repo === 'string',
-          )
-        : [],
-    };
-  } catch {
-    return { findings: 0, targets: [] };
-  }
-}
-
-/**
- * Carry the earlier park's sibling TARGETS forward when a review re-run parks
- * again. The fresh lane names only the target it touched; without this merge a
- * second quota stop would forget a partner target's `unreadable`/`ok` status,
- * which the next re-run's R6b ratio depends on. Findings themselves are already
- * durable in `review_findings`; this is the status/count half.
- */
-function mergeReviewKeptOutcome(fresh: string, prior: string | null): string {
-  const freshParsed = parseReviewKeptOutcome(fresh);
-  const priorParsed = parseReviewKeptOutcome(prior);
-  const freshRepos = new Set(freshParsed.targets.map((t) => t.repo));
-  const preserved = priorParsed.targets.filter((t) => !freshRepos.has(t.repo));
-  const preservedFindings = preserved.reduce(
-    (n, t) => n + (typeof t.findings === 'number' ? t.findings : 0),
-    0,
-  );
-  return JSON.stringify({
-    findings: preservedFindings + freshParsed.findings,
-    targets: [...preserved, ...freshParsed.targets],
-  });
 }
 
 /**
@@ -429,41 +387,6 @@ type ClaimedRerunOptions = RerunParkOptions & {
   assignment: ProcessAssignmentSnapshot;
 };
 
-/** A target's tree, as the parked run recorded it (or the primary `cwd`). */
-interface TargetTree {
-  path: string;
-  baseRef: string | null;
-  branch: string | null;
-}
-
-/**
- * Resolve one asked repository to the tree it must be reviewed/tested in.
- *
- * A target with NO registered worktree row must never fall back to `cwd`: that
- * reviews or tests the primary checkout under another repository's name. The
- * only legitimate `cwd` substitution is the no-manifest path, where the stage
- * itself asked exactly `cwd` (so the repo it recorded IS that path). Anything
- * else is unresolvable and the caller parks instead of asking the wrong tree.
- */
-function targetTree(
-  worktrees: readonly WorktreeView[],
-  repo: string,
-  cwd: string,
-): TargetTree | null {
-  const wt = worktrees.find((w) => w.repo === repo);
-  if (wt) return { path: wt.path, baseRef: wt.baseRef, branch: wt.branch };
-  return repo === cwd ? { path: cwd, baseRef: null, branch: null } : null;
-}
-
-/** The repos this run cannot ask, because the ticket has no worktree row for them. */
-function unresolvedTargets(
-  worktrees: readonly WorktreeView[],
-  repos: readonly string[],
-  cwd: string,
-): string[] {
-  return repos.filter((repo) => targetTree(worktrees, repo, cwd) === null);
-}
-
 /**
  * Park the stage on a block that is decided BEFORE the lane runs: a target with
  * no registered worktree (`nothing-to-run`), or a UAT baseline the user has not
@@ -628,37 +551,6 @@ function gateRowsForParkedAttempt(
 }
 
 /**
- * A parked run's rows as aggregate entries — actual gate invocations only.
- *
- * A stage run also records NON-gate evidence under the same `stage_run_id`: the
- * `changes` row (Changes panel opened) carries `exitCode: 0` but no invocation
- * identity, and a skipped row names a gate the user disabled. Feeding either to
- * the aggregate would count a question nobody asked as a gate that RAN (R3) and
- * as an identity UAT never asked (R7), letting a re-run pass a stage that asked
- * nothing. A real invocation is exactly a non-skipped row that recorded its
- * `{repo, command}` (v21 identity).
- */
-function gateEntriesFrom(runs: readonly GateRun[]): AggregateEntry[] {
-  return runs
-    .filter((r) => !r.skipped && r.repo !== null && r.command !== null)
-    .map((r) => ({
-      result: {
-        name: r.gateName,
-        exitCode: r.exitCode,
-        output: r.summary ?? '',
-        startedAt: r.startedAt ?? undefined,
-        endedAt: r.endedAt ?? undefined,
-      },
-      identity: {
-        name: r.gateName,
-        repo: r.repo ?? '',
-        command: r.command ?? r.gateName,
-        args: r.args ?? [],
-      },
-    }));
-}
-
-/**
  * Every manifest entry backed by this worktree path. The UAT stage derives the
  * same list while planning; the re-run has a store row's repoPath, so it maps
  * back to the names `unitsOf` needs to find the target's running services.
@@ -795,333 +687,30 @@ async function rerunReviewParkedStage(
   opts: ClaimedRerunOptions,
   ctx: { stageKey: GateStageKey; runAt: string; now: () => string },
 ): Promise<StageRunResult> {
-  const {
-    store,
-    parkRow,
-    adapter,
-    assignment,
-    manifest,
-    cwd,
-    artifactDir,
-    signal,
-    debug,
-  } = opts;
-  const { stageKey, runAt, now } = ctx;
-
-  // Opened with the SHARED gate-run handle, never the bare `openStageRun`:
-  // `openGateRun` attaches a run opened while a recovery round awaits its
-  // revalidation to that round, so a passing re-run completes the round it
-  // stands in for (`commitGateOutcome`'s passed path completes the round whose
-  // run id this is). The bare opener skips the attachment and would leave the
-  // round 'revalidating' forever.
-  const evidence = openGateRun(store, {
-    ticketId: parkRow.ticketId,
-    stageKey,
-    runAt,
-    manifest,
-    pid: process.pid,
-    debug,
-  });
-  const newStageRunId = evidence.runId;
-  const attempt = evidence.attempt;
-
-  const targetRepo = parkRow.target ?? cwd;
-  const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
+  const { store, parkRow, adapter, assignment, manifest, cwd } = opts;
   const keptTargets = parseReviewKeptOutcome(parkRow.keptOutcome).targets;
-  const askedRepos = laneTargetsToAsk(keptTargets, targetRepo);
-
-  // Never substitute `cwd` for a target the ticket has no worktree row for:
-  // that reviews another repository's checkout under this target's name.
-  const unresolved = unresolvedTargets(worktrees, askedRepos, cwd);
-  if (unresolved.length > 0) {
-    const reason =
-      `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
-      'so there is no tree to review — re-scope the ticket';
-    debug?.(`[gate] review ticket ${parkRow.ticketId}: ${reason}`);
-    return commitBlockedRerun({
-      store,
+  const attempt = stageAttempt(store, parkRow.ticketId, 'review');
+  return runReview(
+    store,
+    {
       ticketId: parkRow.ticketId,
-      stageKey,
-      runAt,
-      artifactDir,
-      stageRunId: newStageRunId,
-      lane: 'review',
-      reason,
-      now,
-      debug,
-    });
-  }
-
-  const laneTargets: FindingsLaneTarget[] = askedRepos.map((repo) => {
-    const tree = targetTree(worktrees, repo, cwd)!;
-    return {
-      repo,
-      worktreePath: tree.path,
-      baseRef: tree.baseRef,
-      branch: tree.branch,
-    };
-  });
-
-  const config = {
-    ...DEFAULT_REVIEW_FINDINGS,
-    ...(manifest?.review?.findings ?? {}),
-  };
-  const overrideProcess: FindingsProcessInput = {
-    // The role's resolved snapshot, not a provider/model stub: the profile body
-    // is the review prompt and the effort/agent name are the run's identity.
-    assignment,
-    adapter,
-    stageRunId: newStageRunId,
-    attempt,
-    pid: process.pid,
-    startedAt: runAt,
-  };
-
-  // Read the SIBLING findings BEFORE the lane runs: the lane now persists its
-  // own findings as they land (`persistFindings`), so reading afterwards would
-  // count the re-run's own findings as siblings and double them.
-  const existingFindings = findingsForAttempt(store, parkRow.ticketId, attempt);
-
-  // The conformance artifacts the reviewer judges the change against — loaded
-  // by the caller (the read touches the store) and never allowed to fail the
-  // stage: a rejection logs and the lane runs without them, exactly like the
-  // stage.
-  let artifacts: ReviewArtifacts | undefined;
-  if (opts.loadArtifacts) {
-    try {
-      const loaded = await opts.loadArtifacts();
-      artifacts = loaded ? { ...loaded, targets: askedRepos } : undefined;
-    } catch (err) {
-      debug?.(`[gate] review ticket ${parkRow.ticketId}: artifacts unavailable (${String(err)})`);
-    }
-  }
-
-  const laneOutcome = await runFindingsLane({
-    config,
-    adapter,
-    targets: laneTargets,
-    ticketId: parkRow.ticketId,
-    signal,
-    store,
-    process: overrideProcess,
-    // A parked review is re-reviewed against the SAME evidence shape the stage
-    // uses: a worktree SNAPSHOT (committed and uncommitted as one tree), not the
-    // committed-only branch range. Without the snapshot a ticket whose work is
-    // uncommitted — the normal case before ship — would re-review as empty and
-    // pass. `openChanges` only selects the fallback wording when no snapshot
-    // could be made.
-    git: opts.git,
-    artifacts,
-    openChanges: opts.openChanges ?? manifest?.review?.openChanges,
-    // Findings land the instant the lane produces them, attributed to this
-    // re-run's Review process run — the same durability the stage gets.
-    persistFindings: (findings, processRunId) => evidence.appendFindings(findings, processRunId),
-    debug,
-  });
-
-  if (laneOutcome.kind === 'stopped') {
-    if (laneOutcome.processRunId) {
-      finishProcessRun(store, laneOutcome.processRunId, 'interrupted', now(), 'interrupted');
-    }
-    // The run this re-run OPENED must be closed even on a Stop: nothing else
-    // ever will (the process stays alive, so the activation sweep never marks
-    // it stale), and a `running` row no process will finish is a lie the
-    // dashboard renders as a live stage.
-    closeStageRun(store, newStageRunId, 'stopped', now());
-    return { kind: 'stopped' };
-  }
-
-  // The complete target set, not just this run's: the siblings that already
-  // answered and the ones this re-run just finished. `askedRepos` is a subset,
-  // so the count must union both rather than add one to a sibling count.
-  const askedSet = new Set(askedRepos);
-  const totalTargetCount = new Set([
-    ...keptTargets.map((t) => t.repo),
-    ...askedRepos,
-  ]).size;
-  const siblingUnreadable = keptTargets
-    .filter((t) => !askedSet.has(t.repo) && t.status === 'unreadable')
-    .map((t) => t.repo);
-
-  // Current newly found findings (the siblings were read before the lane ran)
-  const newFindings = laneOutcome.kind === 'ran' ? laneOutcome.findings : [];
-  const mergedFindings: FindingInput[] = [
-    ...existingFindings.map((f) => ({
-      severity: f.severity,
-      repo: f.repo,
-      file: f.file,
-      line: f.line,
-      title: f.title,
-      detail: f.detail,
-      source: f.source,
-    })),
-    ...newFindings,
-  ];
-
-  const mergedUnreadable = [
-    ...(laneOutcome.kind === 'ran' ? (laneOutcome.unreadable ?? []) : []),
-    ...siblingUnreadable,
-  ];
-
-  const effectiveLaneOutcome: FindingsLaneOutcome =
-    laneOutcome.kind === 'ran'
-      ? {
-          kind: 'ran',
-          findings: mergedFindings,
-          crashes: laneOutcome.crashes,
-          unreadable: mergedUnreadable.length > 0 ? mergedUnreadable : undefined,
-          targetCount: totalTargetCount,
-          processRunId: laneOutcome.processRunId,
-        }
-      : laneOutcome.kind === 'usage-limited'
-        ? {
-            ...laneOutcome,
-            // A second quota stop must still name the siblings the earlier park
-            // kept, exactly like the UAT merge.
-            keptOutcome: mergeReviewKeptOutcome(laneOutcome.keptOutcome, parkRow.keptOutcome),
-          }
-        : laneOutcome;
-
-  // The deterministic gates this review stands in for ran in the PARKED run
-  // (or, after a re-park, in the run whose gates decided this attempt). Only
-  // its actual gate invocations are inputs to the aggregate: the run's
-  // non-gate evidence (the `changes` row, skipped rows) asked nothing and must
-  // not let R3/R7 read the re-run as having asked a question.
-  const previousGateRuns = gateRowsForParkedAttempt(
-    store,
-    parkRow.ticketId,
-    'review',
-    parkRow.stageRunId,
-    attempt,
+      cwd,
+      artifactDir: opts.artifactDir,
+      manifest,
+      signal: opts.signal,
+      debug: opts.debug,
+      rerun: {
+        targets: laneTargetsToAsk(keptTargets, parkRow.target ?? cwd),
+        // The parked run's gate rows (or, after a re-park, the run whose gates
+        // decided this attempt): inputs to the aggregate, never this run's own.
+        previousGateRuns: gateRowsForParkedAttempt(store, parkRow.ticketId, 'review', parkRow.stageRunId, attempt),
+        keptTargets,
+        priorKeptOutcome: parkRow.keptOutcome,
+        process: { assignment, adapter },
+      },
+    },
+    { now: ctx.now, git: opts.git, loadArtifacts: opts.loadArtifacts },
   );
-  const entries: AggregateEntry[] = gateEntriesFrom(previousGateRuns);
-
-  const uatIdentities = uatIdentitiesFrom(listGateRuns(store, parkRow.ticketId));
-  const blockingSeverity = config.blockingSeverity;
-
-  const aggregateOutcome = aggregateReview(entries, uatIdentities, effectiveLaneOutcome, {
-    // The DEFAULT, never `false`: a manifest that omits the key must not
-    // silently bypass R7 on the re-run while the stage path fails the same run.
-    requireIndependentSignal:
-      manifest?.review?.requireIndependentSignal ?? DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
-    findingsBlockingSeverity: blockingSeverity,
-    disabledGateNames: [],
-  });
-
-  // Close the Review process run on EVERY non-stopped path, INCLUDING a
-  // re-park: a usage-limited lane still opened a run, and discarding its id here
-  // would leave a `running` row with no result kind forever.
-  const processRunId =
-    laneOutcome.kind === 'ran' || laneOutcome.kind === 'usage-limited'
-      ? (laneOutcome.processRunId ?? null)
-      : null;
-  if (processRunId !== null) {
-    const blocking =
-      aggregateOutcome.kind === 'verdict' &&
-      aggregateOutcome.verdict.kind === 'failed' &&
-      (aggregateOutcome.verdict.reason ?? '').startsWith(FINDINGS_FAILURE_PREFIX);
-    const crashes = laneOutcome.kind === 'ran' ? laneOutcome.crashes : undefined;
-    const unreadableTargets = laneOutcome.kind === 'ran' ? (laneOutcome.unreadable ?? []) : [];
-    const isUnreadable = unreadableTargets.length > 0;
-    const unreadableBlock =
-      isUnreadable &&
-      aggregateOutcome.kind === 'blocked' &&
-      aggregateOutcome.blocker === 'capability-missing';
-    const usageLimited = laneOutcome.kind === 'usage-limited';
-
-    if (artifactDir) {
-      mkdirSync(artifactDir, { recursive: true });
-    }
-    const logPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
-
-    if ((crashes?.length ?? 0) > 0 || unreadableBlock || usageLimited) {
-      const uniqueCrashes = [...new Set(crashes ?? [])];
-      const failureDetail =
-        usageLimited && laneOutcome.kind === 'usage-limited'
-          ? laneOutcome.detail
-          : uniqueCrashes.length > 0
-            ? collapseDiagnostic(uniqueCrashes.join('; '))
-            : null;
-      finishProcessRun(
-        store,
-        processRunId,
-        'failed',
-        now(),
-        'execution-failed',
-        logPath,
-        failureDetail,
-      );
-    } else if (blocking) {
-      finishProcessRun(store, processRunId, 'failed', now(), 'blocking', logPath);
-    } else {
-      finishProcessRun(store, processRunId, 'passed', now(), 'validated', logPath);
-    }
-  }
-
-  if (artifactDir) {
-    mkdirSync(artifactDir, { recursive: true });
-  }
-  const artifactPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
-  const artifactLines = [
-    `! re-run parked review: target(s) ${askedRepos.join(', ')} with ${assignment.provider}/${assignment.model ?? 'default'}`,
-  ];
-  if (aggregateOutcome.kind === 'blocked') {
-    artifactLines.push(`! ${aggregateOutcome.reason}`);
-    debug?.(`[gate] review ticket ${parkRow.ticketId}: blocked (${aggregateOutcome.blocker}: ${aggregateOutcome.reason})`);
-  }
-  if (laneOutcome.kind === 'ran') {
-    for (const crash of laneOutcome.crashes ?? []) {
-      artifactLines.push(`! review findings lane failed: ${crash}`);
-    }
-    for (const u of laneOutcome.unreadable ?? []) {
-      artifactLines.push(`! review findings lane unreadable output: ${u}`);
-    }
-  }
-  if (artifactPath) {
-    writeFileSync(artifactPath, artifactLines.join('\n') + '\n');
-  }
-
-  let recoveryTrigger: RecoveryTriggerInput | undefined;
-  if (aggregateOutcome.kind === 'verdict' && aggregateOutcome.verdict.kind === 'failed') {
-    const reason = aggregateOutcome.verdict.reason ?? 'review findings failed';
-    // Mirror `stages/review.ts`'s `recoveryTriggerFor`: the causal source is
-    // read off the failure constant, never assumed. A reason that does NOT start
-    // with `FINDINGS_FAILURE_PREFIX` is a deterministic gate failure (the
-    // reachable one here is R7's "review asked no question uat does not …"),
-    // attributed to `gates` with NO AI process — attributing it to `review`/the
-    // findings process run would misreport the cause to the Inside recovery
-    // prose and to the `byTriggerKind` quality metrics.
-    const fromFindings = reason.startsWith(FINDINGS_FAILURE_PREFIX);
-    const maxRounds = capForGate('review', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
-    recoveryTrigger = {
-      sourceProcessId: fromFindings ? 'review' : 'gates',
-      sourceStageRunId: newStageRunId,
-      sourceProcessRunId: fromFindings ? processRunId : null,
-      triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
-      triggerDetail: reason,
-      maxRounds,
-    };
-  }
-
-  return commitGateOutcome(store, {
-    ticketId: parkRow.ticketId,
-    stageKey,
-    runAt,
-    artifactPath,
-    // The parked run's deterministic gate rows are INPUTS to this aggregate,
-    // never this run's own evidence: this re-run executes the AI lane only. The
-    // rows stay attached to the stage run that actually produced them; copying
-    // them onto this run would claim gate work nobody did here.
-    gates: [],
-    outcome: aggregateOutcome,
-    // Findings are NOT passed here: the lane already persisted each one as it
-    // landed (`persistFindings`), so handing them over again would duplicate the
-    // batch in `review_findings`.
-    stageRunId: newStageRunId,
-    recoveryTrigger,
-    now,
-    debug,
-  });
 }
 
 async function rerunUatParkedStage(

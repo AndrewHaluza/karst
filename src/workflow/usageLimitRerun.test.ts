@@ -1990,7 +1990,7 @@ describe('rerunParkedStage', () => {
     const artifactFiles = readdirSync(artifactDir);
     expect(artifactFiles.length).toBeGreaterThan(0);
     const logContent = readFileSync(join(artifactDir, artifactFiles[0]!), 'utf-8');
-    expect(logContent).toContain('review findings lane unreadable output: web');
+    expect(logContent).toContain('review findings: unreadable output from web');
     expect(logContent).toContain('unreadable output from web — no findings could be read');
   });
 

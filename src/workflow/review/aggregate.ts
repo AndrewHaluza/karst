@@ -513,3 +513,34 @@ export function aggregateReview(
   // R9.
   return { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] };
 }
+
+/**
+ * A parked run's rows as aggregate entries — actual gate invocations only.
+ *
+ * A stage run also records NON-gate evidence under the same `stage_run_id`: the
+ * `changes` row (Changes panel opened) carries `exitCode: 0` but no invocation
+ * identity, and a skipped row names a gate the user disabled. Feeding either to
+ * the aggregate would count a question nobody asked as a gate that RAN (R3) and
+ * as an identity UAT never asked (R7), letting a re-run pass a stage that asked
+ * nothing. A real invocation is exactly a non-skipped row that recorded its
+ * `{repo, command}` (v21 identity).
+ */
+export function gateEntriesFrom(runs: readonly GateRun[]): AggregateEntry[] {
+  return runs
+    .filter((r) => !r.skipped && r.repo !== null && r.command !== null)
+    .map((r) => ({
+      result: {
+        name: r.gateName,
+        exitCode: r.exitCode,
+        output: r.summary ?? '',
+        startedAt: r.startedAt ?? undefined,
+        endedAt: r.endedAt ?? undefined,
+      },
+      identity: {
+        name: r.gateName,
+        repo: r.repo ?? '',
+        command: r.command ?? r.gateName,
+        args: r.args ?? [],
+      },
+    }));
+}
