@@ -12,7 +12,7 @@ import { usageLimitReason } from '../agent/cliFailure.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
 import { closeStageRun } from '../store/stageRuns.js';
-import type { GitRunner } from '../integrations/git.js';
+import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import { capForGate, type GateStageKey } from './fixAttempts.js';
 import { nowIso } from '../model/time.js';
@@ -64,6 +64,9 @@ import {
   type TesterGateRunner,
 } from './uat/testerVerifier.js';
 import { laneTargetsToAsk, type KeptTarget } from './usageLimitKept.js';
+import { latestBaselineDecisions } from '../store/baselineDecisions.js';
+import { unapprovedBaselines } from './gates/baselineReview.js';
+import { detectTicketBaselines } from './gates/baselineReviewTicket.js';
 
 /** A sibling target's status carried on a UAT park row's `keptOutcome`. */
 interface UatKeptTarget extends KeptTarget {
@@ -385,6 +388,12 @@ export interface RerunParkOptions {
    * already started is theirs and is left alone (mirrors `UatDeps.stopServers`).
    */
   stopServers?: UatStopServers;
+  /**
+   * Finds the visual baselines the ticket changed (`uat.baselineReview`). The UAT
+   * stage blocks on an unapproved one before its Tester; the re-run must too, or
+   * a retry after the tree changed would pass the ticket on its own screenshots.
+   */
+  detectBaselines?: typeof detectTicketBaselines;
 }
 
 /**
@@ -456,14 +465,16 @@ function unresolvedTargets(
 }
 
 /**
- * Park the stage because one of the targets has no registered worktree.
+ * Park the stage on a block that is decided BEFORE the lane runs: a target with
+ * no registered worktree (`nothing-to-run`), or a UAT baseline the user has not
+ * approved (`baseline-review`, `capability-missing` when git cannot answer).
  *
  * Committed as a BLOCK through the shared outcome writer, never run against a
  * guessed tree: the one-shot was spent and the stage is left with an actionable,
- * resumable reason (`nothing-to-run`) instead of a review/UAT of the wrong
- * checkout wearing the target's name.
+ * resumable reason instead of a review/UAT of the wrong checkout wearing the
+ * target's name.
  */
-function commitUnresolvedTargets(args: {
+function commitBlockedRerun(args: {
   store: Store;
   ticketId: number;
   stageKey: GateStageKey;
@@ -471,6 +482,7 @@ function commitUnresolvedTargets(args: {
   artifactDir: string;
   stageRunId: number;
   lane: 'review' | 'uat';
+  blocker?: 'nothing-to-run' | 'baseline-review' | 'capability-missing';
   reason: string;
   now: () => string;
   debug?: (m: string) => void;
@@ -488,7 +500,7 @@ function commitUnresolvedTargets(args: {
     runAt: args.runAt,
     artifactPath,
     gates: [],
-    outcome: { kind: 'blocked', blocker: 'nothing-to-run', reason: args.reason },
+    outcome: { kind: 'blocked', blocker: args.blocker ?? 'nothing-to-run', reason: args.reason },
     stageRunId: args.stageRunId,
     now: args.now,
     debug: args.debug,
@@ -826,7 +838,7 @@ async function rerunReviewParkedStage(
       `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
       'so there is no tree to review — re-scope the ticket';
     debug?.(`[gate] review ticket ${parkRow.ticketId}: ${reason}`);
-    return commitUnresolvedTargets({
+    return commitBlockedRerun({
       store,
       ticketId: parkRow.ticketId,
       stageKey,
@@ -1207,7 +1219,7 @@ async function rerunUatParkedStage(
       `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
       'so there is no tree to test — re-scope the ticket';
     debug?.(`[gate] uat ticket ${parkRow.ticketId}: ${reason}`);
-    return commitUnresolvedTargets({
+    return commitBlockedRerun({
       store,
       ticketId: parkRow.ticketId,
       stageKey,
@@ -1219,6 +1231,46 @@ async function rerunUatParkedStage(
       now,
       debug,
     });
+  }
+
+  // ---- Baseline review (@arch:BASELINE-REVIEW) ----
+  // The parked run passed this check before its Tester ran out of quota, but the
+  // tree and the decisions can change before the user retries. The same rule as
+  // the stage: a changed baseline counts only once the USER approved it, so an
+  // agent re-recording its own screenshots never passes itself. Opt-in.
+  if ((manifest?.uat?.baselineReview?.paths.length ?? 0) > 0) {
+    const detect = opts.detectBaselines ?? detectTicketBaselines;
+    const blockOnBaseline = (blocker: 'baseline-review' | 'capability-missing', reason: string) => {
+      debug?.(`[gate] uat ticket ${parkRow.ticketId}: baseline review — ${reason}`);
+      return commitBlockedRerun({
+        store,
+        ticketId: parkRow.ticketId,
+        stageKey,
+        runAt,
+        artifactDir,
+        stageRunId: newStageRunId,
+        lane: 'uat',
+        blocker,
+        reason,
+        now,
+        debug,
+      });
+    };
+    let changed;
+    try {
+      changed = await detect(store, manifest, parkRow.ticketId, worktrees, {
+        git: git ?? defaultGitRunner,
+      });
+    } catch (error) {
+      return blockOnBaseline('capability-missing', error instanceof Error ? error.message : String(error));
+    }
+    const pending = unapprovedBaselines(changed, latestBaselineDecisions(store, parkRow.ticketId));
+    if (pending.length > 0) {
+      return blockOnBaseline(
+        'baseline-review',
+        `${pending.length} visual baseline(s) changed — review in the UAT report`,
+      );
+    }
   }
 
   // The Tester is asked about the SAME ticket the stage asks about: its

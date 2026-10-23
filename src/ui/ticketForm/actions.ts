@@ -655,13 +655,21 @@ export function buildTicketFormActions(
      * rejected every lane this form does not own.
      */
     const rerunParkedOp = async (park: UsageLimitParkRow): Promise<void> => {
-      if (park.lane === 'suggest' && park.target !== null) {
-        await actions.suggestSignals(park.target);
-        return;
+      const what = park.lane === 'suggest' ? 'suggest' : 'analyze';
+      try {
+        if (park.lane === 'suggest' && park.target !== null) {
+          await actions.suggestSignals(park.target);
+          return;
+        }
+        // Reuse the prompt the parked analysis ran on: a create-mode draft has no
+        // persisted brief/description, so `''` would return before the AI call.
+        await actions.analyze(lastAnalysisPrompt);
+      } catch (e) {
+        // The claim already won, so the park is spent: say why nothing ran
+        // rather than leave a dead banner, a stuck spinner and a bare rejection.
+        ctx.post({ type: 'busy', what, on: false });
+        ctx.post({ type: 'error', message: errorMessage(e) });
       }
-      // Reuse the prompt the parked analysis ran on: a create-mode draft has no
-      // persisted brief/description, so `''` would return before the AI call.
-      await actions.analyze(lastAnalysisPrompt);
     };
 
     const actions: TicketFormActions = {

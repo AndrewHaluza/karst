@@ -16,7 +16,7 @@ const ROUND_STAGES = ['uat', 'review', 'ship'] as const;
 const ROUND_PROCESSES = ['gates', 'tester', 'review', 'pr-review'] as const;
 const ROUND_TRIGGERS = [
   'gate-failure', 'tester-verifier-failure', 'blocking-tester-observations',
-  'blocking-review-findings', 'upstream-changes-requested',
+  'blocking-review-findings', 'upstream-changes-requested', 'usage-limit-dismissed',
 ] as const;
 const STARTED = '2026-01-01T00:00:00.000Z';
 

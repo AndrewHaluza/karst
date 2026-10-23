@@ -835,6 +835,45 @@ describe('buildTicketFormActions', () => {
     expect(listOpenParks(store, t.id)).toHaveLength(0);
   });
 
+  it('Retry reports a re-run that throws after the claim instead of rejecting silently (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY-THROWS', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+    deps.resolveAnalysisProcess = vi.fn(() => {
+      throw new Error('resolver exploded');
+    });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await expect(actions.usageLimitParkRetry(parkId)).resolves.toBeUndefined();
+
+    // The park is spent (the claim won), so the user must at least be told why
+    // nothing ran — not left with a dead banner and an unhandled rejection.
+    expect(ctx.posted).toContainEqual({ type: 'error', message: 'resolver exploded' });
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Pick reports a re-run that throws after the claim instead of rejecting silently (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-THROWS', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+    deps.resolveAnalysisProcess = vi.fn(() => {
+      throw new Error('resolver exploded');
+    });
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await expect(actions.usageLimitParkPick(parkId)).resolves.toBeUndefined();
+
+    expect(ctx.posted).toContainEqual({ type: 'error', message: 'resolver exploded' });
+  });
+
   it('Retry re-runs ONLY the parked ANALYSIS op with the parked pair (D159)', async () => {
     const t = createTicket(store, { key: 'T-K11-RETRY-ANALYSIS', title: 't' });
     const parkId = await parkAnalysisOnQuota(t.id);

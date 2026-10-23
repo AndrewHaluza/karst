@@ -45,6 +45,20 @@ describe('parseFixtureFile', () => {
     expect(rows.gateRuns![0]!.exitCode).toBe(1);
     expect(rows.recoveryRounds![0]!.maxRounds).toBe(3);
   });
+  it('seeds a recovery round opened by a dismissed usage-limit park', () => {
+    const spec = parseFixtureFile({
+      tickets: [{
+        ...ticket,
+        rows: {
+          recovery_rounds: [{
+            sourceStage: 'uat', sourceProcessId: 'tester',
+            triggerKind: 'usage-limit-dismissed', triggerDetail: 'out of quota',
+          }],
+        },
+      }],
+    });
+    expect(spec.tickets[0]!.rows!.recoveryRounds![0]!.triggerKind).toBe('usage-limit-dismissed');
+  });
   it.each([
     ['non-object root', []],
     ['unknown root key', { tickets: [], sql: 'x' }],
