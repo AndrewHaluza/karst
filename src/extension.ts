@@ -8168,8 +8168,6 @@ function makeDashboardActions(
       await (sandboxB ? sandboxB.stopTicket(store, ticketId) : stopTicketServers(store, ticketId)); // AC-32
       afterServerChange();
     },
-    // Shared service rows (D203) are read-only here; Manage opens the existing
-    // Resource Monitor. The project view repoints this at `karst.openServers`.
     openResources: () => void vscode.commands.executeCommand('karst.openResources'),
     showChanges,
     switchAgent,
