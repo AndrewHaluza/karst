@@ -1,0 +1,28 @@
+import { describe, it, expect } from 'vitest';
+import { quotaTextFromHook, quotaTextFromClaudeEntry, isInteractiveQuota } from './interactiveQuota.js';
+
+describe('interactive quota detector', () => {
+  it('session.error message is candidate text; other events are not', () => {
+    expect(quotaTextFromHook({ hook_event_name: 'session.error', message: 'insufficient_quota' })).toBe('insufficient_quota');
+    expect(quotaTextFromHook({ hook_event_name: 'Stop', message: 'usage limit' })).toBeNull();
+    expect(quotaTextFromHook({ hook_event_name: 'session.error', message: 5 })).toBeNull();
+    expect(quotaTextFromHook({ hook_event_name: 'session.error', message: '' })).toBeNull();
+  });
+
+  it('claude entry counts only when isApiErrorMessage is true', () => {
+    const entry = (flag: boolean) => ({
+      isApiErrorMessage: flag,
+      message: { content: [{ type: 'text', text: 'Claude usage limit reached' }] },
+    });
+    expect(quotaTextFromClaudeEntry(entry(true))).toBe('Claude usage limit reached');
+    expect(quotaTextFromClaudeEntry(entry(false))).toBeNull();
+    expect(quotaTextFromClaudeEntry('x')).toBeNull();
+    expect(quotaTextFromClaudeEntry({ isApiErrorMessage: true, message: { content: 'str' } })).toBeNull();
+  });
+
+  it('quota phrases hit; prose about a rate limit does not', () => {
+    expect(isInteractiveQuota('claude', 'Claude usage limit reached')).toBe(true);
+    expect(isInteractiveQuota('opencode', 'You exceeded your current quota (insufficient_quota)')).toBe(true);
+    expect(isInteractiveQuota('claude', 'I should add a rate limit to this endpoint')).toBe(false);
+  });
+});
