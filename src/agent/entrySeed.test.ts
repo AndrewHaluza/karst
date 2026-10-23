@@ -178,6 +178,23 @@ describe('composeConflictSeed', () => {
     expect(first).not.toContain('·');
   });
 
+  // A recorded repo path is the contract and can contain a space (a project
+  // directory with a space in its name). Unquoted, the positional `<key> <repo>`
+  // grammar (arch:AC-20) reads it as several arguments, so the agent hands
+  // `conflict-brief` a repo that matches no merge check.
+  it('keeps a repo path containing a space one argument token', () => {
+    const seed = composeConflictSeed({
+      keyToken: 'T768',
+      repo: '/Users/nd/My Projects/karst/',
+      conflictBrief: 'Resolve merge conflict.',
+      invocation: '/karst:resolve-conflict',
+    });
+    const first = seed.kickoff.split('\n')[0]!;
+    expect(first).toBe('/karst:resolve-conflict T768 "/Users/nd/My Projects/karst/"');
+    // Three unquoted words would be three arguments; the quoted form is two.
+    expect(first.split('"').filter((_, i) => i % 2 === 0).join('').trim().split(/\s+/)).toHaveLength(2);
+  });
+
   it('inlines into the kickoff when no invocation is materialized', () => {
     const seed = composeConflictSeed({
       keyToken: 'PROJ-9',

@@ -211,6 +211,8 @@ END_DOC_BLOCK: [@arch:AC-19]
 **Key Decision 8:** separate commands per entry point rather than one unified verb, chosen so each is manually runnable from the CLI or a terminal without hidden state.
 
 **Key Decision 9:** aliases only for the three cold-typed commands (resume, fix, resolve-conflict) — not for start-task, which takes a brief and is always composed by karst.
+
+`<repo>` is the rest of the line after `<key>`, never a display name: the recorded path is the contract, and a path holding a space is double-quoted in the kickoff so it stays one argument (`composeConflictSeed`, T768).
 END_DOC_BLOCK: [@arch:AC-20]
 
 ## [@arch:AC-21] Per-core start-task surface

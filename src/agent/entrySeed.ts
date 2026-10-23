@@ -6,6 +6,7 @@
  */
 
 import type { EntryBasename } from './workflowCommand.js';
+import { quoteArg } from './cliEnv.js';
 import { composeInstructionsBody, type SessionSeed } from './seed.js';
 
 /**
@@ -120,8 +121,13 @@ export function composeConflictSeed(input: {
   const marker = markerInstruction?.trim();
   // The command grammar is `<invocation> <key> <repo>` (arch:AC-20). The key is a
   // single token: `formatTicketRef`'s `T758 · KEY` display form splits into two
-  // tokens and made T758's agent guess the repo.
-  const args = repo ? `${keyToken} ${repo}` : keyToken;
+  // tokens and made T758's agent guess the repo. The repo is the LAST argument
+  // and the recorded path is the contract — it can hold a space (a project dir
+  // named "My Projects"), which unquoted reads as two more tokens and makes
+  // `conflict-brief` match no merge check. Quoted only when it needs to be, so a
+  // plain path stays byte-identical.
+  const repoArg = repo && /\s/.test(repo) ? quoteArg(repo) : repo;
+  const args = repoArg ? `${keyToken} ${repoArg}` : keyToken;
   const invLine = invocation ? `${invocation} ${args}`.trim() : null;
 
   if (invLine && !input.inlineInstructions) {
