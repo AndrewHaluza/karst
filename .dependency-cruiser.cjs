@@ -76,6 +76,9 @@ module.exports = {
       // Core code that actually invokes the agent seam is named here. These are
       // the accepted exceptions from the W2 sweep; a new core -> agent value
       // import fails until it is either removed or added with a reason.
+      // conflictBrief is a prompt renderer: it names the marker the ticket's
+      // stage owns, and `markerStageFor` is the single authority for that
+      // narrowing (arch:AC-39) — re-deriving the set here would drift.
       name: 'core-agent-seam',
       severity: 'error',
       comment: 'Core may value-import agent/domain code only from the accepted seam modules listed in pathNot.',
@@ -85,7 +88,7 @@ module.exports = {
           '^src/manifest/(foldProcessRows|schema)\\.ts$',
           '^src/model/(artifacts|inside/agent|inside/gates)\\.ts$',
           '^src/store/(interactiveUsageSamples|tickets|usageLimitParks)\\.ts$',
-          '^src/workflow/(agentScope|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate)\\.ts$',
+          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate)\\.ts$',
           '^src/workflow/artifacts/(alignment|alignmentTrigger)\\.ts$',
           '^src/workflow/gates/gateConsole\\.ts$',
           '^src/workflow/review/(aggregate|findingsLane)\\.ts$',
