@@ -1,4 +1,5 @@
 import type { DashboardState, DashboardWorktreeView } from './state.js';
+import type { SharedServerView } from '../../store/sharedServers.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type {
   CommitRepoView,
@@ -1118,6 +1119,45 @@ function populatedServers(): ServerView[] {
       port: 4000,
       status: 'running',
       logPath: 'fixture:logs/api.log',
+    },
+  ];
+}
+
+/**
+ * Two shared services for the D203 corpus: one running from `develop` and shared
+ * with two other live tickets, one stopped and consumed by this ticket alone.
+ * `fixture:`-prefixed paths and ids in the reserved fixture band, like every
+ * other row in this file — pure data, no store reads.
+ */
+export function sharedServerFixtures(): SharedServerView[] {
+  return [
+    {
+      id: 942101,
+      service: 'api',
+      status: 'running',
+      host: 'localhost',
+      port: 4000,
+      logPath: 'fixture:logs/shared-api.log',
+      container: null,
+      baseBranch: 'develop',
+      checkoutPath: 'fixture:/repos/api/.karst/baseline/api',
+      sharedWith: 'shared with T942018, T942019',
+      missingReason: null,
+      dependents: [],
+    },
+    {
+      id: 942102,
+      service: 'web',
+      status: 'stopped',
+      host: null,
+      port: null,
+      logPath: null,
+      container: null,
+      baseBranch: 'main',
+      checkoutPath: 'fixture:/repos/web/.karst/baseline/web',
+      sharedWith: 'no other live tickets',
+      missingReason: null,
+      dependents: [],
     },
   ];
 }
