@@ -82,6 +82,7 @@ export function prChangedBaselines({ env = process.env, gitRun = runGit } = {}) 
     const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`;
     throw new Error(
       `visual-sweep-gate: cannot diff the PR's baselines against its base (HEAD^1): ${detail}. ` +
+        `Repo root ${root} (cwd ${process.cwd()}, .git ${existsSync(join(root, '.git')) ? 'present' : 'MISSING'}). ` +
         'The visual job must check out the pull request merge commit with fetch-depth 2.',
     );
   }
