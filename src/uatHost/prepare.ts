@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isKnownProvider } from '../agent/provider.js';
 import { openStore } from '../store/db.js';
 import { parseFixtureFile } from './fixtureFile.js';
 import { fixtureSpec, isFixtureName, type FixtureSpec } from './fixtures.js';
@@ -37,8 +38,14 @@ function loadSpec(): FixtureSpec {
 }
 
 const spec = loadSpec();
+// An explicit --provider overrides the fixture file's own provider.
+const provider = optionalFlag('provider') ?? spec.provider ?? 'claude';
+if (!isKnownProvider(provider)) {
+  console.error(`uat-host prepare: unknown provider "${provider}"`);
+  process.exit(2);
+}
 const dbPath = flag('db');
-const ws = buildWorkspace(flag('root'), spec.provider);
+const ws = buildWorkspace(flag('root'), provider);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, spec);

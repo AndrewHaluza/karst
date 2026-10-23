@@ -12,10 +12,10 @@ const ROOT = join(HERE, '..', '..');
  * If a rule is added or reclassified, these numbers must be updated.
  */
 const CHECKED_IN_COUNTS = {
-  total: 54,
-  static: 36,
+  total: 63,
+  static: 41,
   runtime: 19,
-  visual: 25,
+  visual: 33,
   review: 8,
 };
 

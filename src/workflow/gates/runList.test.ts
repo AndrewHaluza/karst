@@ -303,4 +303,60 @@ describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
     );
     expect(out.results[0]).toMatchObject({ exitCode: 1 });
   });
+
+  const now = (): string => '2026-01-01T00:00:00.000Z';
+
+  it('parks a command gate as stale when the base defines the missing script', async () => {
+    const out = await runGateList(
+      [{ name: 'docs-graph', command: 'npm', args: ['run', '-s', 'docs:graph'], script: 'docs:graph', derivedScript: true, required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: () => false, baseRef: 'develop', baseDefinesScript: async () => true },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]!.staleBranch).toBe(
+      'gate "docs-graph" runs npm script "docs:graph", which develop defines but this branch does not — rebase onto develop ("Rebase on base")',
+    );
+  });
+
+  it('fails naming the script when neither branch nor base defines it', async () => {
+    const out = await runGateList(
+      [{ name: 'docs-graph', command: 'npm', args: ['run', 'docs:graph'], script: 'docs:graph', derivedScript: true, required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: () => false, baseDefinesScript: async () => false },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]).toMatchObject({ exitCode: 1 });
+    expect(out.results[0]!.staleBranch).toBeUndefined();
+    expect(out.results[0]!.output).toContain('"docs:graph"');
+  });
+
+  it('passes the derived flag to scriptsAvailable so a caller can skip an unverifiable derived check', async () => {
+    const out = await runGateList(
+      [{ name: 'g', command: 'node', args: ['-e', 'process.exit(0)'], script: 'x', derivedScript: true, required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: (_script, derived) => derived },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]).toMatchObject({ exitCode: 0 });
+  });
+
+  it('never consults the base for a kind: script gate', async () => {
+    const out = await runGateList(
+      [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: 'lint', required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: () => false, baseDefinesScript: async () => true },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]!.staleBranch).toBeUndefined();
+  });
+
+  it('gives a failing gate with no output a synthetic explanation', async () => {
+    const out = await runGateList(
+      [{ name: 'quiet', command: 'node', args: ['-e', 'process.exit(3)'], script: null, required: true }],
+      process.cwd(),
+      { now },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]!.output).toBe('exited 3 with no output (command: node -e process.exit(3))');
+  });
 });

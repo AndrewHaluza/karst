@@ -42,6 +42,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
+import { CONFIRM_DWELL_MS, SPINNER_DELAY_MS, SPINNER_MIN_VISIBLE_MS } from './clickFeedbackTiming.js';
 
 /**
  * How long a control may stay pending before the runtime gives up on the host.
@@ -50,8 +51,6 @@ import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
  */
 export const PENDING_WATCHDOG_MS = 45_000;
 
-/** Success flash dwell, in step with `--k-dur-flash-done`. */
-const FLASH_DONE_MS = 2400;
 
 /** Success toast dwell. Errors never auto-dismiss. */
 const TOAST_SUCCESS_MS = 6000;
@@ -68,14 +67,16 @@ export const DS_JS_MARKER = '/*KARST_DS_JS*/';
  * linter and editor can process it — because it ships into an HTML document
  * that no bundler touches, the same trade [[providerIdentity]] already makes.
  * Its correctness is held by evaluating that file's exact text in
- * `designRuntime.test.ts`. The four tunable constants above are baked in by a
+ * `designRuntime.test.ts`. The tunable constants above are baked in by a
  * plain placeholder swap, the same mechanism `injectDesignSystem` already uses
  * for the markers themselves.
  */
 export function designRuntimeJs(): string {
   return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/designRuntime.webview.js'), 'utf8')
     .replace('__KARST_WATCHDOG_MS__', String(PENDING_WATCHDOG_MS))
-    .replace('__KARST_FLASH_DONE_MS__', String(FLASH_DONE_MS))
+    .replace('__KARST_CONFIRM_MS__', String(CONFIRM_DWELL_MS))
+    .replace('__KARST_SPINNER_DELAY_MS__', String(SPINNER_DELAY_MS))
+    .replace('__KARST_SPINNER_MIN_MS__', String(SPINNER_MIN_VISIBLE_MS))
     .replace('__KARST_TOAST_SUCCESS_MS__', String(TOAST_SUCCESS_MS))
     .replace('__KARST_MAX_TOAST_CHARS__', String(MAX_TOAST_CHARS))
     .trim();

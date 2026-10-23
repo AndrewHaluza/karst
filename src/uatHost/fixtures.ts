@@ -2,7 +2,7 @@ import type { StageKey } from '../model/types.js';
 import type { StagePatch } from '../store/stages.js';
 import type { RecoveryTriggerKind } from '../store/recoveryRoundsRead.js';
 
-export const FIXTURE_NAMES = ['empty', 'ticket-mid-stage', 'blocked'] as const;
+export const FIXTURE_NAMES = ['empty', 'ticket-mid-stage', 'blocked', 'launch-draft'] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
 export function isFixtureName(s: string): s is FixtureName {
@@ -38,6 +38,8 @@ export interface TicketSeed {
   key: string;
   title: string;
   stageCurrent: StageKey;
+  /** Manifest repo names; a draft with none cannot open a session. */
+  selectedRepos?: string[];
   stages: StageSeed[];
   archived?: boolean;
   /** Give the ticket a worktree row (the checkout itself is not created). */
@@ -62,6 +64,11 @@ const SPECS: Record<FixtureName, TicketSeed[]> = {
       stageCurrent: 'impl',
       stages: [{ stageKey: 'impl', patch: { status: 'running', startedAt: STARTED } }],
     },
+  ],
+  // A never-started draft with its repo selected: karst.openSession scopes it
+  // (worktree + impl) and then launches, which `KARST_FAKE_CORE=launch` records.
+  'launch-draft': [
+    { key: 'FIX-LAUNCH', title: 'Fixture: launch-ready draft', stageCurrent: 'scope', selectedRepos: ['app'], stages: [] },
   ],
   blocked: [
     {

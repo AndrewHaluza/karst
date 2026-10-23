@@ -652,10 +652,10 @@ button appearance locally.
 | hover | shared variant hover |
 | focus-visible | visible `--k-focus` treatment |
 | active | subtle press feedback; no neighboring reflow |
-| loading | when the action genuinely waits; exposes busy state |
+| loading | `aria-busy` at once; spinner (`.is-spinning`) only after 400ms, held 500ms, in the reserved `.k-btn--slot` leading slot |
 | disabled | unavailable state |
 | error | normally surfaced at owning context, not by permanently recoloring button |
-| success | optional transient acknowledgement when changed state is not already obvious |
+| success | `.is-success`, tier 3 (`confirm`) only: in-place check for 1.2s, no border/colour change; tiers 1-2 show the changed domain state instead |
 | selected | only for explicitly selectable button patterns |
 
 Pending/success affordances must not cause disruptive width changes. Reserve a
@@ -942,6 +942,10 @@ The running `.k-status` variant may use this spinner inside an accessible
 icon-only status container.
 
 Reduced motion stops the animation but leaves a static pending indicator.
+
+On controls the spinner is shown by `.is-spinning`, set by the runtime only after a
+400ms show-delay and kept at least 500ms (`clickFeedbackTiming.ts`). Tier 1 (`view`)
+uses a region progress line (`[data-region].is-loading`) instead.
 END_DOC_BLOCK: [@ui:11.13]
 
 ---

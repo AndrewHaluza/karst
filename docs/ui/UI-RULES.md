@@ -342,6 +342,12 @@ where they help identify the configured or recorded run.
 A generic `AI` badge, model name, or icon alone is not a substitute for the core
 identity.
 
+**Exception (responsive density, `ui:UI-R49`):** in a `tight` container
+(< 400 px) the core may render **icon-only** if the control keeps the canonical
+name as its accessible name (`aria-label`) and a hover-and-focus tooltip with
+`core · model`. At `narrow` and wider the visible canonical name is mandatory.
+Ladder: `RESPONSIVE-DENSITY.md` `ui:RD-LADDERS`.
+
 Agent-core selectors must also preserve icon + canonical-name identity for every
 choice. A text-only native select does not satisfy this rule; prefer a native
 radio/choice pattern or another complete accessible selector.
@@ -375,6 +381,22 @@ Pending is entered locally on activation rather than after the host result.
 
 Pure navigation/handoff that immediately opens the resulting VS Code surface does
 not require an artificial spinner.
+
+Click feedback has three tiers, chosen per action (`karstAction(el, send, { tier })`
+in the vanilla runtime; `useHostMutation` in React). `mutation` is the default, so a
+quieter tier is always an explicit opt-in:
+
+| Tier | For | At press | Reply > 400ms | Settle |
+|---|---|---|---|---|
+| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure reverts selection + error toast |
+| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner in the reserved leading icon slot | nothing; the result is the changed domain state |
+| `confirm` | action with no other visible result (copy-hash) | as `mutation` | as `mutation` | icon morphs to a check in place for 1.2s + role=status tip |
+
+The spinner is never visible before 400ms (a fast reply never flashes one) and,
+once visible, stays at least 500ms. `.is-success` is tier 3 only.
+
+The visible spinner is delayed 400ms and held 500ms once shown; `aria-busy` is set
+at activation regardless.
 
 **Verification:** RUNTIME
 
@@ -414,6 +436,12 @@ Prefer the strongest existing home:
 1. changed domain state;
 2. inline/local result;
 3. toast.
+
+Success has no presentation of its own on the control: no green border, no
+checkmark. The only exception is tier 3 (`confirm`, an action with no other
+visible result), which shows an in-place check for 1.2s plus a role=status tip.
+A failure never passes through that presentation (UI-R15) and its error toast
+stays until dismissed.
 
 **Verification:** RUNTIME
 
@@ -536,6 +564,10 @@ Pending/result UI must not create a layout change that moves the activation
 target or neighboring primary controls enough to disrupt continued interaction.
 
 Avoid unnecessary accessible-name changes during the action.
+
+The spinner renders in a reserved leading icon slot (`.k-btn--slot`), so width and
+label stay fixed through idle→pending→settled; the tier-3 check morphs in the same
+slot.
 
 Label changes are allowed when intentional and accessible; they are not
 categorically forbidden.
@@ -1132,6 +1164,7 @@ wide breaks in real use.
 
 **Check:** VISUAL checks (a), (f) and (g) run each page at one width per tier:
 no horizontal page scroll, the stack applies at ≤699, region order holds.
+See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R43]
 
 ## [@ui:UI-R44] Text wraps by default; truncation always has a reachable full text
@@ -1148,6 +1181,7 @@ mouse-only tooltip hides it from keyboard users.
 
 **Check:** VISUAL check (d) finds clipped text without a visible or
 keyboard-reachable full form.
+See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R44]
 
 ## [@ui:UI-R45] No overlap, no escape, at most one scroll region per pane
@@ -1162,6 +1196,7 @@ neighbours (see also UI-R38).
 
 **Check:** VISUAL checks (b), (c) and (c2) assert no box intersection, no box
 outside its region, and one scroll container per pane.
+See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R45]
 
 ## [@ui:UI-R46] Empty and loading states keep the layout
@@ -1217,6 +1252,122 @@ all 5 capped views are ≤ their cap and centered. Both are asserted in
 `tests/visual/contentCap.visual.ts` (layout gate checks a–i do not assert width).
 END_DOC_BLOCK: [@ui:UI-R48]
 
+## [@ui:GROUP-E] E. Responsive density
+
+Rules UI-R49..R56. Spec: `RESPONSIVE-DENSITY.md`. Evidence: `responsive-audit/README.md`. Extends group L (UI-R43..R48) down to 320 px.
+END_DOC_BLOCK: [@ui:GROUP-E]
+
+## [@ui:UI-R49] Regions adapt to their container, in four tiers
+
+Every webview region that changes layout with width declares `container-type: inline-size` and adapts with `@container` at the tier boundaries `wide ≥ 1000`, `mid 700–999`, `narrow 400–699`, `tight 320–399`. 320 px is the floor: no sideways page scroll (UI-R43) at any width ≥ 320. Window `@media` is allowed only for page chrome. Tier CSS follows the base rule in source order.
+
+`RESPONSIVE-DENSITY.md` `ui:RD-TIERS`.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** pinned-px test on `@container`/`@media` literals; layout gate at 1280/900/700/699/480/400/399/320.
+END_DOC_BLOCK: [@ui:UI-R49]
+
+## [@ui:UI-R50] Flexible tracks use minmax(0, …); fixed tracks never sum past the floor
+
+Grid tracks that hold text are `minmax(0, …)` or `1fr`. Fixed-px tracks are reserved for glyphs. The sum of fixed minimums in one row never exceeds 320 minus the page gutters.
+
+Audit offenders: dashboard `:954`, `:1013`, PresetsSection `240px 140px minmax(360px,1fr)`.
+
+**Verification:** STATIC
+
+**Check:** grep for `minmax(<n>px` sums per grid in changed CSS.
+END_DOC_BLOCK: [@ui:UI-R50]
+
+## [@ui:UI-R51] Shared elements collapse by their ladder
+
+Agent core identity, timestamps, numbers/tokens/cost, buttons, action rows, stage rail, chips, ticket id+title, paths, tables, tabs, forms, drawers/modals and toasts render the one form their tier prescribes in `ui:RD-LADDERS`, produced by the shared primitive. Hand-rolled per-view shortcuts and duplicated hidden spans are not allowed.
+
+`RESPONSIVE-DENSITY.md` `ui:RD-LADDERS`, `ui:RD-PRIMITIVES`.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** primitive use in render sites; visual at each tier.
+END_DOC_BLOCK: [@ui:UI-R51]
+
+## [@ui:UI-R52] Never-collapse list
+
+Primary action label, status glyphs, destructive action names, ticket id and form labels are never icon-only, hidden, ellipsised away or reachable only via tooltip at any tier. Destructive actions in a ⋯ menu are text.
+
+`ui:RD-NEVER`.
+
+**Verification:** VISUAL
+
+**Check:** layout gate asserts these elements stay visible with non-empty text at 320.
+END_DOC_BLOCK: [@ui:UI-R52]
+
+## [@ui:UI-R53] Icon-only controls keep name, tooltip and hit area
+
+Any control that is icon-only at some tier has the full label as accessible name in every tier, a tooltip on hover **and** keyboard focus, a hit area of at least `--k-hit-min`, and the dropped text is reachable elsewhere (menu or detail). It is never the only route to a primary or destructive action.
+
+`ui:RD-A11Y`; builds on UI-R19, UI-R22, UI-R44, DESIGN-SYSTEM §11.18.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** gate check j (icon-only has name), k (min hit area).
+END_DOC_BLOCK: [@ui:UI-R53]
+
+## [@ui:UI-R54] Overflow goes to ⋯, not to scroll
+
+When an action row does not fit, the lowest-priority actions move into one ⋯ menu (arrow-key navigable, Esc closes). The row never wraps into two ragged lines, scrolls horizontally, or hides actions without a path.
+
+`ui:RD-LADDERS` action rows.
+
+**Verification:** VISUAL
+
+**Check:** gate at 400 and 320.
+END_DOC_BLOCK: [@ui:UI-R54]
+
+## [@ui:UI-R55] Tables become stacked cards at tight
+
+A multi-column table that cannot fit drops low-priority columns at narrow and becomes one card per row at tight (first cell as heading, `label: value` pairs). Table semantics are preserved and no inner horizontal scroll box is used (UI-R45).
+
+`ui:RD-LADDERS` tables.
+
+**Verification:** VISUAL
+
+**Check:** gate at 320 shows no inner scroller.
+END_DOC_BLOCK: [@ui:UI-R55]
+
+## [@ui:UI-R56] Closed drawers and hidden surfaces do not widen the page
+
+An off-canvas drawer, popover or menu is `visibility:hidden`/`inert` when closed, and when open stays inside the viewport (`max-width: min(<w>, calc(100vw - 2 × gutter))`) with end-aligned placement. At tight, drawers and modals are full-width sheets.
+
+Audit: ticket-data drawer, sandbox popover (`dashboard-sandbox`).
+
+**Verification:** VISUAL
+
+**Check:** gate: `scrollWidth <= innerWidth` with each surface open and closed.
+END_DOC_BLOCK: [@ui:UI-R56]
+
+## [@ui:UI-R57] Every view declares a variant matrix; every variant is fixtured, baselined and geometry-checked
+
+Every webview in `WEBVIEW_NAMES` (`src/model/webviewChains.ts`) declares its
+variants in `tests/visual/variants.ts`. Mandatory for every view: `populated`,
+`empty`, `loading` (before the first host message), `error` (host failure or
+unknown), `long-content` (40+ char names, 60+ char model ids, long paths, enough
+rows to reach "+N more"). View-specific states (dashboard stage scenarios,
+Confirm ship, sandbox on; sidebar subtasks and planning dependencies; every
+settings route; usage quota; and so on) are added alongside. Each variant has a
+corpus builder, a screenshot baseline in each theme project it declares, and a
+layout-gate run at every `LAYOUT_WIDTHS` width.
+
+A view or state that ships without a fixture, a baseline and a geometry run is
+invisible to every gate; a baseline alone can be re-recorded as "correct".
+
+**Verification:** VISUAL + STATIC
+
+**Check:** STATIC `tests/visual/variants.test.ts` (unit gate) fails on a webview
+with no entry, a missing mandatory variant, a variant without a baseline PNG in
+a required theme project, a baseline PNG with no variant, or a variant with no
+layout target. VISUAL: the sweep records `<view>/<variant>` and the layout gate
+opens it at every width.
+END_DOC_BLOCK: [@ui:UI-R57]
 ## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
 **Version:** 3.1 · **Scope:** every React webview. Settings (`src/ui/settings/app/**`,

@@ -17,14 +17,17 @@ read a whole file.
 0. **Prototype linked?** Open it and list its regions (`data-region` names), their
    order and stacking. They are binding (`ui:UI-R39`).
 1. **Group L** — `UI-RULES.md` `ui:UI-R39`..`ui:UI-R48`: layout and placement.
+   Below 700 px (split editor groups, down to the 320 px floor) also read **group E**
+   (`ui:UI-R49`..`ui:UI-R56`) and `RESPONSIVE-DENSITY.md` (tiers `ui:RD-TIERS`, ladders `ui:RD-LADDERS`).
 2. **Rules for the touched controls** — the other `UI-RULES.md` blocks, plus
    `UI-INVARIANTS.md` keys that apply.
 3. **Layout primitives** — `DESIGN-SYSTEM.md` `ui:LAYOUT-PRIMITIVES`, then the
    token and primitive blocks you use.
-4. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the advisory `visual` job; judge visual failures only from the docker run, never host `test:visual`). `npm run test:layout` is advisory and fast on the host; the final
+4. **Variants** — add or extend the view's variants in `tests/visual/variants.ts` (`ui:UI-R57`, `ui:VISUAL-VARIANTS`) and record baselines. A change under `src/ui/<view>/**` that touches neither that view's variants nor its baselines gets a review warning (`tests/visual/variantTouch.ts`).
+5. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the advisory `visual` job; judge visual failures only from the docker run, never host `test:visual`). `npm run test:layout` is advisory and fast on the host; the final
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
-5. **Screenshot changes need user approval.** Never edit baselines or the layout
+6. **Screenshot changes need user approval.** Never edit baselines or the layout
    ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
    shrinks only via `npm run test:layout:docker:prune`.
 
@@ -36,6 +39,7 @@ END_DOC_BLOCK: [@ui:README-ORDER]
 | Doc | Read when |
 |---|---|
 | `UI-RULES.md` | Always: group L first, then rules for the controls you touch |
+| `RESPONSIVE-DENSITY.md` | Any width-dependent layout; collapse ladders, tiers, backlog. Evidence in `responsive-audit/README.md`, visual in `RESPONSIVE-DENSITY-EXAMPLE.html` |
 | `DESIGN-SYSTEM.md` | Tokens, primitives, layout primitives |
 | `STYLE-GUIDE.md` | Composition choices; `ui:SG-25` is the review checklist |
 | `UI-INVARIANTS.md` | Rationale, title keys, React views, Getting Started |

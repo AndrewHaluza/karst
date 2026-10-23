@@ -9,6 +9,9 @@
  * - `disabled` and `busy` are separate values, and a control may be both (R17);
  * - a pending request that outlives `timeoutMs` becomes `unknown`, never a
  *   false `failure` (R14);
+ * - `busy` (aria-busy) is true at once, but `spinning` — the VISIBLE spinner —
+ *   only turns on after SPINNER_DELAY_MS and then holds for
+ *   SPINNER_MIN_VISIBLE_MS, mirroring designRuntime's mutation tier (SG-19);
  * - terminal results are announced through the app's one live region (R27), and
  *   success is only ever set by an explicit `settle({ result: 'success' })`
  *   (R15).
@@ -17,6 +20,7 @@
  * testable without a webview, and the host remains the source of truth (R31).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SPINNER_DELAY_MS, SPINNER_MIN_VISIBLE_MS } from '../../../model/clickFeedbackTiming.js';
 import { useAnnounce } from './primitives/LiveRegion.js';
 
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'failure' | 'unknown';
@@ -52,6 +56,8 @@ export interface HostMutation<TArgs extends readonly unknown[]> {
   readonly status: MutationStatus;
   readonly pending: boolean;
   readonly busy: boolean;
+  /** Show the spinner: delayed past a fast reply, then held so it never flickers. */
+  readonly spinning: boolean;
   readonly disabled: boolean;
   readonly error: string | undefined;
   readonly requestId: string | undefined;
@@ -139,6 +145,26 @@ export function useHostMutation<TArgs extends readonly unknown[]>({
     return () => clearTimeout(timer);
   }, [state.status, timeoutMs, apply]);
 
+  const [spinning, setSpinning] = useState(false);
+  const minElapsedRef = useRef(true);
+  const minTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (state.status === 'pending') {
+      const show = setTimeout(() => {
+        minElapsedRef.current = false;
+        setSpinning(true);
+        minTimerRef.current = setTimeout(() => {
+          minElapsedRef.current = true;
+          if (stateRef.current.status !== 'pending') setSpinning(false);
+        }, SPINNER_MIN_VISIBLE_MS);
+      }, SPINNER_DELAY_MS);
+      return () => clearTimeout(show);
+    }
+    if (minElapsedRef.current) setSpinning(false);
+    return undefined;
+  }, [state.status, state.requestId]);
+  useEffect(() => () => clearTimeout(minTimerRef.current), []);
+
   const announcedRef = useRef<string | null>(null);
   useEffect(() => {
     if (state.status === 'pending' || state.status === 'idle') {
@@ -160,6 +186,7 @@ export function useHostMutation<TArgs extends readonly unknown[]>({
       status: state.status,
       pending,
       busy,
+      spinning,
       disabled,
       error: state.error,
       requestId: state.requestId,
@@ -167,6 +194,6 @@ export function useHostMutation<TArgs extends readonly unknown[]>({
       settle,
       reset,
     }),
-    [state, pending, busy, disabled, trigger, settle, reset],
+    [state, pending, busy, spinning, disabled, trigger, settle, reset],
   );
 }

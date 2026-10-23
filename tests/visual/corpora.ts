@@ -150,7 +150,7 @@ const MINIMAL_SETTINGS = {
   currentSection: 'general',
 };
 
-const MINIMAL_TICKET_FORM = {
+export const MINIMAL_TICKET_FORM = {
   mode: 'create',
   key: '',
   title: '',

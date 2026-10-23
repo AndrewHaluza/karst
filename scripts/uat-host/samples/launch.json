@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "command", "command": "karst.openSession", "args": [1] },
+    { "type": "wait", "for": { "launch": { "provider": "claude" } }, "timeoutMs": 30000 },
+    { "type": "snapshot", "label": "launched" }
+  ]
+}

@@ -9,6 +9,7 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { ThemeId } from './themes.js';
 import type { ViewId } from './chains.js';
+import { fixtureFile } from './variants.js';
 import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sections.js';
 
 /** A settings route: the outer nav section, plus an optional in-page hash. */
@@ -19,6 +20,8 @@ export interface SettingsRoute {
 
 interface GotoOpts {
   scenario?: string;
+  /** A registered variant id (tests/visual/variants.ts); wins over `scenario`. */
+  variant?: string;
   route?: SettingsRoute;
 }
 
@@ -67,7 +70,9 @@ export const test = base.extend<KarstFixtures>({
   gotoView: async ({ page, theme }, use) => {
     const goto = async (view: ViewId, opts?: GotoOpts) => {
       let filename = `${view}.html`;
-      if (view === 'dashboard') {
+      if (opts?.variant !== undefined) {
+        filename = fixtureFile(view, opts.variant);
+      } else if (view === 'dashboard') {
         filename = `dashboard-${opts?.scenario ?? 'pending'}.html`;
       } else if (view === 'settings' && opts?.scenario !== undefined) {
         filename = `settings-${opts.scenario}.html`;
