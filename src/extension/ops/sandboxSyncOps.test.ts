@@ -1,10 +1,11 @@
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sbxName } from '../../agent/sbx/sbxName.js';
+import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
@@ -263,22 +264,23 @@ describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
 
 describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
   const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
+  const LISTED = { 'sbx ls': { stdout: `NAME\n${sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' })}` } };
 
   it('fast-forwards a sandboxed ticket', async () => {
-    const proc = fakeSbxProcess();
+    const proc = fakeSbxProcess(LISTED);
     await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
     expect(proc.calls.length).toBeGreaterThan(0);
   });
 
   it('a host ticket (no sandbox core) runs nothing', async () => {
-    const proc = fakeSbxProcess();
+    const proc = fakeSbxProcess(LISTED);
     await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: 'antigravity' })).resolves.toEqual({ ok: true });
     await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toEqual({ ok: true });
     expect(proc.calls).toEqual([]);
   });
 
   it('a non-fast-forward is reported as diverged, never forced', async () => {
-    const proc = fakeSbxProcess({ 'git -C /wt/a merge-base': { code: 1 } });
+    const proc = fakeSbxProcess({ ...LISTED, 'git -C /wt/a merge-base': { code: 1 } });
     const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
     expect(r).toMatchObject({ ok: false, diverged: true, reason: expect.stringContaining('not a fast-forward') });
   });
@@ -298,11 +300,11 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
 
     it('records the host head after a good sync, and not after a refused one', async () => {
       const dir = bridge();
-      const ok = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(false)), evidenceDirOf: () => dir }, target);
+      const ok = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir }, target);
       expect(ok).toEqual({ ok: true });
       expect(await readHostHead(hostHeadFileFor(dir), '/wt/a')).toBe(HOST);
       const other = bridge();
-      await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => other }, target);
+      await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => other }, target);
       expect(await readHostHead(hostHeadFileFor(other), '/wt/a')).toBeUndefined();
     });
 
@@ -310,14 +312,14 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
       const dir = bridge();
       await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
       const flags: boolean[] = [];
-      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(r).toMatchObject({ ok: false, diverged: true, rewritten: true });
       expect(flags).toEqual([true]);
     });
 
     it('with no record and no reflog it stays plain divergence', async () => {
       const flags: boolean[] = [];
-      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => bridge(), onRewritten: (_id, v) => flags.push(v) }, target);
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => bridge(), onRewritten: (_id, v) => flags.push(v) }, target);
       expect(r).toMatchObject({ ok: false, diverged: true });
       expect(r).not.toHaveProperty('rewritten');
       expect(flags).toEqual([false]);
@@ -327,32 +329,70 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
       const dir = bridge();
       await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
       const rec = recorder(); const flags: boolean[] = [];
-      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(rec.errors[0]).toContain('Carry sandbox commits onto host branch');
-      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess(answers(false)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(flags).toEqual([true, false]);
     });
   });
 
   it('a sandbox without a worktree branch is a plain failure', async () => {
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess() }, { ...target, worktree: undefined });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(LISTED) }, { ...target, worktree: undefined });
     expect(r).toMatchObject({ ok: false, diverged: false });
   });
 
   it('a throwing runner is a transient failure, not an exception', async () => {
-    const proc = fakeSbxProcess();
-    const boom = { ...proc, run: () => { throw new Error('daemon gone'); } } as unknown as typeof proc;
+    const proc = fakeSbxProcess(LISTED);
+    const boom = { ...proc, run: (...a: Parameters<typeof proc.run>) => { if (a[1][0] === 'ls') return proc.run(...a); throw new Error('daemon gone'); } } as unknown as typeof proc;
     const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: boom }, target);
     expect(r).toMatchObject({ ok: false, diverged: false });
   });
 
+  it('an existing sbx clone dir is evidence: an unreachable CLI blocks with the CLI named (D244)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'karst-proj-'));
+    mkdirSync(sbxCloneDir(root, sbxName({ projectRoot: root, ticketId: 7, core: 'claude' })), { recursive: true });
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: root, proc }, target);
+    expect(r).toEqual({ ok: false, diverged: false, reason: expect.stringMatching(/^the sbx sandbox was not found: is the sbx CLI on the extension host PATH and running\?/) });
+  });
+
+  it('a docker-core host ticket with no record is ok, with a record it is blocked naming docker (D244)', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
+    const docker = () => fakeDockerProcess({ 'docker volume inspect': { code: 1, stderr: 'spawn docker ENOENT' } });
+    const dt = { ...target, core: 'opencode2' };
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: docker(), evidenceDirOf: () => dir }, dt)).resolves.toEqual({ ok: true });
+    await recordHostHead(hostHeadFileFor(dir), '/wt/a', 'c'.repeat(40));
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: docker(), evidenceDirOf: () => dir }, dt);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('the docker CLI') });
+  });
+
+  it('a sandbox that `ls` does not list is a host ticket even when ls succeeds (D244)', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME\nother-sandbox' } });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
+  });
+
   it('serialises concurrent syncs of one ticket', async () => {
     let active = 0; let peak = 0;
-    const proc = fakeSbxProcess();
+    const proc = fakeSbxProcess(LISTED);
     const slow = { ...proc, run: async (...a: Parameters<typeof proc.run>) => { active += 1; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 3)); active -= 1; return proc.run(...a); } } as typeof proc;
     const deps = { notify: recorder().notify, projectRoot: '/p', proc: slow };
     await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
     expect(peak).toBe(1);
+  });
+  it('a host ticket on an sbx-capable core runs no sync and spawns no sbx bundle (D244)', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
+  });
+
+  it('a ticket with a recorded synced head but an unreachable sbx CLI is blocked, never skipped (D244)', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
+    await recordHostHead(hostHeadFileFor(dir), '/wt/a', 'c'.repeat(40));
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => dir }, target);
+    expect(r).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('sbx CLI on the extension host PATH') });
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 });
 
