@@ -1706,10 +1706,96 @@ describe('rerunParkedStage', () => {
 
     const uatFindings = listUatFindings(store, ticket.id);
     // Exactly one row: the observation the sibling's own run recorded. The
-    // re-run counted it but must not copy it under its new process run.
+    // re-run counted it but already had it, so it writes no second copy.
     expect(uatFindings).toHaveLength(1);
     expect(uatFindings[0]?.title).toBe('Sibling API endpoint returns 500');
     expect(uatFindings[0]?.processRunId).toBe(priorTesterRunId);
+  });
+
+  it('persists a sibling observation that exists only on the park row', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-UNWRITTEN', title: 'Test unwritten sibling' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    // Target 'api' answered, then 'web' hit the quota: `runUatTester` returns
+    // before its only `recordUatFindings` call, so the observation exists ONLY
+    // on the park row. No prior row is seeded here on purpose.
+    const siblingObservation = {
+      severity: 'high' as const,
+      title: 'Sibling API endpoint returns 500',
+      repo: 'api',
+      file: 'src/server.ts',
+      line: 42,
+    };
+    const keptOutcome = JSON.stringify({
+      observations: [siblingObservation],
+      targets: [{ repo: 'api', status: 'completed', observations: 1 }],
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [UAT_GREEN_GATE],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest: {
+        uat: { testerObservations: { blockingSeverity: 'high' }, maxFixAttempts: 2 },
+      } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    const findings = listUatFindings(store, ticket.id);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      title: 'Sibling API endpoint returns 500',
+      repo: 'api',
+      severity: 'high',
+      filePath: 'src/server.ts',
+      line: 42,
+    });
+    // Under THIS re-run's Tester process run, so the fix session's context (and
+    // the Inside panel) can read the evidence the failure reason names.
+    const rerunTester = listProcessRuns(store, ticket.id)
+      .filter((r) => r.processId === 'tester' && r.stageRunId !== parkedRunId)
+      .at(-1);
+    expect(findings[0]?.processRunId).toBe(rerunTester?.id);
   });
 
   it('a SECOND uat quota park keeps the sibling observations the first park kept', async () => {

@@ -64,6 +64,21 @@ describe('ticket-form webview.html', () => {
     expect(HTML).toMatch(/case 'usage-limit-park-resolved': clearErr\(\); break;/);
   });
 
+  it('goes inert after the first park click so a re-run is never double-fired (UI-R11/R12)', () => {
+    // The FIRST click claims the park. A second click while the re-run is in
+    // flight would post again and be answered with the false "This usage limit
+    // was already handled." — so the three buttons disable together and the
+    // guard only clears when the host replaces or clears the error area.
+    expect(HTML).toMatch(/if \(usageLimitPending \|\| target\.disabled\) return;/);
+    expect(HTML).toMatch(/usageLimitPending = true;/);
+    expect(HTML).toMatch(
+      /for \(const btn of el\('err'\)\.querySelectorAll\('\[data-act\]'\)\) btn\.disabled = true;/,
+    );
+    expect(HTML).toMatch(/function showErr\(msg\) \{ usageLimitPending = false;/);
+    expect(HTML).toMatch(/function showUsageLimitErr\(msg, parkId\) \{\n {4}usageLimitPending = false;/);
+    expect(HTML).toMatch(/function clearErr\(\) \{ usageLimitPending = false;/);
+  });
+
   it('gates Phase 2 on the title alone, whatever the provider — the key is never required', () => {
     // The literal bug (869echhyr): typing a title without clicking Fetch left
     // Phase 2 hidden on any board-backed provider, because phase1Valid()

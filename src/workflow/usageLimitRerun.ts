@@ -55,7 +55,7 @@ import {
   countBlockingObservations,
 } from './uat/tester.js';
 import { testerTargets } from './stages/uat.js';
-import { listUatFindings, type UatFindingInput } from '../store/uatFindings.js';
+import { listUatFindings, recordUatFindings, type UatFindingInput } from '../store/uatFindings.js';
 import { getTicket } from '../store/tickets.js';
 import {
   runTesterVerifier,
@@ -560,6 +560,21 @@ function commitParkedGateOutcome(args: {
     now: args.now,
     debug: args.debug,
   });
+}
+
+/**
+ * One observation's identity, for "record each observation once" across runs: a
+ * park row carries siblings forward into the next park, so the same finding can
+ * reach several re-runs and must not gain a row per attempt.
+ */
+function uatObservationKey(o: {
+  repo?: string | null;
+  severity: string;
+  title: string;
+  file?: string | null;
+  line?: number | null;
+}): string {
+  return [o.repo ?? '', o.severity, o.title, o.file ?? '', o.line ?? ''].join('|');
 }
 
 /**
@@ -1342,6 +1357,38 @@ async function rerunUatParkedStage(
       );
       combinedBlocking = counted.blocking;
       combinedSummary = counted.blockingSummary;
+    }
+
+    // The sibling observations may exist ONLY on the park row: when the parked
+    // Tester died on quota, `runUatTester` returns before its single
+    // `recordUatFindings` call, so nothing ever wrote them. Counting them into
+    // the verdict without persisting them leaves the fix session (and
+    // `karst context`'s artifact builder) with a reason that names evidence
+    // nobody can read — and on a pass they would vanish with the resolved park
+    // row. Persist each one under THIS re-run's process run, deduped against
+    // what the ticket already holds so a chain of re-parks cannot duplicate a
+    // row (the next park carries the same observations forward).
+    if (testerRunId !== null && siblingObservations.length > 0) {
+      const known = new Set(
+        listUatFindings(store, parkRow.ticketId).map((f) =>
+          uatObservationKey({
+            repo: f.repo,
+            severity: f.severity,
+            title: f.title,
+            file: f.filePath,
+            line: f.line,
+          }),
+        ),
+      );
+      const missing = siblingObservations.filter((o) => !known.has(uatObservationKey(o)));
+      if (missing.length > 0) {
+        recordUatFindings(store, {
+          ticketId: parkRow.ticketId,
+          processRunId: testerRunId,
+          findings: missing,
+          createdAt: now(),
+        });
+      }
     }
 
     if (testerResult.kind === 'unreadable-output') {
