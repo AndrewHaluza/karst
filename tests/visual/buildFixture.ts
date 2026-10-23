@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { CHAINS, type ViewId } from './chains.js';
 import { THEMES, type ThemeId, THEME_IDS } from './themes.js';
 import { getCorpus, dashboardCorpora, ALL_VIEWS, SETTINGS_SCENARIOS } from './corpora.js';
+import { VARIANTS, fixtureFile } from './variants.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, '.tmp');
@@ -204,6 +205,11 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
             writeFileSync(join(themeDir, `settings-${scenario}.html`), scenarioHtml, 'utf8');
           }
         }
+      }
+      // One page per registered variant (ui:UI-R57).
+      for (const v of VARIANTS[view]) {
+        const html = buildFixture(view, theme, v.corpus().messages);
+        writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');
       }
     }
   }

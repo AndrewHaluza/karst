@@ -14,14 +14,18 @@ import type { LayoutFailure } from '../../src/ui/layout/layoutChecks.js';
 import { isFullRun, matchLedger, prune, runKey, seed } from '../../src/ui/layout/layoutLedger.js';
 import { readLedger, readShards, REPORT_PATH, writeLedger, type Shard } from './layoutShards.js';
 import { resizeRouteId, settingsRoutes } from './settingsRoutes.js';
+import { extraLayoutTargets } from './variants.js';
 
 const RESIZE_WIDTH = 480;
 
 function expectedRunKeys(): string[] {
-  return settingsRoutes().flatMap((r) => [
-    ...LAYOUT_WIDTHS.map((w) => runKey(r.id, w)),
-    ...(r.section === 'agents' ? [runKey(resizeRouteId(r.id), RESIZE_WIDTH)] : []),
-  ]);
+  return [
+    ...settingsRoutes().flatMap((r) => [
+      ...LAYOUT_WIDTHS.map((w) => runKey(r.id, w)),
+      ...(r.section === 'agents' ? [runKey(resizeRouteId(r.id), RESIZE_WIDTH)] : []),
+    ]),
+    ...extraLayoutTargets().flatMap((t) => LAYOUT_WIDTHS.map((w) => runKey(t.id, w))),
+  ];
 }
 
 function formatGrouped(failures: readonly LayoutFailure[]): string {

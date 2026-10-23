@@ -1345,6 +1345,29 @@ Audit: ticket-data drawer, sandbox popover (`dashboard-sandbox`).
 **Check:** gate: `scrollWidth <= innerWidth` with each surface open and closed.
 END_DOC_BLOCK: [@ui:UI-R56]
 
+## [@ui:UI-R57] Every view declares a variant matrix; every variant is fixtured, baselined and geometry-checked
+
+Every webview in `WEBVIEW_NAMES` (`src/model/webviewChains.ts`) declares its
+variants in `tests/visual/variants.ts`. Mandatory for every view: `populated`,
+`empty`, `loading` (before the first host message), `error` (host failure or
+unknown), `long-content` (40+ char names, 60+ char model ids, long paths, enough
+rows to reach "+N more"). View-specific states (dashboard stage scenarios,
+Confirm ship, sandbox on; sidebar subtasks and planning dependencies; every
+settings route; usage quota; and so on) are added alongside. Each variant has a
+corpus builder, a screenshot baseline in each theme project it declares, and a
+layout-gate run at every `LAYOUT_WIDTHS` width.
+
+A view or state that ships without a fixture, a baseline and a geometry run is
+invisible to every gate; a baseline alone can be re-recorded as "correct".
+
+**Verification:** VISUAL + STATIC
+
+**Check:** STATIC `tests/visual/variants.test.ts` (unit gate) fails on a webview
+with no entry, a missing mandatory variant, a variant without a baseline PNG in
+a required theme project, a baseline PNG with no variant, or a variant with no
+layout target. VISUAL: the sweep records `<view>/<variant>` and the layout gate
+opens it at every width.
+END_DOC_BLOCK: [@ui:UI-R57]
 ## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
 **Version:** 3.1 · **Scope:** every React webview. Settings (`src/ui/settings/app/**`,
