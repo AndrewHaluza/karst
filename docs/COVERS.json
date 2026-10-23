@@ -319,6 +319,9 @@
   "src/store/**": [
     "arch:ST-00"
   ],
+  "src/store/baselineRefs.ts#listBaselineDependentsDetailed": [
+    "arch:SHARED-VIEW"
+  ],
   "src/store/blockerOutcome.ts#blockerLandedEvents": [
     "arch:CLI-15"
   ],
@@ -377,6 +380,9 @@
   "src/store/schemaVersion.ts#SCHEMA_VERSION": [
     "arch:SCHEMA-CHECK"
   ],
+  "src/store/sharedServers.ts#listSharedServersByTicket": [
+    "arch:SHARED-VIEW"
+  ],
   "src/store/shipRuns.ts": [
     "arch:GH-00"
   ],
@@ -416,6 +422,9 @@
   ],
   "src/template/transforms.ts#applyTransforms": [
     "arch:PLACEHOLDER"
+  ],
+  "src/ui/dashboard/state.ts#buildDashboardState": [
+    "arch:SHARED-VIEW"
   ],
   "src/ui/worktreePath.ts#PathContext": [
     "arch:GH-07"
