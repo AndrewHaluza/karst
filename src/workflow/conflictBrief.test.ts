@@ -77,16 +77,83 @@ describe('renderConflictBrief', () => {
 
 describe('renderConflictBrief sandboxed', () => {
   it('tells the agent to commit and emit the fix marker, with no fetch or push', () => {
-    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'main', files: [], prUrl: null, sandboxed: true });
+    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'main', files: [], prUrl: null, sandboxed: true, stageCurrent: 'fix' });
     expect(out).toContain('`fix` marker');
     expect(out).toContain('Do not run `git fetch` or `git push`');
     expect(out).not.toContain('git fetch origin main');
   });
   it('names the shipped base ref and runs the gate scripts before the commit', () => {
-    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'develop', files: [], prUrl: null, sandboxed: true });
+    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'develop', files: [], prUrl: null, sandboxed: true, stageCurrent: 'fix' });
     expect(out).toContain('`git merge --no-ff refs/karst/base/develop`');
     expect(out).toContain('docs check, typecheck, unit tests');
     expect(out.indexOf('gate scripts')).toBeLessThan(out.indexOf('Commit the merge'));
     expect(out).not.toContain('host merges');
+  });
+});
+
+// The brief ends the way the ticket's stage ends (arch:BLOCKED, arch:STAGEMACH).
+// A conflict at ship has no marker — telling the agent to fire one sent T758 and
+// T765 into a refused marker and then a manual push that D247 replaces.
+describe('renderConflictBrief stage-aware ending', () => {
+  const at = (stageCurrent: 'impl' | 'fix' | 'ship') => ({
+    ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'main', files: [], prUrl: null, stageCurrent,
+  });
+
+  it('host + ship: no marker, no push instruction, Karst delivers', () => {
+    const out = renderConflictBrief({ ...at('ship') });
+    expect(out).not.toContain('`impl` marker');
+    expect(out).not.toContain('`fix` marker');
+    expect(out).toContain('there is no marker');
+    expect(out).toContain('gate exit codes');
+    expect(out).not.toContain('push it to the same branch');
+    expect(out).not.toContain('git push');
+    expect(out).toContain('Do not push');
+    expect(out).toContain('delivers it to the open PR');
+  });
+
+  it('host + impl: names the impl marker and the automatic delivery', () => {
+    const out = renderConflictBrief({ ...at('impl') });
+    expect(out).toContain('`impl` marker');
+    expect(out).toContain('Do not push');
+    expect(out).toContain('delivers it to the open PR');
+  });
+
+  it('host + fix: names the fix marker and the automatic delivery', () => {
+    const out = renderConflictBrief({ ...at('fix') });
+    expect(out).toContain('`fix` marker');
+    expect(out).toContain('Do not push');
+    expect(out).toContain('delivers it to the open PR');
+  });
+
+  it('sandbox + ship: no marker (never the fix marker), Karst delivers', () => {
+    const out = renderConflictBrief({ ...at('ship'), sandboxed: true });
+    expect(out).not.toContain('`fix` marker');
+    expect(out).not.toContain('`impl` marker');
+    expect(out).toContain('there is no marker');
+    expect(out).toContain('Do not push');
+    expect(out).toContain('delivers it to the open PR');
+    expect(out).not.toContain('Deliver to PR');
+  });
+
+  it('sandbox + fix: the fix marker plus the same delivery sentence', () => {
+    const out = renderConflictBrief({ ...at('fix'), sandboxed: true });
+    expect(out).toContain('`fix` marker');
+    expect(out).toContain('Do not push');
+    expect(out).toContain('delivers it to the open PR');
+  });
+
+  // The environment named must be the ticket's real one: a host ticket must not
+  // be told it has no origin access, and a sandboxed one must not be sent at
+  // `origin/<base>`.
+  it('never calls a host ticket a sandbox', () => {
+    const host = renderConflictBrief(at('ship'));
+    expect(host).not.toContain('sandbox');
+    expect(host).not.toContain('refs/karst/base');
+  });
+
+  it('never sends a sandboxed ticket at origin', () => {
+    const sandbox = renderConflictBrief({ ...at('fix'), sandboxed: true });
+    expect(sandbox).not.toContain('git fetch origin');
+    expect(sandbox).not.toContain('git merge origin/');
   });
 });

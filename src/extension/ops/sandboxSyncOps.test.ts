@@ -122,12 +122,23 @@ describe('backendSessionOptions bridgeFor', () => {
   });
 });
 
+const LISTED = { 'sbx ls': { stdout: `NAME\n${sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' })}` } };
+
+describe('probeOf', () => {
+  it('falls back to hasSandbox when the runner has no tri-state probe', async () => {
+    const { probeOf } = await import('./sandboxSyncOps.js');
+    await expect(probeOf({ hasSandbox: async () => true } as never)).resolves.toEqual({ state: 'present' });
+    await expect(probeOf({ hasSandbox: async () => false } as never)).resolves.toEqual({ state: 'absent' });
+    await expect(probeOf({} as never)).resolves.toEqual({ state: 'absent' });
+  });
+});
+
 describe('syncSandboxOp', () => {
   const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
 
   it('fast-forwards and reports success', async () => {
     const r = recorder();
-    const proc = fakeSbxProcess();
+    const proc = fakeSbxProcess(LISTED);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(true);
     expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
     expect(r.errors).toEqual([]);
@@ -135,7 +146,7 @@ describe('syncSandboxOp', () => {
 
   it('reports a refused sync', async () => {
     const r = recorder();
-    const proc = fakeSbxProcess({ 'git -C /wt/a merge-base': { code: 1 } });
+    const proc = fakeSbxProcess({ ...LISTED, 'git -C /wt/a merge-base': { code: 1 } });
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(false);
     expect(r.errors).toEqual([expect.stringMatching(/^Karst: sandbox sync for K-7 failed: refused: .*never forced/)]);
     expect(r.infos).toEqual([]);
@@ -157,13 +168,27 @@ describe('syncSandboxOp', () => {
     expect(proc.calls).toEqual([]);
   });
 
+  it('an sbx CLI that cannot run blocks the manual sync with the reason, syncing nothing', async () => {
+    const r = recorder();
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(false);
+    expect(r.errors).toEqual([expect.stringContaining('sbx CLI not runnable from the extension host')]);
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
+  });
+
+  it('a listed-absent sandbox has nothing to sync manually', async () => {
+    const r = recorder();
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } }) }, target)).resolves.toBe(false);
+    expect(r.errors).toEqual(['Karst: K-7 has no sandbox to sync.']);
+  });
+
   it.each(['opencode', 'opencode2'])('syncs a %s ticket from its docker clone', async (core) => {
     const r = recorder();
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
     expect(r.infos).toEqual(["Karst: K-7 fast-forwarded feat/x to the docker sandbox's commits."]);
-    const bundle = dockerProc.calls[0]!;
+    const bundle = dockerProc.calls[1]!;
     expect(bundle.command).toBe('docker');
     expect(bundle.args.some((a) => new RegExp(`^type=volume,source=karst-[0-9a-f]{8}-7-${core}-repo,target=/work,readonly$`).test(a))).toBe(true);
     expect(bundle.args.join(' ')).not.toContain('--user');
@@ -173,7 +198,7 @@ describe('syncSandboxOp', () => {
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
     await syncSandboxOp({ notify: recorder().notify, projectRoot: '/p', dockerProc, temp, platform: 'linux' }, { ...target, core: 'opencode' });
-    expect(dockerProc.calls[0]!.args).toContain('--user');
+    expect(dockerProc.calls[1]!.args).toContain('--user');
   });
 });
 
@@ -264,7 +289,6 @@ describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
 
 describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
   const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
-  const LISTED = { 'sbx ls': { stdout: `NAME\n${sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' })}` } };
 
   it('fast-forwards a sandboxed ticket', async () => {
     const proc = fakeSbxProcess(LISTED);
@@ -348,22 +372,31 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     expect(r).toMatchObject({ ok: false, diverged: false });
   });
 
-  it('an existing sbx clone dir is evidence: an unreachable CLI blocks with the CLI named (D244)', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'karst-proj-'));
-    mkdirSync(sbxCloneDir(root, sbxName({ projectRoot: root, ticketId: 7, core: 'claude' })), { recursive: true });
-    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: root, proc }, target);
-    expect(r).toEqual({ ok: false, diverged: false, reason: expect.stringMatching(/^the sbx sandbox was not found: is the sbx CLI on the extension host PATH and running\?/) });
+  it('sandboxed ticket + sbx exit 127 (ENOENT) is blocked with the reason, never ok (AC-39)', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    expect(r).toEqual({ ok: false, diverged: false, unknown: true, reason: expect.stringMatching(/^sbx CLI not runnable from the extension host: `sbx` was not found on the PATH \(spawn sbx ENOENT\)/) });
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
-  it('a docker-core host ticket with no record is ok, with a record it is blocked naming docker (D244)', async () => {
-    const dir = join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
-    const docker = () => fakeDockerProcess({ 'docker volume inspect': { code: 1, stderr: 'spawn docker ENOENT' } });
+  it('a signed-out or failing sbx ls (other non-zero exit) is unknown too', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'not signed in' } });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    expect(r).toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('not signed in') });
+  });
+
+  it('a probe that throws is unknown, not absent', async () => {
+    const boom = { run: () => Promise.reject(new Error('EPERM')) } as never;
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: boom }, target);
+    expect(r).toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('EPERM') });
+  });
+
+  it('docker core: no such volume is a host ticket; a missing CLI or down daemon is blocked', async () => {
     const dt = { ...target, core: 'opencode2' };
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: docker(), evidenceDirOf: () => dir }, dt)).resolves.toEqual({ ok: true });
-    await recordHostHead(hostHeadFileFor(dir), '/wt/a', 'c'.repeat(40));
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: docker(), evidenceDirOf: () => dir }, dt);
-    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('the docker CLI') });
+    const run = (answer: Record<string, { code: number; stderr: string }>) => ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: fakeDockerProcess(answer) }, dt);
+    await expect(run({ 'docker volume inspect': { code: 1, stderr: 'Error: No such volume: karst-x' } })).resolves.toEqual({ ok: true });
+    await expect(run({ 'docker volume inspect': { code: 127, stderr: 'spawn docker ENOENT' } })).resolves.toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('docker CLI not runnable') });
+    await expect(run({ 'docker volume inspect': { code: 1, stderr: 'Cannot connect to the Docker daemon' } })).resolves.toMatchObject({ ok: false, unknown: true });
   });
 
   it('a sandbox that `ls` does not list is a host ticket even when ls succeeds (D244)', async () => {
@@ -380,19 +413,17 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
     expect(peak).toBe(1);
   });
-  it('a host ticket on an sbx-capable core runs no sync and spawns no sbx bundle (D244)', async () => {
-    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
+  it('a host ticket (sbx listed it absent) runs no sync and spawns no sbx bundle (D244)', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } });
     await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
-  it('a ticket with a recorded synced head but an unreachable sbx CLI is blocked, never skipped (D244)', async () => {
+  it('on-disk evidence is no tiebreak: a recorded head with an absent listing is a host ticket', async () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
     await recordHostHead(hostHeadFileFor(dir), '/wt/a', 'c'.repeat(40));
-    const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'spawn sbx ENOENT' } });
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => dir }, target);
-    expect(r).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('sbx CLI on the extension host PATH') });
-    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => dir }, target)).resolves.toEqual({ ok: true });
   });
 });
 
@@ -486,6 +517,13 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
     expect(proc.calls).toEqual([]);
   });
 
+  it('sandboxed ticket + sbx exit 127 is a blocker, not ok (regression)', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
+    const r = await ensureSandboxInSync(withBridge(proc), target);
+    expect(r).toMatchObject({ ok: false, unknown: true });
+    expect(proc.calls.map((c) => c.args[0])).toEqual(['ls']);
+  });
+
   it('a host ticket in a sandbox-configured project (no listed sandbox) runs no sync', async () => {
     const proc = fakeSbxProcess();
     await expect(ensureSandboxInSync(withBridge(proc), target)).resolves.toEqual({ ok: true });
@@ -551,6 +589,11 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
       expect(failed).toMatchObject({ ok: false, reason: expect.stringContaining('stash failed') });
       const none = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess() }, target);
       expect(none).toMatchObject({ ok: false, reason: expect.stringContaining('no sandbox') });
+    });
+    it('Stash and update: an sbx CLI that cannot run is named, not "no sandbox"', async () => {
+      const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
+      const r = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+      expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('sbx CLI not runnable') });
     });
     it('refresh:false stops after the sync', async () => {
       const proc = bundled();

@@ -249,8 +249,9 @@ directional — resident is the default; deferral requires meeting ALL criteria.
 The entry orchestrators carry marker GUIDANCE — that a session ending is not
 a verdict, and that `karst context <key> --md`'s `## How this stage ends`
 names the exact command — but never the concrete marker command itself. That
-command is inline in every seed regardless of materialization: fresh launch,
-resume, fix and resolve-conflict alike.
+command is inline in every seed regardless of materialization — fresh launch,
+resume, fix and resolve-conflict alike — whenever `markerStageFor` names a
+marker; a `ship`-stage resolve-conflict has none.
 
 ### Generalized from ticket 17's landed pattern
 

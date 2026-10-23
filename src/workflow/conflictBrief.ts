@@ -13,6 +13,9 @@
  * Pure: no store, no clock, no vscode.
  */
 
+import { markerStageFor } from '../agent/markerStage.js';
+import type { StageKey } from '../model/types.js';
+
 export interface ConflictBriefInput {
   /** Ticket key, or `#<id>` when it has none. */
   ticketLabel: string;
@@ -24,8 +27,33 @@ export interface ConflictBriefInput {
   /** Conflicting paths as the probe reported them; may be empty. */
   files: readonly string[];
   prUrl: string | null;
-  /** The ticket runs in a sandbox: no origin access, the host syncs and pushes. */
+  /** The ticket runs in a sandbox: no origin access, the host syncs the merge out. */
   sandboxed?: boolean;
+  /** The ticket's current stage; decides which done marker (if any) the brief names. */
+  stageCurrent?: StageKey | null;
+}
+
+/**
+ * How the brief ends, which follows the ticket's stage rather than the merge:
+ *
+ * - `impl`/`fix` have a done marker. Naming the right one matters — the seeded
+ *   marker at another stage is refused, and an agent that trusted it reports a
+ *   move that never happened (`markerStageFor`).
+ * - At `ship` there is NO marker: a conflict is a ship-stage block, and the
+ *   stage is decided by gate exit codes (`arch:BLOCKED`).
+ *
+ * Both endings promise the same delivery: the agent commits and never pushes;
+ * Karst runs the gates and delivers the merge to the open PR (D247).
+ */
+function closingLines(stageCurrent: StageKey | null | undefined): string[] {
+  const marker = markerStageFor(stageCurrent ?? null);
+  const where = stageCurrent ? `at \`${stageCurrent}\`` : 'at this stage';
+  return [
+    marker
+      ? `When the merge is committed, emit the \`${marker}\` marker.`
+      : `This ticket is ${where}: there is no marker to emit — the stage is decided by gate exit codes.`,
+    'Commit the merge. Do not push. Karst runs the gates and delivers it to the open PR.',
+  ];
 }
 
 /** Beyond this the list is prompt bloat — git names them all again at merge time. */
@@ -72,8 +100,9 @@ export function renderConflictBrief(input: ConflictBriefInput): string {
       `1. \`git merge --no-ff ${ref}\``,
       '2. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code first.',
       '3. Before committing, run the repository\'s gate scripts that run in the sandbox (docs check, typecheck, unit tests) and fix what the merge broke.',
-      '4. Commit the merge. Do not run `git fetch` or `git push`.',
-      '5. Emit the `fix` marker; the host syncs your commits out and the normal review/UAT gates run before anything is pushed.',
+      '4. Do not run `git fetch` or `git push`.',
+      '',
+      ...closingLines(input.stageCurrent),
       '',
       'Do not rebase and do not force-push: the branch is already published under an open PR.',
       'If the right resolution is genuinely ambiguous, stop and ask rather than guessing.',
@@ -88,7 +117,8 @@ export function renderConflictBrief(input: ConflictBriefInput): string {
     '3. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code before',
     '   choosing; a conflict marker deleted without understanding it is a silent regression.',
     '4. Run the repository\'s build and tests before committing.',
-    '5. Commit the merge and push it to the same branch, so the PR picks it up.',
+    '',
+    ...closingLines(input.stageCurrent),
     '',
     'Do not rebase and do not force-push: the branch is already published under an open PR.',
     'If the right resolution is genuinely ambiguous, stop and ask rather than guessing.',

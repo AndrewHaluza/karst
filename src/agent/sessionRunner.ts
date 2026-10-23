@@ -61,6 +61,16 @@ export interface RefreshOptions {
   readonly baseRef?: string;
 }
 
+/**
+ * Does a ticket's sandbox exist? `unknown` is a CLI that cannot answer (not on the
+ * extension host PATH, daemon down, signed out): never read it as `absent`, or a
+ * sandboxed ticket's commits are skipped silently (arch:AC-39).
+ */
+export type SandboxProbe =
+  | { readonly state: 'present' }
+  | { readonly state: 'absent' }
+  | { readonly state: 'unknown'; readonly reason: string };
+
 export type SyncResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly reason: string };
@@ -120,6 +130,8 @@ export interface SessionRunner {
    * failed closed to the host has none, so its gates and services stay on the host.
    */
   hasSandbox?(): Promise<boolean>;
+  /** Sandbox runners only: the tri-state behind `hasSandbox` (a CLI that cannot run is `unknown`, not `absent`). */
+  probeSandbox?(): Promise<SandboxProbe>;
   /**
    * Sandbox runners only: can a long-lived service run there NOW? docker:
    * while the interactive container runs, else a detached hardened service

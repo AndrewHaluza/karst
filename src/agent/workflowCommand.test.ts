@@ -436,6 +436,12 @@ describe('renderResumeCommand / renderFixCommand / renderResolveConflictCommand'
     expect(body).toContain('a ticket key or `T<n>` id');
   });
 
+  it('(c2) makes the rest of the line the repo, so a quoted path with a space stays one argument', () => {
+    const body = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
+    expect(body).toContain('the rest of the line is `<repo>`');
+    expect(body).toContain('double-quoted');
+  });
+
   it('(d) renderResumeCommand contains neither brief command', () => {
     const body = renderResumeCommand({ contextCommand });
     expect(body).not.toContain(fixBriefCommand);

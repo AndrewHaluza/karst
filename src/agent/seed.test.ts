@@ -336,7 +336,7 @@ describe('seeds state the session own id once per route', () => {
     expect(launch.kickoff).not.toContain(self);
     const resume = composeResumeSeed({ ticketKey: 'PK-2', resumeBrief: 'go', invocation: '/karst:rpi', factsContext: facts });
     expect(count(resume.instructions!, self)).toBe(1);
-    const conflict = composeConflictSeed({ ticketKey: 'PK-2', conflictBrief: 'fix', invocation: '/karst:rpi', factsContext: facts });
+    const conflict = composeConflictSeed({ keyToken: 'PK-2', conflictBrief: 'fix', invocation: '/karst:rpi', factsContext: facts });
     expect(count(conflict.instructions!, self)).toBe(1);
   });
 
