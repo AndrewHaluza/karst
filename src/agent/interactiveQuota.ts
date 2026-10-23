@@ -32,3 +32,19 @@ export function quotaTextFromClaudeEntry(entry: unknown): string | null {
 export function isInteractiveQuota(provider: string, text: string): boolean {
   return isQuotaExhausted({ tool: provider, exitCode: 1, stdout: '', stderr: text, provider });
 }
+
+/**
+ * The quota text of a Claude transcript whose LAST entry is an API error. A
+ * resumed session appends past an old error, so an earlier error line never
+ * re-parks a session that has since moved on.
+ */
+export function claudeTrailingQuotaText(transcript: string): string | null {
+  const lines = transcript.split('\n').filter((line) => line.trim() !== '');
+  const last = lines[lines.length - 1];
+  if (last === undefined) return null;
+  try {
+    return quotaTextFromClaudeEntry(JSON.parse(last));
+  } catch {
+    return null;
+  }
+}

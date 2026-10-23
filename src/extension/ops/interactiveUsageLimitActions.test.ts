@@ -4,7 +4,7 @@ import { createTicket } from '../../store/tickets.js';
 import { listOpenParks, listParks } from '../../store/usageLimitParks.js';
 import type { AgentSwitchOutcome } from '../../agent/sessionSwitch.js';
 import { recordInteractiveUsageLimit } from './interactiveUsageLimitOps.js';
-import { makeInteractiveParkActions } from './interactiveUsageLimitActions.js';
+import { makeInteractiveParkActions, runInteractiveOffer, PICK_LABEL, RETRY_LABEL, DISMISS_LABEL } from './interactiveUsageLimitActions.js';
 
 describe('interactive park actions', () => {
   let store: Store;
@@ -70,5 +70,32 @@ describe('interactive park actions', () => {
     await actions().retrySame(ticketId, parkId);
     expect(await actions().retrySame(ticketId, parkId)).toBe('gone');
     expect(relaunch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('runInteractiveOffer', () => {
+    const run = (answers: Array<string | undefined>) => {
+      const ask = vi.fn();
+      for (const a of answers) ask.mockResolvedValueOnce(a);
+      return { ask, done: runInteractiveOffer({ store, ticketId, parkId, actions: actions(), ask }) };
+    };
+
+    it('re-asks after a Pick that did not switch, then retries', async () => {
+      switchSession.mockResolvedValueOnce({ kind: 'cancelled', at: 'confirm' });
+      const { ask, done } = run([PICK_LABEL, RETRY_LABEL]);
+      await done;
+      expect(ask).toHaveBeenCalledTimes(2);
+      expect(listParks(store, ticketId)[0]?.resolution).toBe('retry');
+    });
+
+    it('Dismiss resolves the row without acting', async () => {
+      await run([DISMISS_LABEL]).done;
+      expect(listParks(store, ticketId)[0]?.resolution).toBe('dismissed');
+      expect(relaunch).not.toHaveBeenCalled();
+    });
+
+    it('closing the prompt leaves the row open', async () => {
+      await run([undefined]).done;
+      expect(listOpenParks(store, ticketId)).toHaveLength(1);
+    });
   });
 });

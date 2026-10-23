@@ -30,6 +30,7 @@ export interface HookDispatchClosures {
   readonly recorder?: HookChannelRecorder;
   readonly debug?: (message: string) => void;
   readonly tracker?: TurnTracker;
+  readonly onSessionError?: (ticketId: number, payload: HookPayload) => void;
 }
 
 export interface BridgeBuildDeps {
@@ -114,7 +115,7 @@ function liveExpectation(deps: BridgeBuildDeps, ticketId: number, worktreePath: 
 function dispatch(deps: BridgeBuildDeps, ticketId: number, payload: HookPayload, log: (m: string) => void): void {
   const c = deps.hookDispatch;
   try {
-    dispatchHook(deps.store, payload, c.notify, c.shouldApplyState, c.sessionProviderFor, c.recorder, c.debug, c.tracker);
+    dispatchHook(deps.store, payload, c.notify, c.shouldApplyState, c.sessionProviderFor, c.recorder, c.debug, c.tracker, c.onSessionError);
   } catch (err) {
     log(`ticket ${ticketId} dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
   }

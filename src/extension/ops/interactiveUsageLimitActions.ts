@@ -52,3 +52,37 @@ export function makeInteractiveParkActions(deps: InteractiveParkActionDeps) {
     },
   };
 }
+
+export const PICK_LABEL = 'Pick agent/model…';
+export const RETRY_LABEL = 'Retry same';
+export const DISMISS_LABEL = 'Dismiss';
+
+export interface InteractiveOfferDeps {
+  store: Store;
+  ticketId: number;
+  parkId: number;
+  actions: ReturnType<typeof makeInteractiveParkActions>;
+  /** Show the prompt; undefined when the user closes it. */
+  ask: (actions: readonly string[]) => Promise<string | undefined>;
+}
+
+/**
+ * The prompt loop: a Pick that did not switch (cancelled picker, stale,
+ * unavailable, launch-failed) keeps the row open AND the prompt available, so
+ * it asks again; closing the prompt leaves the row open without nagging.
+ */
+export async function runInteractiveOffer(deps: InteractiveOfferDeps): Promise<void> {
+  for (;;) {
+    const choice = await deps.ask([PICK_LABEL, RETRY_LABEL, DISMISS_LABEL]);
+    if (choice === PICK_LABEL) {
+      if ((await deps.actions.pickAgent(deps.ticketId, deps.parkId)) === 'open') continue;
+      return;
+    }
+    if (choice === RETRY_LABEL) {
+      await deps.actions.retrySame(deps.ticketId, deps.parkId);
+    } else if (choice === DISMISS_LABEL) {
+      claimUsageLimitPark(deps.store, deps.parkId, 'dismissed');
+    }
+    return;
+  }
+}
