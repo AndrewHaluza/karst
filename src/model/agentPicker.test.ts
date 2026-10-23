@@ -676,7 +676,10 @@ describe('route → vendor grouping and the full-id footer', () => {
     const css = agentPickerCss();
     expect(css).toMatch(/\.ap-group-sub\{[^}]*color:var\(--k-text-faint\)/);
     expect(css).toMatch(/\.ap-menu-foot\{[^}]*border-top:var\(--k-border-w\) solid var\(--k-border\)/);
-    expect(css).toMatch(/\.ap-menu-foot\{[^}]*text-overflow:ellipsis/);
+    // The footer wraps rather than ellipsizing: the full id must be readable
+    // (UI-R44), and a clipped footer would be flagged as clipped text.
+    expect(css).toMatch(/\.ap-menu-foot\{[^}]*overflow-wrap:anywhere/);
+    expect(css).not.toMatch(/\.ap-menu-foot\{[^}]*text-overflow/);
   });
 });
 
