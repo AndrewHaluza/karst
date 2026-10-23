@@ -45,6 +45,7 @@ export function recordInteractiveUsageLimit(
     provider: signal.provider,
     model: signal.model,
     detail: signal.text,
+    keptOutcome: null,
   });
   if (!alreadyOpen) deps.offer(id, signal);
   return id;
