@@ -66,6 +66,8 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
+import { claudeTrailingQuotaText, quotaTextFromHook } from './agent/interactiveQuota.js';
+import { createInteractiveUsageLimitBinding } from './extension/interactiveUsageLimitBinding.js';
 import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
@@ -165,7 +167,7 @@ import {
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import type { ModelCatalog } from './agent/modelCatalog.js';
-import { applyAgentSwitchSelection } from './agent/sessionSwitch.js';
+import { applyAgentSwitchSelection, type AgentSwitchOutcome } from './agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
 import {
   catalogDiagnosticSeverity,
@@ -1786,7 +1788,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     targetProvider: AgentProvider,
     model: string | null,
     effort: string | null,
-  ): Promise<void> => {
+  ): Promise<AgentSwitchOutcome | undefined> => {
     try {
       const outcome = await applyAgentSwitchSelection({
         read: () => {
@@ -1845,11 +1847,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
         );
       }
+      return outcome;
     } catch (error) {
       logError('agent session switch failed', error);
       void vscode.window.showErrorMessage(
         `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
       );
+      return undefined;
     } finally {
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -3885,6 +3889,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const turnTracker = new TurnTracker();
+  // D160: interactive usage-limit detection (AC-42). Hook `session.error` and the
+  // Claude transcript tail both report here.
+  const interactiveUsageLimit = createInteractiveUsageLimitBinding({
+    store: localStore,
+    pick: makeUsageLimitAgentModelPicker(() => modelCatalog),
+    switchSession: (ticketId, sel) => switchAgentSession(ticketId, sel.provider, sel.model, null),
+    relaunch: async (ticketId) => {
+      sessions.disposeSession(ticketId);
+      await vscode.commands.executeCommand('karst.openSession', ticketId, { allowResume: true, providerReady: true });
+    },
+    sessionProviderFor,
+    refresh: (ticketId) => { provider.refresh(); dashboard.pushState(ticketId); },
+  });
+  const onSessionError = (ticketId: number, payload: HookPayload): void => {
+    const text = quotaTextFromHook(payload);
+    if (text) interactiveUsageLimit.report(ticketId, payload.session_id ?? 'unknown', text);
+  };
   endpoint = await startHookEndpoint(
     localStore,
     rememberedPort,
@@ -3896,6 +3917,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       recorder: hookChannelRecorder,
       debug: (message) => logger.debug(message),
       tracker: turnTracker,
+      onSessionError,
       // The mail reply channel: a turn end with unread mail gets a fixed pointer.
       hookReply: mailbox.hookReply, refreshUnread: mailbox.refreshUnread, onReplyDelivered: mailbox.onReplyDelivered,
       ticketApi: {
@@ -3919,7 +3941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
-    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
@@ -6010,6 +6032,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: claude transcript read failed for ticket ${named.ticketId}`, error);
           continue;
         }
+        const quotaText = claudeTrailingQuotaText(text);
+        if (quotaText) interactiveUsageLimit.report(named.ticketId, sessionId, quotaText, 'claude');
         const usage = parseClaudeTranscript(text);
         const snapshot: ClaudeTranscriptSnapshot = { transcriptPath, usage };
         const events = claudeTranscriptTick(state, snapshot);
