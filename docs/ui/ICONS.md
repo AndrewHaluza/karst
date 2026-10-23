@@ -149,6 +149,12 @@ core's canonical mark, for example):
 2. **Agent-core logos** — `src/model/agentIdentity.ts` (`AGENT_ICONS`,
    `AGENT_LINE_ICONS`): Claude Code, Codex, OpenCode, Antigravity marks.
 3. **Ticketing-provider logos** — `src/model/providerIdentity.ts` (ClickUp).
+4. **Route/gateway logos** — `src/model/routeIdentity.ts` (`ROUTE_ICONS`): the
+   OpenRouter and OpenCode marks, the same Lobe Icons monochrome SVGs the
+   agent-core set uses. An unknown route renders a generated letter monogram (its
+   first letter, on a hue derived from the route id, `aria-hidden`, with the route
+   name in the trigger's accessible name) — a placeholder for a brand Karst has no
+   asset for, not a new icon concept. Approved 2026-10-23 (T777).
 
 Anything else that looks like an icon — including a glyph invented for a "new"
 concept — belongs in `TABLER_ICONS` as upstream Tabler bytes, or it does not
