@@ -256,6 +256,21 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     // Validation and Save are the shell's business; a tab editor is synchronous.
     expect(bridge.posted).toHaveLength(0);
   });
+
+  it('renders "When a ticket is done" select with default ask and round-trips choices', () => {
+    const { probe } = mountGeneral();
+    const select = screen.getByLabelText('When a ticket is done') as HTMLSelectElement;
+    expect(select.value).toBe('ask');
+
+    fireEvent.change(select, { target: { value: 'auto' } });
+    expect(probe().draft).toMatchObject({ stopServersOnDone: 'auto' });
+
+    fireEvent.change(select, { target: { value: 'off' } });
+    expect(probe().draft).toMatchObject({ stopServersOnDone: 'off' });
+
+    fireEvent.change(select, { target: { value: 'ask' } });
+    expect(probe().draft).toMatchObject({ stopServersOnDone: 'ask' });
+  });
 });
 
 describe('GeneralSection — agent identity lives on the Agents page', () => {

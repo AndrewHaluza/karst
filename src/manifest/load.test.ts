@@ -2335,6 +2335,55 @@ describe('diffsInSourceControl', () => {
   });
 });
 
+describe('stopServersOnDone', () => {
+  it('defaults to ask when absent', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).stopServersOnDone).toBe('ask');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses stopServersOnDone: ask', () => {
+    const { path, cleanup } = fixture(`${VALID}\nstopServersOnDone: ask\n`);
+    try {
+      expect(loadManifest(path).stopServersOnDone).toBe('ask');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses stopServersOnDone: auto', () => {
+    const { path, cleanup } = fixture(`${VALID}\nstopServersOnDone: auto\n`);
+    try {
+      expect(loadManifest(path).stopServersOnDone).toBe('auto');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses stopServersOnDone: off', () => {
+    const { path, cleanup } = fixture(`${VALID}\nstopServersOnDone: off\n`);
+    try {
+      expect(loadManifest(path).stopServersOnDone).toBe('off');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on an unknown value, naming ask, auto, and off', () => {
+    const { path, cleanup } = fixture(`${VALID}\nstopServersOnDone: never\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /stopServersOnDone must be 'ask', 'auto', or 'off'/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('ticketLabelTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);

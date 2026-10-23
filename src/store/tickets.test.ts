@@ -106,6 +106,7 @@ describe('ticketLabel', () => {
     autostartStarting: false,
     autostartClaimedAt: null,
     priority: null,
+    serversOnDone: null,
   };
 
   it('renders "key — title" when both present', () => {

@@ -446,6 +446,9 @@ export interface AgentDef {
 /** How worktree paths render on the dashboard: absolute or project-relative. */
 export type WorktreePathDisplay = 'absolute' | 'relative';
 
+export type StopServersOnDone = 'ask' | 'auto' | 'off';
+export const DEFAULT_STOP_SERVERS_ON_DONE: StopServersOnDone = 'ask';
+
 /** Which ticketing backend a ticket's source/status is bound to. */
 export type TicketProvider = 'clickup' | 'manual';
 
@@ -1007,6 +1010,14 @@ export interface Manifest {
    * way. Defaults to off: absent and `false` both mean the webview panel.
    */
   diffsInSourceControl?: boolean;
+
+  /**
+   * What happens to a ticket's services when the ticket reaches done.
+   * 'ask' (default): one host prompt per ticket — Stop servers / Keep running / Always stop.
+   * 'auto': stop without asking and announce it.
+   * 'off': leave them running until archive.
+   */
+  stopServersOnDone?: StopServersOnDone;
   /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and

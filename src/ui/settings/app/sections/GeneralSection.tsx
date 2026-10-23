@@ -23,6 +23,7 @@ import { useMemo, useRef, useState } from 'react';
 import type {
   AgentProvider,
   Manifest,
+  StopServersOnDone,
   SubtaskLimits,
   WorktreePathDisplay,
 } from '../../../../manifest/types.js';
@@ -60,6 +61,13 @@ const PREVIEW_TICKET: TicketLabelFields = {
 const WORKTREE_DISPLAY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'relative', label: 'relative' },
   { value: 'absolute', label: 'absolute' },
+];
+
+/** Options for when a ticket reaches done (D205). */
+const STOP_SERVERS_ON_DONE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'ask', label: 'Ask' },
+  { value: 'auto', label: 'Stop automatically' },
+  { value: 'off', label: 'Do not stop' },
 ];
 
 /** Write one claimed key, leaving every other field of the draft alone. */
@@ -422,6 +430,17 @@ export function GeneralSection() {
               checked: readField<boolean>(draft, 'diffsInSourceControl', false),
               onChange: setToggle('diffsInSourceControl'),
               switchLabel: 'Enabled',
+            }}
+          />
+          <Field
+            label="When a ticket is done"
+            control={{
+              kind: 'select',
+              name: 'stopServersOnDone',
+              value: readField<StopServersOnDone>(draft, 'stopServersOnDone', 'ask'),
+              options: STOP_SERVERS_ON_DONE_OPTIONS,
+              onChange: (value) =>
+                edit(set('stopServersOnDone', value as StopServersOnDone)),
             }}
           />
         </div>

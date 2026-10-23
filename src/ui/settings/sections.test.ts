@@ -64,6 +64,7 @@ describe('settings sections — vocabulary', () => {
         'quota',
         'repositories',
         'review',
+        'stopServersOnDone',
         'subtasks',
         'terminalNameTemplate',
         'ticketLabelTemplate',
