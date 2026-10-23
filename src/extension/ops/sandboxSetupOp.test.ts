@@ -44,7 +44,10 @@ describe('provisionTicketSandbox', () => {
     resetSetupLocks();
     const plain = rig({ setup: 'npm ci' });
     await provisionTicketSandbox(plain.deps, 7);
-    expect(plain.windows).toEqual(['open registry.npmjs.org,github.com,objects.githubusercontent.com', 'close']);
+    expect(plain.windows).toEqual([
+      'open registry.npmjs.org,github.com,objects.githubusercontent.com,release-assets.githubusercontent.com,nodejs.org',
+      'close',
+    ]);
   });
 
   it('docker: the create-time background start is skipped (the window needs an idle agent); sbx starts it', async () => {
