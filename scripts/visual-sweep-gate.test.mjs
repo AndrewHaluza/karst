@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   baselineProblems,
   changedBaselines,
+  gitArgs,
   layoutGateProblems,
   prChangedBaselines,
   repoRelative,
@@ -69,6 +70,17 @@ describe('repoRelative', () => {
 
   it('keeps an already-relative path as it is', () => {
     expect(repoRelative(`${BASELINES_DIR}/dark/a.png`, '/work')).toBe(`${BASELINES_DIR}/dark/a.png`);
+  });
+});
+
+describe('gitArgs', () => {
+  it('marks only this repository safe, then runs the command', () => {
+    expect(gitArgs('/work/repo', ['diff', '--name-only'])).toEqual([
+      '-c',
+      'safe.directory=/work/repo',
+      'diff',
+      '--name-only',
+    ]);
   });
 });
 

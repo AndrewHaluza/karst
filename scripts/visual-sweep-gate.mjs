@@ -82,15 +82,31 @@ export function prChangedBaselines({ env = process.env, gitRun = runGit } = {}) 
     const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`;
     throw new Error(
       `visual-sweep-gate: cannot diff the PR's baselines against its base (HEAD^1): ${detail}. ` +
-        `Repo root ${root} (cwd ${process.cwd()}, .git ${existsSync(join(root, '.git')) ? 'present' : 'MISSING'}). ` +
+        `Repo root ${root} (cwd ${process.cwd()}). ` +
         'The visual job must check out the pull request merge commit with fetch-depth 2.',
     );
   }
   return changedBaselines(result.stdout ?? '');
 }
 
+/**
+ * The `git` argv for a diff run, with the repository this gate lives in marked
+ * safe.
+ *
+ * The visual job runs inside a container whose image defaults to a non-root
+ * user, while `actions/checkout` writes the checkout as root and records
+ * `safe.directory` only in a THROWAWAY HOME (the checkout log's "Temporarily
+ * overriding HOME"). Every later step therefore meets git's dubious-ownership
+ * guard, which denies the repository and makes `git diff` fall back to its
+ * `--no-index` path ("warning: Not a git repository"). Trust exactly `root` —
+ * never `*` — so the guard cannot be disarmed by the environment.
+ */
+export function gitArgs(repoRoot, args) {
+  return ['-c', `safe.directory=${repoRoot}`, ...args];
+}
+
 function runGit(args) {
-  return spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  return spawnSync('git', gitArgs(root, args), { cwd: root, encoding: 'utf8' });
 }
 
 /** Every spec of a Playwright JSON report, with the project its results ran in. */
