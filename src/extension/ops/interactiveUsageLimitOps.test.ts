@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { claimUsageLimitPark, listOpenParks } from '../../store/usageLimitParks.js';
-import { recordInteractiveUsageLimit, type InteractiveSignal } from './interactiveUsageLimitOps.js';
+import { makeOncePerError, recordInteractiveUsageLimit, type InteractiveSignal } from './interactiveUsageLimitOps.js';
 
 describe('recordInteractiveUsageLimit', () => {
   let store: Store;
@@ -76,5 +76,16 @@ describe('recordInteractiveUsageLimit', () => {
     claimUsageLimitPark(store, id, 'retry');
     recordInteractiveUsageLimit({ store, offer }, signal());
     expect(offer).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('makeOncePerError', () => {
+  it('passes a key once per ticket+session, again when the key changes', () => {
+    const once = makeOncePerError();
+    expect(once(1, 's', 'a')).toBe(true);
+    expect(once(1, 's', 'a')).toBe(false);
+    expect(once(1, 's', 'b')).toBe(true);
+    expect(once(1, 't', 'b')).toBe(true);
+    expect(once(2, 's', 'b')).toBe(true);
   });
 });

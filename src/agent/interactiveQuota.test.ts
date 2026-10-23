@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claudeTrailingQuotaText, quotaTextFromHook, quotaTextFromClaudeEntry, isInteractiveQuota } from './interactiveQuota.js';
+import { claudeTrailingQuota, claudeTrailingQuotaText, quotaTextFromHook, quotaTextFromClaudeEntry, isInteractiveQuota } from './interactiveQuota.js';
 
 describe('interactive quota detector', () => {
   it('session.error message is candidate text; other events are not', () => {
@@ -40,6 +40,10 @@ describe('interactive quota detector', () => {
     it('returns the text only when the LAST line is the API error', () => {
       expect(claudeTrailingQuotaText(`${ok}\n${err}\n`)).toBe('Claude usage limit reached');
       expect(claudeTrailingQuotaText(`${err}\n${ok}\n`)).toBeNull();
+    });
+    it('keys the trailing error by its raw line', () => {
+      expect(claudeTrailingQuota(`${ok}\n${err}\n`)).toEqual({ text: 'Claude usage limit reached', key: err });
+      expect(claudeTrailingQuota(ok)).toBeNull();
     });
     it('tolerates empty and malformed tails', () => {
       expect(claudeTrailingQuotaText('')).toBeNull();

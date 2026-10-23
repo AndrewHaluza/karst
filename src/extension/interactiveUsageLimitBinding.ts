@@ -6,8 +6,8 @@ import type { AgentSwitchOutcome } from '../agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 import { getTicket } from '../store/tickets.js';
 import type { HookPayload } from '../hooks/dispatch.js';
-import { claudeTrailingQuotaText, quotaTextFromHook } from '../agent/interactiveQuota.js';
-import { recordInteractiveUsageLimit } from './ops/interactiveUsageLimitOps.js';
+import { claudeTrailingQuota, quotaTextFromHook } from '../agent/interactiveQuota.js';
+import { makeOncePerError, recordInteractiveUsageLimit } from './ops/interactiveUsageLimitOps.js';
 import { makeInteractiveParkActions, runInteractiveOffer } from './ops/interactiveUsageLimitActions.js';
 
 export interface InteractiveUsageLimitBindingDeps {
@@ -36,6 +36,7 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
       await vscode.commands.executeCommand('karst.openSession', ticketId, { allowResume: true, providerReady: true });
     },
   });
+  const once = makeOncePerError();
   const binding = {
     /** Hook endpoint / bridge `session.error` (opencode cores). */
     onSessionError(ticketId: number, payload: HookPayload): void {
@@ -44,8 +45,9 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
     },
     /** A Claude transcript read; only a trailing API error counts. */
     onClaudeTranscript(ticketId: number, sessionId: string, transcript: string): void {
-      const text = claudeTrailingQuotaText(transcript);
-      if (text) binding.report(ticketId, sessionId, text, 'claude');
+      const quota = claudeTrailingQuota(transcript);
+      if (!quota || !once(ticketId, sessionId, quota.key)) return;
+      binding.report(ticketId, sessionId, quota.text, 'claude');
     },
     report(ticketId: number, sessionId: string, text: string, provider = deps.sessionProviderFor(ticketId)): void {
       if (!provider) return;
@@ -67,7 +69,13 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
                     ...labels,
                   ),
                 ),
-            }).finally(() => deps.refresh(ticketId));
+            })
+              .catch((e: unknown) => {
+                void vscode.window.showErrorMessage(
+                  `${ticket.key}: usage-limit action failed: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              })
+              .finally(() => deps.refresh(ticketId));
           },
         },
         {

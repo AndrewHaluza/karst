@@ -50,3 +50,17 @@ export function recordInteractiveUsageLimit(
   if (!alreadyOpen) deps.offer(id, signal);
   return id;
 }
+
+/**
+ * The Claude transcript tail stays the same error line after Dismiss/Retry
+ * resolves the park; report each error entry once per ticket+session.
+ */
+export function makeOncePerError(): (ticketId: number, sessionId: string, key: string) => boolean {
+  const seen = new Map<string, string>();
+  return (ticketId, sessionId, key) => {
+    const slot = `${ticketId}:${sessionId}`;
+    if (seen.get(slot) === key) return false;
+    seen.set(slot, key);
+    return true;
+  };
+}

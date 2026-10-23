@@ -34,17 +34,23 @@ export function isInteractiveQuota(provider: string, text: string): boolean {
 }
 
 /**
- * The quota text of a Claude transcript whose LAST entry is an API error. A
- * resumed session appends past an old error, so an earlier error line never
+ * The quota text of a Claude transcript whose LAST entry is an API error, with
+ * that entry's raw line as a key (unique per error: it carries uuid/timestamp).
+ * A resumed session appends past an old error, so an earlier error line never
  * re-parks a session that has since moved on.
  */
-export function claudeTrailingQuotaText(transcript: string): string | null {
+export function claudeTrailingQuota(transcript: string): { text: string; key: string } | null {
   const lines = transcript.split('\n').filter((line) => line.trim() !== '');
   const last = lines[lines.length - 1];
   if (last === undefined) return null;
   try {
-    return quotaTextFromClaudeEntry(JSON.parse(last));
+    const text = quotaTextFromClaudeEntry(JSON.parse(last));
+    return text === null ? null : { text, key: last };
   } catch {
     return null;
   }
+}
+
+export function claudeTrailingQuotaText(transcript: string): string | null {
+  return claudeTrailingQuota(transcript)?.text ?? null;
 }
