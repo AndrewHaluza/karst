@@ -22,6 +22,7 @@ How a ticket's worktree is cut, named, and cleaned up, and how the servers and c
 - in: @arch:STAGEMACH, @arch:UAT-SERVICES — stage lifecycle triggers worktree creation, spins services for test/impl, and cleans up on completion.
 - out: @arch:BASEBRANCH, @arch:ENVOVR — worktree rows and ticket env overrides feed rebase and process environment layering.
 - out: @arch:GH-00, @arch:SHIP-EXCLUDE — branch conventions, unstageable generated paths, and force-with-lease push safety feed ship and PR creation.
+- out: @arch:SHARED-VIEW — a ticket's recorded baseline refs feed the dashboard's read-only shared-service rows.
 - out: @arch:MAP-01 — runtime process supervisor and worktree operations participate in the core architecture layers.
 
 ### Flow
@@ -67,7 +68,7 @@ sequenceDiagram
 | Worktree deleted outside karst | `reapStaleServers` detects missing cwd on startup/activation | Clears stale rows and reaps attributed orphaned processes |
 
 ### Rules
-@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:ROOT-GEN
+@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:ROOT-GEN · @arch:SHARED-VIEW
 END_DOC_BLOCK: [@arch:WT-00]
 
 ## [@arch:ENTRIES] Repository ENTRIES may share a `repoPath`
@@ -169,3 +170,15 @@ covers: src/runtime/serverLog.ts#serverLogPath, src/runtime/karstExcludes.ts#KAR
 
 It is the one directory whose untracked files a human — or an agent running `git add -A` — sees and commits. Server logs go through `runtime/serverLog.ts` (`<cwd>/.karst/logs/<name>.log`), inside the `/.karst/` that `ensureKarstExcluded` already writes to `.git/info/exclude`, so the file is unstageable by construction. **Every OTHER path karst writes into a worktree is unstageable the same way**, via `runtime/karstExcludes.ts` (`KARST_EXCLUDE_RULES`) — the adapter-materialized approach dirs (`.karst-plugin/`, `.agents/plugins/`, `.agents/skills/karst-*/`, `.codex/karst/`) were left visible, and since ship's `commitAllIfDirty` is a plain `git add -A`, they became a commit, a push, and a PR whose whole diff was karst's own scaffolding. `hasChangesFrom` cannot catch that — by the time it runs the scaffolding IS a diff from the base. `cleanupOwnedPaths` is only the tidy-up: it fires on session CLOSE, and ship usually runs while the session is still open. `ensureKarstExcluded` is additive (appends only the MISSING rules) and runs on the adopt path too, so a worktree cut by an older karst gains rules added since. Ignore rules never touch tracked files, which is what keeps this safe for a repo that checks in its own tree at those paths. `OWNED_PREFIXES` (`agent/materializedCleanup.ts`) stays deliberately NARROWER — every deletable path must be excluded, never the reverse, since `/.karst/` is excluded but holds the worktrees themselves; `karstExcludes.test.ts` pins that one direction.
 END_DOC_BLOCK: [@arch:ROOT-GEN]
+
+## [@arch:SHARED-VIEW] A ticket's Servers panel reads BOTH halves of its stack, and only the ticket half is controllable
+covers: src/store/sharedServers.ts#listSharedServersByTicket, src/store/baselineRefs.ts#listBaselineDependentsDetailed, src/ui/dashboard/state.ts#buildDashboardState
+
+`listServersByTicket` answers only what the TICKET runs (`servers.ticket_id = <id>`). A stack also consumes SHARED baseline services — one copy per repository, cut from the base branch, `servers.ticket_id IS NULL` — and a panel that omits them shows half the stack and cannot say the API is running from `develop` rather than from the ticket's branch.
+
+`store/sharedServers.ts` joins each of the ticket's `baseline_refs` edges to its baseline row (`servers.repo = ref.repo AND ticket_id IS NULL AND kind = 'service'`; a running row wins over a retained stopped one). The manifest resolves the base branch and the shared checkout — `baselineCheckoutDir(repoPath, REPOSITORY_NAME)`, one checkout per repository shared by its sibling services, not one per unit key. A ref whose unit left `karst.yml` renders `missing` with "no longer declared in karst.yml"; it never throws, because a panel must be able to describe a wiring that no longer resolves.
+
+Who counts as affected (`listBaselineDependentsDetailed` + `isLiveBaselineDependent`): `live = !archived && (stageCurrent !== 'done' || hasRunningService)`. A done ticket counts only while it still runs a service of its own — the shared copy is what that live stack is wired to, so stopping it breaks the stack. An archived ticket never counts: its worktrees are gone. The Resource Monitor's stop confirmation names exactly the live dependents and marks a done-but-running one, so the count a human confirms is the count a stop would break.
+
+The refs themselves are NEVER deleted on done or archive: `runtime/startOne.ts` reads `baseline_refs` to avoid re-pointing a baseline dependency to an alt port. The read model filters; it does not write. Shared rows are read-only in the ticket dashboard (Open when running, Logs when a log exists, Manage to the Resource Monitor) — a stop affects other tickets and belongs behind the project view's host confirm (UI-R33). `DashboardState.servers` keeps its ticket-only meaning so no existing action widens silently; `DashboardState.sharedServers` carries the other half.
+END_DOC_BLOCK: [@arch:SHARED-VIEW]
