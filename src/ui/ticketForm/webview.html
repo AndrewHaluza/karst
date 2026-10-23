@@ -2273,11 +2273,12 @@
     if (card) { e.preventDefault(); pickApproach(card.dataset.approach); }
   });
 
-  function showErr(msg) { const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
+  function showErr(msg) { usageLimitPending = false; const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
   // D159: a usage-limit op park's error carries the park id and offers the
   // SAME three actions the dashboard banner offers. Rendered with buttons
   // (never `textContent`), each posting an `usage-limit-park-*` message.
   function showUsageLimitErr(msg, parkId) {
+    usageLimitPending = false;
     const e = el('err');
     e.innerHTML = '<span>' + esc(msg) + '</span> '
       + '<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="usage-limit-park-pick" data-parkid="' + esc(String(parkId)) + '">Pick agent/model\u2026</button> '
@@ -2285,17 +2286,25 @@
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-dismiss" data-parkid="' + esc(String(parkId)) + '">Dismiss</button>';
     e.classList.remove('hidden');
   }
+  // UI-R11/R12: the re-run takes minutes and the park is claimed by the FIRST
+  // click. A second click would post again and be answered with the false
+  // "This usage limit was already handled." — so the three buttons go inert
+  // until the host replaces this error area (resolved, or an error).
+  let usageLimitPending = false;
   el('err').addEventListener('click', function (e) {
     const target = e.target.closest && e.target.closest('[data-act]');
     if (!target) return;
     e.preventDefault();
+    if (usageLimitPending || target.disabled) return;
     const parkId = Number(target.dataset.parkid);
     if (!parkId) return;
+    usageLimitPending = true;
+    for (const btn of el('err').querySelectorAll('[data-act]')) btn.disabled = true;
     if (target.dataset.act === 'usage-limit-park-pick') post({ type: 'usage-limit-park-pick', parkId });
     if (target.dataset.act === 'usage-limit-park-retry') post({ type: 'usage-limit-park-retry', parkId });
     if (target.dataset.act === 'usage-limit-park-dismiss') post({ type: 'usage-limit-park-dismiss', parkId });
   });
-  function clearErr() { el('err').classList.add('hidden'); }
+  function clearErr() { usageLimitPending = false; el('err').classList.add('hidden'); }
   /**
    * Watchdogs for the LEGACY `busy` channel (UI-R14).
    *
