@@ -119,6 +119,15 @@ const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'confirm-ship', () => stateMessage(shipPreviewStateFor('ready'))),
   variant('dashboard', 'ship-blocked', () => stateMessage(shipPreviewStateFor('blocked'))),
   variant('dashboard', 'ship-error', () => stateMessage(shipPreviewStateFor('error'))),
+  // D159: a quota block is non-resumable; its banner carries Pick/Retry/Dismiss.
+  variant('dashboard', 'usage-limit-blocked', dashboardScenario('running', 2, (s) => ({
+    ...s,
+    currentStage: {
+      stageKey: 'review',
+      status: 'running',
+      blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
+    },
+  }))),
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
     ...s,
     sandbox: {
@@ -287,6 +296,18 @@ const ticketFormVariants = (): Variant[] => {
       messages: [
         ...withState({}).messages,
         { type: 'error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
+      ],
+    })),
+    // D159: an op that died on quota carries its park id, so the error notification
+    // offers Pick agent/model, Retry same and Dismiss.
+    variant('ticketForm', 'usage-limit-error', () => ({
+      messages: [
+        ...withState({}).messages,
+        {
+          type: 'error',
+          message: 'anthropic: monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+          usageLimitParkId: 7,
+        },
       ],
     })),
     variant('ticketForm', 'long-content', () =>

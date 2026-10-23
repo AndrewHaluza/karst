@@ -181,6 +181,21 @@ describe('recoveryProcess', () => {
     expect(evidenceRows(observations)[0]!.detail).toBe(
       'Fix started after UAT blocking observations · round 1 of 2',
     );
+    // D159: a dismissed usage-limit park opens a recovery round whose trigger
+    // names the dismissal in curated prose, not the raw machine detail.
+    const dismissed = recoveryProcess(
+      [
+        round({
+          triggerKind: 'usage-limit-dismissed',
+          triggerDetail: 'Monthly quota exceeded',
+        }),
+      ],
+      [],
+      NOW,
+    )!;
+    expect(evidenceRows(dismissed)[0]!.detail).toBe(
+      'Fix started after Usage limit dismissed · round 1 of 2',
+    );
   });
 
   it('maps round states onto the process status vocabulary', () => {

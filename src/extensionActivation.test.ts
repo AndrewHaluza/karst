@@ -479,7 +479,7 @@ describe('extension activation', () => {
     expect(source).toContain('runVerifier: runProcess');
     expect(source).toContain('resolveProcessAssignment(');
     expect(source).toContain('currentManifest() ?? emptyManifest(),');
-    expect(source).toMatch(/model: t\.model \|\| undefined,\s*effort: t\.effort \|\| undefined,\s*preset: t\.agentPreset \?\? undefined,\s*},\s*modelCatalog,\s*\)/);
+    expect(source).toMatch(/provider: override\?\.provider \?\? t\.agentProvider \?\? undefined,\s*model: override \? \(override\.model \?\? undefined\) : t\.model \|\| undefined,\s*effort: t\.effort \|\| undefined,\s*preset: t\.agentPreset \?\? undefined,\s*},\s*modelCatalog,\s*\)/);
     expect(source).toContain(
       'adapter: instrument(resolveAdapter(assignment.provider), assignment.provider)',
     );
@@ -500,7 +500,7 @@ describe('extension activation', () => {
     expect(source).toContain("processFor(ticketId, 'pr-description')");
     // The ticket form's analyzer is its own process role, resolved through the
     // same seam (869edcm45 follow-up).
-    expect(source).toContain("processFor(ticketId, 'ticket-analysis')");
+    expect(source).toContain("processFor(ticketId, 'ticket-analysis', override)");
     expect(source).toContain('resolveAnalysisProcess: analysisProcess');
     // The seam's callbacks return `DriveProcessBundle | null` natively — the
     // old host-side null collapse is gone (the needle is split so the residual

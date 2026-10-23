@@ -43,6 +43,7 @@ import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, reviewBlo
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
+import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import {
   gatesOutcomeBeforeFindings,
   DEFAULT_REVIEW_FINDINGS,
@@ -500,7 +501,19 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             detail,
             keptOutcome: JSON.stringify({
               findings: findings.length,
-              targets: [...targetOutcomes, { repo: target.repo, status: 'usage-limited', findings: 0 }],
+              targets: [
+                ...targetOutcomes,
+                { repo: target.repo, status: 'usage-limited', findings: 0 },
+                // Every target AFTER the exhausted one was never asked. Name
+                // them instead of dropping them: a re-run that asked only the
+                // parked target would otherwise commit a review verdict with
+                // those repositories silently unreviewed.
+                ...notRunRepos(opts.targets, targetOutcomes, target.repo).map((repo) => ({
+                  repo,
+                  status: NOT_RUN,
+                  findings: 0,
+                })),
+              ],
             }),
           };
           if (processRun !== null) outcome.processRunId = processRun.id;

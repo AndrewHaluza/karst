@@ -177,6 +177,36 @@ describe('runUatTester', () => {
     expect(run.failureDetail).toContain('out of credits');
   });
 
+  it('names the targets a quota park never reached as not-run (a re-run must finish them)', async () => {
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const { adapter } = fakeAdapter(async () => {
+      throw limitErr;
+    });
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        targets: [
+          ...TARGETS,
+          { repo: '/api', worktreePath: '/wt/api', baseRef: 'develop', runningServices: [] },
+        ],
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('usage-limited');
+    if (res.kind !== 'usage-limited') throw new Error('unreachable');
+    // `/api` was never asked: a park that dropped it would let a re-run commit a
+    // verdict whose Tester evidence silently omits that repository.
+    expect(JSON.parse(res.keptOutcome).targets).toEqual([
+      { repo: '/web', status: 'usage-limited', observations: 0 },
+      { repo: '/api', status: 'not-run', observations: 0 },
+    ]);
+  });
+
   it('keeps blocking-severity observations — the Tester never filters by severity', async () => {
     const { adapter } = rawAdapter(
       JSON.stringify([

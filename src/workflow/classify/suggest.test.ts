@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { suggestSignals } from './suggest.js';
-import type { AgentAdapter, HeadlessResult } from '../../agent/adapter.js';
+import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 
 /** A fake adapter whose runHeadless returns a canned raw string. */
 function fakeAdapter(raw: string): AgentAdapter {
@@ -24,6 +24,39 @@ function rejectingAdapter(): AgentAdapter {
 }
 
 describe('suggestSignals', () => {
+  it('forwards a one-shot model/effort to the call and omits them when absent', async () => {
+    const runHeadless = vi.fn(async (_opts: RunHeadlessOpts) => ({
+      sessionId: 's1',
+      verdict: null,
+      raw: '[]',
+    }));
+    const adapter = {
+      ...fakeAdapter('[]'),
+      runHeadless,
+    } as AgentAdapter;
+
+    await suggestSignals(adapter, {
+      service: 'fe',
+      repoPath: '/fe',
+      ticketId: 7,
+      model: 'gpt-4o',
+      effort: 'high',
+    });
+    await suggestSignals(adapter, { service: 'fe', repoPath: '/fe' });
+
+    expect(runHeadless).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        cwd: '/fe',
+        model: 'gpt-4o',
+        effort: 'high',
+        tracking: { callSite: 'signal-suggestion', ticketId: 7 },
+      }),
+    );
+    expect(runHeadless.mock.calls[1]?.[0]).not.toHaveProperty('model');
+    expect(runHeadless.mock.calls[1]?.[0]).not.toHaveProperty('effort');
+  });
+
   it('parses a JSON array of signal words from the agent result', async () => {
     const adapter = fakeAdapter('["api", "endpoint", "migration"]');
     const signals = await suggestSignals(adapter, { service: 'backend', repoPath: '/be' });

@@ -361,6 +361,7 @@ describe('parseTicketFormMessage', () => {
       suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {}, setBaseRef: () => {},
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
       setProvider: () => {}, setPreset: () => {}, setType: () => {}, setBackend: () => {}, analyze: () => {}, attachPick: async () => {},
+      usageLimitParkPick: () => {}, usageLimitParkRetry: () => {}, usageLimitParkDismiss: () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
       retryRelationWriteback: () => {}, openDependency: () => {},
@@ -405,6 +406,9 @@ describe('routeTicketFormAction', () => {
       setProvider: vi.fn(),
       setPreset: vi.fn(),
       analyze: vi.fn(),
+      usageLimitParkPick: vi.fn(),
+      usageLimitParkRetry: vi.fn(),
+      usageLimitParkDismiss: vi.fn(),
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
@@ -419,6 +423,32 @@ describe('routeTicketFormAction', () => {
       closeForm: vi.fn(),
     };
   }
+
+  it('parses and routes the D159 op-park actions, rejecting a bad park id', () => {
+    expect(parseTicketFormMessage({ type: 'usage-limit-park-pick', parkId: 7 })).toEqual({
+      type: 'usage-limit-park-pick',
+      parkId: 7,
+    });
+    expect(parseTicketFormMessage({ type: 'usage-limit-park-retry', parkId: 7 })).toEqual({
+      type: 'usage-limit-park-retry',
+      parkId: 7,
+    });
+    expect(parseTicketFormMessage({ type: 'usage-limit-park-dismiss', parkId: 7 })).toEqual({
+      type: 'usage-limit-park-dismiss',
+      parkId: 7,
+    });
+    // A non-positive / non-integer id is not a row the store can hold.
+    expect(parseTicketFormMessage({ type: 'usage-limit-park-retry', parkId: 0 })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'usage-limit-park-dismiss', parkId: '7' })).toBeNull();
+
+    const actions = spyActions();
+    routeTicketFormAction({ type: 'usage-limit-park-pick', parkId: 1 }, actions);
+    routeTicketFormAction({ type: 'usage-limit-park-retry', parkId: 2 }, actions);
+    routeTicketFormAction({ type: 'usage-limit-park-dismiss', parkId: 3 }, actions);
+    expect(actions.usageLimitParkPick).toHaveBeenCalledWith(1);
+    expect(actions.usageLimitParkRetry).toHaveBeenCalledWith(2);
+    expect(actions.usageLimitParkDismiss).toHaveBeenCalledWith(3);
+  });
 
   it('routes each valid message to its action', () => {
     const actions = spyActions();
@@ -522,6 +552,9 @@ describe('attachment messages', () => {
       setProvider: vi.fn(),
       setPreset: vi.fn(),
       analyze: vi.fn(),
+      usageLimitParkPick: vi.fn(),
+      usageLimitParkRetry: vi.fn(),
+      usageLimitParkDismiss: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),
       retryRelationWriteback: vi.fn(),

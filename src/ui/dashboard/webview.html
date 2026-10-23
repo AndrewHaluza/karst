@@ -3720,7 +3720,12 @@
     if (!show) { box.innerHTML = ''; return; }
     if (usageLimit) {
       box.innerHTML = `<div class="ftitle">Provider out of quota</div>`
-        + `<div class="freason">${esc(blocked.reason)}</div>`;
+        + `<div class="freason">${esc(blocked.reason)}</div>`
+        + `<div class="facts">`
+        + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="usage-limit-pick" data-stagekey="${esc(cell.stageKey)}">Pick agent/model…</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-retry" data-stagekey="${esc(cell.stageKey)}">Retry same</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-dismiss" data-stagekey="${esc(cell.stageKey)}">Dismiss</button>`
+        + `</div>`;
       return;
     }
     // A resumable block is a real fault — the banner carries the reason and
@@ -6041,6 +6046,9 @@
     'unpause-execution': (btn, requestId) => karstSend.unpauseExecution(requestId),
     'resolve-conflicts': (btn, requestId) => karstSend.resolveConflicts(btn.dataset.repo, requestId),
     'stage-resume': (btn, requestId) => karstSend.stageResume(lastState.ticketId, btn.dataset.stagekey, requestId),
+    'usage-limit-pick': (btn, requestId) => karstSend.usageLimitPick(lastState.ticketId, btn.dataset.stagekey, requestId),
+    'usage-limit-retry': (btn, requestId) => karstSend.usageLimitRetry(lastState.ticketId, btn.dataset.stagekey, requestId),
+    'usage-limit-dismiss': (btn, requestId) => karstSend.usageLimitDismiss(lastState.ticketId, btn.dataset.stagekey, requestId),
     'inside-action': (btn, requestId) => karstSend.insideAction(btn.dataset.actionId, requestId),
     'baseline-approve': (btn, requestId) => karstSend.baselineApprove(btn.dataset.blockId, btn.dataset.indices.split(',').map(Number), requestId),
     'baseline-reject': (btn, requestId) => karstSend.baselineReject(btn.dataset.blockId, Number(btn.dataset.index), (baselineReasons[btn.dataset.index] || '').trim(), requestId),

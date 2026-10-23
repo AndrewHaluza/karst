@@ -1,6 +1,7 @@
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 import { nowIso } from '../model/time.js';
+import { setStage } from './stages.js';
 import { classifyFailure } from '../agent/failureClass.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
 
@@ -17,8 +18,11 @@ import { UsageLimitError } from '../agent/cliFailure.js';
  * Three kinds:
  * - `stage-block`: written INSIDE `parkGateStage`, in the same transaction as
  *   the block — review/UAT.
- * - `op`: a non-stage AI op (fix resume, PR description, alignment, classify)
- *   that failed on quota; `stage` names where it ran, `lane` is NULL.
+ * - `op`: a non-stage AI op (fix resume, PR description, alignment, classify,
+ *   suggest) that failed on quota; `stage` names where it ran. `lane` is NULL
+ *   unless the call site names the specific op (`'analysis'`/`'suggest'`), which
+ *   D159's re-run dispatches on — and which keeps two different ops at one stage
+ *   from collapsing into a single open row.
  * - `interactive`: reserved for the interactive-detection part (D160).
  *
  * At most ONE open park per `(ticket_id, stage, kind, lane, target, session_id)`
@@ -144,10 +148,10 @@ function rowToPark(r: RawParkRow): UsageLimitParkRow {
 }
 
 /** The open row for this key, or null. COALESCE makes NULL keys compare equal. */
-function findOpenId(store: Store, input: UsageLimitParkInput): number | null {
+function findOpenId(store: Store, input: UsageLimitParkInput): { id: number; keptOutcome: string | null } | null {
   const row = store.db
     .prepare(
-      `SELECT id FROM usage_limit_parks
+      `SELECT id, kept_outcome FROM usage_limit_parks
        WHERE ticket_id = ?
          AND COALESCE(stage, '') = COALESCE(?, '')
          AND kind = ?
@@ -163,16 +167,96 @@ function findOpenId(store: Store, input: UsageLimitParkInput): number | null {
       input.lane,
       input.target,
       input.sessionId ?? null,
-    ) as { id: number } | undefined;
-  return row?.id ?? null;
+    ) as { id: number; kept_outcome: string | null } | undefined;
+  return row ? { id: row.id, keptOutcome: row.kept_outcome ?? null } : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** The `repo` a kept-outcome target entry names, when it names one. */
+function targetRepo(target: unknown): string | undefined {
+  return isRecord(target) && typeof target.repo === 'string' ? target.repo : undefined;
+}
+
+/** The union of two observation lists, in order, without repeats. */
+function unionObservations(prior: readonly unknown[], fresh: readonly unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const observation of [...prior, ...fresh]) {
+    const key = JSON.stringify(observation);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(observation);
+  }
+  return out;
+}
+
+/**
+ * Merge a fresh kept outcome into the one the open row already carries.
+ *
+ * A SECOND park at the same key must never lose what the FIRST park kept: the
+ * fresh outcome names only the target THIS run touched, so a quota stop that
+ * lands earlier in the target list would drop a sibling target's observations
+ * (the UAT lane) — the very evidence D159's re-run exists to preserve. The
+ * fresh entry wins for the target it names (a re-parked target reads
+ * `usage-limited`, not its stale prior status); every other target's entry is
+ * carried forward, and the observation lists are unioned.
+ *
+ * Shape-agnostic on purpose: `kept_outcome` is opaque JSON whose `targets`
+ * array is the only structure both lanes share.
+ */
+function mergeKeptOutcome(prior: string | null, fresh: string | null): string | null {
+  if (prior === null) return fresh;
+  if (fresh === null) return prior;
+  let priorParsed: unknown;
+  let freshParsed: unknown;
+  try {
+    priorParsed = JSON.parse(prior);
+  } catch {
+    return fresh;
+  }
+  try {
+    freshParsed = JSON.parse(fresh);
+  } catch {
+    return prior;
+  }
+  if (!isRecord(priorParsed) || !isRecord(freshParsed)) return fresh;
+
+  const priorTargets = Array.isArray(priorParsed.targets) ? priorParsed.targets : [];
+  const freshTargets = Array.isArray(freshParsed.targets) ? freshParsed.targets : [];
+  const freshRepos = new Set(
+    freshTargets
+      .map(targetRepo)
+      .filter((repo): repo is string => repo !== undefined),
+  );
+  const preserved = priorTargets.filter((target) => {
+    const repo = targetRepo(target);
+    return repo === undefined || !freshRepos.has(repo);
+  });
+
+  const merged: Record<string, unknown> = {
+    ...priorParsed,
+    ...freshParsed,
+    targets: [...preserved, ...freshTargets],
+  };
+  const priorObservations = Array.isArray(priorParsed.observations) ? priorParsed.observations : [];
+  const freshObservations = Array.isArray(freshParsed.observations) ? freshParsed.observations : [];
+  if (priorObservations.length > 0 || freshObservations.length > 0) {
+    merged.observations = unionObservations(priorObservations, freshObservations);
+  }
+  return JSON.stringify(merged);
 }
 
 /**
  * Record an open usage-limit park. Idempotent per key: a re-park UPDATES the
  * open row in place (fresh detail/provider/model/parked_at) rather than
- * inserting a duplicate, which the partial unique index would reject. Returns
- * the row id. The caller owns the transaction — never call it outside one on a
- * path that must commit atomically with a stage write.
+ * inserting a duplicate, which the partial unique index would reject. The
+ * `kept_outcome` is MERGED with the one the row already carries, so a second
+ * park at the same key never loses what the first park kept. Returns the row
+ * id. The caller owns the transaction — never call it outside one on a path
+ * that must commit atomically with a stage write.
  */
 export function insertOpenPark(store: Store, input: UsageLimitParkInput): number {
   const parkedAt = input.parkedAt ?? nowIso();
@@ -187,8 +271,16 @@ export function insertOpenPark(store: Store, input: UsageLimitParkInput): number
          SET stage_run_id = ?, provider = ?, model = ?, detail = ?, kept_outcome = ?, parked_at = ?
          WHERE id = ?`,
       )
-      .run(stageRunId, input.provider, model, input.detail, keptOutcome, parkedAt, existing);
-    return existing;
+      .run(
+        stageRunId,
+        input.provider,
+        model,
+        input.detail,
+        mergeKeptOutcome(existing.keptOutcome, keptOutcome),
+        parkedAt,
+        existing.id,
+      );
+    return existing.id;
   }
   const info = store.db
     .prepare(
@@ -236,6 +328,124 @@ export function resolveOpenParks(
   return info.changes;
 }
 
+export type ClaimParkResult =
+  | { claimed: true; park: UsageLimitParkRow }
+  | { claimed: false; park: null };
+
+/**
+ * Claim an open usage-limit park atomically.
+ *
+ * One transaction:
+ * 1. Conditionally updates `usage_limit_parks SET resolved_at=?, resolution=? WHERE id=? AND resolved_at IS NULL RETURNING *`.
+ * 2. If 0 rows updated, returns `{ claimed: false, park: null }`.
+ * 3. For `stage-block` parks, verifies the stage is currently blocked on `'usage-limit'`.
+ *    If not (e.g. concurrent sendBack or retryGate cleared/replaced it), roll back and return `{ claimed: false, park: null }`.
+ * 4. For `stage-block` parks, clears the stage block via `setStage`. Since the park row
+ *    was already resolved in step 1, `setStage`'s clear seam is a no-op.
+ * 5. Returns `{ claimed: true, park }`.
+ */
+export function claimUsageLimitPark(
+  store: Store,
+  parkId: number,
+  resolution: string,
+  at?: string,
+): ClaimParkResult {
+  const resolvedAt = at ?? nowIso();
+  const apply = store.db.transaction((): ClaimParkResult => {
+    const raw = store.db
+      .prepare(
+        `UPDATE usage_limit_parks
+         SET resolved_at = ?, resolution = ?
+         WHERE id = ? AND resolved_at IS NULL
+         RETURNING *`,
+      )
+      .get(resolvedAt, resolution, parkId) as RawParkRow | undefined;
+
+    if (!raw) {
+      return { claimed: false, park: null };
+    }
+
+    const park = rowToPark(raw);
+    if (park.kind === 'stage-block') {
+      const stageKey = park.stage as StageKey;
+      const stageRow = store.db
+        .prepare('SELECT blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = ?')
+        .get(park.ticketId, stageKey) as { blocked_kind: string | null } | undefined;
+
+      if (!stageRow || stageRow.blocked_kind !== 'usage-limit') {
+        // Roll back the update inside the transaction by throwing a sentinel or returning abort
+        // In SQLite/better-sqlite3, to abort the transaction we can throw or we can revert.
+        // But throwing rolls back the transaction.
+        throw new Error('STAGE_BLOCK_NOT_USAGE_LIMIT');
+      }
+
+      // Clear the stage block via setStage (single-writer invariant).
+      setStage(store, park.ticketId, stageKey, {
+        blockedKind: null,
+        blockedReason: null,
+        blockedAt: null,
+      });
+    }
+
+    return { claimed: true, park };
+  });
+
+  try {
+    return apply();
+  } catch (e) {
+    if (e instanceof Error && e.message === 'STAGE_BLOCK_NOT_USAGE_LIMIT') {
+      return { claimed: false, park: null };
+    }
+    throw e;
+  }
+}
+
+/**
+ * Undo a claim whose re-run ended WITHOUT a verdict (a Stop, or a failure
+ * before the lane could report). The claim exists to keep two windows from
+ * running the same lane, not to promise a verdict: consuming the park on a run
+ * that never reported would take away the user's only recovery control — the
+ * banner is gone, the stage is unblocked, and no run stands in for it.
+ *
+ * One transaction: null the row's resolution, then re-block a `stage-block`
+ * park's stage through `setStage` (single writer). `setStage`'s own clear seam
+ * is a no-op here because the stage's prior blocked kind is NULL. A row that is
+ * still open (never claimed, or already re-opened) is left alone; returns false.
+ */
+export function reopenUsageLimitPark(
+  store: Store,
+  parkId: number,
+  opts: { reason?: string; at?: string } = {},
+): boolean {
+  const at = opts.at ?? nowIso();
+  const apply = store.db.transaction((): boolean => {
+    const raw = store.db
+      .prepare(
+        `UPDATE usage_limit_parks
+         SET resolved_at = NULL, resolution = NULL
+         WHERE id = ? AND resolved_at IS NOT NULL
+         RETURNING *`,
+      )
+      .get(parkId) as RawParkRow | undefined;
+
+    if (!raw) {
+      return false;
+    }
+
+    const park = rowToPark(raw);
+    if (park.kind === 'stage-block' && park.stage !== null) {
+      setStage(store, park.ticketId, park.stage as StageKey, {
+        blockedKind: 'usage-limit',
+        blockedReason: opts.reason ?? park.detail,
+        blockedAt: at,
+      });
+    }
+    return true;
+  });
+
+  return apply();
+}
+
 /** Every park (open and resolved) for a ticket, newest first. */
 export function listParks(store: Store, ticketId: number): UsageLimitParkRow[] {
   const rows = store.db
@@ -269,6 +479,9 @@ export function recordUsageLimitOpPark(
     stage: StageKey | null;
     provider?: string | null;
     model?: string | null;
+    /** The specific op this park belongs to (`'analysis'`/`'suggest'`), when the
+     * call site can name one. D159's re-run dispatches on it. */
+    lane?: string | null;
     target?: string | null;
     sessionId?: string | null;
     parkedAt?: string;
@@ -280,7 +493,7 @@ export function recordUsageLimitOpPark(
     ticketId: input.ticketId,
     stage: input.stage,
     kind: 'op',
-    lane: null,
+    lane: input.lane ?? null,
     target: input.target ?? null,
     sessionId: input.sessionId ?? null,
     stageRunId: null,

@@ -1488,7 +1488,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\.fault\.waiting/);
   });
 
-  it('renders the blocked banner for a non-resumable usage-limit park, with no Resume control (K11)', () => {
+  it('renders the blocked banner for a non-resumable usage-limit park, with Pick/Retry/Dismiss controls (D159)', () => {
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
       HTML.indexOf('let toastTimer = 0;'),
@@ -1496,7 +1496,7 @@ describe('dashboard webview.html', () => {
     // The host verdict still gates the box, and the park is one of the kinds
     // that keeps it visible (like baseline-review) so the user can see WHY the
     // stage stopped. It carries the reason and NO Resume — a retry cannot reset
-    // a quota; D159 adds the pick/retry actions.
+    // a quota; D159 adds the pick/retry/dismiss actions.
     expect(renderBlockedBody).toMatch(/blocked\.kind === 'usage-limit'/);
     expect(renderBlockedBody).toMatch(/blocked\.resumable !== false \|\| review \|\| usageLimit/);
     const branch = renderBlockedBody.slice(
@@ -1506,6 +1506,12 @@ describe('dashboard webview.html', () => {
     expect(branch).toContain('Provider out of quota');
     expect(branch).toMatch(/esc\(blocked\.reason\)/);
     expect(branch).not.toMatch(/data-act="stage-resume"/);
+    expect(branch).toMatch(/data-act="usage-limit-pick"/);
+    expect(branch).toMatch(/data-act="usage-limit-retry"/);
+    expect(branch).toMatch(/data-act="usage-limit-dismiss"/);
+    expect(branch).toContain('Pick agent/model…');
+    expect(branch).toContain('Retry same');
+    expect(branch).toContain('Dismiss');
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
@@ -1513,6 +1519,18 @@ describe('dashboard webview.html', () => {
     // ITS OWN ticketId/stageKey (the host re-validates both) via the typed sender.
     expect(HTML).toMatch(
       /karstSend\.stageResume\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
+    );
+  });
+
+  it('posts usage-limit-pick, usage-limit-retry, and usage-limit-dismiss with ticket id and stage key (D159)', () => {
+    expect(HTML).toMatch(
+      /karstSend\.usageLimitPick\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
+    );
+    expect(HTML).toMatch(
+      /karstSend\.usageLimitRetry\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
+    );
+    expect(HTML).toMatch(
+      /karstSend\.usageLimitDismiss\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
     );
   });
 

@@ -66,6 +66,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
+import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -1404,14 +1405,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const processFor = (
     ticketId: number,
     role: ProcessRole,
+    // D159: a one-shot provider/model override for a usage-limit op re-run.
+    override?: { provider: AgentProvider; model: string | null },
   ): DriveProcessBundle | null => {
     const t = getTicket(localStore, ticketId);
     const assignment = resolveProcessAssignment(
       currentManifest() ?? emptyManifest(),
       role,
       {
-        provider: t.agentProvider ?? undefined,
-        model: t.model || undefined,
+        provider: override?.provider ?? t.agentProvider ?? undefined,
+        model: override ? (override.model ?? undefined) : t.model || undefined,
         effort: t.effort || undefined,
         preset: t.agentPreset ?? undefined,
       },
@@ -1497,8 +1500,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * The ticket's own `single-subagent` pick drives the SESSION, never this
    * headless analysis.
    */
-  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
-    processFor(ticketId, 'ticket-analysis');
+  const analysisProcess = (ticketId: number, override?: { provider: AgentProvider; model: string | null }): DriveProcessBundle | null => processFor(ticketId, 'ticket-analysis', override);
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -2174,6 +2176,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `processes.ticketAnalysis` picks its core/model and `enabled: false`
       // reads as configured absence (the form's analyze refuses).
       resolveAnalysisProcess: analysisProcess,
+      pickUsageLimitAgentModel: makeUsageLimitAgentModelPicker(() => modelCatalog),
       onChange: () => provider.refresh(),
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
@@ -2979,6 +2982,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
   });
   let serverLifecycleDeps!: ServerLifecycleDeps;
+  const usageLimitParks = createUsageLimitParkBinding({
+    store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest, redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
+    withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
+    adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
+    assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
+    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
+    cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
+  });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
@@ -3063,6 +3074,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (message) => logger.debug(message),
         storedArtifacts.forTicket(ticketId, () => dashboard.pushState(ticketId)),
         ciHost(ticketId),
+        usageLimitParks.forTicket(ticketId),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -8080,6 +8092,7 @@ function makeDashboardActions(
   debug: (message: string) => void,
   storedArtifacts: StoredArtifactActions,
   ciHost: CiHost,
+  usageLimitParks: UsageLimitParkActions,
 ): DashboardActions {
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
@@ -8411,6 +8424,7 @@ function makeDashboardActions(
     // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
     // all validation and effects live in ops/baselineDecisionOps.ts.
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
+    ...usageLimitParks,
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

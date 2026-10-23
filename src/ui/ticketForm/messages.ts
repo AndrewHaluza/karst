@@ -110,6 +110,12 @@ export type TicketFormMessage =
   | { type: 'set-type'; id: string }
   | { type: 'set-backend'; id: 'host' | '' }
   | { type: 'analyze'; prompt: string }
+  // D159: resolve an op (classify/suggest/…) usage-limit park from its error
+  // notification — the same three actions the dashboard offers for a stage
+  // block. `parkId` identifies the open `usage_limit_parks` row.
+  | { type: 'usage-limit-park-pick'; parkId: number }
+  | { type: 'usage-limit-park-retry'; parkId: number }
+  | { type: 'usage-limit-park-dismiss'; parkId: number }
   // Open the native file picker. Carries nothing — the host owns the dialog, so
   // a crafted message can neither choose a path nor pre-fill one.
   | { type: 'attach-pick' }
@@ -174,7 +180,14 @@ export type TicketFormHostMessage =
   // leaves the control retryable (the Karst ticket itself was already
   // persisted — a provider failure must never lose it).
   | { type: 'provider-ticket-error'; message: string }
-  | { type: 'error'; message: string }
+  // D159: an error that is a usage-limit op park also carries the open park's
+  // id, so the page can offer Pick agent/model… / Retry same / Dismiss.
+  | { type: 'error'; message: string; usageLimitParkId?: number }
+  // D159: a park was claimed/resolved — the page drops its action buttons.
+  | { type: 'usage-limit-park-resolved' }
+  // D159: the agent/model picker was cancelled, so nothing was claimed — the
+  // page must re-arm the buttons it disabled on click.
+  | { type: 'usage-limit-park-cancelled' }
   | { type: 'busy'; what: TicketFormBusyKind; on: boolean }
   | ActionResultMessage;
 
@@ -226,6 +239,12 @@ export interface TicketFormActions {
   /** `'host'` opts the ticket out of the project's sandbox backend; `''` inherits. Never opts in. */
   setBackend: (id: 'host' | '') => void | Promise<void>;
   analyze: (prompt: string) => void | Promise<void>;
+  /** D159: pick an agent/model and re-run the parked op (the analysis). */
+  usageLimitParkPick: (parkId: number) => void | Promise<void>;
+  /** D159: re-run the parked op with the parked agent/model. */
+  usageLimitParkRetry: (parkId: number) => void | Promise<void>;
+  /** D159: resolve a parked op without re-running it. */
+  usageLimitParkDismiss: (parkId: number) => void | Promise<void>;
   attachPick: () => Promise<void>;
   attachBytes: (name: string, base64: string) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
@@ -415,6 +434,12 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
       return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
+    case 'usage-limit-park-pick':
+      return isRowId(m.parkId) ? { type: 'usage-limit-park-pick', parkId: m.parkId } : null;
+    case 'usage-limit-park-retry':
+      return isRowId(m.parkId) ? { type: 'usage-limit-park-retry', parkId: m.parkId } : null;
+    case 'usage-limit-park-dismiss':
+      return isRowId(m.parkId) ? { type: 'usage-limit-park-dismiss', parkId: m.parkId } : null;
     case 'attach-pick':
       return { type: 'attach-pick' };
     case 'attach-bytes': {
@@ -524,6 +549,15 @@ export function routeTicketFormAction(
       return;
     case 'analyze':
       actions.analyze(msg.prompt);
+      return;
+    case 'usage-limit-park-pick':
+      void actions.usageLimitParkPick(msg.parkId);
+      return;
+    case 'usage-limit-park-retry':
+      void actions.usageLimitParkRetry(msg.parkId);
+      return;
+    case 'usage-limit-park-dismiss':
+      void actions.usageLimitParkDismiss(msg.parkId);
       return;
     case 'attach-pick':
       return actions.attachPick();

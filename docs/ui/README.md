@@ -24,7 +24,7 @@ read a whole file.
 3. **Layout primitives** — `DESIGN-SYSTEM.md` `ui:LAYOUT-PRIMITIVES`, then the
    token and primitive blocks you use.
 4. **Variants** — add or extend the view's variants in `tests/visual/variants.ts` (`ui:UI-R57`, `ui:VISUAL-VARIANTS`) and record baselines. A change under `src/ui/<view>/**` that touches neither that view's variants nor its baselines gets a review warning (`tests/visual/variantTouch.ts`).
-5. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the `visual` job: a PR's own added/changed baseline that fails is blocking, pre-existing diffs stay advisory; judge visual failures only from the docker run, never host `test:visual`). `npm run test:layout` is advisory and fast on the host; the final
+5. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the `visual` job: a PR's own added/changed baseline that fails is blocking, pre-existing diffs stay advisory; judge visual failures only from the docker run, never host `test:visual`). A host without Docker prints `SKIPPED` and exits 0 — that is NOT a visual pass; run the wrapper on a Docker host. `npm run test:layout` is advisory and fast on the host; the final
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
 6. **Screenshot changes need user approval.** Never edit baselines or the layout

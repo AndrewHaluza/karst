@@ -25,7 +25,7 @@ import { routeTicketFormAction } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import type { Manifest, RepositoryDef } from '../../manifest/types.js';
+import type { AgentProvider, Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import {
   getAttachment,
@@ -33,7 +33,7 @@ import {
   listAttachments,
 } from '../../store/attachments.js';
 import { listProcessRuns } from '../../store/processRuns.js';
-import { listOpenParks } from '../../store/usageLimitParks.js';
+import { insertOpenPark, listOpenParks } from '../../store/usageLimitParks.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
@@ -708,6 +708,308 @@ describe('buildTicketFormActions', () => {
     const open = listOpenParks(store, t.id);
     expect(open).toHaveLength(1);
     expect(open[0]).toMatchObject({ kind: 'op', stage: 'scope', provider: 'claude' });
+  });
+
+  /** A quota-throwing adapter, so the next AI op parks. */
+  function quotaAdapter(): AgentAdapter {
+    return {
+      ...fakeAdapter(),
+      runHeadless: async () => {
+        throw new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'claude',
+          model: 'claude-sonnet-5',
+        });
+      },
+    };
+  }
+
+  /** Park the SUGGEST op (lane `suggest`, target the service), returning its id. */
+  async function parkSuggestOnQuota(ticketId: number): Promise<number> {
+    deps.adapter = quotaAdapter();
+    const ctx = mkCtx(ticketId);
+    const actions = buildTicketFormActions(deps)(ctx);
+    await actions.suggestSignals('fe');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    return err.usageLimitParkId;
+  }
+
+  /** Park the ANALYSIS op (lane `analysis`), returning its id. */
+  async function parkAnalysisOnQuota(ticketId: number): Promise<number> {
+    updateTicketFields(store, ticketId, { description: 'do the thing' });
+    deps.adapter = quotaAdapter();
+    const ctx = mkCtx(ticketId);
+    const actions = buildTicketFormActions(deps)(ctx);
+    await actions.analyze('');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    return err.usageLimitParkId;
+  }
+
+  it('a quota error rides its op park id and Dismiss resolves the row (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-DISMISS', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(parkId);
+
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'usage-limit-park-resolved' });
+  });
+
+  it('Dismiss on an already-handled op park reports it and touches nothing (D159)', () => {
+    const t = createTicket(store, { key: 'T-K11-HANDLED', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(999);
+
+    expect(ctx.posted.at(-1)).toMatchObject({
+      type: 'error',
+      message: 'This usage limit was already handled.',
+    });
+  });
+
+  it('never claims or re-runs a stage-block park from the ticket form (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-STAGE-PARK', title: 't' });
+    const parkId = insertOpenPark(store, {
+      ticketId: t.id,
+      kind: 'stage-block',
+      stage: 'review',
+      lane: 'review',
+      target: 'fe',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(parkId);
+    await actions.usageLimitParkRetry(parkId);
+    deps.pickUsageLimitAgentModel = vi.fn();
+    await actions.usageLimitParkPick(parkId);
+
+    // The stage-block park stays open for the dashboard's stage action; the
+    // form must not clear it nor run the analysis in the parked lane's place.
+    expect(listOpenParks(store, t.id)).toHaveLength(1);
+    expect(deps.pickUsageLimitAgentModel).not.toHaveBeenCalled();
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(false);
+  });
+
+  /** The one-shot override capture used by the re-run tests. */
+  function captureOverrides(): ({ provider: string; model: string | null } | undefined)[] {
+    const seen: ({ provider: string; model: string | null } | undefined)[] = [];
+    deps.resolveAnalysisProcess = vi.fn((_id, override) => {
+      seen.push(override);
+      return {
+        assignment: { provider: override?.provider ?? 'claude', model: override?.model ?? null },
+        adapter: deps.adapter,
+      };
+    });
+    return seen;
+  }
+
+  it('Retry re-runs ONLY the parked SUGGEST op with the parked pair (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+
+    const seen = captureOverrides();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+
+    expect(seen.at(-1)).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    // It repeated the SUGGEST, never the analysis.
+    expect(ctx.posted.some((m) => m.type === 'signals-suggested')).toBe(true);
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(false);
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Retry reports a re-run that throws after the claim instead of rejecting silently (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY-THROWS', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+    deps.resolveAnalysisProcess = vi.fn(() => {
+      throw new Error('resolver exploded');
+    });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await expect(actions.usageLimitParkRetry(parkId)).resolves.toBeUndefined();
+
+    // The park is spent (the claim won), so the user must at least be told why
+    // nothing ran — not left with a dead banner and an unhandled rejection.
+    expect(ctx.posted).toContainEqual({ type: 'error', message: 'resolver exploded' });
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Pick reports a re-run that throws after the claim instead of rejecting silently (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-THROWS', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+    deps.resolveAnalysisProcess = vi.fn(() => {
+      throw new Error('resolver exploded');
+    });
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await expect(actions.usageLimitParkPick(parkId)).resolves.toBeUndefined();
+
+    expect(ctx.posted).toContainEqual({ type: 'error', message: 'resolver exploded' });
+  });
+
+  it('Retry re-runs ONLY the parked ANALYSIS op with the parked pair (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY-ANALYSIS', title: 't' });
+    const parkId = await parkAnalysisOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+
+    const seen = captureOverrides();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+
+    expect(seen.at(-1)).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(true);
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Retry re-runs a CREATE-mode analysis with the prompt it analyzed (D159)', async () => {
+    // A create page holds the typed prompt in the webview; the draft that
+    // `ensureTicket` binds on the first analysis carries no brief/description.
+    // Passing '' on the re-run would return before the AI call — consuming the
+    // park without doing anything.
+    deps.adapter = quotaAdapter();
+    const ctx = mkCtx();
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('do the thing');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    const boundTicketId = ctx.boundTicketId;
+    expect(boundTicketId).toBeDefined();
+
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+    captureOverrides();
+    await actions.usageLimitParkRetry(err.usageLimitParkId);
+
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(true);
+    expect(listOpenParks(store, boundTicketId!)).toHaveLength(0);
+  });
+
+  it('Pick forwards the picked model to the parked suggest call (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-MODEL', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    const adapter = fakeAdapter();
+    deps.adapter = adapter; // the re-run itself must not re-park
+    deps.resolveAnalysisProcess = vi.fn((_id, override) => ({
+      assignment: {
+        provider: override?.provider ?? 'claude',
+        model: override?.model ?? null,
+        effort: 'high',
+      },
+      adapter: deps.adapter,
+    }));
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    // The adapter is bound to the CORE only; the model (and effort) must ride
+    // the call, or the pick silently runs the core's default.
+    expect(adapter.runHeadless).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-4o', effort: 'high' }),
+    );
+  });
+
+  it('Pick asks for an agent/model and re-runs the parked op with the one-shot pick (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+
+    const seen = captureOverrides();
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    expect(deps.pickUsageLimitAgentModel).toHaveBeenCalledWith('claude', 'claude-sonnet-5');
+    expect(seen.at(-1)).toEqual({ provider: 'codex', model: 'gpt-4o' });
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('a cancelled Pick claims nothing and re-arms the page buttons (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-CANCEL', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+
+    // Escape on the QuickPick: no provider/model comes back.
+    deps.pickUsageLimitAgentModel = vi.fn(async () => undefined);
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    // The park is still open for a later attempt, and the page is told to
+    // re-arm the buttons it disabled on click — otherwise a cancel would leave
+    // them inert forever.
+    expect(listOpenParks(store, t.id)).toHaveLength(1);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'usage-limit-park-cancelled' });
+  });
+
+  it('a suggest re-run whose repo is gone does not leak its one-shot override (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-LEAK', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id); // target 'fe'
+    deps.adapter = fakeAdapter();
+
+    // The parked op's repo has since been removed from the manifest, so the
+    // suggest re-run hits the "Unknown repository" early return.
+    const repositories = { ...MANIFEST.repositories };
+    delete (repositories as Record<string, unknown>).fe;
+    deps.manifest = { ...MANIFEST, repositories };
+
+    const seen = captureOverrides();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+    expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+
+    // The override was consumed by the re-run and must NOT stay armed: the
+    // user's next analyze runs on the configured identity, not the stale pick.
+    updateTicketFields(store, t.id, { description: 'do the thing' });
+    await actions.analyze('');
+    expect(seen.at(-1)).toBeUndefined();
   });
 
   it('saveSignals writes to the manifest and re-pushes state', async () => {
