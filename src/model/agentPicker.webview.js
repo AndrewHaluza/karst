@@ -245,25 +245,44 @@ function apModelGroups(models) {
   return groups;
 }
 
-/** The rows for a set of models, grouped route → vendor; `skip` drops ids already shown. */
+/**
+ * The rows a set of models contributes, grouped route → vendor. `skip` drops ids
+ * already shown (the "Last used" group). Groups whose every row is skipped are
+ * dropped BEFORE their heading is emitted — a heading with no rows under it is
+ * noise, not structure.
+ */
 function apModelListHtml(models, saved, routes, skip, tagsOf) {
   var groups = apModelGroups(models);
-  var named = groups.length > 1 || (groups.length === 1 && groups[0].route !== '');
-  var out = '';
+  var visible = [];
   for (var gi = 0; gi < groups.length; gi++) {
     var g = groups[gi];
-    if (named) {
-      out += '<div class="ap-group-label" role="presentation">'
-        + apRouteIconHtml(g.route, routes)
-        + '<span>' + apEsc(apRouteName(routes, g.route)) + '</span></div>';
-    }
+    var vendors = [];
     for (var vi = 0; vi < g.vendors.length; vi++) {
       var v = g.vendors[vi];
-      if (v.vendor) out += '<div class="ap-group-sub" role="presentation">' + apEsc(v.vendor) + '</div>';
+      var rows = [];
       for (var mi = 0; mi < v.models.length; mi++) {
         var m = v.models[mi];
         if (skip && skip[m.id]) continue;
-        out += apModelItemHtml(m, saved, tagsOf ? tagsOf(m.id) : undefined, routes);
+        rows.push(m);
+      }
+      if (rows.length) vendors.push({ vendor: v.vendor, models: rows });
+    }
+    if (vendors.length) visible.push({ route: g.route, vendors: vendors });
+  }
+  var named = visible.length > 1 || (visible.length === 1 && visible[0].route !== '');
+  var out = '';
+  for (var i = 0; i < visible.length; i++) {
+    var group = visible[i];
+    if (named) {
+      out += '<div class="ap-group-label" role="presentation">'
+        + apRouteIconHtml(group.route, routes)
+        + '<span>' + apEsc(apRouteName(routes, group.route)) + '</span></div>';
+    }
+    for (var j = 0; j < group.vendors.length; j++) {
+      var vg = group.vendors[j];
+      if (vg.vendor) out += '<div class="ap-group-sub" role="presentation">' + apEsc(vg.vendor) + '</div>';
+      for (var k = 0; k < vg.models.length; k++) {
+        out += apModelItemHtml(vg.models[k], saved, tagsOf ? tagsOf(vg.models[k].id) : undefined, routes);
       }
     }
   }
@@ -367,6 +386,17 @@ function apModelMenuHtml() {
 /** The open menu's active row, if any. */
 function apActiveOption(shell) {
   return shell ? shell.querySelector('[role="option"].active') : null;
+}
+
+/**
+ * Mark exactly one row active (index -1 marks none). Every highlight goes
+ * through here: adding the class without clearing its predecessor is what left
+ * two rows highlighted when a menu was re-opened.
+ */
+function apMarkActive(items, index) {
+  for (var i = 0; i < items.length; i++) {
+    items[i].classList.toggle('active', i === index);
+  }
 }
 
 /** Per-page counter for unique picker trigger ids. */
@@ -590,7 +620,7 @@ function mountAgentPicker(root, opts) {
     var next = idx < 0 ? (delta > 0 ? 0 : items.length - 1) : idx + delta;
     if (next < 0) next = 0;
     if (next > items.length - 1) next = items.length - 1;
-    for (var j = 0; j < items.length; j++) items[j].classList.toggle('active', j === next);
+    apMarkActive(items, next);
     if (items[next].scrollIntoView) items[next].scrollIntoView({ block: 'nearest' });
     syncMenuFoot(shell);
   }
@@ -618,8 +648,9 @@ function mountAgentPicker(root, opts) {
       var list = $('[data-ap-list="model"]');
       var opts = list ? list.querySelectorAll('[role="option"]') : [];
       var selected = list ? list.querySelector('[role="option"][aria-selected="true"]') : null;
-      var first = selected || (opts.length ? opts[0] : null);
-      if (first) first.classList.add('active');
+      var index = 0;
+      for (var i = 0; i < opts.length; i++) if (opts[i] === selected) { index = i; break; }
+      apMarkActive(opts, opts.length ? index : -1);
       var search = menu.querySelector('[data-ap-search]');
       if (search && search.focus) search.focus();
       syncMenuFoot(shell);
@@ -702,8 +733,7 @@ function mountAgentPicker(root, opts) {
       catalog, state.core, state.model, labels().model, recent[state.core], routes, e.target.value,
     );
     var items = listEl.querySelectorAll('[role="option"]');
-    for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
-    if (items.length) items[0].classList.add('active');
+    apMarkActive(items, items.length ? 0 : -1);
     syncMenuFoot($('[data-ap-shell="model"]'));
   });
 

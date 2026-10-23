@@ -35,6 +35,7 @@ function load(): Record<string, unknown> {
     apRoutedTriggerName: typeof apRoutedTriggerName === 'function' ? apRoutedTriggerName : undefined,
     apModelGroups: typeof apModelGroups === 'function' ? apModelGroups : undefined,
     apModelListHtml: typeof apModelListHtml === 'function' ? apModelListHtml : undefined,
+    apMarkActive: typeof apMarkActive === 'function' ? apMarkActive : undefined,
     apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
@@ -605,6 +606,33 @@ describe('route → vendor grouping and the full-id footer', () => {
     expect(out).not.toContain('ap-group-label');
   });
 
+  it('omits a route group whose every row is already in the last-used group', () => {
+    const twoRoutes = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'openrouter/mancer/weaver', label: 'weaver' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(twoRoutes, 'opencode2', '', '', ['opencode-go/space-bunny'], routes);
+    // Its only row is shown under "Last used", so the heading would hang over nothing.
+    expect(out).toContain('Last used');
+    expect(out).not.toContain('<span>OpenCode Go</span>');
+    expect(out).toContain('<span>OpenRouter</span>');
+    expect(out).toContain('data-ap-model="openrouter/mancer/weaver"');
+  });
+
+  it('keeps a route heading when that route still has a row left', () => {
+    const twoRoutes = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'opencode-go/mimo-v2.5', label: 'MiMo v2.5' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(twoRoutes, 'opencode2', '', '', ['opencode-go/space-bunny'], routes);
+    expect(out).toContain('<span>OpenCode Go</span>');
+    expect(out).toContain('data-ap-model="opencode-go/mimo-v2.5"');
+  });
+
   it('drops a curated label prefix that repeats the route heading', () => {
     const labelled = {
       opencode2: [{ id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go \u00b7 MiMo v2.5' }],
@@ -659,6 +687,21 @@ describe('route → vendor grouping and the full-id footer', () => {
     const out = fns.apModelOptionsHtml(mixed, 'opencode2', 'gone/model', '', undefined, routes);
     expect(out).toContain('Saved model (unavailable)');
     expect(out).toContain('data-ap-full="gone/model"');
+  });
+
+  it('marks exactly one row active — re-opening cannot leave two highlighted', () => {
+    const marks = [
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+    ];
+    const { apMarkActive } = load() as { apMarkActive: (items: unknown[], index: number) => void };
+    apMarkActive(marks, 1);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, true, false]);
+    apMarkActive(marks, 2);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, false, true]);
+    apMarkActive(marks, -1);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, false, false]);
   });
 
   it('ships the footer, arrow-key, Enter and focus-on-open wiring', () => {
