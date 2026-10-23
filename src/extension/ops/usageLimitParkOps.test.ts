@@ -277,12 +277,15 @@ describe('usageLimitParkOps', () => {
     it('runs handleUsageLimitPick with default cwd and artifactDir when omitted', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
         blockedAt: '2026-10-14T00:00:00Z',
       });
       insertOpenPark(store, {
+        stageRunId,
         ticketId: ticket.id,
         stage: 'review',
         kind: 'stage-block',
@@ -611,12 +614,15 @@ describe('usageLimitParkOps', () => {
     it('runs handleUsageLimitRetry with default cwd and artifactDir when omitted', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
         blockedAt: '2026-10-14T00:00:00Z',
       });
       insertOpenPark(store, {
+        stageRunId,
         ticketId: ticket.id,
         stage: 'review',
         kind: 'stage-block',
@@ -1487,12 +1493,15 @@ describe('usageLimitParkOps', () => {
     it('delegates makeUsageLimitParkActions without cwd option without crashing', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-NOCWD', title: 'Test ticket' });
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
         blockedAt: '2026-10-14T00:00:00Z',
       });
       insertOpenPark(store, {
+        stageRunId,
         ticketId: ticket.id,
         stage: 'review',
         kind: 'stage-block',
@@ -1505,34 +1514,39 @@ describe('usageLimitParkOps', () => {
       });
 
       const mockAdapter = { runHeadless: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' }) } as unknown as AgentAdapter;
-      const actions = makeUsageLimitParkActions({
+      const actionsFor = (ticketId: number) =>
+        makeUsageLimitParkActions({
         store,
-        ticketId: ticket.id,
-        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        catalog: () => fakeCatalog,
-        manifest: () => undefined,
-        redrive: vi.fn(),
-        refresh: vi.fn(),
-        pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
-        pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
-        adapterFor: vi.fn().mockReturnValue(mockAdapter),
-        artifactDir: () => '',
-        // cwd is intentionally undefined
-      });
+          ticketId,
+          notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+          catalog: () => fakeCatalog,
+          manifest: () => undefined,
+          redrive: vi.fn(),
+          refresh: vi.fn(),
+          pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+          pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+          adapterFor: vi.fn().mockReturnValue(mockAdapter),
+          artifactDir: () => '',
+          // cwd is intentionally undefined
+        });
+      const actions = actionsFor(ticket.id);
 
       await actions.usageLimitPick(ticket.id, 'review');
       expect(mockAdapter.runHeadless).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: process.cwd() }),
       );
 
-      // Reset park and stage for retry test
-      setStage(store, ticket.id, 'review', {
+      // The retry needs its own parked ticket: the pick above advanced this one.
+      const retried = createTicketFlow(store, { key: 'TEST-NOCWD-2', title: 'Test ticket' });
+      advanceToReview(store, retried.id);
+      const retriedRunId = seedGateEvidence(store, retried.id);
+      setStage(store, retried.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
         blockedAt: '2026-10-14T00:00:00Z',
       });
       insertOpenPark(store, {
-        ticketId: ticket.id,
+        ticketId: retried.id,
         stage: 'review',
         kind: 'stage-block',
         lane: 'review',
@@ -1540,10 +1554,12 @@ describe('usageLimitParkOps', () => {
         provider: 'claude',
         model: 'claude-3-7-sonnet',
         detail: 'out of credits',
+        stageRunId: retriedRunId,
         keptOutcome: null,
       });
+      mockAdapter.runHeadless = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' });
 
-      await actions.usageLimitRetry(ticket.id, 'review');
+      await actionsFor(retried.id).usageLimitRetry(retried.id, 'review');
       expect(mockAdapter.runHeadless).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: process.cwd() }),
       );
