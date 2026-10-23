@@ -30,6 +30,8 @@ export interface ResolveConflictInput {
   readonly briefFor: (sandboxed: boolean) => string | null;
   readonly notify: (message: string) => void;
   readonly deliver: (brief: string, repo: string) => void;
+  /** Called once the brief is going out: arms Karst's own delivery of the resolved merge (D247). */
+  readonly arm?: (repo: string) => void;
 }
 
 export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
@@ -47,6 +49,7 @@ export async function resolveConflictClick(input: ResolveConflictInput): Promise
     );
     return;
   }
+  input.arm?.(input.repo);
   input.deliver(brief, input.repo);
 }
 

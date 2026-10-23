@@ -203,7 +203,7 @@ describe('Agents page — roles table', () => {
 
   it('Clear drops the preset value so the role inherits the Default row', () => {
     mount();
-    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear' }));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear override' }));
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
     expect(pickerOf('planning').value.core).toBe('opencode');
   });
@@ -229,7 +229,7 @@ describe('Agents page — compare', () => {
     fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
     const compareBar = document.querySelector('.agents-compare-bar') as HTMLElement;
     expect(within(compareBar).getByRole('status').textContent).toBe('2 of 11 roles differ');
-    fireEvent.click(within(row('planning')).getByText('← Copy from B'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: /Copy from B/ }));
     expect(draftOf(probe).agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(draftOf(probe).agentPresets!.B).toEqual(BASE.agentPresets!.B);
     expect(window.location.hash).toContain('compare=B');
@@ -399,7 +399,7 @@ describe('Agents page — Source reasons without a tooltip (UI-R19, R22)', () =>
       'From the selected preset.',
     );
     expect(row('uatTester').querySelector('[data-source="pin"] .sr-only')!.textContent).toBe(
-      'Pinned — the same in all presets, and it beats the preset.',
+      'Pinned: the same in all presets, and it beats the preset.',
     );
     const inherited = row('implementation').querySelector('[data-source="default"]')!;
     expect(inherited.textContent).toContain("uses Karst's built-in default.");
@@ -424,7 +424,7 @@ describe('Agents page — draft pin actions are announced (UI-R27, R28)', () => 
     expect(status()).toBe('Planner pinned: same agent in every preset.');
     fireEvent.click(within(row('planning')).getByRole('button', { name: 'Unpin' }));
     expect(status()).toBe('Planner unpinned: uses the preset value.');
-    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear' }));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear override' }));
     expect(status()).toBe("Planner cleared: uses Karst's default.");
   });
 });
@@ -432,7 +432,7 @@ describe('Agents page — draft pin actions are announced (UI-R27, R28)', () => 
 describe('Agents page — the all-presets matrix is not colour-only (UI-R28)', () => {
   it('marks a differing cell with a dot and says so in text', () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'All presets' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show all presets' }));
     const differing = document.querySelectorAll('.agents-matrix-cell.differs');
     expect(differing.length).toBeGreaterThan(0);
     for (const cell of differing) {
@@ -565,7 +565,7 @@ describe('Agents page — roles table layout markup', () => {
     expect(r.querySelector('.agents-cell-switch')!.children).toHaveLength(0);
     const slot = r.querySelector('.agents-slot')!;
     expect(slot.getAttribute('aria-hidden')).toBe('true');
-    expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear');
+    expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear override');
   });
 
   it('the profile open button uses the file icon and names the profile', () => {

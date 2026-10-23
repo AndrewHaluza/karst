@@ -3,7 +3,7 @@ import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
 import { guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
-const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, ...over });
+const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, placement: { backend: 'host', core: null, sandboxName: null, reason: null }, ...over });
 const stagePrefix = (stage: string) => `node "$KARST_CLI" stage ${stage} pass --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket`;
 const base = { core: 'opencode2', stagePrefix, ticketKey: 'K-7', hasMcp: false };
 

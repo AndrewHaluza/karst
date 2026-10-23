@@ -465,6 +465,21 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(true), line: 'docker' }), syncExisting: blocked })).rejects.toThrow(/K-7 sandbox is not in sync.*uncommitted work/);
   });
 
+  it('reports the placement it resolved: sbx / docker with the runner name, host fallback with its reason', async () => {
+    const sbx = { kind: 'sbx', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const docker = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'docker', enforcesSandbox: true } as never, line: 'docker (karst-ab-7-opencode2)' }) });
+    expect(docker.placement).toEqual({ backend: 'docker', core: 'opencode2', sandboxName: 'karst-ab-7-opencode2', reason: null });
+    const viaSbx = await resolveLaunchBackend({ ...base, backends: { opencode2: 'host' }, core: 'claude', resolve: async () => ({ runner: sbx, line: 'sbx (karst-ab-7-claude)' }) });
+    expect(viaSbx.placement).toEqual({ backend: 'sbx', core: 'claude', sandboxName: 'karst-ab-7-claude', reason: null });
+    const fell = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (docker: not signed in)' }) });
+    expect(fell.placement).toEqual({ backend: 'host', core: 'opencode2', sandboxName: null, reason: 'docker: not signed in' });
+  });
+
+  it('with no backends configured the launch is recorded as host with no reason', async () => {
+    const out = await resolveLaunchBackend({ ...base, backends: undefined });
+    expect(out.placement).toEqual({ backend: 'host', core: 'opencode2', sandboxName: null, reason: null });
+  });
+
   it('a host launch never syncs', async () => {
     const syncExisting = vi.fn(async () => ({ ok: true as const }));
     await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host' }), syncExisting });
@@ -502,7 +517,7 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
   });
 
   it('no backends configured: a plain host launch with no resolver', async () => {
-    await expect(resolveLaunchBackend({ ...base, backends: undefined })).resolves.toEqual({ options: {}, sandboxed: false });
+    await expect(resolveLaunchBackend({ ...base, backends: undefined })).resolves.toEqual({ options: {}, sandboxed: false, placement: { backend: 'host', core: 'opencode2', sandboxName: null, reason: null } });
   });
 });
 

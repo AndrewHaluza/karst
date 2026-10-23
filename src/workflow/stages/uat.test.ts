@@ -1973,6 +1973,94 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(rows).toHaveLength(100);
     expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
   });
+
+  describe('rerun (usage-limit one-shot)', () => {
+    const lintRow = {
+      gateName: 'test (web)',
+      exitCode: 0,
+      startedAt: now(),
+      endedAt: now(),
+      repo: 'web',
+      command: 'npm',
+      args: ['test'],
+    };
+    const rerunOf = (adapter: AgentAdapter, over: Partial<NonNullable<Parameters<typeof runUat>[1]['rerun']>> = {}) => {
+      recordGateRun(store, { ticketId: id, stageKey: 'uat', attempt: 0, runAt: now(), gates: [lintRow], stageRunId: null });
+      return {
+        targets: ['web'],
+        previousGateRuns: listGateRuns(store, id),
+        siblingObservations: [],
+        siblingTargets: [],
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'codex' as const }, adapter },
+        ...over,
+      };
+    };
+    const reg = () =>
+      store.db
+        .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+        .run(id, 'web', '/wt/web', 'karst/web', 'develop');
+
+    it('never runs the deterministic gates and asks only the rerun targets', async () => {
+      reg();
+      const runGates = vi.fn();
+      const planTargets = vi.fn();
+      const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+      const res = await runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { uat: uatConfig({}) }), rerun: rerunOf({ ...testerAgent('[]'), runHeadless }) },
+        deps({ runGates, planTargets }),
+      );
+      expect(res).toEqual({ kind: 'advanced', next: 'review' });
+      expect(runGates).not.toHaveBeenCalled();
+      expect(planTargets).not.toHaveBeenCalled();
+      expect(runHeadless).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks on an unapproved changed baseline before the Tester runs', async () => {
+      reg();
+      const runHeadless = vi.fn();
+      const detectBaselines = vi.fn().mockResolvedValue([
+        { repo: 'web', cwd: '/wt/web', path: 'b.png', status: 'modified', newSha256: 'x', mergeBase: 'm', autoApproved: false },
+      ]);
+      const res = await runUat(
+        store,
+        {
+          ticketId: id,
+          cwd: '/wt/web',
+          artifactDir,
+          manifest: manifest({}, { uat: uatConfig({ baselineReview: { paths: ['b.png'] } }) }),
+          rerun: rerunOf({ ...testerAgent('[]'), runHeadless }),
+        },
+        deps({ detectBaselines }),
+      );
+      expect(res).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(runHeadless).not.toHaveBeenCalled();
+    });
+
+    it('a second quota stop keeps the sibling observations and target statuses on the new park', async () => {
+      reg();
+      const limitErr = new UsageLimitError('out', { tool: 'Claude', provider: 'claude', model: 'claude-sonnet-5' });
+      const sibling = { severity: 'low' as const, title: 'earlier', repo: 'api', file: null, line: null };
+      const res = await runUat(
+        store,
+        {
+          ticketId: id,
+          cwd: '/wt/web',
+          artifactDir,
+          manifest: manifest({}, { uat: uatConfig({}) }),
+          rerun: rerunOf(
+            { ...testerAgent('[]'), runHeadless: async () => { throw limitErr; } },
+            { siblingObservations: [sibling], siblingTargets: [{ repo: 'api', status: 'observed' }] },
+          ),
+        },
+        deps(),
+      );
+      expect(res).toMatchObject({ kind: 'blocked', blocker: 'usage-limit' });
+      const kept = JSON.parse(listOpenParks(store, id)[0]!.keptOutcome!);
+      expect(kept.observations.map((o: { title: string }) => o.title)).toEqual(['earlier']);
+      expect(kept.targets.map((t: { repo: string }) => t.repo).sort()).toEqual(['api', 'web']);
+    });
+  });
 });
 
 /**

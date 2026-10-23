@@ -89,6 +89,7 @@ describe('makeBridgeBuild', () => {
       recorder: { record: vi.fn(), snapshot: vi.fn() } as unknown as HookChannelRecorder,
       debug: vi.fn(),
       tracker: undefined,
+      onSessionError: vi.fn(),
     };
     const build = makeBridgeBuild(deps({ hookDispatch: closures }));
     build(ticketId, paths);
@@ -96,7 +97,7 @@ describe('makeBridgeBuild', () => {
     captured[0]!.dispatch(payload);
     expect(dispatchMock).toHaveBeenCalledWith(
       store, payload, closures.notify, closures.shouldApplyState, closures.sessionProviderFor,
-      closures.recorder, closures.debug, undefined,
+      closures.recorder, closures.debug, undefined, closures.onSessionError,
     );
   });
 

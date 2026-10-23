@@ -2047,3 +2047,97 @@ describe('runReview live gate output', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 });
+
+describe('runReview — rerun (usage-limit one-shot)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-RERUN', title: 't' }).id;
+    walkToReview(store, id);
+    for (const repo of ['web', 'api']) {
+      store.db
+        .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+        .run(id, repo, `/wt/${repo}`, `karst/${repo}`, 'develop');
+    }
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-rerun-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  const lintRun = {
+    id: 1,
+    ticketId: 0,
+    stageKey: 'review',
+    attempt: 0,
+    stageRunId: 1,
+    gateName: 'lint (web)',
+    exitCode: 0,
+    repo: 'web',
+    command: 'npm',
+    args: ['run', 'lint'],
+    skipped: false,
+    summary: null,
+    startedAt: null,
+    endedAt: null,
+  } as unknown as import('../../store/gateRuns.js').GateRun;
+
+  const rerunOf = (adapter: AgentAdapter, over: Partial<import('./review.js').ReviewRerun> = {}) => ({
+    targets: ['web'],
+    previousGateRuns: [lintRun],
+    keptTargets: [],
+    priorKeptOutcome: null,
+    process: { assignment: { provider: 'codex' as const, model: 'gpt-4o' }, adapter },
+    ...over,
+  });
+
+  const run = (rerun: import('./review.js').ReviewRerun, over: Partial<ReviewDeps> = {}) =>
+    runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig({ requireIndependentSignal: false }) }), rerun },
+      deps(over),
+    );
+
+  it('never runs the deterministic gates and asks only the rerun targets', async () => {
+    const runGates = vi.fn();
+    const planTargets = vi.fn();
+    const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+    const adapter = { ...findingsAgent(), runHeadless } as AgentAdapter;
+
+    const res = await run(rerunOf(adapter), { runGates, planTargets });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(runGates).not.toHaveBeenCalled();
+    expect(planTargets).not.toHaveBeenCalled();
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges sibling findings with the fresh ones without doubling them', async () => {
+    const { recordFindings } = await import('../../store/reviewFindings.js');
+    recordFindings(store, {
+      ticketId: id,
+      attempt: 0,
+      runAt: now(),
+      findings: [{ severity: 'low', title: 'sibling', detail: 'd', repo: 'api', file: 'a.ts', line: 1, source: 'agent' }],
+    });
+    const adapter = findingsAgent(JSON.stringify([{ severity: 'low', title: 'fresh', detail: 'd' }]));
+
+    await run(rerunOf(adapter));
+
+    expect(listFindings(store, id).map((f) => f.title).sort()).toEqual(['fresh', 'sibling']);
+  });
+
+  it('blocks nothing-to-run with the worktree reason when a target has no worktree row', async () => {
+    const res = await run(rerunOf(findingsAgent(), { targets: ['ghost'] }));
+
+    expect(res).toMatchObject({
+      kind: 'blocked',
+      blocker: 'nothing-to-run',
+      reason: expect.stringContaining('ghost: no worktree is registered for this ticket'),
+    });
+  });
+});

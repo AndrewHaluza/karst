@@ -26,6 +26,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
+import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -37,7 +38,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
-import { deliverToPrAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { deliverToPrAction, autoDeliverAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -66,6 +67,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
+import { createInteractiveUsageLimitBinding } from './extension/interactiveUsageLimitBinding.js';
 import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
@@ -165,7 +167,7 @@ import {
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import type { ModelCatalog } from './agent/modelCatalog.js';
-import { applyAgentSwitchSelection } from './agent/sessionSwitch.js';
+import { applyAgentSwitchSelection, type AgentSwitchOutcome } from './agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
 import {
   catalogDiagnosticSeverity,
@@ -875,6 +877,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repo, label: formatId('ticket', id),
         probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
+        arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief) => {
           if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
@@ -1786,7 +1789,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     targetProvider: AgentProvider,
     model: string | null,
     effort: string | null,
-  ): Promise<void> => {
+  ): Promise<AgentSwitchOutcome | undefined> => {
     try {
       const outcome = await applyAgentSwitchSelection({
         read: () => {
@@ -1845,11 +1848,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
         );
       }
+      return outcome;
     } catch (error) {
       logError('agent session switch failed', error);
       void vscode.window.showErrorMessage(
         `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
       );
+      return undefined;
     } finally {
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -3873,6 +3878,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Store news (a session turned amber, a run closed), not an action's answer.
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
+    if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
+      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m) };
+      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
+      void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
+    }
   };
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
     shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
@@ -3885,6 +3895,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const turnTracker = new TurnTracker();
+  const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
+    switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });
   endpoint = await startHookEndpoint(
     localStore,
     rememberedPort,
@@ -3896,6 +3908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       recorder: hookChannelRecorder,
       debug: (message) => logger.debug(message),
       tracker: turnTracker,
+      onSessionError: interactiveUsageLimit.onSessionError,
       // The mail reply channel: a turn end with unread mail gets a fixed pointer.
       hookReply: mailbox.hookReply, refreshUnread: mailbox.refreshUnread, onReplyDelivered: mailbox.onReplyDelivered,
       ticketApi: {
@@ -3919,9 +3932,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
-    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
-  await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
+  await sandboxLife.backfillPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -6010,6 +6023,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: claude transcript read failed for ticket ${named.ticketId}`, error);
           continue;
         }
+        interactiveUsageLimit.onClaudeTranscript(named.ticketId, sessionId, text);
         const usage = parseClaudeTranscript(text);
         const snapshot: ClaudeTranscriptSnapshot = { transcriptPath, usage };
         const events = claudeTranscriptTick(state, snapshot);
@@ -6359,7 +6373,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -8461,6 +8475,7 @@ function makeDashboardActions(
         repo, label: formatId('ticket', ticketId),
         probeSandbox: () => sandboxB?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
+        arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),
       });

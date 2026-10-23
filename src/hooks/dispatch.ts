@@ -416,6 +416,11 @@ export function dispatchHook(
   recorder?: HookChannelRecorder,
   debug?: (msg: string) => void,
   tracker?: TurnTracker,
+  /**
+   * D160: a provider `session.error` (opencode cores) for the admitted ticket.
+   * Observation only — `session.error` stays a no-signal event for agent_state.
+   */
+  onSessionError?: (ticketId: number, payload: HookPayload) => void,
 ): HookDispatchResult {
   // Observation only — a recorder defect may not change what a hook does.
   const observe = (outcome: HookDispatchOutcome): void => {
@@ -440,6 +445,14 @@ export function dispatchHook(
   if (shouldApplyState && !shouldApplyState(ticketId, payload)) {
     observe('stale-generation');
     return { admitted: false };
+  }
+
+  if (payload.hook_event_name === 'session.error') {
+    try {
+      onSessionError?.(ticketId, payload);
+    } catch (error) {
+      debug?.(`[session.error] ticket ${ticketId}: handler failed: ${String(error)}`);
+    }
   }
 
   // Usage is not a lifecycle event: it rides the same URL-guarded, generation-
