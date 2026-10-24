@@ -61,6 +61,9 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/instrumentedAdapter.ts#instrumentAdapter": [
+    "arch:DBG-01"
+  ],
   "src/agent/materializedCleanup.ts#OWNED_PREFIXES": [
     "arch:ROOT-GEN"
   ],
@@ -232,6 +235,9 @@
   "src/cli/writableStore.ts#openWritableStore": [
     "arch:CLI-05"
   ],
+  "src/diagnostics/collectMetadata.ts": [
+    "arch:DBG-02"
+  ],
   "src/doctor/applyFixes.ts#applyFixes": [
     "arch:CLI-16"
   ],
@@ -285,6 +291,12 @@
   ],
   "src/integrations/prChecks.ts": [
     "arch:GH-00"
+  ],
+  "src/logging/logger.ts#makeBoundedLogBuffer": [
+    "arch:DBG-02"
+  ],
+  "src/logging/logger.ts#makeLogger": [
+    "arch:DBG-02"
   ],
   "src/model/artifacts.ts": [
     "arch:SHELF"
