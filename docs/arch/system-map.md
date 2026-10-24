@@ -430,9 +430,8 @@ node:sqlite otherwise (the CLI's `karst test reset` way: the same schema.sql,
 then the version stamp). A fresh schema.sql IS the complete schema, so the
 catalog is the same either way.
 
-CI rebuilds better-sqlite3 for the Node ABI (`npm run rebuild:node`); it never
-launches the extension host, so the Electron ABI need not be restored
-(@arch:ABI-01).
+CI rebuilds better-sqlite3 for the Node ABI (`npm run rebuild:node`) and never
+launches the extension host (@arch:ABI-01).
 
 <!-- GENERATED:start id=MAP-04 src=scripts/archSchema.ts -->
 ```mermaid
