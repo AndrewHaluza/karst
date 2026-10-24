@@ -6,6 +6,7 @@ import { checkPort, SANDBOX_HOST_ALIAS } from '../sandboxPorts.js';
 import { bindMount } from './dockerRunArgs.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
+import type { StepResult } from './dockerClone.js';
 
 /** opencode's own endpoints (ST2B exp 8): `models.opencode.ai` is covered by the suffix. */
 export const OPENCODE_PROVIDER_DOMAINS: readonly string[] = ['opencode.ai', 'openrouter.ai', 'models.dev'];
@@ -15,7 +16,9 @@ export const DOCKER_ALLOWLIST: readonly string[] = [...SANDBOX_NETWORK_ALLOWLIST
 /** The proxy's name on the ticket network; the agent container's `HTTPS_PROXY` points here. */
 export const PROXY_ALIAS = 'karst-proxy';
 export const PROXY_URL = `http://${PROXY_ALIAS}:${PROXY_PORT}`;
-const SCRIPT_IN_CONTAINER = '/opt/karst/allowlist-proxy.mjs';
+export const PROXY_MEMORY_LIMIT = '128m';
+export const PROXY_MEMORY_RESERVATION = '64m';
+const SCRIPT_IN_CONTAINER ='/opt/karst/allowlist-proxy.mjs';
 
 export interface SidecarSpec {
   readonly proxy: string;
@@ -45,6 +48,7 @@ export function sidecarRunArgs(spec: SidecarSpec): string[] {
     'run', '--detach', '--name', spec.proxy,
     '--network', spec.network, '--network-alias', PROXY_ALIAS,
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+    '--memory', PROXY_MEMORY_LIMIT, '--memory-reservation', PROXY_MEMORY_RESERVATION,
     '--env', `ALLOW=${(spec.allow ?? DOCKER_ALLOWLIST).join(',')}`,
     // Only a non-baseline allow (a setup window) is labelled: a proxy without the label IS the baseline.
     ...(spec.allow ? ['--label', `${ALLOW_LABEL}=${spec.allow.join(',')}`] : []),
@@ -87,6 +91,13 @@ export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec):
 
 export async function stopProxySidecar(proc: DockerProcess, proxy: string): Promise<DisposeStep> {
   return disposeStep('proxy', await proc.run(DOCKER_BIN, ['rm', '--force', proxy]));
+}
+
+/** Stop (keep) the idle proxy; `startProxySidecar` recreates a stopped one on demand. A gone container is fine. */
+export async function haltProxySidecar(proc: DockerProcess, proxy: string): Promise<StepResult> {
+  const out = await proc.run(DOCKER_BIN, ['stop', proxy]);
+  if (out.code === 0 || /no such container/i.test(out.stderr)) return { ok: true };
+  return { ok: false, reason: `docker stop ${proxy} failed: ${detail(out)}` };
 }
 
 /** The distinct hosts of the proxy's `DENY <host:port>` lines (a log line has no payload). */

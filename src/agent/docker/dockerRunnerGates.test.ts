@@ -66,6 +66,17 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     expect(proc.calls.at(-1)!.args).toEqual(['rm', '--force', gateName]);
   });
 
+  it('restarts a stopped proxy before a one-shot gate when a proxy is configured', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' } });
+    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+    const runner = createDockerSessionRunner({ ...base, proc, gateProcess, proxy: { script: '/s.mjs', hostPorts: [] } });
+    await runner.runGate!('npm', ['test'], '/w/t7');
+    const calls = proc.calls.map((c) => c.args.join(' '));
+    expect(calls).toContain(`rm --force ${names.proxy}`);
+    expect(calls.some((c) => c.startsWith('run --detach --name ' + names.proxy))).toBe(true);
+    expect(gateProcess).toHaveBeenCalledTimes(1);
+  });
+
   it('hasSandbox is the clone volume', async () => {
     const yes = createDockerSessionRunner({ ...base, proc: fakeDockerProcess() });
     await expect(yes.hasSandbox!()).resolves.toBe(true);
