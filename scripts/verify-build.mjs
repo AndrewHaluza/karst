@@ -20,6 +20,7 @@ const REQUIRED_ARTIFACTS = [
   // so the settings sender is verified through the app bundle below.
   'dist/ui/dashboard/webviewSend.webview.js',
   'dist/ui/dashboard/app.webview.js',
+  'dist/ui/resources/app.webview.js',
   'dist/ui/settings/app.webview.js',
 ];
 

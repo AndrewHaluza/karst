@@ -8,10 +8,10 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'src/ui/settings/app.webview.js', 'src/ui/dashboard/app.webview.js'],
+    ignores: ['dist/**', 'node_modules/**', 'src/ui/settings/app.webview.js', 'src/ui/dashboard/app.webview.js', 'src/ui/resources/app.webview.js'],
   },
   {
-    files: ['src/ui/settings/app/**/*.{ts,tsx}', 'src/ui/dashboard/app/**/*.{ts,tsx}'],
+    files: ['src/ui/settings/app/**/*.{ts,tsx}', 'src/ui/dashboard/app/**/*.{ts,tsx}', 'src/ui/resources/app/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     plugins: { 'react-hooks': reactHooks },
     rules: {

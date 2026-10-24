@@ -247,7 +247,11 @@ export class ResourcesPanelManager {
         }),
       ticketLogs: (ticketId) => needServers().openTicketLogs(ticketId),
       openLogs: () => needServers().openLogs(),
-      refresh: () => this.deps.monitor.refreshNow(),
+      refresh: async () => {
+        await this.deps.monitor.refreshNow();
+        // Refresh means "what is true now" for BOTH tabs, not only the sampled one.
+        this.postServers(true);
+      },
       measureDisk: () => this.measureDisk(),
       killServer: async (serverId) => {
         if (this.deps.confirm) {

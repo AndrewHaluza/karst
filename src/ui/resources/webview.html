@@ -1,26 +1,29 @@
 <!--
-  Karst resource-monitor webview (leak hunter). Self-contained: no external
-  assets (the webview CSP forbids them). Renders from the `state` postMessage
-  the host pushes (state.ts → ResourcesState) and posts intent back (messages.ts
-  → ResourcesWebviewMessage).
+  Karst "Servers & resources" webview — React app shell.
 
-  It decides NOTHING. Every number arrives pre-formatted, every label
-  pre-resolved — the same split the usage panel uses, because a number formatted
-  here would be a second implementation of a rule that already lives host-side
-  (UI-R31). The only local state is which control has focus, which legend series
-  is muted, and the chart geometry, which is pure presentation.
+  The page is the React app in src/ui/resources/app/** (bundled to
+  app.webview.js by scripts/build-webview-send.mjs) and injected here by
+  injectResourcesApp in place of the KARST_RESOURCES_APP marker below. Two tabs
+  share one document: Servers (the project-wide control plane) and Resources (the
+  resource monitor's cost view). This file keeps the shared runtime (design-system
+  CSS/JS, palette) and the Resources tab's stylesheet; the Servers tab's
+  stylesheet is servers.webview.css, injected at KARST_RESOURCES_APP_CSS.
 
-  The kill confirmation is HOST-side (UI-R33): the webview posts only a
-  `servers.id`; the host re-attributes and confirms before it signals anything.
+  The app decides NOTHING. Every number arrives pre-formatted, every label
+  pre-resolved, every verb's availability pre-computed host-side (state.ts,
+  serversState.ts) — a value formatted here would be a second implementation of a
+  rule that already lives host-side (UI-R31). The only local state is the selected
+  tab (the URL hash is its source of truth, UI-R47), which legend series is
+  muted and the table sort order — pure presentation.
 
-  UI-R11/R13/R14/R18 are satisfied by routing every posting control through
-  `karstAction` — local pending on click, aria-busy, no re-trigger, a watchdog
-  that reports "unknown" on timeout, and a terminal `action-result` outcome.
-  The legend toggles post NOTHING: muting a chart series is local presentation.
+  Every confirmation is HOST-side (UI-R33): the webview posts only a unit key, a
+  `servers.id` or a `tickets.id`; the host re-resolves it against a fresh read
+  and confirms before it signals anything.
 -->
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_RESOURCES_APP_CSS*/
 
   *{box-sizing:border-box}
   body{max-width:var(--k-content-max-wide);margin:0;margin-inline:auto;background:var(--k-bg);color:var(--k-text);
@@ -31,8 +34,18 @@
   .rhead .titles{min-width:0}
   .rhead h1{font-size:var(--k-text-xl);margin:0}
   .rhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
-  .rhead .live{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin-top:var(--k-space-1);display:flex;align-items:center;gap:var(--k-space-2);flex-wrap:wrap}
+  .live{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin-top:var(--k-space-1);display:flex;align-items:center;gap:var(--k-space-2);flex-wrap:wrap}
   .rhead .actions{margin-left:auto;display:flex;gap:var(--k-space-2)}
+  [hidden]{display:none !important}
+
+  /* The one polite status region the app announces through (UI-R27): visually
+     hidden, present in the accessibility tree. */
+  .k-live-region{
+    position:absolute;width:var(--k-space-4);height:var(--k-space-4);
+    margin:var(--k-space-0);padding:var(--k-space-0);
+    overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);
+    white-space:nowrap;border:var(--k-border-w) solid transparent;
+  }
 
   .note{border:var(--k-border-w) solid var(--k-warning);border-radius:var(--k-radius-lg);
     padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
@@ -87,26 +100,25 @@
   .series-rss.muted,.series-cpu.muted{opacity:.08}
   .gridline{stroke:var(--k-border);stroke-width:var(--k-border-w);opacity:.5}
   .spark-empty{fill:var(--k-text-faint);font-family:var(--k-font-ui);font-size:var(--k-text-sm)}
-  .chartTicks{position:absolute;left:var(--yaxis-w);right:0;bottom:var(--k-space-1);height:var(--k-space-4);
-    color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none}
-  .chartTicks span{position:absolute;transform:translateX(-50%)}
-  .chartTicks span:first-child{transform:translateX(0)}
-  .chartTicks span:last-child{transform:translateX(-100%)}
+  .chartTicks{position:absolute;left:var(--yaxis-w);bottom:var(--k-space-1);width:calc(100% - var(--yaxis-w));
+    height:var(--k-space-4);fill:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none;overflow:visible}
+  .chartTicks text{dominant-baseline:central}
   .chartScale{position:absolute;top:var(--k-space-2);left:calc(var(--yaxis-w) + var(--k-space-4));
     color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none;display:flex;gap:var(--k-space-5);font-family:var(--k-font-mono)}
   .chartScale .cpu{color:var(--k-series-2)}
   .chartScale .rss{color:var(--k-series-1)}
 
   /* Y-axis labels: one value pair per gridline, sitting in the reserved gutter
-     to the left of the plot. The cpu/rss colors are the series identity, so a
-     muted series dims its own label too (UI-R28 — never an invented label). */
-  .chartY{position:absolute;left:0;top:0;bottom:0;width:var(--yaxis-w);pointer-events:none;
-    font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
-  .chartY .yTick{position:absolute;right:var(--k-space-3);transform:translateY(-50%);
-    display:flex;gap:var(--k-space-3);white-space:nowrap}
-  .chartY .yTick .cpu{color:var(--k-series-2)}
-  .chartY .yTick .rss{color:var(--k-series-1)}
-  .chartY .yTick .muted{opacity:.25}
+     to the left of the plot. They are SVG text at percentage coordinates (no
+     inline style anywhere in the app). The cpu/rss colors are the series
+     identity, so a muted series dims its own label too (UI-R28 — never an
+     invented label). */
+  .chartY{position:absolute;left:0;top:0;width:var(--yaxis-w);height:100%;pointer-events:none;
+    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);overflow:visible}
+  .chartY .yTick{text-anchor:end;dominant-baseline:central}
+  .chartY .cpu{fill:var(--k-series-2)}
+  .chartY .rss{fill:var(--k-series-1)}
+  .chartY .muted{opacity:.25}
 
   /* Monitor facts lane. */
   .laneFacts{display:grid;gap:var(--k-space-1)}
@@ -161,406 +173,21 @@
   .drow + .drow{border-top:var(--k-border-w) solid var(--k-border)}
   .drow .path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-md)}
   .drow .amt{font-family:var(--k-font-mono);font-size:var(--k-text-md);text-align:right;flex:none}
-  .diskTrack{height:var(--k-space-2);background:var(--k-surface-sunken);border-radius:var(--k-radius-xs);overflow:hidden}
-  .diskTrack i{display:block;height:100%;background:var(--k-series-1);border-radius:var(--k-radius-xs)}
+  /* A <progress>: the share is its value, so no element needs an inline width. */
+  .diskTrack{display:block;appearance:none;width:100%;height:var(--k-space-2);border:0;
+    background:var(--k-surface-sunken);border-radius:var(--k-radius-xs);overflow:hidden}
+  .diskTrack::-webkit-progress-bar{background:var(--k-surface-sunken)}
+  .diskTrack::-webkit-progress-value{background:var(--k-series-1);border-radius:var(--k-radius-xs)}
+  .diskTrack::-moz-progress-bar{background:var(--k-series-1);border-radius:var(--k-radius-xs)}
   .measure-row{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
 </style>
 
-<div class="rhead">
-  <div class="titles">
-    <h1>Resources</h1>
-    <div class="sub" id="sub"></div>
-    <div class="live" id="live"></div>
-  </div>
-  <div class="actions">
-    <button type="button" class="k-btn k-btn--secondary" id="refreshBtn">Refresh</button>
-  </div>
-</div>
-
-<div class="note plain hidden" id="unsupported">
-  Resource monitoring is not supported on this platform. The status-bar meter is hidden; nothing here is measured.
-</div>
-<div class="note hidden" id="degraded">
-  The last reading did not complete — showing the previous numbers, which may be up to a minute old.
-</div>
-
-<div id="body" class="hidden">
-  <div class="stats" id="stats"></div>
-  <div class="summaryMeta" id="summaryMeta"></div>
-
-  <div class="gridTop">
-    <div class="panel">
-      <div class="phead">5-minute trend<span class="count" id="trendCount"></span></div>
-      <div class="pbody">
-        <div class="trendHead">
-          <div class="legend" id="legend">
-            <button type="button" class="legendBtn" data-series="cpu" aria-pressed="true"><i class="swatch swCpu"></i>CPU %</button>
-            <button type="button" class="legendBtn" data-series="rss" aria-pressed="true"><i class="swatch swRss"></i>RSS</button>
-          </div>
-          <span class="scaleNote" id="scaleNote"></span>
-        </div>
-        <div class="chartWrap">
-          <svg id="spark" viewBox="0 0 560 80" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div class="chartY" id="chartY"></div>
-          <div class="chartScale" id="chartScale"></div>
-          <div class="chartTicks" id="chartTicks"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="phead">Monitor<span class="count">window-local</span></div>
-      <div class="pbody laneFacts" id="facts"></div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="phead">Attributed to karst<span class="count" id="attrCount"></span></div>
-    <div class="tscroll">
-      <table>
-        <thead id="attrHead">
-          <tr></tr>
-        </thead>
-        <tbody id="attrBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="phead">Unattributed (top 5)<span class="count" id="unknownCount"></span></div>
-    <div class="tscroll">
-      <table class="utable">
-        <thead id="unkHead">
-          <tr></tr>
-        </thead>
-        <tbody id="unknownBody"></tbody>
-      </table>
-    </div>
-    <div class="pbody"><div class="meta" id="unknownNote"></div></div>
-  </div>
-
-  <div class="panel">
-    <div class="phead">Proven waste<span class="count" id="wasteCount"></span></div>
-    <div class="pbody" id="waste"></div>
-  </div>
-
-  <div class="panel">
-    <div class="phead">Worktree disk<span class="count" id="diskCount"></span></div>
-    <div class="pbody">
-      <div class="measure-row">
-        <button type="button" class="k-btn k-btn--primary" id="measureBtn">Measure</button>
-        <span class="meta" id="diskHint"></span>
-      </div>
-      <div id="diskRows"></div>
-    </div>
-  </div>
-</div>
+<div id="root"></div>
 
 <script>
   /*KARST_DS_JS*/
 
-  const vscode = acquireVsCodeApi();
-  const post = (msg) => vscode.postMessage(msg);
-  const el = (id) => document.getElementById(id);
-  const esc = karstEsc;
-
-  let lastState = null;
-  // Which chart series the user has muted — LOCAL presentation, never a post.
-  const muted = { cpu: false, rss: false };
-
-  // Sort state for the two tables — LOCAL presentation, never a post.
-  // Cycle: default (null) → asc → desc → default.
-  const sortState = {
-    attr: { key: null, dir: null },
-    unknown: { key: null, dir: null },
-  };
-
-  const ATTR_COLS = [
-    { key: 'ticket', label: 'Ticket', num: false, accessor: (r) => (r.ticketKey || r.ticketTitle || '').toLowerCase() },
-    { key: 'label', label: 'Repo / label', num: false, accessor: (r) => (r.label || '').toLowerCase() },
-    { key: 'pid', label: 'PID', num: true, accessor: (r) => r.pid },
-    { key: 'cpu', label: 'CPU', num: true, accessor: (r) => r.cpuPct ?? -1 },
-    { key: 'rss', label: 'RSS', num: true, accessor: (r) => r.rssBytes },
-    { key: 'procs', label: 'Procs', num: true, accessor: (r) => r.procCount },
-    { key: 'up', label: 'Up', num: true, accessor: (r) => r.uptimeMs ?? -1 },
-    { key: 'attribution', label: 'Attribution', num: false, accessor: (r) => (r.attribution || '').toLowerCase() },
-  ];
-
-  const UNK_COLS = [
-    { key: 'pid', label: 'PID', num: true, cls: 'pid', accessor: (r) => r.pid },
-    { key: 'cmd', label: 'Command', num: false, cls: 'cmd', accessor: (r) => (r.comm || '').toLowerCase() },
-    { key: 'cpu', label: 'CPU', num: true, cls: 'amt', accessor: (r) => r.cpuPctDisplay === '—' ? -1 : parseFloat(r.cpuPctDisplay) || -1 },
-    { key: 'rss', label: 'RSS', num: true, cls: 'amt', accessor: (r) => {
-      const m = (r.rssDisplay || '').match(/^([\d.]+)\s*(B|KB|MB|GB)$/);
-      if (!m) return -1;
-      const n = parseFloat(m[1]);
-      const u = m[2];
-      return u === 'B' ? n : u === 'KB' ? n * 1024 : u === 'MB' ? n * 1024 ** 2 : n * 1024 ** 3;
-    }},
-    { key: 'procs', label: 'Procs', num: true, cls: 'amt', accessor: (r) => r.procCount },
-  ];
-
-  const sortRows = (rows, cols, state) => {
-    if (!state.key || !state.dir) return rows;
-    const col = cols.find((c) => c.key === state.key);
-    if (!col) return rows;
-    const dir = state.dir === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const va = col.accessor(a);
-      const vb = col.accessor(b);
-      if (va === vb) return 0;
-      if (va === -1) return 1;
-      if (vb === -1) return -1;
-      if (typeof va === 'string') return va.localeCompare(vb) * dir;
-      return (va - vb) * dir;
-    });
-  };
-
-  const statCard = (label, value, note, flag) =>
-    `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
-    `<div class="v">${esc(value)}</div><div class="n">${esc(note || '')}</div></div>`;
-
-  const renderStats = (state) => {
-    const measuring = state.history.length === 0;
-    el('stats').innerHTML = [
-      statCard('Attributed CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of total capacity, rolling'),
-      statCard('Attributed RSS', state.rssDisplay, measuring ? 'measuring' : 'resident set size'),
-      statCard('Proven waste', String(state.wasteCount), state.wasteCount === 1 ? 'finding' : 'findings', state.wasteCount > 0),
-    ].join('');
-    el('summaryMeta').textContent =
-      `${state.attributedRoots} attributed roots · ${state.unattributedShown} unattributed shown`;
-  };
-
-  const renderSpark = (state) => {
-    const history = state.history;
-    const svg = el('spark');
-    if (history.length === 0) {
-      svg.innerHTML = '<text x="4" y="45" class="spark-empty">measuring\u2026</text>';
-    } else {
-      const W = 560, H = 80, PAD = 2;
-      const rss = history.map((s) => s.totals.rssBytes);
-      const cpu = history.map((s) => s.totals.cpuPct);
-      const rssMax = Math.max(...rss, 1);
-      const cpuVals = cpu.filter((v) => v !== null);
-      const cpuMax = Math.max(...cpuVals, 1);
-      const x = (i) => (history.length === 1 ? PAD : (i / (history.length - 1)) * (W - PAD * 2) + PAD);
-      const y = (v, max) => H - PAD - (v / max) * (H - PAD * 2);
-      const rssPts = rss.map((v, i) => `${x(i)},${y(v, rssMax)}`).join(' ');
-      const cpuPts = [];
-      cpu.forEach((v, i) => { if (v !== null) cpuPts.push(`${x(i)},${y(v, cpuMax)}`); });
-      // Gridlines sit exactly on the host-computed y-tick fractions, so each
-      // line and its label always agree — one source of truth for the heights.
-      const grid = state.trend.yTicks.map((t) => {
-        const gy = y(t.fraction * rssMax, rssMax);
-        return `<line class="gridline" x1="0" y1="${gy}" x2="${W}" y2="${gy}"/>`;
-      }).join('');
-      svg.innerHTML = grid +
-        `<polyline vector-effect="non-scaling-stroke" class="series-rss${muted.rss ? ' muted' : ''}" points="${rssPts}"></polyline>` +
-        (cpuPts.length ? `<polyline vector-effect="non-scaling-stroke" class="series-cpu${muted.cpu ? ' muted' : ''}" points="${cpuPts}"></polyline>` : '');
-    }
-    // Scale markers: the per-series maxima, the y-axis gridline labels, and the
-    // x-axis time ticks. Every value is pre-formatted host-side (UI-R31).
-    el('chartScale').innerHTML =
-      `<span class="cpu">CPU ${esc(state.trend.cpuMaxDisplay)}</span>` +
-      `<span class="rss">RSS ${esc(state.trend.rssMaxDisplay)}</span>`;
-    el('chartY').innerHTML = state.trend.yTicks.map((t) => {
-      // The gridline is drawn in SVG viewBox space (H=80, PAD=2); the label must
-      // sit on the same line, so its top% uses the SAME mapping as the gridline.
-      const ySvg = 80 - 2 - t.fraction * (80 - 2 * 2);
-      const topPct = Math.round((ySvg / 80) * 100);
-      return `<span class="yTick" style="top:${topPct}%">` +
-        `<span class="cpu${muted.cpu ? ' muted' : ''}">${esc(t.cpu)}</span>` +
-        `<span class="rss${muted.rss ? ' muted' : ''}">${esc(t.rss)}</span>` +
-      '</span>';
-    }).join('');
-    el('chartTicks').innerHTML = state.trend.timeTicks.map((t) =>
-      `<span style="left:${Math.round(t.fraction * 100)}%">${esc(t.label)}</span>`,
-    ).join('');
-  };
-
-  const renderAttributed = (rows) => {
-    el('attrCount').textContent = rows.length;
-    const sorted = sortRows(rows, ATTR_COLS, sortState.attr);
-    // Render header with sort buttons — UI-R09: a real button, not a click on <th>.
-    el('attrHead').querySelector('tr').innerHTML = ATTR_COLS.map((c) => {
-      const cls = c.num ? ' class="num"' : '';
-      const ariaSort = sortState.attr.key === c.key
-        ? (sortState.attr.dir === 'asc' ? ' aria-sort="ascending"' : ' aria-sort="descending"')
-        : '';
-      const arrow = sortState.attr.key === c.key ? (sortState.attr.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
-      return `<th${cls}${ariaSort}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.key)}">${esc(c.label)}${arrow}</button></th>`;
-    }).join('');
-    for (const btn of el('attrHead').querySelectorAll('[data-sort]')) {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.sort;
-        const cur = sortState.attr;
-        if (cur.key === key) {
-          cur.dir = cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null;
-          if (cur.dir === null) cur.key = null;
-        } else {
-          cur.key = key;
-          cur.dir = 'asc';
-        }
-        if (lastState) render(lastState);
-      });
-    }
-    el('attrBody').innerHTML = sorted.map((r) => {
-      const ticket = r.ticketKey || r.ticketTitle
-        ? `<div class="ticketCell"><span class="tkey">${esc(r.ticketKey || '')}</span><span class="ttitle">${esc(r.ticketTitle || '')}</span></div>`
-        : '<div class="ticketCell"><span class="baseline">baseline</span></div>';
-      return '<tr>' +
-        `<td>${ticket}</td>` +
-        `<td class="ellipsis">${esc(r.label || '—')}</td>` +
-        `<td class="num">${esc(r.pid)}</td>` +
-        `<td class="num">${esc(r.cpuPctDisplay)}</td>` +
-        `<td class="num">${esc(r.rssDisplay)}</td>` +
-        `<td class="num">${esc(r.procCount)}</td>` +
-        `<td class="num">${esc(r.uptimeDisplay || '—')}</td>` +
-        `<td><span class="attrib">${esc(r.attribution)}</span></td>` +
-      '</tr>';
-    }).join('');
-  };
-
-  const renderUnknown = (rows) => {
-    el('unknownCount').textContent = rows.length;
-    const sorted = sortRows(rows, UNK_COLS, sortState.unknown);
-    el('unkHead').querySelector('tr').innerHTML = UNK_COLS.map((c) => {
-      const cls = c.num ? ' num' : '';
-      const ariaSort = sortState.unknown.key === c.key
-        ? (sortState.unknown.dir === 'asc' ? ' aria-sort="ascending"' : ' aria-sort="descending"')
-        : '';
-      const arrow = sortState.unknown.key === c.key ? (sortState.unknown.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
-      return `<th class="${esc(c.cls)}${cls}"${ariaSort}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.key)}">${esc(c.label)}${arrow}</button></th>`;
-    }).join('');
-    for (const btn of el('unkHead').querySelectorAll('[data-sort]')) {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.sort;
-        const cur = sortState.unknown;
-        if (cur.key === key) {
-          cur.dir = cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null;
-          if (cur.dir === null) cur.key = null;
-        } else {
-          cur.key = key;
-          cur.dir = 'asc';
-        }
-        if (lastState) render(lastState);
-      });
-    }
-    el('unknownBody').innerHTML = sorted.map((u) =>
-      '<tr>' +
-        `<td class="num pid">${esc(u.pid)}</td>` +
-        `<td class="ellipsis cmd">${esc(u.comm)}</td>` +
-        `<td class="num amt">${esc(u.cpuPctDisplay)}</td>` +
-        `<td class="num amt">${esc(u.rssDisplay)}</td>` +
-        `<td class="num amt">${esc(u.procCount)}</td>` +
-      '</tr>',
-    ).join('');
-    // The lane is machine-wide by construction — these are NOT claimed as karst's.
-    el('unknownNote').textContent = rows.length
-      ? 'Largest processes not tied to karst, machine-wide — listed for awareness, never claimed.'
-      : 'No unattributed heavy processes at the moment.';
-  };
-
-  const renderWaste = (rows) => {
-    el('wasteCount').textContent = rows.length;
-    const wrap = el('waste');
-    if (!rows.length) {
-      wrap.innerHTML = '<div class="meta">nothing leaked</div>';
-      return;
-    }
-    wrap.innerHTML = rows.map((w) => {
-      const action = w.killable
-        ? `<button type="button" class="k-btn k-btn--danger" data-kill="${esc(w.serverId)}">Stop</button>`
-        : '<span class="why">report-only \u2014 karst cannot prove this process is safe to stop</span>';
-      return '<div class="wrow">' +
-        `<span class="reason" title="${esc(w.reason)}">${esc(w.reason)}</span>` +
-        `<span class="amt">${esc(w.rssDisplay)}</span>${action}` +
-      '</div>';
-    }).join('');
-    for (const btn of wrap.querySelectorAll('[data-kill]')) {
-      karstAction(btn, (requestId) => post({ type: 'kill-server', serverId: Number(btn.dataset.kill), requestId }));
-    }
-  };
-
-  const renderDisk = (rows) => {
-    el('diskCount').textContent = rows.length;
-    el('diskHint').textContent = rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open';
-    // The bar width is a RELATIVE share of the largest measured worktree —
-    // presentation geometry, derived here from the bytes the host sent.
-    const max = Math.max(...rows.map((d) => d.bytes), 1);
-    el('diskRows').innerHTML = rows.map((d) => {
-      const share = Math.round((d.bytes / max) * 100);
-      return '<div class="drow">' +
-        '<div>' +
-          `<div class="path" title="${esc(d.display)}">${esc(d.display)}</div>` +
-          `<div class="diskTrack"><i style="width:${share}%"></i></div>` +
-        '</div>' +
-        `<div class="amt">${esc(d.sizeDisplay)}</div>` +
-      '</div>';
-    }).join('');
-  };
-
-  const renderFacts = (facts) => {
-    el('facts').innerHTML = facts.map((f) => {
-      const attn = f.label === 'Recent CPU' && f.value === 'rising' ? ' attn' : '';
-      return '<div class="factRow">' +
-        `<span class="factLabel">${esc(f.label)}</span>` +
-        `<span class="factValue${attn}">${esc(f.value)}</span>` +
-      '</div>';
-    }).join('');
-  };
-
-  const render = (state) => {
-    if (!state) return;
-    lastState = state;
-    el('unsupported').classList.toggle('hidden', state.supported);
-    el('degraded').classList.toggle('hidden', !state.degraded);
-    el('body').classList.toggle('hidden', !state.supported);
-    el('sub').textContent = state.supported ? state.scopeLabel : 'not supported on this platform';
-    if (!state.supported) return;
-
-    el('live').textContent = `Live · ${state.sampleAgeDisplay} · 5-minute window · not persisted`;
-    renderStats(state);
-    el('trendCount').textContent = `${state.history.length} / ${state.historyMax} samples`;
-    renderSpark(state);
-    el('scaleNote').textContent = 'derived CPU · resident memory';
-    renderAttributed(state.rows);
-    renderUnknown(state.unknown);
-    renderWaste(state.waste);
-    renderDisk(state.disk);
-    renderFacts(state.facts);
-  };
-
-  // Legend toggles mute a series locally — pure presentation, never a post.
-  // `on` is the OLD pressed state: a series that was shown becomes muted, so
-  // muted mirrors the old aria-pressed — NOT its inverse, which would leave the
-  // button grayed while the series stayed visible (and vice versa).
-  for (const btn of document.querySelectorAll('.legendBtn')) {
-    btn.addEventListener('click', () => {
-      const series = btn.dataset.series;
-      const on = btn.getAttribute('aria-pressed') === 'true';
-      btn.setAttribute('aria-pressed', String(!on));
-      muted[series] = on;
-      if (lastState) renderSpark(lastState);
-    });
-  }
-
-  window.addEventListener('message', (e) => {
-    const msg = e.data;
-    if (!msg) return;
-    if (msg.type === 'state') render(msg.state);
-    else if (msg.type === 'disk') {
-      // Incremental disk rows; re-render from the last state plus the new rows.
-      if (lastState) render({ ...lastState, disk: msg.rows });
-    } else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
-  });
-
-  karstAction(el('refreshBtn'), (requestId) => post({ type: 'refresh', requestId }), { tier: 'view' });
-  karstAction(el('measureBtn'), (requestId) => post({ type: 'measure-disk', requestId }));
-
-  // The host pushes on open, but a webview that was restored (or reloaded)
-  // missed it — ask, rather than render a blank page.
-  post({ type: 'request-state' });
+  /*KARST_RESOURCES_APP*/
 </script>
 
 <style>/*KARST_PALETTE*/</style>

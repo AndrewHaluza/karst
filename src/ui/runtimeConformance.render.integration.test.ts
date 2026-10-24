@@ -19,9 +19,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderWebview, renderWebviewReady } from './testing/renderHarness.js';
+import { drainReactWork, renderWebview, renderWebviewReady } from './testing/renderHarness.js';
 import type { WebviewName } from '../model/webviewChains.js';
 import { FIXTURE_STATE_PUSH } from './settings/app/testFixtures.js';
+import { fixtureMessages, resourcesRenderFixtures } from './resources/renderFixtures.js';
 
 const UI_DIR = import.meta.dirname!;
 
@@ -82,7 +83,8 @@ const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number; input
   diffs: { inputs: 1, buttons: 3 },
   // gettingStarted: no form inputs; measured focusables 3
   gettingStarted: { inputs: 3, buttons: 3, inputsProbe: 'focusable' },
-  // resources: no form inputs; measured focusables 4
+  // resources: no form inputs; measured focusables 4 on the vanilla view. The React
+  // page measures the same floor after the busy + mixed pushes (both tabs mounted).
   resources: { inputs: 4, buttons: 4, inputsProbe: 'focusable' },
   serverLogs: { inputs: 3, buttons: 4 },
   settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline (phase 4)
@@ -260,6 +262,17 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       });
       // Yield to let jsdom process the message event and inline script
       await Promise.resolve();
+    }
+    // Resources is a React app too: it renders nothing but its header until the
+    // host pushes. Push the busy Resources state and the mixed Servers state, so the
+    // floor measures the surface a user sees (both tabs' controls are in the DOM).
+    if (name === 'resources') {
+      for (const scenario of ['busy', 'servers-mixed']) {
+        for (const message of fixtureMessages(resourcesRenderFixtures().find((f) => f.scenario === scenario)!)) {
+          handle.receive(message);
+        }
+      }
+      await drainReactWork(handle);
     }
     // The settings arm mounts the React app and walks all eight sections for
     // the union floor; under a loaded machine that legitimately takes longer

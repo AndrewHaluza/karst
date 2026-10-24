@@ -8,7 +8,10 @@ import { LAYOUT_WIDTHS, NARROW_MAX, WIDE_MIN, tierFor } from './layoutBreakpoint
  * existing settings CSS still uses 1024/768/800/700px. The Agents page CSS is
  * aligned; the other files migrate in later tickets.
  */
-const BREAKPOINT_PINNED_FILES: readonly string[] = ['src/ui/settings/agents.webview.css'];
+const BREAKPOINT_PINNED_FILES: readonly string[] = [
+  'src/ui/settings/agents.webview.css',
+  'src/ui/resources/servers.webview.css',
+];
 
 /** `(min-width: 1000px)` / `(max-width: 699px)` boundaries a pinned file may use. */
 const ALLOWED_PX = new Set([WIDE_MIN, WIDE_MIN - 1, NARROW_MAX, NARROW_MAX + 1]);

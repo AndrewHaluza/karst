@@ -1,0 +1,108 @@
+/*
+  Styles for the "Servers & resources" page that are not the Resources tab's:
+  the tab strip and the Servers tab. Tokens only — no colour or size literals —
+  except the @media widths, which cannot read a custom property. They are the
+  three layout tiers of src/ui/layout/layoutBreakpoints.ts (>=1000 / 700-999 /
+  <=699) and are pinned to them by layoutBreakpoints.test.ts.
+*/
+
+/* ---- Resources tab additions ------------------------------------------ */
+/* A waste row's failure note sits under the row, so the row keeps its own flex. */
+.wgroup + .wgroup{border-top:var(--k-border-w) solid var(--k-border)}
+.wgroup .wrow + .wrow{border-top:none}
+.wgroup > .rownote{padding-bottom:var(--k-space-3)}
+
+/* ---- header + tabs ---------------------------------------------------- */
+.rhead .tabs{flex-basis:100%;display:flex;gap:var(--k-space-1);
+  border-bottom:var(--k-border-w) solid var(--k-border)}
+.tab{background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-md);
+  font-weight:var(--k-weight-medium);cursor:pointer;min-height:var(--k-control-h-md);
+  padding:var(--k-space-2) var(--k-space-6);border:0;border-radius:var(--k-radius-sm) var(--k-radius-sm) 0 0;
+  border-bottom:calc(var(--k-border-w) * 2) solid transparent}
+.tab:hover{color:var(--k-text);background:var(--k-surface-hover)}
+.tab[aria-selected="true"]{color:var(--k-text);border-bottom-color:var(--k-link)}
+.tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
+/* ---- Servers tab ------------------------------------------------------ */
+.stats-servers{margin-bottom:var(--k-space-6)}
+.smain{display:grid;gap:var(--k-space-6);margin-bottom:var(--k-space-6)}
+
+.group{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+  background:var(--k-surface);overflow:hidden}
+.tickets{display:grid;gap:var(--k-space-5)}
+h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:0;
+  padding:var(--k-space-5) var(--k-space-6);display:flex;align-items:center;gap:var(--k-space-4)}
+.tickets > h2.ghead{padding:var(--k-space-0)}
+.group > h2.ghead{border-bottom:var(--k-border-w) solid var(--k-border)}
+.ghead .count,.ghead-ticket .count{margin-left:auto;font-family:var(--k-font-mono);
+  font-size:var(--k-text-xs);color:var(--k-text-dim);font-weight:var(--k-weight-normal)}
+.ghead-ticket{display:flex;align-items:center;gap:var(--k-space-5);flex-wrap:wrap;
+  padding:var(--k-space-5) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border)}
+.ghead-ticket .count{margin-left:var(--k-space-0)}
+.gtitle{margin:0;font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);min-width:0;flex:1 1 auto;
+  display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
+.gtitle .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.gtitle .gname{font-weight:var(--k-weight-normal);overflow-wrap:anywhere;min-width:0}
+.gmeta{display:flex;align-items:center;gap:var(--k-space-4);color:var(--k-text-dim);font-size:var(--k-text-xs)}
+.gmeta .stage{text-transform:uppercase;letter-spacing:.04em;font-size:var(--k-text-2xs)}
+.gactions{display:flex;gap:var(--k-space-2);margin-left:auto;flex-wrap:wrap}
+.gflags{display:flex;gap:var(--k-space-3);flex-wrap:wrap;margin:var(--k-space-0);
+  padding:var(--k-space-3) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border)}
+.flag{font-size:var(--k-text-2xs);color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-pill);padding:var(--k-space-1) var(--k-space-4)}
+.flag-down{color:var(--k-warning);border-color:var(--k-warning)}
+.gempty{margin:var(--k-space-0);padding:var(--k-space-5) var(--k-space-6);color:var(--k-text-dim);font-size:var(--k-text-sm)}
+
+/* rows: identity | facts | actions */
+.srows{list-style:none;margin:var(--k-space-0);padding:var(--k-space-0)}
+.srow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.5fr) auto;gap:var(--k-space-3) var(--k-space-6);
+  align-items:center;padding:var(--k-space-4) var(--k-space-6)}
+.srow + .srow{border-top:var(--k-border-w) solid var(--k-border)}
+.srow:hover{background:var(--k-surface-hover)}
+.srow-id{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;min-width:0}
+.sname{font-family:var(--k-font-mono);font-size:var(--k-text-md);overflow-wrap:anywhere;min-width:0}
+.srow-facts{display:flex;align-items:baseline;gap:var(--k-space-5);flex-wrap:wrap;min-width:0;
+  font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.saddr{font-family:var(--k-font-mono);color:var(--k-text)}
+.deps{overflow-wrap:anywhere}
+.deps-none{color:var(--k-text-faint)}
+.dep-done{color:var(--k-text-faint)}
+.srow-actions{display:flex;gap:var(--k-space-2);flex-wrap:wrap;justify-content:flex-end}
+.rownote{grid-column:1 / -1;color:var(--k-danger);font-size:var(--k-text-sm);overflow-wrap:anywhere}
+.group > .rownote{padding:var(--k-space-3) var(--k-space-6)}
+
+/* status mark: shape AND word (UI-R28) */
+.smark{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);white-space:nowrap}
+.smark-running{color:var(--k-success)}
+.smark-stopped{color:var(--k-text-dim)}
+.smark-failed{color:var(--k-danger)}
+.smark-word{color:var(--k-text)}
+
+.chip-branch,.chip-kept{font-size:var(--k-text-2xs);border-radius:var(--k-radius-pill);
+  padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim)}
+.chip-branch{font-family:var(--k-font-mono)}
+.chip-kept{color:var(--k-success);border-color:var(--k-success)}
+.srow-actions .k-btn[aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+
+/* footer: legend + project-wide actions */
+.sfooter{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-6);flex-wrap:wrap;
+  padding-top:var(--k-space-5);border-top:var(--k-border-w) solid var(--k-border)}
+.legend-key{list-style:none;margin:var(--k-space-0);padding:var(--k-space-0);display:flex;gap:var(--k-space-6);
+  flex-wrap:wrap;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+.sfooter-actions{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+.sfooter .why{color:var(--k-text-faint);font-size:var(--k-text-2xs);overflow-wrap:anywhere}
+
+/* ---- tiers ------------------------------------------------------------ */
+@media (max-width: 999px) {
+  .srow{grid-template-columns:minmax(0,1fr) auto}
+  .srow-facts{grid-column:1 / 2}
+  .srow-actions{grid-column:2 / 3;grid-row:1 / 3}
+}
+@media (max-width: 699px) {
+  .srow{grid-template-columns:minmax(0,1fr)}
+  .srow-facts,.srow-actions{grid-column:1 / -1;grid-row:auto}
+  .srow-actions{justify-content:flex-start}
+  .gactions{margin-left:var(--k-space-0);flex-basis:100%}
+  .sfooter{align-items:flex-start}
+  .rhead .tabs{overflow-x:visible}
+}

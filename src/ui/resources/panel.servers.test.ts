@@ -217,6 +217,16 @@ describe('Servers tab — action dispatch', () => {
     expect(p.results()).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
   });
 
+  it('Refresh re-reads the Servers tab as well as the monitor', async () => {
+    const before = p.ofType('servers').length;
+    fs.calls.inventory.mockReturnValue({ ...inventory(), shared: [] });
+    p.send({ type: 'refresh', requestId: 'rf' });
+    await flush();
+    expect(p.ofType('servers').length).toBeGreaterThan(before);
+    expect(p.ofType('servers').at(-1)!.state.shared).toEqual([]);
+    expect(p.results()).toEqual([{ type: 'action-result', requestId: 'rf', ok: true }]);
+  });
+
   it('repaints after a verb, win or lose', async () => {
     const before = p.ofType('servers').length;
     fs.calls.stopShared.mockRejectedValueOnce(new Error('Refused'));
