@@ -685,7 +685,7 @@ export class SessionManager {
       // once leaves a reason. Host launches are never wrapped.
       const capture =
         inSandbox && options.launchCaptureDir && process.platform !== 'win32'
-          ? captureFilesFor(options.launchCaptureDir, ticketId)
+          ? captureFilesFor(options.launchCaptureDir, ticketId, bridge?.paths.eventsFile)
           : undefined;
       const placed = capture ? wrapWithStderrCapture(interactive, capture) : interactive;
       if (capture) {

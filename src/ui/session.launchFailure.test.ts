@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { captureFilesFor } from '../agent/launchCapture.js';
 import { HOST_SESSION_RUNNER, type SessionRunner } from '../agent/sessionRunner.js';
+import { bridgePaths } from '../agent/bridge/bridgeDir.js';
 import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from './session.js';
 
@@ -18,6 +19,7 @@ const adapter: AgentAdapter = {
 const sandboxRunner = (kind: 'sbx' | 'docker'): SessionRunner => ({
   kind,
   enforcesSandbox: true,
+  bridgeRunDir: (p) => p.dir,
   placeInteractive: () => ({ cwd: '/clone', shellPath: kind, shellArgs: ['run'], env: {} }),
   runHeadless: () => Promise.reject(new Error('not used')),
 });
@@ -65,6 +67,18 @@ describe('sandbox launch failure capture (arch:AC-32)', () => {
     const h = await open(sandboxRunner('sbx'), () => undefined);
     expect(h.created[0]!.shellPath).toBe('/bin/bash');
     expect(h.created[0]!.shellArgs).toContain(captureFilesFor(dir, 7).stderr);
+  });
+
+  it('threads bridge eventsFile to the bash capture wrapper when bridge is present', async () => {
+    const h = harness();
+    const mgr = new DefaultedSessionManager(h.host, channelFor);
+    const paths = bridgePaths(dir, 7);
+    await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+      resolveRunner: () => Promise.resolve({ runner: sandboxRunner('sbx'), line: 'x' }),
+      launchCaptureDir: dir,
+      bridge: { paths },
+    });
+    expect(h.created[0]!.shellArgs).toContain(paths.eventsFile);
   });
 
   it('reports runner, exit code and stderr tail when the launch failed fast', async () => {

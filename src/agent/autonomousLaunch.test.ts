@@ -15,7 +15,7 @@ describe('autonomousLaunch (arch:AC-31 conformance)', () => {
 
   it('keeps claude/codex flags and leaves their env alone on an enforcing runner', () => {
     expect(autonomousLaunch('claude', enforcing).args).toEqual(['--dangerously-skip-permissions']);
-    expect(autonomousLaunch('codex', enforcing).args).toEqual(['--dangerously-bypass-approvals-and-sandbox']);
+    expect(autonomousLaunch('codex', enforcing).args).toEqual(['-c', 'approval_policy="never"', '-c', 'sandbox_mode="danger-full-access"']);
     expect(autonomousLaunch('claude', enforcing).env({ A: '1' })).toEqual({ A: '1' });
   });
 

@@ -39,7 +39,7 @@ describe('createSbxSessionRunner.placeInteractive', () => {
     const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'codex', name, existing: [] });
     expect(runner.placeInteractive(spec(['--config', 'model_reasoning_effort=high'])).shellArgs).toEqual([
       'run', '--clone', '--name', name, 'codex', '/wt/with space',
-      '--', '--dangerously-bypass-approvals-and-sandbox', '--config', 'model_reasoning_effort=high',
+      '--', '-c', 'approval_policy="never"', '-c', 'sandbox_mode="danger-full-access"', '--config', 'model_reasoning_effort=high',
     ]);
   });
 

@@ -6638,7 +6638,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started'), removeSandbox: () => sandboxLife.remove(ticketId), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext() }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext() }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

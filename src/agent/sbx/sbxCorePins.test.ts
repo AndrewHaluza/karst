@@ -25,9 +25,9 @@ const HOST_ENV = {
 const SANDBOX_ENV_KEYS = ['KARST_LAUNCH_ID', 'KARST_PROVIDER', 'KARST_TICKET', 'KARST_TICKET_ID'];
 
 describe.each([
-  ['claude', '--dangerously-skip-permissions'],
-  ['codex', '--dangerously-bypass-approvals-and-sandbox'],
-] as const)('sbx %s stage-contract pins', (core, bypass) => {
+  ['claude', ['--dangerously-skip-permissions']],
+  ['codex', ['-c', 'approval_policy="never"', '-c', 'sandbox_mode="danger-full-access"']],
+] as const)('sbx %s stage-contract pins', (core, bypassArgs) => {
   const bridgeRoot = join(tmp, core);
   const paths = bridgePaths(bridgeRoot, 7);
   const name = `karst-ab12cd34-7-${core}`;
@@ -46,8 +46,8 @@ describe.each([
     expect(placed.shellPath).toBe('sbx');
     expect(placed.cwd).toBe(cloneDir);
     expect(placed.shellArgs.slice(0, 8)).toEqual(['run', '--clone', '--name', name, core, cloneDir, paths.dir, '--']);
-    expect(placed.shellArgs.slice(8, 9)).toEqual([bypass]);
-    expect(placed.shellArgs.slice(9)).toEqual(launch.args);
+    expect(placed.shellArgs.slice(8, 8 + bypassArgs.length)).toEqual(bypassArgs);
+    expect(placed.shellArgs.slice(8 + bypassArgs.length)).toEqual(launch.args);
   });
 
   it('a reattach (the sandbox is listed) drops --clone and the mounts', () => {
