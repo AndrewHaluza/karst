@@ -45,11 +45,14 @@ export function SortableTable<T>({
   columns,
   rowKey,
   tableCls,
+  ids,
 }: {
   rows: readonly T[];
   columns: readonly Column<T>[];
   rowKey: (row: T) => string;
   tableCls?: string;
+  /** DOM ids for the head and body groups (stable anchors for the layout ledger and tests). */
+  ids?: { readonly head: string; readonly body: string };
 }) {
   const [sort, setSort] = useState<SortState>({ key: null, dir: null });
   const cycle = (key: string): void =>
@@ -61,7 +64,7 @@ export function SortableTable<T>({
   return (
     <div className="tscroll">
       <table className={tableCls}>
-        <thead>
+        <thead id={ids?.head}>
           <tr>
             {columns.map((c) => {
               const active = sort.key === c.key;
@@ -81,7 +84,7 @@ export function SortableTable<T>({
             })}
           </tr>
         </thead>
-        <tbody>
+        <tbody id={ids?.body}>
           {sorted(rows, columns, sort).map((row) => (
             <tr key={rowKey(row)}>
               {columns.map((c) => {

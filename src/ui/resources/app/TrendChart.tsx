@@ -87,7 +87,7 @@ export function TrendChart({ state }: { state: ResourcesState }) {
               <i className="swatch swRss" />RSS
             </button>
           </div>
-          <span className="scaleNote">derived CPU · resident memory</span>
+          <span className="scaleNote" id="scaleNote">derived CPU · resident memory</span>
         </div>
         <div className="chartWrap">
           <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">

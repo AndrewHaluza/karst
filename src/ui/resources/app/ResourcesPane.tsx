@@ -79,12 +79,12 @@ function Stats({ state }: { state: ResourcesState }) {
   const measuring = state.history.length === 0;
   return (
     <>
-      <div className="stats">
+      <div className="stats" id="stats">
         <StatCard label="Attributed CPU" value={state.cpuPctDisplay} note={measuring ? 'measuring' : 'of total capacity, rolling'} />
         <StatCard label="Attributed RSS" value={state.rssDisplay} note={measuring ? 'measuring' : 'resident set size'} />
         <StatCard label="Proven waste" value={String(state.wasteCount)} note={state.wasteCount === 1 ? 'finding' : 'findings'} flag={state.wasteCount > 0} />
       </div>
-      <div className="summaryMeta">
+      <div className="summaryMeta" id="summaryMeta">
         {state.attributedRoots} attributed roots · {state.unattributedShown} unattributed shown
       </div>
     </>
@@ -122,7 +122,7 @@ function Facts({ state }: { state: ResourcesState }) {
   return (
     <div className="panel">
       <div className="phead">Monitor<span className="count">window-local</span></div>
-      <div className="pbody laneFacts">
+      <div className="pbody laneFacts" id="facts">
         {state.facts.map((f) => (
           <div className="factRow" key={f.label}>
             <span className="factLabel">{f.label}</span>
@@ -148,7 +148,7 @@ function Disk({ state }: { state: ResourcesState }) {
           <Button variant="primary" busy={measure.busy} spinning={measure.spinning} disabled={measure.disabled} onClick={() => measure.trigger()}>
             Measure
           </Button>
-          <span className="meta">{rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open'}</span>
+          <span className="meta" id="diskHint">{rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open'}</span>
         </div>
         {measure.status === 'failure' && <div className="meta" role="alert">{measure.error ?? 'Measure disk failed.'}</div>}
         <div>
@@ -170,35 +170,37 @@ function Disk({ state }: { state: ResourcesState }) {
 export function ResourcesPane({ state }: { state: ResourcesState }) {
   return (
     <>
-      <div className="live">{`Live · ${state.sampleAgeDisplay} · 5-minute window · not persisted`}</div>
-      <Stats state={state} />
-      <div className="gridTop">
-        <TrendChart state={state} />
-        <Facts state={state} />
-      </div>
-      <Panel title="Attributed to karst" count={state.rows.length}>
-        <SortableTable rows={state.rows} columns={ATTR_COLS} rowKey={(r) => `${r.pid}:${r.label}:${r.ticketKey}`} />
-      </Panel>
-      <Panel title="Unattributed (top 5)" count={state.unknown.length}>
-        <SortableTable rows={state.unknown} columns={UNK_COLS} rowKey={(r) => String(r.pid)} tableCls="utable" />
-        <div className="pbody">
-          <div className="meta">
-            {state.unknown.length
-              ? 'Largest processes not tied to karst, machine-wide — listed for awareness, never claimed.'
-              : 'No unattributed heavy processes at the moment.'}
+      <div className="live" id="live">{`Live · ${state.sampleAgeDisplay} · 5-minute window · not persisted`}</div>
+      <div id="body">
+        <Stats state={state} />
+        <div className="gridTop">
+          <TrendChart state={state} />
+          <Facts state={state} />
+        </div>
+        <Panel title="Attributed to karst" count={state.rows.length}>
+          <SortableTable rows={state.rows} columns={ATTR_COLS} rowKey={(r) => `${r.pid}:${r.label}:${r.ticketKey}`} ids={{ head: 'attrHead', body: 'attrBody' }} />
+        </Panel>
+        <Panel title="Unattributed (top 5)" count={state.unknown.length}>
+          <SortableTable rows={state.unknown} columns={UNK_COLS} rowKey={(r) => String(r.pid)} tableCls="utable" ids={{ head: 'unkHead', body: 'unknownBody' }} />
+          <div className="pbody">
+            <div className="meta" id="unknownNote">
+              {state.unknown.length
+                ? 'Largest processes not tied to karst, machine-wide — listed for awareness, never claimed.'
+                : 'No unattributed heavy processes at the moment.'}
+            </div>
           </div>
-        </div>
-      </Panel>
-      <Panel title="Proven waste" count={state.waste.length}>
-        <div className="pbody">
-          {state.waste.length === 0 ? (
-            <div className="meta">nothing leaked</div>
-          ) : (
-            state.waste.map((w) => <WasteRow key={`${w.serverId ?? 'x'}:${w.kind}:${w.rssBytes}:${w.reason}`} waste={w} />)
-          )}
-        </div>
-      </Panel>
-      <Disk state={state} />
+        </Panel>
+        <Panel title="Proven waste" count={state.waste.length}>
+          <div className="pbody">
+            {state.waste.length === 0 ? (
+              <div className="meta">nothing leaked</div>
+            ) : (
+              state.waste.map((w) => <WasteRow key={`${w.serverId ?? 'x'}:${w.kind}:${w.rssBytes}:${w.reason}`} waste={w} />)
+            )}
+          </div>
+        </Panel>
+        <Disk state={state} />
+      </div>
     </>
   );
 }
