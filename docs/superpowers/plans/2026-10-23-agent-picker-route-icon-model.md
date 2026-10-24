@@ -1304,6 +1304,16 @@ Deviations from the plan above, made during implementation and reviewed here:
    `apModelListHtml` drops a route group whose every row moved into "Last used"
    — the two review findings (one row highlighted, no heading over nothing).
 
+### Failed review, round 2 — the two findings and their pins
+
+| Finding | Fix | Pinned by |
+| --- | --- | --- |
+| **[high]** Enter/Arrow acted on another picker's open menu because the keydown handler read the page-global `AP_MENU_STACK` | `apMenuShellFor(root, stack)` returns only a shell this root contains; the handler answers keys from that shell, and Escape no longer closes a sibling picker's menu | `agentPicker.test.ts` → "a picker only drives its own open menu" (helper behaviour + a source contract on the handler) |
+| **[medium]** the unknown-route monogram painted a fixed hue surface with the theme-dependent `--k-bg` as its glyph, so one theme always dropped below AA (ui:UI-R29) | the glyph is a fixed knockout (`#fff`) on a darkened fixed surface (`hsl(hue 55% 28%)`): 5.31:1 at worst over all 360 hues, independent of the theme. No theme variable can pair with a data-derived fill, so the pair is fixed and contrast-pinned | `agentPicker.test.ts` → "the unknown-route monogram pair (UI-R29)" (parses the CSS declaration and sweeps every hue) |
+
+The monogram does not appear in `ticketForm/routed-model` (it renders only for
+routes with no asset), and its surface/glyph pair is theme-independent, so no
+visual baseline moves.
 
 ---
 
