@@ -62,9 +62,9 @@ function inventory(): ServerInventory {
   };
 }
 
-function fakeServers(over: Partial<ServersHost> = {}): { host: ServersHost; calls: Record<string, ReturnType<typeof vi.fn>> } {
+function fakeServers(over: Partial<ServersHost> = {}) {
   const calls = {
-    inventory: vi.fn(() => inventory()),
+    inventory: vi.fn((): ServerInventory | undefined => inventory()),
     startShared: vi.fn(async () => {}), restartShared: vi.fn(async () => {}), stopShared: vi.fn(async () => {}),
     setPinned: vi.fn(), stopIdle: vi.fn(async () => {}), startRow: vi.fn(async () => {}),
     restartRow: vi.fn(async () => {}), stopRow: vi.fn(async () => {}), openRow: vi.fn(), copyRow: vi.fn(),
@@ -213,20 +213,20 @@ describe('Servers tab — action dispatch', () => {
   ] as const)('%s → %s', async (type, args, method, expected) => {
     p.send({ type, ...args, requestId: 'r1' });
     await flush();
-    expect(fs.calls[method]).toHaveBeenCalledWith(...expected);
+    expect(fs.calls[method as keyof typeof fs.calls]).toHaveBeenCalledWith(...expected);
     expect(p.results()).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
   });
 
   it('repaints after a verb, win or lose', async () => {
     const before = p.ofType('servers').length;
-    fs.calls.stopShared!.mockRejectedValueOnce(new Error('Refused'));
+    fs.calls.stopShared.mockRejectedValueOnce(new Error('Refused'));
     p.send({ type: 'shared-stop', repo: 'api', requestId: 'r2' });
     await flush();
     expect(p.ofType('servers').length).toBeGreaterThan(before);
   });
 
   it('turns a failing verb into one failed action-result carrying the reason', async () => {
-    fs.calls.restartShared!.mockRejectedValueOnce(new Error('api was not stopped — its process is still running.'));
+    fs.calls.restartShared.mockRejectedValueOnce(new Error('api was not stopped — its process is still running.'));
     p.send({ type: 'shared-restart', repo: 'api', requestId: 'r3' });
     await flush();
     expect(p.results()).toEqual([
@@ -236,7 +236,7 @@ describe('Servers tab — action dispatch', () => {
 
   it('keeps a pending verb pending until its promise settles', async () => {
     let release!: () => void;
-    fs.calls.startShared!.mockReturnValueOnce(new Promise<void>((r) => void (release = r)));
+    fs.calls.startShared.mockReturnValueOnce(new Promise<void>((r) => void (release = r)));
     p.send({ type: 'shared-start', repo: 'api', requestId: 'r4' });
     await flush();
     expect(p.results()).toEqual([]);
@@ -263,7 +263,7 @@ describe('Servers tab — action dispatch', () => {
   });
 
   it('refuses Stop all for a ticket with nothing running', async () => {
-    fs.calls.inventory!.mockReturnValue({
+    fs.calls.inventory.mockReturnValue({
       ...inventory(),
       tickets: [{ ...inventory().tickets[0]!, servers: [sv(2, 'web', 'stopped')] }],
     });

@@ -164,6 +164,11 @@
         "icon": "$(dashboard)"
       },
       {
+        "command": "karst.openServers",
+        "title": "Karst: Servers",
+        "icon": "$(server)"
+      },
+      {
         "command": "karst.showLogs",
         "title": "Karst: Show Logs",
         "icon": "$(output)"

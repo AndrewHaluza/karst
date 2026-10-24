@@ -387,6 +387,7 @@ import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
+import { createServersBinding } from './extension/serversBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
@@ -2791,6 +2792,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   resourceMonitorInstance.start();
 
   const resourcesDisk = new WorktreeDiskCache();
+  // The Servers tab (project-wide control plane): ops + host bindings live in
+  // `extension/serversBinding.ts`; the panel re-reads on `serversChanged`.
+  const serversBinding = createServersBinding({
+    context, store: localStore, notify: vscodeNotify, debug: (m) => logger.debug(m),
+    projectId: () => currentProject()?.id, manifest: currentManifest,
+    loadManifest: async () => (await resolveManifest((m) => logger.debug(m))) ?? null,
+    afterServerChange: () => serversChanged(),
+    ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
+    stopTicketServers: (id) => (sandboxB ? sandboxB.stopTicket(localStore, id) : stopTicketServers(localStore, id)),
+    openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
+  });
+  const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
   const resourcesPanel = new ResourcesPanelManager(makeResourcesPanelHost(context, brandIcon), {
     monitor: resourceMonitorInstance,
     disk: resourcesDisk,
@@ -2814,6 +2827,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return choice === 'Stop process';
     },
     baselineDependents: (serverId) => baselineDependentsFor(localStore, serverId),
+    servers: serversBinding.host,
     logError,
   });
   context.subscriptions.push(
@@ -2827,6 +2841,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   resourcesStatus.command = 'karst.openResources';
   context.subscriptions.push(resourcesStatus);
   resourceMonitorInstance.onReading((reading) => {
+    serversBinding.updateStatus();
     const indicator = buildResourceIndicator(reading);
     if (!indicator) {
       resourcesStatus.hide();
@@ -3008,6 +3023,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           dashboard.pushState(ticketId);
           // Same sweep the tab icon rides on — the status text must not lag it.
           showStatusFor(ticketId);
+          serversChanged();
         },
         logError,
         guardCapability,
@@ -3313,7 +3329,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, manifest: currentManifest,
     stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)),
     notify: vscodeNotify, writeManifest, manifestPath: () => manifestPathOrThrow(), logError,
-    afterServerChange: () => { provider.refresh(); dashboard.pushAll(); },
+    afterServerChange: () => serversChanged(),
   };
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
@@ -6951,7 +6967,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.openTokenUsage', (arg: unknown) =>
       tokenUsagePanel.open(arg === 'quota' ? 'quota' : 'spend'),
     ),
-    vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open()),
+    vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open('resources')),
+    vscode.commands.registerCommand('karst.openServers', () => resourcesPanel.open('servers')),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
@@ -8168,7 +8185,7 @@ function makeDashboardActions(
       await (sandboxB ? sandboxB.stopTicket(store, ticketId) : stopTicketServers(store, ticketId)); // AC-32
       afterServerChange();
     },
-    openResources: () => void vscode.commands.executeCommand('karst.openResources'),
+    openResources: () => void vscode.commands.executeCommand('karst.openServers'), // the ticket panel's "Manage shared services" link
     showChanges,
     switchAgent,
     copyTicketKey: () => {

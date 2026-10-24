@@ -81,7 +81,10 @@ import { join } from 'node:path';
 // Usage-limit park actions binding (D159, +11: 8705 -> 8716): one import, the `createUsageLimitParkBinding` call, forTicket passed to `makeDashboardActions` and spread into `DashboardActions`.
 // Park re-run driver-lock binding (+3: 8716 -> 8719): the `withDriverRun` line plus the faithful-run seams merged with develop's tree; the wrapper lives in `usageLimitParkBinding.ts`.
 // Interactive usage-limit detection (D160, +9 over develop's 8718 -> 8727): the binding call, the session.error / transcript hooks and `switchAgentSession` returning its outcome; logic is `ops/interactiveUsageLimitOps.ts` + `interactiveUsageLimitBinding.ts`.
-const MAX_EXTENSION_LINES = 8727;
+// Raised by 20 (8727 -> 8747): Servers & resources panel bindings (the `createServersBinding` call,
+// `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
+// `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
+const MAX_EXTENSION_LINES = 8747;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
