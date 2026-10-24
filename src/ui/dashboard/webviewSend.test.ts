@@ -44,6 +44,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'restart-servers' });
     sender.stopServers();
     expect(posted.at(-1)).toEqual({ type: 'stop-servers' });
+    sender.openResources();
+    expect(posted.at(-1)).toEqual({ type: 'open-resources' });
     sender.sandboxSync();
     expect(posted.at(-1)).toEqual({ type: 'sandbox-sync' });
     sender.sandboxDiff();
@@ -189,7 +191,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(62);
+    expect(posted).toHaveLength(63);
   });
 
   it('rejects a wrong argument type at compile time', () => {

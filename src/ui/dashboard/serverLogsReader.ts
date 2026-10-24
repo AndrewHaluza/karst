@@ -68,7 +68,8 @@ async function readRange(path: string, start: number, end: number): Promise<Buff
 }
 
 export class ServerLogsReader {
-  private lastSizes = new Map<string, number>();
+  /** Offsets are per TICKET (`ticketId → service → byte`); see `startPolling`. */
+  private readonly lastSizes = new Map<number, Map<string, number>>();
   private timers = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(
@@ -122,11 +123,16 @@ export class ServerLogsReader {
   ): Promise<void> {
     this.stopPolling(ticketId);
     const tailed = servers.filter((s): s is { service: string; logPath: string } => !!s.logPath);
+    // ONE offset map per TICKET, not per service: two dashboards can consume the
+    // same SHARED baseline service, and a shared counter would let whichever
+    // panel polls first swallow the delta the other never sees.
+    const sizes = new Map<string, number>();
+    this.lastSizes.set(ticketId, sizes);
     let busy = true;
     const prime = Promise.all(
       tailed.map(async (s) => {
         const size = await stat(s.logPath).then((st) => st.size, () => 0);
-        this.lastSizes.set(s.service, size);
+        sizes.set(s.service, size);
       }),
     ).finally(() => {
       busy = false;
@@ -140,7 +146,7 @@ export class ServerLogsReader {
       const emit = (tid: number, service: string, text: string): void => {
         if (this.timers.get(key) === timer) onOutput(tid, service, text);
       };
-      void Promise.all(tailed.map((s) => this.pollOne(s, ticketId, emit))).finally(() => {
+      void Promise.all(tailed.map((s) => this.pollOne(s, ticketId, sizes, emit))).finally(() => {
         busy = false;
       });
     }, this.pollIntervalMs);
@@ -152,17 +158,18 @@ export class ServerLogsReader {
   private async pollOne(
     s: { service: string; logPath: string },
     ticketId: number,
+    sizes: Map<string, number>,
     onOutput: (ticketId: number, service: string, text: string) => void,
   ): Promise<void> {
     try {
       const size = (await stat(s.logPath)).size;
-      let prev = this.lastSizes.get(s.service) ?? 0;
+      let prev = sizes.get(s.service) ?? 0;
       if (size === prev) return;
       if (size < prev) prev = 0; // truncated or rotated: start over from the head
       const end = Math.min(size, prev + SERVER_LOG_READ_CAP_BYTES);
       const bytes = await readRange(s.logPath, prev, end);
       const complete = utf8CompleteLength(bytes);
-      this.lastSizes.set(s.service, prev + complete);
+      sizes.set(s.service, prev + complete);
       if (complete > 0) onOutput(ticketId, s.service, bytes.subarray(0, complete).toString('utf8'));
     } catch {
       this.debug?.(`[server-logs] poll read failed: ${s.service}`);
@@ -176,5 +183,7 @@ export class ServerLogsReader {
       clearInterval(timer);
       this.timers.delete(key);
     }
+    // The offsets belong to this panel's tail; a reopened view primes afresh.
+    this.lastSizes.delete(ticketId);
   }
 }

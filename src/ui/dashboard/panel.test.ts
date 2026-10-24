@@ -161,6 +161,36 @@ describe('DashboardManager', () => {
     expect(uat.retry).toMatchObject({ spent: 1, cap: 1 });
   });
 
+  it('pushes the ticket’s shared services into the dashboard state', () => {
+    const t = createTicket(store, { key: 'SH-1', title: 'shared' });
+    store.db.prepare('INSERT INTO baseline_refs (ticket_id, repo) VALUES (?, ?)').run(t.id, 'api');
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (NULL, 'api', 'localhost', 4000, 11, 'running', '/tmp/api.log')`,
+      )
+      .run();
+    const { host, panels } = fakeHost();
+    const noop = undefined;
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+      noop, noop, noop, noop,
+      () => manifest({ api: runnableRepo() }), // the manager's manifest getter
+    );
+
+    mgr.openDashboard(t.id);
+
+    const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+    expect(message.state.sharedServers).toHaveLength(1);
+    expect(message.state.sharedServers[0]).toMatchObject({
+      service: 'api',
+      status: 'running',
+      port: 4000,
+      baseBranch: 'develop',
+    });
+  });
+
   it('sets the tab icon on open and only again when its path changes, from iconFor', () => {
     const t = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
     const { host, panels } = fakeHost();

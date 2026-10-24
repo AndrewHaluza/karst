@@ -1,4 +1,5 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
+import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentBackends } from '../../agent/backendChoices.js';
 import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
 import type { DashboardSandboxView } from './sandboxView.js';
@@ -226,6 +227,13 @@ export interface DashboardState {
   /** Where this ticket's session runs under a sandbox backend; null = no card (host project). */
   sandbox: DashboardSandboxView | null;
   servers: ServerView[];
+  /**
+   * The shared (baseline) services this ticket consumes, read-only — one copy
+   * per repository, cut from the base branch (`store/sharedServers.ts`).
+   * `servers` keeps its OWN meaning: the rows this ticket runs in its worktrees,
+   * the only rows the header ops and row lifecycle actions act on.
+   */
+  sharedServers: SharedServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
   /**

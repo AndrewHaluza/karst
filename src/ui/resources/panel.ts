@@ -1,6 +1,7 @@
 import type { LogError } from '../../logging/logger.js';
 import type { ResourceMonitor, ResourceReading } from '../../runtime/resourceMonitor.js';
 import type { WorktreeDiskCache, DiskUsage } from '../../runtime/worktreeDisk.js';
+import type { BaselineDependent } from '../../store/baselineRefs.js';
 import type { PathContext } from '../worktreePath.js';
 import {
   buildResourcesState,
@@ -66,10 +67,12 @@ export interface ResourcesPanelDeps {
    */
   confirm?: (message: string) => Promise<boolean>;
   /**
-   * Tickets depending on the baseline behind this server row, or `[]` when the
-   * row is not a baseline. Read from `baseline_refs` (`store/baselineRefs.ts`).
+   * The tickets a baseline stop would affect: the LIVE dependents of the
+   * baseline behind this server row (`store/baselineRefs.ts` — archived tickets
+   * and done tickets with nothing running are already filtered out). `[]` when
+   * the row is not a baseline.
    */
-  baselineDependents?: (serverId: number) => number[];
+  baselineDependents?: (serverId: number) => BaselineDependent[];
   logError?: LogError;
 }
 
@@ -135,12 +138,15 @@ export class ResourcesPanelManager {
         if (this.deps.confirm) {
           const dependents = this.deps.baselineDependents?.(serverId) ?? [];
           // Name the KEYS the user can match against their board, never the raw
-          // `tickets.id` (not a visible label). Resolved through the same
-          // identity dep the attributed rows use; `#<id>` is only a fallback for
-          // a dependent whose key is unavailable.
-          const identity =
-            this.deps.ticketIdentity?.(dependents) ?? new Map<number, TicketIdentity>();
-          const labels = dependents.map((id) => identity.get(id)?.key ?? formatId('ticket', id));
+          // `tickets.id`. A done ticket is named with the reason it still counts:
+          // its own running stack is what the shared copy is wired to, so a bare
+          // key next to unfinished tickets would read as a stale ref.
+          const labels = dependents.map((d) => {
+            const key = d.key ?? formatId('ticket', d.ticketId);
+            return d.stageCurrent === 'done' && d.hasRunningService
+              ? `${key} (done, still running)`
+              : key;
+          });
           const message =
             labels.length === 0
               ? 'Stop this server process?'

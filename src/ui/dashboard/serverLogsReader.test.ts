@@ -124,6 +124,32 @@ describe('ServerLogsReader', () => {
     expect(calls[0]!.service).toBe('web');
   });
 
+  /**
+   * Two dashboards can be open at once and both consume ONE shared baseline
+   * service, so they poll the same log path. Offsets are per TICKET, never per
+   * service: a shared counter makes the first poller consume the delta and the
+   * second see "nothing new", so a shared service's live tail reaches one
+   * dashboard only.
+   */
+  it('tails one shared log to every open dashboard, not just the first', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'shared.log');
+    writeFileSync(logPath, 'initial\n');
+    reader = new ServerLogsReader(undefined, POLL_MS);
+    const one: string[] = [];
+    const two: string[] = [];
+
+    await Promise.all([
+      reader.startPolling([{ service: 'api', logPath }], 1, (_tid, _svc, text) => one.push(text)),
+      reader.startPolling([{ service: 'api', logPath }], 2, (_tid, _svc, text) => two.push(text)),
+    ]);
+    writeFileSync(logPath, 'initial\nshared line\n');
+    await waitFor(() => one.length > 0 && two.length > 0);
+
+    expect(one.join('')).toContain('shared line');
+    expect(two.join('')).toContain('shared line');
+  });
+
   it('stopPolling clears the interval', async () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'stop.log');

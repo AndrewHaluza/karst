@@ -1668,6 +1668,37 @@
   .svpanel td.c-acts{text-align:right;white-space:nowrap;width:1%;padding-left:var(--k-space-6)}
   .svpanel td .g{display:inline-flex;gap:var(--k-space-1);justify-content:flex-end}
 
+  /* Two groups, ONE grid (D203): the ticket's own services, then the shared ones
+     it consumes. The caption row names and counts its group and says where those
+     rows run, so a shared row can never be read as the ticket's own — and both
+     groups share one set of columns, so the eye scans down either. */
+  .svpanel tr.srvgroup th{position:static;padding:var(--k-space-3) var(--k-space-5);
+    background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border);
+    border-top:var(--k-border-w) solid var(--k-border);text-align:left;
+    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
+    color:var(--k-text-dim);white-space:normal}
+  /* A flex row, not inline spans: a wrapped inline element's bounding box spans
+     every line it broke across, which reads as an overlap to the layout gate
+     (and visually collides at narrow widths). Flex items wrap as boxes. */
+  .svpanel tr.srvgroup .gwrap{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2)}
+  .svpanel tr.srvgroup .gcount{font-variant-numeric:tabular-nums}
+  .svpanel tr.srvgroup .gnote{font-weight:var(--k-weight-normal);text-transform:none}
+  /* The shared row's meta line WRAPS (UI-R44): the branch and "shared with" text
+     are the row's whole meaning, so they are never ellipsised. Only the name
+     ellipsises, and its cell carries the full value as a title. Flex, not inline
+     spans: a wrapped inline element's bounding box spans every line it broke
+     across, which the layout gate reads as an overlap (and which collides in a
+     narrow column). */
+  .svpanel td.c-name .srvmeta{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2);font-size:var(--k-text-sm);color:var(--k-text-dim);
+    line-height:1.45;white-space:normal;overflow-wrap:anywhere}
+  .svpanel td.c-name .srvmeta .srvbranch{flex:0 1 auto;min-width:0;
+    white-space:normal;overflow-wrap:anywhere}
+  .svpanel td.c-name .srvmeta .srvnote{min-width:0}
+  .svpanel td.c-addr .offword{font-style:normal;color:var(--k-text-dim)}
+  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-dim)}
+
   /* Narrow COMPACTS, it does not restack: one service stays one line, which is
      the whole point of this design. 400px cannot be a token: @container
      conditions cannot read a custom property, so no --k-* applies here (same
@@ -3899,17 +3930,22 @@
     // Nothing in scope can ever run: these would be permanent dead affordances,
     // so they are absent rather than disabled.
     if (state.hasRunnableRepos === false) return '';
+    // TICKET-scoped, always and only. The panel also lists shared rows now, and
+    // a header button that reached those would stop another ticket's stack — so
+    // every word says which half it acts on.
     const list = state.servers;
+    const sharedCount = (state.sharedServers || []).length;
     const none = list.length === 0;
     const anyOffline = list.some((s) => !isOnline(s));
     const anyRunning = list.some(isOnline);
-    const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
-    const restartWhy = none ? 'No services to restart' : null;
-    const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
-      + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
-      + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy)
-      + iact('server-logs-request', null, 'View server logs', 'terminal-2', none ? 'No services to show logs for' : null)
+    const startWhy = !none && !anyOffline ? 'Every ticket service is already running' : null;
+    const restartWhy = none ? 'No ticket services to restart' : null;
+    const stopWhy = !anyRunning ? 'No ticket service is running' : null;
+    return iact('spin-servers', null, 'Start all ticket services', 'player-play', startWhy)
+      + iact('restart-servers', null, 'Restart all ticket services', 'refresh', restartWhy)
+      + iact('stop-servers', null, 'Stop all ticket services', 'player-stop', stopWhy)
+      + iact('server-logs-request', null, 'View server logs', 'terminal-2',
+          none && sharedCount === 0 ? 'No services to show logs for' : null)
       // Env overrides are a property of the TICKET, not of a running process:
       // they are set before anything starts and applied at the next spin, so
       // this stays available when every row is offline and when there are no
@@ -3961,35 +3997,111 @@
       + `<td class="c-acts"><span class="g">${lifeActions(s)}</span></td></tr>`;
   }
 
+  /** A shared row's status, in words — the dot is never the only carrier. */
+  const sharedWord = (s) =>
+    s.status === 'running' ? 'running'
+      : s.status === 'failed' ? 'failed'
+        : s.status === 'missing' ? 'missing'
+          : 'stopped';
+
+  /**
+   * One shared (baseline) row: read-only. Open exists only while it runs; Logs
+   * only when it has a file; Manage is always there (the Resource Monitor today,
+   * the project view's Servers command after the follow-up). There is no
+   * start/stop/restart here on purpose — a stop affects every other ticket, so
+   * it lives behind the project view's host confirm (UI-R33).
+   */
+  function sharedRow(s) {
+    const on = isOnline(s);
+    const word = sharedWord(s);
+    const fault = s.status === 'failed' || s.status === 'missing';
+    const dot = `<span class="glyph ${on ? 'on' : fault ? 'failed' : 'off'}" role="img"`
+      + ` aria-label="${word}" title="${word}"></span>`;
+    // An offline shared row has no usable address: the column reads "—" AND the
+    // word, so a user who cannot see the dot's colour still reads the state.
+    const addr = on
+      ? `<span class="full">${esc(addrOf(s))}</span><span class="short">:${esc(s.port)}</span>`
+      : `— <span class="offword">${esc(word)}</span>`;
+    const addrTitle = on ? esc(addrOf(s)) : `${word} — no address`;
+    const meta = (s.baseBranch ? `<span class="srvbranch k-chip">${esc(s.baseBranch)}</span>` : '')
+      + (s.missingReason
+        ? `<span class="srvnote">${esc(s.missingReason)}</span>`
+        : `<span class="srvnote">${esc(s.sharedWith)}</span>`);
+    const open = on && s.id != null
+      ? iact('open-server', s.id, 'Open in browser', 'external-link')
+      : '';
+    const logs = s.logPath
+      ? iact('server-logs-request', null, 'View server logs', 'terminal-2')
+      : '';
+    return `<tr><td class="c-dot">${dot}</td>`
+      + `<td class="c-name"><span class="srvname" title="${esc(s.service)}">${esc(s.service)}</span>`
+      + `<span class="srvmeta">${meta}</span></td>`
+      + `<td class="c-addr${on ? '' : ' off'}" title="${addrTitle}">${addr}</td>`
+      + `<td class="c-addrops"><span class="g">${open}</span></td>`
+      + `<td class="c-acts"><span class="g">${logs}`
+      + iact('open-resources', null, 'Manage shared services', 'settings')
+      + `</span></td></tr>`;
+  }
+
+  /** One group's caption row: name, count and where its rows run. */
+  function serverGroupHead(label, count, note) {
+    return `<tr class="srvgroup"><th colspan="5" scope="colgroup"><div class="gwrap">`
+      + `<span class="gname">${label}</span>`
+      + `<span class="gcount">${count}</span>`
+      + `<span class="gnote">${note}</span></div></th></tr>`;
+  }
+
   function renderServers(state) {
-    const servers = state.servers;
-    el('srvCount').textContent = servers.length ? `${servers.length}` : '';
+    const ticketRows = state.servers;
+    const sharedRows = state.sharedServers || [];
+    const total = ticketRows.length + sharedRows.length;
+    el('srvCount').textContent = total ? `${total}` : '';
     el('srvOps').innerHTML = panelOps(state);
-    if (!servers.length) {
+    if (!total) {
+      // No rows at all keeps today's two distinct states: a PROMPT (nothing is
+      // running — Start fixes that) versus a STATEMENT (nothing here can run).
       el('servers').innerHTML = serversEmpty(state);
       return;
     }
-    // The filter earns its row only once scanning is actually hard.
+    // The filter earns its row only once scanning is actually hard, and it
+    // filters BOTH groups by the same needle.
     const needle = srvFilter.trim().toLowerCase();
-    const filterable = servers.length > 6;
+    const filterable = total > 6;
     const bar = filterable
       ? `<div class="filter"><label class="sr" for="srvFilter">Filter services</label>`
-        + `<input id="srvFilter" class="k-input" type="search" placeholder="Filter ${servers.length} services…"`
+        + `<input id="srvFilter" class="k-input" type="search" placeholder="Filter ${total} services…"`
         + ` value="${esc(srvFilter)}" data-filter></div>`
       : '';
-    const shown = filterable && needle
-      ? servers.filter((s) => s.service.toLowerCase().includes(needle))
-      : servers;
-    const rows = shown.map(serverRow).join('')
-      || `<tr><td colspan="5"><div class="nomatch">No service matches`
-        + ` “${esc(srvFilter)}”.</div></td></tr>`;
-    // The address-ops column sits UNDER the Address header (colspan 2): Open and
-    // Copy are part of the address, so the header says so.
+    const hit = (s) => !filterable || !needle || s.service.toLowerCase().includes(needle);
+    const ticketShown = ticketRows.filter(hit);
+    const sharedShown = sharedRows.filter(hit);
+    const groups = [];
+    if (filterable && needle && ticketShown.length === 0 && sharedShown.length === 0) {
+      groups.push(`<tr><td colspan="5"><div class="nomatch">No service matches`
+        + ` “${esc(srvFilter)}”.</div></td></tr>`);
+    } else {
+      if (ticketShown.length > 0) {
+        groups.push(serverGroupHead('Ticket services', ticketShown.length,
+          "run from this ticket's worktrees") + ticketShown.map(serverRow).join(''));
+      } else if (ticketRows.length === 0) {
+        // A shared half alone is a truthful stack. It must not fall back to
+        // "No servers running", which would deny the rows printed below it.
+        groups.push(serverGroupHead('Ticket services', 0, "run from this ticket's worktrees")
+          + `<tr><td colspan="5"><span class="srvnone">No ticket services</span></td></tr>`);
+      }
+      if (sharedShown.length > 0) {
+        groups.push(serverGroupHead('Shared services', sharedShown.length,
+          'one copy per repository, from the base branch')
+          + sharedShown.map(sharedRow).join(''));
+      }
+    }
+    // The address-ops column sits UNDER the Address header (colspan 2): Open is
+    // part of the address, so the header says so.
     el('servers').innerHTML = `${bar}<div class="scroll"><table>`
       + `<thead><tr><th scope="col"><span class="sr">Status</span></th>`
       + `<th scope="col">Service</th><th scope="col" colspan="2">Address</th>`
       + `<th scope="col" style="text-align:right">Actions</th></tr></thead>`
-      + `<tbody>${rows}</tbody></table></div>`;
+      + `<tbody>${groups.join('')}</tbody></table></div>`;
   }
 
   // Whether the base-change confirm form is open, per repoPath (§ per-repo
@@ -6020,6 +6132,7 @@
     'spin-servers': (btn, requestId) => karstSend.spinServers(requestId),
     'restart-servers': (btn, requestId) => karstSend.restartServers(requestId),
     'stop-servers': (btn, requestId) => karstSend.stopServers(requestId),
+    'open-resources': (btn, requestId) => karstSend.openResources(requestId),
     'sandbox-sync': (btn, requestId) => karstSend.sandboxSync(requestId),
     'sandbox-diff': (btn, requestId) => karstSend.sandboxDiff(requestId),
     'sandbox-stop': (btn, requestId) => karstSend.sandboxStop(requestId),

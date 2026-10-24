@@ -24,6 +24,14 @@ export class DashboardConsole {
     private readonly stageLogReader: StageLogReader | undefined,
     private readonly agentLogReader: AgentLogReader | undefined,
     private readonly serverLogsReader: ServerLogsReader | undefined,
+    /**
+     * The shared (baseline) services the ticket consumes, as log sources. The
+     * combined logs view is the target of a shared row's Logs action, so it must
+     * carry those rows too — otherwise the button names a log the view omits.
+     */
+    private readonly sharedLogServers: (
+      ticketId: number,
+    ) => Array<{ service: string; logPath: string | null }> = () => [],
   ) {}
 
   /**
@@ -108,7 +116,16 @@ export class DashboardConsole {
       return;
     }
     const servers = listServersByTicket(this.store, ticketId);
+    // The ticket's own rows first, then every shared service of its stack. Keyed
+    // by unit name, so a name already present is kept once: the ticket's own row
+    // is the one its cwd and status describe.
     const logServers = servers.map((s) => ({ service: s.service, logPath: s.logPath }));
+    const seen = new Set(logServers.map((s) => s.service));
+    for (const shared of this.sharedLogServers(ticketId)) {
+      if (seen.has(shared.service)) continue;
+      seen.add(shared.service);
+      logServers.push(shared);
+    }
     const result = this.serverLogsReader.readLogs(logServers);
     panel.postMessage({ type: 'server-logs', servers: result.servers });
     this.serverLogsReader.startPolling(logServers, ticketId, (tid, service, text) =>

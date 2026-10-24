@@ -6,6 +6,7 @@ import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import type { GateStage } from '../../store/ticketGates.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import { listSharedServersByTicket, type SharedServerView } from '../../store/sharedServers.js';
 import {
   buildDashboardState,
   type DashboardAgentContext,
@@ -277,6 +278,9 @@ export class DashboardManager {
       stageLogReader,
       agentLogReader,
       serverLogsReader,
+      // Shared rows' Logs action opens this same combined view, so its data
+      // arrives from the SAME provider the state uses (D203).
+      (id) => this.sharedServersFor(id).map((s) => ({ service: s.service, logPath: s.logPath })),
     );
   }
 
@@ -461,6 +465,17 @@ export class DashboardManager {
    * for the same reason: the glyph it tints changes with the ticket's status,
    * and every status change arrives on a real push.
    */
+  /**
+   * The shared (baseline) services this ticket consumes — the read-only half of
+   * its stack. Built here because the manager holds the live manifest getter;
+   * `buildDashboardState` receives it as an injected fact like every other
+   * manifest-derived row.
+   */
+  private sharedServersFor(ticketId: number): SharedServerView[] {
+    const manifest = this.manifest?.();
+    return manifest ? listSharedServersByTicket(this.store, manifest, ticketId) : [];
+  }
+
   private pushSnapshot(
     ticketId: number,
     mode: { kind: PushKind; supplemental: boolean; live: boolean; settlesActions: boolean },
@@ -561,6 +576,9 @@ export class DashboardManager {
           tester: manifest?.uat?.testerObservations?.blockingSeverity,
         };
       })(),
+      // The shared half of the Servers panel (D203): manifest + store, so it
+      // arrives as an injected provider and never from the state builder.
+      (id) => this.sharedServersFor(id),
     );
     const stored = this.loaders.storedArtifactsFor(ticketId);
     // The ship preview rides ONLY while the ship slot is confirm/retry (D142):

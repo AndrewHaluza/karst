@@ -1215,6 +1215,189 @@ describe('dashboard webview.html', () => {
     expect(header).not.toMatch(/data-act="spin-servers"[^>]*data-id=/);
   });
 
+  /** A state with both halves: two ticket services and three shared rows. */
+  function sharedServersState(): DashboardState {
+    return {
+      ...renderStateFor('scope'),
+      hasRunnableRepos: true,
+      servers: [
+        { id: 7, ticketId: 1, service: 'web', host: 'localhost', port: 5173, status: 'running', logPath: '/tmp/web.log' },
+        { id: 8, ticketId: 1, service: 'worker', host: null, port: null, status: 'stopped', logPath: null },
+      ],
+      sharedServers: [
+        {
+          id: 21, service: 'api', status: 'running', host: 'localhost', port: 4000,
+          logPath: '/tmp/api.log', container: null, baseBranch: 'develop',
+          checkoutPath: '/repos/api/.karst/baseline/api',
+          sharedWith: 'shared with T412, T418', missingReason: null, dependents: [],
+        },
+        {
+          id: 22, service: 'web', status: 'stopped', host: null, port: null,
+          logPath: '/tmp/shared-web.log', container: null, baseBranch: 'main',
+          checkoutPath: '/repos/web/.karst/baseline/web',
+          sharedWith: 'no other live tickets', missingReason: null, dependents: [],
+        },
+        {
+          id: null, service: 'api/v2', status: 'missing', host: null, port: null,
+          logPath: null, container: null, baseBranch: null, checkoutPath: null,
+          sharedWith: 'no other live tickets', missingReason: 'no longer declared in karst.yml',
+          dependents: [],
+        },
+      ],
+    };
+  }
+
+  it('renders ticket services and shared services as two captioned groups in one grid', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const html = h.htmlOf('servers');
+
+    expect(html).toContain('Ticket services');
+    expect(html).toContain('run from this ticket');
+    expect(html).toContain('Shared services');
+    expect(html).toContain('one copy per repository, from the base branch');
+    // One grid: exactly one table and one scroll region.
+    expect(html.match(/<table>/g)).toHaveLength(1);
+    expect(html.match(/class="scroll"/g)).toHaveLength(1);
+    // Counts: 2 ticket rows, 3 shared rows, and the header counts everything.
+    expect(h.textOf('srvCount')).toBe('5');
+    expect(html).toMatch(/Ticket services<\/span><span class="gcount">2</);
+    expect(html).toMatch(/Shared services<\/span><span class="gcount">3</);
+  });
+
+  it('shows a shared row’s base branch, live dependents, address and read-only actions', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const html = h.htmlOf('servers');
+
+    expect(html).toContain('develop');
+    expect(html).toContain('shared with T412, T418');
+    expect(html).toContain('no other live tickets');
+    expect(html).toContain('localhost:4000');
+    expect(html).toContain('data-act="open-resources"');
+    expect(html).toContain('Manage shared services');
+    // Open only on the running shared row, and it names that baseline row.
+    expect(html).toContain('data-act="open-server" data-id="21"');
+    expect(html).not.toContain('data-act="open-server" data-id="22"');
+  });
+
+  it('posts open-resources when Manage is clicked on a shared row', () => {
+    // A rendered data-act no SEND_BY_ACT entry resolves to is a button that
+    // acknowledges nothing and posts nothing — the exact dead end the review
+    // caught. Click it through the real delegated handler, not the map source.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+
+    h.click('[data-act]', { act: 'open-resources' });
+
+    expect(h.posted.at(-1)).toMatchObject({ type: 'open-resources' });
+  });
+
+  it('keeps every lifecycle control off the shared rows', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const html = h.htmlOf('servers');
+    const sharedGroup = html.slice(html.indexOf('Shared services'));
+
+    expect(sharedGroup).not.toContain('data-act="start-server"');
+    expect(sharedGroup).not.toContain('data-act="restart-server"');
+    expect(sharedGroup).not.toContain('data-act="stop-server"');
+    expect(sharedGroup).not.toContain('data-act="spin-servers"');
+    expect(sharedGroup).not.toContain('data-act="restart-servers"');
+    expect(sharedGroup).not.toContain('data-act="stop-servers"');
+  });
+
+  it('says the shared half is stopped or missing in words, never by colour alone', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const html = h.htmlOf('servers');
+
+    expect(html).toContain('<span class="offword">stopped</span>');
+    expect(html).toContain('<span class="offword">missing</span>');
+    expect(html).toContain('no longer declared in karst.yml');
+    // The status word rides the dot too (screen reader + hover).
+    expect(html).toContain('role="img" aria-label="stopped" title="stopped"');
+  });
+
+  it('names the header ops as ticket-services ops', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const header = h.htmlOf('srvOps');
+
+    expect(header).toContain('Start all ticket services');
+    expect(header).toContain('Restart all ticket services');
+    expect(header).toContain('Stop all ticket services');
+    expect(header).not.toContain('Start all services');
+    // They still post the ticket-scoped actions.
+    expect(header).toContain('data-act="spin-servers"');
+    expect(header).toContain('data-act="stop-servers"');
+  });
+
+  it('offers Logs on a shared row only when it has a log file', () => {    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+    const html = h.htmlOf('servers');
+
+    // api: running + logPath; web: stopped + logPath; api/v2: missing, no log.
+    const sharedGroup = html.slice(html.indexOf('Shared services'));
+    expect(sharedGroup.match(/data-act="server-logs-request"/g)).toHaveLength(2);
+    // A row with no log gets no Logs button.
+    const rows = sharedGroup.split('<tr>');
+    expect(rows.at(-1)).not.toContain('data-act="server-logs-request"');
+  });
+
+  it('renders shared rows with a “No ticket services” caption instead of the empty state', () => {
+    const h = bootPreviewHarness();
+    const state: DashboardState = {
+      ...renderStateFor('scope'),
+      hasRunnableRepos: true,
+      servers: [],
+      sharedServers: [sharedServersState().sharedServers[0]!],
+    };
+    h.receive({ type: 'state', state });
+    const html = h.htmlOf('servers');
+
+    expect(html).toContain('No ticket services');
+    expect(html).toContain('Shared services');
+    expect(html).not.toContain('No servers running');
+    // The header's ticket ops stay, disabled with a reason.
+    expect(h.htmlOf('srvOps')).toContain('No ticket services to restart');
+  });
+
+  it('keeps today’s two empty states when there are no rows at all', () => {
+    const h = bootPreviewHarness();
+    h.receive({
+      type: 'state',
+      state: { ...renderStateFor('scope'), hasRunnableRepos: false, servers: [], sharedServers: [] },
+    });
+    expect(h.htmlOf('servers')).toContain('No runnable services in scope');
+
+    h.receive({
+      type: 'state',
+      state: { ...renderStateFor('scope'), hasRunnableRepos: true, servers: [], sharedServers: [] },
+    });
+    expect(h.htmlOf('servers')).toContain('No servers running');
+  });
+
+  it('wraps the shared meta line rather than truncating it', () => {
+    // UI-R44: the branch and "shared with" text are the row's whole meaning, so
+    // the meta line wraps. The long list survives in full in the DOM.
+    const long = Array.from({ length: 12 }, (_, i) => `T${400 + i}`).join(', ');
+    const h = bootPreviewHarness();
+    h.receive({
+      type: 'state',
+      state: {
+        ...renderStateFor('scope'),
+        hasRunnableRepos: true,
+        servers: [],
+        sharedServers: [
+          { ...sharedServersState().sharedServers[0]!, sharedWith: `shared with ${long}` },
+        ],
+      },
+    });
+    expect(h.htmlOf('servers')).toContain(`shared with ${long}`);
+    expect(HTML).toMatch(/\.svpanel td\.c-name \.srvmeta\{[^}]*white-space:normal/);
+  });
+
   /**
    * Every `.k-iconbtn`/icon-only control in this file: the rail/fix nodes
    * (glyph-only), the servers panel's `iact()`-built row actions, the panel

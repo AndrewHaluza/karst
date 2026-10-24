@@ -79,6 +79,7 @@ function actions(): DashboardActions {
     changeBaseRef: vi.fn(),
     requestServerLogs: vi.fn(),
     closeServerLogs: vi.fn(),
+    openResources: vi.fn(),
   };
 }
 
@@ -211,6 +212,18 @@ describe('routeAction', () => {
     // it had stopped them all.
     expect(a.stopServer).not.toHaveBeenCalled();
     expect(a.restartServer).not.toHaveBeenCalled();
+  });
+
+  it('parses and dispatches open-resources, which carries no payload', () => {
+    const a = actions();
+    const parsed = parseWebviewMessage({ type: 'open-resources' });
+    expect(parsed).toEqual({ type: 'open-resources' });
+    // A forged companion field is dropped: this action names no target of its own.
+    expect(parseWebviewMessage({ type: 'open-resources', serverId: 9 })).toEqual({
+      type: 'open-resources',
+    });
+    if (parsed) routeAction(parsed, a);
+    expect(a.openResources).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a stray serverId on a panel-level server action', () => {

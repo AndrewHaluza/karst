@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ResourceMonitor, ResourceReading } from '../../runtime/resourceMonitor.js';
 import type { WorktreeDiskCache } from '../../runtime/worktreeDisk.js';
+import type { BaselineDependent } from '../../store/baselineRefs.js';
 import type { ResourcesHostMessage } from './messages.js';
 import { ResourcesPanelManager } from './panel.js';
 import type { ResourcesPanel, ResourcesPanelHost } from './panel.js';
+
+/** A live dependent; override one fact per test. */
+function dependent(ticketId: number, over: Partial<BaselineDependent> = {}): BaselineDependent {
+  return {
+    ticketId,
+    key: `PROJ-${ticketId}`,
+    title: null,
+    stageCurrent: 'impl',
+    archived: false,
+    hasRunningService: true,
+    ...over,
+  };
+}
+
 
 const baseReading: ResourceReading = {
   supported: true,
@@ -317,8 +332,9 @@ describe('ResourcesPanelManager', () => {
       disk: fakeDisk().disk,
       worktreePaths: () => [],
       confirm,
-      baselineDependents: () => [7, 12],
-      ticketIdentity: (ids) => new Map(ids.map((id) => [id, { key: `PROJ-${id}`, title: null }])),
+      // The key comes from the dependent ROW, not from a second identity read:
+      // the confirmation and the baseline read model cannot disagree.
+      baselineDependents: () => [dependent(7), dependent(12)],
     });
     manager.open();
     p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
@@ -331,6 +347,29 @@ describe('ResourcesPanelManager', () => {
     expect(message).not.toContain('#12');
   });
 
+  it('marks a done ticket that is still running, since stopping would break its stack', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const confirm = vi.fn(async (_message: string) => true);
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      confirm,
+      baselineDependents: () => [
+        dependent(7, { stageCurrent: 'done', hasRunningService: true }),
+        dependent(12),
+      ],
+    });
+    manager.open();
+    p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [message] = confirm.mock.calls[0]!;
+    expect(message).toContain('PROJ-7 (done, still running)');
+    expect(message).toContain('PROJ-12');
+    expect(message).not.toContain('PROJ-12 (');
+  });
+
   it('falls back to T<id> for a dependent with no resolvable key', async () => {
     const m = fakeMonitor();
     const p = fakePanel();
@@ -340,8 +379,7 @@ describe('ResourcesPanelManager', () => {
       disk: fakeDisk().disk,
       worktreePaths: () => [],
       confirm,
-      baselineDependents: () => [7],
-      ticketIdentity: () => new Map(),
+      baselineDependents: () => [dependent(7, { key: null })],
     });
     manager.open();
     p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
@@ -359,7 +397,7 @@ describe('ResourcesPanelManager', () => {
       disk: fakeDisk().disk,
       worktreePaths: () => [],
       confirm,
-      baselineDependents: () => [7, 12],
+      baselineDependents: () => [dependent(7), dependent(12)],
     });
     manager.open();
     p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });

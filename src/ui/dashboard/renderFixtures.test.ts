@@ -6,6 +6,7 @@ import {
   RENDER_SCENARIOS,
   renderStateFor,
   populatedStateFor,
+  sharedServerFixtures,
   type InsideRenderFixture,
 } from './renderFixtures.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
@@ -384,5 +385,22 @@ describe('populatedStateFor (dashboard envelope)', () => {
     const neutral = renderStateFor('impl');
     const populated = populatedStateFor('impl');
     expect(populated.insideViews).toEqual(neutral.insideViews);
+  });
+
+  it('leaves the shared half empty unless a corpus asks for it', () => {
+    // The six existing dashboard baselines must not gain a shared group: the
+    // D203 state is its own variant, so the shared rows are opt-in fixture data.
+    expect(populatedStateFor('impl').sharedServers).toEqual([]);
+  });
+});
+
+describe('sharedServerFixtures (D203 dashboard corpus)', () => {
+  it('pins a live and an offline shared row, both inert fixture data', () => {
+    const rows = sharedServerFixtures();
+    expect(rows.map((r) => r.status)).toEqual(['running', 'stopped']);
+    expect(rows[0]!.baseBranch).toBe('develop');
+    expect(rows[0]!.sharedWith).toContain('shared with');
+    expect(rows[1]!.sharedWith).toBe('no other live tickets');
+    for (const r of rows) expect(r.id === null || (r.id >= 900001 && r.id <= 999999)).toBe(true);
   });
 });
