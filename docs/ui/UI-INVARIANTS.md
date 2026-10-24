@@ -152,6 +152,23 @@ app reuses the Settings primitives (`Button`, `LiveRegion`) and `useHostMutation
 rather than copying them; its own `architecture.test.ts` carries the R-X guards.
 Its dynamic geometry uses SVG attributes and `<progress>` instead of inline style.
 
+The ticket-list sidebar (`karst.tickets`) moved to React as a migration with no
+behaviour change (`src/ui/sidebar/app/**`, step 1 of
+`docs/plans/sidebar-panes-and-presets.md`): the host side (`panel.ts`,
+`messages.ts`, `state.ts`) and the message contract are untouched, and the
+rendered DOM matches the vanilla view's (same classes, `data-*` hooks and ARIA).
+`webview.html` keeps the stylesheet and the shared runtime, and the bundle owns
+`#root` (`display:contents`, so the toolbar, search, facets and list stay direct
+flex children of `body`). Posting controls still go through the design-system
+runtime's pending primitives (`karstBeginPending` / `karstSettle`) rather than
+`useHostMutation`, so request ids, the spinner and the watchdog are the one
+shared implementation. Two intentional differences, both from React keeping
+elements alive across a snapshot push instead of rebuilding `innerHTML`: a
+control stays pending until the host answers (it used to reappear enabled on the
+next push), and keyboard focus survives a push. Its `architecture.test.ts`
+carries the guards (one `acquireVsCodeApi()`, no host-module runtime imports,
+raw HTML only in `Icon.tsx`).
+
 Three invariants the original investigators learned the hard way, now load-bearing:
 
 - **One app, one mount.** The injector chain mounts the app into `#root`; the
