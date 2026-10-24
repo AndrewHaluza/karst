@@ -629,6 +629,13 @@ CREATE TABLE IF NOT EXISTS baseline_refs (
   PRIMARY KEY (ticket_id, repo)
 );
 
+-- v89: keep-warm pins on a shared service, keyed by unit key (NOT the servers
+-- row: startHot deletes and reinserts that row on every start).
+CREATE TABLE IF NOT EXISTS baseline_pins (
+  repo          TEXT PRIMARY KEY,
+  created_at    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS servers (
   id            INTEGER PRIMARY KEY,
   ticket_id     INTEGER,              -- NULL => baseline singleton
