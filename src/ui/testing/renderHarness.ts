@@ -67,7 +67,8 @@ export interface RenderHandle {
   readonly pageScript: string | null;
   /**
    * Test-only reset for a page that mounts once: neutralize the bridge the
-   * current page acquired (so the old tree can no longer post or persist),
+   * current page acquired (so the old tree can no longer post or persist) and
+   * detach the page's `message` listeners,
    * clear `posted`/`errors`/`state`, drop `data-karst-ready`, and leave a fresh
    * empty `#root` for the next run of {@link pageScript}. It does not run the
    * script or wait for a mount — `renderSettingsApp` owns that, because only the
@@ -101,8 +102,20 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string; persis
     setState(next: unknown): void;
   }
   let currentApi: PageApi | null = null;
+  /**
+   * The `message` listeners the page registered on its window. A reset removes
+   * them, so an old page's detached tree cannot keep reacting to the next mount's
+   * host pushes (an app that settles the shared design-system runtime's pending
+   * requests would otherwise let the dead tree answer first).
+   */
+  const messageListeners: Array<[EventListenerOrEventListenerObject, boolean | AddEventListenerOptions | undefined]> = [];
 
   const beforeParse = (w: DOMWindow): void => {
+    const addListener = w.addEventListener.bind(w);
+    w.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) => {
+      if (type === 'message' && listener) messageListeners.push([listener, options]);
+      addListener(type, listener as EventListenerOrEventListenerObject, options);
+    }) as typeof w.addEventListener;
     // acquireVsCodeApi — the bridge between the webview script and the host.
     // Throws on second call (NDL-126 §1 requires detecting double-acquisition);
     // resetRealm marks the previous bridge dead, so a deliberate re-run may
@@ -211,6 +224,7 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string; persis
     resetRealm() {
       if (currentApi) currentApi.dead = true;
       currentApi = null;
+      for (const [listener, options] of messageListeners.splice(0)) w.removeEventListener('message', listener, options);
       posted.length = 0;
       errors.length = 0;
       state = undefined;
@@ -337,9 +351,9 @@ export async function drainReactWork(handle: RenderHandle): Promise<void> {
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
 
-  // React webviews: settings, dashboard and resources wait for data-karst-ready when #root is present.
+  // React webviews: settings, dashboard, resources and sidebar wait for data-karst-ready when #root is present.
   // For other views, sync render is complete.
-  if (name !== 'settings' && name !== 'dashboard' && name !== 'resources') return handle;
+  if (name !== 'settings' && name !== 'dashboard' && name !== 'resources' && name !== 'sidebar') return handle;
 
   // Check if React app is injected (marked by #root element).
   // If not, vanilla view is active — return sync render immediately.

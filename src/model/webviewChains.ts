@@ -31,6 +31,7 @@ import { injectWebviewSend } from './webviewSendInjector.js';
 import { injectSettingsApp } from './settingsAppInjector.js';
 import { injectDashboardApp } from './dashboardAppInjector.js';
 import { injectResourcesApp } from './resourcesAppInjector.js';
+import { injectSidebarApp } from './sidebarAppInjector.js';
 
 export const WEBVIEW_NAMES = [
   'dashboard',
@@ -83,7 +84,9 @@ export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   // directly), so no `injectWebviewSend(…, 'settings')` remains in the chain.
   settings: (html) => injectSettingsApp(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
   ticketForm: DS_PALETTE_PROVIDER_AGENT_PICKER,
-  sidebar: DS_AGENT_PALETTE,
+  // The ticket-list sidebar is a React app: `webview.html` carries the
+  // `/*KARST_SIDEBAR_APP*/` marker and the bundle owns `#root`.
+  sidebar: (html) => injectSidebarApp(DS_AGENT_PALETTE(html)),
   usage: DS_PALETTE,
   // The Servers & resources page is a React app: `webview.html` carries the
   // `/*KARST_RESOURCES_APP*/` marker and the bundle owns `#root`.
