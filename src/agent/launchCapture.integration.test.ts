@@ -16,10 +16,10 @@ const run = (script: string): { status: number | null; stderr: string; dir: stri
 };
 
 describe('wrapWithStderrCapture (real bash)', () => {
-  it('captures stderr of a fast failure, keeps the exit code and shows the hint', () => {
+  it('captures stderr of a fast failure, exits 0 (no raw bash toast), keeps the code in the marker and shows the hint', () => {
     const { status, stderr, dir } = run('echo boom >&2; exit 3');
     try {
-      expect(status).toBe(3);
+      expect(status).toBe(0);
       expect(stderr).toContain('boom');
       expect(stderr).toContain('agentBackends.<core>=host');
       expect(readLaunchFailure(captureFilesFor(dir, 9))).toEqual({ exitCode: 3, tail: 'boom\n' });
@@ -27,6 +27,16 @@ describe('wrapWithStderrCapture (real bash)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('records a SIGKILL-style exit 137 even after the fast-fail window', () => {
+    const { status, dir } = run('sleep 10.5; exit 137');
+    try {
+      expect(status).toBe(0);
+      expect(readLaunchFailure(captureFilesFor(dir, 9))?.exitCode).toBe(137);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20000);
 
   it('records nothing for a clean exit', () => {
     const { status, dir } = run('echo hi >&2; exit 0');
