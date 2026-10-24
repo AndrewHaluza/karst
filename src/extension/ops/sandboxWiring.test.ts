@@ -519,7 +519,7 @@ describe('makeSandboxWiring lifecycle on a recorded-host ticket (D245)', () => {
     const t = createTicket(store, { key: 'K-11', title: 'n' }).id;
     recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null }, 'claude');
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
-    const { w } = wiring({ proc, projectRoot: () => ROOT, backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
+    const { w } = wiring({ proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), projectRoot: () => ROOT, backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
     await w.remove(t);
     expect(getPlacement(store, t)).toMatchObject({ backend: 'host', reason: 'sandbox removed' });
   });
@@ -554,11 +554,12 @@ describe('makeSandboxWiring.backfillPlacements (D245)', () => {
   it('records listed sandboxes and host for the rest, once; a failed listing records nothing', async () => {
     const projectId = upsertProject(store, { slug: 'bf' }).id;
     const t = createTicket(store, { key: 'K-30', title: 'n', projectId }).id;
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
     const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'not found' } });
-    const { w } = wiring({ proc, projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    const { w } = wiring({ proc, dockerProc, projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
     await w.backfillPlacements();
     expect(getPlacement(store, t)).toBeNull();
-    const ok = wiring({ proc: fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } }), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    const ok = wiring({ proc: fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } }), dockerProc, projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
     await ok.w.backfillPlacements();
     expect(getPlacement(store, t)).toMatchObject({ backend: 'host' });
   });
@@ -594,11 +595,12 @@ describe('makeSandboxWiring placement transitions and backfill edges (D245)', ()
     const t = createTicket(store, { key: 'K-42', title: 'n', projectId }).id;
     const name = sbxName({ projectRoot: ROOT, ticketId: t, core: 'claude' });
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude running\n` } });
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
     const info = vi.fn();
-    await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => undefined, info }).w.backfillPlacements();
-    await wiring({ proc, backendOn: () => false, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
+    await wiring({ proc, dockerProc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => undefined, info }).w.backfillPlacements();
+    await wiring({ proc, dockerProc, backendOn: () => false, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
     expect(getPlacement(store, t)).toBeNull();
-    await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
+    await wiring({ proc, dockerProc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
     expect(getPlacement(store, t)).toMatchObject({ backend: 'sbx', core: 'claude', sandboxName: name });
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/recorded placement for [1-9]\d* ticket/));
   });

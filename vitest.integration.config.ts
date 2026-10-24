@@ -27,8 +27,11 @@ export default defineConfig({
     // resident on this 6-CPU sandbox and exhaust its ~5 GB: the UAT run
     // OOM-killed a fork mid-file, which surfaced only as `Worker exited
     // unexpectedly` after every reported test had passed. Cap the pool so the
-    // gate keeps headroom; the wall-clock cost is a few tens of seconds.
-    maxWorkers: 3,
+    // gate keeps headroom; the wall-clock cost is a few tens of seconds. Two
+    // forks also leave CPU for the files that spawn several children at once
+    // (`workspaceTrust.integration.test.ts` races eight), which is where the
+    // UAT integration gate lost a case to writer starvation.
+    maxWorkers: 2,
     // Hide console output of passing tests; a failing test still prints its own.
     silent: 'passed-only',
     testTimeout: 30_000,

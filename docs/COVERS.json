@@ -73,8 +73,60 @@
   "src/agent/settingsSweep.ts": [
     "arch:GLOBAL"
   ],
+  "src/agents/skillBlockingDirective.test.ts": [
+    "arch:APP-00",
+    "arch:APP-07"
+  ],
+  "src/approaches/**": [
+    "arch:APP-00"
+  ],
+  "src/approaches/classify.ts#classifyPath": [
+    "arch:APP-01"
+  ],
+  "src/approaches/fetch.ts#assertPackageContributes": [
+    "arch:APP-03"
+  ],
+  "src/approaches/fetch.ts#installApproach": [
+    "arch:APP-01"
+  ],
+  "src/approaches/outputScan.ts#scanOutputSuggestions": [
+    "arch:APP-10"
+  ],
+  "src/approaches/outputs.ts#effectiveOutputs": [
+    "arch:APP-08"
+  ],
+  "src/approaches/outputs.ts#validateOutputs": [
+    "arch:APP-08"
+  ],
+  "src/approaches/pendingOutputs.ts#withAcceptedOutputs": [
+    "arch:APP-10"
+  ],
   "src/approaches/phaseName.ts#isSafePhaseName": [
     "arch:CLI-02"
+  ],
+  "src/approaches/pkg.ts#uninstallApproach": [
+    "arch:APP-04"
+  ],
+  "src/approaches/pkg.ts#writeApproachArtifacts": [
+    "arch:APP-05"
+  ],
+  "src/approaches/resolve.ts#resolveApproachPrompt": [
+    "arch:APP-02"
+  ],
+  "src/approaches/sanitize.ts#sanitizeFrontmatter": [
+    "arch:APP-06"
+  ],
+  "src/artifacts/**": [
+    "arch:APP-00"
+  ],
+  "src/artifacts/baseDiff.ts#listBaseChanges": [
+    "arch:APP-09"
+  ],
+  "src/artifacts/service.ts#createArtifactCaptureService": [
+    "arch:APP-09"
+  ],
+  "src/artifacts/watcher.ts#watchPrefixes": [
+    "arch:APP-09"
   ],
   "src/cli/**": [
     "arch:CLI-00"
@@ -183,6 +235,9 @@
   "src/doctor/applyFixes.ts#applyFixes": [
     "arch:CLI-16"
   ],
+  "src/extension/artifactCaptureWiring.ts": [
+    "arch:APP-00"
+  ],
   "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
     "arch:DRAFT-CONSTRAINTS"
   ],
@@ -200,6 +255,12 @@
   ],
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
+  ],
+  "src/extension/ops/storedArtifactOps.ts": [
+    "arch:APP-00"
+  ],
+  "src/extension/ops/storedArtifactOps.ts#makeStoredArtifactsLoader": [
+    "arch:APP-11"
   ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
@@ -458,6 +519,15 @@
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"
   ],
+  "src/ui/dashboard/storedArtifacts.ts": [
+    "arch:APP-00"
+  ],
+  "src/ui/dashboard/storedArtifacts.ts#buildStoredArtifacts": [
+    "arch:APP-11"
+  ],
+  "src/ui/settings/app/sections/PendingOutputs.tsx": [
+    "arch:APP-00"
+  ],
   "src/ui/worktreePath.ts#PathContext": [
     "arch:GH-07"
   ],
@@ -466,6 +536,12 @@
   ],
   "src/workflow/artifactConventions.ts#validateArtifactTemplate": [
     "arch:RENDERERS"
+  ],
+  "src/workflow/artifacts/**": [
+    "arch:APP-00"
+  ],
+  "src/workflow/artifacts/alignment.ts#runAlignment": [
+    "arch:APP-12"
   ],
   "src/workflow/baseRef.ts#resolveTicketBaseRef": [
     "arch:BASE-PER"
@@ -513,8 +589,14 @@
   "src/workflow/pr*.ts": [
     "arch:GH-00"
   ],
+  "src/workflow/review/**": [
+    "arch:APP-00"
+  ],
   "src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings": [
     "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/review/conformance.ts#buildConformanceBlock": [
+    "arch:APP-12"
   ],
   "src/workflow/stages/scope.ts#confirmScope": [
     "arch:BASE-PULL",
