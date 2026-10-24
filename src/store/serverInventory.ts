@@ -100,7 +100,8 @@ function byRunningThenRepo(a: InventoryServer, b: InventoryServer): number {
   return running(a) - running(b) || a.repo.localeCompare(b.repo) || a.id - b.id;
 }
 
-function sharedServers(store: Store, manifest: Manifest): SharedServer[] {
+/** The shared (baseline) services of the manifest, with pins and live dependents. */
+export function listSharedServers(store: Store, manifest: Manifest): SharedServer[] {
   const declared = new Map(serviceUnits(manifest).map((u) => [u.key, u]));
   const rows = store.db
     .prepare(
@@ -201,5 +202,5 @@ export function listProjectServers(
   manifest: Manifest,
   projectId: number,
 ): ServerInventory {
-  return { shared: sharedServers(store, manifest), tickets: ticketGroups(store, projectId) };
+  return { shared: listSharedServers(store, manifest), tickets: ticketGroups(store, projectId) };
 }
