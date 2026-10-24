@@ -32,13 +32,16 @@ const SCRIPT = [
   // stderr still reaches the terminal; only the first MAX_CAPTURE_BYTES are kept
   // (head, then drain so the launcher never sees a broken pipe).
   `"$@" 2> >(tee >(head -c ${MAX_CAPTURE_BYTES} > "$f"; cat > /dev/null) >&2); rc=$?`,
-  `if [ "$rc" -ne 0 ] && [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ]; then`,
+  // A fast failure, or a mid-session SIGKILL/OOM kill (137), is recorded in the marker.
+  `if { [ "$rc" -ne 0 ] && [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ]; } || [ "$rc" -eq 137 ]; then`,
   '  sleep 0.2', // let the capture pipe flush
   '  printf "%s\\n" "$rc" > "$m"',
   '  printf "\\nkarst: sandbox launch failed (exit %s). Retry, or set agentBackends.<core>=host. Press Enter to close.\\n" "$rc" >&2',
   '  read -r _',
   'fi',
-  'exit "$rc"',
+  // Always 0: a non-zero bash exit makes VS Code toast the whole script as argv.
+  // The exit code travels through the marker file instead.
+  'exit 0',
 ].join('\n');
 
 /** Run the placed launch under bash so its stderr is kept; the tty is untouched. */

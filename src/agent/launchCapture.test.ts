@@ -35,6 +35,17 @@ describe('wrapWithStderrCapture', () => {
     expect(files.stderr).toContain('7');
   });
 
+  it('always exits 0 so VS Code shows no raw bash crash toast', () => {
+    const script = wrapWithStderrCapture(placed, captureFilesFor('/art', 7)).shellArgs[1]!;
+    expect(script.trimEnd().split('\n').at(-1)).toBe('exit 0');
+    expect(script).not.toContain('exit "$rc"');
+  });
+
+  it('records the marker for a fast failure and for a mid-session 137 kill', () => {
+    const script = wrapWithStderrCapture(placed, captureFilesFor('/art', 7)).shellArgs[1]!;
+    expect(script).toContain('if { [ "$rc" -ne 0 ] && [ "$SECONDS" -lt 10 ]; } || [ "$rc" -eq 137 ]; then');
+  });
+
   it('keeps the window and tail constants bounded', () => {
     expect(FAST_FAIL_SECONDS).toBe(10);
     expect(TAIL_BYTES).toBe(4096);

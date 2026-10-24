@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { formatLaunchFailure } from '../../agent/launchCapture.js';
 import type { Notify } from './notify.js';
+import { DOCKER_MEMORY_HELP_TEXT } from './sandboxSetupOp.js';
 
 export interface SandboxLaunchFailureInput {
   readonly ticketId: number;
@@ -15,6 +16,10 @@ export interface SandboxLaunchFailureInput {
   readonly markNotStarted: (ticketId: number) => void;
   /** Removes the half-built sandbox a failed create leaves behind (guarded; keeps it when it holds unsynced commits). */
   readonly removeSandbox?: () => Promise<unknown>;
+  /** True when Karst stopped the container itself after an accepted stage marker; the exit is then ignored. */
+  readonly hostEnded?: (ticketId: number) => boolean;
+  /** Docker VM memory / sibling-container context, used to diagnose a kill. */
+  readonly killContext?: () => Promise<string | undefined>;
 }
 
 export const LAUNCH_FAILURE_FILE = 'sandbox-launch-failure.txt';
@@ -32,6 +37,8 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
   return {
     launchCaptureDir: input.captureDir,
     onSandboxLaunchFailed: (info) => {
+      // Karst itself stopped the container after an accepted stage marker: not a failure.
+      if (input.hostEnded?.(input.ticketId)) return;
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);
       input.warn(line);
       input.markNotStarted(input.ticketId);
@@ -41,10 +48,12 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         input.warn(`[session] ticket ${input.ticketLabel} could not store the launch failure: ${String(e)}`);
       }
       void input.removeSandbox?.().catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} could not remove the half-built sandbox: ${String(e)}`));
-      input.notify.warn(
+      const base =
         `Karst: ${input.ticketLabel} ${info.runner} sandbox launch failed (exit ${info.exitCode}). ` +
-          `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`,
-      );
+        `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`;
+      const help = (ctx: string | undefined): string => (info.exitCode === 137 || ctx ? ` ${DOCKER_MEMORY_HELP_TEXT}${ctx ? ` (${ctx})` : ''}` : '');
+      if (!input.killContext) input.notify.warn(base + help(undefined));
+      else void input.killContext().catch(() => undefined).then((ctx) => input.notify.warn(base + help(ctx)));
     },
   };
 }
