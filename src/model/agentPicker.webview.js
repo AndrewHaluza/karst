@@ -402,6 +402,19 @@ function apMenuShellFor(root, stack) {
 }
 
 /**
+ * True when a key event belongs to this shell's open menu: its own rows or the
+ * search box (inside the menu), or the trigger that owns it. A key pressed on
+ * any OTHER control of the picker (the effort select, the other trigger) must
+ * keep its default behaviour instead of choosing the open menu's row.
+ */
+function apKeyOwnedBy(shell, target) {
+  if (!shell || !target || !shell.querySelector) return false;
+  var menu = shell.querySelector('[data-ap-menu]');
+  var trigger = shell.querySelector('[data-ap-trigger]');
+  return !!((menu && menu.contains && menu.contains(target)) || (trigger && trigger === target));
+}
+
+/**
  * Mark exactly one row active (index -1 marks none). Every highlight goes
  * through here: adding the class without clearing its predecessor is what left
  * two rows highlighted when a menu was re-opened.
@@ -754,7 +767,7 @@ function mountAgentPicker(root, opts) {
     // Another picker's menu can sit on top of the page-global stack; only this
     // root's own menu may answer this picker's keys.
     var shell = apMenuShellFor(root, AP_MENU_STACK);
-    if (!shell) return;
+    if (!shell || !apKeyOwnedBy(shell, e.target)) return;
     if (e.key === 'Escape') {
       closeMenu(shell, true);
       return;

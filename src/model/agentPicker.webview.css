@@ -85,9 +85,11 @@
 .ap-variant{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
 .ap-free{flex:none;font-size:var(--k-text-2xs);color:var(--k-success-fg);background:var(--k-success);
   border-radius:var(--k-radius-sm);padding:0 var(--k-space-2)}
-/* A tight control drops the free tag rather than clipping the model name. */
+/* A tight control drops the TRIGGER's free tag rather than clipping the model
+   name. Menu rows keep theirs: the menu is wider than the trigger, and a hidden
+   tag there would misreport a free model. */
 .ap-shell[data-ap-shell="model"]{container-type:inline-size}
-@container (max-width: 130px){.ap-free{display:none}}
+@container (max-width: 130px){.ap-trigger .ap-free{display:none}}
 
 /* Compact-only "no effort for this model" placeholder: a disabled select, dashed and dim (UI-R39). */
 .ap-effort--na{color:var(--k-text-dim);border-style:dashed;opacity:1;cursor:default}

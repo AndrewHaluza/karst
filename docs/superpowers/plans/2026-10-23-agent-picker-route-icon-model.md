@@ -1315,6 +1315,14 @@ The monogram does not appear in `ticketForm/routed-model` (it renders only for
 routes with no asset), and its surface/glyph pair is theme-independent, so no
 visual baseline moves.
 
+### Failed review, round 3 — the three findings and their pins
+
+| Finding | Fix | Pinned by |
+| --- | --- | --- |
+| **[high]** the keydown handler took keys from anywhere in the picker root, so Enter/Arrow on another control (the effort select, the other trigger) acted on the open menu's row | `apKeyOwnedBy(shell, target)` accepts a key only when it targets that shell's menu (rows/search) or the trigger that owns it; the handler returns otherwise, leaving the control's default keyboard alone | `agentPicker.test.ts` → "owns a key only when it targets the shell’s menu or trigger" (pure helper) plus a source contract on the handler, and `agentPicker.dom.test.ts` → "a picker only answers keys from its open menu": with the model menu open, Enter/ArrowDown on this picker's **core** trigger neither chooses nor moves a row. Both mounted tests fail on the pre-fix handler. |
+| **[low]** the narrow-control container query hid `.ap-free` in the menu rows too (they live inside the same inline-size container), so a free model lost its tag in a narrow picker | the query is scoped to the trigger: `@container (max-width: 130px){.ap-trigger .ap-free{display:none}}`. The menu keeps every row's tag. | `agentPicker.test.ts` → "ships the two-line stack…": pins the trigger-scoped selector and forbids the unscoped one. |
+| **[low]** `sandboxWiring.test.ts` carried three per-test fake Docker processes, unrelated to the picker plan | the two backfill/remove listings and the recorded-placement removal now get the fake from the local `wiring()` helper instead, with a comment: unit tests never fall back to `NODE_DOCKER_PROCESS` (the inventory path lists Docker unconditionally, and this suite runs with no daemon). Net: one helper default, three repeated injections deleted — the suite cannot touch the host Docker daemon by omission. | `sandboxWiring.test.ts` runs green without the per-test injections; reverting the helper default reproduces the three `getPlacement(...) === null` failures, so the isolation is load-bearing, not cosmetic. |
+
 ---
 
 ## Self-review

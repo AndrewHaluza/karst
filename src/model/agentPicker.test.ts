@@ -37,6 +37,7 @@ function load(): Record<string, unknown> {
     apModelListHtml: typeof apModelListHtml === 'function' ? apModelListHtml : undefined,
     apMarkActive: typeof apMarkActive === 'function' ? apMarkActive : undefined,
     apMenuShellFor: typeof apMenuShellFor === 'function' ? apMenuShellFor : undefined,
+    apKeyOwnedBy: typeof apKeyOwnedBy === 'function' ? apKeyOwnedBy : undefined,
     apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
@@ -556,7 +557,10 @@ describe('route identity in the closed control', () => {
     // The stacked trigger keeps the one shared control height (D108 alignment).
     expect(css).toMatch(/\.ap-trigger:has\(\.ap-mstack\)\{[^}]*padding-top:var\(--k-space-1\)/);
     expect(css).toContain('.ap-shell[data-ap-shell="model"]{container-type:inline-size}');
-    expect(css).toContain('@container (max-width: 130px){.ap-free{display:none}}');
+    // The narrow-control rule may only drop the TRIGGER's free tag: the menu
+    // rows live inside the same container and must keep their tag.
+    expect(css).toContain('@container (max-width: 130px){.ap-trigger .ap-free{display:none}}');
+    expect(css).not.toContain('@container (max-width: 130px){.ap-free{display:none}}');
   });
 
   it('clips only with a described trigger name (UI-R44)', () => {
@@ -640,6 +644,28 @@ describe('a picker only drives its own open menu', () => {
     const keydown = js.slice(start, end);
     expect(keydown).toContain('apMenuShellFor(root, AP_MENU_STACK)');
     expect(keydown).not.toContain('AP_MENU_STACK[');
+    // The shell's menu must also own the key: another control in the same root
+    // (the effort select, the other trigger) keeps its own Enter/Arrow keys.
+    expect(keydown).toContain('apKeyOwnedBy(shell, e.target)');
+  });
+
+  it('owns a key only when it targets the shell’s menu or trigger', () => {
+    const fns = load() as {
+      apKeyOwnedBy: (shell: unknown, target: unknown) => boolean;
+    };
+    const search = { id: 'search' };
+    const trigger = { id: 'trigger' };
+    const effort = { id: 'effort' };
+    const shell = {
+      querySelector: (sel: string) => sel === '[data-ap-menu]'
+        ? { contains: (el: unknown) => el === search }
+        : trigger,
+    };
+    expect(fns.apKeyOwnedBy(shell, search)).toBe(true);
+    expect(fns.apKeyOwnedBy(shell, trigger)).toBe(true);
+    expect(fns.apKeyOwnedBy(shell, effort)).toBe(false);
+    expect(fns.apKeyOwnedBy(null, search)).toBe(false);
+    expect(fns.apKeyOwnedBy(shell, null)).toBe(false);
   });
 });
 

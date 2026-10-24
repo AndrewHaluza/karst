@@ -110,3 +110,29 @@ describe('a mounted picker only answers keys for its own menu', () => {
     expect(menu(a).hidden).toBe(false);
   });
 });
+
+describe('a picker only answers keys from its open menu', () => {
+  // The open menu's keys belong to the menu (or the trigger that owns it).
+  // Any other control in the SAME picker root must keep its own keyboard.
+  it('does not commit the open menu’s row on Enter from another control', () => {
+    const { a, changed } = mountBoth();
+    click(trigger(a, 'model'));
+    const before = activeId(a);
+
+    key(trigger(a, 'core'), 'Enter');
+
+    expect(changed).toEqual([]);
+    expect(activeId(a)).toBe(before);
+    expect(menu(a).hidden, 'the model menu stayed open').toBe(false);
+  });
+
+  it('does not move the open menu’s active row from another control', () => {
+    const { a } = mountBoth();
+    click(trigger(a, 'model'));
+    const before = activeId(a);
+
+    key(trigger(a, 'core'), 'ArrowDown');
+
+    expect(activeId(a)).toBe(before);
+  });
+});
