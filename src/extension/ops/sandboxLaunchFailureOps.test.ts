@@ -66,6 +66,17 @@ describe('sandboxLaunchFailureOptions', () => {
     expect(b.notified[0]).not.toContain(DOCKER_MEMORY_HELP_TEXT);
   });
 
+  it('omits the memory help for a non-137 code or a non-docker runner, even with a kill context', async () => {
+    const ctx = { killContext: async () => 'Docker VM 4.0 GB' };
+    const a = setup(undefined, ctx);
+    a.opts.onSandboxLaunchFailed({ runner: 'docker', exitCode: 1, tail: '' });
+    const b = setup(undefined, ctx);
+    b.opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 137, tail: '' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(a.notified[0]).not.toContain('Docker VM');
+    expect(b.notified[0]).not.toContain(DOCKER_MEMORY_HELP_TEXT);
+  });
+
   it('removes the half-built sandbox a failed launch leaves behind', () => {
     let removed = 0;
     const { opts } = setup(async () => { removed += 1; });

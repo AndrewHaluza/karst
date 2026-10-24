@@ -51,7 +51,12 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       const base =
         `Karst: ${input.ticketLabel} ${info.runner} sandbox launch failed (exit ${info.exitCode}). ` +
         `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`;
-      const help = (ctx: string | undefined): string => (info.exitCode === 137 || ctx ? ` ${DOCKER_MEMORY_HELP_TEXT}${ctx ? ` (${ctx})` : ''}` : '');
+      // The Docker memory diagnosis only fits a Docker SIGKILL/OOM (exit 137); never other codes or runners.
+      if (info.exitCode !== 137 || info.runner !== 'docker') {
+        input.notify.warn(base);
+        return;
+      }
+      const help = (ctx: string | undefined): string => ` ${DOCKER_MEMORY_HELP_TEXT}${ctx ? ` (${ctx})` : ''}`;
       if (!input.killContext) input.notify.warn(base + help(undefined));
       else void input.killContext().catch(() => undefined).then((ctx) => input.notify.warn(base + help(ctx)));
     },
