@@ -389,6 +389,19 @@ function apActiveOption(shell) {
 }
 
 /**
+ * The open menu shell that belongs to `root`, if any. The stack is page-global
+ * (only one picker menu is open anywhere on the page), but a key pressed in one
+ * picker must never move or choose a row in another picker's menu.
+ */
+function apMenuShellFor(root, stack) {
+  var list = stack || [];
+  for (var i = list.length - 1; i >= 0; i--) {
+    if (root && root.contains && root.contains(list[i])) return list[i];
+  }
+  return null;
+}
+
+/**
  * Mark exactly one row active (index -1 marks none). Every highlight goes
  * through here: adding the class without clearing its predecessor is what left
  * two rows highlighted when a menu was re-opened.
@@ -738,12 +751,14 @@ function mountAgentPicker(root, opts) {
   });
 
   root.addEventListener('keydown', function (e) {
+    // Another picker's menu can sit on top of the page-global stack; only this
+    // root's own menu may answer this picker's keys.
+    var shell = apMenuShellFor(root, AP_MENU_STACK);
+    if (!shell) return;
     if (e.key === 'Escape') {
-      while (AP_MENU_STACK.length) closeMenu(AP_MENU_STACK[AP_MENU_STACK.length - 1], true);
+      closeMenu(shell, true);
       return;
     }
-    var shell = AP_MENU_STACK.length ? AP_MENU_STACK[AP_MENU_STACK.length - 1] : null;
-    if (!shell) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       moveActive(shell, e.key === 'ArrowDown' ? 1 : -1);

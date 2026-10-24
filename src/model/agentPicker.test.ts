@@ -36,6 +36,7 @@ function load(): Record<string, unknown> {
     apModelGroups: typeof apModelGroups === 'function' ? apModelGroups : undefined,
     apModelListHtml: typeof apModelListHtml === 'function' ? apModelListHtml : undefined,
     apMarkActive: typeof apMarkActive === 'function' ? apMarkActive : undefined,
+    apMenuShellFor: typeof apMenuShellFor === 'function' ? apMenuShellFor : undefined,
     apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
@@ -566,6 +567,79 @@ describe('route identity in the closed control', () => {
     const out = stack(fns.apParseModelId('openrouter/mancer/weaver#high', 'weaver'), 'ap-7-model');
     expect(out).toContain('aria-describedby="ap-7-model"');
     expect(out).toContain('<span class="ap-variant">');
+  });
+});
+
+describe('the unknown-route monogram pair (UI-R29)', () => {
+  const css = agentPickerCss();
+  const decl = css.match(
+    /\.ap-mono\{[^}]*background:hsl\(var\(--ap-hue,\d+\) (\d+)% (\d+)%\);color:([^;}]+)/,
+  );
+
+  /** WCAG relative-luminance contrast of the fixed knockout against an hsl hue. */
+  function contrastOnWhite(h: number, sPct: number, lPct: number): number {
+    const s = sPct / 100;
+    const l = lPct / 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const hp = h / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    const [r, g, b] = hp < 1 ? [c, x, 0]
+      : hp < 2 ? [x, c, 0]
+      : hp < 3 ? [0, c, x]
+      : hp < 4 ? [0, x, c]
+      : hp < 5 ? [x, 0, c]
+      : [c, 0, x];
+    const m = l - c / 2;
+    const lin = (v: number): number => {
+      const q = v + m;
+      return q <= 0.04045 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+    return 1.05 / (lum + 0.05);
+  }
+
+  it('knocks the letter out on its own surface, never on the theme page background', () => {
+    expect(decl).not.toBeNull();
+    expect(decl![3]).toBe('#fff');
+    expect(css).not.toMatch(/\.ap-mono\{[^}]*var\(--k-bg\)/);
+  });
+
+  it('clears WCAG AA (>= 4.5:1) for every hue the route id can derive', () => {
+    // The surface is fixed, so the foreground must be too: `--k-bg` made the
+    // letter dark in dark themes and white in light ones, and one of the two
+    // always failed on the mid-lightness square.
+    expect(decl).not.toBeNull();
+    const s = Number(decl![1]);
+    const l = Number(decl![2]);
+    const ratios = Array.from({ length: 360 }, (_, h) => contrastOnWhite(h, s, l));
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('a picker only drives its own open menu', () => {
+  const fns = load() as {
+    apMenuShellFor: (root: unknown, stack: unknown[]) => unknown;
+  };
+
+  it('picks the open shell that belongs to this picker, not the page-global top', () => {
+    // The stack is page-global (one picker menu is open anywhere on the page).
+    // A key pressed in picker B must never move or choose a row in picker A.
+    const mine = { id: 'mine' };
+    const theirs = { id: 'theirs' };
+    const root = { contains: (el: unknown) => el === mine };
+    expect(fns.apMenuShellFor(root, [theirs])).toBeNull();
+    expect(fns.apMenuShellFor(root, [theirs, mine])).toBe(mine);
+    expect(fns.apMenuShellFor(root, [])).toBeNull();
+  });
+
+  it('scopes the keydown handler through that helper, never a global stack top', () => {
+    const start = js.indexOf("root.addEventListener('keydown'");
+    const end = js.indexOf("document.addEventListener('click'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const keydown = js.slice(start, end);
+    expect(keydown).toContain('apMenuShellFor(root, AP_MENU_STACK)');
+    expect(keydown).not.toContain('AP_MENU_STACK[');
   });
 });
 

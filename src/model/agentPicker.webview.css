@@ -68,8 +68,12 @@
 .ap-route svg{width:16px;height:16px;display:block}
 .ap-route-badge{font-size:var(--k-text-2xs);line-height:1;padding:0 var(--k-space-1);border-radius:var(--k-radius-sm);
   background:var(--k-surface);color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border)}
+/* The generated mark's surface is fixed (a route-derived hue), so its letter is
+   a fixed knockout too: the page background made the glyph dark in dark themes
+   and white in light ones, and one of the two failed AA (UI-R29). The dark
+   surface keeps >= 5:1 for every hue — pinned in agentPicker.test.ts. */
 .ap-mono{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;
-  border-radius:var(--k-radius-sm);background:hsl(var(--ap-hue,220) 55% 45%);color:var(--k-bg);
+  border-radius:var(--k-radius-sm);background:hsl(var(--ap-hue,220) 55% 28%);color:#fff;
   font-size:var(--k-text-2xs);font-weight:600;text-transform:uppercase}
 .ap-mstack{display:flex;flex-direction:column;justify-content:center;flex:1 1 auto;min-width:0;line-height:1.15}
 /* Two lines must fit the ONE control height every host shares (D108 aligned
