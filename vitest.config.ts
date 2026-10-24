@@ -48,6 +48,10 @@ export default defineConfig({
     // a ~5 GB sandbox. That surfaces as the whole `test:unit` gate exiting 137
     // (SIGKILL) with no failing test — the unit tier hit this in UAT. Three
     // forks keep the peak inside the sandbox; the wall-clock cost is small.
+    // Measured whole-suite peak is ~1.05-1.10 GB at three forks and ~0.80 GB at
+    // one, so the cap bounds the multi-fork excess but cannot rescue a VM
+    // starved below a single fork's own peak (the 4.8 GB Docker VM is shared
+    // with every other ticket sandbox); that case needs host-side capacity.
     maxWorkers: 3,
     // Hide console output of passing tests; a failing test still prints its own.
     silent: 'passed-only',

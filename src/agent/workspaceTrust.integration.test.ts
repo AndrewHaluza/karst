@@ -30,16 +30,28 @@ function findTsx(from: string): string {
 const tsxBin = findTsx(here);
 
 function runTrust(cwd: string, home: string, startAt: number): Promise<void> {
-  // The barrier spins every child until the same instant, so all of them read
+  // The barrier releases every child at the same instant, so all of them read
   // the initial (empty) config together — the race the lock must serialise. The
   // hook is `void | Promise<void>`: a contended lock returns a promise, so the
   // child awaits it and exits only once its record is written.
+  //
+  // Each child boots `tsx` first, which takes a variable second or two, so the
+  // wait is a `setTimeout` poll and only the LAST 50 ms spin: eight children
+  // busy-looping for the whole lead time starve one another on a loaded
+  // machine, and a writer descheduled past the lock's wait bound silently skips
+  // its write — a fixture artefact, not the lost update this test hunts.
   const script =
     `import { ensureClaudeWorkspaceTrusted } from ${JSON.stringify(modulePath)};` +
     ` const start = Number(process.env.KARST_TRUST_TEST_START);` +
-    ` while (Date.now() < start) {}` +
+    ` const go = () =>` +
     ` Promise.resolve(ensureClaudeWorkspaceTrusted(${JSON.stringify(cwd)}, { home: ${JSON.stringify(home)} }))` +
-    `   .then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });`;
+    `   .then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });` +
+    ` const wait = () => {` +
+    `   const left = start - Date.now();` +
+    `   if (left <= 50) { while (Date.now() < start) {} go(); return; }` +
+    `   setTimeout(wait, Math.min(25, left - 50));` +
+    ` };` +
+    ` wait();`;
   return new Promise((resolvePromise, reject) => {
     execFile(
       tsxBin,
