@@ -21,7 +21,11 @@ function wiring(over: Partial<SandboxWiringInput> = {}) {
   const choose = vi.fn(async () => undefined);
   const w = makeSandboxWiring({
     store, notify, choose, projectRoot: () => '/p/karst.yml', backendOn: () => false, projectId: () => undefined,
-    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
+    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(),
+    // Unit tests never touch the host Docker daemon: inventory paths fall back
+    // to NODE_DOCKER_PROCESS otherwise, and this suite runs where none exists.
+    dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    ...over,
   });
   return { w, notify, choose };
 }
@@ -519,8 +523,7 @@ describe('makeSandboxWiring lifecycle on a recorded-host ticket (D245)', () => {
     const t = createTicket(store, { key: 'K-11', title: 'n' }).id;
     recordPlacement(store, t, { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null }, 'claude');
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } });
-    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
-    const { w } = wiring({ proc, dockerProc, projectRoot: () => ROOT, backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
+    const { w } = wiring({ proc, projectRoot: () => ROOT, backendOn: () => true, projectId: () => undefined, owned: new Set([t]) });
     await w.remove(t);
     expect(getPlacement(store, t)).toMatchObject({ backend: 'host', reason: 'sandbox removed' });
   });
@@ -556,10 +559,10 @@ describe('makeSandboxWiring.backfillPlacements (D245)', () => {
     const projectId = upsertProject(store, { slug: 'bf' }).id;
     const t = createTicket(store, { key: 'K-30', title: 'n', projectId }).id;
     const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'not found' } });
-    const { w } = wiring({ proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    const { w } = wiring({ proc, projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
     await w.backfillPlacements();
     expect(getPlacement(store, t)).toBeNull();
-    const ok = wiring({ proc: fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } }), dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
+    const ok = wiring({ proc: fakeSbxProcess({ 'sbx ls': { stdout: 'SANDBOX AGENT STATUS\n' } }), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => projectId });
     await ok.w.backfillPlacements();
     expect(getPlacement(store, t)).toMatchObject({ backend: 'host' });
   });
@@ -599,7 +602,7 @@ describe('makeSandboxWiring placement transitions and backfill edges (D245)', ()
     await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => undefined, info }).w.backfillPlacements();
     await wiring({ proc, backendOn: () => false, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
     expect(getPlacement(store, t)).toBeNull();
-    await wiring({ proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
+    await wiring({ proc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
     expect(getPlacement(store, t)).toMatchObject({ backend: 'sbx', core: 'claude', sandboxName: name });
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/recorded placement for [1-9]\d* ticket/));
   });
