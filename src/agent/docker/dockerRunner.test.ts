@@ -60,10 +60,10 @@ describe('createDockerSessionRunner', () => {
     await expect(runner.diff!(ticket)).resolves.toMatchObject({ ok: false, reason: expect.stringContaining('no sandbox clone') });
   });
 
-  it('stops only this ticket\'s container, keeping clone and data volumes', async () => {
+  it('stops only this ticket\'s container and proxy, keeping clone and data volumes', async () => {
     const proc = fakeDockerProcess();
     await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).stop!();
-    expect(lines(proc)).toEqual([`docker stop ${names.container}`]);
+    expect(lines(proc)).toEqual([`docker stop ${names.container}`, `docker stop ${names.proxy}`]);
   });
 
   it('disposes exactly this ticket\'s container, port relays, proxy, network and volumes', async () => {

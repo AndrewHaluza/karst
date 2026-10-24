@@ -22,7 +22,7 @@ import {
   type LinuxUser,
   rewritePaths,
 } from './dockerRunArgs.js';
-import { deniedHostsFromLog, DOCKER_ALLOWLIST, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
@@ -101,6 +101,10 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       }
       // The interactive container is `--rm`: once its terminal closed, a gate
       // runs in a one-shot container on the same clone, removed by name.
+      // The proxy is stopped when the session ends: bring it back for the gate's network.
+      if (opts.proxy) {
+        await startProxySidecar(opts.proc, { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) });
+      }
       const runName = `${opts.names.container}-gate-${newRunId()}`;
       const remove = () => opts.proc.run(DOCKER_BIN, ['rm', '--force', runName]);
       const onAbort = () => void remove();
@@ -150,6 +154,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
+      await haltProxySidecar(opts.proc, opts.names.proxy);
     },
     stopServices: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['rm', '--force', serviceContainerName(opts.names)]);
