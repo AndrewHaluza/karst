@@ -90,7 +90,7 @@ export function TrendChart({ state }: { state: ResourcesState }) {
           <span className="scaleNote">derived CPU · resident memory</span>
         </div>
         <div className="chartWrap">
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+          <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
             {plot(state, muted)}
           </svg>
           <svg className="chartY" aria-hidden="true">

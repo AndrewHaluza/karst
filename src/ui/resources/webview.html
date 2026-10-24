@@ -34,7 +34,7 @@
   .rhead .titles{min-width:0}
   .rhead h1{font-size:var(--k-text-xl);margin:0}
   .rhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
-  .live{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin-top:var(--k-space-1);display:flex;align-items:center;gap:var(--k-space-2);flex-wrap:wrap}
+  .live{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin:var(--k-space-1) var(--k-space-0) var(--k-space-4);display:flex;align-items:center;gap:var(--k-space-2);flex-wrap:wrap}
   .rhead .actions{margin-left:auto;display:flex;gap:var(--k-space-2)}
   [hidden]{display:none !important}
 
@@ -93,7 +93,7 @@
   .chartWrap{position:relative;height:calc(var(--k-space-9) * 4);background:var(--k-surface-sunken);
     border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden;
     --yaxis-w:calc(var(--k-space-9) * 3)}
-  .chartWrap svg{position:absolute;top:0;right:0;bottom:0;left:var(--yaxis-w);width:auto;
+  .chartWrap .plot{position:absolute;top:0;right:0;bottom:0;left:var(--yaxis-w);width:auto;
     height:100%;display:block;overflow:visible}
   .series-rss{fill:none;stroke:var(--k-series-1);stroke-width:calc(var(--k-space-1) / 2)}
   .series-cpu{fill:none;stroke:var(--k-series-2);stroke-width:calc(var(--k-space-1) / 2)}
