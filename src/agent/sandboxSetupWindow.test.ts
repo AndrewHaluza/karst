@@ -47,8 +47,27 @@ describe('setup network window', () => {
     const r = rig(order, done('npm ERR! request to https://x failed\nnpm ERR! code ENOTFOUND evil.example.com', 1), port(order));
     const res = await ensureSandboxSetup(r.deps, req);
     expect(res).toMatchObject({ ok: false });
-    expect(res.ok ? '' : res.reason).toContain('blocked host evil.example.com');
+    expect(res.ok ? '' : res.reason).toContain('blocked host(s) evil.example.com (add to sandbox.setupHosts)');
     expect(order).toEqual(['open', 'setup', 'close']);
+  });
+
+  it('reads the proxy-denied hosts BEFORE the close and merges them with the parsed ones', async () => {
+    const order: string[] = [];
+    const w = port(order, {
+      open: async () => ({ ok: true, close: async () => { order.push('close'); }, deniedHosts: async () => { order.push('denied'); return ['release-assets.githubusercontent.com', 'registry.npmjs.org']; } }),
+    });
+    const r = rig(order, done('GET https://nodejs.org/x\nRequest was cancelled', 1), w);
+    const res = await ensureSandboxSetup(r.deps, req);
+    expect(res.ok ? '' : res.reason).toContain(', blocked host(s) release-assets.githubusercontent.com, nodejs.org (add to sandbox.setupHosts)');
+    expect(order).toEqual(['setup', 'denied', 'close']);
+  });
+
+  it('a failing deniedHosts never changes the verdict', async () => {
+    const order: string[] = [];
+    const w = port(order, { open: async () => ({ ok: true, close: async () => undefined, deniedHosts: () => Promise.reject(new Error('docker gone')) }) });
+    const res = await ensureSandboxSetup(rig(order, done('boom', 1), w).deps, req);
+    expect(res).toMatchObject({ ok: false });
+    expect(res.ok ? '' : res.reason).not.toContain('blocked host');
   });
 
   it('closes after an aborted setup', async () => {
@@ -98,7 +117,13 @@ describe('setup hosts', () => {
     expect(setupHostsOf(undefined)).toEqual(DEFAULT_SETUP_HOSTS);
     expect(setupHostsOf([])).toEqual(DEFAULT_SETUP_HOSTS);
     expect(setupHostsOf(['a.io'])).toEqual(['a.io']);
-    expect(DEFAULT_SETUP_HOSTS).toEqual(['registry.npmjs.org', 'github.com', 'objects.githubusercontent.com']);
+    expect(DEFAULT_SETUP_HOSTS).toEqual([
+      'registry.npmjs.org',
+      'github.com',
+      'objects.githubusercontent.com',
+      'release-assets.githubusercontent.com',
+      'nodejs.org',
+    ]);
     for (const ok of ['registry.npmjs.org', '*.githubusercontent.com', 'localhost']) expect(setupHostError(ok)).toBeUndefined();
     for (const bad of ['a b', 'x:443', 'https://x.io', '-x.io', 'host.docker.internal', '*', 'a,b']) expect(setupHostError(bad)).toBeDefined();
   });
@@ -169,6 +194,23 @@ describe('docker setupWindow', () => {
     expect(runs(proc)[1]).toContain(`ALLOW=${DOCKER_ALLOWLIST.join(',')}`);
     expect(runs(proc)[1]).toContain('ALLOW_HOSTPORTS=host.docker.internal:5432');
     expect(runs(proc)[1]).not.toContain('karst.allow=');
+  });
+
+  it('deniedHosts reads the window proxy log (DENY lines) and never throws', async () => {
+    const proc = fakeDockerProcess({
+      'docker container inspect': { code: 1 },
+      'docker logs': { stdout: 'ALLOW registry.npmjs.org:443\nDENY nodejs.org:443\nDENY Nodejs.org:443\nDENY release-assets.githubusercontent.com:443\n' },
+    });
+    const w = await runner(proc).setupWindow!(['registry.npmjs.org']);
+    if (!w.ok) throw new Error('open');
+    await expect(w.deniedHosts!()).resolves.toEqual(['nodejs.org', 'release-assets.githubusercontent.com']);
+    const logs = proc.calls.find((c) => c.args[0] === 'logs')!;
+    expect(logs.args).toContain(names.proxy);
+    expect(logs.args).toContain('--since');
+    const failing = fakeDockerProcess({ 'docker container inspect': { code: 1 }, 'docker logs': { code: 1, stderr: 'no such container' } });
+    const w2 = await runner(failing).setupWindow!(['github.com']);
+    if (!w2.ok) throw new Error('open');
+    await expect(w2.deniedHosts!()).resolves.toEqual([]);
   });
 
   it('a failed open restores the baseline proxy', async () => {

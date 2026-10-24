@@ -24,6 +24,12 @@ export type WebviewMessage =
   | { type: 'spin-servers' }
   | { type: 'restart-servers' }
   | { type: 'stop-servers' }
+  /**
+   * Open the window's Resource Monitor — the Manage action on a SHARED service
+   * row, where starting or stopping is deliberately absent (a stop affects every
+   * other ticket). The follow-up project view repoints this at `karst.openServers`.
+   */
+  | { type: 'open-resources' }
   | { type: 'sandbox-sync' }
   | { type: 'sandbox-diff' }
   | { type: 'sandbox-stop' }
@@ -416,6 +422,8 @@ export interface DashboardActions {
    */
   restartServers: () => void | Promise<void>;
   stopServers: () => void | Promise<void>;
+  /** Open the Resource Monitor from a shared row's Manage action (no payload). */
+  openResources: () => void | Promise<void>;
   /** Sandbox card (arch:AC-32): act on THIS panel's ticket only; the message carries no id. */
   sandboxSync: () => void | Promise<void>;
   sandboxDiff: () => void | Promise<void>;
@@ -640,6 +648,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'restart-servers' };
     case 'stop-servers':
       return { type: 'stop-servers' };
+    case 'open-resources':
+      return { type: 'open-resources' };
     case 'sandbox-sync':
     case 'sandbox-diff':
     case 'sandbox-stop':
@@ -1026,6 +1036,8 @@ export function routeAction(
       return actions.restartServers();
     case 'stop-servers':
       return actions.stopServers();
+    case 'open-resources':
+      return actions.openResources();
     case 'sandbox-sync':
       return actions.sandboxSync();
     case 'sandbox-diff':

@@ -8168,6 +8168,7 @@ function makeDashboardActions(
       await (sandboxB ? sandboxB.stopTicket(store, ticketId) : stopTicketServers(store, ticketId)); // AC-32
       afterServerChange();
     },
+    openResources: () => void vscode.commands.executeCommand('karst.openResources'),
     showChanges,
     switchAgent,
     copyTicketKey: () => {

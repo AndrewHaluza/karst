@@ -13,6 +13,7 @@ import {
   populatedStateFor,
   renderStateFor,
   renderFixtures,
+  sharedServerFixtures,
   shipPreviewStateFor,
   type RenderRepoCount,
   type RenderScenario,
@@ -138,6 +139,12 @@ const dashboardVariants = (): Variant[] => [
       actions: true,
       carry: false,
     },
+  }))),
+  // D203: the Servers panel's read-only shared half — one running from the base
+  // branch, one stopped — beside the ticket's own rows.
+  variant('dashboard', 'shared-services', dashboardScenario('running', 2, (s) => ({
+    ...s,
+    sharedServers: sharedServerFixtures(),
   }))),
 ];
 

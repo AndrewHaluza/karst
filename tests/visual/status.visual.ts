@@ -7,6 +7,11 @@ const STATUS_PROJECTS = new Set(['dark', 'dark-grayscale', 'dark-reduced-motion'
  * Status/state surface screenshots for UI-R28 (grayscale) and UI-R30
  * (reduced motion).
  *
+ * These baselines screen the DASHBOARD's running state, not a separate page:
+ * any change to what the dashboard renders in the first viewport (panels, rows,
+ * captions) re-records `status-primitives.png` in all three status projects. Do
+ * not mistake such a diff for host churn.
+ *
  * Run in the `dark`, `dark-grayscale`, and `dark-reduced-motion` projects
  * only — status primitives live in one place and do not need per-theme
  * baselines.

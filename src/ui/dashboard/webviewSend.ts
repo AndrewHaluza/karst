@@ -66,6 +66,7 @@ export function createSender(api: WebviewApi) {
     spinServers: (requestId?: string) => send({ type: 'spin-servers' }, requestId),
     restartServers: (requestId?: string) => send({ type: 'restart-servers' }, requestId),
     stopServers: (requestId?: string) => send({ type: 'stop-servers' }, requestId),
+    openResources: (requestId?: string) => send({ type: 'open-resources' }, requestId),
     sandboxSync: (requestId?: string) => send({ type: 'sandbox-sync' }, requestId),
     sandboxDiff: (requestId?: string) => send({ type: 'sandbox-diff' }, requestId),
     sandboxStop: (requestId?: string) => send({ type: 'sandbox-stop' }, requestId),
