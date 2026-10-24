@@ -78,6 +78,9 @@ export function stashMessage(ticketLabel: string, now: Date = new Date()): strin
   return `karst: ${ticketLabel} before host update ${now.toISOString()}`;
 }
 
+/** Reason prefix of a dirty refusal where the host is NOT ahead: there is nothing to bring in, so the refusal protects nothing. */
+export const DIRTY_NOT_BEHIND = 'the sandbox clone has uncommitted work; nothing was overwritten';
+
 /** Map the script's outcome to the runner result; `stdout` carries the dirty diff. */
 export function refreshOutcome(code: number, stdout: string, stderr: string, branch: string): SyncResult {
   const out = refreshOutcomeBase(code, stdout, stderr, branch);
@@ -93,7 +96,7 @@ function refreshOutcomeBase(code: number, stdout: string, stderr: string, branch
     if (Number.isInteger(ahead) && ahead > 0) {
       return { ok: false, reason: `sandbox has uncommitted work and the host is ahead by ${ahead} commit(s); nothing was overwritten:\n${rest.join('\n').trim()}` };
     }
-    return { ok: false, reason: `the sandbox clone has uncommitted work; nothing was overwritten:\n${(Number.isNaN(ahead) ? stdout : rest.join('\n')).trim()}` };
+    return { ok: false, reason: `${DIRTY_NOT_BEHIND}:\n${(Number.isNaN(ahead) ? stdout : rest.join('\n')).trim()}` };
   }
   if (code === REFRESH_STASH_FAILED) return { ok: false, reason: `sandbox stash failed; nothing was changed: ${(stderr || stdout).trim()}` };
   if (code === REFRESH_DIVERGED) return { ok: false, reason: `refused: the host's ${branch} diverged from the sandbox clone (never forced)` };

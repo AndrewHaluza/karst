@@ -6,6 +6,11 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setStage } from '../../store/stages.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import { getPlacement, recordPlacement } from '../../store/placement.js';
 
 let store: Store;
@@ -451,6 +456,37 @@ describe('makeSandboxWiring blockers', () => {
     const { w } = wiring({ proc: blocked(), backendOn: () => true });
     const child = createTicket(store, { key: 'K-3', title: 'c', subtaskParentId: id }).id;
     await expect(w.syncParentOf(child)).rejects.toThrow('parent ticket sandbox not in sync: no worktree branch to sync into');
+  });
+});
+
+describe('makeSandboxWiring stash and update', () => {
+  it('a successful update clears a parked sandbox-sync block on the current stage and drives the ticket', async () => {
+    const root = '/p/karst.yml';
+    const name = sbxName({ projectRoot: root, ticketId: id, core: 'claude' });
+    recordPlacement(store, id, { backend: 'sbx', core: 'claude', sandboxName: name, reason: null }, 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(id);
+    setStage(store, id, 'uat', { blockedKind: 'sandbox-sync', blockedReason: 'dirty', blockedAt: '2026-10-24 18:20:00' });
+    const inner = fakeSbxProcess({ 'sbx ls': { stdout: `NAME\n${name} running` } });
+    const proc = {
+      calls: inner.calls,
+      run: async (c: string, args: readonly string[], o?: Parameters<typeof inner.run>[2]) => {
+        const r = await inner.run(c, args, o);
+        if (c === 'git' && args.includes('bundle') && r.code === 0) writeFileSync(args[args.indexOf('-q') + 1]!, 'b');
+        return r;
+      },
+    };
+    const redrive = vi.fn();
+    const { w } = wiring({ proc, redrive, bridgeDirOf: () => mkdtempSync(join(tmpdir(), 'karst-stash-')), projectRoot: () => root, backendOn: () => true });
+    await w.stashUpdate(id);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(redrive).toHaveBeenCalledWith(id);
+  });
+  it('a refused update does not resume the ticket', async () => {
+    const redrive = vi.fn();
+    const { w } = wiring({ redrive, backendOn: () => true, projectId: () => 1 });
+    await w.stashUpdate(id);
+    expect(redrive).not.toHaveBeenCalled();
   });
 });
 

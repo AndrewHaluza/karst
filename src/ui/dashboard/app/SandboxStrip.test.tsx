@@ -59,6 +59,7 @@ describe('SandboxStrip', () => {
       sandboxStop: vi.fn(),
       sandboxRemove: vi.fn(),
       sandboxCarry: vi.fn(),
+      sandboxStashUpdate: vi.fn(),
     };
 
     render(<SandboxStrip sandbox={SBX_VIEW} send={send} />);
@@ -72,6 +73,9 @@ describe('SandboxStrip', () => {
     expect(diffBtn.textContent).toContain('Diff');
     fireEvent.click(diffBtn);
     expect(send.sandboxDiff).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stash uncommitted sandbox changes and update from the host' }));
+    expect(send.sandboxStashUpdate).toHaveBeenCalledTimes(1);
 
     const stopBtn = screen.getByRole('button', { name: 'Stop the sandbox (kept for the next open)' });
     expect(stopBtn.textContent).toContain('Stop');
