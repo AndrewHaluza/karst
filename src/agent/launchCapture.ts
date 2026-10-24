@@ -14,26 +14,29 @@ export interface CaptureFiles {
   readonly stderr: string;
   /** Written (with the exit code) only when the launch failed fast. */
   readonly fast: string;
+  /** The agent event log; pre-SessionStart failure detected when non-zero exit occurs before SessionStart is logged. */
+  readonly eventsFile?: string;
 }
 
-export function captureFilesFor(dir: string, ticketId: number): CaptureFiles {
+export function captureFilesFor(dir: string, ticketId: number, eventsFile?: string): CaptureFiles {
   return {
     stderr: join(dir, `sandbox-launch-${ticketId}.stderr`),
     fast: join(dir, `sandbox-launch-${ticketId}.fast`),
+    ...(eventsFile ? { eventsFile } : {}),
   };
 }
 
-// $1 stderr file, $2 fast-fail marker, rest: the launcher. stderr is teed (still
+// $1 stderr file, $2 fast-fail marker, $3 events file, rest: the launcher. stderr is teed (still
 // reaches the terminal); on a fast non-zero exit the terminal stays open with a
 // hint until Enter, so the output does not vanish with the tab.
 const SCRIPT = [
-  'f=$1; m=$2; shift 2',
+  'f=$1; m=$2; e=$3; shift 3',
   'rm -f "$f" "$m"',
   // stderr still reaches the terminal; only the first MAX_CAPTURE_BYTES are kept
   // (head, then drain so the launcher never sees a broken pipe).
   `"$@" 2> >(tee >(head -c ${MAX_CAPTURE_BYTES} > "$f"; cat > /dev/null) >&2); rc=$?`,
-  // A fast failure, or a mid-session SIGKILL/OOM kill (137), is recorded in the marker.
-  `if { [ "$rc" -ne 0 ] && [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ]; } || [ "$rc" -eq 137 ]; then`,
+  // A fast failure, a pre-SessionStart exit, or a mid-session SIGKILL/OOM kill (137), is recorded in the marker.
+  `if [ "$rc" -ne 0 ] && { [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q '"SessionStart"' "$e" 2>/dev/null; }; }; then`,
   '  sleep 0.2', // let the capture pipe flush
   '  printf "%s\\n" "$rc" > "$m"',
   '  printf "\\nkarst: sandbox launch failed (exit %s). Retry, or set agentBackends.<core>=host. Press Enter to close.\\n" "$rc" >&2',
@@ -52,7 +55,7 @@ export function wrapWithStderrCapture(
   return {
     ...placed,
     shellPath: '/bin/bash',
-    shellArgs: ['-c', SCRIPT, 'karst-launch', files.stderr, files.fast, placed.shellPath, ...placed.shellArgs],
+    shellArgs: ['-c', SCRIPT, 'karst-launch', files.stderr, files.fast, files.eventsFile ?? '', placed.shellPath, ...placed.shellArgs],
   };
 }
 

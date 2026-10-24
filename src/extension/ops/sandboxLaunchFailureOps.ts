@@ -41,12 +41,12 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       if (input.hostEnded?.(input.ticketId)) return;
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);
       input.warn(line);
-      input.markNotStarted(input.ticketId);
       try {
         writeFileSync(join(input.captureDir, LAUNCH_FAILURE_FILE), `${line}\n`);
       } catch (e) {
         input.warn(`[session] ticket ${input.ticketLabel} could not store the launch failure: ${String(e)}`);
       }
+      input.markNotStarted(input.ticketId);
       void input.removeSandbox?.().catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} could not remove the half-built sandbox: ${String(e)}`));
       const base =
         `Karst: ${input.ticketLabel} ${info.runner} sandbox launch failed (exit ${info.exitCode}). ` +

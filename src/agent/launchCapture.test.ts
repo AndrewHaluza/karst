@@ -29,10 +29,16 @@ describe('wrapWithStderrCapture', () => {
     const w = wrapWithStderrCapture(placed, files);
     expect(w.shellPath).toBe('/bin/bash');
     expect(w.shellArgs.slice(0, 1)).toEqual(['-c']);
-    expect(w.shellArgs.slice(2)).toEqual(['karst-launch', files.stderr, files.fast, 'sbx', 'run', 'x']);
+    expect(w.shellArgs.slice(2)).toEqual(['karst-launch', files.stderr, files.fast, '', 'sbx', 'run', 'x']);
     expect(w.cwd).toBe('/w');
     expect(w.env).toEqual({ A: '1' });
     expect(files.stderr).toContain('7');
+  });
+
+  it('threads optional eventsFile when provided', () => {
+    const files = captureFilesFor('/art', 7, '/art/events.ndjson');
+    const w = wrapWithStderrCapture(placed, files);
+    expect(w.shellArgs.slice(2, 6)).toEqual(['karst-launch', files.stderr, files.fast, '/art/events.ndjson']);
   });
 
   it('always exits 0 so VS Code shows no raw bash crash toast', () => {
@@ -41,9 +47,9 @@ describe('wrapWithStderrCapture', () => {
     expect(script).not.toContain('exit "$rc"');
   });
 
-  it('records the marker for a fast failure and for a mid-session 137 kill', () => {
+  it('records the marker for a fast failure, a pre-SessionStart failure, and for a mid-session 137 kill', () => {
     const script = wrapWithStderrCapture(placed, captureFilesFor('/art', 7)).shellArgs[1]!;
-    expect(script).toContain('if { [ "$rc" -ne 0 ] && [ "$SECONDS" -lt 10 ]; } || [ "$rc" -eq 137 ]; then');
+    expect(script).toContain('if [ "$rc" -ne 0 ] && { [ "$SECONDS" -lt 10 ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q \'"SessionStart"\' "$e" 2>/dev/null; }; }; then');
   });
 
   it('keeps the window and tail constants bounded', () => {

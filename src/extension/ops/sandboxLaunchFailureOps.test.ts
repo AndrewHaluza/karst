@@ -33,11 +33,21 @@ describe('sandboxLaunchFailureOptions', () => {
   });
 
   it('logs, marks the ticket, stores the reason and hints at the host fallback', () => {
-    const { captureDir, warns, notified, marked, opts } = setup();
+    let failureFileExistedWhenMarked = false;
+    let capturePath = '';
+    const marked: number[] = [];
+    const { captureDir, warns, notified, opts } = setup(undefined, {
+      markNotStarted: (id) => {
+        failureFileExistedWhenMarked = existsSync(join(capturePath, LAUNCH_FAILURE_FILE));
+        marked.push(id);
+      },
+    });
+    capturePath = captureDir;
     opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: '--clone is not supported\n' });
     const line = '[session] ticket T704 sandbox launch failed (runner: sbx, exit 1): --clone is not supported';
     expect(warns).toEqual([line]);
     expect(marked).toEqual([4]);
+    expect(failureFileExistedWhenMarked).toBe(true);
     expect(readFileSync(join(captureDir, LAUNCH_FAILURE_FILE), 'utf8')).toBe(`${line}\n`);
     expect(notified[0]).toContain('agentBackends.claude=host');
     expect(notified[0]).toContain('Retry');

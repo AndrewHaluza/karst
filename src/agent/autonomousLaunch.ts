@@ -64,7 +64,7 @@ function opencodeAllowAll(env: Readonly<Record<string, string>>): Record<string,
 export function autonomousLaunch(core: string, runner: Pick<SessionRunner, 'enforcesSandbox'>): AutonomousLaunch {
   if (runner.enforcesSandbox !== true) return PROMPTED;
   if (core === 'claude') return { autonomous: true, args: ['--dangerously-skip-permissions'], env: PROMPTED.env };
-  if (core === 'codex') return { autonomous: true, args: ['--dangerously-bypass-approvals-and-sandbox'], env: PROMPTED.env };
+  if (core === 'codex') return { autonomous: true, args: ['-c', 'approval_policy="never"', '-c', 'sandbox_mode="danger-full-access"'], env: PROMPTED.env };
   if (core === 'opencode' || core === 'opencode2') return { autonomous: true, args: [], env: opencodeAllowAll };
   return PROMPTED;
 }

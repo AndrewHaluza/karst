@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TAIL_BYTES, captureFilesFor, readLaunchFailure, wrapWithStderrCapture } from './launchCapture.js';
 
-const run = (script: string): { status: number | null; stderr: string; dir: string } => {
+const run = (script: string, eventsFile?: string): { status: number | null; stderr: string; dir: string } => {
   const dir = mkdtempSync(join(tmpdir(), 'karst-capture-int-'));
+  const files = captureFilesFor(dir, 9, eventsFile);
   const w = wrapWithStderrCapture(
     { cwd: dir, shellPath: '/bin/sh', shellArgs: ['-c', script], env: {} },
-    captureFilesFor(dir, 9),
+    files,
   );
   const r = spawnSync(w.shellPath, w.shellArgs, { input: '\n', encoding: 'utf8' });
   return { status: r.status, stderr: r.stderr, dir };
@@ -35,6 +36,35 @@ describe('wrapWithStderrCapture (real bash)', () => {
       expect(readLaunchFailure(captureFilesFor(dir, 9))?.exitCode).toBe(137);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  it('records a pre-SessionStart failure even after the fast-fail window when eventsFile lacks SessionStart', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-capture-events-'));
+    const eventsFile = join(dir, 'events.ndjson');
+    writeFileSync(eventsFile, '{"type":"someOtherEvent"}\n');
+    const { status, stderr, dir: runDir } = run('sleep 10.5; echo "sbx boot failed" >&2; exit 1', eventsFile);
+    try {
+      expect(status).toBe(0);
+      expect(stderr).toContain('sbx boot failed');
+      expect(readLaunchFailure(captureFilesFor(runDir, 9, eventsFile))).toEqual({ exitCode: 1, tail: 'sbx boot failed\n' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(runDir, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  it('ignores a non-zero exit after the fast-fail window when SessionStart was written', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-capture-events-'));
+    const eventsFile = join(dir, 'events.ndjson');
+    writeFileSync(eventsFile, '{"type":"SessionStart"}\n');
+    const { status, dir: runDir } = run('sleep 10.5; echo "user exited" >&2; exit 1', eventsFile);
+    try {
+      expect(status).toBe(0);
+      expect(readLaunchFailure(captureFilesFor(runDir, 9, eventsFile))).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(runDir, { recursive: true, force: true });
     }
   }, 20000);
 
