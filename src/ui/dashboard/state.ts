@@ -23,6 +23,7 @@ import { deliverTargets } from '../../workflow/deliverState.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
+import { isFinishedStage } from '../../model/types.js';
 import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.js';
 import { needsUser } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
@@ -286,7 +287,7 @@ export function buildDashboardState(
       glyph: badge.glyph,
       stageClass: stageColorClass(badge.stage),
       blocking: s.blocksParent,
-      done: s.stageCurrent === 'done',
+      done: isFinishedStage(s.stageCurrent),
       autostart: subtaskAutostartPhase(child),
     };
   });

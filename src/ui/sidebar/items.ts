@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../../model/types.js';
 import { ticketLabel, type TicketWithStages } from '../../store/tickets.js';
 import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
@@ -327,7 +328,7 @@ export function filterTickets(
  * is awaiting a merge (amber), never completed.
  */
 export function isDoneTicket(t: TicketWithStages): boolean {
-  return t.stageCurrent === 'done';
+  return isFinishedStage(t.stageCurrent);
 }
 
 /**

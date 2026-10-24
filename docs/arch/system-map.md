@@ -107,6 +107,7 @@ flowchart LR
   approaches --> store
   artifacts --> approaches
   artifacts --> manifest
+  artifacts --> model
   artifacts --> store
   attachments --> store
   buildInfo_ts --> runtimeAssetsRoot_ts

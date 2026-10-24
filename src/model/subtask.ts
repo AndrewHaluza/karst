@@ -17,6 +17,8 @@
  * vscode-free and pure.
  */
 
+import { isFinishedStage } from './types.js';
+
 /** The single-character text marker for sub-task identity in text-only surfaces. */
 export const SUBTASK_TEXT_MARKER = '⊂';
 
@@ -66,7 +68,7 @@ export function subtaskProgress(
   subtasks: readonly { stageCurrent: string | null }[],
 ): SubtaskProgress {
   let done = 0;
-  for (const s of subtasks) if (s.stageCurrent === 'done') done += 1;
+  for (const s of subtasks) if (isFinishedStage(s.stageCurrent)) done += 1;
   return { done, total: subtasks.length };
 }
 
@@ -82,7 +84,7 @@ export function canAddSubtask(parent: {
   archivedAt: string | null;
 }): boolean {
   return (
-    parent.archivedAt === null && parent.stageCurrent !== 'ship' && parent.stageCurrent !== 'done'
+    parent.archivedAt === null && parent.stageCurrent !== 'ship' && !isFinishedStage(parent.stageCurrent)
   );
 }
 
@@ -111,7 +113,7 @@ export function canDetachSubtask(
   return (
     ticket.subtaskParentId !== null &&
     !ticket.blocksParent &&
-    ticket.stageCurrent !== 'done' &&
+    !isFinishedStage(ticket.stageCurrent) &&
     ticket.agentState !== 'running' &&
     openChildren === 0
   );

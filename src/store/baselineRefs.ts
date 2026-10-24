@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../model/types.js';
 import type { Store } from './db.js';
 
 /**
@@ -75,7 +76,7 @@ export function listBaselineDependentsDetailed(
  * is what keeps that wiring intact.
  */
 export function isLiveBaselineDependent(d: BaselineDependent): boolean {
-  return !d.archived && (d.stageCurrent !== 'done' || d.hasRunningService);
+  return !d.archived && (!isFinishedStage(d.stageCurrent) || d.hasRunningService);
 }
 
 /**

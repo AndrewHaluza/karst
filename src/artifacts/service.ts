@@ -4,6 +4,7 @@
  * the logger), so `extension.ts` stays a thin binding.
  */
 
+import { isFinishedStage } from '../model/types.js';
 import { join } from 'node:path';
 
 import { effectiveOutputs } from '../approaches/outputs.js';
@@ -154,7 +155,7 @@ export function createArtifactCaptureService(deps: ArtifactCaptureServiceDeps): 
       const lifecycle = listTicketLifecycle(deps.store, rows.map((w) => w.ticketId));
       const active = rows.filter((w) => {
         const t = lifecycle.get(w.ticketId);
-        return t !== undefined && t.stageCurrent !== 'done' && !t.archived;
+        return t !== undefined && !isFinishedStage(t.stageCurrent) && !t.archived;
       });
       const targets = active.map((w) => {
         const full = listWorktreesByTicket(deps.store, w.ticketId).find((x) => x.path === w.path);

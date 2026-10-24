@@ -77,6 +77,17 @@ export const STAGE_KEYS: readonly StageKey[] = [
 export const ALL_STAGE_KEYS: readonly StageKey[] = [...STAGE_KEYS, 'closed'];
 
 /**
+ * Whether a stored `stage_current` has no more work: `done` (delivered) or
+ * `closed` (resolved outside karst). Takes the raw stored string, which may be
+ * null or from another schema. Use for "is this ticket over?" decisions; keep
+ * `=== 'done'` where the meaning is "delivered" (follow-ups, done-entry side
+ * effects, the auto-archive clock).
+ */
+export function isFinishedStage(stage: string | null | undefined): boolean {
+  return stage === 'done' || stage === 'closed';
+}
+
+/**
  * Why karst could not ask a stage's question. Distinct from a `failed` verdict:
  * `failed` means the code is wrong and an agent can act; a blocker is
  * environmental — a human frees the port, installs the binary, fixes the config.
