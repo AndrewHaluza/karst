@@ -7,6 +7,10 @@
  * Stage identity — the graph nodes (§11). `fetch` is NOT a runtime stage in MVP
  * (decision C1): tickets are created manually and seed directly at `scope`.
  * When provider fetch lands post-MVP, prepend `fetch`.
+ *
+ * `closed` is the one key that is NOT in `STAGE_KEYS`: it is an operator exit
+ * (the work was resolved outside karst), entered only by `closeTicket`, never by
+ * a verdict, and never seeded or drawn as a rail step.
  */
 export type StageKey =
   | 'scope'
@@ -15,7 +19,8 @@ export type StageKey =
   | 'review'
   | 'fix'
   | 'ship'
-  | 'done';
+  | 'done'
+  | 'closed';
 
 /**
  * Per-stage lifecycle status (§6 stages.status).
@@ -67,6 +72,9 @@ export const STAGE_KEYS: readonly StageKey[] = [
   'ship',
   'done',
 ] as const;
+
+/** Every key a stored `stage_current` may hold: the rail plus the `closed` exit. */
+export const ALL_STAGE_KEYS: readonly StageKey[] = [...STAGE_KEYS, 'closed'];
 
 /**
  * Why karst could not ask a stage's question. Distinct from a `failed` verdict:

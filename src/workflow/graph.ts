@@ -46,6 +46,8 @@ export const STAGE_GRAPH: Readonly<Record<StageKey, StageEdges>> = {
   fix: { passed: 'uat' }, // revalidate: every fix re-enters uat, whichever gate failed
   ship: { passed: 'done' },
   done: {},
+  // Terminal, but no verdict edge leads here: only `closeTicket` enters it.
+  closed: {},
 };
 
 /**
