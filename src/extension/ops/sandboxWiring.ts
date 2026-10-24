@@ -5,6 +5,8 @@ import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
 import { parseDbTimeMs } from '../../doctor/applyFixes.js';
 import { STUCK_IDLE_MINUTES } from '../../doctor/stuckCheck.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { resumeBlockedStage } from '../../workflow/stageResume.js';
 import { getTicket, listTickets, setSessionId } from '../../store/tickets.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { backfillPlacement, getPlacement, recordPlacement, type TicketPlacement } from '../../store/placement.js';
@@ -58,6 +60,8 @@ export interface SandboxWiringInput {
   readonly launchIdFor?: (ticketId: number) => string | undefined;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
   readonly reopen?: (ticketId: number) => Promise<void>;
+  /** Drives the ticket on after a successful Stash & update cleared its parked `sandbox-sync` block. */
+  readonly redrive?: (ticketId: number) => void;
 }
 
 /** arch:AC-32 lifecycle bindings for `extension.ts`: only with a sandbox backend, only this window's tickets. */
@@ -185,13 +189,13 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
   };
   /** Both directions (F8/F12): before gates, and before a session resumes in an existing sandbox. Dirty clone or divergence = refused. */
-  const ensureInSync = async (ticketId: number, refresh = true) => {
+  const ensureInSync = async (ticketId: number, refresh = true, allowDirtyClone = false) => {
     if (!w.backendOn()) return { ok: true as const };
     const { t, projectRoot } = await manual(ticketId);
     return ensureSandboxInSync({
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
       ...syncTrack,
-    }, t, { refresh });
+    }, t, { refresh, allowDirtyClone });
   };
   const stopTicket = async (ticketId: number): Promise<void> => {
     const { d, t } = await manualDeps(ticketId);
@@ -236,6 +240,10 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const { t, projectRoot } = await manual(ticketId);
       const r = await stashSandboxAndUpdate({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
       if (!r.ok) await w.notify.error(`Karst: ${t.ticketLabel} sandbox not updated: ${r.reason}`);
+      else {
+        for (const k of ['uat', 'review'] as const) if (stageBlock(w.store, ticketId, k)?.kind === 'sandbox-sync') resumeBlockedStage(w.store, ticketId, ticketId, k);
+        w.redrive?.(ticketId);
+      }
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {

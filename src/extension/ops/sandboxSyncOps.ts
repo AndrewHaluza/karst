@@ -16,7 +16,7 @@ import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxProbe, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
-import { stashMessage } from '../../agent/cloneRefresh.js';
+import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
@@ -237,7 +237,7 @@ export function ensureSandboxSynced(deps: SandboxSyncDeps, target: SandboxSyncTa
  * agent (F8/F12): sandbox → host (ff-only), then host → sandbox. A dirty clone
  * or divergence is a blocker (`ok:false`), never an overwrite.
  */
-export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean } = {}): Promise<EnsureSyncResult> {
+export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean; readonly allowDirtyClone?: boolean } = {}): Promise<EnsureSyncResult> {
   return serialised(target.ticketId, async () => {
     const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
     const probe = runner ? await probeOf(runner) : undefined;
@@ -247,6 +247,8 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     if (!runner.refresh || !target.worktree?.branch) return synced;
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
+      // Opening a session: uncommitted clone work with nothing to bring in is the user's own to continue, not a blocker.
+      if (!refreshed.ok && opts.allowDirtyClone && refreshed.reason.startsWith(DIRTY_NOT_BEHIND)) return { ok: true };
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };

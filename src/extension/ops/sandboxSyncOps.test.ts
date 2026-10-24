@@ -591,6 +591,13 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
       expect(r).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('sandbox has uncommitted work and the host is ahead by 2 commit(s)') });
       expect(proc.calls.some((c) => c.args.some((a) => a.includes('stash push')))).toBe(false);
     });
+    it('allowDirtyClone: uncommitted work with the host not ahead lets a session open; the host ahead still blocks', async () => {
+      const notAhead = { code: 3, stdout: 'karst-host-ahead 0\n M a\n' };
+      expect(await ensureSandboxInSync(dep(bundled({}, notAhead)), target)).toMatchObject({ ok: false });
+      await expect(ensureSandboxInSync(dep(bundled({}, notAhead)), target, { allowDirtyClone: true })).resolves.toEqual({ ok: true });
+      const ahead = bundled(BEHIND, { code: 3, stdout: 'karst-host-ahead 2\n M a\n' });
+      expect(await ensureSandboxInSync(dep(ahead), target, { allowDirtyClone: true })).toMatchObject({ ok: false });
+    });
     it('Stash and update: stashes in the sandbox, refreshes, returns the stash name', async () => {
       const proc = bundled(BEHIND, { code: 0 });
       const out = await stashSandboxAndUpdate(dep(proc), target, new Date('2026-10-21T10:00:00.000Z'));
