@@ -256,14 +256,14 @@ describe('posting controls', () => {
 
   it('post every toolbar handoff', async () => {
     const h = await mount(base);
-    for (const act of ['create', 'plan-create', 'open-resources', 'open-token-usage', 'open-settings']) {
+    for (const act of ['open-resources', 'open-token-usage', 'open-settings']) {
       await h.click(`.toolbar [data-act="${act}"]`);
     }
     expect(h.posted.filter((m) => m.type !== 'request-state').map((m) => m.type)).toEqual([
-      'create', 'plan-create', 'open-resources', 'open-token-usage', 'open-settings',
+      'open-resources', 'open-token-usage', 'open-settings',
     ]);
     expect(h.queryAll('.toolbar [aria-label]').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Create ticket', 'Start planning session', 'Open resource monitor', 'Open token usage', 'Open settings',
+      'Open resource monitor', 'Open token usage', 'Open settings',
     ]);
   });
 
@@ -335,11 +335,14 @@ describe('context window', () => {
     expect(h.query('#ctxMenu.open')).toBeNull();
   });
 
-  it('closes on a state push, on a row expand and on a facet click', async () => {
+  it('closes on a state push, on a row expand and on a preset choice', async () => {
     for (const close of [
       (h: RenderedSidebar) => h.receive({ type: 'state', state: stateWith({ current: [row(1), row(2)] }) }),
       (h: RenderedSidebar) => h.click('[data-toggle="910002"]'),
-      (h: RenderedSidebar) => h.click('[data-facet="running"]'),
+      async (h: RenderedSidebar) => {
+        await h.click('[data-filter-menu]');
+        await h.click('[data-preset="running"]');
+      },
     ]) {
       const { h } = await opened();
       await close(h);
@@ -377,17 +380,12 @@ describe('Older Completed disclosure', () => {
 });
 
 describe('facets and views', () => {
-  it('lights the selected chips and shows the host counts', async () => {
+  it('shows no checked preset (and the dot) for a selection no preset names', async () => {
     const h = await mount(fixture('multi-facet'));
-    const pressed = h.queryAll('[data-facet][aria-pressed="true"]').map((c) => c.getAttribute('data-facet'));
-    expect(pressed).toEqual(['running', 'failed']);
-    expect(h.queryAll('[data-facet]').map((c) => c.textContent)).toEqual(['All 4', 'In progress 2', 'Needs you 0', 'Blocked 2', 'Done 0', 'Archived 0']);
-  });
-
-  it('posts only WHICH chip was clicked', async () => {
-    const h = await mount(base);
-    await h.click('[data-facet="input"]');
-    expect(h.posted.at(-1)).toEqual({ type: 'toggle-facet', facet: 'input' });
+    expect(h.query('[data-filter-dot]')).not.toBeNull();
+    expect(h.query('[data-filter-menu]')!.getAttribute('aria-label')).toBe('Filter tickets: custom');
+    await h.click('[data-filter-menu]');
+    expect(h.queryAll('[role="menuitemradio"][aria-checked="true"]')).toHaveLength(0);
   });
 
   it('renders the Done facet as one newest-first list with a Done header and no history control', async () => {
@@ -400,7 +398,7 @@ describe('facets and views', () => {
   it('keeps the section headers truthful: only sections that render, with their counts', async () => {
     const h = await mount(base);
     expect(h.queryAll('.sec').map((s) => text(s).replace(/\s+/g, ' '))).toEqual([
-      'Planning· 2', 'Current· 3', 'Awaiting review· 1', 'Recently done· 1',
+      'Current· 3', 'Awaiting review· 1', 'Recently done· 1',
     ]);
   });
 });
@@ -430,7 +428,7 @@ describe('search box', () => {
 describe('host feed', () => {
   it('remembers the last snapshot with setState so a re-resolved view repaints at once', async () => {
     const h = await mount(base);
-    expect(h.handle.state).toEqual(base);
+    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, tickets: false }, showArchivedPlans: false } });
   });
 
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {

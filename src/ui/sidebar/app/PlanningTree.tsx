@@ -7,10 +7,9 @@
  */
 import { useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import type { PlanningRow } from '../state.js';
-import { ActButton } from './action.js';
 import { Icon } from './Icon.js';
 import { PlanControl, PlanDraft } from './PlanDraft.js';
-import { actionsForNode, planIsOpen, planStatus, sessionActions } from './planModel.js';
+import { acceptedOf, actionsForNode, planIsOpen, planStatus, searchRevealsAccepted, sessionActions, shownDrafts } from './planModel.js';
 import { ds } from './runtime.js';
 import { useSidebar } from './SidebarContext.js';
 
@@ -18,13 +17,44 @@ const itemsOf = (root: HTMLElement): HTMLElement[] => [...root.querySelectorAll<
 const ownRow = (item: HTMLElement): Element | null => item.querySelector(':scope > .pt-row');
 const primaryOf = (item: HTMLElement): HTMLElement | null => ownRow(item)?.querySelector<HTMLElement>('[data-primary]') ?? null;
 
+/** Accepted drafts show when the user revealed them or the search matches one. */
+function revealedFor(plan: PlanningRow, acceptedOpen: ReadonlySet<number>, query: string): boolean {
+  return acceptedOpen.has(plan.sessionId) || searchRevealsAccepted(plan, query);
+}
+
+/** The "N accepted ▸" disclosure on the session row. Its own tab stop: a labelled button, not a tree action. */
+function AcceptedToggle({ plan, revealed }: { readonly plan: PlanningRow; readonly revealed: boolean }) {
+  const { toggleAccepted, setPlanOpen } = useSidebar();
+  const n = acceptedOf(plan).length;
+  if (!n) return null;
+  const noun = n === 1 ? '1 accepted draft' : `${n} accepted drafts`;
+  return (
+    <button
+      type="button"
+      className="pt-accepted-toggle"
+      data-accepted-toggle={plan.sessionId}
+      aria-expanded={revealed}
+      aria-label={`${revealed ? 'Hide' : 'Show'} ${noun}`}
+      title={`${revealed ? 'Hide' : 'Show'} ${noun}`}
+      onClick={() => {
+        toggleAccepted(plan.sessionId);
+        if (!revealed) setPlanOpen(plan.sessionId, true);
+      }}
+    >
+      {n} accepted {revealed ? '▾' : '▸'}
+    </button>
+  );
+}
+
 function Session({ plan, stop }: { readonly plan: PlanningRow; readonly stop: string | null }) {
-  const { planOpen } = useSidebar();
-  const drafts = plan.proposals || [];
+  const { planOpen, acceptedOpen, state } = useSidebar();
+  const all = plan.proposals || [];
+  const revealed = revealedFor(plan, acceptedOpen, state.filter || '');
+  const drafts = shownDrafts(plan, revealed);
   const st = planStatus(plan);
-  const open = planIsOpen(plan, planOpen);
+  const open = planIsOpen(plan, planOpen, searchRevealsAccepted(plan, state.filter || ''));
   const agent = ds.agentLabel(plan.agent.provider) + (plan.agent.model ? ` · ${plan.agent.model}` : '');
-  const count = drafts.length === 1 ? '1 draft' : `${drafts.length} drafts`;
+  const count = all.length === 1 ? '1 draft' : `${all.length} drafts`;
   // The host-built `P<id>` the terminal tab carries, so a session is the same
   // identity in the sidebar and in the terminal list.
   const label = `${plan.idLabel} ${plan.title}, ${st.word}, ${agent}, ${count}`;
@@ -43,7 +73,8 @@ function Session({ plan, stop }: { readonly plan: PlanningRow; readonly stop: st
         </span>
         <span className={`pt-dot pt-dot--${st.tone}`} aria-hidden="true" />
         <span className="pt-label">{plan.idLabel} {plan.title}</span>
-        {drafts.length ? <span className="pt-count" aria-hidden="true">{drafts.length}</span> : null}
+        {all.length ? <span className="pt-count" aria-hidden="true">{all.length}</span> : null}
+        <AcceptedToggle plan={plan} revealed={revealed} />
         <span className="pt-actions">
           {sessionActions(plan).map((a) => <PlanControl key={a.key} action={a} />)}
         </span>
@@ -60,14 +91,17 @@ function Session({ plan, stop }: { readonly plan: PlanningRow; readonly stop: st
 }
 
 export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[] }) {
-  const { planOpen, planFocus, setPlanFocus, setPlanOpen, collapseAllPlans, openMenu } = useSidebar();
+  const { planOpen, planFocus, setPlanFocus, setPlanOpen, openMenu, acceptedOpen, toggleAccepted, state } = useSidebar();
+  const query = state.filter || '';
+  const shownOf = (p: PlanningRow) => shownDrafts(p, revealedFor(p, acceptedOpen, query));
+  const openOf = (p: PlanningRow) => planIsOpen(p, planOpen, searchRevealsAccepted(p, query));
   const tree = useRef<HTMLDivElement | null>(null);
   const reveal = useRef<string | null>(null);
 
   // The tab stop is the focused node when it is still on screen, else the first item.
   const nodes = plans.flatMap((p) => [
     `s${p.sessionId}`,
-    ...((p.proposals || []).length && planIsOpen(p, planOpen) ? p.proposals.map((d) => `d${Number(d.id)}`) : []),
+    ...(shownOf(p).length && openOf(p) ? shownOf(p).map((d) => `d${Number(d.id)}`) : []),
   ]);
   const stop = planFocus !== null && nodes.includes(planFocus) ? planFocus : (nodes[0] ?? null);
 
@@ -80,7 +114,7 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
   const setExpanded = (item: HTMLElement, open: boolean): void => {
     const id = Number((item.dataset.node ?? '').slice(1));
     const p = plans.find((x) => x.sessionId === id);
-    if (!p || !(p.proposals || []).length) return;
+    if (!p || !shownOf(p).length) return;
     setPlanOpen(p.sessionId, open);
     focusItem(item);
   };
@@ -104,6 +138,7 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
     }
     const owner = plans.find((p) => (p.proposals || []).some((d) => Number(d.id) === id));
     if (!owner) return;
+    if (!shownOf(owner).some((d) => Number(d.id) === id)) toggleAccepted(owner.sessionId);
     reveal.current = node;
     setPlanOpen(owner.sessionId, true);
     setPlanFocus(node);
@@ -176,25 +211,6 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
 
   return (
     <>
-      <div className="sec pt-sec" role="presentation">
-        <span className="sec-name">Planning</span>
-        <span className="sec-n">· {plans.length}</span>
-        <span className="pt-sec-acts">
-          <ActButton spec={{ act: 'plan-create' }} className="k-iconbtn" aria-label="Start planning session" title="Start planning session">
-            <Icon name="plus" />
-          </ActButton>
-          <button
-            type="button"
-            className="k-iconbtn"
-            data-plan-collapse-all="1"
-            aria-label="Collapse all planning sessions"
-            title="Collapse all"
-            onClick={collapseAllPlans}
-          >
-            <Icon name="chevrons-up" />
-          </button>
-        </span>
-      </div>
       <div className="ptree" role="tree" aria-label="Planning sessions" ref={tree} onClick={onClick} onContextMenu={onContextMenu} onKeyDown={onKeyDown}>
         {plans.map((p) => (
           <Session key={p.sessionId} plan={p} stop={stop} />

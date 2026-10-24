@@ -1,6 +1,6 @@
 # Sidebar: Planning/Tickets panes, filter presets, draft collapse
 
-Status: agreed in brainstorm, not started. Two changes, in this order.
+Status: step 1 done (React migration). Step 2 implemented (panes, presets, draft collapse, auto-archive); visual baselines still need re-recording on a Docker host (`npm run -s test:visual:docker:update`) and user approval of the screenshots. Two changes, in this order.
 
 ## Step 1 — Migrate the sidebar to React (no behaviour change)
 

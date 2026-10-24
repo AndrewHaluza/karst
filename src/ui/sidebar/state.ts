@@ -210,7 +210,7 @@ export interface SidebarState {
    * list, exactly as before the sectioning.
    */
   rows: TicketRow[];
-  /** Planning sessions, newest first: live ones in the All view, archived ones under the Archived facet; empty otherwise. */
+  /** Planning sessions, newest first: live and archived (the Planning pane toggles archived), whatever the ticket facet. */
   planning: PlanningRow[];
 }
 
@@ -397,7 +397,7 @@ export function buildSidebarState(
       sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
       done: enrich(filterTickets(active.filter(isDoneTicket).sort(byCompletedAtDesc), query)),
       rows: [],
-      planning: [],
+      planning: planningRows(store, opts.projectId, query, opts.planningLive),
     };
   }
 
@@ -408,7 +408,7 @@ export function buildSidebarState(
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
-    planning: showArchived ? planningRows(store, opts.projectId, query, opts.planningLive, true) : [],
+    planning: planningRows(store, opts.projectId, query, opts.planningLive),
   };
 }
 
@@ -434,15 +434,14 @@ function planningRows(
   projectId: number | undefined,
   query: string,
   isLive: ((sessionId: number) => boolean) | undefined,
-  archived = false,
 ): PlanningRow[] {
   if (projectId === undefined) return [];
   const needle = query.trim().toLowerCase();
   const drafts = listVisibleProposals(store, projectId);
   const byId = new Map(drafts.map((p) => [p.id, p]));
-  // The All view lists live sessions; the Archived facet lists ONLY archived ones.
-  return listPlanningSessions(store, projectId, { includeArchived: archived })
-    .filter((s) => (s.status === 'archived') === archived)
+  // Planning is independent of the ticket presets: live and archived sessions are
+  // both returned and the view decides whether archived ones show (its toggle).
+  return listPlanningSessions(store, projectId, { includeArchived: true })
     .filter(
       (s) =>
         needle === '' ||

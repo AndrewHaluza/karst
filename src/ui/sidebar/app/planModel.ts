@@ -23,10 +23,23 @@ export function planStatus(p: PlanningRow): PlanStatus {
   return { tone: 'pending', word: 'terminal not live' };
 }
 
-/** A session with pending drafts starts expanded until the user chooses otherwise. */
-export function planIsOpen(p: PlanningRow, chosen: ReadonlyMap<number, boolean>): boolean {
+export const acceptedOf = (p: PlanningRow): PlanningProposalRow[] => (p.proposals || []).filter((d) => d.status === 'accepted');
+
+/** Whether a search query matches one of the session's ACCEPTED drafts (so they are revealed, not left behind the toggle). */
+export function searchRevealsAccepted(p: PlanningRow, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return needle !== '' && acceptedOf(p).some((d) => `${d.idLabel} ${d.title}`.toLowerCase().includes(needle));
+}
+
+/** Pending drafts always; accepted ones only once the user (or a matching search) reveals them. */
+export function shownDrafts(p: PlanningRow, revealed: boolean): PlanningProposalRow[] {
+  return (p.proposals || []).filter((d) => d.status !== 'accepted' || revealed);
+}
+
+/** A session with pending drafts (or a search-revealed accepted one) starts expanded until the user chooses otherwise. */
+export function planIsOpen(p: PlanningRow, chosen: ReadonlyMap<number, boolean>, searchRevealed = false): boolean {
   const c = chosen.get(p.sessionId);
-  return c !== undefined ? c : pendingOf(p).length > 0;
+  return c !== undefined ? c : pendingOf(p).length > 0 || searchRevealed;
 }
 
 /** One action of a tree item. `link` is the text link on an accepted draft; the rest are icon buttons. */

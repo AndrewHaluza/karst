@@ -2,18 +2,18 @@
  * The scrolling list — the one thing that scrolls (UI-R38). Which shape it takes
  * follows the facet selection:
  *
- * - All: the Planning tree, then Current / Awaiting review / Recently done, and
- *   Older Completed behind a disclosure. Empty sections are omitted entirely.
+ * - All: Current / Awaiting review / Recently done, and Older Completed behind
+ *   a disclosure. Empty sections are omitted entirely.
  * - Done: every completed ticket at once, newest first, no hierarchy.
- * - Anything else (Archived, derived-status unions): the flat filtered list,
- *   with archived planning sessions above it.
+ * - Anything else (Archived, derived-status unions): the flat filtered list.
+ *
+ * Planning sessions are not here: they have their own pane.
  */
 import type { ReactNode } from 'react';
 import type { TicketRow as Row } from '../state.js';
 import { ActButton } from './action.js';
 import { visibleRows } from './format.js';
 import { Icon } from './Icon.js';
-import { PlanningTree } from './PlanningTree.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketRow } from './TicketRow.js';
 
@@ -74,8 +74,7 @@ function AllView() {
   const awaiting = visibleRows((secs && secs.awaitingReview) || [], c);
   const recent = visibleRows((secs && secs.recentlyDone) || [], c);
   const older = visibleRows((secs && secs.olderDone) || [], c);
-  const plans = state.planning || [];
-  if (!plans.length && !current.length && !awaiting.length && !recent.length && !older.length) return <Empty view="all" />;
+  if (!current.length && !awaiting.length && !recent.length && !older.length) return <Empty view="all" />;
   const query = (state.filter || '').trim();
   // Auto-reveal: a query that matches Older Completed expands the section so the
   // match is visible, but that is NOT the user's explicit choice — clearing the
@@ -83,7 +82,6 @@ function AllView() {
   const expanded = hist.user ? hist.open : query !== '' && older.length > 0;
   return (
     <>
-      {plans.length ? <PlanningTree plans={plans} /> : null}
       {current.length ? <><Section name="Current" count={current.length} /><Rows rows={current} /></> : null}
       {awaiting.length ? <><Section name="Awaiting review" count={awaiting.length} /><Rows rows={awaiting} /></> : null}
       {recent.length ? <><Section name="Recently done" count={recent.length} /><Rows rows={recent} compact time /></> : null}
@@ -107,9 +105,8 @@ function DoneView() {
 function FlatView() {
   const { state, collapsedSubtrees } = useSidebar();
   const rows = visibleRows(state.rows || [], collapsedSubtrees);
-  const plans = state.planning || [];
-  if (!rows.length && !plans.length) return <Empty view={(state.facets || []).includes('archived') ? 'archived' : 'all'} />;
-  return <>{plans.length ? <PlanningTree plans={plans} /> : null}<Rows rows={rows} /></>;
+  if (!rows.length) return <Empty view={(state.facets || []).includes('archived') ? 'archived' : 'all'} />;
+  return <Rows rows={rows} />;
 }
 
 export function TicketList() {

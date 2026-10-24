@@ -10,15 +10,16 @@ const stateOf = (scenario: string) => sidebarRenderFixtures().find((f) => f.scen
 const withPlans = (planning: PlanningRow[]): SidebarState => ({ ...stateOf('empty'), planning });
 
 const session = (h: RenderedSidebar, id: number) => h.query<HTMLElement>(`[role="treeitem"][data-node="s${id}"]`)!;
+const reveal = (h: RenderedSidebar, sessionId: number) => h.click(`[data-node="s${sessionId}"] [data-accepted-toggle]`);
 const draft = (h: RenderedSidebar, id: number) => h.query<HTMLElement>(`[role="treeitem"][data-node="d${id}"]`)!;
 
 describe('sidebar planning tree', () => {
   it('renders a Planning tree above the ticket sections', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
-    const names = h.queryAll('.sec-name').map((n) => n.textContent);
-    expect(names[0]).toBe('Planning');
-    expect(names).toContain('Current');
+    expect(h.queryAll('.pane-title').map((n) => n.textContent)).toEqual(['Planning', 'Tickets']);
+    expect(h.queryAll('.sec-name').map((n) => n.textContent)).toContain('Current');
+    expect(h.query('[data-pane="planning"] [role="tree"]')).not.toBeNull();
     const tree = h.query('[role="tree"]')!;
     expect(tree.getAttribute('aria-label')).toBe('Planning sessions');
     expect(h.queryAll('[role="treeitem"][aria-level="1"]')).toHaveLength(2);
@@ -72,7 +73,8 @@ describe('sidebar planning tree', () => {
       fixturePlanningRow(3),
     ]) });
     expect(session(h, 1).getAttribute('aria-expanded')).toBe('true');
-    expect(session(h, 2).getAttribute('aria-expanded')).toBe('false');
+    // Only accepted drafts: nothing to expand until the accepted toggle reveals them.
+    expect(session(h, 2).hasAttribute('aria-expanded')).toBe(false);
     expect(draft(h, 21)).toBeNull();
     expect(session(h, 3).hasAttribute('aria-expanded')).toBe(false);
   });
@@ -105,19 +107,19 @@ describe('sidebar planning tree', () => {
     expect(h.query('[data-act="plan-open"][data-plan="90"]')!.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('section header carries the count, a start-session + and Collapse all', async () => {
+  it('pane header carries the count, a start-session + and Collapse all', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
-    const sec = h.query('.sec.pt-sec')!;
-    expect(sec.querySelector('.sec-n')!.textContent).toContain('2');
-    expect(sec.querySelector('[data-act="plan-create"]')!.getAttribute('aria-label')).toBe('Start planning session');
-    await h.click('.pt-sec [data-plan-collapse-all]');
+    const head = h.query('[data-pane="planning"] .pane-head')!;
+    expect(head.querySelector('.pane-count')!.textContent).toBe('2');
+    expect(head.querySelector('[data-act="plan-create"]')!.getAttribute('aria-label')).toBe('Start planning session');
+    await h.click('[data-pane="planning"] [data-plan-collapse-all]');
     expect(session(h, 90).getAttribute('aria-expanded')).toBe('false');
-    await h.click('.pt-sec [data-act="plan-create"]');
+    await h.click('[data-pane="planning"] [data-act="plan-create"]');
     expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-create' }));
   });
 
-  it('has a named toolbar control to start a planning session', async () => {
+  it('has a named pane control to start a planning session', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('empty') });
     const btn = h.query('[data-act="plan-create"]')!;
@@ -138,9 +140,11 @@ describe('sidebar planning tree', () => {
     expect(h.query('[data-act="plan-archive"][data-plan="91"]')!.getAttribute('aria-label')).toBe(`Archive ${HOSTILE}`);
   });
 
-  it('lists archived sessions under the Archived facet in the same tree, with Unarchive', async () => {
+  it('lists archived sessions in the same tree once shown, with Unarchive', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('archived-facet') });
+    expect(h.query('[role="tree"] [data-node="s77"]')).toBeNull();
+    await h.click('[data-show-archived]');
     expect(h.query('[role="tree"] [data-node="s77"]')).not.toBeNull();
     expect(h.query('[data-act="plan-archive"]')).toBeNull();
     const btn = h.query('[data-act="plan-unarchive"][data-plan="77"]')!;
@@ -152,6 +156,7 @@ describe('sidebar planning tree', () => {
   it('announces archive and unarchive through the action-result live region', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('archived-facet') });
+    await h.click('[data-show-archived]');
     await h.click('[data-act="plan-unarchive"][data-plan="77"]');
     const sent = h.posted.find((m) => (m as { type: string }).type === 'plan-unarchive') as { requestId: string };
     await h.receive({ type: 'action-result', requestId: sent.requestId, ok: true });
@@ -222,6 +227,7 @@ describe('sidebar planning drafts', () => {
   it('an accepted draft shows its #id, stays muted and struck through, and links to its ticket', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await reveal(h, 90);
     const d = draft(h, 503);
     expect(d.classList.contains('pt-accepted')).toBe(true);
     expect(d.getAttribute('aria-label')).toBe('D503 Split auth module, accepted as ticket T3');
@@ -267,6 +273,7 @@ describe('sidebar planning drafts', () => {
     it('ticket and done chips open the ticket dashboard; they are shown on accepted cards too', async () => {
       const h = await renderSidebarApp();
       await withDeps(h);
+      await reveal(h, 17);
       const [, ticket, done] = chips(h, 95);
       expect(ticket!.dataset.act).toBe('open-dashboard');
       expect(ticket!.dataset.id).toBe('605');
@@ -309,6 +316,8 @@ describe('sidebar planning drafts', () => {
     expect(warn.textContent).toBe('D9 was discarded');
     expect(warn.getAttribute('title')).toBe('D9 was discarded');
     // An accepted card never warns — its block is already the ticket relation.
+    expect(draft(h, 12)).toBeNull();
+    await reveal(h, 1);
     expect(draft(h, 12).querySelector('.pt-deps--warn')).toBeNull();
     await h.receive({ type: 'state', state: withPlans([
       fixturePlanningRow(1, { proposals: [

@@ -12,10 +12,13 @@ import type { SidebarState } from '../state.js';
 /** Every posting control stamps a `requestId` the host echoes in `action-result`. */
 export type OutboundMessage = SidebarWebviewMessage & { requestId?: string };
 
+/** What the webview state API holds: the last host snapshot plus the pure view state (`view`, never posted). */
+export type PersistedState = SidebarState & { view?: unknown };
+
 export interface SidebarHostBridge {
   post(message: OutboundMessage): void;
-  getState(): SidebarState | undefined;
-  setState(state: SidebarState): void;
+  getState(): PersistedState | undefined;
+  setState(state: PersistedState): void;
   /** Subscribe to host pushes; returns the unsubscribe function. */
   subscribe(listener: (message: SidebarHostMessage) => void): () => void;
 }
@@ -37,7 +40,7 @@ export function pageHostBridge(scope: PageGlobals = globalThis as PageGlobals): 
   const post = (message: OutboundMessage): void => api.postMessage(message);
   return {
     post,
-    getState: () => (api.getState() as SidebarState | null | undefined) ?? undefined,
+    getState: () => (api.getState() as PersistedState | null | undefined) ?? undefined,
     setState: (state) => api.setState(state),
     subscribe: (listener) => {
       const unsub = scope.__karstSubscribe ? scope.__karstSubscribe(listener) : () => {};

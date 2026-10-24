@@ -9,13 +9,14 @@
  * single posting path (`fire`) leaves from here.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import type { FacetKey } from '../facets.js';
 import type { PlanningRow, SidebarState } from '../state.js';
 import type { ActionSpec } from './action.js';
 import { allRows, EMPTY_STATE } from './format.js';
 import type { OutboundMessage, SidebarHostBridge } from './hostBridge.js';
 import { PlanNotes } from './planNotes.js';
+import { activePreset, presetToggles, type PresetId, PRESETS } from './presets.js';
 import { ds } from './runtime.js';
+import { restoreView, type PaneKey, type ViewState } from './viewState.js';
 
 /** One entry of the shared context window. */
 export interface MenuItem {
@@ -38,7 +39,16 @@ export interface SidebarContextValue {
   readonly state: SidebarState;
   readonly post: (message: OutboundMessage) => void;
   readonly fire: (spec: ActionSpec, el: HTMLElement, e?: MouseEvent) => void;
-  readonly toggleFacet: (facet: FacetKey) => void;
+  /** Apply a Tickets preset through the existing `toggle-facet` messages. */
+  readonly applyPreset: (id: PresetId) => void;
+
+  /** Pure view state (collapsed panes, archived planning toggle): persisted in the webview state, never posted. */
+  readonly view: ViewState;
+  readonly togglePane: (pane: PaneKey) => void;
+  readonly toggleShowArchivedPlans: () => void;
+  /** Sessions whose accepted drafts the user has revealed. */
+  readonly acceptedOpen: ReadonlySet<number>;
+  readonly toggleAccepted: (sessionId: number) => void;
 
   readonly openIds: ReadonlySet<number>;
   readonly toggleOpen: (ticketId: number) => void;
@@ -81,6 +91,10 @@ function toggled<T>(set: ReadonlySet<T>, value: T): ReadonlySet<T> {
 
 export function SidebarProvider({ bridge, children }: { readonly bridge: SidebarHostBridge; readonly children: ReactNode }) {
   const [state, setState] = useState<SidebarState>(() => restore(bridge.getState()));
+  const [view, setView] = useState<ViewState>(() => restoreView(bridge.getState()?.view));
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [acceptedOpen, setAcceptedOpen] = useState<ReadonlySet<number>>(new Set());
   const stateRef = useRef(state);
   const notes = useRef(new PlanNotes());
 
@@ -119,7 +133,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
         } else if (msg.type === 'state') {
           const next = msg.state;
           stateRef.current = next;
-          bridge.setState(next);
+          bridge.setState({ ...next, view: viewRef.current });
           setState(next);
           // Prune expanded ids that no longer exist so the set can't grow unbounded.
           const ids = new Set(allRows(next).map((r) => r.ticketId));
@@ -163,14 +177,29 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
     [post],
   );
 
-  const toggleFacet = useCallback(
-    (facet: FacetKey) => {
-      // Report only WHICH chip was clicked; the host owns the toggle/union logic.
+  const applyPreset = useCallback(
+    (id: PresetId) => {
+      const preset = PRESETS.find((p) => p.id === id);
+      if (!preset || activePreset(stateRef.current.facets || ['all'])?.id === id) return;
       closeMenu(false);
-      post({ type: 'toggle-facet', facet });
+      for (const facet of presetToggles(preset)) post({ type: 'toggle-facet', facet });
     },
     [closeMenu, post],
   );
+
+  // View state is persisted with the last snapshot so a reloaded webview restores it.
+  useEffect(() => {
+    bridge.setState({ ...stateRef.current, view });
+  }, [bridge, view]);
+  const togglePane = useCallback((pane: PaneKey) => {
+    setView((v) => ({ ...v, collapsed: { ...v.collapsed, [pane]: !v.collapsed[pane] } }));
+  }, []);
+  const toggleShowArchivedPlans = useCallback(() => {
+    setView((v) => ({ ...v, showArchivedPlans: !v.showArchivedPlans }));
+  }, []);
+  const toggleAccepted = useCallback((sessionId: number) => {
+    setAcceptedOpen((prev) => toggled(prev, sessionId));
+  }, []);
 
   const toggleOpen = useCallback(
     (id: number) => {
@@ -205,12 +234,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      state, post, fire, toggleFacet,
+      state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, acceptedOpen, toggleAccepted,
       openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, post, fire, toggleFacet, openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, acceptedOpen, toggleAccepted, openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -22,11 +22,12 @@ describe('sidebar render', () => {
         expect(h.handle.errors).toEqual([]);
       });
 
-      it('renders facet chips matching the counts (was: renders one chip per facet)', async () => {
+      it('renders both pane headers and the filter funnel, with no facet chips', async () => {
         const h = await renderSidebarApp();
         await h.receive({ type: 'state', state: fixture.state });
-        const chips = h.queryAll('.chips .k-chip, .facets .k-chip, [data-facet]');
-        expect(chips.length).toBeGreaterThan(0);
+        expect(h.queryAll('[data-pane] .pane-head').length).toBe(2);
+        expect(h.query('[data-pane="tickets"] [data-filter-menu]')).not.toBeNull();
+        expect(h.query('[data-facet],.facets')).toBeNull();
       });
 
       it('renders ticket rows (was: renders one ticket row per entry)', async () => {
@@ -44,15 +45,17 @@ describe('sidebar render', () => {
         }
       });
 
-      it('clicking a facet chip posts toggle-facet (was: facet chips post toggle-facet)', async () => {
+      it('choosing a preset posts toggle-facet messages (reset, then the preset facets)', async () => {
         const h = await renderSidebarApp();
         await h.receive({ type: 'state', state: fixture.state });
-        const chip = h.query('[data-facet]');
-        expect(chip).not.toBeNull();
+        await h.click('[data-filter-menu]');
         const before = h.posted.length;
-        await h.click(chip!);
-        expect(h.posted.length).toBe(before + 1);
-        expect(h.posted[before]).toMatchObject({ type: 'toggle-facet' });
+        await h.click('[data-preset="attention"]');
+        expect(h.posted.slice(before)).toEqual([
+          { type: 'toggle-facet', facet: 'all' },
+          { type: 'toggle-facet', facet: 'input' },
+          { type: 'toggle-facet', facet: 'failed' },
+        ]);
       });
 
       it('snapshot (was: full document render)', async () => {

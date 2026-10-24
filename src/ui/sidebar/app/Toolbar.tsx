@@ -1,7 +1,7 @@
 /**
- * The pinned toolbar: create-ticket and start-planning on the left, the monitor
- * handoffs (resource monitor, token usage) and settings on the right. Every
- * control posts through the shared pending path.
+ * The pinned toolbar: the monitor handoffs (resource monitor, token usage) and
+ * settings. Creating a ticket or planning session lives in the pane headers.
+ * Every control posts through the shared pending path.
  */
 import type { ReactNode } from 'react';
 import { ActButton } from './action.js';
@@ -18,16 +18,6 @@ function ToolbarButton({ act, label, paths }: { readonly act: string; readonly l
 export function Toolbar() {
   return (
     <div className="toolbar">
-      <ToolbarButton act="create" label="Create ticket" paths={['M12 5l0 14', 'M5 12l14 0']} />
-      <ToolbarButton
-        act="plan-create"
-        label="Start planning session"
-        paths={[
-          'M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7',
-          'M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3',
-          'M9.7 17l4.6 0',
-        ]}
-      />
       <span className="sp" />
       <ToolbarButton
         act="open-resources"
