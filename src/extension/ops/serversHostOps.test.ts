@@ -29,7 +29,8 @@ describe('makeServersHost', () => {
       manifest: () => current,
       shared: {
         store, notify, loadManifest: async () => M, afterServerChange: after,
-        ensureBaseline: vi.fn(async () => {}), stopServer: vi.fn(async () => {}),
+        ensureBaseline: vi.fn(async () => {}),
+        stopServer: vi.fn(async (st: Store, id: number) => void st.db.prepare("UPDATE servers SET status = 'stopped', pid = NULL WHERE id = ?").run(id)),
         confirm: vi.fn(async () => true),
       },
       rows: {
@@ -79,6 +80,37 @@ describe('makeServersHost', () => {
     host.openLogs();
     expect(deps.openTicketLogs).toHaveBeenCalledWith(3);
     expect(deps.openLogs).toHaveBeenCalled();
+  });
+
+  it('delegates every shared verb to its op (start / restart / stop / stop idle)', async () => {
+    const host = makeServersHost(deps);
+    const running = () =>
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (NULL, 'api', 'localhost', 3000, 1, 'running')").run();
+    await host.startShared('api');
+    expect(deps.shared.ensureBaseline).toHaveBeenCalledWith(store, M, 'api');
+    running();
+    await host.restartShared('api');
+    expect(deps.shared.stopServer).toHaveBeenCalledTimes(1);
+    store.db.prepare("UPDATE servers SET status = 'running', pid = 1 WHERE repo = 'api'").run();
+    await host.stopShared('api');
+    expect(deps.shared.stopServer).toHaveBeenCalledTimes(2);
+    store.db.prepare("UPDATE servers SET status = 'running', pid = 1 WHERE repo = 'api'").run();
+    await host.stopIdle();
+    expect(deps.shared.stopServer).toHaveBeenCalledTimes(3);
+    expect(deps.shared.confirm).toHaveBeenCalledTimes(3);
+  });
+
+  it('delegates ticket-row start / restart / stop to the row ops', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = Number(
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, 'api', 'localhost', 3001, 1, 'stopped')").run(t.id).lastInsertRowid,
+    );
+    const host = makeServersHost(deps);
+    // The row ops reject a row they cannot start (no worktree recorded) with their own message.
+    await expect(host.startRow(id)).rejects.toThrow('has no worktree');
+    await expect(host.restartRow(id)).rejects.toThrow('has no worktree');
+    await host.stopRow(id);
+    expect(after).toHaveBeenCalled();
   });
 
   it('a stale Start on a ticket row rejects instead of silently doing nothing', async () => {

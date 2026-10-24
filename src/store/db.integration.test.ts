@@ -29,6 +29,7 @@ const EXPECTED_TABLES = [
   'worktrees',
   'port_allocations',
   'baseline_refs',
+  'baseline_pins',
   'servers',
   'prs',
   'merge_checks',
