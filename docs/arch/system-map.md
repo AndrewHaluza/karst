@@ -448,6 +448,7 @@ erDiagram
   approach_planner_runs
   approach_resource_leases
   baseline_decisions
+  baseline_pins
   baseline_refs
   bulletin_context_shown
   bulletin_notes
