@@ -84,7 +84,8 @@ import { join } from 'node:path';
 // Raised by 20 (8727 -> 8747): Servers & resources panel bindings (the `createServersBinding` call,
 // `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
 // `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
-const MAX_EXTENSION_LINES = 8747;
+// Planning auto-archive (+2: 8747 -> 8749): the `sweepPlanningArchive` call and its comment; logic is `ops/planningAutoArchive.ts`.
+const MAX_EXTENSION_LINES = 8749;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

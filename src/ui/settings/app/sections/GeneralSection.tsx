@@ -116,6 +116,8 @@ export function GeneralSection() {
   // and the field renders blank again, which is the vanilla snap-back.
   const archiveRaw = readField<number | undefined>(draft, 'archiveDoneAfterDays', undefined);
   const archiveText = archiveRaw === undefined ? '' : String(archiveRaw);
+  const archivePlanningRaw = readField<number | undefined>(draft, 'archivePlanningAfterDays', undefined);
+  const archivePlanningText = archivePlanningRaw === undefined ? '' : String(archivePlanningRaw);
 
   const portRange = readField<readonly number[]>(draft, 'portRange', [4000, 4999]);
 
@@ -147,6 +149,10 @@ export function GeneralSection() {
   const setArchiveDays = (raw: string): void => {
     const parsed = Number(raw);
     edit(set('archiveDoneAfterDays', Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined));
+  };
+  const setArchivePlanningDays = (raw: string): void => {
+    const parsed = Number(raw);
+    edit(set('archivePlanningAfterDays', Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined));
   };
 
   // A cap is a whole number >= 0 (0 = unlimited). A blank clears that cap (it
@@ -395,6 +401,17 @@ export function GeneralSection() {
               type: 'number',
               value: archiveText,
               onChange: setArchiveDays,
+            }}
+          />
+          <Field
+            label="Archive finished planning sessions after"
+            help="Blank = the 3-day default. Only sessions with every draft accepted and no live terminal are archived."
+            control={{
+              kind: 'input',
+              name: 'archivePlanningAfterDays',
+              type: 'number',
+              value: archivePlanningText,
+              onChange: setArchivePlanningDays,
             }}
           />
           <Field

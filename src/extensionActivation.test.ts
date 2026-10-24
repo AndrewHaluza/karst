@@ -68,6 +68,12 @@ describe('extension activation', () => {
     );
   });
 
+  it('auto-archives finished planning sessions on the PR sweep after the configured delay', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest()');
+  });
+
   // The done-ticket sweep only stamps `archived_at`; it never removes the
   // worktree folder, so an auto-archived ticket's dir would sit on disk forever
   // (the archive-compact plan's 'No auto-sweep' gap — the manual
