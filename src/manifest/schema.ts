@@ -1,4 +1,5 @@
 import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE } from './types.js';
+import { DOCKER_MEMORY_PATTERN, type SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
 import type {
   Manifest,
@@ -508,6 +509,28 @@ function validateAgentSandbox(raw: unknown): boolean | undefined {
   return raw;
 }
 
+const SANDBOX_MEMORY_KEYS = ['interactiveMemory', 'interactiveReservation', 'gateMemory', 'gateReservation'] as const;
+
+/** Parse `sandboxMemory` (absent → VM-scaled defaults). Each present key must be a Docker memory string like `2g` or `1536m`. */
+function validateSandboxMemory(raw: unknown): SandboxMemoryConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new ManifestError('sandboxMemory must be a mapping');
+  const map = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(map)) {
+    if (!(SANDBOX_MEMORY_KEYS as readonly string[]).includes(key)) throw new ManifestError(`sandboxMemory.${key} is not a known key`);
+  }
+  for (const key of SANDBOX_MEMORY_KEYS) {
+    const value = map[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !DOCKER_MEMORY_PATTERN.test(value)) {
+      throw new ManifestError(`sandboxMemory.${key} must be a Docker memory string like "2g" or "1536m"`);
+    }
+    out[key] = value;
+  }
+  return Object.keys(out).length === 0 ? undefined : (out as SandboxMemoryConfig);
+}
+
 /**
  * Parse `closeDoneTerminalsWithTicket` (default undefined → closing a ticket
  * leaves its done terminals alone). Must be a boolean when present, like
@@ -762,6 +785,7 @@ export function validateManifest(raw: unknown): Manifest {
     debug: validateDebug(raw.debug),
     agentSandbox: validateAgentSandbox(raw.agentSandbox),
     agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend),
+    sandboxMemory: validateSandboxMemory(raw.sandboxMemory),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),

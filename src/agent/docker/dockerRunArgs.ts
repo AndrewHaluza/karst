@@ -1,5 +1,6 @@
 import { SANDBOX_BRIDGE_MOUNT_ROOT } from '../bridge/bridgeDir.js';
 import { containerBinary, type DockerCore, OPENCODE_IMAGE } from './dockerImage.js';
+import type { DockerMemoryLimits } from './dockerMemory.js';
 import type { DockerNames } from './dockerNames.js';
 import { PROXY_URL } from './proxySidecar.js';
 
@@ -101,6 +102,11 @@ export function volumeMounts(names: DockerNames, opts: { readonly repoReadonly?:
   ];
 }
 
+/** `--memory` + `--memory-reservation`; absent limits add no flags (the daemon default). */
+export function memoryArgs(limit: string | undefined, reservation: string | undefined): string[] {
+  return [...(limit ? ['--memory', limit] : []), ...(reservation ? ['--memory-reservation', reservation] : [])];
+}
+
 export interface InteractiveArgsInput {
   readonly names: DockerNames;
   readonly core: DockerCore;
@@ -113,6 +119,8 @@ export interface InteractiveArgsInput {
   readonly ticketId?: number;
   /** Host evidence-bridge dir, mounted read-write (arch:AC-34). */
   readonly bridgeDir?: string;
+  /** Resolved memory limits (arch:AC-33); absent = no memory flags. */
+  readonly memory?: DockerMemoryLimits;
 }
 
 /**
@@ -135,6 +143,7 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
   return [
     'run', '--interactive', '--tty', '--rm', ...REAPER, '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
+    ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, containerBinary(input.core), ...rewritePaths(input.args, input.hostWorktreePath),
@@ -183,10 +192,12 @@ export function gateRunArgs(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  memory?: DockerMemoryLimits,
 ): string[] {
   const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
   return [
     'run', '--rm', ...REAPER, '--name', runName, '--network', names.network, ...HARDENING,
+    ...memoryArgs(memory?.gateMemory, memory?.gateReservation),
     ...volumeMounts(names), ...userArgs(user),
     ...envFlags, ...PROXY_ENV.flatMap((e) => ['--env', e]), '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, command, ...args,

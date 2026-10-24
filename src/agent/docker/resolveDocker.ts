@@ -6,6 +6,7 @@ import { opencode2Command, opencode2Config, opencode2IsolationEnv } from '../ope
 import type { SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import type { StepResult } from './dockerClone.js';
 import { isDockerCore } from './dockerImage.js';
+import { queryDockerMemTotal, resolveDockerMemoryLimits, type SandboxMemoryConfig } from './dockerMemory.js';
 import { dockerNames, type DockerNames } from './dockerNames.js';
 import { dockerPreflight, type DockerPreflight } from './dockerPreflight.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from './dockerProcess.js';
@@ -30,6 +31,8 @@ export interface DockerResolveDeps {
   readonly debug?: (message: string) => void;
   /** Baseline host ports the sandbox may reach through its proxy (arch:AC-32). */
   readonly hostPorts?: readonly number[];
+  /** The manifest's `sandboxMemory` overrides, applied over the VM-scaled defaults. */
+  readonly sandboxMemory?: SandboxMemoryConfig;
 }
 
 export interface DockerResolveInput {
@@ -75,6 +78,7 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
     const assetsDir = deps.assetsDir ?? DOCKER_ASSETS_DIR;
     const check = await (deps.preflight ?? dockerPreflight)(proc, assetsDir);
     if (!check.ok) return check;
+    const memory = resolveDockerMemoryLimits(await queryDockerMemTotal(proc), deps.sandboxMemory);
     const user = linuxUser(deps.platform ?? process.platform, deps.uid ?? process.getuid?.(), deps.gid ?? process.getgid?.());
     const prepared = await (deps.prepare ?? prepareDockerSandbox)({
       proc, core: input.core, names, user, ticket: input.worktree,
@@ -85,7 +89,7 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
     });
     if (!prepared.ok) return prepared;
     const authFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)() : undefined;
-    const runner = createDockerSessionRunner({ proc, core: input.core, names, user, ...(authFile ? { authFile } : {}) });
+    const runner = createDockerSessionRunner({ proc, core: input.core, names, user, memory, ...(authFile ? { authFile } : {}) });
     return { ok: true, runner, names };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };

@@ -2186,6 +2186,48 @@ describe('agentSandbox (AC-31: opt-in, default off)', () => {
   });
 });
 
+describe('sandboxMemory (docker container memory overrides)', () => {
+  const load = (extra: string) => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}`);
+    try {
+      return loadManifest(path).sandboxMemory;
+    } finally {
+      cleanup();
+    }
+  };
+  const message = (extra: string): string => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}`);
+    try {
+      loadManifest(path);
+      return '';
+    } catch (err) {
+      return (err as Error).message;
+    } finally {
+      cleanup();
+    }
+  };
+
+  it('is undefined when omitted', () => {
+    expect(load('')).toBeUndefined();
+  });
+
+  it('parses every key', () => {
+    expect(load('sandboxMemory:\n  interactiveMemory: 2g\n  interactiveReservation: 512m\n  gateMemory: 3G\n  gateReservation: 1536m\n')).toEqual({
+      interactiveMemory: '2g', interactiveReservation: '512m', gateMemory: '3G', gateReservation: '1536m',
+    });
+  });
+
+  it.each(['0g', '2gb', '-1g', '1.5g', '2', 'g'])('rejects %s', (bad) => {
+    expect(message(`sandboxMemory:\n  gateMemory: "${bad}"`)).toMatch(/sandboxMemory\.gateMemory must be a Docker memory string/);
+  });
+
+  it('rejects a non-string value, a non-mapping and an unknown key', () => {
+    expect(message('sandboxMemory:\n  gateMemory: 2')).toMatch(/sandboxMemory\.gateMemory must be/);
+    expect(message('sandboxMemory: 4g')).toMatch(/sandboxMemory must be a mapping/);
+    expect(message('sandboxMemory:\n  bogus: 2g')).toMatch(/sandboxMemory\.bogus is not a known key/);
+  });
+});
+
 describe('debug', () => {
   it('is undefined when omitted (debug logging off)', () => {
     const { path, cleanup } = fixture(VALID);
