@@ -24,7 +24,7 @@
     "uat:host": "node scripts/uat-host/run.mjs",
     "uat:host:docker": "node scripts/uat-host/docker.mjs",
     "lint": "tsc --noEmit",
-    "lint:react": "eslint src/ui/settings/app src/ui/dashboard/app",
+    "lint:react": "eslint src/ui/settings/app src/ui/dashboard/app src/ui/resources/app",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
@@ -162,6 +162,11 @@
         "command": "karst.openResources",
         "title": "Karst: Resource Monitor",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "karst.openServers",
+        "title": "Karst: Servers",
+        "icon": "$(server)"
       },
       {
         "command": "karst.showLogs",

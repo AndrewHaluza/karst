@@ -256,6 +256,12 @@
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
   ],
+  "src/extension/ops/serversHostOps.ts": [
+    "arch:SERVERS-PANEL"
+  ],
+  "src/extension/ops/sharedServerOps.ts": [
+    "arch:SERVERS-PANEL"
+  ],
   "src/extension/ops/storedArtifactOps.ts": [
     "arch:APP-00"
   ],
@@ -409,6 +415,10 @@
   "src/store/**": [
     "arch:ST-00"
   ],
+  "src/store/baselinePins.ts": [
+    "arch:SERVERS-PANEL",
+    "arch:V89"
+  ],
   "src/store/baselineRefs.ts#listBaselineDependentsDetailed": [
     "arch:SHARED-VIEW"
   ],
@@ -473,6 +483,10 @@
   "src/store/schemaVersion.ts#SCHEMA_VERSION": [
     "arch:SCHEMA-CHECK"
   ],
+  "src/store/serverInventory.ts": [
+    "arch:SERVERS-PANEL",
+    "arch:V89"
+  ],
   "src/store/sharedServers.ts#listSharedServersByTicket": [
     "arch:SHARED-VIEW"
   ],
@@ -524,6 +538,9 @@
   ],
   "src/ui/dashboard/storedArtifacts.ts#buildStoredArtifacts": [
     "arch:APP-11"
+  ],
+  "src/ui/resources/panel.ts": [
+    "arch:SERVERS-PANEL"
   ],
   "src/ui/settings/app/sections/PendingOutputs.tsx": [
     "arch:APP-00"

@@ -20,6 +20,8 @@ src/ui/dashboard/app.webview.css
 # `src/ui/settings/app/main.tsx`, built by the same script and rebuilt by the
 # vitest globalSetup. Never edit or commit it; edit the app source instead.
 src/ui/settings/app.webview.js
+# Generated resources + servers React app bundle — same pipeline, same rule.
+src/ui/resources/app.webview.js
 # karst config lives at .karst/karst.yml and is committed; only the generated
 # worktrees under it are ignored. (Note: worktree.ts excludes the whole .karst/
 # in each *service* repo via .git/info/exclude — that asymmetry is intentional:

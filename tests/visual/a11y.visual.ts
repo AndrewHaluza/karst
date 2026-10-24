@@ -25,6 +25,18 @@ const TITLE_RATCHET: Record<string, string> = {
 const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
 
 /**
+ * The control the pending probe toggles, where the generic search ("anything
+ * with aria-busy, else the first status node") would land on something that
+ * cannot move. Resources' status nodes are a visually-hidden live region and a
+ * hidden pane's note, so the probe would pass without measuring anything; its
+ * real pending-capable controls are the buttons that reserve the spinner slot
+ * (`.k-btn--slot`), which is exactly what UI-R18 says must not shift on busy.
+ */
+const PENDING_PROBE: Partial<Record<ViewId, string>> = {
+  resources: 'button.k-btn--slot',
+};
+
+/**
  * The contrast ratchet: known failures keyed by theme → view → selector.
  * Shrink-only — entries may be removed when gaps are fixed, never added
  * without a written justification.
@@ -369,9 +381,16 @@ karstTest.describe('UI-R18 pending geometry', () => {
 
       // Find a control that can be toggled to a pending/busy state.
       // The assertion: bounding box moves ≤ 2px when aria-busy is toggled.
-      const result = await page.evaluate(() => {
+      const probe = PENDING_PROBE[viewId] ?? '[aria-busy], .k-pending, [data-pending]';
+      const strict = PENDING_PROBE[viewId] !== undefined;
+      const result = await page.evaluate(({ probeSelector, mustMatch }) => {
         // Find elements that could have a pending state.
-        const candidates = document.querySelectorAll('[aria-busy], .k-pending, [data-pending]');
+        const candidates = document.querySelectorAll(probeSelector);
+        // An explicit probe that matches nothing must FAIL, not fall through to a
+        // status node that cannot move (that would pass without measuring anything).
+        if (candidates.length === 0 && mustMatch) {
+          return { skipped: false, missing: true, dx: 0, dy: 0, dw: 0, dh: 0 };
+        }
         if (candidates.length === 0) {
           // Try finding a status indicator or loading element.
           const all = document.querySelectorAll('.k-status, .k-dot, [role="status"]');
@@ -385,6 +404,7 @@ karstTest.describe('UI-R18 pending geometry', () => {
           el.setAttribute('aria-busy', wasBusy ? 'true' : 'false'); // restore
           return {
             skipped: false,
+            missing: false,
             dx: Math.abs(after.x - before.x),
             dy: Math.abs(after.y - before.y),
             dw: Math.abs(after.width - before.width),
@@ -399,14 +419,16 @@ karstTest.describe('UI-R18 pending geometry', () => {
         el.setAttribute('aria-busy', wasBusy ? 'true' : 'false');
         return {
           skipped: false,
+          missing: false,
           dx: Math.abs(after.x - before.x),
           dy: Math.abs(after.y - before.y),
           dw: Math.abs(after.width - before.width),
           dh: Math.abs(after.height - before.height),
         };
-      });
+      }, { probeSelector: probe, mustMatch: strict });
 
-      if (result.skipped) return;
+      if ('skipped' in result && result.skipped === true) return;
+      expect('missing' in result && result.missing, `${viewId}: pending probe ${probe} matched no control`).not.toBe(true);
 
       // UI-R18: bounding box moved ≤ 2px in each axis.
       expect(result.dx, 'UI-R18: horizontal movement').toBeLessThanOrEqual(2);

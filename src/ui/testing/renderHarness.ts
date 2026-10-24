@@ -337,9 +337,9 @@ export async function drainReactWork(handle: RenderHandle): Promise<void> {
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
 
-  // React webviews: settings and dashboard wait for data-karst-ready when #root is present.
+  // React webviews: settings, dashboard and resources wait for data-karst-ready when #root is present.
   // For other views, sync render is complete.
-  if (name !== 'settings' && name !== 'dashboard') return handle;
+  if (name !== 'settings' && name !== 'dashboard' && name !== 'resources') return handle;
 
   // Check if React app is injected (marked by #root element).
   // If not, vanilla view is active — return sync render immediately.

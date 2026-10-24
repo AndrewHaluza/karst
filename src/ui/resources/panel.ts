@@ -13,17 +13,23 @@ import {
 import {
   parseResourcesMessage,
   routeResourcesAction,
+  type PanelTab,
   type ResourcesActions,
   type ResourcesHostMessage,
   type ResourcesWebviewMessage,
 } from './messages.js';
+import { buildServersState, unavailableServersState, type ServersState } from './serversState.js';
+import type { ServerInventory } from '../../store/serverInventory.js';
+import { tabTitle } from '../../model/tabTitle.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { formatId } from '../../model/entityId.js';
 
 /**
- * The resource-monitor panel — ONE per window, like the token-usage panel. It
- * is a WINDOW-scoped view of a window-scoped monitor, so opening it again
- * reveals the existing panel rather than minting a second subscriber.
+ * The "Servers & resources" panel — ONE per window, like the token-usage panel.
+ * Two tabs share one webview: Servers (the project-wide control plane) and
+ * Resources (the resource monitor's cost view, unchanged). It is a
+ * WINDOW-scoped view of a window-scoped monitor, so opening it again reveals
+ * the existing panel rather than minting a second webview or subscriber.
  *
  * It owns none of the monitoring logic. It subscribes to the monitor's
  * readings and renders them; on dispose it releases the fast lane
@@ -46,6 +52,36 @@ export interface ResourcesPanel {
 /** Factory the manager mints panels with (real: `createWebviewPanel`). */
 export interface ResourcesPanelHost {
   createPanel(title: string): ResourcesPanel;
+}
+
+/** Panel title; also the editor-tab title, passed through `tabTitle` at `open()`. */
+export const PANEL_TITLE = 'Servers & resources';
+
+/** How often the Servers tab re-reads while open, so another window's spin shows up. */
+const SERVERS_POLL_MS = 5_000;
+
+/**
+ * Everything the Servers tab does, bound in `extension.ts` to the ops under
+ * `src/extension/ops/` (`sharedServerOps`, `serverOps`) and the existing
+ * helpers. Each verb is a promise so a failure reaches the pressed control as
+ * an `action-result`.
+ */
+export interface ServersHost {
+  /** A fresh project-scoped read; undefined when there is no project or manifest to read. */
+  inventory(): ServerInventory | undefined;
+  startShared(repo: string): Promise<void>;
+  restartShared(repo: string): Promise<void>;
+  stopShared(repo: string): Promise<void>;
+  setPinned(repo: string, pinned: boolean): void;
+  stopIdle(): Promise<void>;
+  startRow(serverId: number): Promise<void>;
+  restartRow(serverId: number): Promise<void>;
+  stopRow(serverId: number): Promise<void>;
+  openRow(serverId: number): void;
+  copyRow(serverId: number): void;
+  stopTicket(ticketId: number): Promise<void>;
+  openTicketLogs(ticketId: number): void;
+  openLogs(): void;
 }
 
 export interface ResourcesPanelDeps {
@@ -73,6 +109,16 @@ export interface ResourcesPanelDeps {
    * the row is not a baseline.
    */
   baselineDependents?: (serverId: number) => BaselineDependent[];
+  /**
+   * The panel title when it is more than the fixed name (a project suffix, say).
+   * Whatever it returns is capped at `TAB_TITLE_MAX` before it reaches the editor
+   * tab; the full name stays in the panel header.
+   */
+  panelTitle?: () => string;
+  /** The Servers tab's verbs. Absent → the tab renders as unavailable. */
+  servers?: ServersHost;
+  /** Re-read interval for the Servers tab; tests shrink it. */
+  serversPollMs?: number;
   logError?: LogError;
 }
 
@@ -82,21 +128,31 @@ export class ResourcesPanelManager {
   private diskController: AbortController | undefined;
   private diskRequest = 0;
   private diskRows: DiskRowView[] = [];
+  /** The tab the next `request-state` should land on; cleared once delivered. */
+  private pendingTab: PanelTab | undefined;
+  private poll: ReturnType<typeof setInterval> | undefined;
+  private lastServers = '';
 
   constructor(
     private readonly host: ResourcesPanelHost,
     private readonly deps: ResourcesPanelDeps,
   ) {}
 
-  /** Open (or reveal) the panel. Idempotent — never a second subscriber. */
-  open(): void {
+  /**
+   * Open (or reveal) the panel on `tab`. Idempotent — a repeat open never mints a
+   * second webview or a second subscriber; it reveals the one panel and moves it
+   * to the requested tab.
+   */
+  open(tab: PanelTab = 'resources'): void {
     if (this.panel) {
       this.panel.reveal();
+      this.post({ type: 'show-tab', tab });
       this.push();
       return;
     }
-    const panel = this.host.createPanel('Resources');
+    const panel = this.host.createPanel(tabTitle(this.deps.panelTitle?.() ?? PANEL_TITLE));
     this.panel = panel;
+    this.pendingTab = tab;
     this.deps.monitor.setPanelVisible(true);
     this.unsubscribe = this.deps.monitor.onReading((reading) => this.push(reading));
     panel.onDidDispose(() => {
@@ -112,8 +168,14 @@ export class ResourcesPanelManager {
       );
     });
     this.push();
+    this.poll = setInterval(() => this.postServers(), this.deps.serversPollMs ?? SERVERS_POLL_MS);
     // Populate the panel without waiting up to 30 s for the next slow tick.
     void this.deps.monitor.refreshNow();
+  }
+
+  /** The Servers tab re-reads and repaints now (called after any server change). */
+  refreshServers(): void {
+    this.postServers();
   }
 
   dispose(): void {
@@ -123,6 +185,9 @@ export class ResourcesPanelManager {
   private close(): void {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    if (this.poll) clearInterval(this.poll);
+    this.poll = undefined;
+    this.lastServers = '';
     this.diskController?.abort();
     this.diskController = undefined;
     this.deps.monitor.setPanelVisible(false);
@@ -130,9 +195,63 @@ export class ResourcesPanelManager {
   }
 
   private actions(): ResourcesActions {
+    const servers = this.deps.servers;
+    // A row id from the webview may already be gone (startHot deletes and
+    // reinserts, another window may have stopped it): re-read, refuse a vanished
+    // row by name, and repaint so the user sees what is actually there.
+    const liveRow = (serverId: number): void => {
+      const inventory = servers?.inventory();
+      const found = inventory?.tickets.some((g) => g.servers.some((r) => r.id === serverId));
+      if (!found) {
+        this.postServers(true);
+        throw new Error('That server is no longer in the list — it has been refreshed.');
+      }
+    };
+    const needServers = (): ServersHost => {
+      if (!servers) throw new Error('Servers are not available in this window.');
+      return servers;
+    };
+    // Every verb ends with a fresh read, win or lose, so the row repaints.
+    const refreshed = async (run: () => void | Promise<void>): Promise<void> => {
+      try {
+        await run();
+      } finally {
+        this.postServers(true);
+      }
+    };
     return {
-      requestState: () => this.push(),
-      refresh: () => this.deps.monitor.refreshNow(),
+      requestState: () => {
+        if (this.pendingTab) {
+          this.post({ type: 'show-tab', tab: this.pendingTab });
+          this.pendingTab = undefined;
+        }
+        this.push();
+      },
+      sharedStart: (repo) => refreshed(() => needServers().startShared(repo)),
+      sharedRestart: (repo) => refreshed(() => needServers().restartShared(repo)),
+      sharedStop: (repo) => refreshed(() => needServers().stopShared(repo)),
+      sharedPin: (repo, pinned) => refreshed(() => needServers().setPinned(repo, pinned)),
+      stopIdle: () => refreshed(() => needServers().stopIdle()),
+      serverStart: (id) => refreshed(() => { liveRow(id); return needServers().startRow(id); }),
+      serverRestart: (id) => refreshed(() => { liveRow(id); return needServers().restartRow(id); }),
+      serverStop: (id) => refreshed(() => { liveRow(id); return needServers().stopRow(id); }),
+      serverOpen: (id) => needServers().openRow(id),
+      serverCopy: (id) => needServers().copyRow(id),
+      ticketStopAll: (ticketId) =>
+        refreshed(() => {
+          const group = servers?.inventory()?.tickets.find((g) => g.ticketId === ticketId);
+          if (!group || !group.servers.some((r) => r.status === 'running')) {
+            throw new Error('That ticket has no running servers any more — the list has been refreshed.');
+          }
+          return needServers().stopTicket(ticketId);
+        }),
+      ticketLogs: (ticketId) => needServers().openTicketLogs(ticketId),
+      openLogs: () => needServers().openLogs(),
+      refresh: async () => {
+        await this.deps.monitor.refreshNow();
+        // Refresh means "what is true now" for BOTH tabs, not only the sampled one.
+        this.postServers(true);
+      },
       measureDisk: () => this.measureDisk(),
       killServer: async (serverId) => {
         if (this.deps.confirm) {
@@ -242,6 +361,41 @@ export class ResourcesPanelManager {
     } catch (err) {
       this.log('karst: resource state push failed', err);
     }
+    this.postServers(true);
+  }
+
+  private post(message: ResourcesHostMessage): void {
+    try {
+      this.panel?.postMessage(message);
+    } catch (err) {
+      this.log('karst: resource panel post failed', err);
+    }
+  }
+
+  /** The state the Servers tab would render right now — the read the tests assert on. */
+  serversState(): ServersState {
+    const host = this.deps.servers;
+    const scopeLabel = this.deps.scopeLabel?.() ?? '';
+    if (!host) return unavailableServersState('Servers are not available in this window.', scopeLabel);
+    let inventory: ServerInventory | undefined;
+    try {
+      inventory = host.inventory();
+    } catch (err) {
+      this.log('karst: servers inventory read failed', err);
+      return unavailableServersState('The server list could not be read.', scopeLabel);
+    }
+    if (!inventory) return unavailableServersState('Open a project with a karst.yml to see its servers.', scopeLabel);
+    return buildServersState(inventory, scopeLabel);
+  }
+
+  /** Post the Servers state; the interval path skips an unchanged read (`force` always posts). */
+  private postServers(force = false): void {
+    if (!this.panel) return;
+    const state = this.serversState();
+    const serialized = JSON.stringify(state);
+    if (!force && serialized === this.lastServers) return;
+    this.lastServers = serialized;
+    this.post({ type: 'servers', state });
   }
 
   /** Dispatch one parsed message, logging (but still surfacing) any failure. */

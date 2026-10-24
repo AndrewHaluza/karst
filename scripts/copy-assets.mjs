@@ -48,6 +48,8 @@ const assets = [
   // mirroring, same "edit the SOURCE, never the dist/ copy" rule. Since phase 4
   // the settings sender is folded into this bundle (`main.tsx` imports
   // webviewSend.ts directly), so only the app bundle ships for settings.
+  'ui/resources/app.webview.js',
+  'ui/resources/servers.webview.css',
   'ui/settings/app.webview.js',
   'ui/settings/app.webview.css',
   'ui/settings/agents.webview.css',

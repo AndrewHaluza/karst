@@ -145,6 +145,13 @@ those two surfaces and expires with each view's migration: whichever view moves
 to React must re-home its park actions in the React app, never carry the vanilla
 buttons across.
 
+The Resources webview moved to React as the first step of the "Servers &
+resources" page (`src/ui/resources/app/**`, two tabs in one document): its Resources
+tab keeps the same panels and content, its tab strip and Servers tab are new. The
+app reuses the Settings primitives (`Button`, `LiveRegion`) and `useHostMutation`
+rather than copying them; its own `architecture.test.ts` carries the R-X guards.
+Its dynamic geometry uses SVG attributes and `<progress>` instead of inline style.
+
 Three invariants the original investigators learned the hard way, now load-bearing:
 
 - **One app, one mount.** The injector chain mounts the app into `#root`; the

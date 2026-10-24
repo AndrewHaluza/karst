@@ -9,6 +9,9 @@ import type {
   MonitorFact,
 } from './state.js';
 import type { ResourceSample } from '../../runtime/resourceMonitor.js';
+import type { InventoryServer, ServerInventory, SharedServer, TicketServerGroup } from '../../store/serverInventory.js';
+import { buildServersState, unavailableServersState, type ServersState } from './serversState.js';
+import type { PanelTab, ResourcesHostMessage } from './messages.js';
 
 /**
  * The checked-in render fixture corpus for the resources webview.
@@ -27,15 +30,40 @@ export type ResourcesScenario =
   | 'busy'
   | 'waste'
   | 'unattributed'
-  | 'hostile';
+  | 'hostile'
+  | 'servers-mixed'
+  | 'servers-shared-only'
+  | 'servers-tickets-only'
+  | 'servers-done'
+  | 'servers-archived'
+  | 'servers-idle'
+  | 'servers-none'
+  | 'servers-unavailable'
+  | 'servers-hostile';
 
 export const RESOURCES_SCENARIOS: readonly ResourcesScenario[] = [
   'unsupported', 'degraded', 'idle', 'busy', 'waste', 'unattributed', 'hostile',
+  'servers-mixed', 'servers-shared-only', 'servers-tickets-only', 'servers-done',
+  'servers-archived', 'servers-idle', 'servers-none', 'servers-unavailable', 'servers-hostile',
 ];
 
 export interface ResourcesRenderFixture {
   scenario: ResourcesScenario;
+  /** The Resources tab's read model (every fixture has one, as the host always pushes it). */
   state: ResourcesState;
+  /** The Servers tab's read model; present for the `servers-*` scenarios. */
+  servers?: ServersState;
+  /** The tab the fixture opens on (the host's `show-tab`); absent → the default. */
+  tab?: PanelTab;
+}
+
+/** The host messages a fixture stands for, in the order the host sends them. */
+export function fixtureMessages(fixture: ResourcesRenderFixture): ResourcesHostMessage[] {
+  return [
+    { type: 'state', state: fixture.state },
+    ...(fixture.servers ? [{ type: 'servers', state: fixture.servers } as const] : []),
+    ...(fixture.tab ? [{ type: 'show-tab', tab: fixture.tab } as const] : []),
+  ];
 }
 
 const HOSTILE_LABEL = '<script>alert(1)</script>';
@@ -165,6 +193,98 @@ function hostileState(): ResourcesState {
   };
 }
 
+// ------------------------------------------------------------------ servers
+
+const SCOPE = 'Project test · this window';
+
+function invServer(index: number, repo: string, status = 'running', over: Partial<InventoryServer> = {}): InventoryServer {
+  return {
+    id: 900100 + index, repo, host: 'localhost', port: 4000 + index, status,
+    startedAt: '2026-01-01T00:00:00.000Z', logPath: null, container: null, cwd: null, sandbox: null, ...over,
+  };
+}
+
+function invShared(index: number, repo: string, status = 'running', over: Partial<SharedServer> = {}): SharedServer {
+  return { ...invServer(index, repo, status), pinned: false, baseBranch: 'develop', dependents: [], ...over };
+}
+
+function invGroup(ticketId: number, servers: InventoryServer[], over: Partial<TicketServerGroup> = {}): TicketServerGroup {
+  return {
+    ticketId: 900200 + ticketId, key: `FEAT-${100 + ticketId}`, title: `Ticket ${ticketId + 1}`, stage: 'impl',
+    archived: false, done: false, dependencyDown: false, downServices: [], servers, ...over,
+  };
+}
+
+const dep = (n: number, done = false) => ({ ticketId: 900200 + n, key: `FEAT-${100 + n}`, title: `Ticket ${n + 1}`, done });
+
+function mixedInventory(): ServerInventory {
+  return {
+    shared: [
+      invShared(0, 'api', 'running', { pinned: true, dependents: [dep(0), dep(1, true)] }),
+      invShared(1, 'web', 'running'),
+      invShared(2, 'db', 'stopped', { baseBranch: 'main' }),
+    ],
+    tickets: [
+      invGroup(0, [invServer(10, 'api/web'), invServer(11, 'worker', 'stopped')]),
+      invGroup(1, [invServer(12, 'api/web')], { stage: 'done', done: true }),
+      invGroup(2, [invServer(13, 'api/web', 'stopped')], { dependencyDown: true, downServices: ['db'] }),
+    ],
+  };
+}
+
+const serversFixture = (inventory: ServerInventory): ServersState => buildServersState(inventory, SCOPE);
+
+function serversMixed(): ServersState {
+  return serversFixture(mixedInventory());
+}
+
+function serversSharedOnly(): ServersState {
+  return serversFixture({ shared: mixedInventory().shared, tickets: [] });
+}
+
+function serversTicketsOnly(): ServersState {
+  return serversFixture({ shared: [], tickets: mixedInventory().tickets });
+}
+
+function serversDone(): ServersState {
+  return serversFixture({
+    shared: [invShared(0, 'api', 'running', { dependents: [dep(1, true)] })],
+    tickets: [invGroup(1, [invServer(12, 'api/web'), invServer(14, 'worker')], { stage: 'done', done: true })],
+  });
+}
+
+function serversArchived(): ServersState {
+  return serversFixture({
+    shared: [invShared(0, 'api', 'running')],
+    tickets: [invGroup(3, [invServer(15, 'api/web')], { archived: true, done: true, stage: 'done' })],
+  });
+}
+
+function serversIdle(): ServersState {
+  return serversFixture({
+    shared: [invShared(0, 'api'), invShared(1, 'web'), invShared(2, 'db', 'stopped')],
+    tickets: [],
+  });
+}
+
+function serversNone(): ServersState {
+  return serversFixture({ shared: [], tickets: [] });
+}
+
+function serversUnavailable(): ServersState {
+  return unavailableServersState('Open a project with a karst.yml to see its servers.', SCOPE);
+}
+
+function serversHostile(): ServersState {
+  const long = 'Z'.repeat(120);
+  return serversFixture({
+    shared: [invShared(0, HOSTILE_LABEL, 'running', { baseBranch: 'release/' + long, dependents: [dep(0), dep(1, true)] })],
+    tickets: [invGroup(0, [invServer(10, `api/${long}`), invServer(11, HOSTILE_LABEL, 'failed')], {
+      key: 'FEAT-' + long, title: `${HOSTILE_LABEL} ${long}`, dependencyDown: true, downServices: [HOSTILE_LABEL, long],
+    })],
+  });
+}
+
 const BUILDERS: Readonly<Record<ResourcesScenario, () => ResourcesState>> = {
   unsupported: unsupportedState,
   degraded: degradedState,
@@ -173,8 +293,34 @@ const BUILDERS: Readonly<Record<ResourcesScenario, () => ResourcesState>> = {
   waste: wasteState,
   unattributed: unattributedState,
   hostile: hostileState,
+  'servers-mixed': busyState,
+  'servers-shared-only': busyState,
+  'servers-tickets-only': busyState,
+  'servers-done': busyState,
+  'servers-archived': busyState,
+  'servers-idle': idleState,
+  'servers-none': idleState,
+  'servers-unavailable': idleState,
+  'servers-hostile': busyState,
+};
+
+const SERVERS: Readonly<Partial<Record<ResourcesScenario, () => ServersState>>> = {
+  'servers-mixed': serversMixed,
+  'servers-shared-only': serversSharedOnly,
+  'servers-tickets-only': serversTicketsOnly,
+  'servers-done': serversDone,
+  'servers-archived': serversArchived,
+  'servers-idle': serversIdle,
+  'servers-none': serversNone,
+  'servers-unavailable': serversUnavailable,
+  'servers-hostile': serversHostile,
 };
 
 export function resourcesRenderFixtures(): ResourcesRenderFixture[] {
-  return RESOURCES_SCENARIOS.map((scenario) => ({ scenario, state: BUILDERS[scenario]() }));
+  return RESOURCES_SCENARIOS.map((scenario): ResourcesRenderFixture => {
+    const servers = SERVERS[scenario];
+    return servers
+      ? { scenario, state: BUILDERS[scenario](), servers: servers(), tab: 'servers' }
+      : { scenario, state: BUILDERS[scenario]() };
+  });
 }

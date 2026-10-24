@@ -68,7 +68,7 @@ sequenceDiagram
 | Worktree deleted outside karst | `reapStaleServers` detects missing cwd on startup/activation | Clears stale rows and reaps attributed orphaned processes |
 
 ### Rules
-@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:ROOT-GEN · @arch:SHARED-VIEW
+@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:ROOT-GEN · @arch:SHARED-VIEW · @arch:SERVERS-PANEL
 END_DOC_BLOCK: [@arch:WT-00]
 
 ## [@arch:ENTRIES] Repository ENTRIES may share a `repoPath`
@@ -180,5 +180,19 @@ covers: src/store/sharedServers.ts#listSharedServersByTicket, src/store/baseline
 
 Who counts as affected (`listBaselineDependentsDetailed` + `isLiveBaselineDependent`): `live = !archived && (stageCurrent !== 'done' || hasRunningService)`. A done ticket counts only while it still runs a service of its own — the shared copy is what that live stack is wired to, so stopping it breaks the stack. An archived ticket never counts: its worktrees are gone. The Resource Monitor's stop confirmation names exactly the live dependents and marks a done-but-running one, so the count a human confirms is the count a stop would break.
 
-The refs themselves are NEVER deleted on done or archive: `runtime/startOne.ts` reads `baseline_refs` to avoid re-pointing a baseline dependency to an alt port. The read model filters; it does not write. Shared rows are read-only in the ticket dashboard (Open when running, Logs when a log exists, Manage to the Resource Monitor) — a stop affects other tickets and belongs behind the project view's host confirm (UI-R33). `DashboardState.servers` keeps its ticket-only meaning so no existing action widens silently; `DashboardState.sharedServers` carries the other half.
+The refs themselves are NEVER deleted on done or archive: `runtime/startOne.ts` reads `baseline_refs` to avoid re-pointing a baseline dependency to an alt port. The read model filters; it does not write. Shared rows are read-only in the ticket dashboard (Open when running, Logs when a log exists, Manage to the Servers panel, `@arch:SERVERS-PANEL`) — a stop affects other tickets and belongs behind the project view's host confirm (UI-R33). `DashboardState.servers` keeps its ticket-only meaning so no existing action widens silently; `DashboardState.sharedServers` carries the other half.
 END_DOC_BLOCK: [@arch:SHARED-VIEW]
+
+## [@arch:SERVERS-PANEL] The Servers panel is the project's ONE control plane for servers, shared and per-ticket
+covers: src/store/serverInventory.ts, src/store/baselinePins.ts, src/extension/ops/sharedServerOps.ts, src/extension/ops/serversHostOps.ts, src/ui/resources/panel.ts
+
+`karst.openServers` ("Karst: Servers"), the status-bar item shown while any server runs, and the ticket panel's Manage link open ONE panel — the Servers tab of "Servers & resources" (the Resources tab is the Resource Monitor's cost view, unchanged). One panel per window: a repeat `open()` reveals the existing webview and never mints a second webview or subscriber; the tab is the URL hash.
+
+Read model (`store/serverInventory.ts`, SELECT-only): SHARED = every `servers` row with `ticket_id IS NULL` for a unit the manifest declares, running and stopped, one row per unit (running wins, else newest) — a `baseline_refs` edge with no row is not a server here. TICKET STACKS = rows of the project's non-archived tickets, plus an archived ticket's rows only while `status='running'` (leftovers). A ticket group's `dependencyDown` is any of its `baseline_refs` with no running baseline row. A shared row's dependents are exactly `@arch:SHARED-VIEW`'s live ones (a done ticket whose stack still runs is named and marked done).
+
+Keep-warm pins (`baseline_pins`, v89, `store/baselinePins.ts`) are keyed by UNIT KEY, never by the `servers` row: `startHot` deletes and reinserts that row on every start. A manual Start from the panel pins; an explicit Stop unpins; a spin's automatic `ensureBaseline` never pins; Restart leaves the pin as it was. A pinned baseline is labelled "kept running" and is never offered to Stop idle.
+
+Verbs (`ops/sharedServerOps.ts`, behind the `Notify` seam) address a shared service by unit key and re-read the row fresh: Start → `ensureBaseline`; Restart → attributed `stopServer` then `ensureBaseline`; Stop → attributed `stopServer`. Every destructive verb confirms HOST-side (UI-R33) naming the live dependents, and a stop that the attribution check refused (the row still says running) is reported as a failure, never as success. A baseline's port is its default and does not move, so dependents are not re-wired; the group's `dependencyDown` badge tells the truth after a stop. Stop idle stops every running, dependent-free, unpinned shared row behind ONE confirmation naming them, each through the same attributed path, and reports how many stopped and names every failure. Ticket-row verbs reuse `ops/serverOps.ts` (so the sandbox path and the agent-UAT withhold rule apply unchanged); a row id that vanished mid-action is refused by name and the list repainted.
+
+Scope is project-wide like the Resource Monitor (`listRunningServers` always includes baseline rows): never cross-project, no global view, no auto-start when the panel opens, no stop-on-done policy. The panel re-reads on open, after every verb, on `afterServerChange`, and on a 5 s interval (skipping an unchanged read) so a spin in this window shows up without Refresh.
+END_DOC_BLOCK: [@arch:SERVERS-PANEL]

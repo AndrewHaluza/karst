@@ -104,11 +104,18 @@ const FOCUS_CAP = 12;
  * session runs), so it cannot fold into the preset or core pickers, which choose
  * the agent identity. The row is `hidden` unless the ticket is in edit mode under
  * an sbx or docker project, but the sweep's selector still counts it.
+ *
+ * Updated a thirteenth time by the Servers & resources page: `resources` 17 → 19 —
+ * the page is now two tabs (Servers, Resources), and the two tab buttons are
+ * net-new interactive controls that fold into nothing: they switch which pane is
+ * shown, while Refresh/Measure/legend/sort act inside one. The Servers pane's own
+ * rows are not in this corpus (it seeds the Resources `busy` state, and the hidden
+ * Servers pane holds only its "Reading servers…" note), so they add nothing here.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 47,
   usage: 13,
-  resources: 17,
+  resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 11,
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,

@@ -2743,5 +2743,15 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 89) {
+    // v89: `baseline_pins` — keep-warm marks on a shared (baseline) service, keyed
+    // by unit key because `startHot` deletes and reinserts the `servers` row on
+    // every start. Additive; no backfill (nothing is pinned until a user starts
+    // one from the Servers panel).
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS baseline_pins (repo TEXT PRIMARY KEY, created_at TEXT)',
+    );
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

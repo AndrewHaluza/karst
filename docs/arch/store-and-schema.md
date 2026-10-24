@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -228,6 +228,12 @@ Resolution and one-shot re-run (D159):
 - One-shot override re-run (`workflow/usageLimitRerun.ts`): re-runs only the parked lane with an ephemeral adapter and model, merges with sibling outcomes preserved in `kept_outcome`, and runs normal aggregation. For either lane the target set is the parked target PLUS every target the original pass never reached — the lane records those as `not-run` in `kept_outcome` (`workflow/usageLimitKept.ts` owns that vocabulary), so a re-run finishes them instead of silently omitting them from the verdict. An `op` park is NEVER re-run by that path — it names no lane and no target, and its re-run is the op's own (the ticket form's error notification re-runs exactly that op), so a stage lane never stands in for it; the row stays open for the op path.
 - Dismiss: for stage blocks, opens a NEW run with `openGateRun` (never the parked run's id; the bare `openStageRun` would skip the attachment a run opened while a recovery round awaits its revalidation needs), then commits a failed verdict via `commitGateOutcome` with `RecoveryTrigger` kind `'usage-limit-dismissed'`, moving the ticket into fix.
 END_DOC_BLOCK: [@arch:V82]
+
+## [@arch:V89] Keep-warm pins on shared services (v89)
+covers: src/store/baselinePins.ts, src/store/serverInventory.ts
+
+`baseline_pins(repo TEXT PRIMARY KEY, created_at TEXT)` (`src/store/baselinePins.ts`) marks a shared (baseline) service the user asked to keep running. It is keyed by manifest UNIT KEY, not by a `servers` row, because `startHot` deletes and reinserts that row on every start — a row-keyed pin would vanish at the first restart. Additive and idempotent: the v89 step is `CREATE TABLE IF NOT EXISTS`, no backfill (nothing is pinned until a user starts one from the Servers panel). Writers: `pinBaseline`/`unpinBaseline` only, called from `extension/ops/sharedServerOps.ts` (manual Start pins, explicit Stop unpins, a spin's `ensureBaseline` never pins). Reader: `listPinnedBaselines`, consumed by `store/serverInventory.ts`. See `@arch:SERVERS-PANEL` in `worktrees-and-servers.md`.
+END_DOC_BLOCK: [@arch:V89]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
