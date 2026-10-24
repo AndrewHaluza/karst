@@ -399,6 +399,18 @@ function validateArchiveDoneAfterDays(raw: unknown): number {
   return raw;
 }
 
+/** Default idle delay before a finished planning session is auto-archived. */
+export const DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS = 3;
+
+/** Parse `archivePlanningAfterDays`; same rules as `archiveDoneAfterDays`. */
+function validateArchivePlanningAfterDays(raw: unknown): number {
+  if (raw === undefined) return DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) {
+    throw new ManifestError('archivePlanningAfterDays must be a positive whole number of days');
+  }
+  return raw;
+}
+
 /** Parse the optional `artifacts` block; absent stays absent (keep forever). */
 function validateArtifacts(raw: unknown): { maxAgeDays?: number } | undefined {
   if (raw === undefined || raw === null) return undefined;
@@ -757,6 +769,7 @@ export function validateManifest(raw: unknown): Manifest {
     activeAgentPreset,
     defaultAgentPreset,
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
+    archivePlanningAfterDays: validateArchivePlanningAfterDays(raw.archivePlanningAfterDays),
     artifacts: validateArtifacts(raw.artifacts),
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),

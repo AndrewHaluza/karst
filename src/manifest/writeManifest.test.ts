@@ -375,6 +375,7 @@ describe('writeManifest', () => {
         // Non-default on purpose: a missing writeManifest overlay would fall
         // back to the loader's default and the round-trip would still pass.
         archiveDoneAfterDays: 7,
+        archivePlanningAfterDays: 9,
         artifacts: { maxAgeDays: 30 },
         // Same reason: absent debug would round-trip regardless of the overlay,
         // so the populated manifest pins the explicit value.
