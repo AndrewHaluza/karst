@@ -33,6 +33,7 @@ flowchart TD
   C -- no --> K[keep invariant]
   C -- yes --> R[re-open ADR]
 ```
+
 ### Tradeoffs
 | chosen | rejected | why |
 |---|---|---|
