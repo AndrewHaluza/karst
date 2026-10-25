@@ -238,6 +238,9 @@
   "src/cli/setupVerify.ts#runSetupVerifyCommand": [
     "arch:CLI-14"
   ],
+  "src/cli/stage.ts": [
+    "arch:ADR-00"
+  ],
   "src/cli/stage.ts#parseStageArgs": [
     "arch:CLI-02"
   ],
@@ -555,6 +558,9 @@
   "src/store/promptTelemetryQuery.ts": [
     "arch:PM-00"
   ],
+  "src/store/promptTelemetryQuery.ts#queryMarkerCompliance": [
+    "arch:ADR-00"
+  ],
   "src/store/prs.ts": [
     "arch:GH-00"
   ],
@@ -722,6 +728,9 @@
   ],
   "src/workflow/review/findings.ts": [
     "arch:PM-00"
+  ],
+  "src/workflow/stages/implement.ts": [
+    "arch:ADR-00"
   ],
   "src/workflow/stages/scope.ts#confirmScope": [
     "arch:BASE-PULL",
