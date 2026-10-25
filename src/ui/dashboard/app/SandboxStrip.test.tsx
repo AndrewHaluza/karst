@@ -67,6 +67,26 @@ describe('SandboxStrip', () => {
     expect(netBadge.textContent).toContain('registry.npmjs.org');
   });
 
+  it('host view: host chip, worktree badge, and the prompted or core-native badge with popovers', () => {
+    const host: DashboardSandboxView = {
+      backend: 'host', core: 'claude', workspace: 'worktree', network: 'none (host)', actions: false, carry: false, hostProtection: 'prompted',
+    };
+    const { rerender } = render(<SandboxStrip sandbox={host} send={fullSend()} />);
+    expect(screen.getByTestId('sandbox-backend-tag').textContent).toBe('host');
+    expect(screen.getByTestId('sandbox-core-identity').textContent).toContain('Claude Code');
+    expect(screen.getByTestId('sandbox-host-worktree-badge').textContent).toContain('Host Git Worktree (Shared Host)');
+    const prot = screen.getByTestId('sandbox-host-protection-badge');
+    expect(prot.textContent).toContain('Prompted on Host');
+    expect(prot.textContent).toContain('No Core OS Sandbox (Prompted)');
+    expect(screen.queryByTestId('sandbox-workspace-badge')).toBeNull();
+    rerender(<SandboxStrip sandbox={{ ...host, hostProtection: 'core-native', note: 'ticket opted out of the sandbox backend' }} send={fullSend()} />);
+    const native = screen.getByTestId('sandbox-host-protection-badge');
+    expect(native.textContent).toContain('Core OS Sandbox');
+    expect(native.textContent).toContain('Built-in Core OS Sandbox');
+    expect(screen.getByTestId('sandbox-strip').textContent).toContain('ticket opted out of the sandbox backend');
+    expect(screen.queryByText('Sync')).toBeNull();
+  });
+
   it('renders labelled action buttons when actions are enabled', () => {
     const send = {
       sandboxSync: vi.fn(),
@@ -142,8 +162,8 @@ describe('SandboxStrip', () => {
     render(<SandboxStrip sandbox={hostFallback} send={fullSend()} />);
 
     const strip = screen.getByTestId('sandbox-strip');
-    expect(strip.textContent).toContain('antigravity: sbx backend unsupported — runs prompted on the host.');
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(strip.textContent).toContain('antigravity: sbx backend unsupported');
+    expect(strip.querySelectorAll('[data-act]')).toHaveLength(0);
   });
 
   it('keeps actions while displaying the note for an opted-out ticket', () => {
@@ -160,7 +180,7 @@ describe('SandboxStrip', () => {
     render(<SandboxStrip sandbox={optOutView} send={fullSend()} />);
 
     const strip = screen.getByTestId('sandbox-strip');
-    expect(strip.textContent).toContain('ticket opted out of the sandbox backend — runs prompted on the host.');
+    expect(strip.textContent).toContain('ticket opted out of the sandbox backend');
     // Actions are still rendered
     expect(screen.getByRole('button', { name: 'Sync sandbox commits into the worktree' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove the sandbox' })).toBeTruthy();

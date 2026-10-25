@@ -31,6 +31,7 @@ import { nowIso } from '../../model/time.js';
 import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
+import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
 import {
@@ -253,7 +254,8 @@ export function buildFindingsPrompt(
     ``,
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
-    `- No changes worth reporting → output exactly [].`,
+    `- No changes worth reporting → output only the coverage entry below.`,
+    COVERAGE_RULE_REVIEW,
     `- Use "critical" only for something that will break in production (data loss, security, crash); "high" for a real bug or a clear regression; "medium"/"low"/"info" for style, maintainability, or a suggestion.`,
     ...(blockingSeverity ? [reviewBlockingSeverityRule(blockingSeverity)] : []),
   ].join('\n');
@@ -428,14 +430,24 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         // later attempt, so dropping it afterwards would fix nothing. The probe
         // runs only when a claim was actually made, so the normal path pays no
         // git call.
-        let parsed = rawFindings;
-        if (target.branch && opts.git && rawFindings.some(isWrongCheckoutClaim)) {
+        // The advisory coverage record is persisted for display but never
+        // joins `findings`, so `aggregateReview` cannot see it.
+        const { coverage: coverageRows, rest: realFindings } = splitCoverage(rawFindings);
+        const coverageRecord = coverageOrFallback(coverageRows, (title) => ({
+          severity: 'info' as Severity,
+          repo: target.repo,
+          title,
+          detail: '',
+          source: 'agent' as const,
+        }));
+        let parsed = realFindings;
+        if (target.branch && opts.git && parsed.some(isWrongCheckoutClaim)) {
           const verdict = await verifyCheckout(opts.git, target.worktreePath, target.branch);
           debug?.(
             `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} claimed a wrong ` +
               `checkout — host says '${verdict}' for branch '${target.branch}'`,
           );
-          parsed = dropDisprovenCheckoutClaims(rawFindings, verdict, {
+          parsed = dropDisprovenCheckoutClaims(realFindings, verdict, {
             branch: target.branch,
             repo: target.repo,
             warn: opts.warn,
@@ -444,7 +456,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         const deferred = parsed.filter(isRequirementFinding);
         const immediate = parsed.filter((f) => !isRequirementFinding(f));
         for (const f of deferred) pendingRequirements.get(target.repo)?.push(f);
-        if (immediate.length > 0) opts.persistFindings?.(immediate, processRun?.id ?? null);
+        opts.persistFindings?.([...immediate, coverageRecord], processRun?.id ?? null);
         if (
           shape !== 'unreadable' &&
           !parsed.some(isWrongCheckoutClaim) &&

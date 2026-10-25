@@ -14,6 +14,8 @@ export interface DashboardSandboxView {
   readonly carry: boolean;
   /** Why the ticket is on host although the project selects a sandbox backend. */
   readonly note?: string;
+  /** Host runs only: the core's built-in OS sandbox is active (AC-31) or tool use is prompted. */
+  readonly hostProtection?: 'core-native' | 'prompted';
 }
 
 export interface SandboxViewInput {
@@ -22,7 +24,12 @@ export interface SandboxViewInput {
   readonly core: string;
   /** The last refused sync was a host rewrite (rebase/amend). */
   readonly rewritten?: boolean;
+  /** The manifest's `agentSandbox` opt-in (AC-31). */
+  readonly agentSandbox?: boolean;
 }
+
+/** Cores whose adapter declares `surfaces.sandboxInteractive` (claude seatbelt/bubblewrap, codex workspace-write). */
+const NATIVE_SANDBOX_CORES: readonly string[] = ['claude', 'codex'];
 
 const NETWORK: Readonly<Record<AgentBackend, string>> = {
   host: 'none (host)',
@@ -32,18 +39,20 @@ const NETWORK: Readonly<Record<AgentBackend, string>> = {
 
 /**
  * The configured placement, not a live probe (the preflight is async and runs at
- * session start, which shows its own fallback message). Absent when the project
- * uses no sandbox backend, so a host project's dashboard is unchanged.
+ * session start, which shows its own fallback message). Always present: a host
+ * run still reports where it runs and whether the core's own OS sandbox guards it.
  */
-export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView | null {
+export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView {
   const { project, core } = input;
-  if (project === undefined || project === 'host') return null;
-  const onHost = (note: string, actions: boolean): DashboardSandboxView => ({
-    backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, carry: false, note,
+  const hostProtection = input.agentSandbox === true && NATIVE_SANDBOX_CORES.includes(core) ? 'core-native' : 'prompted';
+  const onHost = (actions: boolean, note?: string): DashboardSandboxView => ({
+    backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, carry: false, hostProtection,
+    ...(note === undefined ? {} : { note }),
   });
+  if (project === undefined || project === 'host') return onHost(false);
   // An opted-out ticket may still hold a sandbox from before, so its actions stay.
-  if (input.ticketOverride === 'host') return onHost('ticket opted out of the sandbox backend', true);
+  if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
-  if (!cores.includes(core)) return onHost(`${core}: ${project} backend unsupported`, false);
+  if (!cores.includes(core)) return onHost(false, `${core}: ${project} backend unsupported`);
   return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true };
 }

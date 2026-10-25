@@ -60,7 +60,7 @@ export const AGENT_ICONS_DIR = join(RUNTIME_ASSETS_ROOT, 'model', 'icons', 'agen
  * (the icon spans are aria-hidden; a title would surface to no one), and
  * inter-tag whitespace (keeps the injected blob small).
  */
-function normalizeSvg(raw: string): string {
+export function normalizeSvg(raw: string): string {
   return raw
     .replace(/<\?xml[\s\S]*?\?>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')

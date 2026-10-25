@@ -8,6 +8,7 @@
  */
 import { useMemo } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
+import { pageRoutes } from '../hostBridge.js';
 import { pickerCores } from './presetDraft.js';
 
 const EMPTY_RECENT: Readonly<Record<string, readonly string[]>> = {};
@@ -36,5 +37,8 @@ export function usePickerInputs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
     [implementedKey],
   );
-  return { catalog, recent, cores };
+  // The route identity map is a page global emitted with the picker blob, not
+  // host state: it never changes within a page, so one read is enough.
+  const routes = useMemo(() => pageRoutes(), []);
+  return { catalog, recent, cores, routes };
 }

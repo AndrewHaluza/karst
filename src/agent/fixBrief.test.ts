@@ -125,6 +125,19 @@ describe('renderFixBrief', () => {
     expect(brief).toContain('[low] unused import');
   });
 
+  it('never hands the fix agent the advisory coverage record as a finding', () => {
+    const brief = renderFixBrief(
+      'PROJ-7',
+      [{ stageKey: 'review', status: 'failed', verdict: 'review findings: 1 critical' }],
+      [
+        finding({ severity: 'critical', title: 'SQL injection' }),
+        finding({ severity: 'info', title: 'COVERAGE (reported): PASS — checked the diff' }),
+      ],
+    );
+    expect(brief).toContain('SQL injection');
+    expect(brief).not.toContain('COVERAGE');
+  });
+
   it('says nothing about findings when there are none', () => {
     const brief = renderFixBrief('PROJ-8', [{ stageKey: 'review', status: 'failed' }], []);
     expect(brief).not.toContain('findings');

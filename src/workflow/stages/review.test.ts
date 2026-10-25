@@ -8,7 +8,12 @@ import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
-import { listFindings } from '../../store/reviewFindings.js';
+import { listFindings as listAllFindings } from '../../store/reviewFindings.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
+
+/** The agent's findings only: the advisory coverage record is asserted on its own. */
+const listFindings = (...args: Parameters<typeof listAllFindings>) =>
+  listAllFindings(...args).filter((f) => !isCoverageRecord(f));
 import { listProcessRuns } from '../../store/processRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';

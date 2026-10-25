@@ -79,6 +79,9 @@
   "src/agent/materializedCleanup.ts#cleanupOwnedPaths": [
     "arch:ROOT-GEN"
   ],
+  "src/agent/seed.ts": [
+    "arch:PM-00"
+  ],
   "src/agent/settings.ts#writeHookSettings": [
     "arch:GLOBAL"
   ],
@@ -177,6 +180,9 @@
   ],
   "src/cli/guide.ts#AGENT_GUIDE": [
     "arch:CLI-05"
+  ],
+  "src/cli/guideTelemetry.ts": [
+    "arch:PM-00"
   ],
   "src/cli/manifestCommand.ts#runManifestCommand": [
     "arch:CLI-14"
@@ -343,11 +349,29 @@
   "src/logging/logger.ts#makeLogger": [
     "arch:DBG-02"
   ],
+  "src/manifest/*.ts": [
+    "arch:MS-00"
+  ],
+  "src/manifest/validate/*.ts": [
+    "arch:MS-00"
+  ],
   "src/model/artifacts.ts": [
     "arch:SHELF"
   ],
   "src/model/bulletinRelevance.ts": [
     "arch:BULLETIN"
+  ],
+  "src/model/entityId.ratchet.test.ts": [
+    "arch:IDS-00"
+  ],
+  "src/model/entityId.ts": [
+    "arch:IDS-00"
+  ],
+  "src/model/entityId.ts#formatId": [
+    "arch:IDS-01"
+  ],
+  "src/model/entityId.ts#parseId": [
+    "arch:IDS-01"
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
@@ -510,6 +534,9 @@
   "src/store/mergeChecks.ts#listMergeChecksByTicket": [
     "arch:GH-05"
   ],
+  "src/store/metrics/**": [
+    "arch:PM-00"
+  ],
   "src/store/metrics/index.ts#UNAVAILABLE_METRICS": [
     "arch:CLI-07"
   ],
@@ -524,6 +551,9 @@
   ],
   "src/store/prFeedback.ts": [
     "arch:GH-00"
+  ],
+  "src/store/promptTelemetryQuery.ts": [
+    "arch:PM-00"
   ],
   "src/store/prs.ts": [
     "arch:GH-00"
@@ -572,6 +602,12 @@
   "src/store/ticketRelations.ts": [
     "arch:RELATIONS"
   ],
+  "src/store/tokenUsage.ts": [
+    "arch:PM-00"
+  ],
+  "src/store/tokenUsageQuery.ts": [
+    "arch:PM-00"
+  ],
   "src/store/usageLimitParks.ts": [
     "arch:V82"
   ],
@@ -602,8 +638,17 @@
   "src/ui/resources/panel.ts": [
     "arch:SERVERS-PANEL"
   ],
+  "src/ui/settings/actions.ts": [
+    "arch:MS-00"
+  ],
+  "src/ui/settings/app/sections/AgentsSection.tsx": [
+    "arch:MS-00"
+  ],
   "src/ui/settings/app/sections/PendingOutputs.tsx": [
     "arch:APP-00"
+  ],
+  "src/ui/settings/sections.ts": [
+    "arch:MS-00"
   ],
   "src/ui/worktreePath.ts#PathContext": [
     "arch:GH-07"
@@ -675,6 +720,9 @@
   "src/workflow/review/conformance.ts#buildConformanceBlock": [
     "arch:APP-12"
   ],
+  "src/workflow/review/findings.ts": [
+    "arch:PM-00"
+  ],
   "src/workflow/stages/scope.ts#confirmScope": [
     "arch:BASE-PULL",
     "arch:ENTRIES"
@@ -687,5 +735,8 @@
   ],
   "src/workflow/uat/aggregate.ts#aggregateUat": [
     "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/uat/tester.ts": [
+    "arch:PM-00"
   ]
 }

@@ -1321,6 +1321,7 @@
     const picker = mountAgentPicker(root, {
       cores: apCores,
       catalog: lastModelCatalog,
+      routes: AP_ROUTES,
       recent: lastRecentModels,
       value: { core: sel || defaultProvider || 'claude', model, effort },
       // The model/effort inherit rows belong to the settings default core —

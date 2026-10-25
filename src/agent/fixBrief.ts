@@ -4,6 +4,7 @@ import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { lastFailedGate } from '../workflow/fixAttempts.js';
+import { isCoverageRecord } from '../model/coverageRecord.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
 /** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
@@ -120,9 +121,11 @@ export function renderFixBrief(
     }
   }
   if (gate.artifactPath) lines.push('', `Its full output is at ${gate.artifactPath} — read it first.`);
-  if (gate.stageKey === 'review' && findings.length > 0) {
+  // The advisory coverage record is evidence of what review covered, not a defect to fix.
+  const fixable = findings.filter((f) => !isCoverageRecord(f));
+  if (gate.stageKey === 'review' && fixable.length > 0) {
     lines.push('', 'Review also recorded these findings about the diff:');
-    for (const f of findings) {
+    for (const f of fixable) {
       lines.push(`- [${f.severity}] ${f.title}${findingLocation(f)}`);
     }
   }

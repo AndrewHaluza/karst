@@ -30,6 +30,21 @@ describe('AgentPopover — the staged switch', () => {
     expect(mounts).toHaveLength(2);
   });
 
+  it('hands the picker the route identity map the picker blob emits, or none when it is absent', () => {
+    const mounts = installPicker();
+    const scope = globalThis as unknown as Record<string, unknown>;
+    delete scope.AP_ROUTES;
+    mountHeader(headerState());
+    fireEvent.click($('#agentButton'));
+    expect(mounts[0]!.opts.routes).toEqual({});
+    fireEvent.click($('#agentButton'));
+    const routes = { openrouter: { name: 'OpenRouter' } };
+    scope.AP_ROUTES = routes;
+    fireEvent.click($('#agentButton'));
+    expect(mounts[1]!.opts.routes).toBe(routes);
+    delete scope.AP_ROUTES;
+  });
+
   it('keeps Switch agent disabled until the draft differs, then posts the draft once and closes', () => {
     const mounts = installPicker();
     const h = mountHeader(headerState());

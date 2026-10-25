@@ -8,6 +8,11 @@ import { collapseDiagnostic } from '../diagnosticText.js';
 import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../manifest/qualityDefaults.js';
 import type { Severity } from '../../manifest/types.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
+import { isCoverageRecord } from '../coverageRecord.js';
+
+/** The advisory coverage record is `info` and never blocks, even at the lowest threshold. */
+const isBlockingFinding = (f: { severity: string; title: string }, threshold: Parameters<typeof isBlockingSeverity>[1]) =>
+  !isCoverageRecord(f) && isBlockingSeverity(f.severity as Parameters<typeof isBlockingSeverity>[0], threshold);
 import { isPermissionDenialDetail } from '../../agent/cliFailure.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
@@ -169,7 +174,7 @@ const FINDING_DETAIL_MAX = 200;
 function findingOp(finding: Finding, threshold: Severity | 'none'): StageOp & { location: string | null } {
   const title = collapseDiagnostic(finding.title, FINDING_DETAIL_MAX);
   return {
-    status: isBlockingSeverity(finding.severity, threshold) ? 'fail' : 'note',
+    status: isBlockingFinding(finding, threshold) ? 'fail' : 'note',
     name: finding.severity,
     detail: title,
     duration: '',
@@ -726,7 +731,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     : [];
   const scoped = scopeFindings(observations, input.findingsRepo);
   const threshold = input.testerBlockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
-  const blocking = observations.filter((f) => isBlockingSeverity(f.severity, threshold)).length;
+  const blocking = observations.filter((f) => isBlockingFinding(f, threshold)).length;
   const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
     // Rendered by the SAME blueprint the Review findings use — severity key,
@@ -736,7 +741,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
       const location = findingLocation(f.filePath, f.line);
       const title = collapseDiagnostic(f.title, FINDING_DETAIL_MAX);
       return {
-        status: isBlockingSeverity(f.severity, threshold) ? 'fail' : 'note',
+        status: isBlockingFinding(f, threshold) ? 'fail' : 'note',
         label: f.severity,
         detail: title,
         ...(insideSeverity(f.severity) ? { severity: insideSeverity(f.severity)! } : {}),
@@ -831,7 +836,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   // blocking is the process's aggregate for the whole stage, not for the
   // visible rows — computed from the UNFILTERED, UNBOUNDED batch.
   const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
-  const blocking = batch.filter((f) => isBlockingSeverity(f.severity, threshold)).length;
+  const blocking = batch.filter((f) => isBlockingFinding(f, threshold)).length;
   const scoped = scopeFindings(batch, input.findingsRepo);
   const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(

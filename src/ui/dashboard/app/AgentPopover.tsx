@@ -27,6 +27,8 @@ type MountPicker = (root: HTMLElement, opts: Record<string, unknown>) => unknown
 const pageMount = (): MountPicker | null => (globalThis as unknown as { mountAgentPicker?: MountPicker }).mountAgentPicker ?? null;
 const providerLabel = (provider: string): string =>
   (globalThis as unknown as { AGENT_PROVIDER_LABELS?: Record<string, string> }).AGENT_PROVIDER_LABELS?.[provider] ?? provider;
+/** The route identity map the picker blob emits as the `AP_ROUTES` page global; absent = no route icons. */
+const pageRoutes = (): Record<string, unknown> => (globalThis as unknown as { AP_ROUTES?: Record<string, unknown> }).AP_ROUTES ?? {};
 
 const initialDraft = (agent: AgentSlice): Draft => ({
   core: agent.session.provider,
@@ -40,6 +42,7 @@ function pickerOptions(agent: AgentSlice, draft: Draft, onChange: (value: Picker
   return {
     cores: (sw.cores || []).map((c) => ({ id: c.id, label: c.label || c.id })),
     catalog: sw.modelsByCore || sw.models || {},
+    routes: pageRoutes(),
     recent: sw.recentByCore || {},
     value: { core: draft.core || '', model: draft.model, effort: draft.effort },
     // The model/effort inherit rows describe the SETTINGS default core; the picker drops them once another core is

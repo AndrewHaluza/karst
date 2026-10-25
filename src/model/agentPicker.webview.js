@@ -28,6 +28,118 @@ function apTags(catalog, provider, modelId) {
   return undefined;
 }
 
+// ── model id parsing (design § model menu: routes, vendors, free) ────────────
+/**
+ * Split a model id into the parts the picker renders (pure, no DOM):
+ * `opencode/<m>` → route `opencode`; `openrouter/<vendor>/<m>` → route +
+ * vendor; a `#variant` or `:variant` suffix → variant; `:free`/`-free` → free.
+ * A curated catalog label that is more than the raw id wins as the model name.
+ */
+function apParseModelId(id, label) {
+  var raw = String(id === null || id === undefined ? '' : id);
+  var seg = raw.split('/');
+  var out;
+  if (seg.length < 2) {
+    out = { id: id, route: '', vendor: '', model: label || id || '', free: false, variant: '' };
+  } else {
+    var last = seg[seg.length - 1];
+    var variant = '';
+    var free = false;
+    var h = last.indexOf('#');
+    if (h >= 0) { variant = last.slice(h + 1); last = last.slice(0, h); }
+    var c = last.indexOf(':');
+    if (c >= 0) {
+      var suf = last.slice(c + 1);
+      last = last.slice(0, c);
+      if (suf === 'free') free = true; else variant = suf;
+    }
+    if (/-free$/.test(last)) free = true;
+    out = {
+      id: id, route: seg[0], vendor: seg.slice(1, -1).join('/'),
+      model: last, free: free, variant: variant,
+    };
+  }
+  if (label && label !== id) out.model = label;
+  return out;
+}
+
+/** The host-supplied route meta for a parsed route, or null. */
+function apRouteMeta(routes, route) {
+  if (!route || !routes || !Object.prototype.hasOwnProperty.call(routes, route)) return null;
+  return routes[route] || null;
+}
+
+/** The route's display name; the raw id for an unknown route. */
+function apRouteName(routes, route) {
+  var meta = apRouteMeta(routes, route);
+  return meta && meta.name ? meta.name : (route || '');
+}
+
+/**
+ * The model's display name. A curated catalog label often repeats its gateway
+ * ("OpenCode Go · MiMo v2.5"); under the route heading that prefix is noise, so
+ * a leading "<route name> · " (or "<route id> · ") is dropped. Any other label
+ * — and every raw id — renders unchanged.
+ */
+function apModelName(parsed, routes) {
+  var name = parsed.model || '';
+  var prefixes = [apRouteName(routes, parsed.route), parsed.route];
+  for (var i = 0; i < prefixes.length; i++) {
+    var prefix = prefixes[i];
+    if (prefix && name.indexOf(prefix + ' \u00b7 ') === 0) return name.slice(prefix.length + 3);
+  }
+  return name;
+}
+
+/** Stable hue (0-359) for a route's monogram — same id, same colour, always. */
+function apRouteHue(route) {
+  var s = String(route || '');
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+
+/**
+ * The 16px route mark: the host icon plus its subscription badge, or — for an
+ * unknown route, or a known one whose asset is missing — a letter monogram on a
+ * hue derived from the id. `ui:ICONS-05` item 4 records both as approved.
+ */
+function apRouteIconHtml(route, routes) {
+  if (!route) return '';
+  var meta = apRouteMeta(routes, route);
+  var icon = meta && meta.iconSvg ? meta.iconSvg : '';
+  var mark = icon || ('<span class="ap-mono">' + apEsc(String(route).charAt(0).toUpperCase()) + '</span>');
+  var badge = meta && meta.badge ? '<span class="ap-route-badge">' + apEsc(meta.badge) + '</span>' : '';
+  var hue = icon ? '' : ' style="--ap-hue:' + apRouteHue(route) + '"';
+  return '<span class="ap-route" title="' + apEsc(apRouteName(routes, route)) + '"' + hue
+    + ' aria-hidden="true">' + mark + badge + '</span>';
+}
+
+/**
+ * The two-line model stack: the model name (with its variant) over the gateway
+ * vendor. Both lines clip with an ellipsis and point at the trigger, whose
+ * accessible name carries the full text (UI-R44).
+ */
+function apModelStackHtml(parsed, triggerId, routes) {
+  var variant = parsed.variant ? '<span class="ap-variant"> ' + apEsc(parsed.variant) + '</span>' : '';
+  var vendor = parsed.vendor
+    ? '<span class="ap-mvendor" aria-describedby="' + apEsc(triggerId) + '">' + apEsc(parsed.vendor) + '</span>'
+    : '';
+  return '<span class="ap-mstack">'
+    + '<span class="ap-mname" aria-describedby="' + apEsc(triggerId) + '">'
+    + apEsc(apModelName(parsed, routes)) + variant + '</span>'
+    + vendor
+    + '</span>';
+}
+
+/** The trigger's accessible name for a routed model: model, vendor, route, full id. */
+function apRoutedTriggerName(caption, parsed, routes) {
+  var name = apModelName(parsed, routes);
+  var via = ' via ' + apRouteName(routes, parsed.route);
+  var who = parsed.vendor ? name + ', ' + parsed.vendor + via : name + via;
+  return caption + ': ' + who + ' \u2014 ' + parsed.id + (parsed.free ? ', free' : '');
+}
+
 /** One row of capability-tag chips; empty when the model advertises none. */
 function apModelTagsHtml(tags) {
   if (!tags || tags.length === 0) return '';
@@ -93,14 +205,123 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
   return out;
 }
 
+/** One model row: name + variant, capability chips, free tag, saved tag. */
+function apModelItemHtml(m, saved, tags, routes) {
+  var sel = m.id === saved;
+  var p = apParseModelId(m.id, m.label);
+  var variant = p.variant ? '<span class="ap-variant"> ' + apEsc(p.variant) + '</span>' : '';
+  var free = p.free ? '<span class="ap-free">free</span>' : '';
+  // The full id lives in the row's title and data attribute (UI-R44) — the old
+  // second line repeated the name the user had just read.
+  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
+    + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '"'
+    + ' data-ap-full="' + apEsc(m.id) + '" title="' + apEsc(m.id) + '">'
+    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(apModelName(p, routes)) + variant + '</div>'
+    + apModelTagsHtml(tags)
+    + '</div>'
+    + free
+    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
+    + '</div>';
+}
+
+/** Group models by route, then by vendor — first-appearance order, stable. */
+function apModelGroups(models) {
+  var groups = [];
+  var byRoute = {};
+  for (var i = 0; i < models.length; i++) {
+    var p = apParseModelId(models[i].id, models[i].label);
+    var rk = 'r:' + (p.route || '');
+    var g = byRoute[rk];
+    if (!g) {
+      g = { route: p.route || '', vendors: [], byVendor: {} };
+      byRoute[rk] = g;
+      groups.push(g);
+    }
+    var vk = 'v:' + (p.vendor || '');
+    var v = g.byVendor[vk];
+    if (!v) { v = { vendor: p.vendor || '', models: [] }; g.byVendor[vk] = v; g.vendors.push(v); }
+    v.models.push(models[i]);
+  }
+  return groups;
+}
+
+/**
+ * The rows a set of models contributes, grouped route → vendor. `skip` drops ids
+ * already shown (the "Last used" group). Groups whose every row is skipped are
+ * dropped BEFORE their heading is emitted — a heading with no rows under it is
+ * noise, not structure.
+ */
+function apModelListHtml(models, saved, routes, skip, tagsOf) {
+  var groups = apModelGroups(models);
+  var visible = [];
+  for (var gi = 0; gi < groups.length; gi++) {
+    var g = groups[gi];
+    var vendors = [];
+    for (var vi = 0; vi < g.vendors.length; vi++) {
+      var v = g.vendors[vi];
+      var rows = [];
+      for (var mi = 0; mi < v.models.length; mi++) {
+        var m = v.models[mi];
+        if (skip && skip[m.id]) continue;
+        rows.push(m);
+      }
+      if (rows.length) vendors.push({ vendor: v.vendor, models: rows });
+    }
+    if (vendors.length) visible.push({ route: g.route, vendors: vendors });
+  }
+  var named = visible.length > 1 || (visible.length === 1 && visible[0].route !== '');
+  var out = '';
+  for (var i = 0; i < visible.length; i++) {
+    var group = visible[i];
+    // A route-less group (plain ids like `claude-opus-5`) has no heading to name:
+    // rendering one would leave an empty label sitting over its rows.
+    if (named && group.route) {
+      out += '<div class="ap-group-label" role="presentation">'
+        + apRouteIconHtml(group.route, routes)
+        + '<span>' + apEsc(apRouteName(routes, group.route)) + '</span></div>';
+    }
+    for (var j = 0; j < group.vendors.length; j++) {
+      var vg = group.vendors[j];
+      if (vg.vendor) out += '<div class="ap-group-sub" role="presentation">' + apEsc(vg.vendor) + '</div>';
+      for (var k = 0; k < vg.models.length; k++) {
+        out += apModelItemHtml(vg.models[k], saved, tagsOf ? tagsOf(vg.models[k].id) : undefined, routes);
+      }
+    }
+  }
+  return out;
+}
+
+/** The catalog rows a search query keeps: model, vendor, route id, route name, full id. */
+function apFilterModels(models, routes, q) {
+  var out = [];
+  for (var i = 0; i < models.length; i++) {
+    var p = apParseModelId(models[i].id, models[i].label);
+    var hay = (String(models[i].label || '') + ' ' + String(models[i].id || '') + ' '
+      + p.route + ' ' + p.vendor + ' ' + apRouteName(routes, p.route)).toLowerCase();
+    if (hay.indexOf(q) >= 0) out.push(models[i]);
+  }
+  return out;
+}
+
 /** Model options for the selected core: inherit row (when labeled) then models. */
-function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
+function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, routes, query) {
   var list = (catalog && catalog[provider]) || [];
+  var q = String(query === null || query === undefined ? '' : query).trim().toLowerCase();
+  var tagsOf = function (id) { return apTags(catalog, provider, id); };
+  if (q) {
+    var hits = apFilterModels(list, routes, q);
+    if (!hits.length) {
+      return list.length
+        ? '<div class="ap-empty">No models match "' + apEsc(query) + '".</div>'
+        : '<div class="ap-empty">No models listed for this core.</div>';
+    }
+    return apModelListHtml(hits, saved, routes, {}, tagsOf);
+  }
   var out = '';
   if (inheritLabel) {
     out += '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
       + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
-      + '<div><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+      + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
   }
   if (list.length === 0) {
     out += '<div class="ap-empty">No models listed for this core.</div>';
@@ -108,11 +329,7 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
     // The "Last used" group: models the user actually used recently, newest
     // first, up to 5, rendered BEFORE the full list. Only ids still in the
     // catalog render — a recent id that left the catalog is not a dead option.
-    // A recently used model that IS the current selection draws its saved/active
-    // tag inside the group, exactly like it would in the flat list. When the
-    // recent set already covers the WHOLE catalog (a provider with few models),
-    // the header is omitted — a "Last used" label over a list that is all one
-    // group adds noise, not structure.
+    // When the recent set already covers the WHOLE catalog, the header is omitted.
     var recent = [];
     var recentSet = {};
     var recentList = recentIds || [];
@@ -128,47 +345,23 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
       }
     }
     if (recent.length > 0 && recent.length < list.length) {
-      out += '<div class="ap-group-label">Last used</div>';
+      out += '<div class="ap-group-label" role="presentation">Last used</div>';
     }
     for (var k = 0; k < recent.length; k++) {
-      out += apModelItemHtml(recent[k], saved, apTags(catalog, provider, recent[k].id));
+      out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id), routes);
     }
-    for (var j = 0; j < list.length; j++) {
-      if (recentSet[list[j].id]) continue;
-      var m = list[j];
-      var sel = m.id === saved;
-      var mTags = apTags(catalog, provider, m.id);
-      out += '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
-        + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
-        + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-        + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
-        + apModelTagsHtml(mTags)
-        + '</div>'
-        + (sel ? '<span class="ap-model-tag">saved</span>' : '')
-        + '</div>';
-    }
+    out += apModelListHtml(list, saved, routes, recentSet, tagsOf);
   }
   if (saved && list.length > 0 && !list.some(function (m) { return m.id === saved; })) {
-    out += '<div class="ap-group-label">Saved model (unavailable)</div>'
+    out += '<div class="ap-group-label" role="presentation">Saved model (unavailable)</div>'
       + '<div class="ap-model-item active" role="option" tabindex="0" data-ap-model="'
-      + apEsc(saved) + '" aria-selected="true"><div><div class="ap-model-name">'
+      + apEsc(saved) + '" aria-selected="true" data-ap-full="' + apEsc(saved)
+      + '" title="' + apEsc(saved) + '"><div class="ap-model-main"><div class="ap-model-name">'
       + apEsc(saved) + '</div></div></div>';
   }
   return out;
 }
 
-/** One model row — shared by the "Last used" group and the full list. */
-function apModelItemHtml(m, saved, tags) {
-  var sel = m.id === saved;
-  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
-    + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
-    + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-    + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
-    + apModelTagsHtml(tags)
-    + '</div>'
-    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
-    + '</div>';
-}
 
 /**
  * A clipping trigger label points at its trigger (UI-R44). The describedby exists to satisfy
@@ -182,6 +375,91 @@ function apTriggerLabelHtml(inner, triggerId) {
 /** Compact core trigger name: caption plus the full core label. */
 function apCoreTriggerName(caption, coreName) {
   return coreName ? caption + ': ' + coreName : caption;
+}
+
+/** The model menu's chrome: search, scroll area, and the full-id footer (UI-R44). */
+function apModelMenuHtml() {
+  return '<div class="ap-search"><input type="text" placeholder="Search models…"'
+    + ' aria-label="Search models" data-ap-search /></div>'
+    + '<div class="ap-scroll" data-ap-list="model"></div>'
+    + '<div class="ap-menu-foot" aria-live="polite" data-ap-foot></div>';
+}
+
+/** The open menu's active row, if any. */
+function apActiveOption(shell) {
+  return shell ? shell.querySelector('[role="option"].active') : null;
+}
+
+/**
+ * The row a key or focus event came from, if it came from one of this shell's
+ * options. Rows are tabbable, so DOM focus can sit on a row the highlight does
+ * not cover; the key must answer from its own row, never from the highlight
+ * left somewhere else in the list.
+ */
+function apOptionAt(shell, target) {
+  var row = target && target.closest ? target.closest('[role="option"]') : null;
+  return row && shell && shell.contains && shell.contains(row) ? row : null;
+}
+
+/**
+ * Where keyboard focus sat inside an open menu, if anywhere: the search box or
+ * one of the rows. Captured before a re-render replaces the menu's HTML, so a
+ * host re-mount can hand focus back — without it focus falls to the document
+ * body and the open menu stops answering keys.
+ */
+function apMenuFocus(menu, doc) {
+  var active = doc && doc.activeElement;
+  if (!active || !menu || !menu.contains || !menu.contains(active)) return null;
+  if (active.hasAttribute && active.hasAttribute('data-ap-search')) return { search: true, model: '' };
+  var row = active.closest ? active.closest('[role="option"]') : null;
+  return row ? { search: false, model: row.getAttribute('data-ap-model') || '' } : null;
+}
+
+/** The rebuilt row matching a captured model id ('' is the inherit row). */
+function apMenuFocusRow(list, focus) {
+  if (!list || !focus || focus.search) return null;
+  var opts = list.querySelectorAll('[role="option"]');
+  for (var i = 0; i < opts.length; i++) {
+    if ((opts[i].getAttribute('data-ap-model') || '') === focus.model) return opts[i];
+  }
+  return null;
+}
+
+/**
+ * The open menu shell that belongs to `root`, if any. The stack is page-global
+ * (only one picker menu is open anywhere on the page), but a key pressed in one
+ * picker must never move or choose a row in another picker's menu.
+ */
+function apMenuShellFor(root, stack) {
+  var list = stack || [];
+  for (var i = list.length - 1; i >= 0; i--) {
+    if (root && root.contains && root.contains(list[i])) return list[i];
+  }
+  return null;
+}
+
+/**
+ * True when a key event belongs to this shell's open menu: its own rows or the
+ * search box (inside the menu), or the trigger that owns it. A key pressed on
+ * any OTHER control of the picker (the effort select, the other trigger) must
+ * keep its default behaviour instead of choosing the open menu's row.
+ */
+function apKeyOwnedBy(shell, target) {
+  if (!shell || !target || !shell.querySelector) return false;
+  var menu = shell.querySelector('[data-ap-menu]');
+  var trigger = shell.querySelector('[data-ap-trigger]');
+  return !!((menu && menu.contains && menu.contains(target)) || (trigger && trigger === target));
+}
+
+/**
+ * Mark exactly one row active (index -1 marks none). Every highlight goes
+ * through here: adding the class without clearing its predecessor is what left
+ * two rows highlighted when a menu was re-opened.
+ */
+function apMarkActive(items, index) {
+  for (var i = 0; i < items.length; i++) {
+    items[i].classList.toggle('active', i === index);
+  }
 }
 
 /** Per-page counter for unique picker trigger ids. */
@@ -252,6 +530,9 @@ function mountAgentPicker(root, opts) {
   var cores = o.cores || [];
   var catalog = o.catalog || {};
   var recent = o.recent || {};
+  // Route identity (routeIdentity.ts, emitted as AP_ROUTES): route id → name,
+  // badge, icon. Absent = the pre-route look (no icon, no vendor line).
+  var routes = o.routes || {};
   var value = o.value || {};
   var inherit = o.inherit || {};
   // The core the inherit labels came from (settings / the parent level). The
@@ -285,8 +566,7 @@ function mountAgentPicker(root, opts) {
     + '<div class="ap-shell" data-ap-shell="model">'
     + '<button type="button" class="ap-trigger" id="' + apId + '-model" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="model" role="listbox" hidden>'
-    + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
-    + '<div class="ap-scroll" data-ap-list="model"></div>'
+    + apModelMenuHtml()
     + '</div></div></div>'
     + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
@@ -316,11 +596,15 @@ function mountAgentPicker(root, opts) {
   function renderModel() {
     var modelTrigger = $('[data-ap-trigger="model"]');
     var modelMenu = $('[data-ap-menu="model"]');
-    modelMenu.innerHTML = '<div class="ap-search"><input type="text" placeholder="Search models…"'
-      + ' aria-label="Search models" data-ap-search /></div>'
-      + '<div class="ap-scroll" data-ap-list="model"></div>';
+    // Hosts re-mount onto this root on every state push, which re-renders this
+    // menu in place. An open menu must survive the rebuild with its focus: the
+    // replaced search box would otherwise drop focus to the body and the
+    // keydown listener would never see another key.
+    var wasOpen = !!(modelMenu && !modelMenu.hidden);
+    var focused = wasOpen ? apMenuFocus(modelMenu, document) : null;
+    modelMenu.innerHTML = apModelMenuHtml();
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, labels().model, recent[state.core],
+      catalog, state.core, state.model, labels().model, recent[state.core], routes,
     );
     var coreLabel = modelLabel();
     var coreTrigger = $('[data-ap-trigger="core"]');
@@ -331,11 +615,34 @@ function mountAgentPicker(root, opts) {
       coreTrigger.setAttribute('aria-label', apCoreTriggerName(
         o.labels && o.labels.core ? o.labels.core : 'Agent core', (coreTrigger.textContent || '').trim()));
     }
-    modelTrigger.innerHTML = apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
-      + '<span class="chev" aria-hidden="true"></span>';
-    var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
-    modelTrigger.title = triggerName;
-    if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
+    // A routed model (opencode/…, openrouter/…) renders the route mark, then the
+    // model name over its gateway vendor. An unrouted id renders exactly as before.
+    var parsed = apParseModelId(state.model, coreLabel);
+    if (parsed.route) {
+      modelTrigger.innerHTML = apRouteIconHtml(parsed.route, routes)
+        + apModelStackHtml(parsed, apId + '-model', routes)
+        + (parsed.free ? '<span class="ap-free">free</span>' : '')
+        + '<span class="chev" aria-hidden="true"></span>';
+      var stackName = apRoutedTriggerName(labelModel, parsed, routes);
+      modelTrigger.title = stackName;
+      modelTrigger.setAttribute('aria-label', stackName);
+    } else {
+      modelTrigger.innerHTML =
+        apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
+        + '<span class="chev" aria-hidden="true"></span>';
+      var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
+      modelTrigger.title = triggerName;
+      if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
+      else modelTrigger.removeAttribute('aria-label');
+    }
+    if (wasOpen) {
+      var modelShell = $('[data-ap-shell="model"]');
+      var back = focused && focused.search
+        ? modelMenu.querySelector('[data-ap-search]')
+        : apMenuFocusRow($('[data-ap-list="model"]'), focused);
+      if (back && back.focus) back.focus();
+      syncMenuFoot(modelShell);
+    }
     renderEffort();
   }
 
@@ -371,6 +678,34 @@ function mountAgentPicker(root, opts) {
 
   function emit() { if (typeof onChange === 'function') onChange({ core: state.core, model: state.model, effort: state.effort }); }
 
+  /** Point the footer at the keyboard-active row's full id (UI-R44). */
+  function syncMenuFoot(shell) {
+    if (!shell) return;
+    var foot = shell.querySelector('[data-ap-foot]');
+    if (!foot) return;
+    var active = apActiveOption(shell);
+    foot.textContent = active ? (active.getAttribute('data-ap-full') || '') : '';
+  }
+
+  /** Move the keyboard-active row by one; headings are not options, so they are skipped. */
+  function moveActive(shell, delta, target) {
+    var items = shell.querySelectorAll('[role="option"]');
+    if (!items.length) return;
+    // A row carries DOM focus when the user tabbed into the list; moving the
+    // highlight away from it would leave Enter answering the old row.
+    var focused = apOptionAt(shell, target);
+    var current = focused || apActiveOption(shell);
+    var idx = -1;
+    for (var i = 0; i < items.length; i++) if (items[i] === current) { idx = i; break; }
+    var next = idx < 0 ? (delta > 0 ? 0 : items.length - 1) : idx + delta;
+    if (next < 0) next = 0;
+    if (next > items.length - 1) next = items.length - 1;
+    apMarkActive(items, next);
+    if (focused && items[next].focus) items[next].focus();
+    if (items[next].scrollIntoView) items[next].scrollIntoView({ block: 'nearest' });
+    syncMenuFoot(shell);
+  }
+
   function setDisabled(on) {
     disabled = !!on;
     var triggers = root.querySelectorAll('[data-ap-trigger]');
@@ -392,8 +727,14 @@ function mountAgentPicker(root, opts) {
     if (kind === 'core') renderCoreActive();
     if (kind === 'model') {
       var list = $('[data-ap-list="model"]');
-      var first = list && list.querySelector('[role="option"]');
-      if (first) first.classList.add('active');
+      var opts = list ? list.querySelectorAll('[role="option"]') : [];
+      var selected = list ? list.querySelector('[role="option"][aria-selected="true"]') : null;
+      var index = 0;
+      for (var i = 0; i < opts.length; i++) if (opts[i] === selected) { index = i; break; }
+      apMarkActive(opts, opts.length ? index : -1);
+      var search = menu.querySelector('[data-ap-search]');
+      if (search && search.focus) search.focus();
+      syncMenuFoot(shell);
     }
   }
 
@@ -467,29 +808,57 @@ function mountAgentPicker(root, opts) {
   root.addEventListener('input', function (e) {
     var search = e.target && e.target.getAttribute && e.target.getAttribute('data-ap-search');
     if (search === null) return;
-    var q = (e.target.value || '').trim().toLowerCase();
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
-    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, labels().model, recent[state.core]); return; }
-    var list = (catalog && catalog[state.core]) || [];
-    var out = '';
-    for (var i = 0; i < list.length; i++) {
-      var hay = (list[i].label + ' ' + list[i].id).toLowerCase();
-      if (hay.indexOf(q) >= 0) {
-        out += '<div class="ap-model-item" role="option" tabindex="0" data-ap-model="'
-          + apEsc(list[i].id) + '"><div><div class="ap-model-name">' + apEsc(list[i].label)
-          + '</div><div class="ap-model-sub">' + apEsc(list[i].id) + '</div>'
-          + apModelTagsHtml(apTags(catalog, state.core, list[i].id))
-          + '</div></div>';
+    listEl.innerHTML = apModelOptionsHtml(
+      catalog, state.core, state.model, labels().model, recent[state.core], routes, e.target.value,
+    );
+    var items = listEl.querySelectorAll('[role="option"]');
+    apMarkActive(items, items.length ? 0 : -1);
+    syncMenuFoot($('[data-ap-shell="model"]'));
+  });
+
+  // Tabbing into the list lands on a row: the highlight and the footer must
+  // follow focus, so the row under the keyboard is the one Enter answers.
+  root.addEventListener('focusin', function (e) {
+    var shell = apMenuShellFor(root, AP_MENU_STACK);
+    var row = apOptionAt(shell, e.target);
+    if (!row) return;
+    var items = shell.querySelectorAll('[role="option"]');
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] === row) {
+        apMarkActive(items, i);
+        syncMenuFoot(shell);
+        return;
       }
     }
-    if (!out) out = '<div class="ap-empty">No models match "' + apEsc(e.target.value) + '".</div>';
-    listEl.innerHTML = out;
   });
 
   root.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    while (AP_MENU_STACK.length) closeMenu(AP_MENU_STACK[AP_MENU_STACK.length - 1], true);
+    // Another picker's menu can sit on top of the page-global stack; only this
+    // root's own menu may answer this picker's keys.
+    var shell = apMenuShellFor(root, AP_MENU_STACK);
+    if (!shell) return;
+    // Escape dismisses this picker's open menu from anywhere inside the picker;
+    // the action keys stay scoped to the menu itself.
+    if (e.key === 'Escape') {
+      closeMenu(shell, true);
+      return;
+    }
+    if (!apKeyOwnedBy(shell, e.target)) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveActive(shell, e.key === 'ArrowDown' ? 1 : -1, e.target);
+      return;
+    }
+    if (e.key === 'Enter') {
+      // The focused row wins: a key pressed on a row that is not highlighted
+      // must choose that row, not the highlight (review finding, round 4).
+      var row = apOptionAt(shell, e.target) || apActiveOption(shell);
+      if (!row) return;
+      e.preventDefault();
+      row.click();
+    }
   });
 
   document.addEventListener('click', function (e) {
@@ -515,6 +884,7 @@ function mountAgentPicker(root, opts) {
       cores = (next && next.cores) || [];
       catalog = (next && next.catalog) || {};
       recent = (next && next.recent) || {};
+      routes = (next && next.routes) || {};
       inherit = (next && next.inherit) || {};
       inheritCore = (next && next.inheritCore) || '';
       showEffort = next ? next.showEffort !== false : true;

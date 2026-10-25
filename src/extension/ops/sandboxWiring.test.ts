@@ -26,7 +26,11 @@ function wiring(over: Partial<SandboxWiringInput> = {}) {
   const choose = vi.fn(async () => undefined);
   const w = makeSandboxWiring({
     store, notify, choose, projectRoot: () => '/p/karst.yml', backendOn: () => false, projectId: () => undefined,
-    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
+    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(),
+    // Unit tests never touch the host Docker daemon: inventory paths fall back
+    // to NODE_DOCKER_PROCESS otherwise, and this suite runs where none exists.
+    dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    ...over,
   });
   return { w, notify, choose };
 }

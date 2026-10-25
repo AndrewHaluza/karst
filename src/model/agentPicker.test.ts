@@ -28,6 +28,18 @@ function load(): Record<string, unknown> {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
     apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
+    apParseModelId: typeof apParseModelId === 'function' ? apParseModelId : undefined,
+    apRouteIconHtml: typeof apRouteIconHtml === 'function' ? apRouteIconHtml : undefined,
+    apRouteName: typeof apRouteName === 'function' ? apRouteName : undefined,
+    apRouteHue: typeof apRouteHue === 'function' ? apRouteHue : undefined,
+    apRoutedTriggerName: typeof apRoutedTriggerName === 'function' ? apRoutedTriggerName : undefined,
+    apModelGroups: typeof apModelGroups === 'function' ? apModelGroups : undefined,
+    apModelListHtml: typeof apModelListHtml === 'function' ? apModelListHtml : undefined,
+    apMarkActive: typeof apMarkActive === 'function' ? apMarkActive : undefined,
+    apMenuShellFor: typeof apMenuShellFor === 'function' ? apMenuShellFor : undefined,
+    apKeyOwnedBy: typeof apKeyOwnedBy === 'function' ? apKeyOwnedBy : undefined,
+    apOptionAt: typeof apOptionAt === 'function' ? apOptionAt : undefined,
+    apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
   };`)();
@@ -393,8 +405,482 @@ describe('agentPickerJs', () => {
   });
 });
 
-describe('agentPickerCss', () => {
-  it('defines the picker primitives with token-only values', () => {
+describe('apParseModelId', () => {
+  const { apParseModelId } = load() as {
+    apParseModelId: (id: string, label?: string) => {
+      id: string; route: string; vendor: string; model: string; free: boolean; variant: string;
+    };
+  };
+
+  it('leaves an id with no slash unrouted, exactly as today', () => {
+    expect(apParseModelId('claude-opus-5', 'Opus 5')).toEqual({
+      id: 'claude-opus-5', route: '', vendor: '', model: 'Opus 5', free: false, variant: '',
+    });
+  });
+
+  it('splits a two-segment id into route and model', () => {
+    expect(apParseModelId('opencode/big-pickle', 'big-pickle')).toEqual({
+      id: 'opencode/big-pickle', route: 'opencode', vendor: '', model: 'big-pickle', free: false, variant: '',
+    });
+  });
+
+  it('keeps the middle segment as the vendor', () => {
+    expect(apParseModelId('openrouter/mancer/weaver', 'weaver')).toEqual({
+      id: 'openrouter/mancer/weaver', route: 'openrouter', vendor: 'mancer', model: 'weaver', free: false, variant: '',
+    });
+  });
+
+  it('joins a multi-segment vendor path', () => {
+    expect(apParseModelId('openrouter/inference-net/schematron-v2-turbo', '').vendor)
+      .toBe('inference-net');
+    expect(apParseModelId('openrouter/a/b/c/model', '').vendor).toBe('a/b/c');
+    expect(apParseModelId('openrouter/a/b/c/model', '').model).toBe('model');
+  });
+
+  it('reads :free as the free flag, not as part of the name', () => {
+    const p = apParseModelId('openrouter/liquid/lfm-2.5-2.6b:free', '');
+    expect(p.model).toBe('lfm-2.5-2.6b');
+    expect(p.free).toBe(true);
+    expect(p.variant).toBe('');
+  });
+
+  it('reads a -free suffix as the free flag', () => {
+    const p = apParseModelId('opencode/big-pickle-free', '');
+    expect(p.free).toBe(true);
+    expect(p.model).toBe('big-pickle-free');
+  });
+
+  it('reads #high as the variant', () => {
+    const p = apParseModelId('opencode-go/space-bunny#high', '');
+    expect(p.route).toBe('opencode-go');
+    expect(p.model).toBe('space-bunny');
+    expect(p.variant).toBe('high');
+    expect(p.free).toBe(false);
+  });
+
+  it('reads a non-free colon suffix as the variant', () => {
+    const p = apParseModelId('openrouter/x/y:nitro', '');
+    expect(p.model).toBe('y');
+    expect(p.variant).toBe('nitro');
+    expect(p.free).toBe(false);
+  });
+
+  it('tolerates empty segments', () => {
+    expect(apParseModelId('a//b', '')).toEqual({
+      id: 'a//b', route: 'a', vendor: '', model: 'b', free: false, variant: '',
+    });
+  });
+
+  it('lets a curated label that differs from the id win as the model name', () => {
+    expect(apParseModelId('opencode-go/deepseek-v4.1-flash', 'DeepSeek v4.1 Flash').model)
+      .toBe('DeepSeek v4.1 Flash');
+    expect(apParseModelId('opencode-go/deepseek-v4.1-flash', 'opencode-go/deepseek-v4.1-flash').model)
+      .toBe('deepseek-v4.1-flash');
+  });
+
+  it('handles empty input without throwing', () => {
+    expect(apParseModelId('', '')).toEqual({
+      id: '', route: '', vendor: '', model: '', free: false, variant: '',
+    });
+  });
+});
+
+describe('the picker carries the route map', () => {
+  it('defines AP_ROUTES inside the emitted picker runtime', () => {
+    expect(js).toContain('var AP_ROUTES = ');
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const map = new Function(`${js}\nreturn AP_ROUTES;`)() as Record<string, { name: string }>;
+    expect(map.openrouter?.name).toBe('OpenRouter');
+  });
+});
+
+describe('route identity in the closed control', () => {
+  const fns = load() as {
+    apParseModelId: (id: string, label?: string) => unknown;
+    apRouteIconHtml: (route: string, routes?: unknown) => string;
+    apRoutedTriggerName: (caption: string, parsed: unknown, routes?: unknown) => string;
+    apRouteHue: (route: string) => number;
+  };
+  const routes = {
+    openrouter: { name: 'OpenRouter', badge: '', iconSvg: '<svg id="or"></svg>' },
+    opencode: { name: 'OpenCode Zen', badge: 'Z', iconSvg: '<svg id="oc"></svg>' },
+    unknown: { name: '', badge: '', iconSvg: '' },
+  };
+
+  it('renders the host icon and badge for a known route', () => {
+    const out = fns.apRouteIconHtml('opencode', routes);
+    expect(out).toContain('class="ap-route"');
+    expect(out).toContain('title="OpenCode Zen"');
+    expect(out).toContain('<svg id="oc"></svg>');
+    expect(out).toContain('class="ap-route-badge">Z<');
+    expect(out).toContain('aria-hidden="true"');
+  });
+
+  it('falls back to a letter monogram with a derived hue for an unknown route', () => {
+    const out = fns.apRouteIconHtml('weaver-net', routes);
+    expect(out).toContain('class="ap-mono"');
+    expect(out).toContain('>W<');
+    expect(out).toMatch(/style="--ap-hue:\d+"/);
+    expect(out).toContain('title="weaver-net"');
+    expect(out).not.toContain('ap-route-badge');
+  });
+
+  it('renders no mark at all for an empty route', () => {
+    expect(fns.apRouteIconHtml('', routes)).toBe('');
+  });
+
+  it('derives a stable hue per route id', () => {
+    expect(fns.apRouteHue('openrouter')).toBe(fns.apRouteHue('openrouter'));
+    expect(fns.apRouteHue('openrouter')).toBeGreaterThanOrEqual(0);
+    expect(fns.apRouteHue('openrouter')).toBeLessThan(360);
+  });
+
+  it('names the trigger with the model, the vendor, the route and the full id', () => {
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('openrouter/mancer/weaver', 'weaver'), routes))
+      .toBe('Model: weaver, mancer via OpenRouter \u2014 openrouter/mancer/weaver');
+  });
+
+  it('names a two-segment route without a vendor, and appends free', () => {
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('opencode/big-pickle', 'big-pickle'), routes))
+      .toBe('Model: big-pickle via OpenCode Zen \u2014 opencode/big-pickle');
+    expect(fns.apRoutedTriggerName('Model', fns.apParseModelId('openrouter/x/y:free', ''), routes))
+      .toContain(', free');
+  });
+
+  it('ships the two-line stack, the never-shrinking free tag and the container query', () => {
+    expect(js).toContain('ap-mstack');
+    expect(js).toContain('ap-mvendor');
+    expect(js).toContain('ap-mname');
+    const css = agentPickerCss();
+    expect(css).toContain('.ap-mstack{display:flex;flex-direction:column');
+    expect(css).toMatch(/\.ap-mname,\.ap-mvendor\{[^}]*text-overflow:ellipsis/);
+    expect(css).toMatch(/\.ap-free\{[^}]*flex:none/);
+    // The stacked trigger keeps the one shared control height (D108 alignment).
+    expect(css).toMatch(/\.ap-trigger:has\(\.ap-mstack\)\{[^}]*padding-top:var\(--k-space-1\)/);
+    expect(css).toContain('.ap-shell[data-ap-shell="model"]{container-type:inline-size}');
+    // The narrow-control rule may only drop the TRIGGER's free tag: the menu
+    // rows live inside the same container and must keep their tag.
+    expect(css).toContain('@container (max-width: 130px){.ap-trigger .ap-free{display:none}}');
+    expect(css).not.toContain('@container (max-width: 130px){.ap-free{display:none}}');
+  });
+
+  it('clips only with a described trigger name (UI-R44)', () => {
+    const stack = new Function(`${js}\nreturn apModelStackHtml;`)() as (
+      parsed: unknown,
+      triggerId: string,
+    ) => string;
+    const out = stack(fns.apParseModelId('openrouter/mancer/weaver#high', 'weaver'), 'ap-7-model');
+    expect(out).toContain('aria-describedby="ap-7-model"');
+    expect(out).toContain('<span class="ap-variant">');
+  });
+});
+
+describe('the unknown-route monogram pair (UI-R29)', () => {
+  const css = agentPickerCss();
+  const decl = css.match(
+    /\.ap-mono\{[^}]*background:hsl\(var\(--ap-hue,\d+\) (\d+)% (\d+)%\);color:([^;}]+)/,
+  );
+
+  /** WCAG relative-luminance contrast of the fixed knockout against an hsl hue. */
+  function contrastOnWhite(h: number, sPct: number, lPct: number): number {
+    const s = sPct / 100;
+    const l = lPct / 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const hp = h / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    const [r, g, b] = hp < 1 ? [c, x, 0]
+      : hp < 2 ? [x, c, 0]
+      : hp < 3 ? [0, c, x]
+      : hp < 4 ? [0, x, c]
+      : hp < 5 ? [x, 0, c]
+      : [c, 0, x];
+    const m = l - c / 2;
+    const lin = (v: number): number => {
+      const q = v + m;
+      return q <= 0.04045 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+    return 1.05 / (lum + 0.05);
+  }
+
+  it('knocks the letter out on its own surface, never on the theme page background', () => {
+    expect(decl).not.toBeNull();
+    expect(decl![3]).toBe('#fff');
+    expect(css).not.toMatch(/\.ap-mono\{[^}]*var\(--k-bg\)/);
+  });
+
+  it('clears WCAG AA (>= 4.5:1) for every hue the route id can derive', () => {
+    // The surface is fixed, so the foreground must be too: `--k-bg` made the
+    // letter dark in dark themes and white in light ones, and one of the two
+    // always failed on the mid-lightness square.
+    expect(decl).not.toBeNull();
+    const s = Number(decl![1]);
+    const l = Number(decl![2]);
+    const ratios = Array.from({ length: 360 }, (_, h) => contrastOnWhite(h, s, l));
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('a picker only drives its own open menu', () => {
+  const fns = load() as {
+    apMenuShellFor: (root: unknown, stack: unknown[]) => unknown;
+  };
+
+  it('picks the open shell that belongs to this picker, not the page-global top', () => {
+    // The stack is page-global (one picker menu is open anywhere on the page).
+    // A key pressed in picker B must never move or choose a row in picker A.
+    const mine = { id: 'mine' };
+    const theirs = { id: 'theirs' };
+    const root = { contains: (el: unknown) => el === mine };
+    expect(fns.apMenuShellFor(root, [theirs])).toBeNull();
+    expect(fns.apMenuShellFor(root, [theirs, mine])).toBe(mine);
+    expect(fns.apMenuShellFor(root, [])).toBeNull();
+  });
+
+  it('scopes the keydown handler through that helper, never a global stack top', () => {
+    const start = js.indexOf("root.addEventListener('keydown'");
+    const end = js.indexOf("document.addEventListener('click'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const keydown = js.slice(start, end);
+    expect(keydown).toContain('apMenuShellFor(root, AP_MENU_STACK)');
+    expect(keydown).not.toContain('AP_MENU_STACK[');
+    // The shell's menu must also own the key: another control in the same root
+    // (the effort select, the other trigger) keeps its own Enter/Arrow keys.
+    expect(keydown).toContain('apKeyOwnedBy(shell, e.target)');
+  });
+
+  it('owns a key only when it targets the shell’s menu or trigger', () => {
+    const fns = load() as {
+      apKeyOwnedBy: (shell: unknown, target: unknown) => boolean;
+    };
+    const search = { id: 'search' };
+    const trigger = { id: 'trigger' };
+    const effort = { id: 'effort' };
+    const shell = {
+      querySelector: (sel: string) => sel === '[data-ap-menu]'
+        ? { contains: (el: unknown) => el === search }
+        : trigger,
+    };
+    expect(fns.apKeyOwnedBy(shell, search)).toBe(true);
+    expect(fns.apKeyOwnedBy(shell, trigger)).toBe(true);
+    expect(fns.apKeyOwnedBy(shell, effort)).toBe(false);
+    expect(fns.apKeyOwnedBy(null, search)).toBe(false);
+    expect(fns.apKeyOwnedBy(shell, null)).toBe(false);
+  });
+});
+
+describe('a key answers from the row it was pressed on', () => {
+  const fns = load() as {
+    apOptionAt: (shell: unknown, target: unknown) => unknown;
+  };
+  const row = { id: 'row' };
+  const shell = { contains: (el: unknown) => el === row };
+
+  it('resolves the event target to its option inside the shell', () => {
+    expect(fns.apOptionAt(shell, { closest: () => row })).toBe(row);
+    expect(fns.apOptionAt(shell, { closest: () => null })).toBeNull();
+    expect(fns.apOptionAt(shell, {})).toBeNull();
+    expect(fns.apOptionAt(shell, null)).toBeNull();
+  });
+
+  it('never answers with a row from another menu', () => {
+    expect(fns.apOptionAt(shell, { closest: () => ({ id: 'theirs' }) })).toBeNull();
+    expect(fns.apOptionAt(null, { closest: () => row })).toBeNull();
+  });
+
+  it('prefers the key’s row in the handler and moves focus with the arrows', () => {
+    // The review found Enter committing the highlighted row while DOM focus sat
+    // on another row the user had tabbed to. The row the key came from wins;
+    // the highlight is only the fallback for keys from the search box/trigger.
+    const start = js.indexOf("root.addEventListener('keydown'");
+    const end = js.indexOf("document.addEventListener('click'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const keydown = js.slice(start, end);
+    expect(keydown).toContain('apOptionAt(shell, e.target) || apActiveOption(shell)');
+    expect(keydown).toContain('moveActive(shell, e.key === \'ArrowDown\' ? 1 : -1, e.target)');
+    // Tabbing into the list points the highlight and footer at the focused row.
+    expect(js).toContain("root.addEventListener('focusin'");
+    expect(js).toContain('apMarkActive(items, i);');
+  });
+});
+
+describe('route → vendor grouping and the full-id footer', () => {
+  const fns = load() as {
+    apModelOptionsHtml: (
+      c: unknown, p: string, saved: string, inherit: string,
+      recent?: string[], routes?: unknown, query?: string,
+    ) => string;
+  };
+  const routes = {
+    opencode: { name: 'OpenCode Zen', badge: 'Z', iconSvg: '' },
+    'opencode-go': { name: 'OpenCode Go', badge: 'Go', iconSvg: '' },
+    openrouter: { name: 'OpenRouter', badge: '', iconSvg: '' },
+  };
+  const mixed = {
+    opencode2: [
+      { id: 'opencode/big-pickle-free', label: 'big-pickle-free' },
+      { id: 'opencode-go/space-bunny#high', label: 'Space Bunny', efforts: ['high'] },
+      { id: 'openrouter/mancer/weaver', label: 'weaver' },
+      { id: 'openrouter/liquid/lfm-2.5-2.6b:free', label: 'LFM 2.5 2.6B' },
+    ],
+  };
+
+  it('heads each route group with its icon and name, then each vendor', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    const zen = out.indexOf('OpenCode Zen');
+    const go = out.indexOf('OpenCode Go');
+    const or = out.indexOf('OpenRouter');
+    expect(zen).toBeGreaterThan(-1);
+    expect(zen).toBeLessThan(go);
+    expect(go).toBeLessThan(or);
+    expect(out).toContain('class="ap-group-sub" role="presentation">mancer<');
+    expect(out).toContain('class="ap-group-sub" role="presentation">liquid<');
+    expect(out).toContain('class="ap-route"');
+  });
+
+  it('adds no route heading when every model is unrouted', () => {
+    const out = fns.apModelOptionsHtml(catalog, 'claude', '', '');
+    expect(out).not.toContain('ap-group-label');
+  });
+
+  it('adds no empty heading over unrouted rows beside a routed group', () => {
+    const mix = {
+      opencode2: [
+        { id: 'opencode/big-pickle', label: 'Big Pickle' },
+        { id: 'claude-opus-5', label: 'Opus 5' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(mix, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('<span>OpenCode Zen</span>');
+    expect(out).toContain('data-ap-model="claude-opus-5"');
+    // Only the routed group gets a heading; the unrouted row must not sit under
+    // an empty one.
+    expect(out.match(/ap-group-label/g)).toHaveLength(1);
+  });
+
+  it('omits a route group whose every row is already in the last-used group', () => {
+    const twoRoutes = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'openrouter/mancer/weaver', label: 'weaver' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(twoRoutes, 'opencode2', '', '', ['opencode-go/space-bunny'], routes);
+    // Its only row is shown under "Last used", so the heading would hang over nothing.
+    expect(out).toContain('Last used');
+    expect(out).not.toContain('<span>OpenCode Go</span>');
+    expect(out).toContain('<span>OpenRouter</span>');
+    expect(out).toContain('data-ap-model="openrouter/mancer/weaver"');
+  });
+
+  it('keeps a route heading when that route still has a row left', () => {
+    const twoRoutes = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'opencode-go/mimo-v2.5', label: 'MiMo v2.5' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(twoRoutes, 'opencode2', '', '', ['opencode-go/space-bunny'], routes);
+    expect(out).toContain('<span>OpenCode Go</span>');
+    expect(out).toContain('data-ap-model="opencode-go/mimo-v2.5"');
+  });
+
+  it('drops a curated label prefix that repeats the route heading', () => {
+    const labelled = {
+      opencode2: [{ id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go \u00b7 MiMo v2.5' }],
+    };
+    const out = fns.apModelOptionsHtml(labelled, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('>MiMo v2.5<');
+    expect(out).not.toContain('OpenCode Go \u00b7 MiMo v2.5');
+  });
+
+  it('keeps a label that does not repeat the route, and a raw id unchanged', () => {
+    const curated = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'openrouter/mancer/weaver', label: 'openrouter/mancer/weaver' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(curated, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('>Space Bunny<');
+    expect(out).toContain('>weaver<');
+  });
+
+  it('drops the duplicate full-id line and puts it in the row title instead', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    expect(out).not.toContain('ap-model-sub');
+    expect(out).toContain('title="openrouter/mancer/weaver"');
+    expect(out).toContain('data-ap-full="openrouter/mancer/weaver"');
+  });
+
+  it('shows the variant and the free tag on the row', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('<span class="ap-variant"> high</span>');
+    expect(out).toContain('<span class="ap-free">free</span>');
+  });
+
+  it('filters on the model name, the vendor, the route id, the route name and the full id', () => {
+    const byVendor = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'mancer');
+    expect(byVendor).toContain('data-ap-model="openrouter/mancer/weaver"');
+    expect(byVendor).not.toContain('space-bunny');
+    const byRouteName = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'opencode go');
+    expect(byRouteName).toContain('data-ap-model="opencode-go/space-bunny#high"');
+    expect(byRouteName).not.toContain('weaver');
+    const byFullId = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'liquid/lfm');
+    expect(byFullId).toContain('data-ap-model="openrouter/liquid/lfm-2.5-2.6b:free"');
+  });
+
+  it('reports no match for a filter that hits nothing', () => {
+    expect(fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'zzz'))
+      .toContain('No models match "zzz".');
+  });
+
+  it('keeps the saved-unavailable row reachable with its full id', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', 'gone/model', '', undefined, routes);
+    expect(out).toContain('Saved model (unavailable)');
+    expect(out).toContain('data-ap-full="gone/model"');
+  });
+
+  it('marks exactly one row active — re-opening cannot leave two highlighted', () => {
+    const marks = [
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+      { active: false, classList: { toggle(name: string, on: boolean) { if (name === 'active') this.on = on; }, on: false } },
+    ];
+    const { apMarkActive } = load() as { apMarkActive: (items: unknown[], index: number) => void };
+    apMarkActive(marks, 1);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, true, false]);
+    apMarkActive(marks, 2);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, false, true]);
+    apMarkActive(marks, -1);
+    expect(marks.map((m) => m.classList.on)).toEqual([false, false, false]);
+  });
+
+  it('ships the footer, arrow-key, Enter and focus-on-open wiring', () => {
+    expect(js).toContain('data-ap-foot');
+    expect(js).toContain('aria-live="polite"');
+    expect(js).toContain('function moveActive(');
+    expect(js).toContain('function syncMenuFoot(');
+    expect(js).toContain("'ArrowDown'");
+    expect(js).toContain("'Enter'");
+    expect(js).toContain('data-ap-search]');
+    expect(js).toContain('.focus()');
+  });
+
+  it('pins the footer and sub-heading styles with tokens', () => {
+    const css = agentPickerCss();
+    expect(css).toMatch(/\.ap-group-sub\{[^}]*color:var\(--k-text-faint\)/);
+    expect(css).toMatch(/\.ap-menu-foot\{[^}]*border-top:var\(--k-border-w\) solid var\(--k-border\)/);
+    // The footer wraps rather than ellipsizing: the full id must be readable
+    // (UI-R44), and a clipped footer would be flagged as clipped text.
+    expect(css).toMatch(/\.ap-menu-foot\{[^}]*overflow-wrap:anywhere/);
+    expect(css).not.toMatch(/\.ap-menu-foot\{[^}]*text-overflow/);
+  });
+});
+
+describe('agentPickerCss', () => {  it('defines the picker primitives with token-only values', () => {
     const css = agentPickerCss();
     expect(css).toContain('.ap{');
     expect(css).toContain('.ap-trigger{');

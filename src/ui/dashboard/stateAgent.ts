@@ -140,7 +140,7 @@ export function emptyCapabilityIdentity(): NonNullable<DashboardAgentContext['ca
   };
 }
 
-/** The Sandbox card for the ticket's resolved session core; null for a host project. */
+/** The Sandbox card for the ticket's resolved session core (a host project gets the host strip). */
 export function buildSandbox(
   agentContext: DashboardAgentContext,
   ticket: { id: number; agentBackend?: Parameters<typeof buildSandboxView>[0]['ticketOverride'] },
@@ -151,5 +151,6 @@ export function buildSandbox(
     ticketOverride: ticket.agentBackend,
     core: sessionCore,
     rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
+    agentSandbox: agentContext.agentSandbox,
   });
 }

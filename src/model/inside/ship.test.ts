@@ -1296,6 +1296,16 @@ describe('ship process rows carry their own span', () => {
     expect(views.map((v) => v.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
+  it('never counts the advisory coverage record as a blocking finding', () => {
+    const views = shipProcesses(
+      shipInput({
+        findings: [finding({ severity: 'info', title: 'COVERAGE (reported): PASS — checked the diff' })],
+        findingsBlockingSeverity: 'info',
+      }),
+    );
+    expect(views.map((v) => v.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+  });
+
   it('shows no warning when the threshold is none', () => {
     const views = shipProcesses(
       shipInput({
