@@ -10,21 +10,54 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 What the manifest models, and the rules that keep a Settings write from silently reverting another tab. Related: `docs/arch/worktrees-and-servers.md` (the conventions block), `docs/arch/agent-cores.md` (the profile body an assignment resolves to).
 
-## [@arch:CONTENTS] Contents
+## [@arch:MS-00] Overview
+covers: src/manifest/*.ts, src/manifest/validate/*.ts, src/ui/settings/sections.ts, src/ui/settings/actions.ts, src/ui/settings/app/sections/AgentsSection.tsx
 
-- A Settings process-assignment profile IS the process's prompt
-- Settings Save is TAB-SCOPED
-- A preset is a SPARSE capability → slot matrix; `activeAgentPreset` picks one
-- A PIN beats the preset; an unpinned `processes.<role>` row carries no core
-- One Agents page owns agent identity; an edit lands in the layer that wins
-- A REPOSITORY is the primary entity; a SERVICE is an optional relation
-- A repository may declare a named `services:` map
-- Legacy services: manifests migrate IN MEMORY
-- `uat.testerObservations.blockingSeverity` is a manifest knob only
-- Sub-task auto-start concurrency caps
-- Per-gate `sandbox: host`
-- New Manifest field checklist
-END_DOC_BLOCK: [@arch:CONTENTS]
+### Purpose
+What `karst.yml` models and how it reaches the rest of karst: one load path (read, parse, migrate, fold, validate) into a typed `Manifest`, and one write path (Settings Save, tab-scoped) back to the file. The rules keep a Settings write from silently reverting another tab and keep legacy shapes loadable.
+
+### Connections
+- in: @arch:LEGACY, @arch:PIN — legacy `services:` files and unpinned process rows are rewritten in memory before validation.
+- in: @arch:AC-36 — `sandbox.setup` and `sandbox.setupHosts` are declared on a repository.
+- out: @arch:WT-00 — repositories, services and conventions feed worktree layout and server start.
+- out: @arch:ST-00 — the validated manifest scopes projects and per-ticket state.
+- out: @arch:AC-08 — presets, pins and profiles resolve to the core, model and prompt a role runs with.
+
+### Flow
+```mermaid
+flowchart LR
+  F[karst.yml] --> P[parseManifestText: yamlLoad]
+  P --> M[migrateLegacyManifest]
+  M --> R[foldProcessRows]
+  R --> V[validateManifest]
+  V --> O[Manifest + warnings + notices]
+  O --> S[Settings panel]
+  S -->|Save: one tab| W[mergeSection onto disk copy]
+  W --> V2[validate merged result]
+  V2 --> X[writeManifest]
+  X --> F
+```
+
+### Tradeoffs
+| Chosen | Rejected | Why |
+|---|---|---|
+| Migrate in memory, write only on explicit save | Rewrite the file at load | js-yaml drops comments; loading must never write (@arch:LEGACY). |
+| Save merges one tab onto the on-disk manifest | Post the whole draft | A stale tab cannot revert another tab (@arch:SAVE). |
+| Profile body is the only prompt source | Inline `instructions` override | Two prompt sources let the yml outrank the profile the row shows (@arch:PROFILE). |
+| Refuse case-variant repo keys at load | Fail only graph runs | The ambiguity cannot be confined to graphs (@arch:KEYCASE). |
+
+### Fallbacks
+| Trigger | Behaviour | Recovery |
+|---|---|---|
+| Both `services:` and `repositories:` | Load refused, never guessed | Remove one key. |
+| Unpinned row carries provider/model | Folded into active preset slot, or becomes the pin | Notice returned; Settings open persists the migration. |
+| Retired key (`processes.<key>.instructions`) | Loads, dropped, reported as inert | Move the text into a profile. |
+| Unknown Save `section` | Message dropped | Webview re-sends with a valid section. |
+| No profile or unreadable profile | Built-in prompt used | Fix the profile file. |
+
+### Rules
+@arch:PROFILE · @arch:FLOOR · @arch:SAVE · @arch:PRESET · @arch:PIN · @arch:AGENTSPAGE · @arch:REPO · @arch:SERVICES · @arch:KEYCASE · @arch:LEGACY · @arch:BLOCKSEV · @arch:TESTER-BUDGET · @arch:DIFFS · @arch:CONCURRENCY · @arch:SANDBOX-HOST · @arch:FIELDCHK
+END_DOC_BLOCK: [@arch:MS-00]
 
 ## [@arch:PROFILE] A Settings process-assignment profile IS the process's prompt
 
