@@ -1,73 +1,31 @@
-import { backendForCore } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
-import { getProposalForTicket } from '../../store/planningProposals.js';
-import { getTicket, listSubtasks } from '../../store/tickets.js';
-import { listServersByTicket } from '../../store/dashboard.js';
+import { getTicket } from '../../store/tickets.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
-import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
+import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { buildShipSlot } from '../../model/shipSlot.js';
-import { buildStageRail } from '../../model/stageRail.js';
-import { listGateRuns } from '../../store/gateRuns.js';
-import { listFindings, findingsForAttempt } from '../../store/reviewFindings.js';
-import { listPhaseMarks } from '../../store/phaseMarks.js';
-import { mergeGateState } from '../../workflow/mergeGate.js';
-import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
-import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
-import { prFeedbackFixState, type PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
-import { countOpenPrFeedback } from '../../store/prFeedback.js';
-import { ciFailureState } from '../../workflow/ciFailure.js';
-import { rebaseState } from '../../workflow/rebaseState.js';
-import { deliverTargets } from '../../workflow/deliverState.js';
-import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
+import { type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
-import { isFinishedStage } from '../../model/types.js';
 import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.js';
 import { needsUser } from '../../model/ticketGlyph.js';
-import { stageBadge } from '../../model/stageBadge.js';
-import { stageColorClass } from '../../model/stagePalette.js';
 import { canCloseTicket, canReopenTicket } from '../../model/closeRules.js';
-import { subtaskProgress, canAddSubtask, canDetachSubtask, subtaskAutostartPhase } from '../../model/subtask.js';
-import { railNeeds } from '../../model/railNeeds.js';
+import { subtaskProgress, canAddSubtask, canDetachSubtask } from '../../model/subtask.js';
 import { reportedPhases } from '../../model/inside/agent.js';
-import { listProcessRuns } from '../../store/processRuns.js';
-import { listStageRuns } from '../../store/stageRuns.js';
-import { currentAttemptFor } from '../../model/inside/currentAttempt.js';
-import { listRecoveryRounds } from '../../store/recoveryRounds.js';
-import { listFixDeliveriesByRound } from '../../store/fixDeliveries.js';
-import type { RoundWithDelivery } from '../../model/inside/recovery.js';
-import { listUatFindings } from '../../store/uatFindings.js';
-import { listShipEvidence, countShipRuns } from '../../store/shipRuns.js';
-import {
-  listImplementationTimeline,
-  readSegmentTokenTotals,
-} from '../../store/implementationRuns.js';
-import {
-  summarizeRecordedTokenUsage,
-  summarizeRecordedTokenUsageForProcess,
-  summarizeRecordedTokenUsageByRole,
-  listRecentlyUsedModels,
-} from '../../store/tokenUsage.js';
+import { listRecentlyUsedModels } from '../../store/tokenUsage.js';
 import type { InsideActionRegistry } from './insideActions.js';
-import type {
-  InsideEvidenceTarget,
-  InsideStageKey,
-  TypedInsideAction,
-} from '../../model/inside/types.js';
-import { insideStageForRuntimeStage } from '../../model/inside/registry.js';
-import { listGateAttempts, type AttemptKey, type GateAttemptView } from '../../model/inside/rounds.js';
-import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
+import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
-import type { DashboardAgentContext, DashboardState, DashboardSubtaskRow, PathContext } from './stateTypes.js';
-import { buildAgentState } from './stateAgent.js';
+import type { DashboardAgentContext, DashboardState, PathContext } from './stateTypes.js';
+import { buildAgentState, emptyCapabilityIdentity, buildSandbox } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
-import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
-import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
-import { listOpenBlockers } from '../../store/ticketRelations.js';
-import { formatId, formatTicketRef } from '../../model/entityId.js';
-import { buildSandboxView } from './sandboxView.js';
+import { readRelations, readRounds, originLabel } from './stateRelations.js';
+import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
+import { readActionStates, shipActionViews } from './stateActions.js';
+import { buildInsideSection } from './stateInsideSection.js';
+import { buildRail } from './stateRail.js';
+import { formatId } from '../../model/entityId.js';
 
 export type {
   DashboardAgentContext,
@@ -239,65 +197,8 @@ export function buildDashboardState(
   sharedServersFor: (ticketId: number) => SharedServerView[] = () => [],
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
-  // The parent relationship for the dashboard's secondary metadata line. A
-  // follow-up's identity is relationship metadata, never part of its title. A
-  // hard-deleted parent degrades to null — same policy as ticketContext.
-  let parent: { key: string; ref: string; title: string | null } | null = null;
-  if (ticket.parentTicketId !== null) {
-    try {
-      const p = getTicket(store, ticket.parentTicketId);
-      parent = { key: p.key ?? formatId('ticket', p.id), ref: formatTicketRef(p.id, p.key), title: p.title };
-    } catch {
-      parent = null;
-    }
-  }
-  // The sub-task composition relation (design NDL-70 §3/§8) — orthogonal to the
-  // follow-up relation above: `subtask_parent_id` says "is part of", while
-  // `parent_ticket_id` says "continues after". A hard-deleted parent degrades
-  // to null, the same policy as the follow-up line.
-  let subtaskParent: { key: string; ref: string; title: string | null } | null = null;
-  if (ticket.subtaskParentId !== null) {
-    try {
-      const p = getTicket(store, ticket.subtaskParentId);
-      subtaskParent = { key: p.key ?? formatId('ticket', p.id), ref: formatTicketRef(p.id, p.key), title: p.title };
-    } catch {
-      subtaskParent = null;
-    }
-  }
-  // Direct sub-tasks, oldest first, for the "Sub-tasks" section and its
-  // `n/m done` progress. One row read per child powers its status glyph; the
-  // sub-task count is small and bounded by the writer's depth/creation rules,
-  // and the alternative — a second stage-status derivation — would drift from
-  // the one `stageBadge` every other surface paints with.
-  const subtaskList = listSubtasks(store, ticketId);
-  // A keyless target's label already IS `T<n>` (buildBlockerLabel), so the id is
-  // only added when the label doesn't lead with it.
-  const blockers = listOpenBlockers(store, ticketId).map((b) => {
-    const id = b.targetTicketId === null ? null : formatId('ticket', b.targetTicketId);
-    return { ticketId: b.targetTicketId, idLabel: id !== null && !b.label.startsWith(id) ? id : null, label: b.label };
-  });
-  const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
-    const child = getTicket(store, s.id);
-    const badge = stageBadge(child);
-    return {
-      id: s.id,
-      idLabel: formatId('ticket', s.id),
-      key: s.key ?? formatId('ticket', s.id),
-      title: s.title,
-      stage: s.stageCurrent,
-      glyph: badge.glyph,
-      stageClass: stageColorClass(badge.stage),
-      blocking: s.blocksParent,
-      done: isFinishedStage(s.stageCurrent),
-      autostart: subtaskAutostartPhase(child),
-    };
-  });
-  // Each round carries the receipt state of its stored fix brief (@arch:V77).
-  const deliveries = listFixDeliveriesByRound(store, ticketId);
-  const rounds = listRecoveryRounds(store, ticketId).map((round): RoundWithDelivery => {
-    const delivery = deliveries.get(round.id);
-    return delivery === undefined ? round : { ...round, fixDelivery: delivery };
-  });
+  const { parent, subtaskParent, subtaskList, blockers, subtasks } = readRelations(store, ticket);
+  const rounds = readRounds(store, ticketId);
   const { agentSession, agentSwitch } = buildAgentState({
     ticket,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
@@ -307,19 +208,7 @@ export function buildDashboardState(
   });
 
   const sessionCore = ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude';
-  const capabilityIdentity = agentContext.capabilityIdentity ?? {
-    implementation: null,
-    uatTester: null,
-    review: null,
-    uatFix: null,
-    reviewFix: null,
-    prDescription: null,
-    ticketAnalysis: null,
-    planning: null,
-    graphExpert: null,
-    graphWorker: null,
-    graphFast: null,
-  };
+  const capabilityIdentity = agentContext.capabilityIdentity ?? emptyCapabilityIdentity();
 
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
@@ -351,43 +240,18 @@ export function buildDashboardState(
   });
   const phases = approachPhases(ticket.approach);
 
-  // ONE read of the merge gate for the whole snapshot: the Now line and the
-  // track's needs-you wording must not describe the same three-valued fact from
-  // two different reads.
-  const mergeGate = mergeGateState(store, ticketId);
-  // ONE read of the recovery action's availability, for the same reason: the
-  // stage header's ⋯ menu and the host's confirm path must agree about whether
-  // "Send back to Implement" exists at all. Derived here rather than on click
-  // so a stale panel can never offer an action the host would refuse — and the
-  // host re-derives it before mutating anyway.
-  const sendBack = sendBackState(store, ticketId);
-  const rerunGate = retryGateState(store, ticketId);
-  // ONE read of the PR-feedback action's availability, for the same reason: the
-  // ship header's ⋯ menu and the host's confirm path must agree about whether
-  // "Address pull request feedback" exists at all.
-  const prFeedbackFix = prFeedbackFixState(store, ticketId);
-  // Same single-read rule for the two ship CI actions (T715).
-  const ciFailure = ciFailureState(store, ticketId);
-  const rebase = rebaseState(store, ticketId);
-  const undelivered = deliverTargets(store, ticketId).available ? agentContext.undelivered?.(ticketId) : undefined;
-  const openPrFeedback = countOpenPrFeedback(store, ticketId);
-  // ONE read of the marks, for the same reason — the Inside strip and the impl
-  // segment's pips are two views of one set of facts.
-  const marks = listPhaseMarks(store, ticketId);
-  // ONE read of each inside evidence source, shared by every view that renders
-  // it — two reads of one table is how two panels disagree about one fact.
-  const gateRuns = listGateRuns(store, ticketId);
-  const findings = listFindings(store, ticketId);
-  const processRuns = listProcessRuns(store, ticketId);
-  const uatFindings = listUatFindings(store, ticketId);
-  const shipEvidence = listShipEvidence(store, ticketId);
-  const timeline = listImplementationTimeline(store, ticketId);
-  // ONE read of the invocation records, for the same reason as every other
-  // evidence read here. `stage_runs` is the only table written at stage ENTRY,
-  // so it is the only thing that can say a gate stage is on a NEW invocation
-  // that has recorded nothing yet — the fix cycle's round 2, which every
-  // finished-work table still answers with round 1's rows.
-  const stageRuns = listStageRuns(store, ticketId);
+  const {
+    mergeGate,
+    sendBack,
+    rerunGate,
+    prFeedbackFix,
+    ciFailure,
+    rebase,
+    undelivered,
+    openPrFeedback,
+  } = readActionStates(store, ticketId, agentContext);
+  const evidence = readEvidence(store, ticketId);
+  const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence } = evidence;
   // The needs-you derivation every other surface already honours. Consulted, not
   // re-derived: a second answer to "is this blocked on the user" is exactly the
   // bug the single derivation exists to prevent.
@@ -395,327 +259,30 @@ export function buildDashboardState(
   const implCell = stepper.find((c) => c.stageKey === 'impl') ?? null;
   const reported = implCell ? reportedPhases(marks, implCell).map((m) => m.phaseName) : [];
 
-  // The snapshot-scoped action seam: the registry lives here in the host; only
-  // the opaque {actionId, kind} pairs ride the view. The continuation label
-  // ("Show 4 more", handoff §10) is presentation copy the registry does not
-  // model, so it is carried alongside the minted action here.
-  const attach = (target: InsideEvidenceTarget): TypedInsideAction | undefined => {
-    const action = registry?.register({ ...target, ticketId: ticket.id });
-    if (!action) return undefined;
-    const label = 'label' in target ? (target as { label?: string }).label : undefined;
-    return label ? { ...action, label } : action;
-  };
-
-  // Recorded token summaries per process and per role — a process whose calls
-  // were all estimates reads as absent, never as a measured free call. The
-  // estimate COUNT rides beside the measured total as a separate fact (a core
-  // that fell back to estimates stays visible, never folded into the total).
-  // Gated on FRESH spend, not the raw tally: the pill headlines fresh (see
-  // `tokenView`), so a process whose every recorded token was a cache READ has
-  // a raw total > 0 but nothing fresh, and admitting it here renders a
-  // clamped "0 tok" — a fabricated zero, which decision 8 forbids (absence is
-  // stated, never a measured-looking nothing). Same rule as the segment
-  // timeline's filter in `model/inside/agent.ts`.
-  const tokensFor = (processId: string): SessionTokensInput | null => {
-    const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
-    return summary.total - summary.cacheRead > 0
-      ? {
-          total: summary.total,
-          cacheRead: summary.cacheRead,
-          estimatedCalls: summary.estimatedCalls,
-        }
-      : null;
-  };
-  const recordedTotal = summarizeRecordedTokenUsage(store, ticketId);
-  const roleTokens = summarizeRecordedTokenUsageByRole(store, ticketId);
-
+  const attach = buildAttach(registry, ticketId);
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
 
-  // The gate stage's CURRENT invocation (`model/inside/currentAttempt.ts`),
-  // resolved once per stage and shared by the round switcher and the quality
-  // reducer below — two reads of `stage_runs` is how a tab and a ledger end
-  // up disagreeing about which attempt is showing.
-  const currentAttemptOf = (key: 'uat' | 'review') =>
-    currentAttemptFor(stageRuns, key, cellOf(key).startedAt);
-  const uatCurrent = currentAttemptOf('uat');
-  const reviewCurrent = currentAttemptOf('review');
-
-  // The round switcher's effective selection for one gate stage (T4): the
-  // requested key if some recorded attempt actually holds it, otherwise the
-  // newest attempt. A stage with 0 or 1 attempt emits no tabs at all (T1's
-  // own contract), so `attemptSwitcherFor` degrades to "nothing to select"
-  // without a caller here having to special-case the un-looped ticket.
-  const attemptSwitcherFor = (
-    attempts: readonly GateAttemptView[],
-    requested: string | undefined,
-    // True when the host's `currentAttemptFor` returned an explicit `null`
-    // for this stage (the re-entry window — see `rounds.ts`'s
-    // `reentryPending`). The tab flagged `latest` in that state is NOT the
-    // live invocation; it is the newest SETTLED attempt, kept flagged `latest`
-    // only so the default (unclicked) view still resolves to `null` below.
-    reentryPending: boolean,
-  ): {
-    selectedKey: AttemptKey | null;
-    view?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string };
-  } => {
-    if (attempts.length < 2) return { selectedKey: null };
-    const requestedMatch = requested !== undefined ? attempts.find((a) => a.key === requested) : undefined;
-    const effective = requestedMatch ?? attempts.find((a) => a.latest);
-    if (effective === undefined) return { selectedKey: null };
-    // Host-authored, worded from the reader's side: a settled historical
-    // attempt is announced so a viewer never mistakes it for the live
-    // picture (UI-R31 — the webview renders this verbatim and composes
-    // nothing). The newest attempt carries no note when it is genuinely the
-    // live one; during the re-entry window the `latest`-flagged tab is not,
-    // so it gets the same "not the current result" note as any historical tab.
-    const attemptNote =
-      effective.latest && !reentryPending
-        ? undefined
-        : effective.round !== undefined
-          ? `viewing round ${effective.round} — not the current result`
-          : `viewing ${effective.label} — not the current result`;
-    // An EXPLICIT click on the re-entry window's `latest`-flagged tab must
-    // still reach that attempt's own recorded rows — it is a settled attempt,
-    // not the live one, and collapsing it to `null` here is exactly what made
-    // its evidence show as an empty ledger no matter which tab a reader
-    // picked (Finding 1). Only the UNCLICKED default keeps mapping to `null`,
-    // which is what lets the ledger stay empty absent a click (`effectiveAttempt`
-    // in gates.ts empties on a `null` selection while the current invocation
-    // has recorded nothing).
-    const reachThroughLatest = reentryPending && effective.latest && requestedMatch !== undefined;
-    return {
-      // The LATEST tab is the default path, so it selects `null` — not its own
-      // key. A key restricts every downstream read to rows that carry a stage
-      // run id, and a `process_runs` row written before v25 carries none:
-      // selecting the latest key would have emptied the Tester/Review evidence
-      // of exactly the view that renders by default. `null` is the read the
-      // panel has always done, so the default view stays byte-for-byte itself
-      // and only a HISTORICAL selection narrows anything.
-      selectedKey: effective.latest && !reachThroughLatest ? null : effective.key,
-      view: {
-        attempts,
-        selectedAttempt: effective.key,
-        ...(attemptNote ? { attemptNote } : {}),
-      },
-    };
-  };
-
-
-  // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
-  // the stage its active recovery round is causally attached to. A ship-sourced
-  // round (FEAT-40) revalidates through uat first, so it projects onto uat
-  // exactly as a uat round does.
-  const activeRound = rounds.find(
-    (r) =>
-      r.status === 'pending' ||
-      r.status === 'fixing' ||
-      r.status === 'revalidating' ||
-      r.status === 'interrupted',
-  );
-  const fixFallback: 'uat' | 'review' = activeRound?.sourceStage === 'review' ? 'review' : 'uat';
-
-  /**
-   * Host-authored banner for a gate stage whose recorded result is already
-   * being superseded (UI-R31 — the webview renders this verbatim).
-   *
-   * While a recovery round works elsewhere, the OTHER gate stage still holds
-   * its last verdict: red gates, blocking findings, and nothing on screen
-   * saying a fix has since landed and the stage re-runs. Nothing here invents
-   * a status — the result shown is the real last one — it states the fact that
-   * makes it readable.
-   *
-   * Never for the stage the ticket is on (its own ledger is live), never for a
-   * stage running right now, and never for a stage with no recorded end: there
-   * is no superseded result to caption.
-   */
-  const supersededNote = (key: 'uat' | 'review'): string | undefined => {
-    if (activeRound === undefined) return undefined;
-    if (ticket.stageCurrent === key) return undefined;
-    const cell = cellOf(key);
-    if (displayStatus(cell) === 'running' || displayStatus(cell) === 'blocked') return undefined;
-    const endedAt = cell.endedAt;
-    if (endedAt === undefined) return undefined;
-    // Only a result the round POSTDATES is superseded by it. A stage that ran
-    // after the round opened (uat revalidating a review-origin round) is
-    // reporting on the fixed tree already.
-    if (activeRound.startedAt < endedAt) return undefined;
-    return `round ${activeRound.round} is fixing — this result predates that fix, and this stage re-runs`;
-  };
-  const presentedStage: InsideStageKey =
-    ticket.stageCurrent === null || ticket.stageCurrent === 'fix'
-      ? insideStageForRuntimeStage(
-          (ticket.stageCurrent === 'fix' ? fixFallback : 'scope') as StageKey,
-          fixFallback,
-        )
-      : insideStageForRuntimeStage(ticket.stageCurrent as StageKey, fixFallback);
-
-  // Computed once: this used to be called separately by the spread's guard
-  // and its element, building the whole projection twice and discarding one.
-  const graphInsideProcessOnce = graphInsideProcess(graphInside);
-
-  // The round switcher's tabs and effective selection, one read per gate
-  // stage, shared by the process reducer (which batch/run backs the ledger)
-  // and the stage shell (which tab renders selected, and the banner). Two
-  // reads of this would risk the ledger and the tab disagreeing about which
-  // attempt is showing.
-  const uatAttempts = listGateAttempts({
-    gateRuns,
-    processRuns,
+  const { insideViews, presentedStage, serverRows } = buildInsideSection(store, {
+    ticket,
+    stepper,
+    currentStage,
     rounds,
-    stageKey: 'uat',
-    running: displayStatus(cellOf('uat')) === 'running',
-    currentAttempt: uatCurrent ?? null,
-    // `=== null` (not `?? null`) so a legacy ticket's `undefined` never reads
-    // as re-entry pending — only an explicit `null` from `currentAttemptFor`
-    // does.
-    reentryPending: uatCurrent === null,
-  });
-  const uatSwitch = attemptSwitcherFor(uatAttempts, attemptSelection?.uat, uatCurrent === null);
-  const reviewAttempts = listGateAttempts({
-    gateRuns,
-    processRuns,
-    rounds,
-    stageKey: 'review',
-    running: displayStatus(cellOf('review')) === 'running',
-    currentAttempt: reviewCurrent ?? null,
-    reentryPending: reviewCurrent === null,
-  });
-  const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review, reviewCurrent === null);
-
-  // Hoisted once each — `supersededNote` is otherwise called twice per stage
-  // below (once to decide the merge, once to build the note-only fallback).
-  const uatNote = supersededNote('uat');
-  const reviewNote = supersededNote('review');
-
-  /**
-   * Merges a `supersededNote` fallback into an `attemptSwitcherFor` view for
-   * `stageView`'s `roundSwitcher` argument. An explicit HISTORICAL
-   * `attemptNote` (a reader looking at a settled round) always wins — it is
-   * the more specific fact, and a superseded-round banner must never paper
-   * over it. Absent a switcher view entirely, the superseded note stands
-   * alone as the note-only shape `stageView` also accepts.
-   */
-  const withNote = (
-    view: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | undefined,
-    note: string | undefined,
-  ): { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | { attemptNote: string } | undefined =>
-    view
-      ? view.attemptNote
-        ? view
-        : { ...view, ...(note ? { attemptNote: note } : {}) }
-      : note
-        ? { attemptNote: note }
-        : undefined;
-
-  // The round switcher's rendered argument per gate stage: the switcher's own
-  // selection/banner merged with the superseded-round note once here, so the
-  // tab and the note can never be composed from two different reads.
-  const uatRoundSwitcher: RoundSwitcherArg = withNote(uatSwitch.view, uatNote);
-  const reviewRoundSwitcher: RoundSwitcherArg = withNote(reviewSwitch.view, reviewNote);
-
-  // Per-segment measured spend, straight from the ledger's own
-  // `implementation_segment_id` GROUP BY — the switch row's Σ pill states what
-  // the segment it moved TO went on to cost. A run that never opened has no
-  // segments and therefore no totals.
-  const segmentTokens = timeline
-    ? readSegmentTokenTotals(store, timeline.run.id).map((t) => ({
-        implementationSegmentId: t.implementationSegmentId,
-        total: t.totalTokens,
-        cacheRead: t.cacheReadTokens,
-      }))
-    : [];
-
-  // Ruling (fix round 1, overriding the brief's `latestFindingBatch`):
-  // findings are append-only with no resolve path, and a clean re-review
-  // records NO batch at all (`workflow/gates/evidence.ts`'s early return
-  // on zero findings). `latestFindingBatch`'s greatest-`runAt` reduction
-  // therefore keeps re-surfacing a fixed-and-passed ticket's stale batch
-  // forever — it is never superseded by an empty one that was never
-  // written. Scoped to the review STAGE's CURRENT `attempt` instead:
-  // `attempt` only climbs on a FAILED verdict (`workflow/machine.ts`) and
-  // holds on a pass, so a fail-then-fix-then-pass re-review shares its
-  // attempt number with the fail it followed — the fail's findings are
-  // still "this attempt"'s findings, and a LATER attempt (a fresh fail)
-  // silently drops them, exactly the "cleared" reading a permanent-noise
-  // row cannot give.
-  //
-  // Intended reach (deliberate, not an oversight): because `attempt`
-  // climbs only on a failed verdict, this row is SILENT on the ordinary
-  // fail→fix→clean-pass path — and a ticket with unresolved
-  // current-attempt blocking findings cannot reach ship anyway, since R6
-  // fails review first. The row is a BACKSTOP, not the primary gate: it
-  // catches a `review.findings.blockingSeverity` threshold lowered AFTER
-  // the review passed, and a ticket advanced to ship by hand. The
-  // attempt scoping is the trade that buys that backstop without a
-  // permanent, unclearable false-red row (see the ruling above).
-  const shipFindings = findingsForAttempt(
-    store,
-    ticketId,
-    ticket.stages.find((s) => s.stageKey === 'review')?.attempt ?? 0,
-  );
-
-  // ONE read of the ticket's server rows, shared by the dashboard's Servers
-  // panel and UAT's Services process. UAT's `boot-failed` reason is the health
-  // evidence a failed row shows (a failed start's row carries no reason column).
-  const serverRows = listServersByTicket(store, ticketId);
-  const serviceFailureReason =
-    currentStage?.blocked?.kind === 'boot-failed' ? currentStage.blocked.reason : null;
-
-  // ONE projection of the six-stage inside presentation, from the same
-  // evidence reads above (one read per table per snapshot). Every input is
-  // host-resolved here; `stateInside.ts` is a pure projection.
-  const insideViews = buildInsideViews({
-    cellOf,
-    selectedRepos: ticket.selectedRepos,
     worktrees,
-    // The ticket's own `agent_state === 'waiting'` — the agent asked the user a
-    // question and is blocked on the answer. Threaded in explicitly, never
-    // re-derived: it is the same fact `cli/stage.ts`'s
-    // `assertMarkerNotWhileWaiting` refuses the done marker on.
-    agentWaiting: ticket.agentState === 'waiting',
+    prs,
+    mergeChecks,
     now,
-    processRuns,
-    timeline,
-    segmentTokens,
-    marks,
-    assignmentFor,
-    tokensFor,
+    evidence,
+    cellOf,
     attach,
-    gateRuns,
-    findings,
-    uatFindings,
-    rounds,
-    services: serverRows.map((s) => ({
-      service: s.service,
-      status: s.status === 'running' || s.status === 'failed' ? s.status : 'stopped',
-      host: s.host,
-      port: s.port,
-      ...(s.status === 'failed' && serviceFailureReason !== null
-        ? { reason: serviceFailureReason }
-        : {}),
-    })),
+    assignmentFor,
     resolvedGates,
     findingsRepoSelection,
     repoNameFor,
-    graphInsideProcessOnce,
-    uatSwitch,
-    reviewSwitch,
-    uatRoundSwitcher,
-    reviewRoundSwitcher,
-    uatCurrent,
-    reviewCurrent,
-    shipEvidence,
-    prs,
-    mergeChecks,
-    shipFindings,
+    graphInside,
+    attemptSelection,
     findingsBlockingSeverity,
-    reviewBlockingSeverity: displayBlocking?.review,
-    testerBlockingSeverity: displayBlocking?.tester,
-    stepper,
-    recordedTotal,
-    roleTokens,
-    stageCurrent: ticket.stageCurrent,
+    displayBlocking,
   });
 
   return {
@@ -743,13 +310,7 @@ export function buildDashboardState(
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
     capabilityIdentity,
-    sandbox: buildSandboxView({
-      project: backendForCore(agentContext.agentBackends, sessionCore),
-      ticketOverride: ticket.agentBackend,
-      core: sessionCore,
-      rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
-      agentSandbox: agentContext.agentSandbox,
-    }),
+    sandbox: buildSandbox(agentContext, ticket, sessionCore),
     servers: serverRows,
     // The read-only half of the stack. Kept OUT of `servers` so no action that
     // already means "this ticket's services" silently widens to a shared one.
@@ -768,70 +329,37 @@ export function buildDashboardState(
     priority: ticket.priority,
     description: ticket.description,
     brief: ticket.brief,
-    rail: buildStageRail(stepper, ticket.stages, {
-      current: ticket.stageCurrent,
-      needsUser: blocked,
-      needs: blocked
-        ? railNeeds({
-            stage: ticket.stageCurrent,
-            blockedKind: currentStage?.blocked?.kind,
-            agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
-            agentNotStarted: (ticket.agentState ?? 'none') === 'not-started',
-            // A RUNNING ship is the driver's own work, so the agent-waiting
-            // banner must not outrank it (869ed7bpd). `needsUser` already
-            // excludes that case — this is the rail's own guard, belt and
-            // braces with the same exception.
-            shipStatus: cellOf('ship').status,
-            shipAwaitingMerge:
-              stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
-            mergeGate,
-            mergeableRepos,
-          })
-        : null,
-      capFor: fixCapFor,
+    rail: buildRail({
+      ticket,
+      stepper,
+      currentStage,
+      blocked,
+      cellOf,
+      mergeGate,
+      mergeableRepos,
+      fixCapFor,
     }),
     insideViews,
     presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
-    // Derived from the SAME evidence reads above (one read per table per
-    // snapshot): the artifacts shelf, the index, and the detail are three views
-    // of one set of facts, and two reads of one table is how two views of one
-    // fact disagree. Order = semantic priority; previews are the first three.
-    artifacts: buildArtifactsFrom({
+    artifacts: buildArtifacts({
+      store,
       ticket,
       gateRuns,
       findings,
       uatFindings,
       processRuns,
-      ship: shipEvidence,
-      shipRunCount: countShipRuns(store, ticketId),
+      shipEvidence,
       prs,
-      plan: readPlanInput(store, ticketId),
-      // The session-phases plan reads the SAME one-read phase marks and
-      // declared workflow the approach line above already resolved — two reads
-      // of one table is how two panels describe one plan differently.
-      declaredPhases: phases,
-      phaseMarks: marks,
+      phases,
+      marks,
       attach,
       reviewBlockingSeverity: displayBlocking?.review,
     }),
     sendBack,
     rerunGate,
     prFeedbackFix,
-    ciFailure: ciFailure.available
-      ? { available: true, repos: ciFailure.prs.map((p) => p.repo) }
-      : { available: false, repos: [] },
-    rebase: rebase.available ? { available: true, stage: ticket.stageCurrent ?? undefined } : { available: false },
-    deliver: undelivered
-      ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }
-      : { available: false, notOnPr: 0, inSandbox: 0 },
+    ...shipActionViews({ ciFailure, rebase, undelivered }, ticket.stageCurrent),
     openPrFeedback,
   };
-}
-
-/** `from D88 (P17)` for a ticket filed from a planning draft; null otherwise. */
-function originLabel(store: Store, ticketId: number): string | null {
-  const draft = getProposalForTicket(store, ticketId);
-  if (!draft) return null;
-  return `from ${formatId('draft', draft.id)} (${formatId('plan', draft.sessionId)})`;
 }

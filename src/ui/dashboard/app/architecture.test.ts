@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // …/src/ui/dashboard/app
 const SRC = join(HERE, '..', '..', '..');
@@ -23,7 +23,8 @@ function walk(dir: string): string[] {
 
 const stripBlockComments = (text: string): string => text.replace(/\/\*.*?\*\//gs, '');
 const rel = (file: string): string => relative(ROOT, file);
-const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file);
+// Test files and `fixtures/` (test-only support, also excluded from the build emit) are not app source.
+const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file) || /[\\/]fixtures[\\/]/.test(file);
 
 const APP_SOURCE = walk(HERE).filter((file) => !isTest(file));
 
@@ -32,6 +33,18 @@ describe('dashboard static guards — non-vacuity', () => {
     expect(APP_SOURCE.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The sanctioned raw-HTML sites: the agent-identity runtime's trusted icon markup (AgentIcon.tsx) and
+ * the Tabler catalog's trusted glyph paths (Icon.tsx), both mirroring sidebar Icon.tsx.
+ */
+const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
+
+/**
+ * The one sanctioned imperative-style site: placeBelow.ts positions a `position:fixed` popover from its
+ * trigger's measured rect, which CSS cannot express.
+ */
+const IMPERATIVE_STYLE_ALLOWED = ['placeBelow.ts'];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
@@ -46,6 +59,8 @@ describe('R-X6 — no inline style, no raw HTML', () => {
     for (const file of APP_SOURCE) {
       const text = stripBlockComments(readFileSync(file, 'utf8'));
       for (const [name, pattern] of BANNED) {
+        if (/HTML/.test(name) && RAW_HTML_ALLOWED.includes(basename(file))) continue;
+        if (name === 'imperative element style' && IMPERATIVE_STYLE_ALLOWED.includes(basename(file))) continue;
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
@@ -66,5 +81,17 @@ describe('R-X5/R26/R09b — imperative DOM and unstable keys', () => {
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
+  });
+});
+
+describe('raw HTML allowance is scoped to the sanctioned files', () => {
+  it('only the icon components use dangerouslySetInnerHTML', () => {
+    const users = APP_SOURCE.filter((f) => /dangerouslySetInnerHTML|innerHTML/.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
+    expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
+  });
+
+  it('only placeBelow.ts writes element styles imperatively', () => {
+    const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
+    expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });
 });

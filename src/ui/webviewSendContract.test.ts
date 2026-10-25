@@ -7,16 +7,12 @@
  * wiring and the one-acquire rule structurally, so a regression fails in CI
  * rather than in the extension host.
  *
- * The two views post through DIFFERENT media since phase 4:
- *
- * - Dashboard HTML still calls `karstSend.<name>(…)` directly, so the HTML
- *   itself is the typed surface (the sender marker is injected with the bundle).
- * - Settings posts through the React app: the sender bundle was folded into the
- *   app bundle (`app/main.tsx` imports `webviewSend.ts`, is the document's one
- *   `acquireVsCodeApi()` caller, and publishes `vscode`/`karstSend` globals the
- *   app reads). The shell HTML therefore contains no `karstSend.` calls at all —
- *   the guarantee moved to the app source, which is checked below against the
- *   SAME `createSender` function table.
+ * Both views post through the React app: the sender bundle was folded into the app bundle (`app/main.tsx` imports
+ * `webviewSend.ts`, is the document's one `acquireVsCodeApi()` caller, and publishes `vscode`/`karstSend` globals the app
+ * reads). The shell HTML therefore contains no `karstSend.` calls at all — the guarantee moved to the app source, which
+ * is typed against the SAME `createSender` function table (settings below; the dashboard's `DashboardSender` is
+ * `ReturnType<typeof createSender>`, so tsc checks every `send.<name>(...)`). The dashboard's page script stopped posting
+ * with the overlay views (migration Phase 11).
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -71,13 +67,10 @@ describe('webview send contract ratchet — dashboard HTML', () => {
     expect(DASHBOARD.html).not.toMatch(/\bpost\s*\(/);
   });
 
-  it('uses only senders createSender defines', () => {
-    const used = [...DASHBOARD.html.matchAll(/karstSend\.([A-Za-z0-9_]+)/g)].map((m) => m[1]!);
-    expect(used.length).toBeGreaterThan(0);
-    const keys = Object.keys(createDashboardSender({ postMessage: () => {} }));
-    for (const name of used) {
-      expect(keys, `karstSend.${name} is not a createSender function`).toContain(name);
-    }
+  it('posts nothing itself: every control posts from the React app through the typed sender', () => {
+    // The page script is persistence only (Phase 11). The guarantee that a renamed message field is a tsc error moved to
+    // the app source, where `DashboardSender = ReturnType<typeof createSender>` types every `send.<name>(...)`.
+    expect(DASHBOARD.html).not.toMatch(/karstSend\.[A-Za-z0-9_]+/);
   });
 
   it('carries the sender marker and no acquire call', () => {

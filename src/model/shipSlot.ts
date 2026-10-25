@@ -8,7 +8,7 @@ import type { StepperCell } from './stepper.js';
  *
  * `shipping` covers a RUNNING ship so a freshly-opened panel (no in-flight
  * requestId of its own) still renders the pending button; the webview's own
- * shipRequestId hold composes on top of this in the renderer.
+ * in-flight ship request (`ui/dashboard/app/pendingOps.ts`) composes on top of this in the header.
  */
 export type ShipSlot =
   | { kind: 'confirm' }

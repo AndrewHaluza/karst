@@ -2,12 +2,10 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
 import { resolveEffortForProvider } from '../../agent/models.js';
-import {
-  buildAgentSessionView,
-  agentSwitchCoreChoices,
-  agentSwitchModelChoices,
-} from '../../agent/sessionSwitch.js';
+import { buildAgentSessionView, agentSwitchCoreChoices, agentSwitchModelChoices } from '../../agent/sessionSwitch.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
+import { backendForCore } from '../../agent/backendChoices.js';
+import { buildSandboxView } from './sandboxView.js';
 import type { DashboardAgentContext, DashboardState } from './stateTypes.js';
 
 /**
@@ -123,4 +121,36 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
       inheritCore: impl ? resolvedProvider : (defaultProvider ?? null),
     },
   };
+}
+
+/** The capability identities when the host injects none: every capability unresolved. */
+export function emptyCapabilityIdentity(): NonNullable<DashboardAgentContext['capabilityIdentity']> {
+  return {
+    implementation: null,
+    uatTester: null,
+    review: null,
+    uatFix: null,
+    reviewFix: null,
+    prDescription: null,
+    ticketAnalysis: null,
+    planning: null,
+    graphExpert: null,
+    graphWorker: null,
+    graphFast: null,
+  };
+}
+
+/** The Sandbox card for the ticket's resolved session core (a host project gets the host strip). */
+export function buildSandbox(
+  agentContext: DashboardAgentContext,
+  ticket: { id: number; agentBackend?: Parameters<typeof buildSandboxView>[0]['ticketOverride'] },
+  sessionCore: AgentProvider,
+): DashboardState['sandbox'] {
+  return buildSandboxView({
+    project: backendForCore(agentContext.agentBackends, sessionCore),
+    ticketOverride: ticket.agentBackend,
+    core: sessionCore,
+    rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
+    agentSandbox: agentContext.agentSandbox,
+  });
 }

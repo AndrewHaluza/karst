@@ -1,0 +1,170 @@
+/* Artifact chips, index and detail (§ docs/design/artifacts/README.md), moved from webview.html with the view. The shelf's
+   own rules live in app/ArtifactsPanels.css and share the chip rules below; the index, the detail and the stored view
+   REPLACE the dashboard body inside the SAME webview (spec §7: exactly three surfaces, no second tab/drawer), which is
+   what body.art-nav hides below. */
+.artcard-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-2)}
+.art-status{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+  font-weight:var(--k-weight-semibold)}
+.art-status.passed{color:var(--k-passed)}
+.art-status.failed{color:var(--k-failed)}
+.art-status.attention{color:var(--k-attention)}
+.art-status.info{color:var(--k-pending)}
+.art-stale{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;color:var(--k-attention)}
+/* The detail's stale banner sits under the summary, not inline-styled. */
+.artdetail .art-stale-note{text-transform:none;letter-spacing:normal;margin-top:var(--k-space-3)}
+/* The origin chip: one closed shape on every artifact surface (UI-R28 — the
+   mark is a SECONDARY carrier; the label is the identity). Built from the
+   injected agent identity (core icon) + the karst brand mark. */
+.art-origin{display:inline-flex;align-items:center;gap:var(--k-space-2);
+  font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
+.art-origin .kmark{width:var(--k-space-6);height:var(--k-space-6);flex:none;color:var(--k-text-faint)}
+.art-origin .agenticon{width:var(--k-space-6);height:var(--k-space-6);flex:none}
+/* The in-webview index/detail surface: takes over the whole dashboard body
+   while active, restoring it on Back/Esc. */
+body.art-nav .stepper,body.art-nav .grid{display:none}
+.artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px;color:var(--k-text)}
+.arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+.arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
+.arthead .artsub{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.artgroup{margin-bottom:var(--k-space-7)}
+.artgroup-title{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:var(--k-space-3)}
+/* The index's own list: its rows are the `.artrow` buttons, which carry
+   their own border/padding — wrapping them in `.artfiles li` (whose styling
+   exists for the DETAIL's single-line file rows) drew a second border around
+   each row. */
+.artrows{list-style:none;margin:0;padding:0}
+.artrows li{margin-bottom:var(--k-space-3)}
+.artrow{display:flex;align-items:center;gap:var(--k-space-5);width:100%;text-align:left;
+  padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer;color:var(--k-text)}
+.artrow:hover{background:var(--k-surface-hover)}
+.artrow:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
+.artrow .artrow-body{min-width:0;flex:1}
+.artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);color:var(--k-text)}
+.artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+.artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}
+.sa-bar{display:flex;gap:var(--k-space-3);margin-left:auto;flex-wrap:wrap}
+.sa-row{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface);
+  padding:var(--k-space-4) var(--k-space-5)}
+.sa-main{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+.sa-path{min-width:0;flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-sm);overflow-wrap:anywhere}
+.sa-meta{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.sa-chip{font-size:var(--k-text-2xs);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-pill);color:var(--k-text-dim)}
+.sa-hist{margin-top:var(--k-space-3)}
+.sa-hist summary{cursor:pointer;font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.sa-rev{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;padding:var(--k-space-2) 0;font-size:var(--k-text-sm)}
+.sa-skip{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);padding:var(--k-space-1) 0}
+.sa-empty{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+.artdetail .artsection{margin-bottom:var(--k-space-7)}
+/* The section heading is a flex row so the console entry (the xterm view of
+   a gate stage's log) can sit at its right edge without a second line. */
+.artdetail .artheading{display:flex;align-items:center;gap:var(--k-space-3);
+  font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+  color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
+.artdetail .artheading .sp{margin-left:auto}
+.arthero{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+.arthero .art-title{font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
+.artmetrics{display:flex;gap:var(--k-space-7);flex-wrap:wrap;margin:var(--k-space-5) 0 var(--k-space-7);
+  padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md)}
+.artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold);color:var(--k-text)}
+.artmetric .am-label{display:block;font-family:var(--k-font-normal);font-size:var(--k-text-2xs);
+  text-transform:uppercase;letter-spacing:.4px;color:var(--k-text-faint)}
+.artfinding{border-left:2px solid var(--k-border);padding:var(--k-space-2) var(--k-space-4);
+  margin-bottom:var(--k-space-3)}
+/* Same ramp as the inside block's evidence rows (`--k-sev-*`,
+   model/palette.ts). `critical` and `high` used to share one red here,
+   which is precisely the divergence the shared tokens remove. The level
+   word is printed in `.af-title`, so colour is not the only carrier
+   (UI-R28). */
+.artfinding.critical{border-left-color:var(--k-sev-critical)}
+.artfinding.high{border-left-color:var(--k-sev-high)}
+.artfinding.medium{border-left-color:var(--k-sev-medium)}
+.artfinding.low{border-left-color:var(--k-sev-low)}
+.artfinding.info{border-left-color:var(--k-sev-info)}
+.artfinding .af-title{font-size:var(--k-text-sm);color:var(--k-text)}
+.artfinding .af-detail{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+.art-scope{display:flex;flex-wrap:wrap;gap:var(--k-space-1);
+  padding:var(--k-space-1) var(--k-space-4) var(--k-space-2)}
+.art-scope .sev-scope-chip{min-height:var(--k-hit-min);padding:0 var(--k-space-2);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
+  background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);
+  font-size:var(--k-text-xs);cursor:pointer}
+.art-scope .sev-scope-chip.active{color:var(--k-text);border-color:var(--k-running);
+  background:var(--k-surface)}
+.blstate{font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold)}
+.blstate.approved{color:var(--k-pass)}
+.blstate.rejected{color:var(--k-danger)}
+.blstate.pending{color:var(--k-text-dim)}
+.blline{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;padding:var(--k-space-2) 0}
+.artgate{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);
+  padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
+.artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
+.artgate .ag-code{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+/* The plan artifact's task rows: the label carries the task, the dot the
+   coloured state, and the kind/visit detail trails. Same pattern as the
+   gate rows — one dot, one closed status vocabulary (UI-R28). */
+.arttask{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);
+  padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
+.arttask .at-state{display:inline-flex;flex:none}
+.arttask .at-state .at-dot{width:var(--k-space-3);height:var(--k-space-3);
+  border-radius:var(--k-radius-circle);flex:none}
+.arttask .at-state.done .at-dot{background:var(--k-passed)}
+.arttask .at-state.doing .at-dot{background:var(--k-running)}
+.arttask .at-state.todo .at-dot{background:transparent;
+  border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
+.arttask .at-state.blocked .at-dot{background:var(--k-attention)}
+.arttask .at-state.cancelled .at-dot{background:var(--k-text-faint)}
+.arttask{flex-wrap:wrap}
+.arttask .at-files{flex-basis:100%;display:flex;flex-wrap:wrap;gap:var(--k-space-3);padding-left:var(--k-space-6)}
+.arttask .at-label{flex:1;color:var(--k-text)}
+.arttask .at-kind{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+/* One gate's outcome as a COLOURED STATE, not a text label: the dot is the
+   shipped `.k-dot` status primitive (gap G1 — hue is its current carrier),
+   green for pass, red for fail; the state word rides only as the dot's
+   accessible name (UI-R28), and the exit code stays as the row's detail. */
+.artgate .ag-state{display:inline-flex;flex:none}
+.artgate .ag-state .ag-dot{width:var(--k-space-3);height:var(--k-space-3);
+  border-radius:var(--k-radius-circle);flex:none}
+.artgate .ag-state.pass .ag-dot{background:var(--k-passed)}
+.artgate .ag-state.fail .ag-dot{background:var(--k-failed)}
+.artgate .ag-state.note .ag-dot{background:transparent;
+  border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
+.artmeta{display:grid;grid-template-columns:auto 1fr;gap:var(--k-space-2) var(--k-space-5);
+  font-size:var(--k-text-sm)}
+.artmeta .am-key{color:var(--k-text-faint)}
+.artmeta .am-origin{display:inline-flex;align-items:center;gap:var(--k-space-3)}
+.artfiles{list-style:none;margin:0;padding:0}
+.artfiles li{display:flex;align-items:center;gap:var(--k-space-4);
+  padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
+.artfiles .af-label{color:var(--k-text);font-weight:var(--k-weight-semibold);flex:none}
+.artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text)}
+.artfiles .af-label + .af-name{color:var(--k-text-dim)}
+/* In-body object links (UI-R09c): the commit SHA, the PR number and a
+   finding's file location ARE the controls — underlined, monospaced,
+   keyboard-focusable — never inert text beside a duplicate button. */
+.artdetail .obj-link{display:inline-flex;align-items:center;color:var(--k-link);
+  text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+  text-decoration-color:var(--k-border);text-underline-offset:var(--k-space-1);cursor:pointer;
+  font-family:var(--k-font-mono);border-radius:var(--k-radius-xs)}
+.artdetail .obj-link:hover{color:var(--k-link);text-decoration-color:currentColor}
+.artdetail .obj-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.artfiles .pr-link{color:var(--k-text);font-weight:var(--k-weight-semibold)}
+.artfiles .pr-status{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-pill);padding:var(--k-space-0) var(--k-space-2);color:var(--k-text-dim);
+  font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:lowercase;white-space:nowrap}
+.artfiles .pr-status.open{color:var(--k-running);border-color:var(--k-border)}
+.artfiles .pr-status.merged{color:var(--k-passed);border-color:var(--k-border)}
+.artfiles .pr-status.closed{color:var(--k-failed);border-color:var(--k-border)}
+.artfiles .commit-sha{color:var(--k-text-dim)}
+.artfiles .af-repo{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text);flex:none}
+.artfiles .af-ref{flex:1}
+.artfiles .af-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--k-text-sm);color:var(--k-text)}
+.artfiles .af-msg--empty{color:var(--k-text-faint);font-style:italic}
+.artfiles li > .af-repo:not(:first-child){color:var(--k-text-dim)}
+.artfiles .commit-origin{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
+  padding:var(--k-space-0) var(--k-space-2);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+  color:var(--k-text-dim);white-space:nowrap}

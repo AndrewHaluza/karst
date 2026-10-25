@@ -62,6 +62,22 @@ describe('dashboard sandbox strip (V1)', () => {
     expect(v.posted).toContainEqual(expect.objectContaining({ type: act }));
   });
 
+  it('one click posts exactly one message with a requestId, goes pending, and is not re-triggerable', async () => {
+    const v = await open(SBX);
+    const sel = '[data-region="sandbox"] [data-act="sandbox-sync"]';
+    v.click(sel);
+    v.click(sel);
+    const sent = v.posted.filter((m) => (m as { type?: string }).type === 'sandbox-sync');
+    expect(sent).toHaveLength(1);
+    expect(typeof (sent[0] as { requestId?: unknown }).requestId).toBe('string');
+    const btn = v.query<HTMLButtonElement>(sel)!;
+    expect(btn.getAttribute('aria-busy')).toBe('true');
+    expect(btn.disabled).toBe(true);
+    // The host's ack settles it and the control is usable again.
+    await v.receive({ type: 'action-result', requestId: (sent[0] as { requestId: string }).requestId, ok: true });
+    expect(v.query<HTMLButtonElement>(sel)!.disabled).toBe(false);
+  });
+
   it('offers "Carry to host" only for a rewritten host branch', async () => {
     expect((await open(SBX)).query('[data-region="sandbox"] [data-act="sandbox-carry"]')).toBeNull();
     const v = await open({ ...SBX, carry: true });

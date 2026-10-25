@@ -28,7 +28,7 @@ describe('stage_current single-writer discipline', () => {
     for (const file of listTrackedFiles(REPO_ROOT, 'src')) {
       const rel = relative(REPO_ROOT, file);
       if (rel.startsWith('src/store/')) continue;
-      if (rel.endsWith('.test.ts')) continue;
+      if (/\.test\.tsx?$/.test(rel)) continue;
       if (!existsSync(file)) continue;
       if (RAW_WRITE.test(readFileSync(file, 'utf8'))) {
         offenders.push(rel);

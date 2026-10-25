@@ -1,0 +1,255 @@
+/**
+ * The Inside block's frame, header, ledger rows and shared primitives (glyphs, identity, token pill). The A37
+ * prototype's grammar, ported verbatim and scoped under `#inside`: nothing here can reach the rail, the panels or
+ * another webview. Moved out of `webview.html` with the markup (migration phase 10); the cascade is unchanged because
+ * every rule is `#inside`-scoped.
+ */
+/* ── the Inside block: the A37 prototype, ported verbatim ───────────────
+   This block is the delivery surface from
+   `karst-inside-a37-centered-implementation-timeline.html`. It is the ONE
+   part of the dashboard that does not consume the design system's
+   component rules: the injected DS sheet's own `.k-*` and generic element
+   rules were reshaping the ported grammar (row heights, chip padding,
+   glyph boxes) into something that was neither the prototype nor the DS,
+   which is what "close, but not the prototype" kept meaning.
+
+   Two rules keep this exemption honest:
+     1. Everything is scoped under `#inside`. Nothing here can reach the
+        rail, the panels, the toolbar, or another webview.
+     2. No raw colour literal. The prototype's palette is re-expressed as
+        `--p-*` custom properties on `#inside`, each pointing at the SAME
+        `--k-*` token the rest of the UI uses, so the block still themes
+        with VS Code (light themes included) and the conformance tests
+        keep their meaning. Tints are `color-mix` over those tokens, never
+        the prototype's dark-only hexes.
+   Geometry (grid templates, heights, the glyph shapes, the timeline rail)
+   is the prototype's, unchanged — that is the part being ported. */
+#inside{
+  /* palette — prototype role → karst token */
+  --p-bg:var(--k-bg);
+  --p-surface:var(--k-surface);
+  --p-surface2:var(--k-surface-hover);
+  --p-hover:var(--k-surface-hover);
+  --p-border:var(--k-border);
+  --p-border2:var(--k-border-strong);
+  --p-text:var(--k-text);
+  --p-strong:var(--k-text);
+  --p-muted:var(--k-text-dim);
+  --p-muted2:var(--k-text-faint);
+  --p-accent:var(--k-link);
+  --p-pending:var(--k-text-faint);
+  --p-running:var(--k-running);
+  --p-attention:var(--k-attention);
+  --p-passed:var(--k-passed);
+  --p-failed:var(--k-failed);
+  --p-skip:var(--k-series-2);
+  /* tints — the prototype's filled states, mixed over the theme's own bg */
+  --p-tint-run:color-mix(in srgb, var(--p-running) 12%, var(--p-bg));
+  --p-tint-fail:color-mix(in srgb, var(--p-failed) 10%, var(--p-bg));
+  --p-tint-wait:color-mix(in srgb, var(--p-attention) 10%, var(--p-bg));
+  --p-tint-done:color-mix(in srgb, var(--p-passed) 10%, var(--p-bg));
+  --p-edge-run:color-mix(in srgb, var(--p-running) 45%, var(--p-border));
+  --p-edge-wait:color-mix(in srgb, var(--p-attention) 45%, var(--p-border));
+  --p-edge-done:color-mix(in srgb, var(--p-passed) 45%, var(--p-border));
+  /* spacing / radius / type — the prototype's own scale */
+  --p-r1:var(--k-radius-xs);--p-r2:var(--k-radius-sm);--p-r3:var(--k-radius-lg);
+  --p-s1:var(--k-space-2);--p-s2:var(--k-space-3);--p-s3:var(--k-space-4);
+  --p-s4:var(--k-space-5);--p-s5:var(--k-space-6);--p-s6:var(--k-space-7);
+  --p-xs:var(--k-text-2xs);--p-sm:var(--k-text-xs);--p-md:var(--k-text-md);
+  --p-mono:var(--k-font-mono);
+  container-type:inline-size;
+}
+
+/* Inside header = current operation, never a second live row */
+#inside .inside{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);
+  border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r3);background:var(--p-bg)}
+#inside .inside.viewing{border-color:var(--k-series-2)}
+#inside .vbar{display:flex;align-items:center;gap:var(--p-s3);padding:var(--p-s2) var(--p-s4);
+  border-bottom:var(--k-border-w) solid var(--p-border);color:var(--p-muted);font-size:var(--p-sm)}
+#inside .vbar .sp{margin-left:auto}
+#inside .inside-head{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;gap:var(--p-s2);padding:0 var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+#inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto auto}
+#inside .inside-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong);white-space:nowrap}
+#inside .inside-live{min-width:0;overflow:hidden;white-space:nowrap;color:var(--p-muted);
+  font-size:var(--p-sm);display:flex;align-items:center;gap:var(--p-s2);line-height:18px}
+#inside .inside-live.run{color:var(--p-running)}
+#inside .inside-live.wait{color:var(--p-attention)}
+#inside .inside-live.fail{color:var(--p-failed)}
+#inside .inside-live strong{color:var(--p-strong);font-weight:var(--k-weight-semibold);line-height:18px;flex:none}
+#inside .live-copy{display:inline-flex;align-items:center;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
+#inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
+  margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
+#inside .inside-deliver{display:flex;align-items:center;justify-content:space-between;gap:var(--p-s3);padding:var(--p-s1) var(--p-s3);font-size:var(--p-xs);color:var(--p-muted2)}
+#inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+  line-height:18px;white-space:nowrap}
+/* The current stage header's ⋯ menu — the ONE recovery surface. Only the
+   host's availability verdict renders it; the menu itself is a composed
+   popover exactly like the ticket-controls menu, from the same tokens. */
+#inside .stageMenuWrap{position:relative;display:flex;align-items:center}
+#inside .stageMenuBtn{width:var(--k-control-h-sm);height:var(--k-control-h-sm);padding:0;
+  display:inline-grid;place-items:center;border-radius:var(--k-radius-sm);color:var(--p-muted)}
+#inside .stageMenuBtn:hover{background:var(--p-hover);color:var(--p-text)}
+#inside .stageMenuBtn[aria-expanded="true"]{background:var(--p-surface2);color:var(--p-text)}
+#inside .stageMenuBtn .k-icon{width:var(--p-s3);height:var(--p-s3)}
+#inside .stageMenu{position:absolute;right:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
+  padding:var(--p-s2);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--p-r2);
+  background:var(--k-surface);box-shadow:var(--k-elev-2)}
+#inside .stageMenu .menuButton{min-height:var(--k-control-h-lg)}
+#inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
+
+/* Round switcher (Option B, T6 — docs/plans/round-switcher.md): the tabs
+   scope BOTH Gates and the Tester/Review process for one gate stage, so
+   they live in the header region — a sibling strip right under
+   `.inside-head`, sharing its border and surface — rather than inside any
+   one process row. Absent entirely whenever the host omits `view.attempts`
+   or ships fewer than 2 (UI-R31: the host states the fact — nothing here
+   recomputes attempt count). */
+#inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s2);flex-wrap:wrap;
+  padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border);
+  background:var(--p-surface2)}
+/* A real <button role="tab">, not a styled <a> or <div> (UI-R09): it is
+   focusable and clickable by native semantics, and the roving `tabindex`
+   below is the only thing standing in for the browser's own tab-panel
+   wiring (there is no separate tabpanel — selecting an attempt re-renders
+   the whole ledger, so `aria-controls` would name a moving target). */
+#inside .attempt-tab{display:inline-flex;align-items:center;gap:var(--p-s1);
+  height:var(--k-control-h-sm);padding:0 var(--p-s2);border:var(--k-border-w) solid transparent;
+  border-radius:var(--k-radius-sm);color:var(--p-muted);background:transparent;
+  font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+#inside .attempt-tab:hover{background:var(--p-hover);color:var(--p-text)}
+/* Selected state is border + surface + weight, not colour alone (UI-R28) —
+   the visible status word beside the glyph carries the pass/fail meaning;
+   this carries only "which tab is current". */
+#inside .attempt-tab[aria-selected="true"]{background:var(--p-surface);
+  border-color:var(--p-border);color:var(--p-strong);font-weight:var(--k-weight-semibold)}
+/* UI-R23: focus stays visibly identifiable, same ring token as every other
+   control in this file. */
+#inside .attempt-tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+  outline-offset:var(--k-focus-offset)}
+/* The glyph reuses the ledger's own icon-only primitive (UI-R28b: shape,
+   never colour, carries the verdict) at a smaller size for the tab strip;
+   `#inside .glyph.run:before{animation:none}` under reduced motion (line
+   ~1196) already covers this instance — no separate override needed. */
+#inside .attempt-tab .glyph{width:12px;height:12px}
+#inside .attempt-tab-status{text-transform:lowercase}
+#inside .attempt-tab-status.pass{color:var(--p-passed)}
+#inside .attempt-tab-status.fail{color:var(--p-failed)}
+#inside .attempt-tab-status.run{color:var(--p-running)}
+#inside .attempt-tab-status.wait{color:var(--p-attention)}
+#inside .attempt-tab-status.skip{color:var(--p-skip)}
+#inside .attempt-tab-status.pending,#inside .attempt-tab-status.note{color:var(--p-muted2)}
+/* The attemptNote banner: host-authored prose only (UI-R31 — the webview
+   composes no copy of its own), shown above the ledger exactly while the
+   selected attempt is not the latest one. */
+#inside .attempt-note{padding:var(--p-s2) var(--p-s4);color:var(--p-attention);
+  font-size:var(--p-sm);border-bottom:var(--k-border-w) solid var(--p-border);
+  background:var(--p-tint-wait)}
+
+/* Agent identity primitive */
+#inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
+  color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
+#inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
+/* Agent identity primitive — the mark is the CANONICAL provider icon
+   (injected as .agenticon) drawn at 13px in the core's own blue; the
+   stroke-based line-icon styling is gone with the prototype icon set. */
+#inside .agent-icon,#inside .agenticon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+#inside .agent-icon svg,#inside .agenticon svg{width:13px;height:13px;display:block}
+#inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
+#inside .agent-core{color:var(--p-running)}
+#inside .agent-model{color:var(--p-muted)}
+#inside .agent-name{display:inline-flex;align-items:center;height:14px;line-height:14px;color:var(--p-text);white-space:nowrap}
+#inside .ai-mark{display:inline-flex;align-items:center;justify-content:center;height:18px;
+  border:var(--k-border-w) solid var(--p-edge-run);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
+  color:var(--p-running);font-family:var(--p-mono);font-size:9px;line-height:16px;letter-spacing:.03em;vertical-align:middle}
+#inside .identity-note{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+
+/* Token claim */
+#inside .token-stat{display:inline-flex;align-items:center;gap:3px;border:var(--k-border-w) solid var(--p-border);
+  border-radius:var(--k-radius-pill);height:18px;padding:0 var(--p-s2);color:var(--p-muted);
+  font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
+#inside .token-stat.live{border-color:var(--p-edge-run);color:var(--p-running)}
+#inside .token-stat .sigma{color:var(--p-muted2)}
+#inside .token-stat .cache-read{color:var(--p-muted2);margin-left:var(--p-s1)}
+
+/* Process ledger */
+#inside .ledger{padding-bottom:var(--p-s2)}
+#inside .op{border-top:var(--k-border-w) solid var(--p-border)}
+#inside .op:first-child{border-top:0}
+#inside .op summary,#inside .op-static{list-style:none;display:grid;
+  grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto 16px;
+  align-items:center;gap:var(--p-s2);min-height:31px;padding:0 var(--p-s4);border-radius:var(--p-r1)}
+#inside .op summary{cursor:pointer}
+#inside .op summary::-webkit-details-marker{display:none}
+#inside .op summary:hover{background:var(--p-hover)}
+#inside .op[open] summary{background:var(--p-surface2)}
+#inside .op summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+#inside .op-static{color:var(--p-muted2)}
+#inside .op.live summary{background:var(--p-tint-run)}
+#inside .op.failed-source summary{background:var(--p-tint-fail)}
+#inside .op.waiting-source summary{background:var(--p-tint-wait)}
+
+/* The glyph: the prototype's own drawn states — never a text character. */
+#inside .glyph{position:relative;width:16px;height:16px;display:inline-grid;place-items:center;flex:none;
+  border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-circle);color:var(--p-pending);line-height:1}
+#inside .glyph.pass{color:var(--p-passed)}
+#inside .glyph.fail{color:var(--p-failed)}
+#inside .glyph.pending,#inside .glyph.note{color:var(--p-pending)}
+#inside .glyph.skip{color:var(--p-skip)}
+#inside .glyph.wait{color:var(--p-attention)}
+#inside .glyph.run{color:var(--p-running)}
+#inside .glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;
+  border-bottom:1.5px solid currentColor;transform:translateY(-1px) rotate(-45deg)}
+#inside .glyph.fail:before,#inside .glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;
+  border-radius:var(--k-border-w);background:currentColor;left:50%;top:50%;transform-origin:center}
+#inside .glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)}
+#inside .glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
+#inside .glyph.pending:before,#inside .glyph.note:before{content:"";width:3px;height:3px;
+  border-radius:var(--k-radius-circle);background:currentColor}
+#inside .glyph.run:before{content:"";width:8px;height:8px;border:1.5px solid currentColor;
+  border-right-color:transparent;border-radius:var(--k-radius-circle);animation:spin var(--k-dur-spin) linear infinite}
+#inside .glyph.wait:before,#inside .glyph.wait:after{content:"";position:absolute;width:1.5px;height:6px;
+  top:4px;border-radius:var(--k-border-w);background:currentColor}
+#inside .glyph.wait:before{left:5px}
+#inside .glyph.wait:after{right:5px}
+#inside .glyph.skip:before{content:"";width:7px;height:1px;background:currentColor;transform:rotate(-45deg)}
+
+#inside .op-name{display:flex;align-items:center;gap:var(--p-s2);min-height:18px;line-height:18px;
+  font-size:var(--p-sm);font-weight:var(--k-weight-medium);color:var(--p-text);
+  min-width:0;overflow:hidden}
+/* The label gets its own ellipsis box (min-width:0 + flex so it actually
+   shrinks inside the flex row) instead of the `AI` badge span fighting it
+   for the flex container's own text-overflow, which never rendered the
+   ellipsis — the label was clipped mid-word with no dots (869e-op-name). */
+#inside .op-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-width:0;flex:1 1 auto}
+#inside .op-detail{min-width:0;min-height:18px;line-height:18px;color:var(--p-muted);font-size:var(--p-sm);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#inside .op-detail.run{color:var(--p-running)}
+#inside .op-detail.wait{color:var(--p-attention)}
+#inside .op-detail.fail{color:var(--p-failed)}
+#inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
+/* The gates row's console entry (869e7n906-fu1): the description text and
+   the terminal icon share one flex slot, so a long gate summary ellipsizes
+   on its own span while the icon (flex:none, never shrunk or clipped) stays
+   visible at the end of the description area. */
+#inside .op-detail.detail-console{display:inline-flex;align-items:center;gap:var(--p-s2);max-width:100%}
+#inside .op-detail.detail-console .op-detail-text{overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0}
+#inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
+  min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
+#inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
+  border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
+  font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
+#inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+  font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+#inside .op-time{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+  font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
+#inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
+#inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;
+  border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
+  transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+#inside .op[open] .chev:before{transform:rotate(45deg)}
+#inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
+  padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}

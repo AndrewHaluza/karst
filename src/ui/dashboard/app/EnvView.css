@@ -1,0 +1,29 @@
+/* The env-override editor (moved from webview.html with the view): the SAME full-body swap as the logs view
+   (body.env-nav hides the stepper and the grid), because it is the same kind of surface — one thing, taking the whole
+   panel, closed by an explicit Close. Each scope is a `.env`-shaped textarea: the user types what they would type in the
+   file, and the host reads it with the file's own parser. */
+body.env-nav .stepper,body.env-nav .grid{display:none}
+.envview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;
+  background:var(--k-bg);color:var(--k-text);overflow:auto}
+.envview.hidden{display:none}
+.envview .thead{display:flex;align-items:center;gap:var(--k-space-4);
+  padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);
+  position:sticky;top:0;background:var(--k-bg);z-index:1}
+.envview .ttitle{font-weight:var(--k-weight-semibold)}
+.envview .sp{margin-left:auto;display:flex;gap:var(--k-space-3)}
+/* Full width, like the logs surface it mirrors: the sections are a form, not prose, and every line is a short KEY=value. */
+.envview .ebody{padding:var(--k-space-5) var(--k-space-6) var(--k-space-9)}
+.envview .elead{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-bottom:var(--k-space-6)}
+.envscope{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+  background:var(--k-surface);margin-bottom:var(--k-space-6);overflow:hidden}
+.envscope > header{display:flex;align-items:center;gap:var(--k-space-3);
+  padding:var(--k-space-3) var(--k-space-4);background:var(--k-surface-sunken)}
+.envscope .ename{font-weight:var(--k-weight-semibold);font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+.envscope .ecount{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+.envscope .ehint{padding:0 var(--k-space-4);font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+.envscope textarea{display:block;width:100%;box-sizing:border-box;resize:vertical;
+  border:none;border-top:var(--k-border-w) solid var(--k-border);background:transparent;color:var(--k-text);
+  font-family:var(--k-font-mono);font-size:var(--k-text-xs);line-height:1.6;padding:var(--k-space-3) var(--k-space-4)}
+.envscope footer{display:flex;align-items:center;gap:var(--k-space-3);
+  padding:var(--k-space-3) var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+.envscope footer .msg{font-size:var(--k-text-2xs);color:var(--k-text-dim);margin-left:auto}

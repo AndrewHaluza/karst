@@ -7,7 +7,7 @@
  * rules are out of scope until FEAT-37 supplies their corpora.
  */
 import { describe, it, expect } from 'vitest';
-import { renderWebview } from '../testing/renderHarness.js';
+import { drainReactWork, renderWebview, renderWebviewReady, waitForSettingsReady } from '../testing/renderHarness.js';
 import { buildStepper } from '../../model/stepper.js';
 import { buildStageRail } from '../../model/stageRail.js';
 import {
@@ -30,22 +30,25 @@ const envelope = (f: InsideRenderFixture) => {
 };
 
 describe('dashboard render — fixture corpus', () => {
-  it('renders a linked blocked-by chip from host state', () => {
-    const h = renderWebview('dashboard');
+  it('renders a linked blocked-by chip from host state', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({
       type: 'state',
       state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] },
     });
+    await drainReactWork(h);
     const chip = h.query('#parentRef .k-chip');
     expect(chip?.textContent).toContain('Blocked by T42 · CU-123');
     h.click('#parentRef [data-act="open-dependency"]');
+    await drainReactWork(h);
     expect(h.posted[0]).toMatchObject({ type: 'open-dependency', ticketId: 42 });
     h.close();
   });
 
-  it('paints the prefixed id in the header, the origin line and each sub-task row', () => {
-    const h = renderWebview('dashboard');
+  it('paints the prefixed id in the header, the origin line and each sub-task row', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: populatedStateFor('impl') });
+    await drainReactWork(h);
     expect(h.query('#idBadge')!.textContent).toMatch(/^T\d+$/);
     expect(h.query('#parentRef')!.textContent).toContain('from D88 (P17)');
     expect(h.queryAll('.subtask .k-id').map((e) => e.textContent)).toEqual(['T942018', 'T942019', 'T942020']);
@@ -54,9 +57,10 @@ describe('dashboard render — fixture corpus', () => {
 
   it.each(renderFixtures())(
     '$repositoryCount repos, $scenario ($stage): renders #inside with rows and zero errors',
-    (f) => {
-      const h = renderWebview('dashboard');
+    async (f) => {
+      const h = await renderWebviewReady('dashboard');
       h.receive(envelope(f));
+      await drainReactWork(h);
       const inside = h.query('#inside');
       expect(inside, '#inside not found').toBeTruthy();
       expect(inside!.innerHTML.length, '#inside is empty').toBeGreaterThan(0);
@@ -69,9 +73,10 @@ describe('dashboard render — fixture corpus', () => {
 
   it.each(renderFixtures())(
     '$repositoryCount repos, $scenario ($stage): escapes hostile labels (UI-R32)',
-    (f) => {
-      const h = renderWebview('dashboard');
+    async (f) => {
+      const h = await renderWebviewReady('dashboard');
       h.receive(envelope(f));
+      await drainReactWork(h);
       const inside = h.query('#inside')!;
       // No script elements should appear inside #inside, even though fixture
       // labels contain literal "<script>" strings.
@@ -138,10 +143,11 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('implementationPrototypeFixture renders session segments', () => {
-    const h = renderWebview('dashboard');
+  it('implementationPrototypeFixture renders session segments', async () => {
+    const h = await renderWebviewReady('dashboard');
     const f = implementationPrototypeFixture();
     h.receive(envelope(f));
+    await drainReactWork(h);
     const inside = h.query('#inside');
     expect(inside, '#inside not found').toBeTruthy();
     expect(inside!.innerHTML.length).toBeGreaterThan(0);
@@ -149,8 +155,8 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders a bypassed rail segment distinctly from passed (P2-18)', () => {
-    const h = renderWebview('dashboard');
+  it('renders a bypassed rail segment distinctly from passed (P2-18)', async () => {
+    const h = await renderWebviewReady('dashboard');
     const stages = [
       { stageKey: 'scope', status: 'passed' },
       { stageKey: 'impl', status: 'passed' },
@@ -167,6 +173,7 @@ describe('dashboard render — fixture corpus', () => {
       type: 'state',
       state: { ...renderStateFor('ship'), stageCurrent: 'ship', rail },
     });
+    await drainReactWork(h);
     const seg = h.query('.track .seg.bypassed');
     expect(seg, 'bypassed segment not rendered').toBeTruthy();
     // The glyph is ⊘ — the rail's distinct bypass marker, never the passed ✓.
@@ -178,8 +185,8 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', () => {
-    const h = renderWebview('dashboard');
+  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', async () => {
+    const h = await renderWebviewReady('dashboard');
     const base = renderStateFor('ship');
     h.receive({
       type: 'state',
@@ -191,13 +198,14 @@ describe('dashboard render — fixture corpus', () => {
         openPrFeedback: 2,
       },
     });
+    await drainReactWork(h);
     expect(h.query('[data-stage-menu="ship"]'), '⋯ menu not rendered').toBeTruthy();
     expect(h.errors).toEqual([]);
     h.close();
   });
 
-  it('renders no ship ⋯ menu when the host withholds every recovery action', () => {
-    const h = renderWebview('dashboard');
+  it('renders no ship ⋯ menu when the host withholds every recovery action', async () => {
+    const h = await renderWebviewReady('dashboard');
     const base = renderStateFor('ship');
     h.receive({
       type: 'state',
@@ -209,6 +217,7 @@ describe('dashboard render — fixture corpus', () => {
         rerunGate: { available: false, reason: 'not-gate-stage' },
       },
     });
+    await drainReactWork(h);
     expect(h.query('[data-stage-menu]')).toBeNull();
     h.close();
   });
@@ -230,18 +239,20 @@ describe('dashboard render — fixture corpus', () => {
   const OPUS: [string, string] = ['claude', 'claude-opus-5-5'];
   const SONNET: [string, string] = ['claude', 'claude-sonnet-5-5'];
 
-  it('hides the role row when every role matches implementation', () => {
-    const h = renderWebview('dashboard');
+  it('hides the role row when every role matches implementation', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS)) });
+    await drainReactWork(h);
     expect(h.errors).toEqual([]);
     expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(true);
     expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 
-  it('renders one chip when only review differs, with friendly labels and full-id tooltip', () => {
-    const h = renderWebview('dashboard');
+  it('renders one chip when only review differs, with friendly labels and full-id tooltip', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, SONNET)) });
+    await drainReactWork(h);
     expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(false);
     const chips = h.queryAll('.capChip');
     expect(chips).toHaveLength(1);
@@ -252,25 +263,28 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('groups UAT and review into one chip when they share a different model', () => {
-    const h = renderWebview('dashboard');
+  it('groups UAT and review into one chip when they share a different model', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, SONNET, SONNET)) });
+    await drainReactWork(h);
     const chips = h.queryAll('.capChip');
     expect(chips).toHaveLength(1);
     expect(chips[0]!.textContent).toContain('UAT · Review');
     h.close();
   });
 
-  it('falls back to the raw model id when the catalog has no label', () => {
-    const h = renderWebview('dashboard');
+  it('falls back to the raw model id when the catalog has no label', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, ['codex', 'gpt-x'])) });
+    await drainReactWork(h);
     expect(h.queryAll('.capChip')[0]!.textContent).toContain('gpt-x');
     h.close();
   });
 
-  it('shows only the relation for a sub-task with no overrides', () => {
-    const h = renderWebview('dashboard');
+  it('shows only the relation for a sub-task with no overrides', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS), { subtaskParent: { key: 'PARENT-1', ref: 'T9 · PARENT-1' } }) });
+    await drainReactWork(h);
     const row = h.query('#headerMeta') as HTMLElement;
     expect(row.hidden).toBe(false);
     expect(row.firstElementChild!.id).toBe('parentRef');
@@ -281,9 +295,11 @@ describe('dashboard render — fixture corpus', () => {
 });
 
 describe('dashboard render — ship preview (D142)', () => {
-  const render = (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
-    const h = renderWebview('dashboard');
+  // Inside is React's: the block is drawn once React has committed the push.
+  const render = async (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: shipPreviewStateFor(kind) });
+    await drainReactWork(h);
     return h;
   };
 
@@ -305,17 +321,18 @@ describe('dashboard render — ship preview (D142)', () => {
   const SHIP_CLOCK = '09:40:02 · 1m 40s · attempt 1';
   const UAT_CLOCK = '10:03:55 · 41.2s · attempt 3';
   const REVIEW_CLOCK = '09:20:11 · 3m 02s · attempt 2';
-  const insideClock = (h: ReturnType<typeof renderWebview>) => h.query('#inside .inside-meta')?.textContent;
+  const insideClock = (h: Awaited<ReturnType<typeof renderWebviewReady>>) => h.query('#inside .inside-meta')?.textContent;
 
-  it('is absent unless the ship slot waits for Confirm/Retry', () => {
-    const h = renderWebview('dashboard');
+  it('is absent unless the ship slot waits for Confirm/Retry', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: renderStateFor('ship') }); // slot: none
+    await drainReactWork(h);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     h.close();
   });
 
-  it('ready: renders one card per repo with the PR title and commit subject', () => {
-    const h = render('ready');
+  it('ready: renders one card per repo with the PR title and commit subject', async () => {
+    const h = await render('ready');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section).toBeTruthy();
     const cards = h.queryAll('[data-region="ship-preview-repo"]');
@@ -328,8 +345,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('excluded + warning: names the excluded files and the committed-match warning', () => {
-    const h = render('excluded-warning');
+  it('excluded + warning: names the excluded files and the committed-match warning', async () => {
+    const h = await render('excluded-warning');
     const text = h.query('[data-region="ship-preview"]')!.textContent!;
     expect(text).toContain('Excluded');
     expect(text).toContain('(ship.exclude)');
@@ -338,8 +355,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', () => {
-    const h = render('blocked');
+  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', async () => {
+    const h = await render('blocked');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('.env');
     expect(section.querySelector('.sp-badge--danger')).toBeTruthy();
@@ -350,24 +367,24 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('nothing-to-commit: says the agent already committed its work', () => {
-    const h = render('nothing-to-commit');
+  it('nothing-to-commit: says the agent already committed its work', async () => {
+    const h = await render('nothing-to-commit');
     expect(h.query('[data-region="ship-preview"]')!.textContent).toContain(
       'nothing to commit — agent committed its work',
     );
     h.close();
   });
 
-  it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', () => {
-    const h = render('all-nothing');
+  it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', async () => {
+    const h = await render('all-nothing');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('ship will fail — no repo has changes');
     expect(section.querySelector('.sp-note--warn')).toBeTruthy();
     h.close();
   });
 
-  it('error: renders the per-repo message and never a "no changes" verdict', () => {
-    const h = render('error');
+  it('error: renders the per-repo message and never a "no changes" verdict', async () => {
+    const h = await render('error');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('git status exited 128');
     expect(section.textContent).not.toContain('no changes from base');
@@ -375,14 +392,14 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('loading: keeps geometry with a skeleton while the read lands', () => {
-    const h = render('loading');
+  it('loading: keeps geometry with a skeleton while the read lands', async () => {
+    const h = await render('loading');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.querySelector('.sp-skel')).toBeTruthy();
     h.close();
   });
 
-  it('caps the visible file list at 50 and names the remainder (UI-R44)', () => {
+  it('caps the visible file list at 50 and names the remainder (UI-R44)', async () => {
     const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
     const state = shipPreviewStateFor('ready');
     const preview = shipPreviewFixture('ready')!;
@@ -390,43 +407,51 @@ describe('dashboard render — ship preview (D142)', () => {
       ...state,
       shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] },
     };
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withFiles });
+    await drainReactWork(h);
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.querySelectorAll('.sp-file').length).toBe(51); // 50 + the remainder row
     expect(section.textContent).toContain('and 10 more');
     h.close();
   });
 
-  it('auto-selects Ship once on entering a wait, then leaves the user choice alone (D234)', () => {
+  it('auto-selects Ship once on entering a wait, then leaves the user choice alone (D234)', async () => {
     const base = confirmPendingWithViews();
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
+    // The rail is React's: each push is drawn once React has committed it.
+    const push = async (state: object, extra: Record<string, unknown> = {}): Promise<void> => {
+      h.receive({ type: 'state', state, ...extra });
+      await drainReactWork(h);
+    };
     // Before the wait the user is on Review.
-    h.receive({ type: 'state', state: { ...base, ship: { kind: 'none' as const }, shipPreview: undefined } });
+    await push({ ...base, ship: { kind: 'none' as const }, shipPreview: undefined });
     h.click('[data-stage="review"]');
     expect(insideClock(h)).toBe(REVIEW_CLOCK);
     // Entering the wait selects Ship so the preview is beside Confirm ship.
-    h.receive({ type: 'state', state: base });
+    await push(base);
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    expect(h.query('.pick[data-stage="ship"]')!.getAttribute('aria-pressed')).toBe('true');
     // The user navigates away; a later push for the SAME wait keeps them there.
     h.click('[data-stage="uat"]');
-    h.receive({ type: 'state', state: base });
+    await push(base);
     expect(insideClock(h)).toBe(UAT_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     // A retry after the confirm is a NEW wait: Ship is selected once more.
-    h.receive({ type: 'state', state: { ...base, ship: { kind: 'retry' } } });
+    await push({ ...base, ship: { kind: 'retry' } });
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     // ...and a wait on a DIFFERENT ticket is new too.
     h.click('[data-stage="review"]');
-    h.receive({ type: 'state', state: { ...base, ticketId: base.ticketId + 1, ship: { kind: 'retry' } } });
+    await push({ ...base, ticketId: base.ticketId + 1, ship: { kind: 'retry' } });
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     h.close();
   });
 
-  it('keeps the rail live while the Ship slot waits — a click opens the stage (D234)', () => {
-    const h = renderWebview('dashboard');
+  it('keeps the rail live while the Ship slot waits — a click opens the stage (D234)', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: confirmPendingWithViews() });
+    await drainReactWork(h);
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     const impl = h.query<HTMLButtonElement>('[data-stage="impl"]')!;
     expect(impl.disabled).toBe(false);
@@ -445,10 +470,11 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('a live repaint follows the user selection, not the pending wait (D234)', () => {
-    const h = renderWebview('dashboard');
+  it('a live repaint follows the user selection, not the pending wait (D234)', async () => {
+    const h = await renderWebviewReady('dashboard');
     const state = confirmPendingWithViews();
     h.receive({ type: 'state', state });
+    await drainReactWork(h);
     h.click('[data-stage="uat"]');
     // A live repaint is the same snapshot re-read: it must advance the SELECTED
     // view's clock, never re-derive Ship from the waiting slot.
@@ -461,7 +487,7 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('restores a recorded wait without re-selecting Ship over the user choice (D234)', () => {
+  it('restores a recorded wait without re-selecting Ship over the user choice (D234)', async () => {
     const state = confirmPendingWithViews();
     const h = renderWebview('dashboard', {
       persistedState: {
@@ -473,22 +499,25 @@ describe('dashboard render — ship preview (D142)', () => {
         artScrolls: { ticket: 0, index: 0, detail: {} },
       },
     });
+    await waitForSettingsReady(h);
+    await drainReactWork(h);
     expect(insideClock(h)).toBe(UAT_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     h.close();
   });
 
-  it('persists the auto-selected wait so a reopen does not yank the selection (D234)', () => {
+  it('persists the auto-selected wait so a reopen does not yank the selection (D234)', async () => {
     const state = confirmPendingWithViews();
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state });
+    await drainReactWork(h);
     h.click('[data-stage="uat"]');
     expect(h.state).toMatchObject({ sel: 'uat', shipWait: `${state.ticketId}:confirm` });
     h.close();
   });
 
-  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', () => {
-    const h = render('re-ship');
+  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', async () => {
+    const h = await render('re-ship');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('PR #42 open — this commit is pushed onto it');
     expect(section.textContent).not.toContain('skipped');
@@ -496,8 +525,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', () => {
-    const h = render('ready');
+  it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', async () => {
+    const h = await render('ready');
     h.click('[data-act="refresh-ship-preview"]');
     expect(h.posted).toHaveLength(1);
     expect(h.posted[0]).toMatchObject({ type: 'refresh-ship-preview' });
@@ -509,9 +538,10 @@ describe('dashboard render — ship preview (D142)', () => {
 });
 
 describe('dashboard render — queued sub-task', () => {
-  it('renders a host-flagged queued sub-task as Queued, others by stage', () => {
-    const h = renderWebview('dashboard');
+  it('renders a host-flagged queued sub-task as Queued, others by stage', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: populatedStateFor('impl') });
+    await drainReactWork(h);
     const queued = h.query('.subtask[data-id="942020"]');
     expect(queued, 'queued sub-task row missing').toBeTruthy();
     expect(queued!.querySelector('.stage')!.textContent).toBe('Queued');
@@ -523,6 +553,7 @@ describe('dashboard render — queued sub-task', () => {
       subtasks: state.subtasks.map((s) => (s.id === 942020 ? { ...s, autostart: 'starting' as const } : s)),
     };
     h.receive({ type: 'state', state: starting });
+    await drainReactWork(h);
     expect(h.query('.subtask[data-id="942020"] .stage')!.textContent).toBe('Starting');
     expect(running.querySelector('.stage')!.textContent).toBe('impl');
     expect(h.errors).toEqual([]);

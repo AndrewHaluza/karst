@@ -5,15 +5,41 @@
  * Displays backend tag, canonical core identity (UI-R10c), workspace and network facts.
  * Displays labelled action buttons with danger treatment on Remove (UI-R10b).
  */
-import { useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import type { DashboardSandboxView } from '../sandboxView.js';
 import type { DashboardSender } from './hostBridge.js';
+import { AgentIcon } from './AgentIcon.js';
+import { usePendingAction } from './usePendingAction.js';
 import { AGENT_PROVIDER_LABELS } from '../../../model/agentProviders.js';
 import './SandboxStrip.css';
 
 export interface SandboxStripProps {
   readonly sandbox: DashboardSandboxView | null;
-  readonly send?: Partial<DashboardSender> | null;
+  readonly send: DashboardSender;
+}
+
+/** A strip action: owns its pending state and posts through the typed sender with its request id. */
+function StripButton(props: {
+  readonly act: string;
+  readonly variant?: 'secondary' | 'danger';
+  readonly label: string;
+  readonly title?: string;
+  readonly post: (requestId: string) => void;
+  readonly children: ReactNode;
+}) {
+  const onClick = usePendingAction(props.post);
+  return (
+    <button
+      type="button"
+      className={`k-btn k-btn--${props.variant ?? 'secondary'} k-btn--sm`}
+      data-act={props.act}
+      aria-label={props.label}
+      title={props.title ?? props.label}
+      onClick={onClick}
+    >
+      {props.children}
+    </button>
+  );
 }
 
 interface HostBadgeProps {
@@ -54,19 +80,6 @@ function HostBadge({ testId, label, ariaLabel, title, body, tone }: HostBadgePro
 }
 
 export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
-  const iconRef = useRef<HTMLSpanElement | null>(null);
-  const core = sandbox?.core;
-
-  useEffect(() => {
-    if (!core) return;
-    const root = iconRef.current;
-    const fill = (globalThis as unknown as { agentIconInto?: (el: HTMLElement, p: string) => void })
-      .agentIconInto;
-    if (root && fill) {
-      fill(root, core);
-    }
-  }, [core]);
-
   if (!sandbox) return null;
 
   const coreLabel =
@@ -105,7 +118,7 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
           data-testid="sandbox-core-identity"
           title={`Agent core: ${coreLabel}`}
         >
-          <span ref={iconRef} className="agenticon-island" />
+          <AgentIcon provider={sandbox.core} />
           <span className="agentname">{coreLabel}</span>
         </span>
 
@@ -322,28 +335,22 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
 
       {sandbox.actions && (
         <div className="sandbox-strip-actions">
-          <button
-            type="button"
-            className="k-btn k-btn--secondary k-btn--sm"
-            data-act="sandbox-sync"
-            aria-label="Sync sandbox commits into the worktree"
-            title="Sync sandbox commits into the worktree"
-            onClick={() => send?.sandboxSync?.()}
+          <StripButton
+            act="sandbox-sync"
+            label="Sync sandbox commits into the worktree"
+            post={(id) => send.sandboxSync(id)}
           >
             <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
               <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
             </svg>
             <span>Sync</span>
-          </button>
+          </StripButton>
 
-          <button
-            type="button"
-            className="k-btn k-btn--secondary k-btn--sm"
-            data-act="sandbox-diff"
-            aria-label="Show what a sync would bring in"
-            title="Show what a sync would bring in"
-            onClick={() => send?.sandboxDiff?.()}
+          <StripButton
+            act="sandbox-diff"
+            label="Show what a sync would bring in"
+            post={(id) => send.sandboxDiff(id)}
           >
             <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
@@ -354,15 +361,13 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
               <path d="M10 15l3 3l-3 3" />
             </svg>
             <span>Diff</span>
-          </button>
+          </StripButton>
 
-          <button
-            type="button"
-            className="k-btn k-btn--secondary k-btn--sm"
-            data-act="sandbox-stash-update"
-            aria-label="Stash uncommitted sandbox changes and update from the host"
+          <StripButton
+            act="sandbox-stash-update"
+            label="Stash uncommitted sandbox changes and update from the host"
             title="Stash uncommitted sandbox changes (kept in git stash) and update from the host"
-            onClick={() => send?.sandboxStashUpdate?.()}
+            post={(id) => send.sandboxStashUpdate(id)}
           >
             <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M4 7l8 -4l8 4l-8 4l-8 -4" />
@@ -370,45 +375,37 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
               <path d="M4 17l8 4l8 -4" />
             </svg>
             <span>Stash &amp; update</span>
-          </button>
+          </StripButton>
 
-          <button
-            type="button"
-            className="k-btn k-btn--secondary k-btn--sm"
-            data-act="sandbox-stop"
-            aria-label="Stop the sandbox (kept for the next open)"
-            title="Stop the sandbox (kept for the next open)"
-            onClick={() => send?.sandboxStop?.()}
+          <StripButton
+            act="sandbox-stop"
+            label="Stop the sandbox (kept for the next open)"
+            post={(id) => send.sandboxStop(id)}
           >
             <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10" />
             </svg>
             <span>Stop</span>
-          </button>
+          </StripButton>
 
           {sandbox.carry && (
-            <button
-              type="button"
-              className="k-btn k-btn--secondary k-btn--sm"
-              data-act="sandbox-carry"
-              aria-label="Carry sandbox commits onto host branch"
-              title="Carry sandbox commits onto host branch"
-              onClick={() => send?.sandboxCarry?.()}
-            >
+            <StripButton
+            act="sandbox-carry"
+            label="Carry sandbox commits onto host branch"
+            post={(id) => send.sandboxCarry(id)}
+          >
               <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4" />
               </svg>
               <span>Carry to host</span>
-            </button>
+            </StripButton>
           )}
 
-          <button
-            type="button"
-            className="k-btn k-btn--danger k-btn--sm"
-            data-act="sandbox-remove"
-            aria-label="Remove the sandbox"
-            title="Remove the sandbox"
-            onClick={() => send?.sandboxRemove?.()}
+          <StripButton
+            act="sandbox-remove"
+            variant="danger"
+            label="Remove the sandbox"
+            post={(id) => send.sandboxRemove(id)}
           >
             <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M4 7l16 0" />
@@ -418,7 +415,7 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
               <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
             </svg>
             <span>Remove…</span>
-          </button>
+          </StripButton>
         </div>
       )}
     </div>

@@ -1,51 +1,25 @@
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest, TicketProvider } from '../../manifest/types.js';
-import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { LogError } from '../../logging/logger.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
-import type { GateStage } from '../../store/ticketGates.js';
-import type { InsideProgressEvent } from '../../model/inside/progress.js';
-import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { listSharedServersByTicket, type SharedServerView } from '../../store/sharedServers.js';
-import {
-  buildDashboardState,
-  type DashboardAgentContext,
-  type DashboardState,
-  type PathContext,
-} from './state.js';
-import type { AgentProcessId, DashboardActions, InsideActionResult } from './messages.js';
+import type { DashboardAgentContext, PathContext } from './state.js';
+import type { InsideActionResult } from './messages.js';
 import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
-import { withBaselines, type BaselineRowsLoader } from './baselineRows.js';
+import { type BaselineRowsLoader } from './baselineRows.js';
 import type { ShipPreviewLoader } from '../../workflow/shipPreview.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
-import {
-  changedPaths,
-  hasLiveWork,
-  liveClocks,
-  LIVE_TICK_MS,
-  structureKey,
-  liveSections,
-  shouldLogLiveTick,
-  type LiveLogState,
-} from './liveTick.js';
-
-/** Why a snapshot was pushed — debug tracing names it. */
-type PushKind = 'action' | 'passive' | 'store' | 'live' | 'follow-up';
-import { compactTicketLabel } from '../../model/followUp.js';
-import { tabTitle } from '../../model/tabTitle.js';
 import type { InsideActionHost } from './insideActions.js';
-import {
-  NOOP_INSIDE_HOST,
-  SnapshotRegistry,
-  toRegisteredGraphTarget,
-} from './snapshotRegistry.js';
+import { NOOP_INSIDE_HOST, SnapshotRegistry } from './snapshotRegistry.js';
 import { DashboardSelections } from './selections.js';
 import { SupplementalLoaders, type StoredArtifactsLoader, type SupplementalHost } from './supplementalLoaders.js';
 import { DashboardConsole } from './consoleOutput.js';
-import { attachMessagePump } from './messagePump.js';
-import { agentContextFor, assignmentFor, repoNameFor, serviceNamesFor } from './resolvers.js';
+import { DashboardManagerBase } from './managerBase.js';
+import { LiveTicker } from './liveTicker.js';
+import { openNewPanel } from './panelOpen.js';
+import { PushMemory, pushSnapshot, type SnapshotPushDeps } from './snapshotPush.js';
 import type {
   ActionsFactory,
   AgentLogReader,
@@ -81,25 +55,12 @@ export { ACTION_GRACE_MS } from './snapshotRegistry.js';
  * manifest/agent resolvers (`resolvers`). It owns the panels and the snapshot
  * lifecycle; everything else is delegated.
  */
-export class DashboardManager {
-  private readonly panels = new Map<number, DashboardPanel>();
-  /**
-   * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
-   * rescheduling `setTimeout` rather than an interval: a push that finds
-   * nothing running simply does not schedule the next one, so a settled ticket
-   * costs nothing and there is no timer to remember to stop. Dies with the
-   * panel — a timer that outlives its panel is a store read for a window
-   * nobody is looking at.
-   */
-  private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
-  /** `structureKey` of the last FULL snapshot each panel was sent. */
-  private readonly sentStructure = new Map<number, string>();
-  /** Debug only: the last full snapshot each panel was sent, for `changedPaths`. */
-  private readonly sentState = new Map<number, DashboardState>();
-  /** Debug only: dedupe state for 1-second live tick logs per panel. */
-  private readonly liveLogState = new Map<number, LiveLogState>();
-  /** The tab icon path last set on each panel, so an unchanged glyph costs no IPC. */
-  private readonly iconSet = new Map<number, string>();
+export class DashboardManager extends DashboardManagerBase {
+  protected readonly panels = new Map<number, DashboardPanel>();
+  /** The self-rescheduling live-snapshot timers (one per ticket). */
+  private readonly ticks: LiveTicker;
+  /** What each panel was last sent (structure key, debug state, tab icon). */
+  private readonly memory = new PushMemory();
   /** Panel-only selection memory (round switcher + findings repo scope). */
   private readonly selections = new DashboardSelections();
   /** Per-snapshot action capabilities + the grace window for superseded ones. */
@@ -107,7 +68,9 @@ export class DashboardManager {
   /** Supplemental async loaders (worktree stats, gate options, base branches). */
   private readonly loaders: SupplementalLoaders;
   /** Console/log forwarding boundary (progress events, gate/AI/server logs). */
-  private readonly console: DashboardConsole;
+  protected readonly console: DashboardConsole;
+  /** What `pushSnapshot` reads, assembled once from the constructor args. */
+  protected readonly pushDeps: SnapshotPushDeps;
   /** The manager side of the loaders' contract (live-panel check + re-push). */
   private readonly supplementalHost: SupplementalHost = {
     isCurrentPanel: (ticketId, panel) => this.panels.get(ticketId) === panel,
@@ -115,7 +78,7 @@ export class DashboardManager {
     // not restart the loaders (a second git/repo walk per open) nor tell the
     // webview to drop the worktree stats it just received.
     repush: (ticketId, settlesActions) => {
-      this.pushSnapshot(ticketId, {
+      pushSnapshot(this.pushDeps, ticketId, {
         kind: 'follow-up',
         supplemental: false,
         live: false,
@@ -263,6 +226,7 @@ export class DashboardManager {
      */
     private readonly loadShipPreview?: ShipPreviewLoader,
   ) {
+    super();
     this.loaders = new SupplementalLoaders(
       loadStats,
       loadGateOptions,
@@ -272,6 +236,34 @@ export class DashboardManager {
       loadStoredArtifacts,
       loadShipPreview,
     );
+    this.ticks = new LiveTicker({
+      panelFor: (ticketId) => this.panels.get(ticketId),
+      repaint: (ticketId) => this.repaint(ticketId),
+      logError,
+    });
+    this.pushDeps = {
+      store,
+      registry: this.registry,
+      selections: this.selections,
+      loaders: this.loaders,
+      pathContext,
+      ticketing,
+      approachPhases,
+      isRepoRunnable,
+      defaultProvider,
+      agentContext,
+      fixCapFor,
+      manifest,
+      launchCheckout,
+      graphInsideFor,
+      sharedServersFor: (id) => this.sharedServersFor(id),
+      panelFor: (ticketId) => this.panels.get(ticketId),
+      supplementalHost: this.supplementalHost,
+      refreshIcon: (ticketId, panel) => this.refreshIcon(ticketId, panel),
+      ticks: this.ticks,
+      memory: this.memory,
+      debug,
+    };
     this.console = new DashboardConsole(
       store,
       (ticketId) => this.panels.get(ticketId),
@@ -300,79 +292,28 @@ export class DashboardManager {
       return;
     }
 
-    const ticket = getTicket(this.store, ticketId);
-    const panel = this.host.createPanel(
-      tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.labelTemplate?.()))),
+    const panel = openNewPanel(
+      {
+        store: this.store,
+        host: this.host,
+        actionsFor: this.actionsFor,
+        labelTemplate: this.labelTemplate,
+        onServerLogsDetach: this.onServerLogsDetach,
+        binding: this.binding,
+        onViewActivated: this.onViewActivated,
+        panels: this.panels,
+        ticks: this.ticks,
+        memory: this.memory,
+        loaders: this.loaders,
+        selections: this.selections,
+        registry: this.registry,
+        pushState: (id) => this.pushState(id),
+        repaint: (id) => this.repaint(id),
+        logError: this.logError,
+      },
       ticketId,
       opts?.preserveFocus,
     );
-    this.panels.set(ticketId, panel);
-
-    // The factory's actions plus the detach callback bound to THIS ticket: the
-    // webview's "Open in Window" message names no ticket, so the closure owns it.
-    const actions: DashboardActions = {
-      ...this.actionsFor(ticketId),
-      onServerLogsDetach: () => this.onServerLogsDetach?.(ticketId),
-    };
-    // Message pump must never die on one bad message — routeAction validates,
-    // and any downstream throw is contained so subsequent messages still flow.
-    attachMessagePump(panel, {
-      ticketId,
-      actions,
-      selections: this.selections,
-      registry: this.registry,
-      pushState: (id) => this.pushState(id),
-      logError: this.logError,
-    });
-    panel.onDidChangeViewState((active) => {
-      this.binding?.onDidActivate(ticketId, active);
-      this.onViewActivated?.(ticketId, active);
-      // A hidden panel stops its live tick, so coming back needs one catch-up
-      // repaint — that push re-arms the loop. Guarded on there being live work
-      // (`scheduleLiveTick` decides), and harmless otherwise: it is the same
-      // snapshot every other push builds.
-      if (panel.isVisible?.() === false) {
-        // Going hidden cancels the tick already armed — the repaint it would
-        // run is for a webview nobody can see.
-        const armed = this.liveTicks.get(ticketId);
-        if (armed) clearTimeout(armed);
-        this.liveTicks.delete(ticketId);
-        return;
-      }
-      if (this.liveTicks.has(ticketId)) return; // still ticking; nothing to catch up
-      try {
-        this.pushSnapshot(ticketId, {
-          kind: 'live',
-          supplemental: false,
-          live: true,
-          settlesActions: false,
-        });
-      } catch (err) {
-        this.logError('karst: dashboard visibility repaint failed', err);
-      }
-    });
-    panel.onDidDispose(() => {
-      if (this.panels.get(ticketId) !== panel) return;
-      // The ACTIVE view can be closed while focused; the dispose is the only
-      // signal that the focus is gone, so report it exactly like a deactivation.
-      this.onViewActivated?.(ticketId, false);
-      const tick = this.liveTicks.get(ticketId);
-      if (tick) clearTimeout(tick);
-      this.liveTicks.delete(ticketId);
-      this.sentStructure.delete(ticketId);
-      this.sentState.delete(ticketId);
-      this.liveLogState.delete(ticketId);
-      this.iconSet.delete(ticketId);
-      this.panels.delete(ticketId);
-      // The async loaders abort and drop their per-ticket state; the round
-      // switcher selection and findings repo scope die with the panel too (a
-      // later open of the same ticket id starts at the defaults), and the
-      // panel's action capabilities die with it: a disposed panel's ids must
-      // never dispatch against a later snapshot.
-      this.loaders.clear(ticketId);
-      this.selections.clear(ticketId);
-      this.registry.clear(ticketId);
-    });
 
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
@@ -409,62 +350,6 @@ export class DashboardManager {
     this.pushState(ticketId);
   }
 
-  /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
-  pushState(ticketId: number): void {
-    this.pushSnapshot(ticketId, {
-      kind: 'action',
-      supplemental: true,
-      live: false,
-      settlesActions: true,
-    });
-  }
-
-  /**
-   * Push a complete snapshot for host-external news without claiming it is the
-   * response to any dashboard action currently in flight.
-   */
-  pushPassiveState(ticketId: number): void {
-    this.pushSnapshot(ticketId, {
-      kind: 'passive',
-      supplemental: true,
-      live: false,
-      settlesActions: false,
-    });
-  }
-
-  /**
-   * Push news that changed only store-backed state. Unlike `pushState`, this
-   * fully re-renders the snapshot but does not restart the async worktree or
-   * gate-option loaders. It also cannot settle a pending dashboard action:
-   * store news such as a usage delta is not that action's response.
-   */
-  pushStoreState(ticketId: number): void {
-    this.pushSnapshot(ticketId, {
-      kind: 'store',
-      supplemental: false,
-      live: false,
-      settlesActions: false,
-    });
-  }
-
-  /**
-   * Build and post one snapshot.
-   *
-   * `supplemental` controls whether async filesystem facts are reloaded, `live`
-   * tells the webview whether the snapshot is only a clock repaint, and
-   * `settlesActions` says whether it is the host response an in-flight action
-   * is waiting for. Store-backed news (such as a token delta) needs a full
-   * render without restarting filesystem work or settling an unrelated action.
-   *
-   * The async loaders beside the state — worktree Git totals (`git` per worktree)
-   * and the resolved gate names (a walk of every scoped repo) — answer
-   * questions that change when the WORKTREE or the MANIFEST changes, not when
-   * a gate advances a second. Re-running them on every tick would abort and
-   * respawn a child process per second and never let one finish; the repaint
-   * is a store read and a `postMessage`, nothing else. The tab icon is skipped
-   * for the same reason: the glyph it tints changes with the ticket's status,
-   * and every status change arrives on a real push.
-   */
   /**
    * The shared (baseline) services this ticket consumes — the read-only half of
    * its stack. Built here because the manager holds the live manifest getter;
@@ -474,290 +359,6 @@ export class DashboardManager {
   private sharedServersFor(ticketId: number): SharedServerView[] {
     const manifest = this.manifest?.();
     return manifest ? listSharedServersByTicket(this.store, manifest, ticketId) : [];
-  }
-
-  private pushSnapshot(
-    ticketId: number,
-    mode: { kind: PushKind; supplemental: boolean; live: boolean; settlesActions: boolean },
-  ): void {
-    const { kind, supplemental, live, settlesActions } = mode;
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    // A fresh action registry PER SNAPSHOT: every state push is authoritative,
-    // so the ids it mints are the only live capabilities. The registry itself
-    // (with its host-only targets) never leaves this manager.
-    //
-    // A LIVE repaint is the SAME snapshot re-read, and the webview only updates
-    // running clocks in place — it does not re-render its rows, so it keeps
-    // displaying the ids of the build it last RENDERED. Superseding the
-    // registry once a second would push those displayed ids into the grace
-    // window and let them age out of it while a long-running stage (a gate, a
-    // review findings lane) is still ticking, turning a click on a finding's
-    // file link into "This action is no longer available" (869eja6uv). So a
-    // repaint REUSES the current registry — the ids it already holds stay live,
-    // and `register` memoizes by target so a re-mint of the same row is the
-    // same id rather than unbounded growth. A real push (which re-renders the
-    // webview with freshly minted ids) is what supersedes.
-    const registry = this.registry.beginSnapshot(ticketId, supplemental);
-    // The graph projection's controls (Slice 3 Task 11 / Slice 4 Task 4) ride
-    // the SAME opaque typed-action seam: the projection is pure, so the host
-    // injects the attach closure that mints ids in THIS snapshot's registry.
-    const graphInside = this.graphInsideFor?.(ticketId) ?? null;
-    if (graphInside) {
-      graphInside.attach = (target) => {
-        const action = registry.register(toRegisteredGraphTarget(target, ticketId));
-        return action ?? undefined;
-      };
-    }
-    const ticket = getTicket(this.store, ticketId);
-    const built = buildDashboardState(
-      this.store,
-      ticketId,
-      this.pathContext?.(),
-      this.ticketing?.(),
-      this.approachPhases,
-      this.isRepoRunnable,
-      this.defaultProvider?.(),
-      agentContextFor(
-        this.agentContext?.(),
-        this.manifest?.(),
-        ticket?.agentPreset ?? null,
-        ticket?.agentProvider ?? null,
-      ),
-      this.fixCapFor,
-      (id) => {
-        const manifest = this.manifest?.();
-        return manifest ? serviceNamesFor(this.store, manifest, id) : [];
-      },
-      (processId) => assignmentFor(this.store, this.manifest?.(), ticketId, processId),
-      registry,
-      this.loaders.gateOptionsFor(ticketId),
-      this.launchCheckout,
-      // The inside ship rows name the repository, never the path the runtime
-      // tables key by — the manifest's name for a recorded repoPath.
-      (repo) => {
-        const manifest = this.manifest?.();
-        return manifest ? repoNameFor(manifest, repo) : undefined;
-      },
-      // The graph runtime's read-only projection (Slice 3 Task 11): built
-      // host-side, null for a ticket with no graph run.
-      graphInside,
-      // The round switcher's current selection (Option B, T5): the state
-      // builder resolves a stale/unknown key to that stage's latest attempt
-      // itself, so the panel need not validate it against the snapshot.
-      this.selections.attemptSelectionFor(ticketId),
-      // The manifest's resolved default base branch, for the scope card's
-      // "changed" affordance (§ per-repo base branch — live change). Absent
-      // manifest → `''`, which never marks a real branch as overridden.
-      (repoPath) => {
-        const manifest = this.manifest?.();
-        return manifest ? resolveBaselineBranchForPath(manifest, repoPath) : '';
-      },
-      // Cached candidates, warmed by the loaders below — never fetched HERE,
-      // since this builder must stay synchronous.
-      (repoPath) => this.loaders.branchCandidatesFor(repoPath),
-      // Task 4.1: the ship-stage warning row's threshold. Absent manifest, or
-      // the findings lane switched off entirely (`enabled: false` — the
-      // shipped example config's alternative to lowering blockingSeverity),
-      // both read as `'none'`: an `enabled: false` project records no
-      // findings at all, so a leftover `blockingSeverity: 'high'` beside it
-      // must not light up a row nothing on record can ever satisfy.
-      (() => {
-        const findings = this.manifest?.()?.review?.findings;
-        return findings?.enabled === false ? 'none' : (findings?.blockingSeverity ?? 'none');
-      })(),
-      // The findings repo scope selection per stage (§ findings severity ramp):
-      // panel memory, passed through to the quality reducers. Absent → "all".
-      this.selections.findingsRepoSelectionFor(ticketId),
-      (() => {
-        const manifest = this.manifest?.();
-        return {
-          review: manifest?.review?.findings?.blockingSeverity,
-          tester: manifest?.uat?.testerObservations?.blockingSeverity,
-        };
-      })(),
-      // The shared half of the Servers panel (D203): manifest + store, so it
-      // arrives as an injected provider and never from the state builder.
-      (id) => this.sharedServersFor(id),
-    );
-    const stored = this.loaders.storedArtifactsFor(ticketId);
-    // The ship preview rides ONLY while the ship slot is confirm/retry (D142):
-    // outside those states it is absent from the snapshot, so the webview has
-    // no empty card to render. The cache itself is kept, so re-entering the
-    // slot shows the last read until the fresh one lands.
-    const shipPreview = this.loaders.shipPreviewFor(ticketId);
-    const state = {
-      ...withBaselines(built, this.loaders.baselinesFor(ticketId)),
-      ...(stored ? { storedArtifacts: stored } : {}),
-      ...(shipPreview && (built.ship.kind === 'confirm' || built.ship.kind === 'retry')
-        ? { shipPreview }
-        : {}),
-    };
-    // A key the new snapshot no longer resolved to is dropped from panel
-    // memory: `selectedAttempt` reports what the builder actually rendered,
-    // so a mismatch means the requested key named no attempt this round —
-    // there is nothing left worth remembering for the NEXT snapshot either.
-    this.selections.pruneStaleAttempts(ticketId, state);
-    this.selections.pruneStaleFindingsRepos(ticketId, state);
-    // `live` marks a REPAINT of data the panel already had, as opposed to a
-    // push that reports something happening. The webview defers a live repaint
-    // while the user is mid-interaction (an action in flight, a text selection
-    // being made) — a snapshot pushed once a second must never redraw over
-    // what someone is doing, and only the sender knows which kind it is.
-    // A repaint whose snapshot differs from the last one sent only in its
-    // clocks ships just the clocks: the webview's live repaint writes clock
-    // text and nothing else, and over Remote-SSH the full snapshot (100 KB+)
-    // once a second is what made the panel crawl. New structure — a row that
-    // opened, a status that moved — still ships the whole snapshot.
-    // The same holds for a passive push (a CLI or usage write re-pushing every
-    // open panel) that turned up nothing new. Only a push that settles an
-    // action always ships whole: the webview clears its pending action on it.
-    // A loader follow-up that changed nothing visible is clocks too, even when
-    // it carries settlement authority: the snapshot it follows already settled.
-    const structure = structureKey(state);
-    const unchanged = this.sentStructure.get(ticketId) === structure;
-    const clocksOnly = unchanged && (!settlesActions || kind === 'follow-up');
-    this.tracePush(ticketId, kind, clocksOnly, state);
-    if (clocksOnly) {
-      panel.postMessage({ type: 'clocks', clocks: liveClocks(state) });
-    } else {
-      this.sentStructure.set(ticketId, structure);
-      panel.postMessage({
-        type: 'state',
-        state,
-        ...(live ? { live: true } : {}),
-        ...(!supplemental && !live ? { supplemental: false } : {}),
-        ...(!settlesActions ? { settlesActions: false } : {}),
-      });
-    }
-    // Every real push may carry a status change (a hook flips needs-you amber),
-    // so the tab glyph follows it; a live tick only moves clocks.
-    if (!live) this.refreshIcon(ticketId, panel);
-    if (supplemental) {
-      this.loaders.pushWorktreeStats(ticketId, panel, state.worktrees, this.supplementalHost);
-      this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);
-      this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
-      this.loaders.pushBaselines(ticketId, panel, settlesActions, this.supplementalHost);
-      this.loaders.pushStoredArtifacts(ticketId, panel, settlesActions, this.supplementalHost);
-      // The preview is read only while ship waits for its Confirm click (D142):
-      // entering the confirm/retry slot — on open or on a real push — is what
-      // triggers the read. A live repaint never does.
-      if (state.ship.kind === 'confirm' || state.ship.kind === 'retry') {
-        this.loaders.pushShipPreview(ticketId, panel, settlesActions, this.supplementalHost);
-      }
-    }
-    this.scheduleLiveTick(ticketId, state);
-  }
-
-  /**
-   * Keep the snapshot moving while the ticket is moving.
-   *
-   * The host pushes state when a stage transitions and when a gate completes,
-   * but the inside block is process-led: a tester run, a findings lane, a
-   * pr-description call and a running gate all open their store rows and then
-   * take minutes, during which nothing pushed and the panel showed the world as
-   * it was when the stage last moved. The `inside-progress` overlay narrates
-   * only the ONE operation the driver knows about; every other row, and every
-   * running row's elapsed time, needs the authoritative snapshot to be re-read.
-   *
-   * Re-armed from the state it just pushed (`hasLiveWork`), so it stops itself
-   * the moment nothing is running — a settled or parked ticket schedules no
-   * timer at all. A panel disposed between two ticks drops the push in the same
-   * `pushState` guard every other caller relies on.
-   *
-   * A panel that is not VISIBLE stops the loop entirely rather than repainting
-   * a webview nobody can see; `onDidChangeViewState` restarts it with one
-   * catch-up repaint the moment the panel comes back. Visibility, never
-   * activation: the dashboard's whole purpose is to be watched beside a
-   * terminal the user is typing in, which is visible and inactive.
-   */
-  private scheduleLiveTick(ticketId: number, state: DashboardState): void {
-    const pending = this.liveTicks.get(ticketId);
-    if (pending) {
-      clearTimeout(pending);
-      this.liveTicks.delete(ticketId);
-    }
-    if (!hasLiveWork(state)) return;
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    if (panel.isVisible?.() === false) return;
-    const timer = setTimeout(() => {
-      this.liveTicks.delete(ticketId);
-      if (!this.panels.has(ticketId)) return;
-      try {
-        this.pushSnapshot(ticketId, {
-          kind: 'live',
-          supplemental: false,
-          live: true,
-          settlesActions: false,
-        });
-      } catch (err) {
-        // A tick is a repaint, never a mutation: a failed read (a deleted
-        // ticket, a locked DB) must not take the extension host down, and it
-        // must not re-arm — the next real push restarts the loop.
-        this.logError('karst: dashboard live tick failed', err);
-      }
-    }, LIVE_TICK_MS);
-    // Never hold the host's event loop open for a repaint.
-    (timer as { unref?: () => void }).unref?.();
-    this.liveTicks.set(ticketId, timer);
-  }
-
-  /**
-   * Push a transient inside-progress event to a ticket panel; no-op if not open.
-   */
-  postInsideProgress(ticketId: number, event: InsideProgressEvent): void {
-    this.console.postInsideProgress(ticketId, event);
-  }
-
-  /**
-   * Answer a `stage-log-request`. The answer IS the terminal outcome (UI-R13).
-   */
-  requestStageLog(ticketId: number, stage: GateStage): void {
-    this.console.requestStageLog(ticketId, stage);
-  }
-
-  /**
-   * Answer an `agent-log-request`. The answer IS the terminal outcome (UI-R13).
-   */
-  requestAgentLog(ticketId: number, processId: AgentProcessId): void {
-    this.console.requestAgentLog(ticketId, processId);
-  }
-
-  /**
-   * Push one sanitized live chunk of a gate-lane AI process's output to the
-   * ticket's panel; no-op if the panel is not open.
-   */
-  postAgentOutput(ticketId: number, processId: AgentProcessId, text: string): void {
-    this.console.postAgentOutput(ticketId, processId, text);
-  }
-
-  /**
-   * Push one sanitized live chunk of a gate stage's deterministic gate output
-   * to the ticket's panel; no-op if the panel is not open.
-   */
-  postStageOutput(ticketId: number, stage: GateStage, text: string): void {
-    this.console.postStageOutput(ticketId, stage, text);
-  }
-
-  /**
-   * Answer a `server-logs-request`; the answer IS the terminal outcome (UI-R13).
-   */
-  requestServerLogs(ticketId: number): void {
-    this.console.requestServerLogs(ticketId);
-  }
-
-  /** Answer a `server-logs-close`: stop polling for server log updates. */
-  closeServerLogs(ticketId: number): void {
-    this.console.closeServerLogs(ticketId);
-  }
-
-  /**
-   * Push one sanitized live chunk of a server's log output to the ticket's
-   * panel; no-op if the panel is not open.
-   */
-  postServerLogOutput(ticketId: number, service: string, text: string): void {
-    this.console.postServerLogOutput(ticketId, service, text);
   }
 
   /**
@@ -773,54 +374,22 @@ export class DashboardManager {
     });
   }
 
-  /**
-   * Push fresh state to every open panel. Used by background sweeps (e.g. PR
-   * status sync) whose result may touch any open ticket, so the caller need not
-   * track which ticket changed.
-   */
-  /**
-   * Debug only: one line per push naming its kind, whether it shipped whole,
-   * which fields changed since the last full snapshot, and the caller frame —
-   * enough to trace an unexplained stream of full snapshots to its source.
-   */
-  private tracePush(ticketId: number, kind: PushKind, clocksOnly: boolean, state: DashboardState): void {
-    if (!this.debug?.isDebugEnabled()) return;
-    const prev = this.sentState.get(ticketId);
-    if (!clocksOnly) this.sentState.set(ticketId, state);
-    const changed = clocksOnly ? '' : `; changed: ${prev ? changedPaths(prev, state).slice(0, 8).join(', ') || 'none' : 'first'}`;
-    if (kind === 'live') {
-      const reason = clocksOnly ? 'clocks' : `state${changed}`;
-      const sections = liveSections(state);
-      const logState = this.liveLogState.get(ticketId);
-      const { shouldLog, next } = shouldLogLiveTick(logState, Date.now(), reason, sections);
-      if (!shouldLog) return;
-      this.liveLogState.set(ticketId, next);
-    }
-    const caller = new Error().stack?.split('\n')[4]?.trim() ?? '?';
-    this.debug.debug(`[dashboard] ticket ${ticketId} push ${kind} → ${clocksOnly ? 'clocks' : 'state'}${changed} from ${caller}`);
+  /** One live (clock-only) repaint: the tick and the visibility catch-up. */
+  private repaint(ticketId: number): void {
+    pushSnapshot(this.pushDeps, ticketId, {
+      kind: 'live',
+      supplemental: false,
+      live: true,
+      settlesActions: false,
+    });
   }
-
-  pushAll(): void {
-    for (const ticketId of this.panels.keys()) this.pushState(ticketId);
-  }
-
-  openCount(): number { return this.panels.size; }
 
   /** Re-point the tab icon at the ticket's current status glyph. */
   private refreshIcon(ticketId: number, panel: DashboardPanel): void {
     const icon = this.iconFor?.(ticketId);
-    if (!icon || this.iconSet.get(ticketId) === icon) return;
-    this.iconSet.set(ticketId, icon);
+    if (!icon || this.memory.iconSet.get(ticketId) === icon) return;
+    this.memory.iconSet.set(ticketId, icon);
     panel.setIcon(icon);
   }
 
-  /** Whether a panel is currently open for a ticket (for the caller/tests). */
-  isOpen(ticketId: number): boolean {
-    return this.panels.has(ticketId);
-  }
-
-  /** The tickets with a currently open panel, for the external-change watcher. */
-  openTicketIds(): number[] {
-    return [...this.panels.keys()];
-  }
 }

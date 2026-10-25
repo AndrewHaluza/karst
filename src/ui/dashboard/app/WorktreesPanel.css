@@ -1,0 +1,42 @@
+/* Worktrees panel rows (moved from webview.html with the panel). The PR row keeps its
+   own half of the rules that were shared with it (`.pr`, `.pr .pacts`) in webview.html.
+   Worktrees wrap only the branch at narrow widths. */
+.wt{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+.wt:hover{background:var(--k-surface-hover)}
+/* 74px has no scale match — set by the longest repo label karst has shown in
+   practice, not a spacing value. */
+.wt .wrepo{font-size:var(--k-text-md);min-width:74px;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wt .wacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
+.wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
+.wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
+.wt .wadd{color:var(--k-passed)}
+.wt .wdel{color:var(--k-failed)}
+/* Separator between stats and actions */
+.wt .wsep{width:var(--k-border-w);height:12px;background:var(--k-border);flex-shrink:0}
+/* Narrow fallback — only the branch wraps to line 2. 380px is a literal by construction:
+   an @media condition cannot read a custom property. */
+@media (max-width:380px){
+  .wt{flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-3)}
+  .wt .wbranch{flex-basis:100%}
+  .wt .wstats{margin-left:auto}
+  .wt .wsep{display:none}
+}
+/* Base branch — inline label inside the row */
+.wt .wbase{display:inline-flex;align-items:center;gap:var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);white-space:nowrap;flex-shrink:0}
+.wt .wbase .wbasebr{font-family:var(--k-font-mono);color:var(--k-text-faint)}
+.wt .wbase .wbase-edit{cursor:pointer;color:var(--k-text-dim);background:none;border:none;padding:0;font-size:var(--k-text-2xs);line-height:1;opacity:.6}
+.wt .wbase .wbase-edit:hover{opacity:1}
+/* Worktree wrapper — position context for the base-form popover */
+.wtwrap{position:relative}
+/* Base-form popover — fixed to viewport so panel overflow:hidden cannot clip
+   it (UI-R04: same tokens as agent-switch and ticket-controls popovers). 280px
+   is its fixed width: a position:fixed surface must not resize with its content
+   (the layout shift this width exists to prevent), and no space step expresses it. */
+.wbase-popover{display:none;position:fixed;z-index:50;width:280px;box-sizing:border-box;padding:var(--k-space-4);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+.wbase-popover.open{display:block}
+.wbase-popover .k-field{margin-bottom:var(--k-space-3)}
+.wbase-popover .k-field-help{margin-top:var(--k-space-2)}
+.wbaseformacts{display:flex;justify-content:flex-end;gap:var(--k-space-2);margin-top:var(--k-space-3)}
+/* Copy confirmation flash (was `.ib.ok`; a data attribute so React never rewrites className and wipes the runtime `is-pending`). The extra class outranks `.ib.t-copy` whatever the sheet order. */
+.ib.t-copy[data-copied]{color:var(--k-passed)}
