@@ -4,7 +4,8 @@ import { act, cleanup, render } from '@testing-library/react';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
-import { DashboardAppProvider, usePendingOps } from '../DashboardAppContext.js';
+import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAppContext.js';
+import type { OverlayStack } from '../overlayStack.js';
 import type { PendingOps } from '../pendingOps.js';
 import { Header } from '../Header.js';
 
@@ -49,10 +50,13 @@ export interface HeaderHarness {
   readonly emit: (message: HostMessage) => void;
   /** The in-flight operations the header shares with the stage rail (ship). */
   readonly ops: () => PendingOps;
+  /** The overlay stack the ticket-data button opens the drawer in. */
+  readonly overlays: () => OverlayStack;
 }
 
-function OpsProbe({ onOps }: { readonly onOps: (ops: PendingOps) => void }) {
+function OpsProbe({ onOps, onOverlays }: { readonly onOps: (ops: PendingOps) => void; readonly onOverlays: (overlays: OverlayStack) => void }) {
   onOps(usePendingOps());
+  onOverlays(useOverlays());
   return null;
 }
 
@@ -77,13 +81,14 @@ export function mountHeader(initial: DashboardState | null): HeaderHarness {
     },
   };
   let ops: PendingOps | null = null;
+  let overlays: OverlayStack | null = null;
   render(
     <DashboardAppProvider bridge={bridge}>
-      <OpsProbe onOps={(o) => (ops = o)} />
+      <OpsProbe onOps={(o) => (ops = o)} onOverlays={(o) => (overlays = o)} />
       <Header />
     </DashboardAppProvider>,
   );
-  return { send, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
+  return { send, ops: () => ops!, overlays: () => overlays!, emit: (message) => act(() => listener?.(message)) };
 }
 
 const pending = new Set<Element>();

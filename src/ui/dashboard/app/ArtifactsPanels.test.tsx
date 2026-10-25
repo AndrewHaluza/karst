@@ -100,14 +100,14 @@ describe('Artifacts shelf', () => {
     const opens = recordOpens();
     mount(stateWith({ artifacts: [art('plan')] }));
     fireEvent.click(q('#artViewAll'));
-    expect(opens).toEqual([{ kind: 'index' }]);
+    expect(opens).toEqual(['index']);
   });
 
   it('opens the clicked artifact once from a card, whichever child was hit', () => {
     const opens = recordOpens();
     mount(stateWith({ artifacts: [art('plan'), art('review')] }));
     fireEvent.click(cards()[1]!.querySelector('.artcard-summary')!);
-    expect(opens).toEqual([{ kind: 'artifact', id: 'review' }]);
+    expect(opens).toEqual([{ id: 'review', from: 'ticket' }]);
   });
 
   it('hides again when the last artifact goes away', () => {
@@ -173,7 +173,7 @@ describe('Captured artifacts panel', () => {
     const opens = recordOpens();
     mount(stateWith({ storedArtifacts: stored([['plan', 1]]) }));
     fireEvent.click(q('#storedOpen'));
-    expect(opens).toEqual([{ kind: 'stored' }]);
+    expect(opens).toEqual(['stored']);
   });
 
   it('hides again when the stored view disappears', () => {

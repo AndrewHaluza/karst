@@ -11,6 +11,7 @@
  * announced one way (`artSeam.ts`) and the page persists it; the initial view and scrolls are read once from the
  * persisted view state (`restoreArt`).
  */
+import { formatId } from '../../../model/entityId.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import type { DashboardSender } from './hostBridge.js';
@@ -60,7 +61,7 @@ export interface OverlayDeps {
 export function ticketDataText(state: DashboardState): string {
   const brief = (state.brief || '').trim();
   if (brief) return brief;
-  const heading = [state.key || `#${state.ticketId}`, state.title].filter((v) => v).join(' — ');
+  const heading = [state.key || formatId('ticket', state.ticketId), state.title].filter((v) => v).join(' — ');
   const lines = [`# ${heading}`];
   const prompt = (state.description || '').trim();
   if (prompt) lines.push('', prompt);

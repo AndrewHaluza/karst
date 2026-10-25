@@ -72,18 +72,15 @@ describe('ServersPanel — actions', () => {
     expect(btn.getAttribute('aria-label')).toBe('Copy URL');
   });
 
-  it('Logs and Env ops are local: they announce on the seam and post nothing', () => {
+  it('Logs and Env ops are local: they open their overlay views and post nothing', () => {
+    vi.stubGlobal('createServerLogsView', () => ({}));
     const h = mount(stateWith([srv(1, 'web')]));
-    const logs = vi.fn();
-    const env = vi.fn();
-    window.addEventListener('karst:openServerLogs', logs);
-    window.addEventListener('karst:openEnvOverrides', env);
+    expect(h.overlays().getSnapshot()).toMatchObject({ logs: false, env: false });
     fireEvent.click(one('server-logs-request'));
+    expect(h.overlays().getSnapshot()).toMatchObject({ logs: true, env: false });
     fireEvent.click(one('env-overrides-open'));
-    window.removeEventListener('karst:openServerLogs', logs);
-    window.removeEventListener('karst:openEnvOverrides', env);
-    expect(logs).toHaveBeenCalledTimes(1);
-    expect(env).toHaveBeenCalledTimes(1);
+    expect(h.overlays().getSnapshot()).toMatchObject({ logs: true, env: true });
+    vi.unstubAllGlobals();
     for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
     expect(one('server-logs-request').hasAttribute('aria-busy')).toBe(false);
   });

@@ -138,13 +138,12 @@ describe('React Inside / page Escape chain — the order is unchanged', () => {
     const v = await open(withMenu(populatedStateFor('uat'), 'uat'));
     await click(v, '#inside [data-act="console"][data-console="uat"]:not([data-console-proc])');
     expect(termOpen(v)).toBe(true);
+    // The header's own button is a click outside the menu (it would close it), so the drawer is opened before the menu.
+    await click(v, '#ticketDataBtn');
+    expect(v.query('#ticketDataDrawer')!.classList.contains('open')).toBe(true);
     await click(v, '[data-stage-menu="uat"]');
     expect(menuOpen(v)).toBe(true);
-    // The header's own button is a click outside the menu (it would close it), so the drawer is opened the way the button does.
-    v.window.dispatchEvent(new v.window.CustomEvent('karst:openTicketData'));
-    await drainReactWork(v);
     expect(v.query('#ticketDataDrawer')!.classList.contains('open')).toBe(true);
-    expect(menuOpen(v)).toBe(true);
 
     await escape(v);
     expect([v.query('#ticketDataDrawer')!.classList.contains('open'), menuOpen(v), termOpen(v)]).toEqual([false, true, true]);

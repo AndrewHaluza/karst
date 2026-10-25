@@ -4,10 +4,10 @@
  * The key click copies (host-side) and the board link opens the board (a separate control).
  */
 import { memo, useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Icon } from './Icon.js';
-import { useDashboardSend } from './DashboardAppContext.js';
+import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
-import { announceOpenTicketData } from './headerSeam.js';
 import { selectIdentity } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -73,6 +73,7 @@ function BoardLink({ url }: { readonly url: string | null }) {
 
 export const TicketIdentity = memo(function TicketIdentity() {
   const slice = useSlice(selectIdentity);
+  const overlays = useOverlays();
   const priority = slice?.priority ?? '';
   return (
     <div className="ticketIdentity">
@@ -94,7 +95,8 @@ export const TicketIdentity = memo(function TicketIdentity() {
         data-act="preview-ticket-data"
         aria-label="Preview ticket data"
         title="Preview ticket data"
-        onClick={announceOpenTicketData}
+        // Synchronous, like the class toggle it replaced: the drawer is open the moment the click returns.
+        onClick={() => flushSync(overlays.openTicketData)}
       >
         <Icon name="file-text" />
       </button>

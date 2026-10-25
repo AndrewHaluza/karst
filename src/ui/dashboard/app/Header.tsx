@@ -3,9 +3,9 @@
  * parity snapshots pin both roots without an id or any data-* attribute, so the roots stay in webview.html and
  * `inReactIsland()` treats them as islands until Phase 12).
  *
- * Popovers: at most one of the agent switch form and the ticket-controls menu is open. A click anywhere else
- * closes it: inside the header that is decided here; a click on a vanilla control reaches us through the
- * `karst:closePopovers` seam. Escape does not close them, exactly as before the migration.
+ * Popovers: at most one of the agent switch form and the ticket-controls menu is open. A click anywhere else closes it
+ * (another region, an overlay, the page itself); a click inside the header is decided here. Escape does not close them,
+ * exactly as before the migration.
  */
 import { memo, useCallback, useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -17,7 +17,6 @@ import { RegionPortal } from './RegionPortal.js';
 import { ShipControls } from './ShipControls.js';
 import { TicketIdentity, TicketTitle } from './TicketIdentity.js';
 import { TicketMenu } from './TicketMenu.js';
-import { onClosePopovers } from './headerSeam.js';
 import { selectControls } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -38,19 +37,18 @@ function usePopovers(): { readonly open: Popover; readonly toggle: (which: 'agen
   // Synchronous like the class toggle it replaced: the popover is open the moment the click returns.
   const toggle = useCallback((which: 'agent' | 'menu') => flushSync(() => setOpen((current) => (current === which ? null : which))), []);
   useEffect(() => {
-    // A vanilla control was clicked: outside every header popover. Synchronous, like the class toggle it replaced.
-    const offSeam = onClosePopovers(() => flushSync(close));
-    // A click inside the header, other than on a trigger (which toggles) or inside a popover, dismisses like any outside click.
     const onDocClick = (e: MouseEvent): void => {
-      if (!eventWithin(e, '.dhead, #headerMeta')) return;
+      // A click anywhere outside the header is outside every popover. Synchronous, like the class toggle it replaced.
+      if (!eventWithin(e, '.dhead, #headerMeta')) {
+        flushSync(close);
+        return;
+      }
+      // A click inside the header, other than on a trigger (which toggles) or inside a popover, dismisses like any outside click.
       if (eventWithin(e, '#agentButton, #moreBtn, .popover')) return;
       close();
     };
     document.addEventListener('click', onDocClick);
-    return () => {
-      offSeam();
-      document.removeEventListener('click', onDocClick);
-    };
+    return () => document.removeEventListener('click', onDocClick);
   }, [close]);
   return { open, toggle, close };
 }

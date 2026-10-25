@@ -19,11 +19,3 @@ export interface PersistArt {
 export function announcePersistArt(detail: PersistArt): void {
   window.dispatchEvent(new CustomEvent<PersistArt>(PERSIST_ART_EVENT, { detail }));
 }
-
-export const OPEN_ART_EVENT = 'karst:openArt';
-
-export type OpenArt = { readonly kind: 'index' } | { readonly kind: 'stored' } | { readonly kind: 'artifact'; readonly id: string };
-
-export function announceOpenArt(detail: OpenArt): void {
-  window.dispatchEvent(new CustomEvent<OpenArt>(OPEN_ART_EVENT, { detail }));
-}

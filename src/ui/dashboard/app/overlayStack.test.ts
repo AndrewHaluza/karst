@@ -38,10 +38,10 @@ describe('OverlayStack — ticket-data drawer', () => {
     expect(stack.getSnapshot().drawer?.text).toBe('# M-1 — Manual ticket\n\nFix the login modal');
   });
 
-  it('uses #id when the ticket has no key, and omits an empty prompt', () => {
+  it('uses the canonical short id when the ticket has no key, and omits an empty prompt', () => {
     const { stack } = make({ state: state({ key: '', title: '', description: '' }) });
     stack.openTicketData();
-    expect(stack.getSnapshot().drawer?.text).toBe('# #7');
+    expect(stack.getSnapshot().drawer?.text).toBe('# T7');
   });
 
   it('does not open before the first snapshot', () => {

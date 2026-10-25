@@ -1,4 +1,4 @@
-/* Artifacts shelf (moved from webview.html with the panel; the shared chip rules and `.artcard-summary` stay there). */
+/* Artifacts shelf (moved from webview.html with the panel; the chip rules and `.artcard-summary` it shares with the artifact view live in ArtifactView.css). */
 .artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
 /* The "View all N" button is the header's count now — it sits at the right edge exactly where the removed
    `.count` did. */

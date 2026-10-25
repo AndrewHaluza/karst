@@ -6,16 +6,17 @@
  *
  * The services filter is component state. Vanilla still owns persistence (`vscode.setState`) until
  * the switch-over slice, so the filter starts from the persisted value (read-only) and every change
- * is announced on the transitional seam in `serversSeam.ts`.
+ * is announced on the transitional seam in `serversSeam.ts`. The header's Logs and Env buttons open the overlay views
+ * (`Overlays.tsx`).
  */
 import { memo, useCallback, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
-import { useDashboardBridge, useDashboardSend } from './DashboardAppContext.js';
+import { useDashboardBridge, useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { RegionPortal } from './RegionPortal.js';
 import { LocalAction, PostAction } from './ServerActions.js';
 import { GroupHead, isOnline, ServerRow, SharedRow, type OwnServer, type SharedServer } from './ServerRows.js';
-import { announce, announceFilter, OPEN_ENV_OVERRIDES_EVENT, OPEN_SERVER_LOGS_EVENT } from './serversSeam.js';
+import { announceFilter } from './serversSeam.js';
 import { useSlice } from './useSlice.js';
 import './ServersPanel.css';
 
@@ -39,10 +40,6 @@ const selectServers = (snapshot: DashboardSnapshot): ServersSlice | null =>
 /** The filter earns its row only once scanning is actually hard. */
 const FILTER_ABOVE = 6;
 
-const announcer = (name: typeof OPEN_SERVER_LOGS_EVENT | typeof OPEN_ENV_OVERRIDES_EVENT) => () => announce(name);
-const openLogs = announcer(OPEN_SERVER_LOGS_EVENT);
-const openEnv = announcer(OPEN_ENV_OVERRIDES_EVENT);
-
 /**
  * Whole-ticket controls, in the panel HEADER: they act on every service, so they survive the states
  * where the body has no rows. Each disables itself when it would be a no-op and says why. TICKET-scoped,
@@ -51,6 +48,7 @@ const openEnv = announcer(OPEN_ENV_OVERRIDES_EVENT);
  */
 const ServerOps = memo(function ServerOps({ slice }: { readonly slice: ServersSlice }) {
   const send = useDashboardSend();
+  const overlays = useOverlays();
   const spin = useCallback((r: string) => send.spinServers(r), [send]);
   const restart = useCallback((r: string) => send.restartServers(r), [send]);
   const stop = useCallback((r: string) => send.stopServers(r), [send]);
@@ -67,10 +65,10 @@ const ServerOps = memo(function ServerOps({ slice }: { readonly slice: ServersSl
         disabledWhy={none ? 'No ticket services to restart' : null} />
       <PostAction data-act="stop-servers" label="Stop all ticket services" icon="player-stop" post={stop}
         disabledWhy={!anyRunning ? 'No ticket service is running' : null} />
-      <LocalAction data-act="server-logs-request" label="View server logs" icon="terminal-2" run={openLogs}
+      <LocalAction data-act="server-logs-request" label="View server logs" icon="terminal-2" run={overlays.openLogs}
         disabledWhy={none && slice.shared.length === 0 ? 'No services to show logs for' : null} />
       {/* Env overrides are a property of the TICKET, not of a running process: available even with no rows. */}
-      <LocalAction data-act="env-overrides-open" label="Configure environment variables" icon="settings" run={openEnv} />
+      <LocalAction data-act="env-overrides-open" label="Configure environment variables" icon="settings" run={overlays.openEnv} />
     </>
   );
 });

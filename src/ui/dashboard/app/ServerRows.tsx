@@ -5,9 +5,9 @@
  */
 import { memo, useCallback, type ReactNode } from 'react';
 import type { DashboardState } from '../state.js';
+import { useOverlays } from './DashboardAppContext.js';
 import type { DashboardSender } from './hostBridge.js';
 import { CopyAction, LocalAction, PostAction } from './ServerActions.js';
-import { announce, OPEN_SERVER_LOGS_EVENT } from './serversSeam.js';
 import { structurallyEqual } from './useSlice.js';
 
 export type OwnServer = DashboardState['servers'][number];
@@ -103,7 +103,7 @@ export const SharedRow = memo(function SharedRow({ s, send }: RowProps<SharedSer
   const id = s.id;
   const open = useCallback((r: string) => send.openServer(id ?? 0, r), [send, id]);
   const manage = useCallback((r: string) => send.openResources(r), [send]);
-  const logs = useCallback(() => announce(OPEN_SERVER_LOGS_EVENT), []);
+  const logs = useOverlays().openLogs;
   return (
     <tr>
       <td className="c-dot">

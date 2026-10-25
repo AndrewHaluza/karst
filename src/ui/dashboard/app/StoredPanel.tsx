@@ -1,13 +1,13 @@
 /**
  * The dashboard's Captured artifacts summary panel (T2 store), rendered by React into the page's existing
  * containers (the "Open N" button in the header, `#storedSummary`). Same DOM as the vanilla renderer it
- * replaced (`renderStoredPanel`). The panel shows once the host's first load answers; "Open" asks the page
- * to swap in the still-vanilla stored view through the `karst:openArt` seam. The static root keeps its
+ * replaced (`renderStoredPanel`). The panel shows once the host's first load answers; "Open" swaps in
+ * the stored view (`StoredView.tsx`). The static root keeps its
  * `hidden` toggle in a layout effect, like the Artifacts shelf.
  */
 import { memo, useLayoutEffect } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
-import { announceOpenArt } from './artSeam.js';
+import { useOverlays } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { useSlice } from './useSlice.js';
 import './ArtifactsPanels.css';
@@ -27,6 +27,7 @@ const selectStored = (snapshot: DashboardSnapshot): StoredSlice | null => {
 };
 
 export const StoredPanel = memo(function StoredPanel() {
+  const overlays = useOverlays();
   const slice = useSlice(selectStored);
   const loaded = slice !== null;
   useLayoutEffect(() => {
@@ -35,7 +36,7 @@ export const StoredPanel = memo(function StoredPanel() {
   return (
     <>
       <RegionPortal id="storedPanel" into=".phead">
-        <button id="storedOpen" type="button" className="k-btn k-btn--ghost k-btn--sm" data-art="stored" title="Browse captured output files and their revision history" onClick={() => announceOpenArt({ kind: 'stored' })}>
+        <button id="storedOpen" type="button" className="k-btn k-btn--ghost k-btn--sm" data-art="stored" title="Browse captured output files and their revision history" onClick={overlays.openStored}>
           Open <span id="storedTotal">{slice ? slice.total : null}</span> ›
         </button>
       </RegionPortal>

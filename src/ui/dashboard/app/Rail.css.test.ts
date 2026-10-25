@@ -17,6 +17,7 @@ const read = (name: string): string => readFileSync(join(HERE, name), 'utf8');
 const RAIL = read('Rail.css');
 const RING = read('RailRing.css');
 const BANNER = read('BlockedBanner.css');
+const ARTIFACT_VIEW = read('ArtifactView.css');
 const RAIL_TSX = read('Rail.tsx');
 const PAGE = readFileSync(join(HERE, '..', 'webview.html'), 'utf8');
 
@@ -170,8 +171,8 @@ describe('BlockedBanner.css — the banner moved with its markup', () => {
     expect(BANNER).not.toMatch(/\.fault\.waiting/);
   });
 
-  it('leaves the decision-state words in the page, because the artifact view lists baselines too', () => {
-    for (const rule of ['.blstate.approved', '.blstate.rejected', '.blstate.pending', '.blline{']) expect(PAGE).toContain(rule);
+  it('leaves the decision-state words with the artifact view, because it lists baselines too', () => {
+    for (const rule of ['.blstate.approved', '.blstate.rejected', '.blstate.pending', '.blline{']) expect(ARTIFACT_VIEW).toContain(rule);
     const rules = BANNER.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(rules).not.toContain('.blstate');
     expect(rules).not.toContain('.blline');

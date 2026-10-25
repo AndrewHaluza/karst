@@ -6,14 +6,13 @@
  * Each item posts a host-confirmed action (a modal, then a state push that always follows) with no request id on
  * the wire, so the request is held in `pendingOps.ts` until the next settling push. That store is what keeps a
  * second click from opening a second dialog even though the menu closes (and its item unmounts) on the first, and
- * what the pull request panel's Send CI failure shares. The menu announces its open state to the page, whose Escape
- * chain is ordered (`insideSeam.ts`).
+ * what the pull request panel's Send CI failure shares. The menu tells the overlay stack whether it is open, whose Escape
+ * chain is ordered (`overlayStack.ts`): it yields to the menu at the menu's place.
  */
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { GateStage } from '../../../store/ticketGates.js';
-import { useDashboardSend, usePendingOps } from './DashboardAppContext.js';
+import { useDashboardSend, useOverlays, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
-import { announceStageMenuOpen } from './insideSeam.js';
 import type { MenuFlags } from './insideSlices.js';
 import type { ActionName } from './pendingOps.js';
 import { beginPending } from './usePendingAction.js';
@@ -40,12 +39,13 @@ function Item({ icon, label, onClick, title, ...data }: ItemProps) {
 export function StageMenu({ stageKey, menu }: { readonly stageKey: string; readonly menu: MenuFlags }) {
   const send = useDashboardSend();
   const ops = usePendingOps();
+  const overlays = useOverlays();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     if (!open) return undefined;
-    announceStageMenuOpen(true);
+    overlays.setStageMenuOpen(true);
     const onKey = (e: KeyboardEvent): void => {
       // Another surface (the ticket-data drawer, an overlay) that already took this Escape keeps it.
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -60,9 +60,9 @@ export function StageMenu({ stageKey, menu }: { readonly stageKey: string; reado
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('click', onClick);
-      announceStageMenuOpen(false);
+      overlays.setStageMenuOpen(false);
     };
-  }, [open]);
+  }, [open, overlays]);
 
   /** One item: refused while its operation is in flight, otherwise pending on the control, held in the shared store, menu closed, then posted. */
   const start = useCallback(

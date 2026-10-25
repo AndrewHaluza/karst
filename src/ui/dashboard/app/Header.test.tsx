@@ -2,7 +2,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
 import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
-import { CLOSE_POPOVERS_EVENT, OPEN_TICKET_DATA_EVENT } from './headerSeam.js';
 
 installHeaderDoubles();
 
@@ -51,13 +50,12 @@ describe('Header — identity', () => {
     expect(h.send.openTicketLink).toHaveBeenCalledWith('https://x/t', 'req-1');
   });
 
-  it('asks the page to open the ticket-data drawer and posts nothing', () => {
-    const h = mountHeader(headerState());
-    const opened = vi.fn();
-    window.addEventListener(OPEN_TICKET_DATA_EVENT, opened);
+  it('opens the ticket-data drawer in the overlay stack and posts nothing', () => {
+    const h = mountHeader(headerState({ brief: 'The brief' }));
+    const seen: Array<string | undefined> = [];
+    h.overlays().subscribe(() => seen.push(h.overlays().getSnapshot().drawer?.text));
     fireEvent.click($('#ticketDataBtn'));
-    window.removeEventListener(OPEN_TICKET_DATA_EVENT, opened);
-    expect(opened).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual(['The brief']);
     expect(Object.values(h.send).every((fn) => fn.mock.calls.length === 0)).toBe(true);
   });
 });
@@ -124,13 +122,19 @@ describe('Header — popovers', () => {
     expect(open('#agentPopover')).toBe(true);
   });
 
-  it('closes when a vanilla control announces an outside click, and ignores Escape', () => {
+  it('closes on a click anywhere outside the header (another region, an overlay, the page), and ignores Escape', () => {
     mountHeader(headerState());
+    const outside = document.createElement('div');
+    document.body.append(outside);
     fireEvent.click($('#moreBtn'));
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(open('#menuPopover')).toBe(true);
-    act(() => void window.dispatchEvent(new CustomEvent(CLOSE_POPOVERS_EVENT)));
+    fireEvent.click(outside);
     expect(open('#menuPopover')).toBe(false);
+    fireEvent.click($('#agentButton'));
+    expect(open('#agentPopover')).toBe(true);
+    fireEvent.click(document.body);
+    expect(open('#agentPopover')).toBe(false);
   });
 
   it('disables the agent button while a fix recovery owns the session', () => {

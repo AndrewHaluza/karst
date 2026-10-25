@@ -1,14 +1,15 @@
 /** Shared fixtures and harness for the Inside block tests. */
-import { Profiler, type ReactNode } from 'react';
+import { Profiler, useEffect, type ReactNode } from 'react';
 import { act, render } from '@testing-library/react';
 import { vi } from 'vitest';
 import type { InsideProcessView, InsideStageView } from '../../../../model/inside/types.js';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
-import { DashboardAppProvider, usePendingOps } from '../DashboardAppContext.js';
+import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAppContext.js';
 import type { PendingOps } from '../pendingOps.js';
-import type { OpenTerminal, PersistSel } from '../insideSeam.js';
+import type { PersistSel } from '../insideSeam.js';
+import type { ConsoleTarget } from '../overlayStack.js';
 import { Inside } from '../Inside.js';
 import { Rail } from '../Rail.js';
 
@@ -25,6 +26,9 @@ const SENDERS = [
   'sendCiFailure',
   'rebaseOnBase',
   'rerunGate',
+  'xtermRequest',
+  'stageLogRequest',
+  'agentLogRequest',
 ] as const;
 
 /** One process row, passed and unremarkable unless told otherwise. */
@@ -75,9 +79,9 @@ export interface InsideHarness {
   readonly emit: (message: HostMessage) => void;
   /** What React asked the page to persist (`karst:persistSel`), in order. */
   readonly persisted: PersistSel[];
-  /** What React asked the page to open as the console (`karst:openTerminal`), in order. */
-  readonly terminals: OpenTerminal[];
-  /** The stage menu's open state, as told to the page (`karst:stageMenuOpen`). */
+  /** The consoles the overlay stack opened, in order. */
+  readonly terminals: ConsoleTarget[];
+  /** The stage menu's open state, as told to the overlay stack, in order. */
   readonly menuOpen: boolean[];
   readonly ops: () => PendingOps;
 }
@@ -91,6 +95,21 @@ export const cleanupInside = (): void => {
 
 function OpsProbe({ onOps }: { readonly onOps: (ops: PendingOps) => void }) {
   onOps(usePendingOps());
+  return null;
+}
+
+/** Records the overlay stack's console and stage-menu changes, as the page used to hear them on the seam. */
+function OverlayProbe({ terminals, menuOpen }: { readonly terminals: ConsoleTarget[]; readonly menuOpen: boolean[] }) {
+  const overlays = useOverlays();
+  useEffect(() => {
+    let last = overlays.getSnapshot();
+    return overlays.subscribe(() => {
+      const next = overlays.getSnapshot();
+      if (next.console && next.console !== last.console) terminals.push(next.console);
+      if (next.stageMenu !== last.stageMenu) menuOpen.push(next.stageMenu);
+      last = next;
+    });
+  }, [overlays, terminals, menuOpen]);
   return null;
 }
 
@@ -127,11 +146,9 @@ export function mountInside(initial: DashboardState | null, opts: MountOpts = {}
     },
   };
   const persisted: PersistSel[] = [];
-  const terminals: OpenTerminal[] = [];
+  const terminals: ConsoleTarget[] = [];
   const menuOpen: boolean[] = [];
   listen('karst:persistSel', persisted);
-  listen('karst:openTerminal', terminals);
-  listen('karst:stageMenuOpen', menuOpen);
   let ops: PendingOps | null = null;
   const body = (
     <>
@@ -143,6 +160,7 @@ export function mountInside(initial: DashboardState | null, opts: MountOpts = {}
   render(
     <DashboardAppProvider bridge={bridge}>
       <OpsProbe onOps={(o) => (ops = o)} />
+      <OverlayProbe terminals={terminals} menuOpen={menuOpen} />
       {opts.onRender ? (
         <Profiler id="inside" onRender={opts.onRender}>
           {body}

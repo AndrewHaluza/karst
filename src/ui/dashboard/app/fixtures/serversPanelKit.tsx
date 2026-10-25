@@ -5,7 +5,8 @@ import { Profiler } from 'react';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
-import { DashboardAppProvider } from '../DashboardAppContext.js';
+import { DashboardAppProvider, useOverlays } from '../DashboardAppContext.js';
+import type { OverlayStack } from '../overlayStack.js';
 import { ServersPanel } from '../ServersPanel.js';
 
 export const srv = (id: number, service: string, over: Record<string, unknown> = {}) => ({
@@ -40,6 +41,13 @@ export const many = (n: number) => Array.from({ length: n }, (_, i) => srv(i + 1
 export interface Harness {
   readonly send: Record<string, ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
+  /** The overlay stack the Logs and Env buttons open their views in. */
+  readonly overlays: () => OverlayStack;
+}
+
+function OverlayProbe({ onOverlays }: { readonly onOverlays: (overlays: OverlayStack) => void }) {
+  onOverlays(useOverlays());
+  return null;
 }
 
 export function mount(initial: DashboardState | null, persisted: unknown = null, onRender?: () => void): Harness {
@@ -69,8 +77,10 @@ export function mount(initial: DashboardState | null, persisted: unknown = null,
     },
   };
   const panel = <ServersPanel />;
+  let overlays: OverlayStack | null = null;
   render(
     <DashboardAppProvider bridge={bridge}>
+      <OverlayProbe onOverlays={(o) => (overlays = o)} />
       {onRender ? (
         <Profiler id="sv" onRender={onRender}>
           {panel}
@@ -80,7 +90,7 @@ export function mount(initial: DashboardState | null, persisted: unknown = null,
       )}
     </DashboardAppProvider>,
   );
-  return { send, emit: (message) => act(() => listener?.(message)) };
+  return { send, overlays: () => overlays!, emit: (message) => act(() => listener?.(message)) };
 }
 
 const pending = new Set<Element>();

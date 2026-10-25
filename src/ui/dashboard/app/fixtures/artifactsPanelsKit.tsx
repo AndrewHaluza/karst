@@ -8,7 +8,8 @@ import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider } from '../DashboardAppContext.js';
 import { ArtifactsShelf } from '../ArtifactsShelf.js';
 import { StoredPanel } from '../StoredPanel.js';
-import { OPEN_ART_EVENT, type OpenArt } from '../artSeam.js';
+import { PERSIST_ART_EVENT, type PersistArt } from '../artSeam.js';
+import type { ArtView } from '../overlayStack.js';
 
 type Summary = DashboardState['artifacts'][number];
 
@@ -93,14 +94,14 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
 }
 
 const disposers: Array<() => void> = [];
-/** Records every `karst:openArt` event until the test ends. */
-export function recordOpens(): OpenArt[] {
-  const seen: OpenArt[] = [];
+/** Records the artifact view each navigation lands on (announced as `karst:persistArt`), until the test ends. */
+export function recordOpens(): Array<ArtView | null> {
+  const seen: Array<ArtView | null> = [];
   const handler = (e: Event): void => {
-    seen.push((e as CustomEvent<OpenArt>).detail);
+    seen.push((e as CustomEvent<PersistArt>).detail.artView);
   };
-  window.addEventListener(OPEN_ART_EVENT, handler);
-  disposers.push(() => window.removeEventListener(OPEN_ART_EVENT, handler));
+  window.addEventListener(PERSIST_ART_EVENT, handler);
+  disposers.push(() => window.removeEventListener(PERSIST_ART_EVENT, handler));
   return seen;
 }
 

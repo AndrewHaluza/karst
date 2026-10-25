@@ -10,17 +10,18 @@
  */
 import { memo, useCallback, type MouseEvent, type SyntheticEvent } from 'react';
 import type { InsideProcessView } from '../../../model/inside/types.js';
+import { useOverlays } from './DashboardAppContext.js';
 import { EvidenceBody } from './EvidenceBody.js';
 import { Icon } from './Icon.js';
 import { RowDuration, RowTime, RowTokens } from './InsideClocks.js';
 import { InsideActionButton, Identity } from './InsideParts.js';
 import { useInsideScope } from './InsideMemory.js';
-import { announceOpenTerminal } from './insideSeam.js';
 import { hasEvidenceBody, statusWord, withKeys } from './insideText.js';
 import { sameIgnoringLive } from './insideLive.js';
 
 /** The console (terminal detailed mode) entry point: icon-only, the label moving to aria-label + title (the SAME string, UI-R21/R24). */
 function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: InsideProcessView }) {
+  const overlays = useOverlays();
   const gates = p.id === 'gates';
   const label = `View this ${gates ? "stage's" : "process's"} console output in the dashboard`;
   // Reads `owner`, never a selection: a console click must not re-point the strip. A gate-lane AI process narrows the surface to its own console.
@@ -28,9 +29,9 @@ function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: Insid
     (e: MouseEvent<HTMLButtonElement>) => {
       // Inside a <summary>: without this the click would also toggle the disclosure.
       e.preventDefault();
-      announceOpenTerminal({ stage: owner, processId: gates ? null : p.id });
+      overlays.openConsole(owner, gates ? null : p.id);
     },
-    [owner, gates, p.id],
+    [overlays, owner, gates, p.id],
   );
   return (
     <button type="button" className="k-iconbtn ib t-open" data-act="console" data-console={owner} data-console-proc={gates ? undefined : p.id} aria-label={label} title={label} onClick={onClick}>

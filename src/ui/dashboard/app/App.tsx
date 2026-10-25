@@ -1,6 +1,6 @@
 /**
  * Root component for the dashboard React app (migration shell: the sandbox strip at `#root`,
- * migrated grid panels through `RegionPortal`).
+ * migrated grid panels and the overlay views through `RegionPortal`).
  *
  * Sets `data-karst-ready` attribute on `document.documentElement` after the first commit
  * so `renderWebviewReady` waits until React has cleanly mounted into `#root`.
@@ -14,6 +14,7 @@ import { ArtifactsShelf } from './ArtifactsShelf.js';
 import { BlockedBanner } from './BlockedBanner.js';
 import { Header } from './Header.js';
 import { Inside } from './Inside.js';
+import { Overlays } from './Overlays.js';
 import { PrsPanel } from './PrsPanel.js';
 import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
@@ -53,6 +54,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <PrsPanel />
       <ArtifactsShelf />
       <StoredPanel />
+      <Overlays />
       <RegionPortal id="worktreesPanel">
         <WorktreesPanel />
       </RegionPortal>
