@@ -12,6 +12,46 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 **Date:** 2026-09-08  
 **Ticket:** PROMPT-14-IMPL-EXIT-CONDITION
 
+## [@arch:ADR-00] Overview
+covers: src/store/promptTelemetryQuery.ts#queryMarkerCompliance, src/workflow/stages/implement.ts, src/cli/stage.ts
+
+### Purpose
+Closed decision record: should impl/fix exit stay an explicit agent-fired marker, or be inferred (nudge, denial detection, speculative gates)? Outcome: keep the marker; measured compliance 0.952.
+
+### Connections
+- in: @arch:IMPLUAT (the invariant under review), @arch:BASELINE (marker compliance baseline)
+- out: @arch:PM-00 (`karst stats --prompts` re-measures compliance), @arch:STAGEMACH (stage graph unchanged)
+
+### Flow
+```mermaid
+flowchart TD
+  S[impl/fix session ends] --> M{agent fired stage marker?}
+  M -- yes --> N[setStage to next stage]
+  M -- no --> I[stay in stage, session interrupted]
+  I --> Q[queryMarkerCompliance over finished sessions]
+  Q --> C{rate below 0.90?}
+  C -- no --> K[keep invariant]
+  C -- yes --> R[re-open ADR]
+```
+
+### Tradeoffs
+| chosen | rejected | why |
+|---|---|---|
+| Keep marker, do nothing (ADR-04 opt 1) | Session-end nudge (opt 2, deferred) | 4.8% gap too small; nudge fires on crashes where agent cannot answer |
+| Keep marker | Fire on detected denial (opt 3) | parsed agent text would advance state |
+| Keep marker | Speculative uat gates (opt 4) | green gates != done; invariant amended only on measured need |
+
+### Fallbacks
+| trigger | behaviour | recovery |
+|---|---|---|
+| Session ends without marker | stays in impl/fix, session `interrupted` | user resumes or re-runs the stage |
+| Compliance < 0.90 | re-open this ADR | re-evaluate nudge (opt 2) |
+
+### Rules
+@arch:ADR-01 · @arch:ADR-02 · @arch:ADR-03 · @arch:ADR-04 · @arch:ADR-05 · @arch:ADR-06
+
+END_DOC_BLOCK: [@arch:ADR-00]
+
 ## [@arch:ADR-01] Context
 
 Karst has two kinds of stage, and only one can be inconsistent:
