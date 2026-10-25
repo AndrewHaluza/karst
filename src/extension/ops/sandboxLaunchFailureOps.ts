@@ -20,7 +20,14 @@ export interface SandboxLaunchFailureInput {
   readonly hostEnded?: (ticketId: number) => boolean;
   /** Docker VM memory / sibling-container context, used to diagnose a kill. */
   readonly killContext?: () => Promise<string | undefined>;
+  /** Switches only this ticket to the host and relaunches it; offered as a button on the failure notice. */
+  readonly runOnHost?: (ticketId: number) => Promise<void> | void;
+  /** Relaunches the ticket on its configured sandbox backend. */
+  readonly retrySandbox?: (ticketId: number) => Promise<void> | void;
 }
+
+export const RUN_ON_HOST_ACTION = 'Run on Host';
+export const RETRY_SANDBOX_ACTION = 'Retry Sandbox';
 
 export const LAUNCH_FAILURE_FILE = 'sandbox-launch-failure.txt';
 
@@ -34,6 +41,20 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
   onSandboxLaunchFailed: (info: { runner: string; exitCode: number; tail: string }) => void;
 } {
   mkdirSync(input.captureDir, { recursive: true });
+  const report = (message: string): void => {
+    const { runOnHost, notify } = input;
+    if (!runOnHost || !notify.errorActions) {
+      notify.warn(message);
+      return;
+    }
+    void notify
+      .errorActions(message, [RUN_ON_HOST_ACTION, RETRY_SANDBOX_ACTION])
+      .then(async (choice) => {
+        if (choice === RUN_ON_HOST_ACTION) await runOnHost(input.ticketId);
+        else if (choice === RETRY_SANDBOX_ACTION) await input.retrySandbox?.(input.ticketId);
+      })
+      .catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} launch recovery action failed: ${String(e)}`));
+  };
   return {
     launchCaptureDir: input.captureDir,
     onSandboxLaunchFailed: (info) => {
@@ -53,12 +74,12 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`;
       // The Docker memory diagnosis only fits a Docker SIGKILL/OOM (exit 137); never other codes or runners.
       if (info.exitCode !== 137 || info.runner !== 'docker') {
-        input.notify.warn(base);
+        report(base);
         return;
       }
       const help = (ctx: string | undefined): string => ` ${DOCKER_MEMORY_HELP_TEXT}${ctx ? ` (${ctx})` : ''}`;
-      if (!input.killContext) input.notify.warn(base + help(undefined));
-      else void input.killContext().catch(() => undefined).then((ctx) => input.notify.warn(base + help(ctx)));
+      if (!input.killContext) report(base + help(undefined));
+      else void input.killContext().catch(() => undefined).then((ctx) => report(base + help(ctx)));
     },
   };
 }

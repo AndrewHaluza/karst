@@ -100,4 +100,72 @@ describe('sandboxLaunchFailureOptions', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(warns.some((w) => w.includes('half-built sandbox') && w.includes('daemon down'))).toBe(true);
   });
+
+  describe('recovery actions', () => {
+    function withActions(choice: string | undefined, extra: Partial<SandboxLaunchFailureInput> = {}) {
+      const asked: { message: string; actions: readonly string[] }[] = [];
+      const calls: string[] = [];
+      const r = setup(undefined, {
+        notify: {
+          info: () => undefined, warn: () => undefined, error: () => Promise.resolve(),
+          errorActions: async (message, actions) => { asked.push({ message, actions }); return choice; },
+        },
+        runOnHost: (id) => { calls.push(`host:${id}`); },
+        retrySandbox: (id) => { calls.push(`retry:${id}`); },
+        ...extra,
+      });
+      r.opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: '' });
+      return { ...r, asked, calls };
+    }
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+
+    it('offers Run on Host and Retry Sandbox', async () => {
+      const { asked } = withActions(undefined);
+      await settle();
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.actions).toEqual(['Run on Host', 'Retry Sandbox']);
+      expect(asked[0]!.message).toContain('sandbox launch failed');
+    });
+
+    it('Run on Host runs the host callback only', async () => {
+      const { calls } = withActions('Run on Host');
+      await settle();
+      expect(calls).toEqual(['host:4']);
+    });
+
+    it('Retry Sandbox runs the retry callback only', async () => {
+      const { calls } = withActions('Retry Sandbox');
+      await settle();
+      expect(calls).toEqual(['retry:4']);
+    });
+
+    it('dismissal runs nothing', async () => {
+      const { calls } = withActions(undefined);
+      await settle();
+      expect(calls).toEqual([]);
+    });
+
+    it('logs a failing callback instead of throwing', async () => {
+      const { warns } = withActions('Run on Host', { runOnHost: () => Promise.reject(new Error('boom')) });
+      await settle();
+      expect(warns.some((w) => w.includes('boom'))).toBe(true);
+    });
+
+    it('keeps the plain warning without runOnHost', () => {
+      const { notified } = setup();
+      expect(notified).toEqual([]);
+    });
+
+    it('offers the actions on the exit-137 memory path too', async () => {
+      const { asked } = withActions(undefined, {});
+      expect(asked).toHaveLength(1);
+      const b = setup(undefined, {
+        notify: { info: () => undefined, warn: () => undefined, error: () => Promise.resolve(), errorActions: async (m, a) => { asked.push({ message: m, actions: a }); return undefined; } },
+        runOnHost: () => undefined,
+      });
+      b.opts.onSandboxLaunchFailed({ runner: 'docker', exitCode: 137, tail: '' });
+      await settle();
+      expect(asked[1]!.message).toContain(DOCKER_MEMORY_HELP_TEXT);
+    });
+  });
 });
