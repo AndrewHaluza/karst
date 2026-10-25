@@ -58,6 +58,7 @@ import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
+import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../coverageRecord.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
@@ -489,7 +490,7 @@ const SEVERITIES_BY_RANK = (Object.keys(SEVERITY_RANK) as Severity[]).sort(
  * FINAL capped list so a truncated observation never counts.
  */
 export function countBlockingObservations(
-  observations: readonly { severity: Severity }[],
+  observations: readonly { severity: Severity; title: string }[],
   threshold: Severity | 'none',
 ): { blocking: number; blockingSummary?: string } {
   if (threshold === 'none') return { blocking: 0 };
@@ -497,6 +498,9 @@ export function countBlockingObservations(
   const counts = new Map<Severity, number>();
   let blocking = 0;
   for (const o of observations) {
+    // The advisory coverage record is `info` and must never block, even when
+    // the threshold is the lowest severity.
+    if (isCoverageRecord(o)) continue;
     if (SEVERITY_RANK[o.severity] > limit) continue;
     blocking += 1;
     counts.set(o.severity, (counts.get(o.severity) ?? 0) + 1);
@@ -665,8 +669,6 @@ export const TESTER_SCRATCH_DIR = '.karst/uat-scratch';
 /** Never displaced by `instructions`: an answer ended on a live command is an empty run (T722). */
 export const TESTER_NO_DANGLING_RULE =
   'Do not end your answer while a command you started is still running; wait for it in the foreground, or kill it and report that it did not finish.';
-export const TESTER_UNREACHABLE_RULE =
-  'If the changed code is not reachable by the harness (for example it runs behind the faked agent core), record ONE info observation naming why, and stop.';
 /** Three-dot form: a two-dot diff reads newer base work as deletions. */
 export function testerMergeBaseRule(baseRef: string | null | undefined): string {
   const base = baseRef ? `origin/${baseRef}` : 'origin/<base>';
@@ -722,7 +724,7 @@ export function buildTesterPrompt(
     GATE_ISOLATION_RULE,
     TESTER_NO_DANGLING_RULE,
     testerMergeBaseRule(target.baseRef),
-    TESTER_UNREACHABLE_RULE,
+    COVERAGE_RULE_UAT,
     `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
@@ -746,7 +748,7 @@ export function buildTesterPrompt(
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
     ...OUTPUT_RULES_UAT,
-    `- No observations worth reporting → output exactly [].`,
+    `- No observations worth reporting → output only the coverage entry above.`,
     `- These are OBSERVATIONS, not verdicts: you cannot pass or fail the ticket; you report what you found.`,
   ].join('\n');
 }
@@ -787,6 +789,8 @@ export async function runUatTester(
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
+  // One advisory coverage record per answered target; kept apart so no cap, count or verdict sees it.
+  const coverageRecords: UatFindingInput[] = [];
   // One shape per target actually ASKED — the deterministic wrong-checkout
   // `continue` below pushes nothing here, since it never asked the core.
   const shapes: FindingsParseShape[] = [];
@@ -1101,7 +1105,15 @@ export async function runUatTester(
             `${parseResult.findings.length - kept.length} disproven wrong-checkout claim(s)`,
         );
       }
-      const parsed = kept.map((f) => ({
+      const { coverage: targetCoverage, rest: keptRest } = splitCoverage(kept);
+      coverageRecords.push({
+        ...coverageOrFallback(
+          targetCoverage.map((f) => ({ severity: f.severity, repo: f.repo, file: null, line: null, title: f.title })),
+          (title) => ({ severity: 'info' as Severity, repo: target.repo, title }),
+        ),
+        repo: target.repo,
+      });
+      const parsed = keptRest.map((f) => ({
         severity: f.severity,
         repo: f.repo,
         file: f.file,
@@ -1175,7 +1187,8 @@ export async function runUatTester(
     const findingIds = recordUatFindings(store, {
       ticketId: opts.ticketId,
       processRunId: run.id,
-      findings: observations,
+      // Coverage rides after the cap (never truncated, never counted below).
+      findings: [...observations, ...coverageRecords],
       createdAt: now(),
     });
     // Counted over the FINAL capped list, never over `collected` — an

@@ -6,7 +6,12 @@ import { openStore, type Store } from '../store/db.js';
 import { getTicket, pauseTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listProcessRuns } from '../store/processRuns.js';
-import { listUatFindings } from '../store/uatFindings.js';
+import { listUatFindings as listAllUatFindings } from '../store/uatFindings.js';
+import { isCoverageRecord } from './coverageRecord.js';
+
+/** The agent's observations only: the advisory coverage record is not one. */
+const listUatFindings = (...args: Parameters<typeof listAllUatFindings>) =>
+  listAllUatFindings(...args).filter((f) => !isCoverageRecord(f));
 import { transition } from './machine.js';
 import { createTicketFlow } from './stages/create.js';
 import { ticketsToSweep } from './driverController.js';

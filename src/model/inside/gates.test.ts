@@ -577,6 +577,22 @@ describe('uatProcesses', () => {
       expect(tester.detail).toBe('3 blocking observations');
     });
 
+    it('never counts the advisory coverage record as blocking, even at the lowest threshold', () => {
+      const tester = uatProcesses(
+        qualityInput({
+          processRuns: [processRun({ id: 5, status: 'passed', resultKind: 'observed' })],
+          uatFindings: [
+            uatFinding('info', { processRunId: 5, title: 'COVERAGE (reported): PASS — checked x' }),
+          ],
+          testerBlockingSeverity: 'info',
+        }),
+      ).find((p) => p.id === 'tester')!;
+      expect(tester.aggregate).toBeUndefined();
+      expect(rowsOf(tester).map((r) => r.status)).toEqual(['note']);
+      // It still reaches the findings expansion as an info row (no UI filter drops it).
+      expect(rowsOf(tester).map((r) => r.severity)).toEqual(['info']);
+    });
+
     it("keeps the advisory wording under 'none'", () => {
       const tester = testerView({ testerBlockingSeverity: 'none' });
       expect(tester.detail).toBe('3 observations — advisory');

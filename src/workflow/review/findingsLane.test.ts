@@ -1118,7 +1118,9 @@ describe('runFindingsLane — disproven wrong-checkout claims', () => {
     expect(outcome.kind === 'ran' && outcome.findings).toEqual([]);
     // Persisted findings outlive the run: dropping it after the write would
     // leave the fix stage receiving it forever.
-    expect(persistFindings).not.toHaveBeenCalled();
+    // Only the advisory coverage record is written, never the disproven claim.
+    const persisted = persistFindings.mock.calls.flatMap((c) => c[0] as { title: string }[]);
+    expect(persisted.every((f) => f.title.startsWith('COVERAGE (reported): '))).toBe(true);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('wrong checkout'));
   });
 
@@ -1279,5 +1281,42 @@ describe('cross-repo requirement reconcile (lane level)', () => {
   });
   it('two readable voters both report it → persisted once', async () => {
     expect(await run({ '/wt/api': S1, '/wt/web': S1 }, both)).toEqual(['S1']);
+  });
+});
+
+describe('runFindingsLane — advisory coverage record', () => {
+  const target = { repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', branch: 'karst/x' };
+  const COV = 'COVERAGE (reported): PASS — reviewed the diff, nothing found';
+  const run = async (answer: string) => {
+    const persistFindings = vi.fn();
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(answer),
+      targets: [target],
+      ticketId: 1,
+      persistFindings,
+    });
+    return { outcome, persisted: persistFindings.mock.calls.flatMap((c) => c[0] as { severity: string; title: string }[]) };
+  };
+
+  it('persists the agent record as info but keeps it out of the outcome findings', async () => {
+    const { outcome, persisted } = await run(
+      JSON.stringify([{ severity: 'high', title: COV, detail: '' }]),
+    );
+    expect(outcome.kind === 'ran' && outcome.findings).toEqual([]);
+    expect(persisted).toMatchObject([{ severity: 'info', title: COV }]);
+  });
+
+  it('adds a NOT RUN record when the agent reported none, beside real findings', async () => {
+    const { outcome, persisted } = await run(JSON.stringify([{ severity: 'low', title: 'nit', detail: '' }]));
+    expect(outcome.kind === 'ran' && outcome.findings.map((f) => f.title)).toEqual(['nit']);
+    expect(persisted.map((f) => f.title)).toEqual([
+      'nit',
+      'COVERAGE (reported): NOT RUN — the agent reported no coverage record',
+    ]);
+  });
+
+  it('names the coverage rule in the prompt', () => {
+    expect(buildFindingsPrompt('/web', 'develop')).toContain('COVERAGE (reported): ');
   });
 });

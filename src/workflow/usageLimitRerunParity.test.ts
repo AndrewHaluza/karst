@@ -9,7 +9,12 @@ import { parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { listStageRuns, openStageRun } from '../store/stageRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listRecoveryRounds } from '../store/recoveryRounds.js';
-import { listFindings } from '../store/reviewFindings.js';
+import { listFindings as listAllFindings } from '../store/reviewFindings.js';
+import { isCoverageRecord } from './coverageRecord.js';
+
+/** The agent's findings only: the advisory coverage record is asserted on its own. */
+const listFindings = (...args: Parameters<typeof listAllFindings>) =>
+  listAllFindings(...args).filter((f) => !isCoverageRecord(f));
 import { transition } from './machine.js';
 import { rerunParkedStage } from './usageLimitRerun.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
