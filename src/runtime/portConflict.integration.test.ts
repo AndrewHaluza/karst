@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type AddressInfo, type Server } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { isPortOpen, listenerPids, decideReclaim, reclaimPort } from './portConflict.js';
@@ -7,6 +8,13 @@ import type { ProcessFacts, ProcessFactsSource } from './serverIdentity.js';
 import { killTree } from './processTree.js';
 
 vi.mock('./processTree.js', () => ({ killTree: vi.fn() }));
+
+// Some hosts (minimal containers, microVM sandboxes) have no IPv6 loopback, so a
+// `::1` bind fails with EAFNOSUPPORT. The IPv6 cases only mean something where
+// the family exists; the IPv4 half of each behaviour stays covered everywhere.
+const hasIPv6Loopback = Object.values(networkInterfaces()).some((ifs) =>
+  ifs?.some((i) => i.family === 'IPv6' && i.address === '::1'),
+);
 
 /**
  * Bind a probe server on an OS-assigned port and hand back the port it chose.
@@ -66,13 +74,13 @@ describe('isPortOpen', () => {
     try {
       expect(await isPortOpen('127.0.0.1', port)).toBe(true);
       // A wildcard listener is reachable through both loopback families.
-      expect(await isPortOpen('::1', port)).toBe(true);
+      if (hasIPv6Loopback) expect(await isPortOpen('::1', port)).toBe(true);
     } finally {
       await close(srv);
     }
   });
 
-  it('does not treat an IPv6-only listener as occupying the IPv4 service address', async () => {
+  it.skipIf(!hasIPv6Loopback)('does not treat an IPv6-only listener as occupying the IPv4 service address', async () => {
     const { srv, port } = await listen({ host: '::1', ipv6Only: true });
     try {
       expect(await isPortOpen('::1', port)).toBe(true);
@@ -114,7 +122,7 @@ describe('listenerPids', () => {
     expect(await listenerPids('127.0.0.1', port)).toEqual([]);
   });
 
-  it('returns only listeners that occupy the requested address family', async () => {
+  it.skipIf(!hasIPv6Loopback)('returns only listeners that occupy the requested address family', async () => {
     const { srv, port } = await listen({ host: '::1', ipv6Only: true });
     try {
       expect(await discover('::1', port)).toContain(process.pid);

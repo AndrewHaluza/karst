@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
-import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './schema.js';
+import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
 import { loadManifestWithDiagnostics, type LoadedManifestResult } from './load.js';
@@ -175,6 +175,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // the next reload falls back to the default.
     archiveDoneAfterDays:
       manifest.archiveDoneAfterDays ?? DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
+    archivePlanningAfterDays:
+      manifest.archivePlanningAfterDays ?? DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS,
     // Optional: written when the manifest carries it, omitted (undefined →
     // dropped by the dumper, overriding any stale raw value) when it does not,
     // so a manifest that never had the block does not gain one on Save.

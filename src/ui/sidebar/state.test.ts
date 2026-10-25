@@ -728,16 +728,18 @@ describe('buildSidebarState — planning sessions', () => {
     const ticketId = createTicket(store, { key: 'PLAN-DONE-2', title: 'Filed', projectId }).id;
     markProposalAccepted(store, done, ticketId);
     setPlanningSessionStatus(store, s.id, 'archived');
-    const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
+    const archived = buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning;
     expect(archived[0]!.proposals).toEqual([{ id: done, idLabel: `D${done}`, ticketIdLabel: `T${ticketId}`, dependsOnLabels: [], dependsOnStatus: [], title: 'Filed', status: 'accepted', ticketId, dependsOn: [] }]);
   });
 
-  it('filters planning sessions by the search query and hides them outside the All view', () => {
+  it('filters planning sessions by the search query and keeps them under every ticket preset', () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
     expect(buildSidebarState(store, { facets: ['all'], filter: 'billing', projectId }).planning).toEqual([]);
     expect(buildSidebarState(store, { facets: ['all'], filter: 'AUTH', projectId }).planning).toHaveLength(1);
-    expect(buildSidebarState(store, { facets: ['done'], filter: '', projectId }).planning).toEqual([]);
+    for (const facets of [['done'], ['running'], ['input', 'failed'], ['archived']] as const) {
+      expect(buildSidebarState(store, { facets: [...facets], filter: '', projectId }).planning).toHaveLength(1);
+    }
   });
 
   it('search by prefixed id finds the plan and, via its draft, the plan holding D<n>', () => {
@@ -750,15 +752,17 @@ describe('buildSidebarState — planning sessions', () => {
     expect(found(`P${s.id}`)).toContain(s.id);
   });
 
-  it('lists only archived planning sessions under the Archived facet, and hides them from All', () => {
+  it('returns live and archived planning sessions together, whatever the facet (the view toggles archived)', () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const live = createPlanningSession(store, { projectId, title: 'Live plan', core: 'claude', model: null });
     const gone = createPlanningSession(store, { projectId, title: 'Old plan', core: 'claude', model: null });
     setPlanningSessionStatus(store, gone.id, 'archived');
-    expect(buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning.map((p) => p.sessionId)).toEqual([live.id]);
-    const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
-    expect(archived.map((p) => [p.sessionId, p.status])).toEqual([[gone.id, 'archived']]);
+    for (const facets of [['all'], ['archived'], ['done']] as const) {
+      const rows = buildSidebarState(store, { facets: [...facets], filter: '', projectId }).planning;
+      expect(rows.map((p) => [p.sessionId, p.status === 'archived']).sort()).toEqual([[live.id, false], [gone.id, true]].sort());
+    }
     expect(buildSidebarState(store, { facets: ['archived'], filter: 'zzz', projectId }).planning).toEqual([]);
+    expect(buildSidebarState(store, { facets: ['all'], filter: 'old', projectId }).planning.map((p) => p.sessionId)).toEqual([gone.id]);
   });
 
   it('shows no planning sessions before a project is bound', () => {

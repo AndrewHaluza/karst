@@ -50,6 +50,7 @@ describe('settings sections — vocabulary', () => {
         'agents',
         'approaches',
         'archiveDoneAfterDays',
+        'archivePlanningAfterDays',
         'baselineBranch',
         'closeDoneTerminalsWithTicket',
         'conventions',

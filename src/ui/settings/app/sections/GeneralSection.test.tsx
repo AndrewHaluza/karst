@@ -183,6 +183,17 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     expect(probe().draft).not.toHaveProperty('archiveDoneAfterDays');
   });
 
+  it('writes archivePlanningAfterDays as a positive whole number, blank clears', () => {
+    const { probe } = mountGeneral();
+    const field = screen.getByLabelText('Archive finished planning sessions after') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '5' } });
+    expect(probe().draft).toMatchObject({ archivePlanningAfterDays: 5 });
+    fireEvent.change(field, { target: { value: '0' } });
+    expect(probe().draft).not.toHaveProperty('archivePlanningAfterDays');
+    fireEvent.change(field, { target: { value: '2.5' } });
+    expect(probe().draft).not.toHaveProperty('archivePlanningAfterDays');
+  });
+
   it('writes each sub-task cap as a whole number >= 0, 0 meaning unlimited', () => {
     const { probe } = mountGeneral();
     const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;

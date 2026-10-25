@@ -21,6 +21,7 @@ const REQUIRED_ARTIFACTS = [
   'dist/ui/dashboard/webviewSend.webview.js',
   'dist/ui/dashboard/app.webview.js',
   'dist/ui/resources/app.webview.js',
+  'dist/ui/sidebar/app.webview.js',
   'dist/ui/settings/app.webview.js',
 ];
 
@@ -52,7 +53,10 @@ const REQUIRED_ARTIFACTS = [
 // on the tabs — ~2.3 KB of genuine app code on a 375569-byte base, so the merged
 // bundle is 377860 bytes. This is the first raise where the previous 1.2 KB
 // cushion was smaller than the feature, hence the 2 KB step.
-const APP_BUNDLE_BUDGET_BYTES = 370 * 1024;
+// Raised 370 → 372 KB for the `archivePlanningAfterDays` field in General settings
+// (~0.3 KB of genuine app code; the 370 KB cap had under 0.1 KB left): bundle is
+// 379204 bytes (~1.7 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 372 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

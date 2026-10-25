@@ -2088,6 +2088,26 @@ describe('archiveDoneAfterDays', () => {
   });
 });
 
+describe('archivePlanningAfterDays', () => {
+  const load = (extra: string) => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}\n`);
+    try {
+      return loadManifest(path);
+    } finally {
+      cleanup();
+    }
+  };
+  it('defaults to 3 days when omitted', () => {
+    expect(load('').archivePlanningAfterDays).toBe(3);
+  });
+  it('parses an explicit delay', () => {
+    expect(load('archivePlanningAfterDays: 7').archivePlanningAfterDays).toBe(7);
+  });
+  it.each(['soon', '2.5', '0', '-1'])('throws on %s', (v) => {
+    expect(() => load(`archivePlanningAfterDays: ${v}`)).toThrow(/archivePlanningAfterDays must be a positive whole number of days/);
+  });
+});
+
 describe('agentBackends (AC-32: per-core, default host)', () => {
   const load = (extra: string) => {
     const { path, cleanup } = fixture(`${VALID}\n${extra}\n`);

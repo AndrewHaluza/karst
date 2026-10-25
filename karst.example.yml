@@ -133,6 +133,11 @@ agentProvider: claude
 # number of days.
 archiveDoneAfterDays: 3
 
+# How long a finished planning session (every draft accepted, no live
+# terminal) sits idle before Karst archives it automatically (Settings →
+# General). Omit for the 3-day default; must be a positive whole number of days.
+archivePlanningAfterDays: 3
+
 # Sub-task auto-start caps (Settings → General). A queued sub-task starts only
 # while both counts of RUNNING sub-tasks are under their cap; 0 = unlimited
 # (not recommended — every running sub-task is a full agent session with its

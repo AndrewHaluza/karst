@@ -960,6 +960,12 @@ export interface Manifest {
    */
   archiveDoneAfterDays?: number;
   /**
+   * How many days a FINISHED planning session (every draft accepted, no live
+   * terminal) sits idle before the periodic sweep archives it. Defaults to 3.
+   * Always set by `validateManifest` (3 when absent).
+   */
+  archivePlanningAfterDays?: number;
+  /**
    * Artifact store retention. Absent = keep forever (the default); a positive
    * `maxAgeDays` lets the periodic sweep purge a ticket's store once its
    * newest revision is older than that.
