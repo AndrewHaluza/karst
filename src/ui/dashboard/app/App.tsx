@@ -10,6 +10,7 @@
 import { useEffect } from 'react';
 import type { DashboardHostBridge } from './hostBridge.js';
 import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
+import { Header } from './Header.js';
 import { PrsPanel } from './PrsPanel.js';
 import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
@@ -38,6 +39,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
     <DashboardAppProvider bridge={bridge}>
       <DashboardSlices />
       {/* Migrated panels render into their existing containers in webview.html (data-react-owned there). */}
+      <Header />
       <SubtasksPanel />
       <ServersPanel />
       <PrsPanel />

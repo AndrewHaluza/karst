@@ -30,15 +30,17 @@ const envelope = (f: InsideRenderFixture) => {
 };
 
 describe('dashboard render — fixture corpus', () => {
-  it('renders a linked blocked-by chip from host state', () => {
-    const h = renderWebview('dashboard');
+  it('renders a linked blocked-by chip from host state', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({
       type: 'state',
       state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] },
     });
+    await drainReactWork(h);
     const chip = h.query('#parentRef .k-chip');
     expect(chip?.textContent).toContain('Blocked by T42 · CU-123');
     h.click('#parentRef [data-act="open-dependency"]');
+    await drainReactWork(h);
     expect(h.posted[0]).toMatchObject({ type: 'open-dependency', ticketId: 42 });
     h.close();
   });
@@ -231,18 +233,20 @@ describe('dashboard render — fixture corpus', () => {
   const OPUS: [string, string] = ['claude', 'claude-opus-5-5'];
   const SONNET: [string, string] = ['claude', 'claude-sonnet-5-5'];
 
-  it('hides the role row when every role matches implementation', () => {
-    const h = renderWebview('dashboard');
+  it('hides the role row when every role matches implementation', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS)) });
+    await drainReactWork(h);
     expect(h.errors).toEqual([]);
     expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(true);
     expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 
-  it('renders one chip when only review differs, with friendly labels and full-id tooltip', () => {
-    const h = renderWebview('dashboard');
+  it('renders one chip when only review differs, with friendly labels and full-id tooltip', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, SONNET)) });
+    await drainReactWork(h);
     expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(false);
     const chips = h.queryAll('.capChip');
     expect(chips).toHaveLength(1);
@@ -253,25 +257,28 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('groups UAT and review into one chip when they share a different model', () => {
-    const h = renderWebview('dashboard');
+  it('groups UAT and review into one chip when they share a different model', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, SONNET, SONNET)) });
+    await drainReactWork(h);
     const chips = h.queryAll('.capChip');
     expect(chips).toHaveLength(1);
     expect(chips[0]!.textContent).toContain('UAT · Review');
     h.close();
   });
 
-  it('falls back to the raw model id when the catalog has no label', () => {
-    const h = renderWebview('dashboard');
+  it('falls back to the raw model id when the catalog has no label', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, ['codex', 'gpt-x'])) });
+    await drainReactWork(h);
     expect(h.queryAll('.capChip')[0]!.textContent).toContain('gpt-x');
     h.close();
   });
 
-  it('shows only the relation for a sub-task with no overrides', () => {
-    const h = renderWebview('dashboard');
+  it('shows only the relation for a sub-task with no overrides', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS), { subtaskParent: { key: 'PARENT-1', ref: 'T9 · PARENT-1' } }) });
+    await drainReactWork(h);
     const row = h.query('#headerMeta') as HTMLElement;
     expect(row.hidden).toBe(false);
     expect(row.firstElementChild!.id).toBe('parentRef');
@@ -425,9 +432,10 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('keeps the rail live while the Ship slot waits — a click opens the stage (D234)', () => {
-    const h = renderWebview('dashboard');
+  it('keeps the rail live while the Ship slot waits — a click opens the stage (D234)', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: confirmPendingWithViews() });
+    await drainReactWork(h);
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     const impl = h.query<HTMLButtonElement>('[data-stage="impl"]')!;
     expect(impl.disabled).toBe(false);

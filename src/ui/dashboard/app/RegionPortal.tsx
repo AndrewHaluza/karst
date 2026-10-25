@@ -9,20 +9,24 @@ import { createPortal } from 'react-dom';
 
 export function RegionPortal({
   id,
+  byClass,
   children,
   inParent = false,
 }: {
-  readonly id: string;
+  /** The container's id; omit it (and pass `byClass`) for a static root the parity snapshots pin without an id. */
+  readonly id?: string;
+  /** The container's first element with this class, for a root that has no id. */
+  readonly byClass?: string;
   readonly children: ReactNode;
   /** Render into `#id`'s parent instead (appended after its children): for a control that has no container of its own. */
   readonly inParent?: boolean;
 }) {
   const [target] = useState(() => {
-    const found = document.getElementById(id);
+    const found = id === undefined ? (document.getElementsByClassName(byClass ?? '')[0] ?? null) : document.getElementById(id);
     return inParent ? (found?.parentElement ?? null) : found;
   });
   if (!target) {
-    throw new Error(`dashboard app: #${id} region container is missing from the document`);
+    throw new Error(`dashboard app: ${id === undefined ? `.${byClass}` : `#${id}`} region container is missing from the document`);
   }
   return createPortal(children, target);
 }

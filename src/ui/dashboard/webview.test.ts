@@ -73,12 +73,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('/*KARST_DASHBOARD_APP_CSS*/');
   });
 
-  it('renders the header ship action from state.ship, never a Now sentence', () => {
-    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?state\.ship/);
-    expect(HTML).not.toContain('id="now"');
-    expect(HTML).not.toMatch(/function renderNow\(/);
-  });
-
   it('gives both log surfaces a reachable scrollback: viewport, visible thumb, keys', () => {
     // Server logs scroll their own host; the console's scrollback belongs to
     // xterm's viewport. Both had an invisible thumb over the console ground.
@@ -112,14 +106,6 @@ describe('dashboard webview.html', () => {
     const ds = HTML.indexOf('/*KARST_DS_CSS*/');
     const rule = HTML.indexOf('[hidden]');
     expect(rule).toBeGreaterThan(ds);
-    // And the two header controls must actually rely on the attribute, so the
-    // rule is what they render through — not a class that already worked.
-    expect(HTML).toMatch(/id="confirmShip"[^>]*\shidden>/);
-    expect(HTML).toMatch(/id="boardLink"[^>]*\shidden/);
-    // The toggling must keep using the attribute (the rule makes it real),
-    // never silently reverted to a display class the tests cannot see.
-    expect(HTML).toMatch(/btn\.hidden\s*=/);
-    expect(HTML).toMatch(/link\.hidden\s*=/);
   });
 
   /**
@@ -466,10 +452,6 @@ describe('dashboard webview.html', () => {
     for (const act of new Set(emitted)) {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);
     }
-    // The menu's edit entry and the identity's copy-key ride data-act; the
-    // agent switch is a dedicated popover button, never a data-act value.
-    expect(emitted).toContain('edit-ticket');
-    expect(emitted).toContain('copy-ticket-key');
     expect(emitted).not.toContain('switch-agent');
   });
 
@@ -590,15 +572,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
-  it('offers the terminal binding as a menu switch reflecting the host push', () => {
-    expect(HTML).toContain('id="linkViews"');
-    expect(HTML).toMatch(/bindEnabled[\s\S]*linkViews/);
-    expect(HTML).not.toMatch(/id="bindBtn"/);
-    expect(HTML).toMatch(/'bind'|"bind"/);
-    expect(HTML).toMatch(/bindEnabled\s*=\s*[^;]*\bmsg\b/);
-    expect(HTML).not.toMatch(/setState\(\{ state:[^}]*bindEnabled/);
-  });
-
   it('no longer carries the removed impl-phase strip', () => {
     expect(HTML).not.toContain('renderSubsteps');
     expect(HTML).not.toContain('implPhases');
@@ -625,7 +598,7 @@ describe('dashboard webview.html', () => {
   });
 
   it('holds the ship header slot across state pushes until the stage resolves', () => {
-    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?(?:shipRequestId|\bslot\b)/);
+    expect(HTML).toMatch(/function renderShip\(\)[\s\S]*?karst:shipState[\s\S]*?shipRequestId/);
     expect(HTML).toMatch(/stageCurrent === 'ship'/);   // resolveShipping still keys off host truth
     expect(HTML).toMatch(/status === 'failed'/);
     expect(HTML).not.toMatch(/if \(shipping\)/);
@@ -645,57 +618,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/renderInsideFlat/);
   });
 
-  it('shows the follow-up menu item only once the ticket is done', () => {
-    expect(HTML).toContain('id="followUpItem"');
-    expect(HTML).toMatch(/el\('followUpItem'\)\.classList\.toggle\('hidden', state\.stageCurrent !== 'done'\)/);
-    expect(HTML).not.toMatch(/id="followUpBtn"/);
-  });
-
-  it('renders the parent relationship line only when the ticket is a follow-up', () => {
-    // The roomy dashboard shows the relationship as SECONDARY metadata under
-    // the title — never inside the primary title.
-    const script = previewScriptSource();
-    expect(HTML).toMatch(/id="parentRef"/);
-    expect(script).toMatch(/state\.subtaskParent/);
-    expect(script).toMatch(/state\.parent/);
-    expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.ref\)/);
-    expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.ref\)/);
-  });
-
-  it('shows the Detach-from-parent control only when the host allows it (NDL-77)', () => {
-    const script = previewScriptSource();
-    // The control and its action exist, worded for what it does.
-    expect(HTML).toMatch(/id="detachSubtask"[^>]*data-act="detach-subtask"/);
-    expect(HTML).toContain('Detach from parent…');
-    // Visibility is host-derived (`canDetachSubtask`), never re-derived in the
-    // webview — the same contract as the Add sub-task button (NDL-76).
-    expect(script).toMatch(/detach\.classList\.toggle\('hidden', !state\.canDetachSubtask\)/);
-  });
-
-  it('offers Close and Reopen as host-gated controls that name what they do (T-close)', () => {
-    const script = previewScriptSource();
-    expect(HTML).toMatch(/id="closeTicket"[^>]*data-act="close-ticket"/);
-    expect(HTML).toMatch(/id="reopenTicket"[^>]*data-act="reopen-ticket"/);
-    expect(HTML).toContain('Close — done outside Karst…');
-    // Host-derived visibility, never re-derived in the webview, and the payload
-    // is empty: the host prompts for the reason, so no ticket id or text rides
-    // the message.
-    expect(script).toMatch(/closeBtn\.classList\.toggle\('hidden', !state\.canClose\)/);
-    expect(script).toMatch(/reopenBtn\.classList\.toggle\('hidden', !state\.canReopen\)/);
-  });
-
-  it('shows the awaiting-subtask block chip with the linked sub-task keys (NDL-76)', () => {
-    const script = previewScriptSource();
-    expect(HTML).toContain('id="subtaskWait"');
-    expect(HTML).toContain('id="subtaskWaitText"');
-    // Gated on the host's blocked kind, never a reason string.
-    expect(script).toMatch(/blocked\.kind === 'awaiting-subtask'/);
-    // The keys are the host's gate-accurate reason, never re-derived from the
-    // sub-task list (a non-blocking sub-task does not hold leave-impl).
-    expect(script).toMatch(/const reason = blocked\.reason \|\| ''/);
-    expect(script).not.toMatch(/keys\.map\(\(s\) => s\.key\)/);
-  });
-
   it('sends the repo along with the click, so the host can resolve the worktree', () => {
     // Goes through the generic pending path (unlike merge-pr, resolve-conflicts
     // is not one of the three long-running actions that settle from a state
@@ -707,7 +629,7 @@ describe('dashboard webview.html', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states — the header toast now carries it.
     expect(HTML).toMatch(/shipDone = 'success'/);
-    expect(HTML).toContain('Shipped ✓');
+    expect(HTML).toMatch(/shipped: shipDone === 'success'/);   // the header toast (app/ShipControls.tsx) shows it
   });
 
   it('guards the merge click against a double fire and clears it on the next state', () => {
@@ -977,37 +899,9 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\.approach > summary/);
   });
 
-  it('renders ticket identity as provider mark + copy-key button + separate board link', () => {
-    expect(HTML).toMatch(/id="keyBtn"[^>]*data-act="copy-ticket-key"/);
-    expect(HTML).toMatch(/id="keyBtn"[^>]*data-copy/);
-    expect(HTML).toMatch(/id="boardLink"[^>]*data-act="open-ticket-link"/);
-    expect(HTML).toMatch(/id="boardLink"[^>]*data-url="\$\{esc\(state\.ticketUrl\)\}"/);
-    expect(HTML).toMatch(/id="providerMark"/);
-    // The key itself must NOT be the board link any more.
-    expect(HTML).not.toMatch(/class="k-chip keypill/);
-  });
-
-  it('renders a read-only provider-native priority chip in the header', () => {
-    // The chip is a plain span on the shared pill shape (UI-R08), never a
-    // control: priority is a provider fact, not an action. It is hidden unless
-    // the ticket was fetched with one.
-    expect(HTML).toMatch(/id="priorityChip"/);
-    expect(HTML).toMatch(/prio\.hidden = !value;/);
-    expect(HTML).toMatch(/prio\.textContent = value;/);
-    expect(HTML).toMatch(/Priority: /);
-    // It must not be a button/anchor that would invite interaction.
-    expect(HTML).not.toMatch(/id="priorityChip"[^>]*data-act/);
-  });
-
-  it('previews ticket data through a real button + modal drawer, never a hover', () => {
-    // The trigger is a real <button> (UI-R09), icon-only with an accessible
-    // name (UI-R24), ALWAYS present — a manual ticket bound via "Create in
-    // ClickUp" has no fetched brief but still has data to preview — and
-    // carries NO host-facing data-act (the preview is purely local — see the
-    // delegated handler's explicit branch).
-    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*data-act="preview-ticket-data"/);
-    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*title="Preview ticket data"/);
-    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*aria-label="Preview ticket data"/);
+  it('previews ticket data through a modal drawer, never a hover', () => {
+    // The trigger button is React-owned (app/TicketIdentity.tsx); the page keeps the drawer and opens it on `karst:openTicketData`.
+    expect(HTML).toContain("window.addEventListener('karst:openTicketData'");
     // The drawer follows modal-dialog semantics (DESIGN-SYSTEM.md §11.15).
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*role="dialog"/);
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-modal="true"/);
@@ -1027,82 +921,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/mark\.setAttribute\('title', esc\(state\.brief\)\)/);
   });
 
-  it('renders the active agent through the Karst identity pattern with runtime status', () => {
-    expect(HTML).toMatch(/agentBadgeHtml\(state\.agentSession\.provider\)/);
-    expect(HTML).toMatch(/id="agentModel"[\s\S]*?state\.agentSession\.modelLabel/);
-    expect(HTML).toMatch(/id="agentLiveText"[\s\S]*?agentState/);
-    expect(HTML).toContain('id="agentButton"');
-  });
-
-  it('maps the needs-you agent states (waiting, not-started) to the attention dot', () => {
-    // The dot's class is set from the raw agent state, so EVERY state it can add
-    // must also be in the remove list — otherwise the class survives the next
-    // transition. `not-started` (the launch-delivery guard's needs-you) reads
-    // amber exactly like `waiting`.
-    expect(HTML).toMatch(
-      /dot\.classList\.remove\('idle', 'running', 'waiting', 'none', 'not-started'\)/,
-    );
-    expect(HTML).toContain('.agentLiveDot.waiting{background:var(--k-attention)}');
-    expect(HTML).toContain('.agentLiveDot.not-started{background:var(--k-attention)}');
-  });
-
-  // Model ids are long ("claude-opus-4-1-20250805", "anthropic/claude-sonnet-4"):
-  // at 20 control-heights the model rows ellipsised almost immediately and the
-  // popover read as a narrow column. The width is still composed from control
-  // tokens (UI-R04) and still clamped to the viewport.
-  it('gives the agent popover room for long model ids', () => {
-    expect(HTML).toContain('.agentPopover{width:calc(var(--k-control-h-lg) * 26)');
-    expect(HTML).toContain('max-width:calc(100vw - var(--k-space-8))');
-  });
-
-  it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
-    expect(HTML).toContain('id="agentPopover"');
-    expect(HTML).toContain('id="agentSwitchPicker"');   // the UNIFIED picker
-    expect(HTML).toContain('mountAgentPicker(root, {');
-    expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
-    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
-    expect(HTML).toContain('id="switchBtn"');
-    // The inherit rows for model/effort belong to the settings default core.
-    expect(HTML).toContain("inheritCore: lastState.agentSwitch.inheritCore || ''");
-    expect(HTML).toMatch(/Closing this menu takes no action/);
-    expect(HTML).toMatch(/draftCore !== s\.provider/); // changed-draft gate
-    expect(HTML).toMatch(/karstSend\.switchAgent\(draftCore, draftModel \|\| null, draftEffort \|\| null\)/);
-    expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
-  });
-
-  it('titles the header identity and agent controls (UI-R20/R21)', () => {
-    for (const title of [
-      'Switch the agent core and model', // #agentButton
-      'Open ticket in provider', // #boardLink
-      'Ticket controls', // #moreBtn
-      'Copy ticket key', // #keyBtn
-    ]) {
-      expect(HTML, `missing header title: ${title}`).toContain(title);
-    }
-  });
-
-  it('sizes every header and controls-menu icon explicitly (PR #166 balloon)', () => {
-    // The shared `.k-icon` rule applies ONLY the Tabler stroke treatment — no
-    // size. An unsized inline svg in the agent button's unclipped flex row
-    // rendered at the browser's default replaced-object size (~275px),
-    // inflating the whole header to match. Every other icon in this file
-    // carries its size (the panel headers' width/height attributes, `.ib svg`);
-    // the header's five (board link, agent chevron, … dots, Edit, follow-up)
-    // did not, so one token-derived rule sizes all of them (UI-R04).
-    expect(HTML).toMatch(/\.dhead \.k-icon\{[^}]*var\(--k-space-7\)/);
-    // And the header svgs must not smuggle their own raw size either — one
-    // rule, one 16px step, so a future header icon is sized or visibly broken.
-    const header = HYDRATED.slice(
-      HYDRATED.indexOf('<div class="dhead">'),
-      HYDRATED.indexOf('<div class="stepper">'),
-    );
-    const icons = [...header.matchAll(/<svg class="k-icon"[^>]*>/g)];
-    expect(icons.length, 'the header carries the unsized icon set').toBeGreaterThan(0);
-    for (const m of icons) {
-      expect(m[0], m[0]).not.toMatch(/\s(width|height)="\d/);
-    }
-  });
-
   it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
     expect(HTML).toContain('<div class="fault blocked hidden" id="blocked">');
     expect(HTML).toMatch(/function renderBlocked\(state\)/);
@@ -1118,7 +936,7 @@ describe('dashboard webview.html', () => {
     // re-point the Inside panel to whatever stage it names.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('let toastTimer = 0;'),
+      HTML.indexOf('function renderShip()'),
     );
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
@@ -1137,7 +955,7 @@ describe('dashboard webview.html', () => {
     // Resume action.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('let toastTimer = 0;'),
+      HTML.indexOf('function renderShip()'),
     );
     // The RESUMABILITY verdict is the host's `resumable` flag, never a
     // reason-string match in the webview, and the box is hidden for anything
@@ -1163,7 +981,7 @@ describe('dashboard webview.html', () => {
   it('renders the blocked banner for a non-resumable usage-limit park, with Pick/Retry/Dismiss controls (D159)', () => {
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('let toastTimer = 0;'),
+      HTML.indexOf('function renderShip()'),
     );
     // The host verdict still gates the box, and the park is one of the kinds
     // that keeps it visible (like baseline-review) so the user can see WHY the
@@ -1238,45 +1056,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/const OP_GLYPH/);
     // `note` still draws its own shape, distinct from pending's placement.
     expect(HTML).toMatch(/#inside \.glyph\.pending,#inside \.glyph\.note\{/);
-  });
-
-  it('renders the gate toggles inside the … menu, per-gate', () => {
-    expect(HTML).toContain('id="menuGates"');
-    expect(HTML).toContain('data-act="set-disabled-gates"');
-    expect(HTML).toMatch(/renderMenuGates/);
-  });
-
-  it('handles the gate-options host message', () => {
-    expect(HTML).toContain("msg.type === 'gate-options'");
-  });
-
-  it('removes the standalone Gates panel — the toggles live in the … menu', () => {
-    expect(HTML).not.toMatch(/class="panel span"[^>]*>\s*<div class="phead">Gates/);
-    expect(HTML).not.toContain('id="gateCount"');
-    expect(HTML).toContain('id="menuGates"');
-    expect(HTML).toMatch(/renderMenuGates/);
-  });
-
-  it('gives every gate toggle a matching aria-label and title (UI-R19–R21)', () => {
-    const row = /function gateRow\([\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(row).toContain('aria-label="${esc(label)}"');
-    expect(row).toContain('title="${esc(label)}"');
-  });
-
-  it('uses a real interactive element for the gate toggle, never a clickable div (UI-R09)', () => {
-    const row = /function gateRow\([\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(row).toContain('role="switch"');
-    expect(row).not.toMatch(/<div[^>]*data-act=/);
-  });
-
-  it('reports pending on click and cannot be re-triggered while pending (UI-R11–R14)', () => {
-    const click = HTML.slice(
-      HTML.indexOf("if (act === 'set-disabled-gates')"),
-      HTML.indexOf("// Every other posting control settles"),
-    );
-    expect(click).toContain('karstIsPending(btn)');
-    expect(click).toContain('karstBeginPending(btn, requestId)');
-    expect(click).toContain('karstSend.setDisabledGates(');
   });
 
   // ── inside ledger (the inside redesign) ─────────────────────────────────
@@ -2314,44 +2093,12 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     'servers',
     'inside',
     'rail',
-    'title',
     'blocked',
-    'toast',
-    'confirmShip',
-    'shipWait',
-    'providerMark',
-    'keyBtn',
-    'priorityChip',
-    'boardLink',
-    'ticketDataBtn',
     'ticketDataScrim',
     'ticketDataDrawer',
     'ticketDataTitle',
     'ticketDataClose',
     'ticketDataBody',
-    'agentButton',
-    'agentCore',
-    'agentModel',
-    'agentDot',
-    'agentLiveText',
-    'agentPopover',
-    'coreSelect',
-    'coreShell',
-    'coreTrigger',
-    'coreMenu',
-    'modelSelect',
-    'modelShell',
-    'modelTrigger',
-    'modelPop',
-    'modelList',
-    'modelSearch',
-    'switchBtn',
-    'moreBtn',
-    'menuPopover',
-    'followUpItem',
-    'linkViews',
-    'linkViewsLabel',
-    'menuGates',
     'srvCount',
     'srvOps',
     'prs',
@@ -2874,8 +2621,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // The blocked banner stays hidden and empty for an awaiting-merge wait.
     expect(h.classesOf('blocked')).toContain('hidden');
     expect(h.htmlOf('blocked')).toBe('');
-    // The wait is NOT lost — the header ship chip carries it instead.
-    expect(h.classesOf('shipWait')).not.toContain('hidden');
+    // The wait is NOT lost: the React header's ship chip carries it (app/ShipControls.test.tsx).
   });
 
   it('offers Resume on an unmapped-repository block', () => {
@@ -3883,100 +3629,6 @@ describe('inside render round trip (executed in a VM)', () => {
   });
 });
 
-describe('agent popover round trip (executed in a VM)', () => {
-  it('posts the staged core/model only on Switch agent, never on open or close', () => {
-    const store = openStore(':memory:');
-    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null },
-    );
-    store.close();
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state });
-    h.click('#agentButton', {});
-    const popover = h.classesOf('agentPopover');
-    expect(popover.includes('hidden')).toBe(false);
-    // Closing without switching posts nothing.
-    const before = h.posted.length;
-    h.click('body', {});
-    expect(h.posted.length).toBe(before);
-  });
-
-  it('stays open when a picker selection replaces the clicked option before document bubbling', () => {
-    const store = openStore(':memory:');
-    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null },
-    );
-    store.close();
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state });
-    h.click('#agentButton', {});
-
-    // The shared picker re-renders its option list synchronously. By the time
-    // the click reaches document, event.target is detached and closest()
-    // cannot recover the popover ancestor; composedPath() still records it.
-    h.click('[data-ap-core]', {}, ['.popover']);
-
-    expect(h.classesOf('agentPopover')).toEqual(expect.arrayContaining(['open']));
-    expect(h.classesOf('agentPopover')).not.toContain('hidden');
-  });
-
-  it('opens each header popover with the .open class, not just minus hidden (PR #166)', () => {
-    // `.popover{display:none}` is the base state — removing `hidden` alone
-    // leaves the popover invisible, because only `.popover.open` turns it on.
-    // The shipped open/close helpers must toggle `open`, or the agent-switch
-    // form and the … ticket-controls menu can never appear.
-    const store = openStore(':memory:');
-    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null },
-    );
-    store.close();
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state });
-
-    h.click('#agentButton', {});
-    expect(h.classesOf('agentPopover')).toEqual(expect.arrayContaining(['open']));
-    expect(h.classesOf('agentPopover')).not.toContain('hidden');
-    // A click elsewhere closes it: `hidden` returns and `open` is dropped.
-    h.click('body', {});
-    expect(h.classesOf('agentPopover')).toContain('hidden');
-    expect(h.classesOf('agentPopover')).not.toContain('open');
-
-    h.click('#moreBtn', {});
-    expect(h.classesOf('menuPopover')).toEqual(expect.arrayContaining(['open']));
-    expect(h.classesOf('menuPopover')).not.toContain('hidden');
-    h.click('body', {});
-    expect(h.classesOf('menuPopover')).toContain('hidden');
-    expect(h.classesOf('menuPopover')).not.toContain('open');
-  });
-
-  it('posts toggle-bind from the menu switch and renders the host push', () => {
-    const h = bootPreviewHarness();
-    // The host's `bind` push drives the checkbox — the webview never remembers
-    // the value, because the preference is window-wide and host-owned.
-    h.receive({ type: 'bind', enabled: true });
-    expect(h.element('linkViews').checked).toBe(true);
-    h.receive({ type: 'bind', enabled: false });
-    expect(h.element('linkViews').checked).toBe(false);
-    // The change listener posts the payload-free flip; the host answers with
-    // the `bind` message, which is the terminal outcome (UI-R13/R31).
-    const before = h.posted.length;
-    h.element('linkViews').fire('change', {});
-    expect(h.posted.slice(before)).toEqual([{ type: 'toggle-bind' }]);
-    // The shipped wiring, pinned so a future refactor cannot rename it.
-    expect(HTML).toContain("msg.type === 'bind'");
-    expect(HTML).toMatch(/toggle-bind/);
-  });
-});
-
 describe('send back to implement (executed in a VM)', () => {
   /** A settled uat snapshot whose host verdict offers the recovery action. */
   function uatRecoverable(): DashboardState {
@@ -4398,20 +4050,12 @@ describe('round switcher — attempt tabs (T6, executed in a VM)', () => {
 });
 
 describe('ticket data preview drawer (executed in a VM)', () => {
-  it('always shows the trigger, with or without a fetched brief (869e9wn1u-fu1)', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null, manual
-    expect(h.element('ticketDataBtn').hidden).toBe(false);
-    const withBrief = { ...renderStateFor('impl'), brief: '# Title\n\nbody' };
-    h.receive({ type: 'state', state: withBrief });
-    expect(h.element('ticketDataBtn').hidden).toBe(false);
-  });
 
   it('opens the drawer with the fetched brief as text, posting nothing to the host', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: '# T\n\n## Details\n- x' } });
     const before = h.posted.length;
-    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.fireWindow('karst:openTicketData');
     expect(h.posted.length).toBe(before); // purely local — no host round trip
     expect(h.classesOf('ticketDataDrawer')).toContain('open');
     expect(h.classesOf('ticketDataScrim')).toContain('open');
@@ -4435,7 +4079,7 @@ describe('ticket data preview drawer (executed in a VM)', () => {
         description: 'Fix the login modal',
       },
     });
-    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.fireWindow('karst:openTicketData');
     expect(h.element('ticketDataBody').textContent)
       .toBe('# M-1 — Manual ticket\n\nFix the login modal');
     expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
@@ -4444,7 +4088,7 @@ describe('ticket data preview drawer (executed in a VM)', () => {
   it('closes on the close button, the scrim, and Escape, restoring focus', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: 'b' } });
-    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.fireWindow('karst:openTicketData');
     expect(h.classesOf('ticketDataDrawer')).toContain('open');
 
     h.element('ticketDataClose').fire('click');
@@ -4452,11 +4096,11 @@ describe('ticket data preview drawer (executed in a VM)', () => {
     expect(h.classesOf('ticketDataScrim')).not.toContain('open');
     expect(h.element('ticketDataDrawer').getAttribute('aria-hidden')).toBe('true');
 
-    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.fireWindow('karst:openTicketData');
     h.element('ticketDataScrim').fire('click');
     expect(h.classesOf('ticketDataDrawer')).not.toContain('open');
 
-    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.fireWindow('karst:openTicketData');
     h.key('Escape');
     expect(h.classesOf('ticketDataDrawer')).not.toContain('open');
   });
