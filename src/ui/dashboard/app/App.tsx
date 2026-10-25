@@ -13,6 +13,7 @@ import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
 import { ServersPanel } from './ServersPanel.js';
+import { SubtasksPanel } from './SubtasksPanel.js';
 import { WorktreesPanel } from './WorktreesPanel.js';
 
 const READY_ATTR = ['data', 'karst', 'ready'].join('-');
@@ -36,6 +37,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
     <DashboardAppProvider bridge={bridge}>
       <DashboardSlices />
       {/* Migrated panels render into their existing containers in webview.html (data-react-owned there). */}
+      <SubtasksPanel />
       <ServersPanel />
       <RegionPortal id="worktreesPanel">
         <WorktreesPanel />

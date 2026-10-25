@@ -7,7 +7,7 @@
  * rules are out of scope until FEAT-37 supplies their corpora.
  */
 import { describe, it, expect } from 'vitest';
-import { renderWebview } from '../testing/renderHarness.js';
+import { drainReactWork, renderWebview, renderWebviewReady } from '../testing/renderHarness.js';
 import { buildStepper } from '../../model/stepper.js';
 import { buildStageRail } from '../../model/stageRail.js';
 import {
@@ -43,9 +43,10 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('paints the prefixed id in the header, the origin line and each sub-task row', () => {
-    const h = renderWebview('dashboard');
+  it('paints the prefixed id in the header, the origin line and each sub-task row', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: populatedStateFor('impl') });
+    await drainReactWork(h);
     expect(h.query('#idBadge')!.textContent).toMatch(/^T\d+$/);
     expect(h.query('#parentRef')!.textContent).toContain('from D88 (P17)');
     expect(h.queryAll('.subtask .k-id').map((e) => e.textContent)).toEqual(['T942018', 'T942019', 'T942020']);
@@ -509,9 +510,10 @@ describe('dashboard render — ship preview (D142)', () => {
 });
 
 describe('dashboard render — queued sub-task', () => {
-  it('renders a host-flagged queued sub-task as Queued, others by stage', () => {
-    const h = renderWebview('dashboard');
+  it('renders a host-flagged queued sub-task as Queued, others by stage', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: populatedStateFor('impl') });
+    await drainReactWork(h);
     const queued = h.query('.subtask[data-id="942020"]');
     expect(queued, 'queued sub-task row missing').toBeTruthy();
     expect(queued!.querySelector('.stage')!.textContent).toBe('Queued');
@@ -523,6 +525,7 @@ describe('dashboard render — queued sub-task', () => {
       subtasks: state.subtasks.map((s) => (s.id === 942020 ? { ...s, autostart: 'starting' as const } : s)),
     };
     h.receive({ type: 'state', state: starting });
+    await drainReactWork(h);
     expect(h.query('.subtask[data-id="942020"] .stage')!.textContent).toBe('Starting');
     expect(running.querySelector('.stage')!.textContent).toBe('impl');
     expect(h.errors).toEqual([]);

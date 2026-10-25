@@ -662,23 +662,6 @@ describe('dashboard webview.html', () => {
     expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.ref\)/);
   });
 
-  it('renders the Sub-tasks panel with progress, blocking badge and the Add action (NDL-76)', () => {
-    const script = previewScriptSource();
-    // The panel + its `n/m done` count and the ghost Add button.
-    expect(HTML).toContain('id="subtaskPanel"');
-    expect(HTML).toContain('id="subtaskCount"');
-    expect(HTML).toContain('data-act="create-subtask"');
-    expect(HTML).toContain('Add sub-task…');
-    // Progress is host-derived, rendered verbatim.
-    expect(script).toMatch(/progress\.done\}\/\$\{progress\.total\} done/);
-    // A blocking sub-task carries a TEXT badge — the meaning is never colour-only.
-    expect(script).toMatch(/class="subtaskBlock"[^>]*>Blocking</);
-    // The button is offered only while the host says the ticket can still gain
-    // a sub-task (hidden at ship/done), never re-derived in the webview.
-    expect(script).toMatch(/add\.classList\.toggle\('hidden', !canAdd\)/);
-    expect(script).toMatch(/panel\.classList\.toggle\('hidden', subs\.length === 0 && !canAdd\)/);
-  });
-
   it('shows the Detach-from-parent control only when the host allows it (NDL-77)', () => {
     const script = previewScriptSource();
     // The control and its action exist, worded for what it does.
