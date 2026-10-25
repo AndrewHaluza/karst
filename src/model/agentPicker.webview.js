@@ -273,7 +273,9 @@ function apModelListHtml(models, saved, routes, skip, tagsOf) {
   var out = '';
   for (var i = 0; i < visible.length; i++) {
     var group = visible[i];
-    if (named) {
+    // A route-less group (plain ids like `claude-opus-5`) has no heading to name:
+    // rendering one would leave an empty label sitting over its rows.
+    if (named && group.route) {
       out += '<div class="ap-group-label" role="presentation">'
         + apRouteIconHtml(group.route, routes)
         + '<span>' + apEsc(apRouteName(routes, group.route)) + '</span></div>';
@@ -397,6 +399,30 @@ function apActiveOption(shell) {
 function apOptionAt(shell, target) {
   var row = target && target.closest ? target.closest('[role="option"]') : null;
   return row && shell && shell.contains && shell.contains(row) ? row : null;
+}
+
+/**
+ * Where keyboard focus sat inside an open menu, if anywhere: the search box or
+ * one of the rows. Captured before a re-render replaces the menu's HTML, so a
+ * host re-mount can hand focus back — without it focus falls to the document
+ * body and the open menu stops answering keys.
+ */
+function apMenuFocus(menu, doc) {
+  var active = doc && doc.activeElement;
+  if (!active || !menu || !menu.contains || !menu.contains(active)) return null;
+  if (active.hasAttribute && active.hasAttribute('data-ap-search')) return { search: true, model: '' };
+  var row = active.closest ? active.closest('[role="option"]') : null;
+  return row ? { search: false, model: row.getAttribute('data-ap-model') || '' } : null;
+}
+
+/** The rebuilt row matching a captured model id ('' is the inherit row). */
+function apMenuFocusRow(list, focus) {
+  if (!list || !focus || focus.search) return null;
+  var opts = list.querySelectorAll('[role="option"]');
+  for (var i = 0; i < opts.length; i++) {
+    if ((opts[i].getAttribute('data-ap-model') || '') === focus.model) return opts[i];
+  }
+  return null;
 }
 
 /**
@@ -570,6 +596,12 @@ function mountAgentPicker(root, opts) {
   function renderModel() {
     var modelTrigger = $('[data-ap-trigger="model"]');
     var modelMenu = $('[data-ap-menu="model"]');
+    // Hosts re-mount onto this root on every state push, which re-renders this
+    // menu in place. An open menu must survive the rebuild with its focus: the
+    // replaced search box would otherwise drop focus to the body and the
+    // keydown listener would never see another key.
+    var wasOpen = !!(modelMenu && !modelMenu.hidden);
+    var focused = wasOpen ? apMenuFocus(modelMenu, document) : null;
     modelMenu.innerHTML = apModelMenuHtml();
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
       catalog, state.core, state.model, labels().model, recent[state.core], routes,
@@ -602,6 +634,14 @@ function mountAgentPicker(root, opts) {
       modelTrigger.title = triggerName;
       if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
       else modelTrigger.removeAttribute('aria-label');
+    }
+    if (wasOpen) {
+      var modelShell = $('[data-ap-shell="model"]');
+      var back = focused && focused.search
+        ? modelMenu.querySelector('[data-ap-search]')
+        : apMenuFocusRow($('[data-ap-list="model"]'), focused);
+      if (back && back.focus) back.focus();
+      syncMenuFoot(modelShell);
     }
     renderEffort();
   }
@@ -798,11 +838,14 @@ function mountAgentPicker(root, opts) {
     // Another picker's menu can sit on top of the page-global stack; only this
     // root's own menu may answer this picker's keys.
     var shell = apMenuShellFor(root, AP_MENU_STACK);
-    if (!shell || !apKeyOwnedBy(shell, e.target)) return;
+    if (!shell) return;
+    // Escape dismisses this picker's open menu from anywhere inside the picker;
+    // the action keys stay scoped to the menu itself.
     if (e.key === 'Escape') {
       closeMenu(shell, true);
       return;
     }
+    if (!apKeyOwnedBy(shell, e.target)) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       moveActive(shell, e.key === 'ArrowDown' ? 1 : -1, e.target);

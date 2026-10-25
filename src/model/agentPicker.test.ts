@@ -745,6 +745,21 @@ describe('route → vendor grouping and the full-id footer', () => {
     expect(out).not.toContain('ap-group-label');
   });
 
+  it('adds no empty heading over unrouted rows beside a routed group', () => {
+    const mix = {
+      opencode2: [
+        { id: 'opencode/big-pickle', label: 'Big Pickle' },
+        { id: 'claude-opus-5', label: 'Opus 5' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(mix, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('<span>OpenCode Zen</span>');
+    expect(out).toContain('data-ap-model="claude-opus-5"');
+    // Only the routed group gets a heading; the unrouted row must not sit under
+    // an empty one.
+    expect(out.match(/ap-group-label/g)).toHaveLength(1);
+  });
+
   it('omits a route group whose every row is already in the last-used group', () => {
     const twoRoutes = {
       opencode2: [

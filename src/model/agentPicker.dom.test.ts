@@ -33,19 +33,20 @@ function mountBoth() {
   const b = document.createElement('div');
   document.body.append(a, b);
   const changed: string[] = [];
-  mountAgentPicker(a, {
+  const optsA = {
     cores: ['opencode'],
     catalog,
     value: { core: 'opencode', model: 'opencode/big-pickle' },
     onChange: (v: Changed) => changed.push('a:' + v.model),
-  });
+  };
+  mountAgentPicker(a, optsA);
   mountAgentPicker(b, {
     cores: ['opencode'],
     catalog,
     value: { core: 'opencode', model: 'opencode/big-pickle' },
     onChange: (v: Changed) => changed.push('b:' + v.model),
   });
-  return { a, b, changed };
+  return { a, b, changed, mount: mountAgentPicker, optsA };
 }
 
 function click(el: Element) {
@@ -135,6 +136,20 @@ describe('a picker only answers keys from its open menu', () => {
 
     expect(activeId(a)).toBe(before);
   });
+
+  it('still closes its own open menu on Escape from another control', () => {
+    // Escape is a dismissal, not a menu action: it belongs to the whole picker,
+    // even when focus sits on the core trigger while the model menu is open.
+    const { a } = mountBoth();
+    click(trigger(a, 'model'));
+    const core = trigger(a, 'core');
+    (core as HTMLElement).focus();
+
+    key(core, 'Escape');
+
+    expect(menu(a).hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger(a, 'model'));
+  });
 });
 
 describe('a picker chooses the row the key came from', () => {
@@ -194,5 +209,40 @@ describe('a picker chooses the row the key came from', () => {
 
     expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
     expect(document.activeElement).toBe(rows(a)[1]);
+  });
+});
+
+describe('a host re-mount keeps the open menu usable', () => {
+  // Hosts re-mount onto the same root on every state push (an idempotent
+  // `_configure` + `setValue`, which re-renders the menu HTML). A menu the user
+  // has open must survive that: if the focused search box is replaced, focus
+  // falls to the document body and the keydown listener never sees a key again.
+  const search = (root: HTMLElement): HTMLElement =>
+    menu(root).querySelector('[data-ap-search]') as HTMLElement;
+
+  it('keeps the menu open and the search box focused', () => {
+    const { a, mount, optsA } = mountBoth();
+    click(trigger(a, 'model'));
+    search(a).focus();
+
+    mount(a, optsA);
+
+    expect(menu(a).hidden).toBe(false);
+    expect(document.activeElement).toBe(search(a));
+    key(search(a), 'ArrowDown');
+    expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+
+  it('gives focus back to the row that had it', () => {
+    const { a, mount, optsA } = mountBoth();
+    click(trigger(a, 'model'));
+    const go = menu(a).querySelectorAll('[role="option"]')[1] as HTMLElement;
+    go.focus();
+
+    mount(a, optsA);
+
+    expect(menu(a).hidden).toBe(false);
+    expect(document.activeElement).toBe(menu(a).querySelectorAll('[role="option"]')[1]);
+    expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
   });
 });
