@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import {
   createTicket,
@@ -180,9 +181,9 @@ export function createSubtask(
     debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: project mismatch — refusing`);
     throw new SubtaskProjectMismatchError(parentId, parent.projectId, scope.projectId);
   }
-  if (parent.stageCurrent === 'ship' || parent.stageCurrent === 'done') {
+  if (parent.stageCurrent === 'ship' || isFinishedStage(parent.stageCurrent)) {
     debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: parent in '${parent.stageCurrent}' — refusing`);
-    throw new SubtaskParentStageError(parentId, parent.stageCurrent);
+    throw new SubtaskParentStageError(parentId, parent.stageCurrent ?? 'none');
   }
 
   const depth = subtaskAncestorCount(store, parent.id) + 1;

@@ -111,9 +111,17 @@ const FOCUS_CAP = 12;
  * shown, while Refresh/Measure/legend/sort act inside one. The Servers pane's own
  * rows are not in this corpus (it seeds the Resources `busy` state, and the hidden
  * Servers pane holds only its "Reading servers…" note), so they add nothing here.
+ *
+ * Updated a fourteenth time by the human-only `closed` state (arch:STAGEMACH):
+ * `dashboard` 47 → 49 — `#closeTicket` ("Close — done outside Karst…") and
+ * `#reopenTicket` ("Reopen"), the dashboard header's two net-new controls, a
+ * recorded vanilla-view exception (ui:REACT-VIEWS). They fold into nothing: no
+ * existing control closes or reopens a ticket, and Detach/Pause/Stop act on
+ * other states. They are mutually exclusive and host-gated (`hidden` unless
+ * `canClose` / `canReopen`), but the sweep's selector counts hidden controls.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 47,
+  dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
   usage: 13,
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 11,

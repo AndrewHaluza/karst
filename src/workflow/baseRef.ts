@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../model/types.js';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch, resolveBaselineBranchForPath } from '../manifest/baselineBranch.js';
@@ -101,7 +102,7 @@ export function subtaskParentBranch(
   const repository = manifest.repositories[repoName];
   if (!repository) return null;
   const parent = findTicketById(store, parentId);
-  if (!parent || parent.archivedAt !== null || parent.stageCurrent === 'done') return null;
+  if (!parent || parent.archivedAt !== null || isFinishedStage(parent.stageCurrent)) return null;
   const row = store.db
     .prepare('SELECT branch FROM worktrees WHERE ticket_id = ? AND repo = ? LIMIT 1')
     .get(parentId, repository.repoPath) as { branch: string | null } | undefined;
@@ -160,7 +161,7 @@ export function assertSubtaskParentReady(
   const parentId = ticket.subtaskParentId;
   if (parentId == null) return;
   const parent = findTicketById(store, parentId);
-  if (!parent || parent.archivedAt !== null || parent.stageCurrent === 'done') return;
+  if (!parent || parent.archivedAt !== null || isFinishedStage(parent.stageCurrent)) return;
   const parentKey = formatTicketRef(parent.id, parent.key);
   const seen = new Set<string>();
   for (const name of repoNames) {

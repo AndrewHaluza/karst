@@ -211,6 +211,14 @@
         "title": "Karst: Clean Up Orphan Sandboxes"
       },
       {
+        "command": "karst.closeTicket",
+        "title": "Karst: Close Ticket (resolved outside Karst)"
+      },
+      {
+        "command": "karst.reopenTicket",
+        "title": "Karst: Reopen Closed Ticket"
+      },
+      {
         "command": "karst.unarchiveTicket",
         "title": "Karst: Unarchive Ticket",
         "icon": "$(history)"

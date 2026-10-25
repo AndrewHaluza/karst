@@ -1,5 +1,5 @@
 import type { TicketWithStages } from '../store/tickets.js';
-import { STAGE_KEYS, type StageKey } from './types.js';
+import { ALL_STAGE_KEYS, type StageKey } from './types.js';
 import { isTerminal } from '../workflow/graph.js';
 import { currentStageStatus, needsUser, ticketGlyph } from './ticketGlyph.js';
 import type { Glyph } from './glyph.js';
@@ -17,6 +17,7 @@ export const STAGE_TITLE: Readonly<Record<StageKey, string>> = {
   fix: 'Fix',
   ship: 'Ship',
   done: 'Done',
+  closed: 'Closed',
 };
 
 /** What a stage reads as while it is actually running. */
@@ -28,6 +29,7 @@ const STAGE_ACTIVITY: Readonly<Record<StageKey, string>> = {
   fix: 'Fixing',
   ship: 'Shipping',
   done: 'Done',
+  closed: 'Closed',
 };
 
 /** A ticket's stage rendered for display: the label plus its palette color. */
@@ -64,7 +66,7 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   // `stageCurrent` is a stored string: a row written by an older schema (or a
   // stage since removed from the graph) is not a StageKey, and is treated the
   // same as none rather than indexing the title map with it.
-  const stage = STAGE_KEYS.find((k) => k === t.stageCurrent) ?? null;
+  const stage = ALL_STAGE_KEYS.find((k) => k === t.stageCurrent) ?? null;
   if (t.pausedAt != null) return { label: 'Paused', glyph: 'gray', stage };
   if (stage === null) return { label: 'Not started', glyph, stage };
 
@@ -83,6 +85,7 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   if (status === 'passed') {
     // Arriving at a terminal stage IS completing it (workflow/machine.ts), so
     // the exit reads as the outcome, not as another finished step.
+    if (stage === 'closed') return { label: 'Closed', glyph, stage };
     return { label: isTerminal(stage) ? 'Done' : `${title} passed`, glyph, stage };
   }
   // pending

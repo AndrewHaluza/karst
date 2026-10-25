@@ -23,10 +23,12 @@ import { deliverTargets } from '../../workflow/deliverState.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
+import { isFinishedStage } from '../../model/types.js';
 import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.js';
 import { needsUser } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
+import { canCloseTicket, canReopenTicket } from '../../model/closeRules.js';
 import { subtaskProgress, canAddSubtask, canDetachSubtask, subtaskAutostartPhase } from '../../model/subtask.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { reportedPhases } from '../../model/inside/agent.js';
@@ -286,7 +288,7 @@ export function buildDashboardState(
       glyph: badge.glyph,
       stageClass: stageColorClass(badge.stage),
       blocking: s.blocksParent,
-      done: s.stageCurrent === 'done',
+      done: isFinishedStage(s.stageCurrent),
       autostart: subtaskAutostartPhase(child),
     };
   });
@@ -729,6 +731,8 @@ export function buildDashboardState(
     subtaskProgress: subtaskProgress(subtaskList),
     canAddSubtask: canAddSubtask(ticket),
     canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),
+    canClose: canCloseTicket(ticket),
+    canReopen: canReopenTicket(ticket),
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     paused: ticket.pausedAt !== null,

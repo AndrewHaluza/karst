@@ -15,6 +15,7 @@ import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
+import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
@@ -6900,6 +6901,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
+    ...registerCloseCommands({
+      store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
+      activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },
+      refresh: (id) => { provider.refresh(); dashboard.pushState(id); void subtaskAutostart.sweep(); },
+      ui: {
+        registerCommand: (id, h) => vscode.commands.registerCommand(id, h),
+        showInputBox: (o) => Promise.resolve(vscode.window.showInputBox({ ...o, ignoreFocusOut: true })),
+        pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+      },
+    }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
@@ -8428,6 +8440,9 @@ function makeDashboardActions(
     // Detach a started sub-task from its parent: rebase onto the parent's base
     // and clear the parent link (design NDL-70 §5 'Detach').
     detachSubtask: () => void vscode.commands.executeCommand('karst.detachSubtask', ticketId),
+    // Same commands as the palette; the host prompts for the reason (payload-free message).
+    closeTicket: () => void vscode.commands.executeCommand('karst.closeTicket', ticketId),
+    reopenTicket: () => void vscode.commands.executeCommand('karst.reopenTicket', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

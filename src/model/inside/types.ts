@@ -41,6 +41,7 @@ export const STAGE_TITLES: Readonly<Record<StageKey, string>> = {
   fix: 'Fix',
   ship: 'Ship',
   done: 'Done',
+  closed: 'Closed',
 };
 
 /**
@@ -59,6 +60,8 @@ export const STAGE_BLURBS: Readonly<Record<StageKey, string>> = {
   ship:
     'Commits, pushes, and opens one PR per hot repo with an agent-written description, then waits until every one of them is merged. karst never merges on its own — you click Merge on each PR, or a teammate lands it and the PR sweep notices. A branch that stops merging cleanly is reported here, and the ticket is not done until they all land.',
   done: 'Terminal. Nothing runs here — arriving is completing.',
+  closed:
+    'Resolved outside karst: the reason was recorded by a person and nothing here was verified. Reopen to bring it back to implementation.',
 };
 
 /**

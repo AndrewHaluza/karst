@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, getTicket, type TicketWithStages } from '../../store/tickets.js';
@@ -454,8 +455,9 @@ function depStatus(store: Store, target: { status: string; ticketId: number | nu
   }
   const ticket = getTicket(store, target.ticketId);
   const ticketLabel = formatId('ticket', ticket.id);
-  if (ticket.stageCurrent === 'done' || ticket.archivedAt != null) {
-    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph: 'green' }];
+  if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
+    const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
+    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph }];
   }
   return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
 }

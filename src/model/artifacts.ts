@@ -23,6 +23,7 @@
  * file that has gone) is reported by the host opener, exactly like
  * `openStageLog`.
  */
+import { isFinishedStage } from './types.js';
 import type { AgentProvider, Severity } from '../manifest/types.js';
 import type { TicketWithStages } from '../store/tickets.js';
 import type { Stage } from '../store/stages.js';
@@ -397,7 +398,7 @@ const PRIORITY_DONE: Record<ArtifactKind, number> = {
 
 /** The preview rank of one artifact for a ticket at `stageCurrent`. */
 export function artifactPriority(kind: ArtifactKind, stageCurrent: string | null): number {
-  return (stageCurrent === 'done' ? PRIORITY_DONE : PRIORITY_ACTIVE)[kind];
+  return (isFinishedStage(stageCurrent) ? PRIORITY_DONE : PRIORITY_ACTIVE)[kind];
 }
 
 /**

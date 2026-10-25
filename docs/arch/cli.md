@@ -77,7 +77,7 @@ sequenceDiagram
 | Detached child processes pin event loop | Force-exits via `process.exit(0)` on stdout flush | Automatically terminates short-lived CLI process cleanly |
 
 ### Rules
-@arch:CLI-02 · @arch:CLI-03 · @arch:CLI-04 · @arch:CLI-05 · @arch:CLI-06 · @arch:CLI-07 · @arch:CLI-08 · @arch:CLI-09 · @arch:CLI-10 · @arch:CLI-11 · @arch:CLI-12 · @arch:CLI-13 · @arch:CLI-17 · @arch:PLANNING-HISTORY · @arch:DRAFT-CONSTRAINTS · @arch:CLI-14 · @arch:CLI-15 · @arch:CLI-16
+@arch:CLI-02 · @arch:CLI-03 · @arch:CLI-04 · @arch:CLI-05 · @arch:CLI-06 · @arch:CLI-07 · @arch:CLI-08 · @arch:CLI-09 · @arch:CLI-10 · @arch:CLI-11 · @arch:CLI-12 · @arch:CLI-13 · @arch:CLI-17 · @arch:PLANNING-HISTORY · @arch:DRAFT-CONSTRAINTS · @arch:CLI-14 · @arch:CLI-15 · @arch:CLI-16 · @arch:CLI-18
 END_DOC_BLOCK: [@arch:CLI-00]
 
 ## [@arch:CLI-02] The agent-facing CLI verbs are separate parse paths, and that separation is the security property
@@ -258,3 +258,9 @@ covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#pars
 - **Stuck tickets are report-only** and exclude ship/awaiting-merge, conflicted merge checks, and open blocking subtasks.
 - **Known gaps (follow-ups):** the stuck threshold (120 min) and WAL limit (64 MB) are constants in `doctorCommand.ts`, not manifest fields; stale-outbox and unrecorded-worktree scans need host-owned directories the CLI cannot enumerate, so they report nothing from the CLI; launcher (#53) and the manifest/setup proposal commands (#55) are not wired — wiring skips the launcher check and manifest fixes are exact commands.
 END_DOC_BLOCK: [@arch:CLI-16]
+
+## [@arch:CLI-18] `close` / `reopen`: a human-only assertion that a ticket was resolved outside karst
+covers: src/cli/closeCommand.ts#runCloseCommand, src/cli/closeCommand.ts#parseCloseArgs, src/cli/mcp/tools.ts#MCP_EXCLUDED_COMMANDS
+
+`karst close <key> --reason <text> [--ref <text>]` moves a ticket to `closed` (`arch:STAGEMACH`) and `karst reopen <key>` returns it to a running `impl`; both are thin wrappers over `workflow/closeTicket.ts`. They are NOT agent verbs, in three layers: their own parser (`cli/closeCommand.ts`), so no agent-facing parse path gains a close branch (`arch:CLI-02`); a refusal whenever the SESSION ENV names a ticket (`KARST_TICKET` only: the `--ticket` flag is a claim and never counts); and exclusion from the MCP surface (`MCP_EXCLUDED_COMMANDS` now holds `test`, `close`, `reopen`; the registry still lists them so `karst schema` documents them). The check is attested, not unforgeable (`arch:CLI-11`): an agent that unsets its env defeats it, which is why the move is a single reversible stage change and why the reason is required and recorded. `close` prints the `CloseReport` as `left` so the person sees what still needs hands. The human surface in VS Code is the palette: `karst.closeTicket` (argument, else the active ticket, else a picker over unfinished tickets; two input boxes, reason required then optional ref) and `karst.reopenTicket` (closed tickets only), wired by `extension/ops/closeCommands.ts` over `ops/closeOps.ts`, which also stops the driver round and agent session and reports what it left (`describeLeft`); servers, worktrees and PRs are never touched. There is deliberately no sidebar or dashboard button yet: both are vanilla views, and a feature there means migrating the view first (`ui:REACT-VIEWS`). A proposal path an agent may use (a request a human confirms, as `draft propose` does) and the dashboard action are separate work, not this verb.
+END_DOC_BLOCK: [@arch:CLI-18]

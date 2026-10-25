@@ -348,6 +348,11 @@ export function buildPeek(input: PeekInput): TicketPeek {
     };
   }
 
+  if (stage === 'closed') {
+    // Resolved outside karst (@arch:STAGEMACH): quote the recorded reason and offer
+    // no next action, because nothing here is pending; Reopen lives on the dashboard.
+    return { title: 'Closed outside Karst', detail: input.current?.verdict ?? null, next: null };
+  }
   if (stage === 'done') {
     return {
       title: 'Shipped',

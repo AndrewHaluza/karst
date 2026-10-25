@@ -74,3 +74,18 @@ describe('the fix return edge', () => {
     expect(MAIN_LINE).toEqual(['scope', 'impl', 'uat', 'review', 'ship', 'done']);
   });
 });
+
+describe('closed', () => {
+  it('is terminal, off the rail, and neither a branch nor on the main line', () => {
+    expect(isTerminal('closed')).toBe(true);
+    expect(isBranch('closed')).toBe(false);
+    expect(MAIN_LINE).not.toContain('closed');
+  });
+
+  it('no verdict edge leads to it — only the operator close path enters it', () => {
+    for (const edges of Object.values(STAGE_GRAPH)) {
+      expect(edges.passed).not.toBe('closed');
+      expect(edges.failed).not.toBe('closed');
+    }
+  });
+});

@@ -99,6 +99,8 @@ export function createSender(api: WebviewApi) {
       send({ type: 'create-follow-up-ticket' }, requestId),
     createSubtask: (requestId?: string) => send({ type: 'create-subtask' }, requestId),
     detachSubtask: (requestId?: string) => send({ type: 'detach-subtask' }, requestId),
+    closeTicket: (requestId?: string) => send({ type: 'close-ticket' }, requestId),
+    reopenTicket: (requestId?: string) => send({ type: 'reopen-ticket' }, requestId),
     sendBackToImplement: (requestId?: string) =>
       send({ type: 'send-back-to-implement' }, requestId),
     addressPrFeedback: (requestId?: string) =>
