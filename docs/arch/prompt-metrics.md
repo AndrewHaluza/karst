@@ -18,15 +18,50 @@ signal. Related: `docs/arch/agent-cores.md` (the seams instrumented here),
 `docs/arch/store-and-schema.md` (the v57 column + new-column checklist),
 `docs/arch/cli.md` (the `guide` verb's argv-only content path).
 
-## [@arch:CONTENTS] Contents
+## [@arch:PM-00] Overview
+covers: src/store/metrics/**, src/store/promptTelemetryQuery.ts, src/store/tokenUsage.ts, src/store/tokenUsageQuery.ts, src/cli/guideTelemetry.ts, src/agent/seed.ts, src/workflow/review/findings.ts, src/workflow/uat/tester.ts
 
-- Nothing in 06–12 tunes prompt wording before this baseline
-- The metric set and where each number is read
-- Storage: one `prompt_telemetry` blob, one late-fact setter, no new writer
-- The guide-pull rate gates ticket 12
-- Committed baseline — whole Cursor store (443 tickets, 12 projects)
-- `karst stats --prompts` is a read over `queryPromptMetrics`
-END_DOC_BLOCK: [@arch:CONTENTS]
+### Purpose
+Prompt wording was tuned by intuition and never measured. This file fixes which stored evidence counts as a prompt-effectiveness signal, how it is read, and the committed baseline later prompt tickets cite.
+
+### Connections
+- in: @arch:AC-08 (agent seams that emit), @arch:EVIDENCE-WHEN (append-only evidence path), @arch:ST-00 (v57 column, new-column checklist)
+- out: @arch:CLI-00 (`karst guide` argv-only content, `karst stats --prompts`)
+
+### Flow
+Facts ride `openProcessRun`; late facts merge once via `setProcessRunPromptTelemetry`; one read path serves baseline and CLI.
+
+```mermaid
+flowchart TD
+  L[fresh launch: measureSeed] --> R[(process_runs.prompt_telemetry)]
+  F[findings parse tier] --> R
+  T[tester nudge counts] --> R
+  G[karst guide pull: own guide-pull row] --> R
+  R --> Q[queryPromptMetrics store, projectId]
+  U[token_usage + stages] --> Q
+  Q --> B[committed baseline]
+  Q --> S[karst stats --prompts]
+```
+
+### Tradeoffs
+| chosen | rejected | why |
+|---|---|---|
+| one `prompt_telemetry` JSON blob | one column per metric | facts are read together, never filtered per-metric in SQL |
+| guide pull as its own attributed row | mutate the session row | append-only evidence |
+| NULL = never recorded, shown "pending" | backfill or render 0 | invented numbers repeat the original mistake |
+| derived metrics from stored evidence | agent self-report | self-report is never a metric input |
+
+### Fallbacks
+| trigger | behaviour | recovery |
+|---|---|---|
+| UAT-19 park: one core's `reformatNudges` rate visibly high | park stands until measured | revert park to advisory for that core or globally (@arch:UAT19) |
+| guide-pull rate low | do not scale deferral | ticket 12 compresses resident core (@arch:GUIDEPULL) |
+| guide attribution fails | text still printed | best-effort side effect at `cli/main.ts` |
+
+### Rules
+@arch:PRE-BASELINE · @arch:METRICS · @arch:STORAGE · @arch:GUIDEPULL · @arch:BASELINE · @arch:UAT19 · @arch:GUIDEGATE · @arch:STATS · @arch:RESIDENT
+<!-- GENERATED:end -->
+END_DOC_BLOCK: [@arch:PM-00]
 
 ## [@arch:PRE-BASELINE] Nothing in 06–12 tunes prompt wording before this baseline
 
