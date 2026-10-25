@@ -67,7 +67,6 @@
   "dashboard/empty|1280|containment|div#inside > section.inside:nth-child(1) > div.ledger:nth-child(2) > details.op.pending:nth-child(1) > div.op-body:nth-child(2)",
   "dashboard/empty|1280|containment|div#inside > section.inside:nth-child(1) > div.ledger:nth-child(2) > details.op.pending:nth-child(2) > div.op-body:nth-child(2)",
   "dashboard/empty|1280|degenerate-control|button#ticketDataClose",
-  "dashboard/empty|480|clipped-text|h1#title",
   "dashboard/empty|480|containment|div#inside > section.inside:nth-child(1) > div.ledger:nth-child(2) > details.op.pending:nth-child(1) > div.op-body:nth-child(2)",
   "dashboard/empty|480|containment|div#inside > section.inside:nth-child(1) > div.ledger:nth-child(2) > details.op.pending:nth-child(2) > div.op-body:nth-child(2)",
   "dashboard/empty|480|degenerate-control|button#ticketDataClose",
