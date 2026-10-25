@@ -10,7 +10,52 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 Related: `docs/arch/ABI.md` (`arch:ABI-01`, `ABI-03`).
 
+## [@arch:UATHOST-00] Overview
+covers: src/uatHost/*.ts, src/uatHost/probe/*.ts, scripts/uat-host/*, docker/uat-host/Dockerfile, src/agent/launchStub.ts, src/agent/registry.ts#resolveAdapter, src/uatHost/probe/vscodeProbe.ts#installProbeRecorder, src/uatHost/probe/steps.ts#parseSteps, src/uatHost/seed.ts#seedStore
+
+### Purpose
+Boots the real built extension in a real VS Code under xvfb inside Docker, with a fake agent core and a seeded store, so a UAT agent can drive it from a JSON step script and read deterministic evidence. No LLM call, no touch of a real Cursor/Code profile.
+
+### Connections
+- in: @arch:ABI-01, @arch:ABI-03 — the container builds its own better-sqlite3 for the downloaded VS Code's Electron ABI (derived, ABI-02 verified-only rebuild).
+- in: @arch:AC-08 — `KARST_FAKE_CORE` swaps the adapter at the registry seam; launch mode keeps the real `buildInteractiveCommand`.
+- out: @arch:DBG-03 — launch records never store env values.
+- out: @arch:EVIDENCE-STATE — probe snapshots read the live store, not run history.
+
+### Flow
+```mermaid
+flowchart LR
+  A[uat:host:docker] --> B[docker build karst-uat-host]
+  B --> C[npm ci + build, rebuild addon for VS Code ABI]
+  C --> D[prepare.js seeds karst.db + scratch git workspace]
+  D --> E[xvfb + VS Code ext host, KARST_FAKE_CORE]
+  E --> F[probe step runner: command / wait / snapshot / restart]
+  F --> G[step-NNN.json + summary.json]
+```
+
+### Tradeoffs
+| Chosen | Rejected | Why |
+|---|---|---|
+| Real VS Code under xvfb in Docker | Mocked `vscode` module | Catches activation, webview and command wiring that vitest fakes cannot |
+| Fixture data written through store APIs | Raw SQL inserts | Schema rules hold; no drift from the store |
+| ABI read from the downloaded binary | Hardcoded ABI | A VS Code version bump changes the Electron ABI |
+| Steps as validated JSON data | Free-form scripts | Unknown step types are refused; runs are replayable |
+
+### Fallbacks
+| Trigger | Behaviour | Recovery |
+|---|---|---|
+| Store open fails in `activate()` | Activation returns normally | Runner also requires a registered `karst.*` command and the seeded ticket count |
+| `KARST_UAT_STUB_AGENT` unset in launch mode | Real adapter is used | Set the stub path |
+| Step times out (10s default, 60s cap) | Run stops, exit nonzero, evidence path printed | Fix the step; rerun |
+| Host wedges | `UAT_PROBE_HARD_TIMEOUT_MS` (300s) SIGKILLs the process group | Rerun |
+| `--script`/`--out` escape the checkout | `run.mjs` exits 2 | Use paths inside the checkout |
+
+### Rules
+@arch:UATHOST-01 · @arch:UATHOST-02
+END_DOC_BLOCK: [@arch:UATHOST-00]
+
 ## [@arch:UATHOST-01] UAT host harness boots the real extension host in Docker with a fake core
+covers: scripts/uat-host/docker.mjs, scripts/uat-host/run.mjs, src/agent/registry.ts#resolveAdapter, src/uatHost/seed.ts#seedStore
 
 `npm run uat:host:docker -- --fixture <empty|ticket-mid-stage|blocked|launch-draft>` (or `--fixture-file <fixture.json>`, see UATHOST-02) builds `karst-uat-host:local`, runs it `--rm --init`, and inside it: `npm ci` and build into a container-private `node_modules` volume (ABI-01/ABI-03), downloads the pinned VS Code (`UAT_VSCODE_VERSION`, default 1.126.0, cached in the `karst-uat-vscode` volume), rebuilds better-sqlite3 for that binary's Electron ABI, seeds `karst.db` and a scratch git workspace by running `dist/uat-host/prepare.js` under the VS Code binary (`ELECTRON_RUN_AS_NODE=1`, so the addon ABI matches), then launches VS Code under xvfb with a temp user-data dir, a temp extensions dir and `scripts/uat-host/settings.json`. `KARST_FAKE_CORE=1` makes `resolveAdapter` return `FakeAdapter` for every provider: no LLM call. `KARST_FAKE_CORE=launch` (`run.mjs --launch-mode`, optionally `--provider <core>` to seed that `agentProvider`) keeps the REAL adapter's `buildInteractiveCommand` and swaps only the executable for `node dist/uat-host/stubAgent.js <provider> <envKeys> -- <real argv>` (`src/agent/launchStub.ts`); `runHeadless` stays fake. Use the `launch-draft` fixture: its ticket has a repo selected, so `karst.openSession` scopes it and launches (the other fixtures have no worktree to launch in). Launch mode also puts no-op `claude`/`codex`/`agy`/`opencode` shims first on `PATH` (with `VSCODE_CLI=1` so VS Code keeps that `PATH`), because the dependency gate probes `<cli> --version` before any session opens. It needs `KARST_UAT_STUB_AGENT` (the stub path) and falls back to the real adapter without it. The stub appends `{provider, argv, envKeys, cwd, spill?}` to `$KARST_UAT_LAUNCH_DIR/launches.ndjson`: argv entries over 512 bytes are stored as `{len, sha256, head}`, env values are never recorded (DBG-03), and a kickoff spill pointer is followed to record the file's length and sha256. `activate()` returns normally when the store open fails, so the in-host runner also requires a registered `karst.*` command and the seeded ticket count. Never point the harness at a real Cursor/Code profile.
 
@@ -25,6 +70,7 @@ Related: `docs/arch/ABI.md` (`arch:ABI-01`, `ABI-03`).
 END_DOC_BLOCK: [@arch:UATHOST-01]
 
 ## [@arch:UATHOST-02] The probe runs a JSON step script in the host and dumps evidence per step
+covers: src/uatHost/probe/vscodeProbe.ts#installProbeRecorder, src/uatHost/probe/steps.ts#parseSteps, src/uatHost/fixtureFile.ts#parseFixtureFile
 
 `npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>` adds the probe to a harness run. Only a given `--script` sets `KARST_UAT_PROBE=1`; without that flag `installProbeRecorder` returns undefined, nothing patches `vscode.window`, and `karst.uatProbe.run` is never registered (it is not in `package.json` either). Pins: `src/uatHost/probe/gating.test.ts`.
 

@@ -2,6 +2,9 @@
   ".dependency-cruiser.cjs": [
     "arch:MAP-00"
   ],
+  "docker/uat-host/Dockerfile": [
+    "arch:UATHOST-00"
+  ],
   "scripts/arch*.mjs": [
     "arch:MAP-00"
   ],
@@ -49,6 +52,15 @@
   "scripts/stage-vsix.mjs#placeAddon": [
     "arch:ABI-01"
   ],
+  "scripts/uat-host/*": [
+    "arch:UATHOST-00"
+  ],
+  "scripts/uat-host/docker.mjs": [
+    "arch:UATHOST-01"
+  ],
+  "scripts/uat-host/run.mjs": [
+    "arch:UATHOST-01"
+  ],
   "src/agent/cliEnv.ts#cliTokensFor": [
     "arch:CLI-10"
   ],
@@ -73,11 +85,18 @@
   "src/agent/instrumentedAdapter.ts#instrumentAdapter": [
     "arch:DBG-01"
   ],
+  "src/agent/launchStub.ts": [
+    "arch:UATHOST-00"
+  ],
   "src/agent/materializedCleanup.ts#OWNED_PREFIXES": [
     "arch:ROOT-GEN"
   ],
   "src/agent/materializedCleanup.ts#cleanupOwnedPaths": [
     "arch:ROOT-GEN"
+  ],
+  "src/agent/registry.ts#resolveAdapter": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-01"
   ],
   "src/agent/seed.ts": [
     "arch:PM-00"
@@ -625,6 +644,27 @@
   ],
   "src/template/transforms.ts#applyTransforms": [
     "arch:PLACEHOLDER"
+  ],
+  "src/uatHost/*.ts": [
+    "arch:UATHOST-00"
+  ],
+  "src/uatHost/fixtureFile.ts#parseFixtureFile": [
+    "arch:UATHOST-02"
+  ],
+  "src/uatHost/probe/*.ts": [
+    "arch:UATHOST-00"
+  ],
+  "src/uatHost/probe/steps.ts#parseSteps": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-02"
+  ],
+  "src/uatHost/probe/vscodeProbe.ts#installProbeRecorder": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-02"
+  ],
+  "src/uatHost/seed.ts#seedStore": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-01"
   ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"
