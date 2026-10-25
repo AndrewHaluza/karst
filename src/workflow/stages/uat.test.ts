@@ -11,6 +11,11 @@ import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
+
+/** The agent's observations only: the advisory coverage record is not one. */
+const listObservations = (store: Parameters<typeof listUatFindings>[0], id: number) =>
+  listUatFindings(store, id).filter((f) => !isCoverageRecord(f));
 import { stageBlock } from '../../store/stageBlocks.js';
 import { listOpenParks } from '../../store/usageLimitParks.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
@@ -1264,8 +1269,8 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     // The blocking-severity observation is EVIDENCE, never a verdict: UAT
     // passed on its gates, and no recovery round opened for it.
-    expect(listUatFindings(store, id)).toHaveLength(1);
-    expect(listUatFindings(store, id)[0]!.severity).toBe('critical');
+    expect(listObservations(store, id)).toHaveLength(1);
+    expect(listObservations(store, id)[0]!.severity).toBe('critical');
     expect(listRecoveryRounds(store, id)).toEqual([]);
     expect(getTicket(store, id).stageCurrent).toBe('review');
     expect(listProcessRuns(store, id)[0]).toMatchObject({ processId: 'tester', resultKind: 'observed' });
@@ -1311,7 +1316,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     });
     expect(rounds[0]!.sourceProcessRunId).toBe(listProcessRuns(store, id)[0]!.id);
     // The observations are still recorded as evidence.
-    expect(listUatFindings(store, id)).toHaveLength(2);
+    expect(listObservations(store, id)).toHaveLength(2);
   });
 
   it('passes uat when observations are advisory (threshold none)', async () => {
@@ -1334,7 +1339,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(listRecoveryRounds(store, id)).toEqual([]);
-    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listObservations(store, id)).toHaveLength(1);
   });
 
   // T663: a budget- or deadline-stopped Tester run is recorded PARTIAL and
@@ -1397,7 +1402,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(uatStage(store, id).verdict).toContain('uat tester observations: 1 high');
-    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listObservations(store, id)).toHaveLength(1);
   });
 
   // UAT-19 (central RED case): an all-unreadable Tester answer PARKS the
@@ -1419,7 +1424,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     if (res.kind === 'blocked') {
       expect(res.reason).not.toContain('everything looked fine');
     }
-    expect(listUatFindings(store, id)).toEqual([]);
+    expect(listObservations(store, id)).toEqual([]);
     expect(listRecoveryRounds(store, id)).toEqual([]);
     // The park does not advance the ticket, and consumes no fix attempt.
     expect(getTicket(store, id).stageCurrent).toBe('uat');
@@ -1524,7 +1529,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
       }),
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
-    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listObservations(store, id)).toHaveLength(1);
   });
 
   it('does not reuse review AI-result reduction as authority: no blocking-review-findings round ever opens from uat', async () => {
@@ -1543,7 +1548,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listRecoveryRounds(store, id)).toEqual([]);
     // The Tester's observations are recorded under the UAT process, never
     // funneled through review's findings lane.
-    expect(listUatFindings(store, id)).toHaveLength(1);
+    expect(listObservations(store, id)).toHaveLength(1);
   });
 
   it('does not run the Tester when the gates failed — no AI spend on a failed run', async () => {
@@ -1582,7 +1587,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(listProcessRuns(store, id)).toEqual([]);
-    expect(listUatFindings(store, id)).toEqual([]);
+    expect(listObservations(store, id)).toEqual([]);
     expect(listGateRuns(store, id).length).toBeGreaterThan(0);
   });
 
@@ -1756,7 +1761,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(lines.some((l) => l.includes('uat tester ticket') && l.includes('asking target /web'))).toBe(
       true,
     );
-    expect(lines.some((l) => l.includes('recorded 0 finding(s)'))).toBe(true);
+    expect(lines.some((l) => l.includes('recorded 1 finding(s)'))).toBe(true);
     // …and so did the verifier's.
     expect(lines.some((l) => l.includes('uat tester verifier') && l.includes('passed (exit 0)'))).toBe(
       true,
@@ -1888,7 +1893,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(runHeadless).not.toHaveBeenCalled();
-    const findings = listUatFindings(store, id);
+    const findings = listObservations(store, id);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ severity: 'critical', repo: '/web' });
     expect(findings[0]!.title).toContain('not the ticket branch "karst/x"');
@@ -1969,7 +1974,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
       }),
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
-    const rows = listUatFindings(store, id);
+    const rows = listObservations(store, id);
     expect(rows).toHaveLength(100);
     expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
   });

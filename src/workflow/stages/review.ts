@@ -39,6 +39,7 @@ import {
   type FindingsLaneOutcome,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
 import type { ReviewArtifacts } from '../review/conformance.js';
 import type { WarnFn } from '../review/findings.js';
 import { mergeReviewKeptOutcome } from '../review/keptOutcome.js';
@@ -854,7 +855,7 @@ function mergeRerunLane(
   return {
     kind: 'ran',
     findings: [
-      ...existing.map((f) => ({
+      ...existing.filter((f) => !isCoverageRecord(f)).map((f) => ({
         severity: f.severity,
         repo: f.repo,
         file: f.file,

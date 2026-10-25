@@ -2,6 +2,7 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { Severity } from '../../manifest/types.js';
+import { isCoverageRecord } from '../coverageRecord.js';
 import {
   parseShipPreState,
   type ShipEvidence,
@@ -114,7 +115,7 @@ function shipFindingsWarning(input: ShipProcessesInput): InsideProcessView | und
   if (!threshold || threshold === 'none') return undefined;
   const findings = input.findings ?? [];
   const limit = SHIP_SEVERITY_RANK[threshold];
-  const blocking = findings.filter((f) => SHIP_SEVERITY_RANK[f.severity] <= limit);
+  const blocking = findings.filter((f) => !isCoverageRecord(f) && SHIP_SEVERITY_RANK[f.severity] <= limit);
   if (blocking.length === 0) return undefined;
   const worst = blocking.reduce(
     (w, f) => (SHIP_SEVERITY_RANK[f.severity] < SHIP_SEVERITY_RANK[w] ? f.severity : w),

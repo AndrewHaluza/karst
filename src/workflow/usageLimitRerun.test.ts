@@ -18,7 +18,12 @@ import { getTicket } from '../store/tickets.js';
 import { getStage } from '../store/stages.js';
 import { transition } from './machine.js';
 import { dismissUsageLimitPark, rerunParkedStage } from './usageLimitRerun.js';
-import { listUatFindings, recordUatFindings } from '../store/uatFindings.js';
+import { listUatFindings as listAllUatFindings, recordUatFindings } from '../store/uatFindings.js';
+import { isCoverageRecord } from '../model/coverageRecord.js';
+
+/** The agent's observations only: the advisory coverage record is not one. */
+const listUatFindings = (...args: Parameters<typeof listAllUatFindings>) =>
+  listAllUatFindings(...args).filter((f) => !isCoverageRecord(f));
 import { listProcessRuns, openProcessRun } from '../store/processRuns.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { Manifest } from '../manifest/types.js';

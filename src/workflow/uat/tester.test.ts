@@ -5,8 +5,10 @@ import { createTicketFlow } from '../stages/create.js';
 import { transition } from '../machine.js';
 import { listProcessRuns, openProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
 import {
   buildTesterPrompt,
+  countBlockingObservations,
   runUatTester,
   testerPartialDetail,
   TESTER_WRAP_UP_NUDGE,
@@ -21,6 +23,10 @@ import type { GitRunner } from '../../integrations/git.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { SEED_BUDGETS } from '../../agent/seedBudget.js';
+
+/** The agent's observations only: the advisory coverage record is asserted on its own. */
+const listObservations = (store: Store, ticketId: number) =>
+  listUatFindings(store, ticketId).filter((f) => !isCoverageRecord(f));
 
 const now = () => '2026-08-08T10:00:00.000Z';
 
@@ -121,7 +127,7 @@ describe('runUatTester', () => {
       ]),
     );
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'observed', findingIds: [1, 2], blocking: 0 });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1, 2, 3], blocking: 0 });
     const run = listProcessRuns(store, ticketId)[0]!;
     expect(run).toMatchObject({
       processId: 'tester',
@@ -134,7 +140,7 @@ describe('runUatTester', () => {
       model: 'claude-sonnet-5',
     });
     expect(run.endedAt).toBe(now());
-    const findings = listUatFindings(store, ticketId);
+    const findings = listObservations(store, ticketId);
     expect(findings).toHaveLength(2);
     expect(findings[0]).toMatchObject({
       processRunId: run.id,
@@ -216,13 +222,44 @@ describe('runUatTester', () => {
     );
     const res = await runUatTester(store, opts({ adapter }), { now });
     expect(res.kind).toBe('observed');
-    expect(listUatFindings(store, ticketId).map((f) => f.severity)).toEqual(['critical', 'low']);
+    expect(listObservations(store, ticketId).map((f) => f.severity)).toEqual(['critical', 'low']);
   });
 
   // Task 3.2: the observations stay advisory BY DEFAULT. The one manifest knob
   // `uat.testerObservations.blockingSeverity` (threaded in as
   // `observationsBlockingSeverity`) is what makes them countable as blocking;
   // the STAGE turns a nonzero count into a verdict.
+  it('records the agent coverage record, advisory, without counting it as an observation', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([
+        { severity: 'info', title: 'COVERAGE (reported): SKIPPED — agent picker DOM: not reachable by the uat:host probe', detail: '' },
+      ]),
+    );
+    const res = await runUatTester(store, opts({ adapter, observationsBlockingSeverity: 'info' }), { now });
+    expect(res).toMatchObject({ kind: 'observed', blocking: 0 });
+    const rows = listUatFindings(store, ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ severity: 'info' });
+    expect(rows[0]!.title).toContain('SKIPPED');
+  });
+
+  it('adds a NOT RUN coverage record when the agent reported none, after the cap', async () => {
+    const { adapter } = rawAdapter(JSON.stringify([{ severity: 'low', title: 'nit', detail: '' }]));
+    await runUatTester(store, opts({ adapter, maxObservations: 1 }), { now });
+    const rows = listUatFindings(store, ticketId);
+    expect(rows.map((r) => r.title)).toEqual([
+      'nit',
+      'COVERAGE (reported): NOT RUN — the agent reported no coverage record',
+    ]);
+  });
+
+  it('never counts a coverage record as blocking at the lowest threshold', () => {
+    expect(
+      countBlockingObservations([{ severity: 'info', title: 'COVERAGE (reported): PASS — x' }], 'info'),
+    ).toEqual({ blocking: 0 });
+    expect(countBlockingObservations([{ severity: 'info', title: 'real nit' }], 'info').blocking).toBe(1);
+  });
+
   it('reports blocking observations when the threshold is set', async () => {
     const { adapter } = rawAdapter(
       JSON.stringify([
@@ -295,7 +332,7 @@ describe('runUatTester', () => {
     // strict output rules must not be dropped on the retry.
     expect(calls[1]!.prompt.startsWith(calls[0]!.prompt)).toBe(true);
     expect(calls[1]!.prompt).not.toBe(calls[0]!.prompt);
-    expect(listUatFindings(store, ticketId)).toHaveLength(1);
+    expect(listObservations(store, ticketId)).toHaveLength(1);
   });
 
   it('gives up after the silence re-ask AND the reformat re-ask and closes as unreadable-output', async () => {
@@ -330,8 +367,8 @@ describe('runUatTester', () => {
     // The reformat nudge quotes the prose back, bounded, inside the same prompt.
     expect(calls[1]!.prompt.startsWith(calls[0]!.prompt)).toBe(true);
     expect(calls[1]!.prompt).toContain('Found a dangling-reference bug');
-    expect(listUatFindings(store, ticketId)).toHaveLength(1);
-    expect(listUatFindings(store, ticketId)[0]!.title).toBe('dangling reference');
+    expect(listObservations(store, ticketId)).toHaveLength(1);
+    expect(listObservations(store, ticketId)[0]!.title).toBe('dangling reference');
   });
 
   it('parks (unreadable-output) only after the reformat nudge also fails, and fires it at most once per target', async () => {
@@ -398,7 +435,7 @@ describe('runUatTester', () => {
   it('still closes as observed when every target answered an empty array', async () => {
     const { adapter } = rawAdapter('[]');
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
   });
 
   it('an agy headless auto-denial is execution-failed with the denied permission named', async () => {
@@ -426,7 +463,7 @@ describe('runUatTester', () => {
       status: 'failed',
       failureDetail: 'spawn ENOENT',
     });
-    expect(listUatFindings(store, ticketId)).toEqual([]);
+    expect(listObservations(store, ticketId)).toEqual([]);
   });
 
   // The tester is asked to RUN the repo's tests and exercise the acceptance
@@ -491,7 +528,7 @@ describe('runUatTester', () => {
     const res = await runUatTester(store, opts({ adapter }), { now });
     expect(res.kind).toBe('observed');
     // The traversal attempt was rejected; the finding stays attributed to /web.
-    expect(listUatFindings(store, ticketId)[0]).toMatchObject({ repo: '/web', filePath: null });
+    expect(listObservations(store, ticketId)[0]).toMatchObject({ repo: '/web', filePath: null });
   });
 
   it('links each target to its own observations across targets', async () => {
@@ -512,7 +549,7 @@ describe('runUatTester', () => {
       { now },
     );
     expect(res.kind).toBe('observed');
-    expect(listUatFindings(store, ticketId).map((f) => f.repo).sort()).toEqual(['/api', '/web']);
+    expect(listObservations(store, ticketId).map((f) => f.repo).sort()).toEqual(['/api', '/web']);
   });
 
   // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". A
@@ -538,7 +575,7 @@ describe('runUatTester', () => {
     expect(calls).toEqual([]);
     const run = listProcessRuns(store, ticketId)[0]!;
     expect(run).toMatchObject({ processId: 'tester', resultKind: 'observed' });
-    const findings = listUatFindings(store, ticketId);
+    const findings = listObservations(store, ticketId);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({
       processRunId: run.id,
@@ -562,9 +599,9 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     expect(calls).toHaveLength(1);
-    expect(listUatFindings(store, ticketId)).toEqual([]);
+    expect(listObservations(store, ticketId)).toEqual([]);
   });
 
   // The host verified the checkout BEFORE the call and git said the worktree
@@ -592,7 +629,7 @@ describe('runUatTester', () => {
       { now },
     );
     expect(res.kind).toBe('observed');
-    const titles = listUatFindings(store, ticketId).map((f) => f.title);
+    const titles = listObservations(store, ticketId).map((f) => f.title);
     expect(titles).toEqual(['login is broken']);
     // Never silent: a dropped critical the user cannot see is indistinguishable
     // from an observation karst lost.
@@ -612,7 +649,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['wrong checkout']);
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual(['wrong checkout']);
   });
 
   it('does not verify a target with no known branch — the call runs as before', async () => {
@@ -636,9 +673,9 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     expect(calls).toHaveLength(1);
-    expect(listUatFindings(store, ticketId)).toEqual([]);
+    expect(listObservations(store, ticketId)).toEqual([]);
   });
 
   it('treats a detached HEAD as a wrong checkout when the ticket branch is known', async () => {
@@ -654,7 +691,7 @@ describe('runUatTester', () => {
     );
     expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     expect(calls).toEqual([]);
-    expect(listUatFindings(store, ticketId)[0]).toMatchObject({ severity: 'critical' });
+    expect(listObservations(store, ticketId)[0]).toMatchObject({ severity: 'critical' });
   });
 
   it('names a wrong checkout in debug lines and per-target progress', async () => {
@@ -804,7 +841,7 @@ describe('runUatTester', () => {
       { now },
     );
     expect(res.kind).toBe('observed');
-    const rows = listUatFindings(store, ticketId);
+    const rows = listObservations(store, ticketId);
     expect(rows).toHaveLength(60);
     // Target order preserved: the first target's 40 survive whole, the second
     // is cut to the 20 the execution had left.
@@ -847,7 +884,7 @@ describe('runUatTester', () => {
     expect(res.kind).toBe('observed');
     // The cap never skipped repo B: both adapters ran.
     expect(calls).toHaveLength(2);
-    const rows = listUatFindings(store, ticketId);
+    const rows = listObservations(store, ticketId);
     expect(rows).toHaveLength(100);
     // The severity rank cut: the later critical outranks the 100 earlier lows
     // and survives the single slice; exactly 99 of the lows remain.
@@ -888,7 +925,7 @@ describe('runUatTester', () => {
     );
     expect(res.kind).toBe('observed');
     expect(calls).toHaveLength(2);
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['h0', 'h1']);
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual(['h0', 'h1']);
   });
 
   it('emits debug lines at entry, per target, and at exit — never the prompt text', async () => {
@@ -901,7 +938,7 @@ describe('runUatTester', () => {
       opts({ adapter, debug: (m) => lines.push(m) }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1, 2], blocking: 0 });
     // Entry: what is being attempted — targets and the execution cap.
     expect(lines.some((l) => l.includes('uat tester ticket') && l.includes('1 target(s)'))).toBe(
       true,
@@ -910,7 +947,7 @@ describe('runUatTester', () => {
     expect(lines.some((l) => l.includes('asking target /web'))).toBe(true);
     expect(lines.some((l) => l.includes('/web returned 1 observation(s)'))).toBe(true);
     // Exit: the outcome.
-    expect(lines.some((l) => l.includes('recorded 1 finding(s)'))).toBe(true);
+    expect(lines.some((l) => l.includes('recorded 2 finding(s)'))).toBe(true);
     // Debug lines never carry the prompt (ticket prose) — only lengths/counts.
     for (const line of lines) {
       expect(line).not.toContain('Act as the UAT tester');
@@ -1038,7 +1075,7 @@ describe('runUatTester', () => {
     expect(calls[0]!.prompt).toContain('Focus on API endpoint behavior.');
     expect(calls[0]!.prompt).toContain('Output rules (strict):');
     // The instructed run's output still parses ([] → zero findings recorded).
-    expect(listUatFindings(store, ticketId)).toHaveLength(0);
+    expect(listObservations(store, ticketId)).toHaveLength(0);
   });
 });
 
@@ -1117,7 +1154,7 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
     expect(calls).toHaveLength(1);
     expect(res).toMatchObject({ kind: 'observed' });
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['the real answer']);
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual(['the real answer']);
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'observed',
       status: 'passed',
@@ -1150,7 +1187,7 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
     expect(calls[1]!.prompt).toContain(prose);
     expect(calls[1]!.timeoutMs).toBe(UAT_TESTER_WRAP_UP_TIMEOUT_MS);
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['recovered late']);
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual(['recovered late']);
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'partial',
       status: 'failed',
@@ -1169,7 +1206,7 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     const res = await runUatTester(store, opts({ adapter }), { now });
     const detail = 'timed out — 1 partial observation recorded';
     expect(res).toMatchObject({ kind: 'partial', detail });
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['saw a glitch']);
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual(['saw a glitch']);
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'partial',
       failureDetail: detail,
@@ -1191,7 +1228,7 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
       kind: 'partial',
       detail: 'timed out — 1 partial observation recorded',
     });
-    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual([
+    expect(listObservations(store, ticketId).map((f) => f.title)).toEqual([
       'written before the cut',
     ]);
   });
@@ -1221,7 +1258,7 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     });
     const res = await runUatTester(store, opts({ adapter }), { now });
     expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — no observations recovered' });
-    expect(listUatFindings(store, ticketId)).toEqual([]);
+    expect(listObservations(store, ticketId)).toEqual([]);
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'partial',
       status: 'failed',
@@ -1289,7 +1326,8 @@ describe('buildTesterPrompt — dangling command, merge-base and reachability ru
       const prompt = buildTesterPrompt(TARGETS[0]!, instructions);
       expect(prompt).toContain('Do not end your answer while a command you started is still running');
       expect(prompt).toContain('`origin/develop...HEAD` (three dots)');
-      expect(prompt).toContain('record ONE info observation naming why, and stop');
+      expect(prompt).toContain('COVERAGE (reported): ');
+      expect(prompt).toContain('uat:host');
     });
   }
 });
