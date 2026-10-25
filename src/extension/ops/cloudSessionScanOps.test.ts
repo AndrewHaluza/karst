@@ -14,6 +14,7 @@ interface World {
   logs: Record<string, string[]>; // `${path}|${range}` -> messages
   logCalls: string[][];
   revCalls: number;
+  host: Record<string, string[]>; // branch -> host-committed shas
 }
 
 function fakeGit(w: World): GitRunner {
@@ -23,10 +24,11 @@ function fakeGit(w: World): GitRunner {
       const sha = w.heads[args[1]!];
       return sha ? ok(`${sha}\n`) : bad;
     }
+    if (args[0] === 'reflog') return ok((w.host[args[3]!] ?? []).map((h) => `${h}\x1fcommit: x\n`).join(''));
     w.logCalls.push(args);
     const key = `${cwd}|${args.slice(1, -1).join(' ')}`;
     const msgs = w.logs[key];
-    return msgs ? ok(msgs.map((m) => `${m}\n\x1e`).join('')) : bad;
+    return msgs ? ok(msgs.map((m, i) => `h${i}\x1f${m}\n\x1e`).join('')) : bad;
   };
 }
 
@@ -53,6 +55,7 @@ function setup() {
     },
     logCalls: [],
     revCalls: 0,
+    host: {},
   };
   return { store, world };
 }
@@ -73,8 +76,8 @@ describe('makeCloudSessionScanner', () => {
   it('uses a bounded log when no base is recorded and a base..branch range otherwise', async () => {
     const { store, world } = setup();
     await makeCloudSessionScanner({ store, git: fakeGit(world), fetchPrBody: async () => null }).scan(1);
-    expect(world.logCalls).toContainEqual(['log', 'main..karst/p-10', '--format=%B%x1e']);
-    expect(world.logCalls).toContainEqual(['log', '-n', '200', 'karst/p-11', '--format=%B%x1e']);
+    expect(world.logCalls).toContainEqual(['log', 'main..karst/p-10', '--format=%H%x1f%B%x1e']);
+    expect(world.logCalls).toContainEqual(['log', '-n', '200', 'karst/p-11', '--format=%H%x1f%B%x1e']);
   });
 
   it('only rescans a branch when its head SHA moves', async () => {
@@ -153,6 +156,14 @@ describe('makeCloudSessionScanner', () => {
     expect(fetched).toBe(0);
     expect(msgs).toEqual(['cloud-sessions: git log failed in /w/10web']);
     expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S1]);
+  });
+
+  it('hides a session whose commit was made on this host', async () => {
+    const { store, world } = setup();
+    world.host['karst/p-10'] = ['h0'];
+    const sc = makeCloudSessionScanner({ store, git: fakeGit(world), fetchPrBody: async () => null });
+    await sc.scan(1);
+    expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S2]);
   });
 
   it('records an ambiguous session as unlinked', async () => {
