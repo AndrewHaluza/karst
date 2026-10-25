@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { drainReactWork, pumpRenderRealm, renderWebviewReady, type RenderHandle } from '../../testing/renderHarness.js';
 import { populatedStateFor } from '../renderFixtures.js';
+import type { DashboardState } from '../state.js';
 
 let h: RenderHandle | null = null;
 afterEach(() => { h?.close(); h = null; });
@@ -19,6 +20,20 @@ async function open(): Promise<RenderHandle> {
 
 const click = async (v: RenderHandle, sel: string): Promise<void> => {
   v.click(sel);
+  await drainReactWork(v);
+};
+const eightServers = (): DashboardState => {
+  const base = populatedStateFor('impl');
+  const servers = Array.from({ length: 8 }, (_, i) => ({
+    id: i + 1, ticketId: base.ticketId, service: `svc-${i + 1}`, host: 'localhost', port: 3000 + i, status: 'running', logPath: null,
+  }));
+  return { ...base, servers } as DashboardState;
+};
+/** Type like a user: the native value setter plus a bubbling `input` event, which is what React listens to. */
+const typeInto = async (v: RenderHandle, input: HTMLInputElement, value: string): Promise<void> => {
+  const setter = Object.getOwnPropertyDescriptor(v.window.HTMLInputElement.prototype, 'value')!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new v.window.Event('input', { bubbles: true }));
   await drainReactWork(v);
 };
 const escape = async (v: RenderHandle): Promise<void> => {
@@ -50,6 +65,43 @@ describe('React island / vanilla delegator interop', () => {
     expect(v.query(FORM)).not.toBeNull();
     await escape(v);
     expect(v.query(FORM)).toBeNull();
+  });
+
+  it('typing in the Servers filter narrows the rows, keeps focus, and persists through vanilla', async () => {
+    const v = await open();
+    v.receive({ type: 'state', state: eightServers() });
+    await drainReactWork(v);
+    const input = v.query<HTMLInputElement>('#srvFilter')!;
+    input.focus();
+    await typeInto(v, input, 'svc-2');
+    expect(v.query('#srvFilter')).toBe(input);
+    expect(v.document.activeElement).toBe(input);
+    expect(v.queryAll('#servers td.c-name')).toHaveLength(1);
+    // React never writes vscode.setState: the vanilla seam listener persisted the filter.
+    expect((v.state as { srvFilter?: string }).srvFilter).toBe('svc-2');
+    await typeInto(v, input, 'svc-23');
+    expect((v.state as { srvFilter?: string }).srvFilter).toBe('svc-23');
+    expect(v.errors).toEqual([]);
+  });
+
+  it('a server action click inside the island posts exactly once (no vanilla double handling)', async () => {
+    const v = await open();
+    const before = v.posted.length;
+    await click(v, '[data-act="stop-server"][data-id="1"]');
+    const sent = v.posted.slice(before) as Array<{ type: string }>;
+    expect(sent.map((m) => m.type)).toEqual(['stop-server']);
+  });
+
+  it('the header Logs and Env buttons open their vanilla surfaces once', async () => {
+    const v = await open();
+    const before = v.posted.length;
+    await click(v, '#srvOps [data-act="env-overrides-open"]');
+    expect(v.document.body.classList.contains('env-nav')).toBe(true);
+    expect(v.posted.length).toBe(before);
+    await escape(v);
+    await click(v, '#srvOps [data-act="server-logs-request"]');
+    const sent = v.posted.slice(before) as Array<{ type: string }>;
+    expect(sent.map((m) => m.type)).toEqual(['server-logs-request']);
   });
 
   it('the copy flash keeps the runtime pending class, also across a re-render', async () => {

@@ -1545,23 +1545,12 @@
      consequential"), built in markup — no bespoke color rule left here. */
   .mgbtn{flex:none}
 
-  /* ===================== Servers panel ==================================
-     One service is ONE LINE at every width. The panel reacts to its own grid
-     column rather than the viewport, so containment is scoped to it — .panel
-     is shared with Worktrees and Pull requests, which need none of this. */
+  /* ===================== Shared helpers: .sr and .ib ====================
+     The Servers panel's own rules live in app/ServersPanel.css. */
   /* Visually hidden, still announced — for labels the layout drops but a screen
      reader still needs (the dot-only Status header, the filter's label). */
   .sr{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
-  .svpanel{container-type:inline-size}
-  /* Whole-ticket controls live in the HEADER because they act on every service
-     and must survive the states where the body has no rows to hang a button
-     off — the empty body is exactly when Start matters most. The count
-     therefore gives up the auto margin it keeps in the other panels. */
-  .svpanel .phead{padding-right:var(--k-space-5)}
-  .svpanel .phead .count{margin-left:0}
-  .svpanel .phead .pops{margin-left:auto;display:flex;gap:var(--k-space-1)}
-  .svpanel .pbody{padding:0}
 
   /* Icon buttons — inline Tabler SVGs from the injected catalog (docs/ui/
      ICONS.md; no icon font, no external asset: the webview CSP forbids both).
@@ -1583,7 +1572,6 @@
   .ib.t-restart{color:var(--k-attention)}
   .ib.t-stop{color:var(--k-failed)}
   .ib.t-start{color:var(--k-passed)}
-  .ib.ok{color:var(--k-passed)}
   /* The glyph grows slightly on hover/active — layered on top of the
      primitive's own surface+border hover, never replacing it. */
   .ib:hover:not(:disabled) svg{transform:scale(1.14)}
@@ -1593,117 +1581,6 @@
     .ib:hover svg,.ib:active svg{transform:none}
   }
 
-  /* Status semantics. Colour is never the only carrier: each state has a
-     distinct GLYPH (filled disc vs hollow ring), the address column reads "—"
-     when offline, and the dot carries its word to pointer and screen reader. */
-  .svpanel .glyph{flex:0 0 auto;display:inline-block;border-radius:var(--k-radius-circle)}
-  .svpanel .glyph.on{width:var(--k-space-4);height:var(--k-space-4);background:var(--k-passed)}
-  .svpanel .glyph.off{width:calc(var(--k-space-4) + var(--k-border-w));height:calc(var(--k-space-4) + var(--k-border-w));background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
-  /* A failed start is a FAULT, not a neutral offline row — filled like `.on`
-     (not a hollow ring like `.off`) so it reads as urgent at a glance, red
-     like every other failure glyph in this file (`.mg-conflicted .mgdot`). */
-  .svpanel .glyph.failed{width:var(--k-space-4);height:var(--k-space-4);background:var(--k-danger)}
-
-  .svpanel .filter{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);
-    border-bottom:var(--k-border-w) solid var(--k-border)}
-  /* Built on `.k-input` — the local rule is layout only (it fills the filter row). */
-  .svpanel .filter input{flex:1;min-width:0}
-  /* 288px has no scale match — a scroll cap sized to the panel, not a spacing
-     value (same category as the merge-conflict list's 180px above). */
-  .svpanel .scroll{max-height:288px;overflow-y:auto;overflow-x:hidden}
-  .svpanel table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
-  .svpanel thead th{position:sticky;top:0;z-index:1;background:var(--k-surface);
-    text-align:left;font-weight:var(--k-weight-semibold);font-size:var(--k-text-2xs);text-transform:uppercase;
-    letter-spacing:.6px;color:var(--k-text-faint);padding:calc(var(--k-space-3) + var(--k-border-w)) var(--k-space-5);
-    border-bottom:var(--k-border-w) solid var(--k-border);white-space:nowrap}
-  .svpanel tbody tr:hover,.svpanel tbody tr:focus-within{background:var(--k-surface-hover)}
-  .svpanel td{padding:var(--k-space-2) var(--k-space-5);vertical-align:middle}
-  /* Status is the DOT only — no word. A word over a small dot only crowded the
-     header, so that header is screen-reader-only. */
-  .svpanel td.c-dot{width:1%;padding-right:0;line-height:0}
-  /* The NAME column absorbs all the slack, which pushes the address and its two
-     ops into one right-hand group. The address is right-aligned inside a
-     shrink-wrapped column, and that is what makes Open/Copy sit flush against
-     the value on EVERY row instead of after a ragged gap. */
-  .svpanel td.c-name{font-size:var(--k-text-md);max-width:0;width:100%;overflow:hidden;
-    text-overflow:ellipsis;white-space:nowrap}
-  .svpanel td.c-addr{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);
-    white-space:nowrap;width:1%;text-align:right;padding-right:calc(var(--k-space-3) - var(--k-border-w))}
-  .svpanel td.c-addr.off{font-style:italic;color:var(--k-text-faint)}
-  .svpanel td.c-addr .short{display:none}
-  .svpanel td.c-addrops{width:1%;padding-left:0;padding-right:0}
-  /* The gap between the address group and the lifecycle group is the only thing
-     separating them — keep it wider than the gap inside each group. */
-  .svpanel td.c-acts{text-align:right;white-space:nowrap;width:1%;padding-left:var(--k-space-6)}
-  .svpanel td .g{display:inline-flex;gap:var(--k-space-1);justify-content:flex-end}
-
-  /* Two groups, ONE grid (D203): the ticket's own services, then the shared ones
-     it consumes. The caption row names and counts its group and says where those
-     rows run, so a shared row can never be read as the ticket's own — and both
-     groups share one set of columns, so the eye scans down either. */
-  .svpanel tr.srvgroup th{position:static;padding:var(--k-space-3) var(--k-space-5);
-    background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border);
-    border-top:var(--k-border-w) solid var(--k-border);text-align:left;
-    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
-    color:var(--k-text-dim);white-space:normal}
-  /* A flex row, not inline spans: a wrapped inline element's bounding box spans
-     every line it broke across, which reads as an overlap to the layout gate
-     (and visually collides at narrow widths). Flex items wrap as boxes. */
-  .svpanel tr.srvgroup .gwrap{display:flex;flex-wrap:wrap;align-items:baseline;
-    gap:var(--k-space-2)}
-  .svpanel tr.srvgroup .gcount{font-variant-numeric:tabular-nums}
-  .svpanel tr.srvgroup .gnote{font-weight:var(--k-weight-normal);text-transform:none}
-  /* The shared row's meta line WRAPS (UI-R44): the branch and "shared with" text
-     are the row's whole meaning, so they are never ellipsised. Only the name
-     ellipsises, and its cell carries the full value as a title. Flex, not inline
-     spans: a wrapped inline element's bounding box spans every line it broke
-     across, which the layout gate reads as an overlap (and which collides in a
-     narrow column). */
-  .svpanel td.c-name .srvmeta{display:flex;flex-wrap:wrap;align-items:baseline;
-    gap:var(--k-space-2);font-size:var(--k-text-sm);color:var(--k-text-dim);
-    line-height:1.45;white-space:normal;overflow-wrap:anywhere}
-  .svpanel td.c-name .srvmeta .srvbranch{flex:0 1 auto;min-width:0;
-    white-space:normal;overflow-wrap:anywhere}
-  .svpanel td.c-name .srvmeta .srvnote{min-width:0}
-  .svpanel td.c-addr .offword{font-style:normal;color:var(--k-text-dim)}
-  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-dim)}
-
-  /* Narrow COMPACTS, it does not restack: one service stays one line, which is
-     the whole point of this design. 400px cannot be a token: @container
-     conditions cannot read a custom property, so no --k-* applies here (same
-     exception as a @media breakpoint). */
-  @container (max-width: 400px){
-    /* SPECIFICITY TRAP — do not simplify these back to bare `td`. A
-       class-qualified `td.c-acts` (0,2,1) out-specifies a bare `td` (0,1,1)
-       REGARDLESS of source order, so a reset written as `td{width:auto}` never
-       lands: the 1% action column survived into narrow and wrapped every icon
-       onto its own line. The re-qualification is the fix. */
-    .svpanel td.c-acts{width:auto}
-    .svpanel thead th{padding:var(--k-space-3);font-size:var(--k-text-2xs)}
-    .svpanel td{padding:var(--k-space-2) var(--k-space-3)}
-    /* At this width "localhost:5173" ellipsises to "localhost…" — showing the
-       part that never varies and hiding the part that does. Both strings are in
-       the DOM so the swap is CSS, not a JS width probe; the full address stays
-       on the cell's title either way. */
-    .svpanel td.c-addr{font-size:var(--k-text-xs)}
-    .svpanel td.c-addr .full{display:none}
-    .svpanel td.c-addr .short{display:inline}
-  }
-
-  /* Empty states. Dense: mark + headline on one line, the reason under it, and
-     no button — Start lives in the header where it works in every state. */
-  .svpanel .estate{display:flex;align-items:flex-start;gap:var(--k-space-5);
-    padding:calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1) + var(--k-border-w))}
-  .svpanel .estate .emark{display:flex;align-items:center;justify-content:center;
-    width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);flex:none;margin-top:calc(var(--k-border-w) * -1);
-    background:var(--k-surface-hover);color:var(--k-text-faint)}
-  .svpanel .estate .emark svg{width:var(--k-text-base);height:var(--k-text-base);display:block}
-  .svpanel .estate .ehead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-text)}
-  .svpanel .estate .esub{font-size:var(--k-text-sm);color:var(--k-text-dim);line-height:1.45;margin-top:var(--k-space-1)}
-  /* The dead end gets no action anywhere, so it also gets no emphasis — the
-     block stays at description weight to read as a statement, not a prompt. */
-  .svpanel .estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
-  .svpanel .nomatch{padding:calc(var(--k-space-6) + var(--k-space-1));color:var(--k-text-faint);font-size:var(--k-text-md)}
 
   /* Artifacts shelf + index + detail (§ docs/design/artifacts/README.md).
      The shelf is a panel like any other; the index and the detail REPLACE the
@@ -2145,6 +2022,9 @@
     </div>
     <div class="pbody" id="subtasks"></div>
   </div>
+  <!-- The Servers panel is React-owned: app/ServersPanel.tsx renders into #srvCount, #srvOps and #servers
+       through RegionPortals. The root and its caption stay static (the parity snapshot pins the root without
+       data-react-owned), so inReactIsland() also treats `.svpanel` as an island. -->
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
   <!-- The Worktrees panel (header + body) is React-owned: app/WorktreesPanel.tsx renders into this
        container through a RegionPortal, and data-react-owned makes the vanilla delegators skip it. -->
@@ -3825,256 +3705,10 @@
     if (!failed && atShip) shipRequestId = requestId;
   }
 
-  // ---------------------------------------------------------------------
-  // Servers panel
-  // ---------------------------------------------------------------------
-  const isOnline = (s) => s.status === 'running';
-  const addrOf = (s) => `${s.host || 'localhost'}:${s.port}`;
-
+  // The Servers panel is React-owned (app/ServersPanel.tsx); see the `karst:*` seam listeners below.
   const svgIcon = (name, size) => (
     karstIcon(name, size)
   );
-
-  /* Each action keeps its OWN resting hue, off the same status ramp the
-     stepper uses — hue is the fastest way to tell Stop from Start before any
-     label is read. The word is still on every button, so hue accelerates, it
-     never carries. Keyed by the ACTION's tone (docs/ui/ICONS.md §4): the
-     glyph is the Tabler icon, the hue is what the action means. */
-  const TONE = {
-    'external-link': 'open',
-    copy: 'copy',
-    refresh: 'restart',
-    'player-stop': 'stop',
-    trash: 'stop',
-    'corner-down-right': 'restart',
-    'player-play': 'start',
-    settings: 'open',
-  };
-
-  /**
-   * An icon action. The visible label IS the icon, so the word survives as both
-   * aria-label (screen readers) and title (hover) — nothing is conveyed by shape
-   * alone, and the two carry the SAME string (UI-R21). A disabled button keeps
-   * that string as WHY: a greyed icon with no explanation is a dead end the
-   * user cannot tell from a broken one, for a screen-reader user exactly as
-   * much as a sighted one.
-   */
-  const iact = (action, id, label, icon, disabledWhy) => (
-    `<button type="button" class="k-iconbtn ib t-${TONE[icon] || 'open'}" data-act="${action}"`
-    + `${id != null ? ` data-id="${id}"` : ''}`
-    + `${icon === 'copy' ? ' data-copy' : ''}`
-    + `${disabledWhy ? ' disabled' : ''}`
-    + ` aria-label="${esc(disabledWhy || label)}" title="${esc(disabledWhy || label)}">`
-    + `${svgIcon(icon)}</button>`
-  );
-
-  // Row actions come in two groups: Open and Copy operate on the ADDRESS and sit
-  // flush against it; Restart and Stop operate on the PROCESS.
-  const addrActions = (s) => (
-    isOnline(s)
-      ? iact('open-server', s.id, 'Open in browser', 'external-link')
-        + iact('copy-server-url', s.id, 'Copy URL', 'copy')
-      : ''
-  );
-
-  // An offline row is retained, not deleted, so it can be started again. Open,
-  // Copy and Stop are all meaningless on it. Start is ROW-SCOPED: it starts
-  // THIS service in its existing worktree on its existing ports, and the
-  // header's Start is the whole-ticket re-spin.
-  const lifeActions = (s) => (
-    isOnline(s)
-      ? iact('restart-server', s.id, 'Restart', 'refresh')
-        + iact('stop-server', s.id, 'Stop', 'player-stop')
-      : iact('start-server', s.id, 'Start service', 'player-play')
-  );
-
-  /**
-   * Whole-ticket controls, rendered into the panel HEADER. They act on every
-   * service, so they must survive the states where the body has no rows — the
-   * empty body is exactly when Start matters most. Each disables itself when it
-   * would be a no-op and explains that in its title.
-   *
-   * Start and Restart post different actions but the host binds both to a
-   * re-spin (a spin already stops everything first); they stay distinct by
-   * AVAILABILITY, which is what this function computes.
-   */
-  function panelOps(state) {
-    // Nothing in scope can ever run: these would be permanent dead affordances,
-    // so they are absent rather than disabled.
-    if (state.hasRunnableRepos === false) return '';
-    // TICKET-scoped, always and only. The panel also lists shared rows now, and
-    // a header button that reached those would stop another ticket's stack — so
-    // every word says which half it acts on.
-    const list = state.servers;
-    const sharedCount = (state.sharedServers || []).length;
-    const none = list.length === 0;
-    const anyOffline = list.some((s) => !isOnline(s));
-    const anyRunning = list.some(isOnline);
-    const startWhy = !none && !anyOffline ? 'Every ticket service is already running' : null;
-    const restartWhy = none ? 'No ticket services to restart' : null;
-    const stopWhy = !anyRunning ? 'No ticket service is running' : null;
-    return iact('spin-servers', null, 'Start all ticket services', 'player-play', startWhy)
-      + iact('restart-servers', null, 'Restart all ticket services', 'refresh', restartWhy)
-      + iact('stop-servers', null, 'Stop all ticket services', 'player-stop', stopWhy)
-      + iact('server-logs-request', null, 'View server logs', 'terminal-2',
-          none && sharedCount === 0 ? 'No services to show logs for' : null)
-      // Env overrides are a property of the TICKET, not of a running process:
-      // they are set before anything starts and applied at the next spin, so
-      // this stays available when every row is offline and when there are no
-      // rows at all — the states where it is most likely to be wanted.
-      + iact('env-overrides-open', null, 'Configure environment variables', 'settings');
-  }
-
-  /**
-   * The two empty states stay distinct, and the distinction is the point: one is
-   * a PROMPT (nothing is running — the header's Start fixes that), the other a
-   * STATEMENT of fact (nothing here can run, and the header controls are gone
-   * with it). Neither carries a button; the action lives in the header.
-   */
-  function serversEmpty(state) {
-    if (state.hasRunnableRepos === false) {
-      return `<div class="estate dead"><span class="emark">${svgIcon('circle-x')}</span>`
-        + `<div><div class="ehead">No runnable services in scope</div>`
-        + `<div class="esub">This ticket scopes only repositories without a service`
-        + ` block, so there is nothing here to run.</div></div></div>`;
-    }
-    return `<div class="estate"><span class="emark">${svgIcon('server-2')}</span>`
-      + `<div><div class="ehead">No servers running</div>`
-      + `<div class="esub">Start the services in scope to get their local`
-      + ` addresses here.</div></div></div>`;
-  }
-
-  const isFailed = (s) => s.status === 'failed';
-
-  function serverRow(s) {
-    const on = isOnline(s);
-    const failed = isFailed(s);
-    const status = on ? 'running' : failed ? 'failed' : 'offline';
-    // role=img + aria-label is what keeps a bare dot from being invisible to a
-    // screen reader now that the word is gone; title gives the pointer the same
-    // word. Never colour alone: filled disc vs hollow ring still differ, and an
-    // offline row reads "—" where an address would be.
-    const dot = `<span class="glyph ${on ? 'on' : failed ? 'failed' : 'off'}" role="img"`
-      + ` aria-label="${status}" title="${status}"></span>`;
-    const addr = on
-      ? `<span class="full">${esc(addrOf(s))}</span><span class="short">:${esc(s.port)}</span>`
-      : failed ? 'failed to start' : '—';
-    const addrTitle = on
-      ? esc(addrOf(s))
-      : failed ? 'failed to start — see log' : 'offline — no address';
-    return `<tr><td class="c-dot">${dot}</td>`
-      + `<td class="c-name" title="${esc(s.service)}">${esc(s.service)}</td>`
-      + `<td class="c-addr${on ? '' : ' off'}" title="${addrTitle}">${addr}</td>`
-      + `<td class="c-addrops"><span class="g">${addrActions(s)}</span></td>`
-      + `<td class="c-acts"><span class="g">${lifeActions(s)}</span></td></tr>`;
-  }
-
-  /** A shared row's status, in words — the dot is never the only carrier. */
-  const sharedWord = (s) =>
-    s.status === 'running' ? 'running'
-      : s.status === 'failed' ? 'failed'
-        : s.status === 'missing' ? 'missing'
-          : 'stopped';
-
-  /**
-   * One shared (baseline) row: read-only. Open exists only while it runs; Logs
-   * only when it has a file; Manage is always there (the Resource Monitor today,
-   * the project view's Servers command after the follow-up). There is no
-   * start/stop/restart here on purpose — a stop affects every other ticket, so
-   * it lives behind the project view's host confirm (UI-R33).
-   */
-  function sharedRow(s) {
-    const on = isOnline(s);
-    const word = sharedWord(s);
-    const fault = s.status === 'failed' || s.status === 'missing';
-    const dot = `<span class="glyph ${on ? 'on' : fault ? 'failed' : 'off'}" role="img"`
-      + ` aria-label="${word}" title="${word}"></span>`;
-    // An offline shared row has no usable address: the column reads "—" AND the
-    // word, so a user who cannot see the dot's colour still reads the state.
-    const addr = on
-      ? `<span class="full">${esc(addrOf(s))}</span><span class="short">:${esc(s.port)}</span>`
-      : `— <span class="offword">${esc(word)}</span>`;
-    const addrTitle = on ? esc(addrOf(s)) : `${word} — no address`;
-    const meta = (s.baseBranch ? `<span class="srvbranch k-chip">${esc(s.baseBranch)}</span>` : '')
-      + (s.missingReason
-        ? `<span class="srvnote">${esc(s.missingReason)}</span>`
-        : `<span class="srvnote">${esc(s.sharedWith)}</span>`);
-    const open = on && s.id != null
-      ? iact('open-server', s.id, 'Open in browser', 'external-link')
-      : '';
-    const logs = s.logPath
-      ? iact('server-logs-request', null, 'View server logs', 'terminal-2')
-      : '';
-    return `<tr><td class="c-dot">${dot}</td>`
-      + `<td class="c-name"><span class="srvname" title="${esc(s.service)}">${esc(s.service)}</span>`
-      + `<span class="srvmeta">${meta}</span></td>`
-      + `<td class="c-addr${on ? '' : ' off'}" title="${addrTitle}">${addr}</td>`
-      + `<td class="c-addrops"><span class="g">${open}</span></td>`
-      + `<td class="c-acts"><span class="g">${logs}`
-      + iact('open-resources', null, 'Manage shared services', 'settings')
-      + `</span></td></tr>`;
-  }
-
-  /** One group's caption row: name, count and where its rows run. */
-  function serverGroupHead(label, count, note) {
-    return `<tr class="srvgroup"><th colspan="5" scope="colgroup"><div class="gwrap">`
-      + `<span class="gname">${label}</span>`
-      + `<span class="gcount">${count}</span>`
-      + `<span class="gnote">${note}</span></div></th></tr>`;
-  }
-
-  function renderServers(state) {
-    const ticketRows = state.servers;
-    const sharedRows = state.sharedServers || [];
-    const total = ticketRows.length + sharedRows.length;
-    el('srvCount').textContent = total ? `${total}` : '';
-    el('srvOps').innerHTML = panelOps(state);
-    if (!total) {
-      // No rows at all keeps today's two distinct states: a PROMPT (nothing is
-      // running — Start fixes that) versus a STATEMENT (nothing here can run).
-      el('servers').innerHTML = serversEmpty(state);
-      return;
-    }
-    // The filter earns its row only once scanning is actually hard, and it
-    // filters BOTH groups by the same needle.
-    const needle = srvFilter.trim().toLowerCase();
-    const filterable = total > 6;
-    const bar = filterable
-      ? `<div class="filter"><label class="sr" for="srvFilter">Filter services</label>`
-        + `<input id="srvFilter" class="k-input" type="search" placeholder="Filter ${total} services…"`
-        + ` value="${esc(srvFilter)}" data-filter></div>`
-      : '';
-    const hit = (s) => !filterable || !needle || s.service.toLowerCase().includes(needle);
-    const ticketShown = ticketRows.filter(hit);
-    const sharedShown = sharedRows.filter(hit);
-    const groups = [];
-    if (filterable && needle && ticketShown.length === 0 && sharedShown.length === 0) {
-      groups.push(`<tr><td colspan="5"><div class="nomatch">No service matches`
-        + ` “${esc(srvFilter)}”.</div></td></tr>`);
-    } else {
-      if (ticketShown.length > 0) {
-        groups.push(serverGroupHead('Ticket services', ticketShown.length,
-          "run from this ticket's worktrees") + ticketShown.map(serverRow).join(''));
-      } else if (ticketRows.length === 0) {
-        // A shared half alone is a truthful stack. It must not fall back to
-        // "No servers running", which would deny the rows printed below it.
-        groups.push(serverGroupHead('Ticket services', 0, "run from this ticket's worktrees")
-          + `<tr><td colspan="5"><span class="srvnone">No ticket services</span></td></tr>`);
-      }
-      if (sharedShown.length > 0) {
-        groups.push(serverGroupHead('Shared services', sharedShown.length,
-          'one copy per repository, from the base branch')
-          + sharedShown.map(sharedRow).join(''));
-      }
-    }
-    // The address-ops column sits UNDER the Address header (colspan 2): Open is
-    // part of the address, so the header says so.
-    el('servers').innerHTML = `${bar}<div class="scroll"><table>`
-      + `<thead><tr><th scope="col"><span class="sr">Status</span></th>`
-      + `<th scope="col">Service</th><th scope="col" colspan="2">Address</th>`
-      + `<th scope="col" style="text-align:right">Actions</th></tr></thead>`
-      + `<tbody>${groups.join('')}</tbody></table></div>`;
-  }
 
   // Mergeability under a PR row. Every string is the host's
   // (`buildMergeCheckPanelRows`) — the webview only places them. A repo with no
@@ -4624,7 +4258,7 @@
   // otherwise a control React already handled would be handled a second time here.
   function inReactIsland(e) {
     const t = e.target;
-    return !!(t && t.closest && t.closest('[data-react-owned]'));
+    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel'));
   }
   // A click inside the island is outside every header popover, so it dismisses them like any outside click.
   function closePopoversFromIsland(e) {
@@ -5590,11 +5224,8 @@
   // changed must never move focus onto a DIFFERENT control than the one the
   // user was on.
   // An element's own `id` is preferred and is what covers the controls that
-  // carry no action at all — the services filter INPUT is the one that made
-  // this mandatory: it is rebuilt with the panel, so a repaint mid-typing threw
-  // away the caret, and with no `data-act` a controls-only rule did not even
-  // see it. Its caret offsets ride along; the value itself already survives in
-  // `srvFilter`.
+  // carry no action at all (the env editor's textarea, for one). Its caret
+  // offsets ride along.
   function focusMark() {
     const active = document.activeElement;
     if (!active || !active.getAttribute) return null;
@@ -5678,7 +5309,6 @@
     renderBlocked(state);
     renderSubtasks(state);
     renderShip(state);
-    renderServers(state);
     renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
     renderStoredPanel(state);
@@ -5767,9 +5397,6 @@
   // above) — the same pending lifecycle every other posting control gets,
   // rather than a bespoke listener.
 
-  // Filtering is local and never round-trips to the host. Re-rendering replaces
-  // the input element, so focus and caret are restored explicitly — otherwise
-  // the field loses focus after the first keystroke and typing stops dead.
   // Typing in the env editor is remembered per scope: a state push (a live
   // tick, a server change) re-renders this surface, and a re-render that read
   // only the SAVED value would silently discard an unsaved edit.
@@ -5785,19 +5412,16 @@
     // it under the cursor would move the caret.
   });
 
-  el('servers').addEventListener('input', (e) => {
-    const box = e.target.closest('[data-filter]');
-    if (!box) return;
-    srvFilter = box.value;
-    const caret = box.selectionStart;
-    render(lastState);
-    const next = el('servers').querySelector('[data-filter]');
-    if (next) {
-      next.focus();
-      try { next.setSelectionRange(caret, caret); } catch { /* type=search may refuse */ }
-    }
+  // TRANSITIONAL SEAM (removed in migration Phase 12, with the rest of this script): the React Servers
+  // panel (app/ServersPanel.tsx) owns the filter input but never writes vscode.setState, so vanilla keeps
+  // `srvFilter` current and persists it. No render: React already shows the value.
+  window.addEventListener('karst:srvFilter', (e) => {
+    srvFilter = String(e.detail);
     persist();
   });
+  // The panel header's Logs and Env buttons open surfaces that still live in this script.
+  window.addEventListener('karst:openServerLogs', () => openServerLogs());
+  window.addEventListener('karst:openEnvOverrides', () => openEnvOverrides());
 
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
@@ -5960,24 +5584,6 @@
       }, 1200);
       return;
     }
-    // An icon button has no text to swap, so the GLYPH is what flashes — and the
-    // confirmation moves onto aria-label too, so it is not a purely visual beat
-    // for anyone reading the button by name.
-    if (btn.classList.contains('ib')) {
-      const prevHtml = btn.innerHTML;
-      const prevLabel = btn.getAttribute('aria-label');
-      btn.innerHTML = svgIcon('check');
-      btn.setAttribute('aria-label', 'Copied');
-      btn.classList.add('ok');
-      btn.disabled = true;
-      setTimeout(() => {
-        btn.innerHTML = prevHtml;
-        btn.setAttribute('aria-label', prevLabel);
-        btn.classList.remove('ok');
-        btn.disabled = false;
-      }, 1200);
-      return;
-    }
     const prev = btn.textContent;
     btn.textContent = COPIED_TOAST_TEXT;
     btn.disabled = true;
@@ -5992,15 +5598,6 @@
    * The map is keyed by the exact `data-act` the renderer emitted.
    */
   const SEND_BY_ACT = {
-    'stop-server': (btn, requestId) => karstSend.stopServer(Number(btn.dataset.id), requestId),
-    'restart-server': (btn, requestId) => karstSend.restartServer(Number(btn.dataset.id), requestId),
-    'start-server': (btn, requestId) => karstSend.startServer(Number(btn.dataset.id), requestId),
-    'open-server': (btn, requestId) => karstSend.openServer(Number(btn.dataset.id), requestId),
-    'copy-server-url': (btn, requestId) => karstSend.copyServerUrl(Number(btn.dataset.id), requestId),
-    'spin-servers': (btn, requestId) => karstSend.spinServers(requestId),
-    'restart-servers': (btn, requestId) => karstSend.restartServers(requestId),
-    'stop-servers': (btn, requestId) => karstSend.stopServers(requestId),
-    'open-resources': (btn, requestId) => karstSend.openResources(requestId),
     'open-pr': (btn, requestId) => karstSend.openPr(btn.dataset.url, requestId),
     'copy-pr-url': (btn, requestId) => karstSend.copyPrUrl(btn.dataset.url, requestId),
     'open-ticket-link': (btn, requestId) => karstSend.openTicketLink(btn.dataset.url, requestId),
@@ -6217,20 +5814,6 @@
       const stage = btn.dataset.console;
       if (!stage) return;
       openTerminal(stage, btn.dataset.consoleProc);
-      return;
-    }
-
-    // The env-override editor is purely local until Save: the values already
-    // ride DashboardState, so opening it posts NOTHING — handled before the
-    // posting path, exactly like CONSOLE_ACT.
-    if (act === 'env-overrides-open') {
-      openEnvOverrides();
-      return;
-    }
-
-    // Combined server logs: open the logs view and post the request.
-    if (act === 'server-logs-request') {
-      openServerLogs();
       return;
     }
 

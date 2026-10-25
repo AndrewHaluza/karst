@@ -582,69 +582,6 @@ describe('dashboard webview.html', () => {
     expect(rm).toContain('animation:none');
   });
 
-  /**
-   * Servers panel. Every rule below was written after reproducing the defect it
-   * prevents in a browser against `design/servers-variants.html`; each is here
-   * so the fix cannot be quietly deleted by someone tidying the file. As with
-   * the rail guards: text assertions catch DELETION, not visual regression.
-   */
-  it('puts the whole-ticket server controls in the panel header, not the body', () => {
-    // They act on every service, so they must survive the states where the body
-    // has no rows to hang a button off — the empty body is exactly when Start
-    // matters most. Rendering into a header slot is what makes that possible.
-    expect(HTML).toContain('id="srvOps"');
-    expect(HTML).toMatch(/panelOps/);
-  });
-
-  it('drops the panel controls entirely when nothing in scope can run', () => {
-    // Not disabled — absent. A control that can never become available is a
-    // permanent dead affordance, and greying it only asks the user to keep
-    // re-checking it.
-    expect(HTML).toMatch(/hasRunnableRepos === false\) return ''/);
-  });
-
-  it('gives every disabled icon button a title saying why', () => {
-    // A greyed icon with no explanation is a dead end: the user cannot tell a
-    // broken button from an inapplicable one.
-    expect(HTML).toMatch(/disabledWhy \? ' disabled' : ''/);
-    expect(HTML).toMatch(/title="\$\{esc\(disabledWhy \|\| label\)\}"/);
-  });
-
-  it('keeps the status word on the bare dot, for pointer and screen reader', () => {
-    // The row shows a 9px dot and no text, so aria-label + title are the ONLY
-    // things still carrying "running"/"failed"/"offline". Shape (filled disc
-    // vs hollow ring) plus the "—" address keep it off colour alone. The ternary
-    // now includes the failed state (filled red like .on, not a hollow ring).
-    expect(HTML).toMatch(/class="glyph \$\{on \? 'on' : failed \? 'failed' : 'off'\}" role="img"/);
-    expect(HTML).toMatch(/aria-label="\$\{status\}" title="\$\{status\}"/);
-    expect(HTML).toMatch(/\.glyph\.off\{[^}]*border:calc\(var\(--k-border-w\) \* 2\) solid/);
-    // Failed glyph is filled red (a fault), not a hollow ring
-    expect(HTML).toMatch(/\.glyph\.failed\{[^}]*background:var\(--k-danger\)/);
-  });
-
-  it('names every icon-only action, since the icon is the whole label', () => {
-    // aria-label and title carry the SAME string (UI-R21), including the
-    // disabled-reason case — a screen-reader user needs to know WHY an icon
-    // is greyed out exactly as much as a sighted one reading the tooltip.
-    expect(HTML).toMatch(/aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/);
-  });
-
-  it('restacks nothing at narrow width — one service is one line at every size', () => {
-    // The specificity trap this encodes: `td.c-acts` (0,2,1) out-specifies a
-    // bare `td` (0,1,1) REGARDLESS of source order, so the container query's
-    // reset must re-qualify the class or the 1% action column survives into
-    // narrow and wraps every icon onto its own line.
-    expect(HTML).toMatch(/@container \(max-width: ?400px\)/);
-    expect(HTML).toMatch(/td\.c-acts\{[^}]*width:auto/);
-  });
-
-  it('scopes the container query to the servers panel, not every panel', () => {
-    // .panel is shared with Worktrees and Pull requests; containment belongs to
-    // the one panel that reacts to its own column width.
-    expect(HTML).toMatch(/\.svpanel\{[^}]*container-type:inline-size/);
-    expect(HTML).not.toMatch(/\.panel\{[^}]*container-type/);
-  });
-
   it('keeps the server filter beside the host state, like the selection', () => {
     // A state push arrives on every server change; if the filter lived in
     // DashboardState (or nowhere) the text would be wiped mid-typing.
@@ -1110,7 +1047,7 @@ describe('dashboard webview.html', () => {
     // attaches a requestId before posting.
     const generic = HTML.slice(
       HTML.indexOf('// Every other posting control settles'),
-      HTML.indexOf('window.addEventListener'),
+      HTML.indexOf("window.addEventListener('resize'"),
     );
     expect(generic).toMatch(/karstIsPending\(btn\)/);
     expect(generic).toMatch(/karstBeginPending\(btn, requestId\)/);
@@ -1120,227 +1057,16 @@ describe('dashboard webview.html', () => {
     expect(generic).toMatch(/send\(btn, requestId\)/);
   });
 
-  it('starts one service from an offline row, while the header keeps whole-ticket Start', () => {
-    const h = bootPreviewHarness();
-    const state: DashboardState = {
-      ...renderStateFor('scope'),
-      hasRunnableRepos: true,
-      servers: [
-        {
-          id: 7,
-          ticketId: 1,
-          service: 'api',
-          host: 'localhost',
-          port: 5173,
-          status: 'stopped',
-          logPath: null,
-        },
-      ],
-    };
-    h.receive({ type: 'state', state });
-    const row = h.htmlOf('servers');
-    expect(row).toContain('data-act="start-server"');
-    expect(row).toContain('data-id="7"');
-    expect(row).not.toContain('data-act="spin-servers"');
-    const header = h.htmlOf('srvOps');
-    expect(header).toContain('data-act="spin-servers"');
-    expect(header).not.toMatch(/data-act="spin-servers"[^>]*data-id=/);
-  });
-
-  /** A state with both halves: two ticket services and three shared rows. */
-  function sharedServersState(): DashboardState {
-    return {
-      ...renderStateFor('scope'),
-      hasRunnableRepos: true,
-      servers: [
-        { id: 7, ticketId: 1, service: 'web', host: 'localhost', port: 5173, status: 'running', logPath: '/tmp/web.log' },
-        { id: 8, ticketId: 1, service: 'worker', host: null, port: null, status: 'stopped', logPath: null },
-      ],
-      sharedServers: [
-        {
-          id: 21, service: 'api', status: 'running', host: 'localhost', port: 4000,
-          logPath: '/tmp/api.log', container: null, baseBranch: 'develop',
-          checkoutPath: '/repos/api/.karst/baseline/api',
-          sharedWith: 'shared with T412, T418', missingReason: null, dependents: [],
-        },
-        {
-          id: 22, service: 'web', status: 'stopped', host: null, port: null,
-          logPath: '/tmp/shared-web.log', container: null, baseBranch: 'main',
-          checkoutPath: '/repos/web/.karst/baseline/web',
-          sharedWith: 'no other live tickets', missingReason: null, dependents: [],
-        },
-        {
-          id: null, service: 'api/v2', status: 'missing', host: null, port: null,
-          logPath: null, container: null, baseBranch: null, checkoutPath: null,
-          sharedWith: 'no other live tickets', missingReason: 'no longer declared in karst.yml',
-          dependents: [],
-        },
-      ],
-    };
-  }
-
-  it('renders ticket services and shared services as two captioned groups in one grid', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const html = h.htmlOf('servers');
-
-    expect(html).toContain('Ticket services');
-    expect(html).toContain('run from this ticket');
-    expect(html).toContain('Shared services');
-    expect(html).toContain('one copy per repository, from the base branch');
-    // One grid: exactly one table and one scroll region.
-    expect(html.match(/<table>/g)).toHaveLength(1);
-    expect(html.match(/class="scroll"/g)).toHaveLength(1);
-    // Counts: 2 ticket rows, 3 shared rows, and the header counts everything.
-    expect(h.textOf('srvCount')).toBe('5');
-    expect(html).toMatch(/Ticket services<\/span><span class="gcount">2</);
-    expect(html).toMatch(/Shared services<\/span><span class="gcount">3</);
-  });
-
-  it('shows a shared row’s base branch, live dependents, address and read-only actions', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const html = h.htmlOf('servers');
-
-    expect(html).toContain('develop');
-    expect(html).toContain('shared with T412, T418');
-    expect(html).toContain('no other live tickets');
-    expect(html).toContain('localhost:4000');
-    expect(html).toContain('data-act="open-resources"');
-    expect(html).toContain('Manage shared services');
-    // Open only on the running shared row, and it names that baseline row.
-    expect(html).toContain('data-act="open-server" data-id="21"');
-    expect(html).not.toContain('data-act="open-server" data-id="22"');
-  });
-
-  it('posts open-resources when Manage is clicked on a shared row', () => {
-    // A rendered data-act no SEND_BY_ACT entry resolves to is a button that
-    // acknowledges nothing and posts nothing — the exact dead end the review
-    // caught. Click it through the real delegated handler, not the map source.
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-
-    h.click('[data-act]', { act: 'open-resources' });
-
-    expect(h.posted.at(-1)).toMatchObject({ type: 'open-resources' });
-  });
-
-  it('keeps every lifecycle control off the shared rows', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const html = h.htmlOf('servers');
-    const sharedGroup = html.slice(html.indexOf('Shared services'));
-
-    expect(sharedGroup).not.toContain('data-act="start-server"');
-    expect(sharedGroup).not.toContain('data-act="restart-server"');
-    expect(sharedGroup).not.toContain('data-act="stop-server"');
-    expect(sharedGroup).not.toContain('data-act="spin-servers"');
-    expect(sharedGroup).not.toContain('data-act="restart-servers"');
-    expect(sharedGroup).not.toContain('data-act="stop-servers"');
-  });
-
-  it('says the shared half is stopped or missing in words, never by colour alone', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const html = h.htmlOf('servers');
-
-    expect(html).toContain('<span class="offword">stopped</span>');
-    expect(html).toContain('<span class="offword">missing</span>');
-    expect(html).toContain('no longer declared in karst.yml');
-    // The status word rides the dot too (screen reader + hover).
-    expect(html).toContain('role="img" aria-label="stopped" title="stopped"');
-  });
-
-  it('names the header ops as ticket-services ops', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const header = h.htmlOf('srvOps');
-
-    expect(header).toContain('Start all ticket services');
-    expect(header).toContain('Restart all ticket services');
-    expect(header).toContain('Stop all ticket services');
-    expect(header).not.toContain('Start all services');
-    // They still post the ticket-scoped actions.
-    expect(header).toContain('data-act="spin-servers"');
-    expect(header).toContain('data-act="stop-servers"');
-  });
-
-  it('offers Logs on a shared row only when it has a log file', () => {    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: sharedServersState() });
-    const html = h.htmlOf('servers');
-
-    // api: running + logPath; web: stopped + logPath; api/v2: missing, no log.
-    const sharedGroup = html.slice(html.indexOf('Shared services'));
-    expect(sharedGroup.match(/data-act="server-logs-request"/g)).toHaveLength(2);
-    // A row with no log gets no Logs button.
-    const rows = sharedGroup.split('<tr>');
-    expect(rows.at(-1)).not.toContain('data-act="server-logs-request"');
-  });
-
-  it('renders shared rows with a “No ticket services” caption instead of the empty state', () => {
-    const h = bootPreviewHarness();
-    const state: DashboardState = {
-      ...renderStateFor('scope'),
-      hasRunnableRepos: true,
-      servers: [],
-      sharedServers: [sharedServersState().sharedServers[0]!],
-    };
-    h.receive({ type: 'state', state });
-    const html = h.htmlOf('servers');
-
-    expect(html).toContain('No ticket services');
-    expect(html).toContain('Shared services');
-    expect(html).not.toContain('No servers running');
-    // The header's ticket ops stay, disabled with a reason.
-    expect(h.htmlOf('srvOps')).toContain('No ticket services to restart');
-  });
-
-  it('keeps today’s two empty states when there are no rows at all', () => {
-    const h = bootPreviewHarness();
-    h.receive({
-      type: 'state',
-      state: { ...renderStateFor('scope'), hasRunnableRepos: false, servers: [], sharedServers: [] },
-    });
-    expect(h.htmlOf('servers')).toContain('No runnable services in scope');
-
-    h.receive({
-      type: 'state',
-      state: { ...renderStateFor('scope'), hasRunnableRepos: true, servers: [], sharedServers: [] },
-    });
-    expect(h.htmlOf('servers')).toContain('No servers running');
-  });
-
-  it('wraps the shared meta line rather than truncating it', () => {
-    // UI-R44: the branch and "shared with" text are the row's whole meaning, so
-    // the meta line wraps. The long list survives in full in the DOM.
-    const long = Array.from({ length: 12 }, (_, i) => `T${400 + i}`).join(', ');
-    const h = bootPreviewHarness();
-    h.receive({
-      type: 'state',
-      state: {
-        ...renderStateFor('scope'),
-        hasRunnableRepos: true,
-        servers: [],
-        sharedServers: [
-          { ...sharedServersState().sharedServers[0]!, sharedWith: `shared with ${long}` },
-        ],
-      },
-    });
-    expect(h.htmlOf('servers')).toContain(`shared with ${long}`);
-    expect(HTML).toMatch(/\.svpanel td\.c-name \.srvmeta\{[^}]*white-space:normal/);
-  });
-
   /**
    * Every `.k-iconbtn`/icon-only control in this file: the rail/fix nodes
-   * (glyph-only), the servers panel's `iact()`-built row actions, the panel
-   * header refresh/diff icons, and the copy-branch icon all carry a matching
+   * (glyph-only), the panel header refresh/diff icons, and the copy-branch icon
+   * (the Servers panel's own actions are React: ServersPanel.test.tsx) all carry a matching
    * aria-label + title pair (UI-R19–R21, R24).
    */
   it('gives every icon-only control a matching aria-label and title', () => {
     const iconOnlyBlocks = [
       /aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/, // track segment select
       /aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/, // the retry meter
-      /aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/, // iact()
       /aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now"/, // prRefresh (idle)
     ];
     for (const re of iconOnlyBlocks) {
@@ -2702,6 +2428,8 @@ interface PreviewHarness {
   clickChevron(key: string): void;
   /** Click through the delegated document listeners at ONE selector. */
   click(sel: string, dataset: Record<string, string>, pathSelectors?: string[]): void;
+  /** Deliver a window event the React islands announce (the transitional `karst:*` seam). */
+  fireWindow(type: string, detail?: unknown): void;
   /** Press a key on the document keydown listener. */
   key(key: string): void;
   /**
@@ -2993,6 +2721,9 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
         });
       }
     },
+    fireWindow: (type, detail) => {
+      for (const handler of winListeners.get(type) ?? []) handler({ detail });
+    },
     // Press a key on the document's keydown listener (Esc mirrors Back).
     key: (key: string) => {
       for (const handler of docListeners.get('keydown') ?? []) handler({ key });
@@ -3035,13 +2766,6 @@ describe('env overrides editor (executed in a VM)', () => {
     envOverrides: DashboardState['envOverrides'],
   ): DashboardState => ({ ...renderStateFor('scope'), hasRunnableRepos: true, envOverrides });
 
-  it('offers the gear beside the servers panel controls', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: stateWith({ services: ['api'], values: {} }) });
-    expect(h.htmlOf('srvOps')).toContain('data-act="env-overrides-open"');
-    expect(h.htmlOf('srvOps')).toContain('Configure environment variables');
-  });
-
   it('opens a section per scope, showing what is saved for each', () => {
     const h = bootPreviewHarness();
     h.receive({
@@ -3051,7 +2775,7 @@ describe('env overrides editor (executed in a VM)', () => {
         values: { '*': { SHARED: 'yes' }, api: { APP_HISTORY_FEATURE: 'true' } },
       }),
     });
-    h.click('[data-act]', { act: 'env-overrides-open' });
+    h.fireWindow('karst:openEnvOverrides');
     const html = h.htmlOf('envView');
     expect(h.bodyClasses).toContain('env-nav');
     expect(html).toContain('SHARED=yes');
@@ -3064,7 +2788,7 @@ describe('env overrides editor (executed in a VM)', () => {
   it('posts the scope and the typed body on Save', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWith({ services: ['api'], values: {} }) });
-    h.click('[data-act]', { act: 'env-overrides-open' });
+    h.fireWindow('karst:openEnvOverrides');
     h.typeEnv('api', 'APP_HISTORY_FEATURE=true\nNEW=1');
     h.click('[data-env-save]', { envSave: 'api' });
     const posted = h.posted.at(-1) as { type: string; scope: string; text: string; requestId: string };
@@ -3077,7 +2801,7 @@ describe('env overrides editor (executed in a VM)', () => {
   it('closes on Escape', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWith({ services: [], values: {} }) });
-    h.click('[data-act]', { act: 'env-overrides-open' });
+    h.fireWindow('karst:openEnvOverrides');
     expect(h.bodyClasses).toContain('env-nav');
     h.key('Escape');
     expect(h.bodyClasses).not.toContain('env-nav');
@@ -5926,13 +5650,13 @@ describe('focus across a repaint', () => {
   });
 
   it('restores a control that carries no action at all, with its caret', () => {
-    // The services filter input is rebuilt with the panel and has no
-    // `data-act`: a repaint mid-typing took the keyboard away and dropped the
-    // caret, and a controls-only rule could not even see it.
+    // A control rebuilt by a repaint with an id but no `data-act` (the env
+    // editor's textarea) keeps the keyboard and its caret; a controls-only
+    // rule could not even see it.
     const focused: string[] = [];
-    const after = control('srvFilter', '', focused, 0);
-    repaint([control('srvFilter', '', focused, 3)], [after], 0);
-    expect(focused).toEqual(['srvFilter']);
+    const after = control('envTextarea', '', focused, 0);
+    repaint([control('envTextarea', '', focused, 3)], [after], 0);
+    expect(focused).toEqual(['envTextarea']);
     expect(after.selectionStart).toBe(3);
   });
 });

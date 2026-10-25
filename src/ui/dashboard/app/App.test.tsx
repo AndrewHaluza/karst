@@ -8,7 +8,9 @@ import { pageHostBridge } from './hostBridge.js';
 describe('Dashboard App (Phase 1 Shell)', () => {
   beforeEach(() => {
     // The page's migrated-panel containers (webview.html): RegionPortal renders into these.
-    document.body.innerHTML = '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>';
+    document.body.innerHTML =
+      '<div class="panel svpanel"><div class="phead">Servers<span id="srvCount"></span><span id="srvOps"></span></div><div id="servers"></div></div>'
+      + '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>';
   });
   afterEach(() => {
     cleanup();
