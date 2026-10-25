@@ -276,6 +276,20 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     toArgv: (input) => ['unpause', requireString(input, 'key')],
   },
   {
+    name: 'close',
+    summary: 'Human only: record that a ticket was resolved outside karst.',
+    input: obj({ key: str, reason: str, ref: str }, ['key', 'reason']),
+    globals: { db: true, manifest: true },
+    writes: true,
+  },
+  {
+    name: 'reopen',
+    summary: 'Human only: bring a closed ticket back to implementation.',
+    input: obj({ key: str }, ['key']),
+    globals: { db: true, manifest: true },
+    writes: true,
+  },
+  {
     name: 'subtask',
     summary: 'Carve a new sub-task out of the session\'s own ticket.',
     input: obj(

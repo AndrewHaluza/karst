@@ -22,6 +22,8 @@ describe('command registry', () => {
       'env',
       'pause',
       'unpause',
+      'close',
+      'reopen',
       'subtask',
       'draft',
       'message',

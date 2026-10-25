@@ -22,8 +22,11 @@ import type { McpServerConfig } from './config.js';
  *    scripts, the MCP surface drops it. This is the ONLY exclusion: every other
  *    registry command (including the host-invoked `graph`/`node`) becomes a tool,
  *    so the tool list is the registry minus `test`.
+ *  - `close` / `reopen` — human-only assertions that a ticket was resolved
+ *    outside karst (`@arch:STAGEMACH`); an agent must never close its own or
+ *    another ticket, so they are CLI-only (and refuse inside an agent session).
  */
-export const MCP_EXCLUDED_COMMANDS: readonly string[] = ['test'];
+export const MCP_EXCLUDED_COMMANDS: readonly string[] = ['test', 'close', 'reopen'];
 
 /** One advertised MCP tool: the registry name/summary plus its input schema. */
 export interface McpTool {
