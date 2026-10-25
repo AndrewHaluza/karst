@@ -84,7 +84,10 @@ import { join } from 'node:path';
 // Raised by 20 (8727 -> 8747): Servers & resources panel bindings (the `createServersBinding` call,
 // `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
 // `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
-const MAX_EXTENSION_LINES = 8747;
+// Raised by 12 (8747 -> 8759): human-only close/reopen palette commands (@arch:STAGEMACH) — one import
+// and the `registerCloseCommands` call with its vscode seams; the logic is in `ops/closeOps.ts` and
+// `ops/closeCommands.ts`.
+const MAX_EXTENSION_LINES = 8759;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

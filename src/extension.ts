@@ -15,6 +15,7 @@ import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
+import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
@@ -6893,6 +6894,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
+    ...registerCloseCommands({
+      store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
+      activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },
+      refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); },
+      ui: {
+        registerCommand: (id, h) => vscode.commands.registerCommand(id, h),
+        showInputBox: (o) => Promise.resolve(vscode.window.showInputBox({ ...o, ignoreFocusOut: true })),
+        pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+      },
+    }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
