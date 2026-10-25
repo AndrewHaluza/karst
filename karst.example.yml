@@ -133,6 +133,11 @@ agentProvider: claude
 # number of days.
 archiveDoneAfterDays: 3
 
+# How long a finished planning session (every draft accepted, no live
+# terminal) sits idle before Karst archives it automatically (Settings →
+# General). Omit for the 3-day default; must be a positive whole number of days.
+archivePlanningAfterDays: 3
+
 # Sub-task auto-start caps (Settings → General). A queued sub-task starts only
 # while both counts of RUNNING sub-tasks are under their cap; 0 = unlimited
 # (not recommended — every running sub-task is a full agent session with its
@@ -201,6 +206,16 @@ quota:
 # registries, fewer permission prompts. claude and codex (macOS/Linux) can do
 # it; opencode, opencode2 and agy cannot, and keep prompting. Off by default.
 # agentSandbox: false
+
+# Docker sandbox container memory (opencode / opencode2 on the docker backend).
+# By default the limits scale from the Docker VM's total memory (`docker info`),
+# so two sessions plus gates fit; set any of these to override one. Docker
+# syntax (512m, 2g). A value above 85% of the VM is clamped down to it.
+# sandboxMemory:
+#   interactiveMemory: 2g          # hard cap of the interactive session
+#   interactiveReservation: 1g     # soft limit the kernel reclaims toward
+#   gateMemory: 3g                 # hard cap of a one-shot gate container
+#   gateReservation: 1536m
 
 repositories:
   backend:

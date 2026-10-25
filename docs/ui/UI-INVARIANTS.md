@@ -145,12 +145,43 @@ those two surfaces and expires with each view's migration: whichever view moves
 to React must re-home its park actions in the React app, never carry the vanilla
 buttons across.
 
+**Second recorded exception (2026-10-25):** the dashboard's header carries two
+small controls, "Close — done outside Karst…" and "Reopen" (`#closeTicket`,
+`#reopenTicket`), for the human-only `closed` state (`arch:STAGEMACH`,
+`arch:CLI-18`). The project owner asked for the buttons on the vanilla view so
+the feature is reachable without the command palette. Scope is deliberately the
+smallest that works: two ghost buttons beside "Detach from parent…", gated by the
+host flags `canClose` / `canReopen` (`model/closeRules.ts`), sending two
+payload-free messages (`close-ticket`, `reopen-ticket`); the host runs the same
+`karst.closeTicket` / `karst.reopenTicket` commands as the palette, whose input
+boxes are the confirmation and collect the reason, so the webview holds no form,
+no free text and no state. Like the park actions it expires with the dashboard's
+migration: the React app must re-home both controls, never carry the vanilla
+buttons across.
+
 The Resources webview moved to React as the first step of the "Servers &
 resources" page (`src/ui/resources/app/**`, two tabs in one document): its Resources
 tab keeps the same panels and content, its tab strip and Servers tab are new. The
 app reuses the Settings primitives (`Button`, `LiveRegion`) and `useHostMutation`
 rather than copying them; its own `architecture.test.ts` carries the R-X guards.
 Its dynamic geometry uses SVG attributes and `<progress>` instead of inline style.
+
+The ticket-list sidebar (`karst.tickets`) moved to React as a migration with no
+behaviour change (`src/ui/sidebar/app/**`, step 1 of
+`docs/plans/sidebar-panes-and-presets.md`; the step 2 layout is `ui:SIDEBAR-PANES`): the host side (`panel.ts`,
+`messages.ts`, `state.ts`) and the message contract are untouched, and the
+rendered DOM matches the vanilla view's (same classes, `data-*` hooks and ARIA).
+`webview.html` keeps the stylesheet and the shared runtime, and the bundle owns
+`#root` (`display:contents`, so the toolbar, search and panes stay direct
+flex children of `body`). Posting controls still go through the design-system
+runtime's pending primitives (`karstBeginPending` / `karstSettle`) rather than
+`useHostMutation`, so request ids, the spinner and the watchdog are the one
+shared implementation. Two intentional differences, both from React keeping
+elements alive across a snapshot push instead of rebuilding `innerHTML`: a
+control stays pending until the host answers (it used to reappear enabled on the
+next push), and keyboard focus survives a push. Its `architecture.test.ts`
+carries the guards (one `acquireVsCodeApi()`, no host-module runtime imports,
+raw HTML only in `Icon.tsx`).
 
 Three invariants the original investigators learned the hard way, now load-bearing:
 
@@ -172,3 +203,30 @@ Three invariants the original investigators learned the hard way, now load-beari
 
 The Agents page follows the approved clickable prototype, kept in the repo: [`docs/design/agents-settings-prototype.html`](../design/agents-settings-prototype.html) (generation brief: [`pT2.txt`](../design/pT2.txt)). The prototype's regions, order and stacking are binding (`ui:UI-R39`); only tokens, controls and spacing values defer to UI-RULES and DESIGN-SYSTEM. The cell-edit rule is binding too (`arch:AGENTSPAGE`).
 END_DOC_BLOCK: [@ui:REACT-VIEWS]
+
+## [@ui:SIDEBAR-PANES] Sidebar panes and presets (step 2)
+
+Step 2 of that plan redesigned the sidebar layout (`docs/plans/sidebar-panes-and-presets.md`).
+Under the search box sit two panes, **Planning** and **Tickets**
+(`Pane.tsx`, `PlanningPane.tsx`, `TicketsPane.tsx`). Each header is always
+rendered, even when empty: a chevron toggle button (`aria-expanded`), title,
+count and the pane's actions (`+` reuses the `plan-create` / `create` messages;
+Planning also has Collapse all and a "show archived" toggle). Each body scrolls on
+its own; Planning is capped at about 40% while open, Tickets takes the rest, and
+a collapsed pane hands its height to the other. The toolbar keeps only resources,
+token usage and settings. The facet chip row is gone: a funnel menu
+(`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
+in the Tickets header offers single-select presets (All, Needs attention =
+`input`+`failed`, In progress, Done, Archived). A preset is a facet selection, so
+the host protocol is unchanged: the view posts `toggle-facet` `all` (reset) and
+then each facet. A selection no preset names (only reachable from an old
+persisted state) shows the dot and no checked item. "N need you · M blocked" sits
+under the Tickets header on All when a count is above zero and applies Needs
+attention. Presets affect Tickets only: `state.planning` now always carries live
+and archived sessions and the Planning pane filters archived ones with its toggle.
+Pending drafts always show; accepted ones sit behind an "N accepted" button on the
+session row (its own tab stop, outside the tree's roving tabindex), and a search
+that matches an accepted draft reveals its session's accepted drafts. Collapsed
+panes and the archived toggle are pure view state kept in the webview state API
+(`view` beside the snapshot) and never posted.
+END_DOC_BLOCK: [@ui:SIDEBAR-PANES]

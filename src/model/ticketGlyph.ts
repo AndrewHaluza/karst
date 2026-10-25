@@ -1,5 +1,5 @@
 import type { TicketWithStages } from '../store/tickets.js';
-import { STAGE_KEYS, type StageStatus, type AgentState } from './types.js';
+import { ALL_STAGE_KEYS, type StageStatus, type AgentState } from './types.js';
 import { needsConfirm } from '../workflow/graph.js';
 import { glyphFor, type Glyph } from './glyph.js';
 
@@ -46,6 +46,9 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
  */
 export function needsUser(t: TicketWithStages): boolean {
   if (t.pausedAt != null) return false;
+  // A closed ticket is finished by an operator; a stale waiting agent or an old
+  // block on an earlier stage must not keep asking for the user.
+  if (t.stageCurrent === 'closed') return false;
 
   // A parent held by its own sub-tasks is NOT parked on the user: the wait is
   // on a machine or another ticket (design NDL-70 §5). This has to be checked
@@ -53,7 +56,7 @@ export function needsUser(t: TicketWithStages): boolean {
   // (`waiting`) while its sub-tasks finish is exactly the state this block
   // describes — and it must never read as "Needs you". A `subtask-integration-
   // conflict`, by contrast, DOES need a human and keeps the amber reading below.
-  const currentStage = STAGE_KEYS.find((k) => k === t.stageCurrent);
+  const currentStage = ALL_STAGE_KEYS.find((k) => k === t.stageCurrent);
   if (currentStage !== undefined) {
     const row = t.stages.find((s) => s.stageKey === currentStage);
     if (row?.blockedKind === 'awaiting-subtask') return false;
@@ -79,7 +82,7 @@ export function needsUser(t: TicketWithStages): boolean {
   // `stageCurrent` is a stored string: a row from an older schema (or a stage
   // since removed from the graph) is not a StageKey and must not be treated as
   // one — the same narrowing stageBadge does.
-  const stage = STAGE_KEYS.find((k) => k === t.stageCurrent);
+  const stage = ALL_STAGE_KEYS.find((k) => k === t.stageCurrent);
   if (stage === undefined) return false;
 
   if (needsConfirm(stage) && currentStageStatus(t) === 'pending') return true;
@@ -120,7 +123,7 @@ export function needsUser(t: TicketWithStages): boolean {
  * and so cannot know that a parked confirm stage is waiting on a human.
  */
 export function ticketGlyph(t: TicketWithStages): Glyph {
-  if (t.pausedAt != null) return 'gray';
+  if (t.pausedAt != null || t.stageCurrent === 'closed') return 'gray';
   if (needsUser(t)) return 'amber';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the

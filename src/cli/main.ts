@@ -24,6 +24,7 @@ import { runServersCommand } from './serversCommand.js';
 import { DoctorExit, parseDoctorArgs, runDoctorCommand } from './doctorCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
 import { runPauseCommand } from './pauseCommand.js';
+import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
@@ -475,6 +476,23 @@ export function runCli(
     }
   }
 
+  // `karst close <key> --reason …` / `karst reopen <key>` — a human records that a
+  // ticket was resolved outside karst. Refuses inside an agent session: only the
+  // session env's KARST_TICKET counts (never the --ticket claim), and the verb is
+  // dropped from MCP.
+  if (subcommand === 'close' || subcommand === 'reopen') {
+    if (!db) throw new Error('missing --db <path>');
+    const store = openWritableStore(db);
+    try {
+      return runCloseCommand(store, effectiveRest, {
+        sessionKey: env.KARST_TICKET,
+        projectSlug: loadProjectSlug(manifestPath, verbose),
+      });
+    } finally {
+      store.close();
+    }
+  }
+
   // `karst subtask create` (design NDL-70 §7) — a WRITE verb that carves a new
   // sub-task out of the session's OWN ticket. The parent is resolved exactly
   // like `env`/`stage` above (via `--ticket` + `--manifest`); the new ask is
@@ -591,7 +609,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 

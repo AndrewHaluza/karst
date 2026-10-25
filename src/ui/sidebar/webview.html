@@ -1,5 +1,10 @@
 <!--
   Karst ticket-list sidebar webview (§14 redesign). Replaces the native TreeView.
+  The page is the React app in src/ui/sidebar/app/** (bundled to app.webview.js
+  by scripts/build-webview-send.mjs) and injected here by injectSidebarApp in
+  place of the KARST_SIDEBAR_APP marker below; it owns #root. This file keeps
+  the shared runtime (design-system CSS/JS, agent identity, palette) and the
+  view's stylesheet.
   Self-contained (webview CSP forbids external assets). Themed with VS Code's
   `--vscode-*` variables (via the shared design system) so it inherits light/dark.
   Renders from the `state` postMessage the host pushes (state.ts → SidebarState)
@@ -16,7 +21,7 @@
   *{box-sizing:border-box}
   /* The view is an app shell, not a scrolling document: html/body fill the
      view, body is a non-scrolling column, and the ONLY thing that scrolls is
-     the ticket list (UI-R38). The toolbar/search/facets stay pinned — on a
+     the two pane bodies (UI-R38). The toolbar/search stay pinned — on a
      long list they used to scroll away with the rows, leaving the filters
      and controls unreachable at the bottom. */
   body{
@@ -28,6 +33,9 @@
     font-size:var(--k-text-base);
   }
   html,body{height:100%}
+  /* The React mount point adds no box: the toolbar, search and panes stay
+     direct flex children of body, exactly as the page laid them out before. */
+  #root{display:contents}
 
   /* The resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO). VS Code owns the
      sidebar's own border and drag sash, but a theme with a transparent
@@ -52,16 +60,50 @@
     color:var(--k-text-faint)}
   .search-input{width:100%;padding-left:var(--k-space-9)}
 
-  /* facets */
-  .facets{display:flex;gap:var(--k-space-3);flex-wrap:wrap;padding:0 var(--k-space-4) var(--k-space-4);
-    border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
-  .facets .n{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.8}
+  /* panes: Planning and Tickets share the height under the search box. Each
+     header is always visible; each body scrolls on its own. Planning is capped
+     at ~40% while open with content, Tickets takes the rest, and a collapsed
+     pane gives its height to the other. */
+  .panes{flex:1;min-height:0;display:flex;flex-direction:column}
+  .pane{display:flex;flex-direction:column;min-height:0;flex:0 0 auto}
+  .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
+  .pane[data-pane="tickets"]:not([data-collapsed="true"]){flex:1 1 0}
+  .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
+  .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
+  .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
+    min-height:calc(var(--k-space-8) + var(--k-space-2))}
+  .pane-toggle{flex:1;min-width:0;display:flex;align-items:center;gap:var(--k-space-2);background:none;border:0;
+    padding:var(--k-space-2) var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);
+    font-weight:var(--k-weight-semibold);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-align:left}
+  .pane-toggle:focus-visible,.pane-attention:focus-visible,.pt-accepted-toggle:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
+  .pane-chev{display:inline-flex;transition:transform .12s}
+  .pane-toggle[aria-expanded="true"] .pane-chev{transform:rotate(90deg)}
+  .k-empty-hint .k-btn--link{min-height:var(--k-hit-min)}
+  .pane-count{font-family:var(--k-font-mono)}
+  .pane-acts{display:flex;gap:var(--k-space-1);align-items:center}
+  .pane-acts .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
+  .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0}
+  .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .pane-attention{min-height:var(--k-hit-min);display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
+    background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;
+    border-radius:var(--k-radius-md)}
+  .pane-attention:hover{background:var(--vscode-list-hoverBackground)}
+  .filter-menu{position:relative;display:inline-flex}
+  .filter-menu .k-iconbtn{position:relative}
+  .filter-dot{position:absolute;top:var(--k-space-1);right:var(--k-space-1);width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-pill);background:var(--k-attention)}
+  .filter-pop{position:absolute;right:0;top:100%;z-index:var(--k-z-tooltip);min-width:calc(var(--k-space-8) * 7);display:flex;flex-direction:column;padding:var(--k-space-2);
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);
+    border-radius:var(--k-radius-md);box-shadow:var(--k-elev-3)}
+  .filter-pop [role="menuitemradio"]{text-align:left;padding-left:var(--k-space-8);position:relative}
+  .filter-pop [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
+  .pt-accepted-toggle{min-height:var(--k-hit-min);background:none;border:0;padding:0 var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);cursor:pointer;white-space:nowrap}
+  .pt-accepted-toggle:hover{color:var(--k-text)}
 
   /* rows */
   /* flex:1 + min-height:0: the list is the one flex child allowed to shrink
      below its content, which is what makes overflow-y scroll instead of
      growing the body past the viewport. */
-  .list{flex:1;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0}
+  .list{padding:0}
   .ticket{margin:0 var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
   .row{display:flex;align-items:center;gap:var(--k-space-3);
@@ -129,7 +171,7 @@
      on hover — not nested inside this button. Built on `.k-btn--link` (zero
      chrome already) with only layout + colour overridden locally (UI-R07 does
      not restrict colour). */
-  .rowopen{display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
+  .rowopen{min-height:var(--k-hit-min);display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
     text-align:left;color:inherit}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
@@ -230,10 +272,13 @@
       icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
       clips the name text at the row boundary so it never bleeds under the
       actions overlay on narrow rows. */
-  .rowacts{display:flex;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
+  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
-  .row:hover .rowacts{opacity:1;pointer-events:auto}
+  /* display:none until the row is hovered or holds focus: the overlay must not
+     sit over the row's open button in the resting layout (layout-sanity
+     sibling-overlap), and focus-within keeps it keyboard-reachable. */
+  .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* On a row that carries a sub-tree collapse control, the hover strip starts
      one control-width further left. Both live in the row's right-edge slot —
      the strip is absolute, `.subchev` is in flow — so without the shift the
@@ -241,6 +286,14 @@
      collapse control unclickable with a pointer (NDL-86). */
   .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min))}
   .row:hover .stage{opacity:0}
+  /* Cloud-session icon links (arch:CLOUD-01): in flow at the row's right edge,
+     always visible; the absolute hover strip starts that many controls further
+     left (--cloud-n is the session count, stamped on the row) so it never covers them. */
+  .cloudlinks{display:flex;flex:0 0 auto}
+  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * var(--cloud-n,1))}
+  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
+  /* A session with no ticket has no expanded body to carry its actions, so its strip is also keyboard-reachable. */
+  .cloudrow .row:focus-within .rowacts{opacity:1;pointer-events:auto}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
      collapsed hover strip is suppressed and the stage stays the right anchor —
      never two copies of the same quick actions visible at once. */
@@ -337,7 +390,7 @@
   .ctxmenu{position:fixed;z-index:var(--k-z-tooltip);display:none;min-width:calc(var(--k-space-8) * 9);
     padding:var(--k-space-2);border-radius:var(--k-radius-md);
     background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3)}
-  .ctxmenu.open{display:block}
+  .ctxmenu.open{display:block;max-height:calc(var(--k-space-8) * 10);overflow-y:auto}
   .ctxitem{display:flex;width:100%;align-items:center;gap:var(--k-space-3);text-align:left;
     padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer;
     font:inherit;font-size:var(--k-text-base);background:transparent;color:var(--k-text);border:none}
@@ -360,8 +413,6 @@
      a muted draft count; drafts (level 2) a status icon and the title. Icon
      actions show on hover and on focus. Status colour is never alone — the
      word is in each item's aria-label and tooltip (UI-R28). */
-  .pt-sec .pt-sec-acts{margin-left:auto;display:flex;gap:var(--k-space-1);text-transform:none;letter-spacing:0}
-  .pt-sec .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   .ptree{margin:0 var(--k-space-2) var(--k-space-1)}
   .ptree [role="group"]{margin:0;padding:0}
   .pt-row{display:flex;align-items:center;gap:var(--k-space-1);height:calc(var(--k-space-8) + var(--k-space-1));padding:0 var(--k-space-1);
@@ -390,7 +441,7 @@
   .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);min-width:0;
     padding:var(--k-space-1) var(--k-space-1) var(--k-space-2) calc(var(--k-space-1) + var(--k-space-7) * 2);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pt-dep{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
+  .pt-dep{min-height:var(--k-hit-min);display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
     padding:var(--k-space-1) var(--k-space-3);font:inherit;line-height:var(--k-leading-tight);
     color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
     background:transparent;cursor:pointer;overflow-wrap:anywhere;text-align:left;
@@ -448,1020 +499,13 @@
   .hist[aria-expanded="true"] .hist-chev{transform:rotate(90deg)}
 </style>
 
-<div class="toolbar">
-  <button type="button" class="k-iconbtn" data-act="create" aria-label="Create ticket" title="Create ticket"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg></button>
-  <button type="button" class="k-iconbtn" data-act="plan-create" aria-label="Start planning session" title="Start planning session"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7"/><path d="M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3"/><path d="M9.7 17l4.6 0"/></svg></button>
-  <span class="sp"></span>
-  <button type="button" class="k-iconbtn" data-act="open-resources" aria-label="Open resource monitor" title="Open resource monitor"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M13.45 11.55l2.05 -2.05"/><path d="M6.4 20a9 9 0 1 1 11.2 0l-11.2 0"/></svg></button>
-  <button type="button" class="k-iconbtn" data-act="open-token-usage" aria-label="Open token usage" title="Open token usage"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -6"/><path d="M15 9a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -10"/><path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14"/><path d="M4 20h14"/></svg></button>
-  <button type="button" class="k-iconbtn" data-act="open-settings" aria-label="Open settings" title="Open settings"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></svg></button>
-</div>
-
-<div class="search">
-  <svg class="search-icon k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></svg>
-  <input type="text" id="search" class="k-input search-input" aria-label="Search tickets and plans" placeholder="Search tickets and plans…"/>
-</div>
-<div class="facets" id="facets"></div>
-<div class="list" id="list"></div>
-<!-- The shared ticket-actions context window (Edit / Follow Up / Archive).
-     One fixed popup, populated per open, positioned at its trigger — sibling of
-     the scrolling list so it can never be clipped by it. -->
-<div class="ctxmenu" id="ctxMenu" role="menu"></div>
+<div id="root"></div>
 
 <script>
   /*KARST_DS_JS*/
   /*KARST_AGENT_JS*/
 
-  const vscode = acquireVsCodeApi();
-  const post = (m) => vscode.postMessage(m);
-  const el = (id) => document.getElementById(id);
-  const esc = karstEsc;
-
-  // `dotVariant` names a `.k-dot--<variant>` suffix (model/designComponents),
-  // not the facet's own key — "input" (needs you) maps to the shared
-  // "attention" status meaning, "done" to "passed".
-  const FACET_META = [
-    { key:'all', label:'All', dotVariant:null },
-    { key:'running', label:'In progress', dotVariant:'running' },
-    { key:'input', label:'Needs you', dotVariant:'attention' },
-    { key:'failed', label:'Blocked', dotVariant:'failed' },
-    { key:'done', label:'Done', dotVariant:'passed' },
-    { key:'archived', label:'Archived', dotVariant:null },
-  ];
-
-  // Status word for the glyph's role="img" aria-label — colour is never the
-  // only carrier of the ticket's state (UI-R28).
-  const GLYPH_WORD = { gray:'Pending', blue:'Running', amber:'Needs you', green:'Done', red:'Failed' };
-
-  // Current state snapshot + which rows are expanded (kept across re-renders).
-  // `facets` is the multi-select selection (lit chips); `['all']` = no filter.
-  // The All view renders `sections` (Current / Recently Done / Older
-  // Completed); the Done facet renders `done`; every other facet renders the
-  // flat `rows`. A pre-upgrade snapshot has no `sections` — `renderAll` falls
-  // back to `rows` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],awaitingReview:[],recentlyDone:[],olderDone:[]}, done:[], rows:[], planning:[] };
-  const open = new Set();
-  // Rows whose sub-tree the user has COLLAPSED (the spec's "collapsible,
-  // recursive" sidebar). View state, like `open` — the host neither knows nor
-  // persists it, and it resets on reload. A collapsed row hides its whole
-  // descendant sub-tree; the row itself stays visible as the re-expand control.
-  const collapsedSubtrees = new Set();
-  // The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
-  // `ui/sidebar/items.ts` (which sets it to the writer's
-  // `MAX_SUBTASK_DEPTH`). The host clamps `subtaskDepth` to this, so this
-  // constant only bounds the CSS class; keep the two in step.
-  const MAX_SUBTASK_INDENT = 4;
-  // The shared ticket-actions context window (Edit / Follow Up / Archive).
-  // `menuTicket` is the ticket whose "⋯" is open — ONE shared fixed popup, so
-  // only one row's menu can be open at a time (unlike `open`, which allows
-  // several rows expanded at once). The trigger element is kept so the window
-  // can be positioned at it and focus returned on close. View state, like
-  // `open` — the host neither knows nor persists it.
-  let menuTicket = null;
-  let menuTrigger = null;
-  // The Older Completed disclosure is VIEW state, never ticket data: the host
-  // neither knows nor persists it. `histUser` separates an explicit click
-  // (which sticks across searches and re-renders) from the automatic search
-  // reveal (which must reset to the default collapsed state when the query
-  // clears — the doc's "unless the user explicitly expanded history" rule).
-  let histOpen = false;
-  let histUser = false;
-
-  // Row/toolbar glyphs come from the injected Tabler catalog (docs/ui/ICONS.md
-  // §3): `karstIcon(name, 13)` renders the shared 24-viewBox stroke treatment
-  // at row size. `mark` is the one exception — the karst brand mark, a
-  // product-identity glyph that Tabler cannot express (§5).
-  const chev = karstIcon('chevron-right', 12);
-  const ic = {
-    dash: karstIcon('layout-dashboard', 13),
-    sess: karstIcon('terminal-2', 13),
-    spin: karstIcon('player-play', 13),
-    edit: karstIcon('pencil', 13),
-    arch: karstIcon('archive', 13),
-    unarch: karstIcon('history', 13),
-    more: karstIcon('dots', 13),
-    // Follow-up uses Tabler's corner-down-right — the "carry on from here"
-    // arrow — per the follow-up ticket (869ehda7y-fu1).
-    follow: karstIcon('corner-down-right', 13),
-    // The karst mark (approved #35 silhouette, monochrome for status tint) —
-    // the status-tinted row marker.
-    mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"/><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"/><circle cx="106.5" cy="111.5" r="26.5"/></svg>',
-    del: karstIcon('trash', 13),
-    check: karstIcon('check', 13),
-    x: karstIcon('x', 13),
-    plus: karstIcon('plus', 13),
-    fold: karstIcon('chevrons-up', 13),
-    // The sub-tree collapse control's own identity (ICONS-02): a tree glyph
-    // when the descendants are shown, the flat-list glyph when they are hidden
-    // — deliberately NOT the row's `chevron-right`, so the two disclosures
-    // never share a glyph language.
-    subTree: karstIcon('list-tree', 13),
-    subFlat: karstIcon('layout-list', 13),
-  };
-
-  function renderFacets() {
-    // Multi-select: any number of status chips can be lit at once (their union).
-    // `all` is lit only when nothing else is; `aria-pressed` mirrors the toggle
-    // AND drives the chip's "on" look via the primitive's own
-    // `[aria-pressed="true"]` rule — no local `.on` class needed anymore.
-    const sel = new Set(state.facets || ['all']);
-    el('facets').innerHTML = FACET_META.map((f) => {
-      const n = state.counts[f.key] ?? 0;
-      const pressed = sel.has(f.key);
-      const dot = f.dotVariant
-        ? `<span class="k-dot k-dot--${f.dotVariant}" aria-hidden="true"></span>`
-        : '';
-      return `<button type="button" class="k-chip" data-facet="${f.key}" aria-pressed="${pressed}">${dot}${esc(f.label)} <span class="n">${n}</span></button>`;
-    }).join('');
-  }
-
-  // Compact "4m ago" / "2h ago" from an ISO timestamp, against the viewer's
-  // clock (the host stores UTC; formatting here keeps the model host-clock-free).
-  function relTime(iso) {
-    if (!iso) return '';
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return '';
-    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-    if (s < 45) return 'just now';
-    const m = Math.round(s / 60);
-    if (m < 60) return m + 'm ago';
-    const h = Math.round(m / 60);
-    if (h < 24) return h + 'h ago';
-    return Math.round(h / 24) + 'd ago';
-  }
-
-  // The activity line is retired with the mini-dashboard: its "what is the
-  // session doing" content moved into the host-derived peek summary (peek.ts),
-  // which also carries the next action. `relTime` stays — the Recently Done
-  // rows still show "4m ago".
-
-  function metaLine(row) {
-    const ports = (row.servers || []).map((s) => s.port).filter(Boolean);
-    const repos = (row.worktrees || []).map((w) => w.repoDisplay || w.repo).filter(Boolean);
-    const prs = (row.prs || []).map((p) => p.number).filter((n) => n != null);
-    const tokens = [];
-    if (row.model) tokens.push(esc(row.model));
-    if (repos.length) tokens.push(esc(repos.join('+')));
-    if (ports.length) tokens.push(esc(ports.map((p) => ':' + p).join(', ')));
-    if (prs.length) tokens.push(esc(prs.map((n) => 'PR #' + n).join(', ')));
-    return tokens.join(' · ');
-  }
-
-  // The expanded mini-dashboard's quick-action toolbar — the SAME actions the
-  // collapsed hover strip shows, moved into the peek head row's top-right (the
-  // prototype's peek-tools) so expanding never duplicates them (the hover strip
-  // is not rendered while the row is open). Spin is ticket-level and shown for
-  // every row; the host command owns the real capability/availability rules.
-  // The "⋯" is a trigger for the shared ticket context window (Edit / Follow
-  // Up / Archive) — a positioned popup, never the full-width in-flow menu the
-  // follow-up retired.
-  function toolsHtml(row, sessVerb, menuOpen) {
-    return `<div class="peek-tools">`
-      + `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
-      + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
-      + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`
-      + ctxMenuTriggerHtml(row, menuOpen)
-      + `</div>`;
-  }
-
-  // The shared context window trigger (⋯): a real button with menu semantics
-  // (aria-haspopup + aria-expanded). Used BOTH in the collapsed hover strip
-  // (which the follow-up reverted to its prior behavior — Spin / Terminal /
-  // ⋯, with Edit / Archive back inside the window alongside the new
-  // Create follow-up) and in the expanded dashbar.
-  function ctxMenuTriggerHtml(row, menuOpen) {
-    return `<button type="button" class="k-iconbtn" data-menu="${row.ticketId}" aria-expanded="${menuOpen}" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions">${ic.more}</button>`;
-  }
-
-  // The shared ticket-actions context window: Edit / Create follow-up /
-  // Archive, deliberately secondary to the toolbar's Spin / Terminal /
-  // Dashboard. One fixed popup (never a full-width in-flow block) positioned at
-  // its trigger when opened, so the list's scroll container can never clip it.
-  // Create follow-up uses the corner-down-right icon; Archive keeps its danger
-  // treatment. The follow-up put ALL THREE in the "⋯" submenu ("both 'Archive'
-  // and 'Follow Up' should be accessible via the '...' submenu") — the host
-  // command guards the done-only rule itself, so the webview never has to
-  // second-guess it.
-  function ctxMenuItemsHtml(row) {
-    return `<button type="button" class="ctxitem" data-act="edit" data-id="${row.ticketId}" role="menuitem" title="Edit ticket">${ic.edit} Edit ticket</button>`
-      + `<button type="button" class="ctxitem" data-act="create-follow-up" data-id="${row.ticketId}" role="menuitem" title="Create a follow-up ticket">${ic.follow} Create follow-up</button>`
-      + `<button type="button" class="ctxitem danger" data-act="archive" data-id="${row.ticketId}" role="menuitem" title="Archive ticket, hiding it from the active list">${ic.arch} Archive</button>`;
-  }
-
-  // Open the shared context window at the given trigger. Rebuilds the items for
-  // that ticket, positions the fixed window at the trigger (flipping above when
-  // it would overflow the bottom), and hands focus to the first item.
-  function openCtxMenu(trigger, row) {
-    openMenuAt(trigger, ctxMenuItemsHtml(row), row.ticketId);
-  }
-
-  // Shared by the ticket ⋯ trigger and the Planning tree's context menu.
-  // `owner` is what the window is open for (a ticket id or a tree node).
-  function openMenuAt(trigger, itemsHtml, owner) {
-    const menu = el('ctxMenu');
-    if (!menu) return;
-    closeCtxMenu(false);
-    menuTicket = owner;
-    menuTrigger = trigger;
-    menu.innerHTML = itemsHtml;
-    menu.classList.add('open');
-    if (trigger.hasAttribute('aria-haspopup')) trigger.setAttribute('aria-expanded', 'true');
-    const r = trigger.getBoundingClientRect();
-    const w = menu.offsetWidth || 176;
-    const left = Math.min(r.left, Math.max(8, window.innerWidth - w - 8));
-    const bottom = window.innerHeight - r.bottom;
-    menu.style.left = left + 'px';
-    menu.style.top = (bottom > 240 ? r.bottom + 4 : Math.max(8, r.top - menu.offsetHeight - 4)) + 'px';
-    const first = menu.querySelector('.ctxitem');
-    if (first && typeof first.focus === 'function') first.focus();
-  }
-
-  function closeCtxMenu(returnFocus) {
-    const menu = el('ctxMenu');
-    if (!menu || !menu.classList.contains('open')) return;
-    menu.classList.remove('open');
-    menu.innerHTML = '';
-    if (menuTrigger) {
-      if (menuTrigger.hasAttribute('aria-haspopup')) menuTrigger.setAttribute('aria-expanded', 'false');
-      if (returnFocus && typeof menuTrigger.focus === 'function') menuTrigger.focus();
-    }
-    menuTicket = null;
-    menuTrigger = null;
-  }
-
-  // The contextual primary next action (peek.ts) — a LABELED primary button,
-  // pinned bottom-right in the mini-dashboard's actions bar (distinct from the
-  // icon-only top-right tools). `resolve-conflicts` carries the conflicted repo
-  // so the host can re-verify against the store before opening a session.
-  function nextCtaHtml(next, row) {
-    switch (next.kind) {
-      case 'open-session':
-        return `<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
-      case 'create-follow-up':
-        return `<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
-      case 'send-ci-failure':
-        return `<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
-      case 'resolve-conflicts':
-        return `<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="${row.ticketId}" data-repo="${esc(next.repo)}" title="${esc(next.label)}">${esc(next.label)}</button>`;
-    }
-  }
-
-  // The state-specific context rows (prototype v9): who is working (agent
-  // identity), how far a running gate is (progress), and the per-repo landing
-  // state (PR rows). Each renders only when the host-derived peek carries it.
-  function peekAgentHtml(agent) {
-    if (!agent || !agent.provider) return '';
-    // Compact variant of the shared [icon] Core · Model identity (UI-R10c).
-    return `<div class="peek-agent">${agentIdentityHtml(agent.provider, agent.model, true)}</div>`;
-  }
-
-  function peekProgressHtml(progress) {
-    if (!progress || progress.total <= 0) return '';
-    const pct = Math.min(100, Math.round((progress.passed / progress.total) * 100));
-    return `<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="${progress.passed}" aria-valuemin="0" aria-valuemax="${progress.total}"><span style="width:${pct}%"></span></div>`;
-  }
-
-  // Captured-artifact count (artifact store): a chip that opens the dashboard,
-  // where the Artifacts panel lists them. Absent at zero.
-  function peekArtifactsHtml(row) {
-    if (!row.artifacts) return '';
-    const n = Number(row.artifacts);
-    return `<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="${Number(row.ticketId)}"`
-      + ` title="Open the dashboard to browse captured artifacts">${n} artifact${n === 1 ? '' : 's'}</button>`;
-  }
-
-  function peekReposHtml(repos) {
-    if (!repos || !repos.length) return '';
-    return `<div class="peek-repos">`
-      + repos.map((r) => {
-          const pr = r.number != null ? `#${r.number}` : '';
-          const state = r.state === 'conflict'
-            ? `<span class="peek-repo-state conflict">! Conflicts</span>`
-            : `<span class="peek-repo-state ready">✓ Ready</span>`;
-          return `<div class="peek-repo">`
-            + (pr ? `<span class="peek-repo-pr">${esc(pr)}</span>` : '')
-            + `<span class="peek-repo-name">${esc(r.repo)}</span>${state}</div>`;
-        }).join('')
-      + `</div>`;
-  }
-
-  // One ticket row. `compact` switches to the completed-row treatment: check
-  // indicator instead of the status glyph, muted title, no stage pill (the
-  // section context already says "done"), and — for Recently Done only —
-  // the relative completion time. The expanded body, the hover actions and
-  // the open/active marks are identical either way: selecting a completed
-  // ticket behaves exactly like selecting a Current one.
-  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
-
-  function rowHtml(row, opts) {
-    opts = opts || {};
-    const compact = !!opts.compact;
-    const isOpen = open.has(row.ticketId);
-    const menuOpen = menuTicket === row.ticketId;
-    // A restored snapshot (vscode.getState) can predate stageLabel, so fall
-    // back rather than render an empty pill on the first paint after upgrade.
-    const stageText = row.stageLabel || row.description || '—';
-    // The chip states the STAGE (colored by the shared stg-* token, matching
-    // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
-    // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
-    // neutral class rather than render blank.
-    // `autostart` is host-derived (UI-R31): a sub-task waiting at scope for
-    // the autostart sweep reads "Queued", one being started reads "Starting".
-    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
-    const stageClass = row.stageClass || 'stg-unknown';
-    // The session button states which of the two it does — "Continue" a
-    // captured interactive session, or "Start" a fresh one. A pre-upgrade
-    // snapshot has no sessionAction, so fall back to "Start" rather than an
-    // empty verb. The single, always-visible returning-user entry point.
-    const sessVerb = (row.sessionAction && row.sessionAction.label) || 'Start';
-    const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
-    const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
-
-    const acts = row.archived
-      ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
-        + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
-      // The collapsed hover strip reverted to its PRIOR behavior: Spin /
-      // Terminal + the ⋯ context-window trigger. Edit / Archive live inside
-      // that window (secondary), Dashboard belongs to the expanded toolbar —
-      // the follow-up took it out of the hover strip again.
-      : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
-        + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
-        + ctxMenuTriggerHtml(row, menuOpen);
-    // The hover strip is only rendered while the row is COLLAPSED — expanding
-    // moves the same quick actions into the mini-dashboard's head-row tools, so
-    // the two are never visible at once (no duplicated quick actions).
-    const hoverStrip = isOpen ? '' : `<span class="rowacts">${acts}</span>`;
-
-    // The stage-aware mini-dashboard content (peek.ts): head row (strongest
-    // summary + the quick-action tools), the state-specific context (agent /
-    // progress / landing repos), the meta line, and the pinned bottom-right
-    // contextual CTA. Archived rows keep their restore/delete pair instead. A
-    // pre-upgrade snapshot has no peek and renders the plain meta only.
-    const peek = row.peek;
-    const meta = metaLine(row);
-    const metaHtml = meta ? `<div class="meta">${meta}</div>` : '';
-    const peekHtml = !row.archived && peek
-      ? `<div class="peek">`
-          + `<div class="peek-head">`
-            + `<div class="peek-copy">`
-              + `<div class="peek-title">${esc(peek.title)}</div>`
-              + (peek.detail ? `<div class="peek-detail">${esc(peek.detail)}</div>` : '')
-            + `</div>`
-            + toolsHtml(row, sessVerb, menuOpen)
-          + `</div>`
-          + peekProgressHtml(peek.progress)
-          + `<div class="peek-sep"></div>`
-          + peekAgentHtml(peek.agent)
-          + peekReposHtml(peek.repos)
-          + peekArtifactsHtml(row)
-          + metaHtml
-        + `</div>`
-        + (peek.next ? `<div class="peek-actions">${nextCtaHtml(peek.next, row)}</div>` : '')
-      : '';
-    const bar = row.archived
-      ? `<div class="actions">`
-          + `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
-          + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
-        + `</div>`
-      : '';
-
-    // Decorative content of the row's main click target — never another
-    // interactive control (UI-R09; see the `.rowopen` comment in <style>).
-    // Completed rows swap the karst mark + status dot for a check-in-ring
-    // (aria-hidden — the section header carries the "done" meaning) and
-    // drop the stage pill; the check SHAPE is the non-color carrier
-    // (UI-R28) and `g-<glyph>` keeps the shared status color.
-    const glyphHtml = compact
-      ? `<span class="glyph chk g-${esc(row.glyph)}" aria-hidden="true">${karstIcon('circle-check', 14)}</span>`
-      : `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`;
-    const rowContent = glyphHtml
-      + `<span class="k-id" title="Ticket ${esc(row.idLabel)}">${esc(row.idLabel)}</span>`
-      + `<span class="name">${esc(row.label)}</span>`
-      + ((row.blockedBy || []).length ? `<span class="k-chip" title="Blocked by ${(row.blockedBy || []).map(esc).join(', ')}">Blocked by ${(row.blockedBy || []).map(esc).join(', ')}</span>` : '')
-      + (row.subtaskParentKey && !row.subtaskDepth
-        ? `<span class="parentref subtaskref" title="Sub-task of ${esc(row.subtaskParentKey)}">⊂ ${esc(row.subtaskParentKey)}</span>`
-        : (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : ''))
-      + (compact
-        ? (opts.time ? `<span class="time">${esc(relTime(row.lastActiveAt))}</span>` : '')
-        : `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`);
-    // Archived tickets have no dashboard action, so the wrapper is a plain,
-    // non-interactive span rather than a button with nothing to do.
-    const openControl = row.archived
-      ? `<span class="rowopen">${rowContent}</span>`
-      : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
-
-    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, MAX_SUBTASK_INDENT)}` : '';
-    // The collapse control for a row that HAS direct sub-tasks: a real button
-    // (UI-R09) that hides the whole descendant sub-tree. Its own state is
-    // `aria-expanded` (UI-R09b), never a button press state on the row. A leaf
-    // (childCount 0) renders no control — there is nothing to collapse.
-    const canCollapse = (row.subtaskChildCount || 0) > 0;
-    const collapsed = collapsedSubtrees.has(row.ticketId);
-    const collapseLabel = collapsed
-      ? `Show ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`
-      : `Hide ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`;
-    const collapseControl = canCollapse
-      ? `<button type="button" class="k-iconbtn subchev" data-collapse="${row.ticketId}" aria-expanded="${!collapsed}" aria-label="${collapseLabel}" title="${collapseLabel}">${collapsed ? ic.subFlat : ic.subTree}</button>`
-      : '';
-    // Tree guides (decorative, aria-hidden): one span per ancestor indent slot,
-    // painted CSS-only over the row's indented padding. `subtaskGuides` is the
-    // host-stamped "this slot continues below" flag; the innermost slot is this
-    // row's own tee (more siblings follow) or elbow (last child). One span is
-    // always emitted per slot — even an off slot keeps its nth-child position.
-    const guidesHtml = row.subtaskDepth
-      ? `<span class="guides" aria-hidden="true">${(row.subtaskGuides || []).map((cont, i, all) =>
-          i === all.length - 1
-            ? `<span class="guide ${row.subtaskIsLast ? 'guide--elbow' : 'guide--tee'}"></span>`
-            : `<span class="guide ${cont ? 'guide--line' : 'guide--off'}"></span>`,
-        ).join('')}</span>`
-      : '';
-    return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}${nestClass}" data-id="${row.ticketId}">`
-      + `<div class="row">`
-      + guidesHtml
-      + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
-      + openControl
-      + collapseControl
-      + hoverStrip
-      + `</div>`
-      + `<div class="body">`
-      + (() => { const b = row.blocker; if (!b) return '';
-          // Only the failure REASON is new — the status ("failed") is already the
-          // row's left glyph color, so we never repeat it here.
-          const txt = b.reason ? esc(b.reason) : '';
-          const att = b.attempt ? `<span class="att">attempt ${b.attempt}</span>` : '';
-          if (!txt && !att) return '';
-          return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
-      + peekHtml
-      + (row.archived ? metaHtml : '')
-      + bar
-      + `</div></div>`;
-  }
-
-  // Lightweight section header: "CURRENT · 7" (uppercased + letter-spaced in
-  // CSS). The count is what is rendered BELOW it — the host already filtered
-  // each section by the query, so the header never promises hidden rows.
-  function secHtml(name, count) {
-    return `<div class="sec" role="presentation"><span class="sec-name">${esc(name)}</span><span class="sec-n">· ${count}</span></div>`;
-  }
-
-  // The Older Completed disclosure. The whole row is the button (UI-R09); the
-  // chevron rotates to ⌄ when open (a separate state model from the ticket
-  // chevrons — it controls only this section). `aria-controls` names the
-  // expanded list only while it exists. One label — the count — with no
-  // trailing tag: the ghost bar's own centering is the show-more affordance.
-  function histToggle(expanded, n) {
-    return `<button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="${expanded}"${expanded ? ' aria-controls="histlist"' : ''}><span class="hist-chev">${chev}</span><span>${n} more completed</span></button>`;
-  }
-
-  function emptyHtml(view) {
-    if (state.filter) return '<div class="k-empty"><div class="k-empty-title">No tickets match</div></div>';
-    if (view === 'archived') return '<div class="k-empty"><div class="k-empty-title">No archived tickets</div></div>';
-    if (view === 'done') return '<div class="k-empty"><div class="k-empty-title">No done tickets</div></div>';
-    return '<div class="k-empty"><div class="k-empty-title">No tickets yet</div>'
-      + '<div class="k-empty-hint"><button type="button" class="k-btn k-btn--link" data-act="create">Create ticket</button></div></div>';
-  }
-
-  // Rows to RENDER given `collapsedSubtrees`: a row is dropped when a strict
-  // ancestor is collapsed. Mirrors `visibleTicketRows` in ui/sidebar/items.ts
-  // (the unit-tested spec) over the host-stamped `subtaskDepth`.
-  function visibleRows(rows) {
-    if (collapsedSubtrees.size === 0) return rows;
-    const out = [];
-    const ancestors = [];
-    for (const row of rows) {
-      const depth = row.subtaskDepth || 0;
-      ancestors.length = depth;
-      ancestors[depth] = row.ticketId;
-      let hidden = false;
-      for (let d = 0; d < depth; d += 1) {
-        if (ancestors[d] !== undefined && collapsedSubtrees.has(ancestors[d])) { hidden = true; break; }
-      }
-      if (!hidden) out.push(row);
-    }
-    return out;
-  }
-
-  // The All view: Current (full treatment, canonical order) → Recently Done
-  // (≤3, compact) → Older Completed behind the disclosure. Empty sections are
-  // omitted entirely (a list with no Current tickets starts at Recently Done
-  // rather than promoting history into primary weight), and the section
-  // headers render only where their section does.
-  function renderAll(L) {
-    const cur = visibleRows((state.sections && state.sections.current) || state.rows || []);
-    const awaiting = visibleRows((state.sections && state.sections.awaitingReview) || []);
-    const recent = visibleRows((state.sections && state.sections.recentlyDone) || []);
-    const older = visibleRows((state.sections && state.sections.olderDone) || []);
-    const plans = state.planning || [];
-    if (!plans.length && !cur.length && !awaiting.length && !recent.length && !older.length) {
-      L.innerHTML = emptyHtml('');
-      return;
-    }
-    const q = (state.filter || '').trim();
-    // Auto-reveal: a query that matches Older Completed expands the section so
-    // the match is visible, but that is NOT the user's explicit choice —
-    // clearing the search restores the default collapsed state (histUser).
-    const expanded = histUser ? histOpen : (q !== '' && older.length > 0);
-    const html = [];
-    if (plans.length) html.push(planTreeHtml(plans));
-    if (cur.length) {
-      html.push(secHtml('Current', cur.length));
-      html.push(cur.map((r) => rowHtml(r, {})).join(''));
-    }
-    if (awaiting.length) {
-      html.push(secHtml('Awaiting review', awaiting.length));
-      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
-    }
-    if (recent.length) {
-      html.push(secHtml('Recently done', recent.length));
-      html.push(recent.map((r) => rowHtml(r, { compact: true, time: true })).join(''));
-    }
-    if (older.length) {
-      html.push(histToggle(expanded, older.length));
-      if (expanded) {
-        html.push(`<div class="histlist" id="histlist">${older.map((r) => rowHtml(r, { compact: true, older: true })).join('')}</div>`);
-      }
-    }
-    L.innerHTML = html.join('');
-    afterPlanRender();
-  }
-
-  // ---- the Planning tree (VS Code TreeView pattern) ----
-  // Sessions are level-1 treeitems, their drafts level-2. One roving tabindex
-  // (planFocus) and the per-session expanded choice (planExpanded) are pure
-  // view state: they survive re-renders and never post. A session with
-  // pending drafts starts expanded until the user chooses otherwise.
-  const planExpanded = new Map();
-  let planFocus = null;
-
-  const pendingOf = (p) => (p.proposals || []).filter((d) => d.status !== 'accepted');
-
-  // Session status, precedence yellow > blue > green > grey. --k-failed is
-  // reserved: no state maps to it yet.
-  function planStatus(p) {
-    const drafts = p.proposals || [];
-    if (pendingOf(p).length) return { tone: 'attention', word: 'needs review' };
-    if (p.live) return { tone: 'running', word: 'terminal live' };
-    if (p.status === 'filed') return { tone: 'passed', word: 'filed' };
-    if (drafts.length) return { tone: 'passed', word: 'all drafts accepted' };
-    return { tone: 'pending', word: 'terminal not live' };
-  }
-
-  function planIsOpen(p) {
-    return planExpanded.has(p.sessionId) ? planExpanded.get(p.sessionId) : pendingOf(p).length > 0;
-  }
-
-  // An icon action. `tabindex=-1`: the treeitem owns the tab stop; keyboard
-  // users reach every action through Enter and Shift+F10. `data-label` is the
-  // context-menu wording.
-  function planBtn(attrs, label, aria, icon) {
-    return `<button type="button" class="k-iconbtn" tabindex="-1" ${attrs} data-label="${esc(label)}" aria-label="${aria}" title="${aria}">${icon}</button>`;
-  }
-
-  function planTreeHtml(plans) {
-    const head = `<div class="sec pt-sec" role="presentation"><span class="sec-name">Planning</span><span class="sec-n">· ${plans.length}</span>`
-      + `<span class="pt-sec-acts">`
-      + `<button type="button" class="k-iconbtn" data-act="plan-create" aria-label="Start planning session" title="Start planning session">${ic.plus}</button>`
-      + `<button type="button" class="k-iconbtn" data-plan-collapse-all="1" aria-label="Collapse all planning sessions" title="Collapse all">${ic.fold}</button>`
-      + `</span></div>`;
-    return head + `<div class="ptree" role="tree" aria-label="Planning sessions">${plans.map(planSessionHtml).join('')}</div>`;
-  }
-
-  function planSessionHtml(p) {
-    const drafts = p.proposals || [];
-    const st = planStatus(p);
-    const open = planIsOpen(p);
-    const agent = agentLabel(p.agent.provider) + (p.agent.model ? ` · ${p.agent.model}` : '');
-    const n = drafts.length === 1 ? '1 draft' : `${drafts.length} drafts`;
-    // The host-built `P<id>` the terminal tab carries, so a session is the same
-    // identity in the sidebar and in the terminal list.
-    const token = p.idLabel;
-    const label = esc(`${token} ${p.title}, ${st.word}, ${agent}, ${n}`);
-    const t = esc(p.title);
-    const shown = `${token} ${t}`;
-    const node = `s${p.sessionId}`;
-    const expanded = drafts.length ? ` aria-expanded="${open}"` : '';
-    const side = p.status === 'archived'
-      ? planBtn(`data-act="plan-unarchive" data-plan="${p.sessionId}"`, 'Unarchive', `Unarchive ${t}`, ic.unarch)
-      : planBtn(`data-act="plan-archive" data-plan="${p.sessionId}"`, 'Archive', `Archive ${t}`, ic.arch);
-    return `<div role="treeitem" aria-level="1" data-node="${node}" tabindex="-1"${expanded} aria-label="${label}">`
-      + `<div class="pt-row" title="${label}">`
-      + `<span class="pt-twistie${drafts.length ? '' : ' leaf'}" data-plan-toggle="${p.sessionId}" data-expanded="${open}" aria-hidden="true">${chev}</span>`
-      + `<span class="pt-dot pt-dot--${st.tone}" aria-hidden="true"></span>`
-      + `<span class="pt-label">${shown}</span>`
-      + (drafts.length ? `<span class="pt-count" aria-hidden="true">${drafts.length}</span>` : '')
-      + `<span class="pt-actions">`
-      + planBtn(`data-act="plan-open" data-plan="${p.sessionId}" data-primary="1"`, 'Open terminal', `Open terminal: ${t}`, ic.sess)
-      + side
-      + `</span></div>`
-      + (drafts.length && open ? `<div role="group">${drafts.map(planDraftHtml).join('')}</div>` : '')
-      + `</div>`;
-  }
-
-  // A draft: its host-built `D<id>` (the planning_proposals row id agents
-  // refer to) is shown before the title. Pending ones carry Approve (the prefilled ticket
-  // form) / Discard; accepted ones stay, struck through, linked to the ticket
-  // they became.
-  // One chip per dependency: a status marker (the shared g-* tint, never colour
-  // alone — the visible text states the kind) + the identifier, which is the
-  // link (UI-R09c). Ticket/done chips open the dashboard; a draft chip focuses
-  // its target card (`data-dep-draft`, handled below).
-  function depChip(x) {
-    const g = GLYPH_WORD[x.glyph] ? x.glyph : 'gray';
-    const dot = `<span class="pt-dep-dot g-${g}" aria-hidden="true"></span>`;
-    const id = esc(x.label);
-    const tl = esc(x.ticketLabel);
-    let text, name, attrs;
-    if (x.kind === 'draft') {
-      text = id; name = `${id}, draft pending`; attrs = `data-dep-draft="${Number(x.id)}"`;
-    } else {
-      const stage = x.kind === 'ticket' && x.stage ? ` · ${esc(x.stage)}` : '';
-      text = `${id}→${tl}${stage}`;
-      name = x.kind === 'done' ? `${id}, ticket ${tl} done` : `${id}, ticket ${tl} in ${esc(x.stage || 'progress')}`;
-      attrs = `data-act="open-dashboard" data-id="${Number(x.ticketId)}"`;
-    }
-    return `<button type="button" class="pt-dep" tabindex="-1" ${attrs} aria-label="${name}">${dot}<span>${text}</span></button>`;
-  }
-  function planDeps(d) {
-    const deps = d.dependsOnStatus || [];
-    if (!deps.length) return '';
-    return `<div class="pt-deps-row"><span>needs</span>${deps.map(depChip).join('')}</div>`;
-  }
-
-  // A dependency the host pruned because its target was discarded: the card
-  // must show the edge was lost, not fall silent (criterion 5). Pending only.
-  function planDropped(d) {
-    const dropped = d.droppedLabels || [];
-    if (!dropped.length) return '';
-    const ids = dropped.join(', ');
-    const text = ids + (dropped.length === 1 ? ' was discarded' : ' were discarded');
-    return `<span class="pt-deps pt-deps--warn" title="${esc(text)}">${esc(text)}</span>`;
-  }
-
-  // Host warnings on the draft's constraints (unknown key/commit, no design rule
-  // on prompt-sensitive code). Pending only; the full text is the tooltip.
-  function planWarnings(d) {
-    const ws = (d.warnings || []).map((w) => String(w));
-    if (!ws.length) return '';
-    const text = ws.join('; ');
-    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
-    return `<span class="pt-deps pt-deps--warn pt-cwarn" title="${esc(text)}">${esc(label)}</span>`;
-  }
-
-  function planDraftHtml(d) {
-    const t = esc(d.title);
-    const id = Number(d.id);
-    const node = `d${id}`;
-    if (d.status === 'accepted') {
-      const tid = Number(d.ticketId);
-      const has = d.ticketId != null && Number.isFinite(tid);
-      const label = esc(has ? `${d.idLabel} ${d.title}, accepted as ticket ${d.ticketIdLabel}` : `${d.idLabel} ${d.title}, accepted`);
-      return `<div role="treeitem" aria-level="2" class="pt-l2 pt-accepted" data-node="${node}" tabindex="-1" aria-label="${label}">`
-        + `<div class="pt-row" title="${label}">`
-        + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
-        + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
-        + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket ${esc(d.ticketIdLabel)}" aria-label="Open ticket ${esc(d.ticketIdLabel)}" title="Open ticket ${esc(d.ticketIdLabel)}">${esc(d.ticketIdLabel)}</button>` : '')
-        + `</div>${planDeps(d)}</div>`;
-    }
-    const label = esc(`${d.idLabel} ${d.title}, needs review`);
-    return `<div role="treeitem" aria-level="2" class="pt-l2" data-node="${node}" tabindex="-1" aria-label="${label}">`
-      + `<div class="pt-row" title="${label}">`
-      + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
-      + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
-      + planDropped(d)
-      + planWarnings(d)
-      + `<span class="pt-actions">`
-      + planBtn(`data-act="plan-proposal-review" data-proposal="${id}"`, 'Approve', `Approve draft: ${t}`, ic.check)
-      + planBtn(`data-act="plan-proposal-discard" data-proposal="${id}"`, 'Discard', `Discard draft: ${t}`, ic.x)
-      + `</span></div>${planDeps(d)}</div>`;
-  }
-
-  const treeItems = () => [...document.querySelectorAll('.ptree [role="treeitem"]')];
-  const ownRow = (item) => item.querySelector(':scope > .pt-row');
-  const primaryOf = (item) => ownRow(item).querySelector('[data-primary]');
-
-  // Restore the roving tab stop (and focus, when it was in the tree) after a
-  // full innerHTML re-render.
-  let planHadFocus = false;
-  function afterPlanRender() {
-    const items = treeItems();
-    if (!items.length) return;
-    const target = items.find((i) => i.dataset.node === planFocus) || items[0];
-    target.setAttribute('tabindex', '0');
-    if (planHadFocus) target.focus();
-    planHadFocus = false;
-  }
-  function rerenderKeepingFocus(node) {
-    planFocus = node;
-    planHadFocus = true;
-    renderList();
-  }
-  function focusItem(item) {
-    if (!item) return;
-    for (const i of treeItems()) i.setAttribute('tabindex', '-1');
-    item.setAttribute('tabindex', '0');
-    planFocus = item.dataset.node;
-    item.focus();
-  }
-
-  function sessionOf(item) {
-    const id = Number(item.dataset.node.slice(1));
-    return (state.planning || []).find((p) => p.sessionId === id);
-  }
-  function setExpanded(item, open) {
-    const p = sessionOf(item);
-    if (!p || !(p.proposals || []).length) return;
-    planExpanded.set(p.sessionId, open);
-    rerenderKeepingFocus(item.dataset.node);
-  }
-
-  // The context menu lists every action of the item, in row order, reusing the
-  // shared context window (its items post through the delegated handler).
-  function openPlanMenu(item) {
-    const items = [...ownRow(item).querySelectorAll('[data-label]')].map((b) => {
-      const data = ['act', 'plan', 'proposal', 'open']
-        .filter((k) => b.dataset[k] !== undefined)
-        .map((k) => `data-${k}="${esc(b.dataset[k])}"`).join(' ');
-      const icon = b.querySelector('svg') ? b.querySelector('svg').outerHTML : '';
-      return `<button type="button" class="ctxitem" role="menuitem" ${data}>${icon} ${esc(b.dataset.label)}</button>`;
-    });
-    if (items.length) openMenuAt(item, items.join(''), item.dataset.node);
-  }
-
-  // A draft-dependency chip: reveal the target draft card (expanding its
-  // session first when collapsed) and focus it. Pure view state, never posts.
-  function revealDraft(id) {
-    const node = 'd' + id;
-    if (!document.querySelector(`.ptree [data-node="${node}"]`)) {
-      const owner = (state.planning || []).find((p) => (p.proposals || []).some((d) => Number(d.id) === id));
-      if (!owner) return;
-      planExpanded.set(owner.sessionId, true);
-      renderList();
-    }
-    const target = document.querySelector(`.ptree [data-node="${node}"]`);
-    if (!target) return;
-    focusItem(target);
-    if (target.scrollIntoView) target.scrollIntoView({ block: 'nearest' });
-  }
-
-  document.addEventListener('click', (e) => {
-    const dep = e.target.closest('[data-dep-draft]');
-    if (dep) {
-      e.stopPropagation();
-      revealDraft(Number(dep.dataset.depDraft));
-      return;
-    }
-    const toggle = e.target.closest('[data-plan-toggle]');
-    if (toggle) {
-      e.stopPropagation();
-      setExpanded(toggle.closest('[role="treeitem"]'), toggle.dataset.expanded !== 'true');
-      return;
-    }
-    if (e.target.closest('[data-plan-collapse-all]')) {
-      for (const p of state.planning || []) planExpanded.set(p.sessionId, false);
-      renderList();
-      return;
-    }
-    // A click on the row body (not on one of its controls) is its primary action.
-    const row = e.target.closest('.ptree .pt-row');
-    if (!row || e.target.closest('button')) return;
-    const item = row.parentElement;
-    focusItem(item);
-    const primary = primaryOf(item);
-    if (primary) primary.click();
-  });
-
-  document.addEventListener('contextmenu', (e) => {
-    const item = e.target.closest('.ptree [role="treeitem"]');
-    if (!item) return;
-    e.preventDefault();
-    focusItem(item);
-    openPlanMenu(item);
-  });
-
-  document.addEventListener('keydown', (e) => {
-    const item = e.target;
-    if (!item.matches || !item.matches('.ptree [role="treeitem"]')) return;
-    const items = treeItems();
-    const at = items.indexOf(item);
-    const level = item.getAttribute('aria-level');
-    const exp = item.getAttribute('aria-expanded');
-    let handled = true;
-    if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') openPlanMenu(item);
-    else if (e.key === 'ArrowDown') focusItem(items[at + 1]);
-    else if (e.key === 'ArrowUp') focusItem(items[at - 1]);
-    else if (e.key === 'Home') focusItem(items[0]);
-    else if (e.key === 'End') focusItem(items[items.length - 1]);
-    else if (e.key === 'ArrowRight') {
-      if (exp === 'false') setExpanded(item, true);
-      else if (exp === 'true') focusItem(item.querySelector('[role="treeitem"]'));
-    } else if (e.key === 'ArrowLeft') {
-      if (exp === 'true') setExpanded(item, false);
-      else if (level === '2') focusItem(item.parentElement.closest('[role="treeitem"]'));
-    } else if (e.key === 'Enter') {
-      const primary = primaryOf(item);
-      if (primary) primary.click();
-    } else handled = false;
-    if (handled) { e.preventDefault(); e.stopPropagation(); }
-  });
-
-  // The Done facet: the user explicitly asked for completed work, so no
-  // hierarchy and no history control — every completed ticket at once,
-  // newest first (Recently Done and Older Completed are conceptually merged).
-  function renderDone(L) {
-    const rows = state.done || [];
-    if (!rows.length) { L.innerHTML = emptyHtml('done'); return; }
-    L.innerHTML = secHtml('Done', rows.length)
-      + rows.map((r) => rowHtml(r, { compact: true, time: true })).join('');
-  }
-
-  function renderList() {
-    const L = el('list');
-    const sel = new Set(state.facets || ['all']);
-    if (sel.size === 1 && sel.has('all')) { renderAll(L); return; }
-    if (sel.size === 1 && sel.has('done')) { renderDone(L); return; }
-    // Archived facet + derived-status unions: the flat list, as before. The
-    // Archived facet also lists archived planning sessions (state.planning is
-    // empty for every other non-All facet).
-    const rows = visibleRows(state.rows || []);
-    const plans = state.planning || [];
-    if (!rows.length && !plans.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
-    const plansHtml = plans.length ? planTreeHtml(plans) : '';
-    L.innerHTML = plansHtml + rows.map((r) => rowHtml(r, {})).join('');
-    afterPlanRender();
-  }
-
-  // ---- interactions ----
-  let searchTimer;
-  el('search').addEventListener('input', (e) => {
-    clearTimeout(searchTimer);
-    const q = e.target.value;
-    searchTimer = setTimeout(() => post({ type:'set-filter', query:q }), 150);
-  });
-
-  // Locate a row's data by id across every section/facet the list renders — the
-  // shared context window's trigger only carries the ticketId, so the items
-  // (which need nothing but the id) are rebuilt from that.
-  function findRow(id) {
-    for (const r of state.rows || []) if (r.ticketId === id) return r;
-    for (const r of state.done || []) if (r.ticketId === id) return r;
-    const secs = state.sections || {};
-    for (const list of [secs.current, secs.awaitingReview, secs.recentlyDone, secs.olderDone]) {
-      for (const r of list || []) if (r.ticketId === id) return r;
-    }
-    return null;
-  }
-
-  // Planning outcomes are announced through the action-result live region
-  // (karstSettle's success toast). Archive/unarchive succeed when the host
-  // acks; plan-create acks as soon as its input box opens, so its result is the
-  // new row arriving — a cancelled box adds no row and announces nothing.
-  const successSay = {};
-  let planWatch = null;
-  function noteSuccess(type, requestId, plan) {
-    const row = (state.planning || []).find((p) => String(p.sessionId) === plan);
-    const name = row ? `: ${row.title}` : '';
-    if (type === 'plan-archive') successSay[requestId] = `Planning session archived${name}`;
-    if (type === 'plan-unarchive') successSay[requestId] = `Planning session restored${name}`;
-    if (type === 'plan-create') planWatch = new Set((state.planning || []).map((p) => p.sessionId));
-  }
-  function announceNewPlan() {
-    if (!planWatch) return;
-    const fresh = (state.planning || []).find((p) => !planWatch.has(p.sessionId) && p.status !== 'archived');
-    if (!fresh) return;
-    planWatch = null;
-    karstToast('success', `Planning session started: ${fresh.title}`);
-  }
-
-  // Every posting control is delegated here — rows render by full innerHTML
-  // replacement, so a per-element `karstAction` binding would go stale on the
-  // next render. `data-act`/`data-open` controls use the runtime's pending
-  // primitives directly (karstRequestId + karstBeginPending, the same pieces
-  // `karstAction` uses internally) so they get the same four properties:
-  // pending on click, non-re-triggerable, terminal result via `action-result`,
-  // and the watchdog (UI-R11–R14). `data-facet`/`data-toggle` stay immediate —
-  // their "settlement" is simply the next `state` push, not a tracked request.
-  document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-collapse],[data-history],[data-menu]');
-    if (!t) return;
-    if (t.dataset.menu) {
-      // The ⋯ trigger toggles the shared ticket context window. Pure view
-      // state, like the row's expand — settlement is the next render, never a
-      // tracked request.
-      e.stopPropagation();
-      const id = Number(t.dataset.menu);
-      const row = findRow(id);
-      if (row && menuTicket === id) closeCtxMenu(true);
-      else if (row) openCtxMenu(t, row);
-      return;
-    }
-    if (t.dataset.act || t.dataset.open) {
-      e.stopPropagation();
-      // A context-window item click: the window closes (the action then posts).
-      if (t.closest('#ctxMenu')) closeCtxMenu(false);
-      if (karstIsPending(t) || t.disabled) { e.preventDefault(); return; }
-      const type = t.dataset.act || 'open-ticket';
-      const requestId = karstRequestId();
-      karstBeginPending(t, requestId);
-      const idRaw = t.dataset.act ? t.dataset.id : t.dataset.open;
-      // resolve-conflicts carries the conflicted repo (the peek's first
-      // conflicted repo) so the host re-verifies it against the store.
-      const payload = { type, requestId };
-      if (idRaw !== undefined) payload.ticketId = Number(idRaw);
-      // Planning rows carry a session id, never a ticket id.
-      if (t.dataset.plan) payload.sessionId = Number(t.dataset.plan);
-      if (t.dataset.proposal) payload.proposalId = Number(t.dataset.proposal);
-      if (t.dataset.repo) payload.repo = t.dataset.repo;
-      noteSuccess(type, requestId, t.dataset.plan);
-      post(payload);
-      return;
-    }
-    if (t.dataset.facet) {
-      // Report only WHICH chip was clicked; the host owns the toggle/union logic.
-      closeCtxMenu(false);
-      post({ type:'toggle-facet', facet: t.dataset.facet });
-      return;
-    }
-    if (t.dataset.history) {
-      // Explicit click: this choice STICKS (survives searches and re-renders);
-      // the automatic search reveal never sets this flag.
-      closeCtxMenu(false);
-      histUser = true;
-      histOpen = !histOpen;
-      renderList();
-      return;
-    }
-    if (t.dataset.toggle) {
-      e.stopPropagation();
-      const id = Number(t.dataset.toggle);
-      if (open.has(id)) open.delete(id); else open.add(id);
-      closeCtxMenu(false);
-      renderList();
-      return;
-    }
-    if (t.dataset.collapse) {
-      // Collapse/expand a row's descendant sub-tree. Pure view state, like the
-      // row's own expand: settlement is the next render, not a tracked request.
-      e.stopPropagation();
-      const id = Number(t.dataset.collapse);
-      if (collapsedSubtrees.has(id)) collapsedSubtrees.delete(id); else collapsedSubtrees.add(id);
-      closeCtxMenu(false);
-      renderList();
-    }
-  });
-
-  // The context window is a popup: an outside click closes it, and Escape
-  // closes it returning focus to the trigger.
-  document.addEventListener('click', (e) => {
-    if (menuTicket === null) return;
-    if (e.target.closest('#ctxMenu') || e.target.closest('[data-menu]')) return;
-    closeCtxMenu(false);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeCtxMenu(true);
-  });
-
-  window.addEventListener('message', (e) => {
-    const msg = e.data;
-    if (!msg) return;
-    if (msg.type === 'edge') {
-      // Which side faces the editor — host-resolved window configuration, not
-      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
-      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
-      if (side) document.documentElement.setAttribute('data-edge', side);
-      else document.documentElement.removeAttribute('data-edge');
-    } else if (msg.type === 'state') {
-      state = msg.state;
-      vscode.setState(state);
-      // Prune expanded ids that no longer exist so the set can't grow
-      // unbounded — across every section (current, recently/older done, the
-      // done facet and the flat views).
-      const ids = new Set((state.rows || []).map((r) => r.ticketId));
-      for (const r of state.done || []) ids.add(r.ticketId);
-      const secs = state.sections || {};
-      for (const list of [secs.current, secs.awaitingReview, secs.recentlyDone, secs.olderDone]) {
-        for (const r of list || []) ids.add(r.ticketId);
-      }
-      for (const id of [...open]) if (!ids.has(id)) open.delete(id);
-      // The context window is anchored to a trigger inside the re-rendered rows,
-      // so a state push always closes it (the popup's settled state is never a
-      // ticket fact, and the anchor is gone the moment the list redraws).
-      closeCtxMenu(false);
-      announceNewPlan();
-      // Keep the search box in sync only when the host changed the filter.
-      if (el('search').value !== state.filter) el('search').value = state.filter;
-      renderFacets();
-      renderList();
-    } else if (msg.type === 'action-result') {
-      const said = successSay[msg.requestId];
-      delete successSay[msg.requestId];
-      karstSettle(msg.requestId, msg.ok, msg.message || (msg.ok === true ? said : undefined));
-    }
-  });
-
-  // Restore last snapshot immediately (view re-resolve), then ask for fresh.
-  const prev = vscode.getState();
-  if (prev) { state = prev; renderFacets(); renderList(); }
-  post({ type:'request-state' });
+  /*KARST_SIDEBAR_APP*/
 </script>
 
 <style>/*KARST_PALETTE*/</style>

@@ -90,6 +90,16 @@ export function queueAutostart(store: Store, ticketId: number): boolean {
  * Re-queue orphaned claims: a starting (2) ticket still at scope whose claim is
  * older than `staleMs` belongs to a window that died mid-start. Returns count.
  */
+/**
+ * Drop any autostart state (queued or starting) without touching the stage:
+ * the ticket was closed or archived, so it must never auto-start.
+ */
+export function clearAutostart(store: Store, ticketId: number): void {
+  store.db
+    .prepare('UPDATE tickets SET autostart_pending = 0, autostart_claimed_at = NULL WHERE id = ?')
+    .run(ticketId);
+}
+
 export function requeueStaleClaims(store: Store, projectId: number, staleMs: number): number {
   const info = store.db
     .prepare(

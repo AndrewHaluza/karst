@@ -72,6 +72,25 @@ export function getStage(store: Store, ticketId: number, stageKey: StageKey): St
   return row ? rowToStage(row) : null;
 }
 
+/**
+ * Create a stage row the ticket was not seeded with (`closed`). Idempotent, so a
+ * re-close after a reopen finds the row it needs without a second writer.
+ */
+export function ensureStage(store: Store, ticketId: number, stageKey: StageKey): void {
+  store.db
+    .prepare(
+      "INSERT OR IGNORE INTO stages (ticket_id, stage_key, status, attempt) VALUES (?, ?, 'pending', 0)",
+    )
+    .run(ticketId, stageKey);
+}
+
+/** Remove a stage row that is not part of the seeded rail (reopening `closed`). */
+export function removeStage(store: Store, ticketId: number, stageKey: StageKey): void {
+  store.db
+    .prepare('DELETE FROM stages WHERE ticket_id = ? AND stage_key = ?')
+    .run(ticketId, stageKey);
+}
+
 /** Map patch field names → DB columns, so only provided fields are updated. */
 const COLUMN: Record<keyof StagePatch, string> = {
   status: 'status',

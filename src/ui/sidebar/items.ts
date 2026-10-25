@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../../model/types.js';
 import { ticketLabel, type TicketWithStages } from '../../store/tickets.js';
 import { ticketGlyph, currentStageStatus } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
@@ -327,7 +328,7 @@ export function filterTickets(
  * is awaiting a merge (amber), never completed.
  */
 export function isDoneTicket(t: TicketWithStages): boolean {
-  return t.stageCurrent === 'done';
+  return isFinishedStage(t.stageCurrent);
 }
 
 /**
@@ -368,7 +369,8 @@ export function isAwaitingReview(
  * invariant only holds for the stage writers).
  */
 export function completedAt(t: TicketWithStages): string | null {
-  const done = t.stages.find((s) => s.stageKey === 'done');
+  // A closed ticket never entered `done`; its completion is the closed row's.
+  const done = t.stages.find((s) => s.stageKey === (t.stageCurrent === 'closed' ? 'closed' : 'done'));
   const raw = done?.endedAt ?? done?.startedAt ?? t.updatedAt ?? null;
   if (raw === null) return null;
   const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');

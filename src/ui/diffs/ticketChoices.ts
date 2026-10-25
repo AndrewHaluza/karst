@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../../model/types.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
 export interface DiffsTicketChoice {
@@ -33,7 +34,7 @@ export function diffsTicketChoices(
   const choices: DiffsTicketChoice[] = [];
   let current: DiffsTicketChoice | undefined;
   for (const t of tickets) {
-    if (t.stageCurrent === 'done') continue;
+    if (isFinishedStage(t.stageCurrent)) continue;
     const choice: DiffsTicketChoice = {
       ticketId: t.id,
       label: formatTicketRef(t.id, t.key),

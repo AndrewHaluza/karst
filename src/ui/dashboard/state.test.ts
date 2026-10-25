@@ -282,6 +282,20 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
   });
 
+  it('offers Close only to an unfinished, unarchived ticket and Reopen only to a closed one', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'work' });
+    expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: true, canReopen: false });
+
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: false, canReopen: true });
+
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: false, canReopen: false });
+
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl', archived_at = datetime('now') WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: false, canReopen: false });
+  });
+
   it('offers Deliver to PR only at ship with an open PR and measured missing commits', () => {
     const t = createTicket(store, { key: 'DLV-1', title: 'deliver' });
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });

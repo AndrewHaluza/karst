@@ -7,6 +7,7 @@ import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
 import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
+import { resolveDockerMemoryLimits, queryDockerMemTotal, type SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
 import { DOCKER_ASSETS_DIR, linuxUser } from '../../agent/docker/resolveDocker.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
@@ -64,6 +65,9 @@ export interface TicketSandboxDeps {
   /** Baseline host ports the docker proxy keeps allowing while a setup window recreates it. */
   readonly hostPortsOf?: (ticketId: number) => readonly number[];
   readonly proxyScript?: string;
+  /** The manifest's `sandboxMemory` overrides and the Docker VM size (bytes, once known) behind a gate container's limits. */
+  readonly sandboxMemory?: () => SandboxMemoryConfig | undefined;
+  readonly memTotalBytes?: () => number | undefined;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
@@ -97,6 +101,7 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, c
     const runner = createDockerSessionRunner({
       proc: deps.dockerProc ?? NODE_DOCKER_PROCESS, core, names,
       user: linuxUser(deps.platform ?? process.platform, process.getuid?.(), process.getgid?.()),
+      memory: resolveDockerMemoryLimits(deps.memTotalBytes?.(), deps.sandboxMemory?.()),
       ...(bridge ? { evidenceDir: bridge.runDir } : {}),
       ...(deps.proxyScript ? { proxy: { script: deps.proxyScript, hostPorts: deps.hostPortsOf?.(ticketId) ?? [] } } : {}),
     });
@@ -254,6 +259,8 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
 /** Everything extension.ts binds for sandboxed tickets (arch:AC-32), so the host file stays bindings-only. */
 export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const cores = new Map<number, string>();
+  let memTotal: number | undefined;
+  let memProbe: Promise<void> | undefined;
   const deps: TicketSandboxDeps = {
     ...input,
     // The listing's answer wins over the (possibly null) session provider for every sync reader too.
@@ -269,6 +276,11 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
       return inv.sandboxes;
     }),
+    sandboxMemory: () => input.manifest()?.sandboxMemory,
+    memTotalBytes: () => {
+      memProbe ??= queryDockerMemTotal(input.dockerProc ?? NODE_DOCKER_PROCESS).then((v) => { memTotal = v; });
+      return memTotal;
+    },
     proxyScript: input.proxyScript ?? join(DOCKER_ASSETS_DIR, 'allowlist-proxy.mjs'),
     hostPortsOf: (ticketId) => { const m = input.manifest(); return m ? baselineHostPorts(m, ticketBaselineKeys(input.store, ticketId)) : []; },
     remember: (ticketId, core) => { if (core === null) cores.delete(ticketId); else cores.set(ticketId, core); },

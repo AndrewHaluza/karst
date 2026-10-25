@@ -10,6 +10,7 @@ import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
 import { USAGE_LIMIT_PARKS_DDL } from './usageLimitParks.js';
+import { CLOUD_SESSION_LINKS_DDL } from './cloudSessionLinks.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2751,6 +2752,12 @@ function migrateLocked(db: Database): void {
     db.exec(
       'CREATE TABLE IF NOT EXISTS baseline_pins (repo TEXT PRIMARY KEY, created_at TEXT)',
     );
+  }
+
+  if (current < 90) {
+    // v90: `cloud_session_links` (arch:CLOUD-01) — display-only cache, no backfill
+    // (the first scan after boot rebuilds it).
+    db.exec(CLOUD_SESSION_LINKS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

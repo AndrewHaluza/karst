@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import type { StageKey } from '../model/types.js';
+import { isFinishedStage } from '../model/types.js';
 import { formatId } from '../model/entityId.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import {
@@ -174,7 +175,7 @@ export function runContextCommand(
   const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
   const key = ctx.key?.trim() || String(ctx.id);
-  const hasBlockingSubtasks = ctx.subtasks.some((s) => s.blocksParent && s.stageCurrent !== 'done');
+  const hasBlockingSubtasks = ctx.subtasks.some((s) => s.blocksParent && !isFinishedStage(s.stageCurrent));
   const ending =
     dbPath === undefined
       ? undefined

@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../model/types.js';
 import type { Store } from './db.js';
 import type { Manifest } from '../manifest/types.js';
 import { serviceUnits } from '../manifest/runnable.js';
@@ -131,7 +132,7 @@ export function listSharedServers(store: Store, manifest: Manifest): SharedServe
           ticketId: d.ticketId,
           key: d.key,
           title: d.title,
-          done: d.stageCurrent === 'done',
+          done: isFinishedStage(d.stageCurrent),
         })),
     }))
     .sort(byRunningThenRepo);

@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -234,6 +234,17 @@ covers: src/store/baselinePins.ts, src/store/serverInventory.ts
 
 `baseline_pins(repo TEXT PRIMARY KEY, created_at TEXT)` (`src/store/baselinePins.ts`) marks a shared (baseline) service the user asked to keep running. It is keyed by manifest UNIT KEY, not by a `servers` row, because `startHot` deletes and reinserts that row on every start — a row-keyed pin would vanish at the first restart. Additive and idempotent: the v89 step is `CREATE TABLE IF NOT EXISTS`, no backfill (nothing is pinned until a user starts one from the Servers panel). Writers: `pinBaseline`/`unpinBaseline` only, called from `extension/ops/sharedServerOps.ts` (manual Start pins, explicit Stop unpins, a spin's `ensureBaseline` never pins). Reader: `listPinnedBaselines`, consumed by `store/serverInventory.ts`. See `@arch:SERVERS-PANEL` in `worktrees-and-servers.md`.
 END_DOC_BLOCK: [@arch:V89]
+
+## [@arch:CLOUD-01] Cloud agent-session links (v90)
+covers: src/cloud/sessionLinks.ts, src/cloud/match.ts, src/cloud/sidebarView.ts, src/store/cloudSessionLinks.ts, src/extension/ops/cloudSessionScanOps.ts, src/extension/ops/cloudSessionLinkOps.ts
+
+`cloud_session_links` shows tickets done in an agent's cloud session (claude.ai Code on the web first) with a link to open it. DISPLAY ONLY: a link never affects stage, gates or agent_state, and the table is a cache rebuildable from git/PR text. Rules:
+- Providers are one registry entry in `CLOUD_SESSION_PROVIDERS` (pattern + host). The URL is matched anywhere in text, never parsed as a git trailer (`git interpret-trailers` fails on real messages). `isOpenableCloudUrl` (https + registered host) gates every browser open and every manual link.
+- Matching (`matchCloudSession`, pure) stops at the first rule with a candidate: (a) PR body, or a commit on the PR's head branch, carries the URL; (b) a ticket's branch carries a commit with the URL; (c) the ticket key appears as a whole token in the carrying branch name or commit subject (so `PROJ-14` never matches `PROJ-142`). More than one candidate ticket at the deciding rule means unlinked: never guess. PR titles are not consulted: a PR whose head carries the URL is already decided by (a).
+- The scan (`makeCloudSessionScanner`) rides the PR-sync tick: `git log <base>..<branch> --format=%B` per ticket repo worktree (bounded `-n 200` when no base is recorded) plus PR bodies via `gh`, all through injected async runners. Both are cached in memory by branch head SHA, so an unmoved head is not rescanned (a PR body edited without a push is picked up on the next restart).
+- `link_source` is 'pr' | 'branch' | 'key' | 'manual', NULL = unlinked by scan. A 'manual' row is never overwritten by a scan; unlink keeps the row 'manual' with no ticket, so a rescan cannot re-link it.
+- Reads resolve the ticket as `COALESCE(link.ticket_id, proposal.ticket_id)`, so an accepted draft appears on its new ticket with no copy hook; a discarded (or deleted) proposal makes the link unlinked. Sidebar view model: `cloudSessionsForSidebar` in `src/cloud/sidebarView.ts`.
+END_DOC_BLOCK: [@arch:CLOUD-01]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION

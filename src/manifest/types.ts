@@ -3,6 +3,7 @@
  * validation; every downstream consumer (resolver, spin) reads this shape.
  */
 
+import type { SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import type { AgentBackends, CoreBackend } from '../agent/backendChoices.js';
 
 export interface PortSlot {
@@ -959,6 +960,12 @@ export interface Manifest {
    */
   archiveDoneAfterDays?: number;
   /**
+   * How many days a FINISHED planning session (every draft accepted, no live
+   * terminal) sits idle before the periodic sweep archives it. Defaults to 3.
+   * Always set by `validateManifest` (3 when absent).
+   */
+  archivePlanningAfterDays?: number;
+  /**
    * Artifact store retention. Absent = keep forever (the default); a positive
    * `maxAgeDays` lets the periodic sweep purge a ticket's store once its
    * newest revision is older than that.
@@ -995,6 +1002,12 @@ export interface Manifest {
    * Independent of `agentSandbox`.
    */
   agentBackends?: AgentBackends;
+  /**
+   * Overrides for the docker sandbox's container memory (`--memory` /
+   * `--memory-reservation`), in Docker's `512m` / `2g` form. Absent keys scale
+   * from the Docker VM's total memory; values above 85% of it are clamped.
+   */
+  sandboxMemory?: SandboxMemoryConfig;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"

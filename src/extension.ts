@@ -15,6 +15,7 @@ import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
+import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
@@ -28,6 +29,7 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
+import { makeCloudScanTick } from './extension/ops/cloudSessionScanOps.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
@@ -49,6 +51,7 @@ import {
   type ServerOpsDeps,
 } from './extension/ops/serverOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
+import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { resolveSidebarEdge } from './ui/sidebar/edge.js';
@@ -188,7 +191,7 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
-import { createPlanningOps } from './extension/ops/planningOps.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
+import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -898,6 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
+    ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), refresh: () => mgr.refresh() }),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
@@ -5770,6 +5774,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // always has an end. A forced request that lands mid-sweep is not dropped like
   // a timer tick — it re-runs once the in-flight one finishes, because the answer
   // that sweep is producing may predate whatever the user just pushed.
+  const cloudScanTick = makeCloudScanTick({ store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync, debug: (m) => logger.debug(m), logError });
   const runPrSync = makePrSyncLoop({
     hasProject: () => currentProject() !== undefined,
     onRefresh: () => { provider.refresh(); dashboard.pushAll(); },
@@ -5849,6 +5854,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: done ticket auto-archive failed', e);
       }
+      // Finished planning sessions archive on this tick too (`archivePlanningAfterDays`).
+      sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest(), isLive: (id) => planning.isLive(id), logError });
+      if (await cloudScanTick(project.id)) dashboard.pushAll();
       await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
@@ -6389,7 +6397,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -6893,6 +6901,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
+    ...registerCloseCommands({
+      store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
+      activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },
+      refresh: (id) => { provider.refresh(); dashboard.pushState(id); void subtaskAutostart.sweep(); },
+      ui: {
+        registerCommand: (id, h) => vscode.commands.registerCommand(id, h),
+        showInputBox: (o) => Promise.resolve(vscode.window.showInputBox({ ...o, ignoreFocusOut: true })),
+        pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+      },
+    }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
@@ -8421,6 +8440,9 @@ function makeDashboardActions(
     // Detach a started sub-task from its parent: rebase onto the parent's base
     // and clear the parent link (design NDL-70 §5 'Detach').
     detachSubtask: () => void vscode.commands.executeCommand('karst.detachSubtask', ticketId),
+    // Same commands as the palette; the host prompts for the reason (payload-free message).
+    closeTicket: () => void vscode.commands.executeCommand('karst.closeTicket', ticketId),
+    reopenTicket: () => void vscode.commands.executeCommand('karst.reopenTicket', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

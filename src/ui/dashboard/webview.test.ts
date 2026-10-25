@@ -825,6 +825,18 @@ describe('dashboard webview.html', () => {
     expect(script).toMatch(/detach\.classList\.toggle\('hidden', !state\.canDetachSubtask\)/);
   });
 
+  it('offers Close and Reopen as host-gated controls that name what they do (T-close)', () => {
+    const script = previewScriptSource();
+    expect(HTML).toMatch(/id="closeTicket"[^>]*data-act="close-ticket"/);
+    expect(HTML).toMatch(/id="reopenTicket"[^>]*data-act="reopen-ticket"/);
+    expect(HTML).toContain('Close — done outside Karst…');
+    // Host-derived visibility, never re-derived in the webview, and the payload
+    // is empty: the host prompts for the reason, so no ticket id or text rides
+    // the message.
+    expect(script).toMatch(/closeBtn\.classList\.toggle\('hidden', !state\.canClose\)/);
+    expect(script).toMatch(/reopenBtn\.classList\.toggle\('hidden', !state\.canReopen\)/);
+  });
+
   it('shows the awaiting-subtask block chip with the linked sub-task keys (NDL-76)', () => {
     const script = previewScriptSource();
     expect(HTML).toContain('id="subtaskWait"');

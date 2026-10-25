@@ -77,6 +77,14 @@ export type WebviewMessage =
    */
   | { type: 'detach-subtask' }
   /**
+   * Close / reopen a ticket resolved outside karst (`@arch:STAGEMACH`).
+   * Payload-free by design: the host owns the ticket id and prompts for the
+   * reason itself (the same `karst.closeTicket` command as the palette), so no
+   * free text from the webview can reach the store.
+   */
+  | { type: 'close-ticket' }
+  | { type: 'reopen-ticket' }
+  /**
    * The ONE explicit recovery action: move this ticket back to Implement from
    * the current stage header's ⋯ menu. Payload-free exactly like `refresh-prs`:
    * the host derives availability and the current stage from the store it is
@@ -465,6 +473,10 @@ export interface DashboardActions {
   createSubtask: () => void | Promise<void>;
   /** Detach a sub-task from its parent: rebase onto parent's base and clear the parent link. */
   detachSubtask: () => void | Promise<void>;
+  /** Close a ticket resolved outside karst; the host prompts for the reason. */
+  closeTicket: () => void | Promise<void>;
+  /** Reopen a closed ticket. */
+  reopenTicket: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
   openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
@@ -706,6 +718,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'create-subtask' };
     case 'detach-subtask':
       return { type: 'detach-subtask' };
+    case 'close-ticket':
+      return { type: 'close-ticket' };
+    case 'reopen-ticket':
+      return { type: 'reopen-ticket' };
     case 'open-stage-log':
       return isStageKey(m.stageKey) ? { type: 'open-stage-log', stageKey: m.stageKey } : null;
     case 'resolve-conflicts':
@@ -1092,6 +1108,10 @@ export function routeAction(
       return actions.createSubtask();
     case 'detach-subtask':
       return actions.detachSubtask();
+    case 'close-ticket':
+      return actions.closeTicket();
+    case 'reopen-ticket':
+      return actions.reopenTicket();
     case 'open-stage-log':
       return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':

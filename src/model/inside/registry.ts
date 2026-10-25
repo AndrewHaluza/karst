@@ -35,6 +35,9 @@ export function insideStageForRuntimeStage(
   stageKey: StageKey,
   fixFallback: 'uat' | 'review',
 ): InsideStageKey {
+  // A closed ticket has no stage of its own in the six-stage model; it reads as
+  // `done` with no delivery evidence, so the receipt stays `pending`.
+  if (stageKey === 'closed') return 'done';
   return stageKey === 'fix' ? fixFallback : stageKey;
 }
 

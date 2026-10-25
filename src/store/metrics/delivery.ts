@@ -103,6 +103,11 @@ export interface CycleTime {
  * (the selected-repo set is a JSON column, and an unopened repo has no row), so
  * this is "created until the last merge that happened" — see the ticket-level
  * merge stamp listed under the known gaps.
+ *
+ * A `closed` ticket is excluded (`@arch:STAGEMACH`): it was resolved outside
+ * karst and claims no delivery, so one stray merged PR must not read as a
+ * cycle. Activity metrics (gates, merge probes, ship steps, token spend) keep
+ * counting it, because that work really happened.
  */
 export function cycleTime(store: Store, scope: MetricsScope): CycleTime {
   const { clause, params } = scopeSql(scope, {
@@ -114,7 +119,7 @@ export function cycleTime(store: Store, scope: MetricsScope): CycleTime {
       `SELECT t.created_at AS created_at, MAX(p.merged_at) AS merged_at
          FROM tickets t
          JOIN prs p ON p.ticket_id = t.id
-        WHERE p.merged_at IS NOT NULL${clause}
+        WHERE p.merged_at IS NOT NULL AND t.stage_current <> 'closed'${clause}
         GROUP BY t.id`,
     )
     .all(...params) as { created_at: string; merged_at: string }[];
@@ -138,7 +143,11 @@ export interface EscapedDefects {
   readonly rate: number | null;
 }
 
-/** Follow-up tickets (`tickets.parent_ticket_id`) as a share of all tickets. */
+/**
+ * Follow-up tickets (`tickets.parent_ticket_id`) as a share of all tickets.
+ * Closed tickets are out of the denominator: they delivered nothing that could
+ * escape a defect.
+ */
 export function escapedDefects(store: Store, scope: MetricsScope): EscapedDefects {
   const { clause, params } = scopeSql(scope, {
     projectColumn: 't.project_id',
@@ -150,7 +159,7 @@ export function escapedDefects(store: Store, scope: MetricsScope): EscapedDefect
               SUM(COALESCE(t.parent_ticket_id IS NOT NULL, 0)) AS follow_ups,
               COUNT(DISTINCT t.parent_ticket_id) AS parents
          FROM tickets t
-        WHERE 1 = 1${clause}`,
+        WHERE t.stage_current <> 'closed'${clause}`,
     )
     .get(...params) as { tickets: number; follow_ups: number | null; parents: number };
   const followUps = row.follow_ups ?? 0;

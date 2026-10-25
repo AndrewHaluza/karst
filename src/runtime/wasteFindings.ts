@@ -1,3 +1,4 @@
+import { isFinishedStage } from '../model/types.js';
 import { dirname } from 'node:path';
 import { isPathUnder } from './pathScope.js';
 import type { Inventory } from './resourceInventory.js';
@@ -89,7 +90,7 @@ export function findWaste(opts: {
     if (row.attribution !== 'attributable') continue;
     const life = lifecycle.get(row.ticketId);
     if (!life) continue;
-    if (life.stageCurrent !== 'done' && !life.archived) continue;
+    if (!isFinishedStage(life.stageCurrent) && !life.archived) continue;
     const server = byServerId.get(row.serverId);
     if (!server) continue;
     emit({

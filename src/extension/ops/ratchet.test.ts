@@ -84,7 +84,13 @@ import { join } from 'node:path';
 // Raised by 20 (8727 -> 8747): Servers & resources panel bindings (the `createServersBinding` call,
 // `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
 // `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
-const MAX_EXTENSION_LINES = 8747;
+// Planning auto-archive (+2: 8747 -> 8749): the `sweepPlanningArchive` call and its comment; logic is `ops/planningAutoArchive.ts`.
+// Raised by 3 (8749 -> 8752): cloud-session scan binding (arch:CLOUD-01) — one import, the
+// `makeCloudScanTick` call and its PR-sync-tick line; logic is in `ops/cloudSessionScanOps.ts`.
+// Raised by 17 (8752 -> 8769): human-only close/reopen palette commands (@arch:STAGEMACH) — one import,
+// the `registerCloseCommands` call with its vscode seams and the dashboard Close/Reopen actions; the
+// logic is in `ops/closeOps.ts` and `ops/closeCommands.ts`.
+const MAX_EXTENSION_LINES = 8769;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

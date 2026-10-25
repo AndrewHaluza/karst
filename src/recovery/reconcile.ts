@@ -46,6 +46,11 @@ export interface ReconcileResult {
 export function deriveStageCurrent(stages: Stage[]): StageKey {
   const byKey = new Map(stages.map((s) => [s.stageKey, s]));
 
+  // A closed ticket was resolved outside karst by an operator. Its earlier rows
+  // may read `running`, and ranking them by timestamp would walk it back onto
+  // the rail — the closed row wins unconditionally until `reopenTicket`.
+  if (byKey.has('closed')) return 'closed';
+
   const running = STAGE_KEYS.find((k) => byKey.get(k)?.status === 'running');
   if (running) return running;
 

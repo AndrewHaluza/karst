@@ -1,4 +1,4 @@
-import { STAGE_KEYS, type StageKey } from './types.js';
+import { ALL_STAGE_KEYS, type StageKey } from './types.js';
 
 /**
  * The stage→color map (§ stage colors) — single source of truth for WHERE a
@@ -54,6 +54,8 @@ export const STAGE_COLORS: Readonly<Record<StageKey, StageColor>> = {
   // asserts the product ships one green, and `done` is the case where the stage
   // and the status mean the same thing.
   done: { dark: '#4bb64b', light: '#1a7f37' },
+  // Neutral gray: closed asserts no delivery, so it must not borrow done's green.
+  closed: { dark: '#8b949e', light: '#57606a' },
 };
 
 /**
@@ -72,14 +74,14 @@ const FALLBACK_COLOR: StageColor = { dark: '#7d8590', light: '#6e7681' };
  * stage is a routine possibility, not a type error. Nothing renders uncolored.
  */
 export function stageColorClass(stage: string | null | undefined): string {
-  const known = STAGE_KEYS.find((k) => k === stage);
+  const known = ALL_STAGE_KEYS.find((k) => k === stage);
   return `stg-${known ?? STAGE_FALLBACK_KEY}`;
 }
 
 /** Every stage plus the fallback, in graph order. */
 function entries(): [string, StageColor][] {
   return [
-    ...STAGE_KEYS.map((k): [string, StageColor] => [k, STAGE_COLORS[k]]),
+    ...ALL_STAGE_KEYS.map((k): [string, StageColor] => [k, STAGE_COLORS[k]]),
     [STAGE_FALLBACK_KEY, FALLBACK_COLOR],
   ];
 }

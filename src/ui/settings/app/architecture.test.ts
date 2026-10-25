@@ -18,6 +18,7 @@ const SRC = join(HERE, '..', '..', '..'); // …/src
 const ROOT = join(SRC, '..');
 const DASHBOARD_APP = join(SRC, 'ui', 'dashboard', 'app');
 const RESOURCES_APP = join(SRC, 'ui', 'resources', 'app');
+const SIDEBAR_APP = join(SRC, 'ui', 'sidebar', 'app');
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -34,7 +35,10 @@ const stripBlockComments = (text: string): string => text.replace(/\/\*.*?\*\//g
 const rel = (file: string): string => relative(ROOT, file);
 const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file);
 const isUnderReactApp = (file: string): boolean =>
-  file.startsWith(HERE + sep) || file.startsWith(DASHBOARD_APP + sep) || file.startsWith(RESOURCES_APP + sep);
+  file.startsWith(HERE + sep) ||
+  file.startsWith(DASHBOARD_APP + sep) ||
+  file.startsWith(RESOURCES_APP + sep) ||
+  file.startsWith(SIDEBAR_APP + sep);
 
 const APP_SOURCE = walk(HERE).filter((file) => !isTest(file));
 const APP_OUTSIDE_PRIMITIVES = APP_SOURCE.filter((file) => !file.includes(`${sep}primitives${sep}`));
