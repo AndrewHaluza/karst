@@ -51,7 +51,7 @@ describe('v89 migration', () => {
     migrate(db);
 
     expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
-    expect(SCHEMA_VERSION).toBe(89);
+    expect(SCHEMA_VERSION).toBe(90);
     expect(db.prepare("SELECT COUNT(*) AS n FROM servers").get()).toEqual({ n: 1 });
     const cols = db.prepare('PRAGMA table_info(baseline_pins)').all() as { name: string; pk: number }[];
     expect(cols.map((c) => [c.name, c.pk])).toEqual([['repo', 1], ['created_at', 0]]);
