@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // …/src/ui/dashboard/app
 const SRC = join(HERE, '..', '..', '..');
@@ -33,6 +33,9 @@ describe('dashboard static guards — non-vacuity', () => {
   });
 });
 
+/** The one sanctioned raw-HTML site: the agent-identity runtime's trusted icon markup (mirrors sidebar Icon.tsx). */
+const RAW_HTML_ALLOWED = ['AgentIcon.tsx'];
+
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
     ['inline style prop', /style=\{\{/],
@@ -46,6 +49,7 @@ describe('R-X6 — no inline style, no raw HTML', () => {
     for (const file of APP_SOURCE) {
       const text = stripBlockComments(readFileSync(file, 'utf8'));
       for (const [name, pattern] of BANNED) {
+        if (/HTML/.test(name) && RAW_HTML_ALLOWED.includes(basename(file))) continue;
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
@@ -66,5 +70,12 @@ describe('R-X5/R26/R09b — imperative DOM and unstable keys', () => {
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
+  });
+});
+
+describe('raw HTML allowance is scoped to the single sanctioned file', () => {
+  it('only AgentIcon.tsx uses dangerouslySetInnerHTML', () => {
+    const users = APP_SOURCE.filter((f) => /dangerouslySetInnerHTML|innerHTML/.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
+    expect(users).toEqual(RAW_HTML_ALLOWED);
   });
 });

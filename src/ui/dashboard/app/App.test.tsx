@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { createSender } from '../webviewSend.js';
 import { App } from './App.js';
+import { pageHostBridge } from './hostBridge.js';
 
 describe('Dashboard App (Phase 1 Shell)', () => {
   afterEach(() => {
@@ -20,10 +21,11 @@ describe('Dashboard App (Phase 1 Shell)', () => {
 
     expect(document.documentElement.hasAttribute('data-karst-ready')).toBe(false);
 
-    render(<App />);
+    render(<App bridge={pageHostBridge()} />);
 
     expect(document.documentElement.getAttribute('data-karst-ready')).toBe('true');
     expect(screen.getByTestId('dashboard-app-root')).toBeTruthy();
+    expect(screen.getByTestId('dashboard-app-root').hasAttribute('data-react-owned')).toBe(true);
   });
 
   it('renders SandboxStrip when dashboard state has a sandbox view', () => {

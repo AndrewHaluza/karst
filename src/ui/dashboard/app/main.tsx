@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 import { createSender } from '../webviewSend.js';
 import type { HostMessage } from '../messages.js';
 import { App } from './App.js';
+import { pageHostBridge } from './hostBridge.js';
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -23,11 +24,10 @@ const existingGlobals = globalThis as unknown as {
   __karstSubscribe?: (listener: (message: HostMessage) => void) => () => void;
 };
 
-const vscode: VsCodeApi = existingGlobals.vscode ?? {
-  postMessage: () => {},
-  getState: () => null,
-  setState: () => {},
-};
+const vscode = existingGlobals.vscode;
+if (!vscode) {
+  throw new Error('dashboard app: window.vscode is missing — webviewSend must run before dashboard app');
+}
 
 const karstSend = existingGlobals.karstSend ?? createSender(vscode);
 
@@ -58,7 +58,9 @@ globals.vscode = vscode;
 globals.karstSend = karstSend;
 globals.__karstSubscribe = (listener) => {
   subscribers.add(listener);
-  for (const msg of bufferedMessages) {
+  // Replay what arrived before the first subscriber, once: draining keeps a later
+  // subscriber (a remount) from re-receiving stale messages.
+  for (const msg of bufferedMessages.splice(0)) {
     listener(msg);
   }
   return () => {
@@ -72,4 +74,4 @@ if (!container) {
   throw new Error('dashboard app: #root element is missing from the document');
 }
 
-createRoot(container).render(<App />);
+createRoot(container).render(<App bridge={pageHostBridge()} />);

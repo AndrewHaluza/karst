@@ -4171,13 +4171,6 @@
       + `</div></div>`;
   }
 
-  // Sandbox strip (V1, React): rendered into #root by the dashboard React app.
-  function renderSandbox(sb) {
-    const p = el('sandboxPanel');
-    if (!p) return;
-    p.classList.toggle('hidden', !sb);
-  }
-
   function renderWorktrees(wts) {
     el('wtChanges').disabled = wts.length === 0;
     el('worktrees').innerHTML = wts.length ? wts.map((w) => {
@@ -4756,7 +4749,15 @@
     return path.some((node) => node && node.matches && node.matches(selector));
   }
 
+  // Transition rule: the React island (#root, marked data-react-owned) owns its own
+  // events. Every document-level delegator below must ignore events from inside it,
+  // otherwise a control React already handled would be handled a second time here.
+  function inReactIsland(e) {
+    const t = e.target;
+    return !!(t && t.closest && t.closest('[data-react-owned]'));
+  }
   document.addEventListener('click', (e) => {
+    if (inReactIsland(e)) return;
     const t = e.target;
     if (t && t.closest('#agentButton')) {
       const opening = el('agentPopover').classList.contains('hidden');
@@ -5815,7 +5816,6 @@
     renderSubtasks(state);
     renderShip(state);
     renderServers(state);
-    renderSandbox(state.sandbox);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
@@ -5915,6 +5915,7 @@
   // into an element that a partial-DOM host (the render harness) need not have,
   // and a listener bound to a missing element would take the whole script down.
   document.addEventListener('input', (e) => {
+    if (inReactIsland(e)) return;
     const ta = e.target.closest && e.target.closest('[data-env-scope]');
     if (!ta) return;
     envDrafts = { ...envDrafts, [ta.dataset.envScope]: ta.value };
@@ -5939,6 +5940,7 @@
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
   document.addEventListener('click', (e) => {
+    if (inReactIsland(e)) return;
     // The needs-you button navigates for the kinds the rail must not act on
     // itself (multi-repo waits, per-repo conflicts, an open session); the acting
     // kinds carry `data-act` and reach the posting handler below. Checked
@@ -6022,6 +6024,7 @@
   // ticket → no artifact-navigation action. The stage header's ⋯ menu also
   // dismisses on Esc, like any dialog.
   document.addEventListener('keydown', (e) => {
+    if (inReactIsland(e)) return;
     if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
@@ -6077,6 +6080,7 @@
   // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
   // silently miss it.
   document.addEventListener('toggle', (e) => {
+    if (inReactIsland(e)) return;
     const node = e.target && e.target.closest && e.target.closest('.mgd');
     if (!node || !node.dataset.repo) return;
     const next = new Set(openMergeRepos);
@@ -6145,12 +6149,6 @@
     'restart-servers': (btn, requestId) => karstSend.restartServers(requestId),
     'stop-servers': (btn, requestId) => karstSend.stopServers(requestId),
     'open-resources': (btn, requestId) => karstSend.openResources(requestId),
-    'sandbox-sync': (btn, requestId) => karstSend.sandboxSync(requestId),
-    'sandbox-diff': (btn, requestId) => karstSend.sandboxDiff(requestId),
-    'sandbox-stop': (btn, requestId) => karstSend.sandboxStop(requestId),
-    'sandbox-remove': (btn, requestId) => karstSend.sandboxRemove(requestId),
-    'sandbox-carry': (btn, requestId) => karstSend.sandboxCarry(requestId),
-    'sandbox-stash-update': (btn, requestId) => karstSend.sandboxStashUpdate(requestId),
     'show-changes': (btn, requestId) => karstSend.showChanges(requestId),
     'open-worktree-terminal': (btn, requestId) => karstSend.openWorktreeTerminal(btn.dataset.path, requestId),
     'open-worktree-folder': (btn, requestId) => karstSend.openWorktreeFolder(btn.dataset.path, requestId),
@@ -6214,6 +6212,7 @@
   // widening the wire payload here would be the same failure the omitted
   // `method` already guards against.
   document.addEventListener('click', (e) => {
+    if (inReactIsland(e)) return;
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     e.preventDefault();
@@ -6542,6 +6541,7 @@
   // as the ticket-form picker's own `draft.baseRefs` (Task 8), just local-only
   // here since nothing is persisted until "Change base" is pressed.
   document.addEventListener('input', (e) => {
+    if (inReactIsland(e)) return;
     const reason = e.target.closest('[data-bl-reason]');
     if (reason) {
       baselineReasons[reason.dataset.blReason] = reason.value;
@@ -6572,6 +6572,7 @@
   // a different <details> with no data-proc-id and must not record the row
   // as toggled.
   document.addEventListener('toggle', (e) => {
+    if (inReactIsland(e)) return;
     const node = e.target;
     if (!node || node.tagName !== 'DETAILS' || !node.dataset || !node.dataset.procId) return;
     const key = node.dataset.procId;

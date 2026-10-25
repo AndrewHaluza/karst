@@ -2875,9 +2875,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     'menuGates',
     'srvCount',
     'srvOps',
-    'sandboxPanel',
-    'sandboxBody',
-    'sandboxOps',
     'worktrees',
     'wtChanges',
     'prs',
@@ -6673,5 +6670,20 @@ describe('INSIDE_ACTION_LABEL and INSIDE_ACTION_TITLE cover retry-ship-repo', ()
 describe('content width cap (UI-R48)', () => {
   it('stays uncapped', () => {
     expect(HTML).not.toContain('--k-content-max');
+  });
+});
+
+describe('React island transition rule', () => {
+  it('every document-level delegator skips events from inside the React-owned island', () => {
+    const listeners = HTML.split('\n').flatMap((line, i, all) =>
+      /^\s*document\.addEventListener\(/.test(line) ? [all[i + 1]] : [],
+    );
+    expect(listeners.length).toBeGreaterThan(0);
+    for (const next of listeners) expect(next).toContain('if (inReactIsland(e)) return;');
+  });
+
+  it('no longer carries the dead renderSandbox or sandbox entries in SEND_BY_ACT', () => {
+    expect(HTML).not.toContain('renderSandbox');
+    expect(HTML).not.toMatch(/'sandbox-[a-z-]+': \(btn/);
   });
 });

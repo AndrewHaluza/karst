@@ -1,8 +1,23 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { SandboxStrip } from './SandboxStrip.js';
 import type { DashboardSandboxView } from '../sandboxView.js';
+import type { DashboardSender } from './hostBridge.js';
+
+const fullSend = (over: Partial<Record<keyof DashboardSender, unknown>> = {}): DashboardSender =>
+  new Proxy({ ...over }, { get: (t, k) => (t as Record<string | symbol, unknown>)[k] ?? vi.fn() }) as unknown as DashboardSender;
+
+// The design-system pending primitives the page injects (see usePendingAction.ts).
+const pending = new Set<Element>();
+beforeEach(() => {
+  pending.clear();
+  Object.assign(globalThis, {
+    karstRequestId: () => 'req-1',
+    karstIsPending: (el: Element) => pending.has(el),
+    karstBeginPending: (el: Element) => { pending.add(el); (el as HTMLButtonElement).disabled = true; },
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -19,12 +34,12 @@ const SBX_VIEW: DashboardSandboxView = {
 
 describe('SandboxStrip', () => {
   it('renders nothing when sandbox view is null', () => {
-    const { container } = render(<SandboxStrip sandbox={null} />);
+    const { container } = render(<SandboxStrip sandbox={null} send={fullSend()} />);
     expect(container.firstChild).toBeNull();
   });
 
   it('renders cube mark, Sandbox label, backend tag, canonical core name, and facts', () => {
-    render(<SandboxStrip sandbox={SBX_VIEW} />);
+    render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend()} />);
 
     // Cube mark and Sandbox title
     const strip = screen.getByTestId('sandbox-strip');
@@ -62,7 +77,7 @@ describe('SandboxStrip', () => {
       sandboxStashUpdate: vi.fn(),
     };
 
-    render(<SandboxStrip sandbox={SBX_VIEW} send={send} />);
+    render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend(send)} />);
 
     const syncBtn = screen.getByRole('button', { name: 'Sync sandbox commits into the worktree' });
     expect(syncBtn.textContent).toContain('Sync');
@@ -92,9 +107,20 @@ describe('SandboxStrip', () => {
     expect(screen.queryByRole('button', { name: 'Carry sandbox commits onto host branch' })).toBeNull();
   });
 
+  it('posts with a request id, goes pending, and ignores a second click', () => {
+    const sandboxSync = vi.fn();
+    render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend({ sandboxSync })} />);
+    const btn = screen.getByRole('button', { name: 'Sync sandbox commits into the worktree' }) as HTMLButtonElement;
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(sandboxSync).toHaveBeenCalledTimes(1);
+    expect(sandboxSync).toHaveBeenCalledWith('req-1');
+    expect(btn.disabled).toBe(true);
+  });
+
   it('offers "Carry to host" only when carry is true', () => {
     const send = { sandboxCarry: vi.fn() };
-    render(<SandboxStrip sandbox={{ ...SBX_VIEW, carry: true }} send={send} />);
+    render(<SandboxStrip sandbox={{ ...SBX_VIEW, carry: true }} send={fullSend(send)} />);
 
     const carryBtn = screen.getByRole('button', { name: 'Carry sandbox commits onto host branch' });
     expect(carryBtn.textContent).toContain('Carry to host');
@@ -113,7 +139,7 @@ describe('SandboxStrip', () => {
       note: 'antigravity: sbx backend unsupported',
     };
 
-    render(<SandboxStrip sandbox={hostFallback} />);
+    render(<SandboxStrip sandbox={hostFallback} send={fullSend()} />);
 
     const strip = screen.getByTestId('sandbox-strip');
     expect(strip.textContent).toContain('antigravity: sbx backend unsupported — runs prompted on the host.');
@@ -131,7 +157,7 @@ describe('SandboxStrip', () => {
       note: 'ticket opted out of the sandbox backend',
     };
 
-    render(<SandboxStrip sandbox={optOutView} />);
+    render(<SandboxStrip sandbox={optOutView} send={fullSend()} />);
 
     const strip = screen.getByTestId('sandbox-strip');
     expect(strip.textContent).toContain('ticket opted out of the sandbox backend — runs prompted on the host.');
