@@ -1,0 +1,15 @@
+/* The ticket-data preview drawer (moved from webview.html with the drawer). UI-R04: composed from tokens, no raw
+   dimensions; width uses the same token step as the ticket form's drawer. `.k-scrim`/`.k-drawer` supply the surface,
+   shadow and z-index; the open transform and the scrim's opacity fade stay local, like the ticket form. */
+/* The wrapper takes the place the static scrim and aside held: it draws nothing of its own. */
+.tdHost{display:contents}
+.tdScrim{opacity:0;pointer-events:none;transition:opacity var(--k-dur-base) var(--k-ease-standard)}
+.tdScrim.open{opacity:1;pointer-events:auto}
+.tdDrawer{width:min(calc(var(--k-space-8) * 23),86vw);display:flex;flex-direction:column;transform:translateX(100%)}
+.tdDrawer.open{transform:translateX(0)}
+.tdDrawerHead{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-7) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
+.tdDrawerHead h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);flex:1;min-width:0}
+.tdDrawerBody{flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6) var(--k-space-7);overflow:auto;white-space:pre-wrap;font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
+@media (prefers-reduced-motion:reduce){
+  .tdScrim,.tdDrawer{transition:none}
+}

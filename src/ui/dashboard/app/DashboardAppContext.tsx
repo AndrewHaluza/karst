@@ -12,6 +12,9 @@ import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import { DashboardStore } from './dashboardStore.js';
+import { announcePersistArt } from './artSeam.js';
+import { OverlayStack, restoreArt, type OverlaySnapshot } from './overlayStack.js';
+import { pageScroll } from './pageScroll.js';
 import { PendingOps, type OpsSnapshot } from './pendingOps.js';
 import { StageSelection, type SelectionSnapshot } from './stageSelection.js';
 
@@ -19,6 +22,7 @@ const StoreContext = createContext<DashboardStore | null>(null);
 const BridgeContext = createContext<DashboardHostBridge | null>(null);
 const OpsContext = createContext<PendingOps | null>(null);
 const SelectionContext = createContext<StageSelection | null>(null);
+const OverlayContext = createContext<OverlayStack | null>(null);
 
 function restoreInitialState(bridge: DashboardHostBridge): DashboardState | null {
   try {
@@ -46,6 +50,17 @@ function restoreSelection(bridge: DashboardHostBridge): { sel: string | null; sh
   }
 }
 
+/** The artifact view and scroll memory the page persisted; tolerant of a failing restore. */
+function restoreArtView(bridge: DashboardHostBridge): ReturnType<typeof restoreArt> {
+  try {
+    const raw = bridge.getState();
+    // Only an envelope that holds a snapshot restores a view (an older build saved the bare snapshot, with no view state).
+    return restoreArt(raw && typeof raw === 'object' && 'state' in raw && raw.state ? raw : null);
+  } catch {
+    return restoreArt(null);
+  }
+}
+
 export function DashboardAppProvider({
   bridge,
   children,
@@ -56,18 +71,29 @@ export function DashboardAppProvider({
   const [store] = useState(() => new DashboardStore(restoreInitialState(bridge)));
   const [ops] = useState(() => new PendingOps());
   const [selection] = useState(() => new StageSelection(restoreSelection(bridge), store.getSnapshot().state));
+  const [overlays] = useState(
+    () =>
+      new OverlayStack({
+        send: bridge.send,
+        getState: () => store.getSnapshot().state,
+        scroll: pageScroll,
+        persistArt: announcePersistArt,
+        restored: restoreArtView(bridge),
+      }),
+  );
 
   // The shared in-flight operations settle, and a new Ship wait selects Ship, from the same host messages every panel sees.
   useEffect(() => {
     const off = store.onMessage((message) => {
       ops.receive(message);
       selection.receive(message);
+      overlays.receive(message);
     });
     return () => {
       off();
       ops.dispose();
     };
-  }, [store, ops, selection]);
+  }, [store, ops, selection, overlays]);
 
   useEffect(() => {
     // Messages buffered before this subscription replay inside the call, i.e. inside this
@@ -86,7 +112,9 @@ export function DashboardAppProvider({
     <BridgeContext.Provider value={bridge}>
       <StoreContext.Provider value={store}>
         <OpsContext.Provider value={ops}>
-          <SelectionContext.Provider value={selection}>{children}</SelectionContext.Provider>
+          <SelectionContext.Provider value={selection}>
+            <OverlayContext.Provider value={overlays}>{children}</OverlayContext.Provider>
+          </SelectionContext.Provider>
         </OpsContext.Provider>
       </StoreContext.Provider>
     </BridgeContext.Provider>
@@ -125,6 +153,21 @@ export function useSelection(): { readonly selection: SelectionSnapshot; readonl
   const selection = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const select = useCallback((stage: string | null) => store.select(stage), [store]);
   return { selection, select };
+}
+
+/** The overlay stack (drawer, console, logs, env, artifact view): open them here; the Escape chain is its `escape()`. */
+export function useOverlays(): OverlayStack {
+  const overlays = useContext(OverlayContext);
+  if (!overlays) {
+    throw new Error('useOverlays must be used within DashboardAppProvider');
+  }
+  return overlays;
+}
+
+/** One part of the overlay state; `select` must return a value that is stable while that part is unchanged. */
+export function useOverlay<T>(select: (snapshot: OverlaySnapshot) => T): T {
+  const overlays = useOverlays();
+  return useSyncExternalStore(overlays.subscribe, () => select(overlays.getSnapshot()));
 }
 
 export function useDashboardBridge(): DashboardHostBridge {
