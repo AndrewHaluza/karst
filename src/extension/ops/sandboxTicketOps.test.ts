@@ -636,6 +636,13 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     expect(wait).toHaveBeenCalledWith(5_000);
   });
 
+  it('a background ci-style setup with no lockfile is skipped: no state, no notify', async () => {
+    const m = await make({ setupExit: 1, noLockfile: true });
+    await m.b.provision(m.id, { background: true });
+    expect(m.ran).toHaveLength(0);
+    expect(m.errors).toHaveLength(0);
+  });
+
   it('provisionInBackground gives up waiting after 12 polls and provisions nothing', async () => {
     const m = await make({ listed: async () => [] });
     const wait = vi.fn(() => Promise.resolve());
