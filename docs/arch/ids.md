@@ -10,7 +10,39 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 How a ticket, a draft and a planning session are named in every text a human or agent reads. Related: `docs/arch/prompt-metrics.md` (`arch:RESIDENT`, why the self-id is one line), `docs/arch/cli.md` (id arguments).
 
+## [@arch:IDS-00] Overview
+covers: src/model/entityId.ts, src/model/entityId.ratchet.test.ts
+
+### Purpose
+Tickets, drafts and planning sessions are numeric rows, but humans and agents see them as prefixed ids (`T583`, `D7`, `P2`). One module formats and parses them, so `#N` stays reserved for GitHub PRs.
+
+### Connections
+- in: `@arch:RESIDENT` (self-id is one header line), `@arch:CLI-02` (id arguments are parsed by `parseId`)
+- out: none; display-only, the integer primary keys and schema are untouched
+
+### Flow
+```mermaid
+flowchart LR
+  PK[integer PK] --> F[formatId / formatTicketRef]
+  F --> TXT[prompts, CLI output, briefs]
+  ARG[CLI / draft id argument] --> P[parseId]
+  P --> PK
+  R[entityId.ratchet.test] -.guards.-> TXT
+```
+
+### Tradeoffs
+| chosen | rejected | why |
+|---|---|---|
+| prefix derived from integer PK | stored prefixed id column | no schema change, no migration |
+| ticket key shown beside `T<n>` | replace key with `T<n>` | key stays the provider's id |
+| ratchet test on `#${…}` | review convention | catches regressions in non-UI source |
+
+### Rules
+`@arch:IDS-01`
+END_DOC_BLOCK: [@arch:IDS-00]
+
 ## [@arch:IDS-01] Every visible id goes through entityId.ts
+covers: src/model/entityId.ts#formatId, src/model/entityId.ts#parseId
 
 Three numeric entities, one prefixed form, built only by `src/model/entityId.ts` (display-only: derived from the integer primary keys, no schema change).
 
