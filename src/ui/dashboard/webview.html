@@ -2064,6 +2064,14 @@
        writer would refuse. -->
   <button id="detachSubtask" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="detach-subtask"
     title="Detach this sub-task from its parent and rebase it onto the root base">Detach from parent…</button>
+  <!-- Close / Reopen (@arch:STAGEMACH): a person records that the work was done
+       outside karst. Host-gated (`canClose` / `canReopen`); the click sends no
+       payload and the host asks for the reason. A recorded vanilla-view
+       exception, see ui:REACT-VIEWS. -->
+  <button id="closeTicket" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="close-ticket"
+    title="Mark closed: the work was done outside Karst. Nothing is verified">Close — done outside Karst…</button>
+  <button id="reopenTicket" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="reopen-ticket"
+    title="Bring this closed ticket back to implementation">Reopen</button>
   <div class="headerActions">
     <div class="agentWrap">
       <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
@@ -4514,6 +4522,10 @@
     // sub-task, and the host decides whether the writer would allow it.
     const detach = el('detachSubtask');
     if (detach) detach.classList.toggle('hidden', !state.canDetachSubtask);
+    const closeBtn = el('closeTicket');
+    if (closeBtn) closeBtn.classList.toggle('hidden', !state.canClose);
+    const reopenBtn = el('reopenTicket');
+    if (reopenBtn) reopenBtn.classList.toggle('hidden', !state.canReopen);
   }
 
   // The status glyph a sub-task row paints: the shipped `.k-dot` primitive
@@ -6154,6 +6166,8 @@
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
     'create-subtask': (btn, requestId) => karstSend.createSubtask(requestId),
     'detach-subtask': (btn, requestId) => karstSend.detachSubtask(requestId),
+    'close-ticket': (btn, requestId) => karstSend.closeTicket(requestId),
+    'reopen-ticket': (btn, requestId) => karstSend.reopenTicket(requestId),
     'copy-ticket-key': (btn, requestId) => karstSend.copyTicketKey(requestId),
     'pause-execution': (btn, requestId) => karstSend.pauseExecution(requestId),
     'unpause-execution': (btn, requestId) => karstSend.unpauseExecution(requestId),

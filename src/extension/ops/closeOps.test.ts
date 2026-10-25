@@ -34,6 +34,7 @@ describe('closeTicketOp', () => {
     expect(getTicket(store, id).stageCurrent).toBe('closed');
     expect(getTicket(store, id).stages.find((s) => s.stageKey === 'closed')?.verdict).toBe('Sam did it (CU-9)');
     expect(deps.stopWork).toHaveBeenCalledWith(id);
+    expect(deps.refresh).toHaveBeenCalledWith(id);
     expect(deps.refresh).toHaveBeenCalledTimes(1);
     expect(notify.info).toHaveBeenCalledWith(
       `Karst: closed ${formatTicketRef(id, 'T-1')} — resolved outside karst, nothing was verified.`,
@@ -115,6 +116,7 @@ describe('reopenTicketOp', () => {
     expect(notify.info).toHaveBeenLastCalledWith(
       `Karst: reopened ${formatTicketRef(id, 'T-1')} — back at implementation.`,
     );
+    expect(deps.refresh).toHaveBeenNthCalledWith(2, id);
     expect(deps.refresh).toHaveBeenCalledTimes(2);
   });
 

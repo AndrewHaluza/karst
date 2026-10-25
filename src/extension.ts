@@ -6898,7 +6898,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
       activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },
-      refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); },
+      refresh: (id) => { provider.refresh(); dashboard.pushState(id); void subtaskAutostart.sweep(); },
       ui: {
         registerCommand: (id, h) => vscode.commands.registerCommand(id, h),
         showInputBox: (o) => Promise.resolve(vscode.window.showInputBox({ ...o, ignoreFocusOut: true })),
@@ -8433,6 +8433,9 @@ function makeDashboardActions(
     // Detach a started sub-task from its parent: rebase onto the parent's base
     // and clear the parent link (design NDL-70 §5 'Detach').
     detachSubtask: () => void vscode.commands.executeCommand('karst.detachSubtask', ticketId),
+    // Same commands as the palette; the host prompts for the reason (payload-free message).
+    closeTicket: () => void vscode.commands.executeCommand('karst.closeTicket', ticketId),
+    reopenTicket: () => void vscode.commands.executeCommand('karst.reopenTicket', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

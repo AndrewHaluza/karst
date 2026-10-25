@@ -50,6 +50,8 @@ function actions(): DashboardActions {
     createFollowUpTicket: vi.fn(),
     createSubtask: vi.fn(),
     detachSubtask: vi.fn(),
+    closeTicket: vi.fn(),
+    reopenTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     mergePr: vi.fn(),
@@ -340,6 +342,21 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'create-follow-up-ticket' }, a);
     expect(a.createFollowUpTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses and dispatches the payload-free close-ticket and reopen-ticket', () => {
+    expect(parseWebviewMessage({ type: 'close-ticket', ticketId: 9, reason: 'x' })).toEqual({
+      type: 'close-ticket',
+    });
+    expect(parseWebviewMessage({ type: 'reopen-ticket', ticketId: 9 })).toEqual({
+      type: 'reopen-ticket',
+    });
+    const a = actions();
+    routeAction({ type: 'close-ticket' }, a);
+    expect(a.closeTicket).toHaveBeenCalledTimes(1);
+    expect(a.reopenTicket).not.toHaveBeenCalled();
+    routeAction({ type: 'reopen-ticket' }, a);
+    expect(a.reopenTicket).toHaveBeenCalledTimes(1);
   });
 
   it('parses and dispatches create-subtask', () => {

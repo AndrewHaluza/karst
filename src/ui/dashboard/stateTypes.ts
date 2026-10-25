@@ -160,6 +160,12 @@ export interface DashboardState {
    * live agent. The webview never re-derives it.
    */
   canDetachSubtask: boolean;
+  /**
+   * Whether "Close — done outside Karst…" / "Reopen" are offered — host-derived
+   * (`model/closeRules.ts`); the webview never re-derives them.
+   */
+  canClose: boolean;
+  canReopen: boolean;
   stageCurrent: string | null;
   agentState: string | null;
   paused: boolean;

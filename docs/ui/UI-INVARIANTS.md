@@ -145,6 +145,20 @@ those two surfaces and expires with each view's migration: whichever view moves
 to React must re-home its park actions in the React app, never carry the vanilla
 buttons across.
 
+**Second recorded exception (2026-10-25):** the dashboard's header carries two
+small controls, "Close — done outside Karst…" and "Reopen" (`#closeTicket`,
+`#reopenTicket`), for the human-only `closed` state (`arch:STAGEMACH`,
+`arch:CLI-18`). The project owner asked for the buttons on the vanilla view so
+the feature is reachable without the command palette. Scope is deliberately the
+smallest that works: two ghost buttons beside "Detach from parent…", gated by the
+host flags `canClose` / `canReopen` (`model/closeRules.ts`), sending two
+payload-free messages (`close-ticket`, `reopen-ticket`); the host runs the same
+`karst.closeTicket` / `karst.reopenTicket` commands as the palette, whose input
+boxes are the confirmation and collect the reason, so the webview holds no form,
+no free text and no state. Like the park actions it expires with the dashboard's
+migration: the React app must re-home both controls, never carry the vanilla
+buttons across.
+
 The Resources webview moved to React as the first step of the "Servers &
 resources" page (`src/ui/resources/app/**`, two tabs in one document): its Resources
 tab keeps the same panels and content, its tab strip and Servers tab are new. The

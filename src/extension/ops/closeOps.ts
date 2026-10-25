@@ -22,7 +22,8 @@ export interface CloseOpsDeps {
   readonly askReason: (ticketId: number) => Promise<{ reason: string; ref?: string } | undefined>;
   /** Stop the driver round and dispose the agent session for the ticket. */
   readonly stopWork: (ticketId: number) => void;
-  readonly refresh: () => void;
+  /** Repaint the sidebar and the ticket's open dashboard. */
+  readonly refresh: (ticketId: number) => void;
 }
 
 function plural(n: number, noun: string): string {
@@ -59,7 +60,7 @@ export async function closeTicketOp(deps: CloseOpsDeps, ticketId: number): Promi
   } catch (err) {
     deps.log.error('karst: stopping live work for a closed ticket failed', err);
   }
-  deps.refresh();
+  deps.refresh(ticketId);
   deps.notify.info(
     `Karst: closed ${label(deps.store, ticketId)} — resolved outside karst, nothing was verified.${describeLeft(left)}`,
   );
@@ -72,6 +73,6 @@ export async function reopenTicketOp(deps: CloseOpsDeps, ticketId: number): Prom
     await deps.notify.error(err instanceof Error ? err.message : String(err));
     return;
   }
-  deps.refresh();
+  deps.refresh(ticketId);
   deps.notify.info(`Karst: reopened ${label(deps.store, ticketId)} — back at implementation.`);
 }
