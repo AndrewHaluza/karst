@@ -81,7 +81,8 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
         return repo === undefined ? o : { ...o, [repo]: false };
       });
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') closeFirst();
+      // The vanilla handler claims Escape (preventDefault) when it closes an overlay: that press is spent.
+      if (e.key === 'Escape' && !e.defaultPrevented) closeFirst();
     };
     const onClick = (e: MouseEvent): void => {
       if (!eventWithin(e, KEEPS_FORM_OPEN)) closeFirst();

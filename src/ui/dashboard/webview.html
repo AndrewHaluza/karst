@@ -4626,8 +4626,12 @@
     const t = e.target;
     return !!(t && t.closest && t.closest('[data-react-owned]'));
   }
+  // A click inside the island is outside every header popover, so it dismisses them like any outside click.
+  function closePopoversFromIsland(e) {
+    if (inReactIsland(e)) closePopovers();
+  }
   document.addEventListener('click', (e) => {
-    if (inReactIsland(e)) return;
+    closePopoversFromIsland(e); if (inReactIsland(e)) return;
     const t = e.target;
     if (t && t.closest('#agentButton')) {
       const opening = el('agentPopover').classList.contains('hidden');
@@ -5883,14 +5887,14 @@
   // dismisses on Esc, like any dialog.
   document.addEventListener('keydown', (e) => {
     if (inReactIsland(e)) return;
-    if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
-    if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
-    if (e.key === 'Escape' && termView) { closeTerminal(); return; }
-    if (e.key === 'Escape' && logsView) { closeServerLogs(); return; }
-    if (termView && term && scrollTermByKey(e)) { e.preventDefault(); return; }
-    if (logsView && scrollLogsByKey(e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape' && envView) { closeEnvOverrides(); return; }
-    if (e.key === 'Escape' && artView) { artifactBack(); return; }
+    if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); e.preventDefault?.(); return; }
+    if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); e.preventDefault?.(); return; }
+    if (e.key === 'Escape' && termView) { closeTerminal(); e.preventDefault?.(); return; }
+    if (e.key === 'Escape' && logsView) { closeServerLogs(); e.preventDefault?.(); return; }
+    if (termView && term && scrollTermByKey(e)) { e.preventDefault?.(); return; }
+    if (logsView && scrollLogsByKey(e)) { e.preventDefault?.(); return; }
+    if (e.key === 'Escape' && envView) { closeEnvOverrides(); e.preventDefault?.(); return; }
+    if (e.key === 'Escape' && artView) { artifactBack(); e.preventDefault?.(); return; }
     // Gate switch keyboard toggle (Space/Enter)
     if ((e.key === ' ' || e.key === 'Enter') && e.target && e.target.closest && e.target.closest('.gateSwitch')) {
       e.preventDefault();

@@ -184,7 +184,7 @@ describe('WorktreesPanel — posting controls', () => {
     fireEvent.click(button);
     expect(h.send.copyWorktreeBranch).toHaveBeenCalledWith('feat/web', expect.stringMatching(/^req-/));
     expect(button.getAttribute('aria-label')).toBe('Copied');
-    expect(button.classList.contains('ok')).toBe(true);
+    expect(button.hasAttribute('data-copied')).toBe(true);
     expect(button.disabled).toBe(true);
     expect(button.querySelector('[data-icon="check"]')).not.toBeNull();
 
@@ -192,7 +192,7 @@ describe('WorktreesPanel — posting controls', () => {
       vi.advanceTimersByTime(1200);
     });
     expect(button.getAttribute('aria-label')).toBe('Copy branch name');
-    expect(button.classList.contains('ok')).toBe(false);
+    expect(button.hasAttribute('data-copied')).toBe(false);
     expect(button.disabled).toBe(false);
     expect(button.querySelector('[data-icon="copy"]')).not.toBeNull();
   });

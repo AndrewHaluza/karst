@@ -197,3 +197,9 @@ move later; persistence moves last and once.
   later inline rules. Check specificity per slice in the docker visual run.
 - **Upgrade restore.** Phase 12 must read the vanilla persisted envelope (and the pre-envelope shape
   vanilla already tolerates) so an open panel survives the update.
+
+---
+
+## 8. Log
+
+- **Slice 3 (Worktrees + shell), 2026-10-25.** Accepted behaviour differences beyond the two sidebar ones, each a fix of a vanilla staleness: the "Rebase onto X / Change base" label follows the rebase switch immediately; the base popover keeps its position across pushes; toggles commit synchronously (`flushSync`). Interop rules learned, now pinned in `parity/interop.render.integration.test.ts`: a click inside a React region still closes the vanilla header popovers; a vanilla Escape that closes an overlay calls `preventDefault()` and React Escape handlers skip a `defaultPrevented` event; a React button that may be runtime-pending never changes its `className` (use a `data-*` attribute for transient looks).

@@ -36,7 +36,10 @@ function CopyBranchButton({ branch, send }: { readonly branch: string; readonly 
   return (
     <button
       type="button"
-      className={`k-iconbtn ib t-copy${copied ? ' ok' : ''}`}
+      // The flash is a data attribute, never a className change: React rewriting className would wipe
+      // the runtime's `is-pending` class while the request is in flight.
+      className="k-iconbtn ib t-copy"
+      data-copied={copied ? '' : undefined}
       data-act="copy-worktree-branch"
       data-branch={branch}
       data-copy=""
