@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SANDBOX_NETWORK_ALLOWLIST } from '../sandbox.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
-import { DOCKER_ALLOWLIST, PROXY_URL, sidecarRunArgs, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import { DOCKER_ALLOWLIST, haltProxySidecar, PROXY_MEMORY_LIMIT, PROXY_MEMORY_RESERVATION, PROXY_URL, sidecarRunArgs, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 const SPEC = { proxy: 'k-proxy', network: 'k-net', scriptPath: '/ext dir/allowlist-proxy.mjs' };
 const lines = (proc: ReturnType<typeof fakeDockerProcess>) => proc.calls.map((c) => [c.command, ...c.args].join(' '));
@@ -19,6 +19,7 @@ describe('proxySidecar', () => {
       'run', '--detach', '--name', 'k-proxy',
       '--network', 'k-net', '--network-alias', 'karst-proxy',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+      '--memory', '128m', '--memory-reservation', '64m',
       '--env', 'ALLOW=a.io,b.io', '--label', 'karst.allow=a.io,b.io',
       '--mount', 'type=bind,source=/ext dir/allowlist-proxy.mjs,target=/opt/karst/allowlist-proxy.mjs,readonly',
       OPENCODE_IMAGE, 'node', '/opt/karst/allowlist-proxy.mjs',
@@ -85,5 +86,19 @@ describe('proxy sidecar: baseline host ports (arch:AC-32)', () => {
     const same = fakeDockerProcess({ 'docker container inspect': { stdout: 'true host.docker.internal:5432\n' } });
     await startProxySidecar(same, { proxy: 'p', network: 'n', scriptPath: '/s.mjs', hostPorts: [5432] });
     expect(same.calls).toHaveLength(1);
+  });
+
+  it('caps the proxy memory', () => {
+    expect([PROXY_MEMORY_LIMIT, PROXY_MEMORY_RESERVATION]).toEqual(['128m', '64m']);
+  });
+
+  it('halts (not removes) the proxy, tolerating a gone container', async () => {
+    const proc = fakeDockerProcess();
+    await expect(haltProxySidecar(proc, 'k-proxy')).resolves.toEqual({ ok: true });
+    expect(lines(proc)).toEqual(['docker stop k-proxy']);
+    const gone = fakeDockerProcess({ 'docker stop': { code: 1, stderr: 'Error: No such container: k-proxy' } });
+    await expect(haltProxySidecar(gone, 'k-proxy')).resolves.toEqual({ ok: true });
+    const bad = fakeDockerProcess({ 'docker stop': { code: 1, stderr: 'daemon down' } });
+    await expect(haltProxySidecar(bad, 'k-proxy')).resolves.toMatchObject({ ok: false });
   });
 });

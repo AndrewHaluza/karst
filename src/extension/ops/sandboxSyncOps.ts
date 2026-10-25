@@ -1,4 +1,5 @@
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
+import type { SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
@@ -16,7 +17,7 @@ import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxProbe, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
-import { stashMessage } from '../../agent/cloneRefresh.js';
+import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
@@ -44,6 +45,7 @@ export interface BackendSessionInput {
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
   readonly hostPorts?: readonly number[];
+  readonly sandboxMemory?: SandboxMemoryConfig;
   /**
    * F8: before a session starts or resumes in a sandbox that already exists, sync sandbox → host
    * and refresh host → sandbox. A blocker (dirty clone, divergence) stops the launch.
@@ -72,8 +74,8 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const out = await resolve({
       backends: { ...input.backends, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
-      ...(input.debug || input.hostPorts ? {
-        docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },
+      ...(input.debug || input.hostPorts || input.sandboxMemory ? {
+        docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
       } : {}),
     });
     // The fail-closed fallback is never silent (arch:AC-31): say why it runs prompted.
@@ -237,7 +239,7 @@ export function ensureSandboxSynced(deps: SandboxSyncDeps, target: SandboxSyncTa
  * agent (F8/F12): sandbox → host (ff-only), then host → sandbox. A dirty clone
  * or divergence is a blocker (`ok:false`), never an overwrite.
  */
-export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean } = {}): Promise<EnsureSyncResult> {
+export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean; readonly allowDirtyClone?: boolean } = {}): Promise<EnsureSyncResult> {
   return serialised(target.ticketId, async () => {
     const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
     const probe = runner ? await probeOf(runner) : undefined;
@@ -247,6 +249,8 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     if (!runner.refresh || !target.worktree?.branch) return synced;
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
+      // Opening a session: uncommitted clone work with nothing to bring in is the user's own to continue, not a blocker.
+      if (!refreshed.ok && opts.allowDirtyClone && refreshed.reason.startsWith(DIRTY_NOT_BEHIND)) return { ok: true };
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };

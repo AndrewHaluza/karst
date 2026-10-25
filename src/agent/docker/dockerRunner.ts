@@ -22,7 +22,8 @@ import {
   type LinuxUser,
   rewritePaths,
 } from './dockerRunArgs.js';
-import { deniedHostsFromLog, DOCKER_ALLOWLIST, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import type { DockerMemoryLimits } from './dockerMemory.js';
+import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
@@ -38,6 +39,8 @@ export interface DockerRunnerOptions {
   /** Agent-visible evidence dir (the bridge mount), exported to gates as `KARST_EVIDENCE_DIR`. */
   readonly evidenceDir?: string;
   /** What a setup window needs to recreate the proxy: its bundled script and the baseline host ports. */
+  /** Resolved container memory limits; absent = no memory flags. */
+  readonly memory?: DockerMemoryLimits;
   readonly proxy?: { readonly script: string; readonly hostPorts?: readonly number[] };
 }
 
@@ -82,6 +85,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
           names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
           hostWorktreePath: spec.hostWorktreePath, args: [...launch.args, ...spec.args], env,
           ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
+          ...(opts.memory ? { memory: opts.memory } : {}),
         }),
         env,
       };
@@ -101,12 +105,16 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       }
       // The interactive container is `--rm`: once its terminal closed, a gate
       // runs in a one-shot container on the same clone, removed by name.
+      // The proxy is stopped when the session ends: bring it back for the gate's network.
+      if (opts.proxy) {
+        await startProxySidecar(opts.proc, { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) });
+      }
       const runName = `${opts.names.container}-gate-${newRunId()}`;
       const remove = () => opts.proc.run(DOCKER_BIN, ['rm', '--force', runName]);
       const onAbort = () => void remove();
       gateOpts?.signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts);
+        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv, opts.memory), cwd, gateOpts);
       } finally {
         gateOpts?.signal?.removeEventListener('abort', onAbort);
         await remove();
@@ -150,6 +158,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
+      await haltProxySidecar(opts.proc, opts.names.proxy);
     },
     stopServices: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['rm', '--force', serviceContainerName(opts.names)]);

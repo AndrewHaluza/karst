@@ -375,6 +375,7 @@ describe('writeManifest', () => {
         // Non-default on purpose: a missing writeManifest overlay would fall
         // back to the loader's default and the round-trip would still pass.
         archiveDoneAfterDays: 7,
+        archivePlanningAfterDays: 9,
         artifacts: { maxAgeDays: 30 },
         // Same reason: absent debug would round-trip regardless of the overlay,
         // so the populated manifest pins the explicit value.
@@ -383,6 +384,8 @@ describe('writeManifest', () => {
         agentSandbox: true,
         // Same reason: absent agentBackends round-trips regardless of the overlay.
         agentBackends: { claude: 'sbx', opencode: 'docker' },
+        // Same reason: absent sandboxMemory round-trips regardless of the overlay.
+        sandboxMemory: { interactiveMemory: '2g', gateReservation: '1536m' },
         // Same reason again: absent closeDoneTerminalsWithTicket would round-trip
         // whether or not the overlay wrote it, so the populated manifest pins the
         // explicit value.

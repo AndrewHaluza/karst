@@ -1437,3 +1437,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_limit_parks_open
     COALESCE(target, ''), COALESCE(session_id, '')
   )
   WHERE resolved_at IS NULL;
+
+-- v90: cloud agent-session links (arch:CLOUD-01). A DISPLAY-ONLY cache, rebuildable
+-- from git/PR text; never read by stage, gate or agent_state logic. NULL ticket and
+-- proposal = unlinked. link_source NULL = unlinked by scan; 'manual' rows are never
+-- overwritten by a rescan (an explicit unlink keeps 'manual' with both ids NULL).
+CREATE TABLE IF NOT EXISTS cloud_session_links (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id  INTEGER NOT NULL,
+  provider    TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  ticket_id   INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  proposal_id INTEGER REFERENCES planning_proposals(id) ON DELETE SET NULL,
+  link_source TEXT CHECK (link_source IN ('pr', 'branch', 'key', 'manual')),
+  first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (project_id, provider, url)
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_session_links_ticket ON cloud_session_links(ticket_id);

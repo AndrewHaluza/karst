@@ -51,6 +51,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'ticketLabelTemplate',
     'terminalNameTemplate',
     'archiveDoneAfterDays',
+    'archivePlanningAfterDays',
     'debug',
     'closeDoneTerminalsWithTicket',
     'diffsInSourceControl',

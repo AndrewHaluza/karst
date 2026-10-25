@@ -54,6 +54,14 @@ export const WEBVIEW_BUNDLE_ENTRIES = [
     minifyFromProd: true,
   },
   {
+    // The ticket-list sidebar (React). Same pipeline, same production React.
+    input: 'src/ui/sidebar/app/main.tsx',
+    output: 'src/ui/sidebar/app.webview.js',
+    jsx: 'automatic',
+    define: { 'process.env.NODE_ENV': '"production"' },
+    minifyFromProd: true,
+  },
+  {
     input: 'src/ui/settings/app/main.tsx',
     output: 'src/ui/settings/app.webview.js',
     jsx: 'automatic',

@@ -152,3 +152,26 @@ describe('interactiveRunArgs bridge mount', () => {
     expect(interactiveRunArgs(base).join(' ')).not.toContain('karst-bridge');
   });
 });
+
+describe('memory flags', () => {
+  const memory = { interactiveMemory: '2g', interactiveReservation: '1g', gateMemory: '3g', gateReservation: '1536m' };
+  const names = dockerNames({ projectRoot: '/p', ticketId: 1, core: 'opencode' });
+  const pair = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
+
+  it('interactive run emits the interactive limit and reservation', () => {
+    const argv = interactiveRunArgs({ ...base, memory });
+    expect(pair(argv, '--memory')).toBe('2g');
+    expect(pair(argv, '--memory-reservation')).toBe('1g');
+  });
+
+  it('gate run emits the gate limit and reservation', () => {
+    const argv = gateRunArgs(names, undefined, 'run', 'npm', ['test'], {}, memory);
+    expect(pair(argv, '--memory')).toBe('3g');
+    expect(pair(argv, '--memory-reservation')).toBe('1536m');
+  });
+
+  it('adds no memory flag without limits', () => {
+    expect(interactiveRunArgs(base)).not.toContain('--memory');
+    expect(gateRunArgs(names, undefined, 'run', 'npm', [], {})).not.toContain('--memory-reservation');
+  });
+});

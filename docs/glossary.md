@@ -457,6 +457,10 @@ END_DOC_BLOCK: [@gloss:GL-09]
   `npm run dev:extension` / `npm run test:unit` restore the right binary automatically.
   A `NODE_MODULE_VERSION` mismatch is fixed with `rebuild:electron` /
   `rebuild:node`.
+- **Cloud session link** — a display-only link from a ticket (or draft) to the
+  agent session that ran in a vendor's cloud (claude.ai Code on the web first),
+  found by scanning commit messages and PR bodies for the session URL. Never
+  affects stage, gates or `agent_state`; rules in `@arch:CLOUD-01`.
 END_DOC_BLOCK: [@gloss:GL-10]
 
 ---
@@ -529,6 +533,7 @@ values are rejected naming the field):
 - `worktreePathDisplay` — `relative` (default) or `absolute` path rendering.
 - `agentProvider` — the default agent core (`claude` default).
 - `archiveDoneAfterDays` — done-ticket auto-archive delay (default 3 days).
+- `archivePlanningAfterDays` — finished planning-session auto-archive delay (default 3 days; every draft accepted, no live terminal, idle that long).
 - `stopServersOnDone` — what happens to running services when a ticket reaches `done`: `ask` (default, prompts once with Stop / Keep running / Always stop), `auto` (stops and announces), or `off` (services survive until archive).
 - `repositories` — map of name → `{repoPath, baselineBranch?, hasMigrations?,
   signals?, scope?, service?}`. `signals` route tickets to repos at classify;

@@ -30,6 +30,7 @@ const EXPECTED_TABLES = [
   'port_allocations',
   'baseline_refs',
   'baseline_pins',
+  'cloud_session_links',
   'servers',
   'prs',
   'merge_checks',

@@ -24,7 +24,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 
 | Key | Tab |
 |---|---|
-| `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate`, `archiveDoneAfterDays`, `stopServersOnDone`, `subtasks.maxConcurrentPerParent`, `subtasks.maxConcurrentTotal` | General |
+| `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate`, `archiveDoneAfterDays`, `archivePlanningAfterDays`, `stopServersOnDone`, `subtasks.maxConcurrentPerParent`, `subtasks.maxConcurrentTotal` | General |
 | `quota.warnThresholdPct` | Agents |
 | `agentPresets.<name>.label` / `.slots.<capability>.{provider,model,effort}`, `activeAgentPreset`, `defaultAgentPreset` (deprecated alias) | Presets |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |

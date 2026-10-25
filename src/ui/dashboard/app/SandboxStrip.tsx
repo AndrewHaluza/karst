@@ -285,6 +285,22 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
           <button
             type="button"
             className="k-btn k-btn--secondary k-btn--sm"
+            data-act="sandbox-stash-update"
+            aria-label="Stash uncommitted sandbox changes and update from the host"
+            title="Stash uncommitted sandbox changes (kept in git stash) and update from the host"
+            onClick={() => send?.sandboxStashUpdate?.()}
+          >
+            <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 7l8 -4l8 4l-8 4l-8 -4" />
+              <path d="M4 12l8 4l8 -4" />
+              <path d="M4 17l8 4l8 -4" />
+            </svg>
+            <span>Stash &amp; update</span>
+          </button>
+
+          <button
+            type="button"
+            className="k-btn k-btn--secondary k-btn--sm"
             data-act="sandbox-stop"
             aria-label="Stop the sandbox (kept for the next open)"
             title="Stop the sandbox (kept for the next open)"

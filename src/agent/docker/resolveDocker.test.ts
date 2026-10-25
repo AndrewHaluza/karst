@@ -89,4 +89,19 @@ describe('resolveDocker: baseline host ports (arch:AC-32)', () => {
     await resolveDocker({ ...base, core: 'opencode', deps: deps({ prepare, hostPorts: [] }) });
     expect(prepare.mock.calls[1]![0]).not.toHaveProperty('hostPorts');
   });
+
+  it('sizes the interactive container from docker info and the manifest overrides', async () => {
+    const proc = fakeDockerProcess({ 'docker info --format {{.MemTotal}}': { stdout: `${4915 * 1024 * 1024}\n` } });
+    const out = await resolveDocker({ ...base, core: 'opencode', deps: deps({ proc, sandboxMemory: { interactiveReservation: '256m' } }) });
+    if (!out.ok) throw new Error('expected ok');
+    const argv = out.runner.placeInteractive({ ticketId: 7, hostWorktreePath: '/w/t7', command: 'opencode', args: [], env: {} }).shellArgs;
+    expect(argv.slice(argv.indexOf('--memory'), argv.indexOf('--memory') + 4)).toEqual(['--memory', '2211m', '--memory-reservation', '256m']);
+  });
+
+  it('uses the fallback limits when docker info gives no MemTotal', async () => {
+    const out = await resolveDocker({ ...base, core: 'opencode', deps: deps() });
+    if (!out.ok) throw new Error('expected ok');
+    const argv = out.runner.placeInteractive({ ticketId: 7, hostWorktreePath: '/w/t7', command: 'opencode', args: [], env: {} }).shellArgs;
+    expect(argv.slice(argv.indexOf('--memory'), argv.indexOf('--memory') + 4)).toEqual(['--memory', '2g', '--memory-reservation', '1g']);
+  });
 });

@@ -24,7 +24,7 @@
     "uat:host": "node scripts/uat-host/run.mjs",
     "uat:host:docker": "node scripts/uat-host/docker.mjs",
     "lint": "tsc --noEmit",
-    "lint:react": "eslint src/ui/settings/app src/ui/dashboard/app src/ui/resources/app",
+    "lint:react": "eslint src/ui/settings/app src/ui/dashboard/app src/ui/resources/app src/ui/sidebar/app",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
@@ -192,6 +192,10 @@
         "command": "karst.sandbox.sync",
         "title": "Karst: Sync Sandbox Commits",
         "icon": "$(repo-pull)"
+      },
+      {
+        "command": "karst.sandbox.stashUpdate",
+        "title": "Karst: Stash Sandbox Changes and Update"
       },
       {
         "command": "karst.sandbox.setup",

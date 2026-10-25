@@ -10,7 +10,56 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 Binding reference for `logger.debug()` and the injected `debug` callbacks. `CLAUDE.md` points here; this file carries the rules and the inventory.
 
+## [@arch:DBG-00] Overview
+, src/agent/instrumentedAdapter.ts#instrumentAdapter, src/diagnostics/logEvidence.ts, src/diagnostics/collectMetadata.ts
+
+### Purpose
+How debug output is produced, gated, retained and reported. Host-agnostic modules emit `debug(...)` through injected callbacks; one logger gates it, and a bounded buffer keeps ticket evidence for issue reports.
+
+### Connections
+- in: @arch:MAP-00 — the host-agnostic layering that forces `debug` to be injected.
+- in: @arch:AC-08 — adapters get debug by construction via `instrumentAdapter`.
+- out: @arch:DIAG-02 — reports read the same buffer through `collectLogs`; reporting never reaches back.
+
+### Flow
+```mermaid
+sequenceDiagram
+  participant M as Module (driver, gate, adapter)
+  participant X as extension.ts
+  participant L as logger.debug
+  participant B as Log buffer
+  participant R as collectLogs (report)
+  X->>L: setDebugEnabled(manifest.debug) on every (re)load
+  X->>M: inject debug = logger.debug
+  M->>L: debug("[prefix] ...") at entry, branch, exit
+  alt debug off
+    L-->>M: return (boolean check only)
+  else debug on
+    L->>B: sanitize, redact, push (2000 entries / 1 MB)
+    B->>B: evict debug, info, evidence, then warn/error
+  end
+  R->>B: snapshot()
+  R-->>R: interleave warn/error with evidence, collapse repeats
+```
+
+### Tradeoffs
+| Chosen | Rejected | Why |
+|---|---|---|
+| Injected `debug` callback | Importing the global logger | Keeps vscode-free modules testable with fakes. |
+| Level- and evidence-aware eviction | Plain FIFO | A debug flood must not push gate/runtime evidence out. |
+
+### Fallbacks
+| Trigger | Behaviour | Recovery |
+|---|---|---|
+| Debug disabled | `debug()` is a no-op | Toggle Settings → General; applied on next manifest load. |
+| Buffer cap reached | Lowest-priority resident evicted | Report carries `omitted` / `omittedByClass` counts. |
+
+### Rules
+@arch:DBG-01 · @arch:DBG-02 · @arch:DBG-03
+END_DOC_BLOCK: [@arch:DBG-00]
+
 ## [@arch:DBG-01] Injected callbacks
+covers: src/agent/instrumentedAdapter.ts#instrumentAdapter
 
 Host-agnostic modules receive `debug` as an INJECTED callback, never by importing the logger. `extension.ts` binds every one of these to `logger.debug`:
 
@@ -28,6 +77,7 @@ A new debug call site must stay behind the injected callback — never call a gl
 END_DOC_BLOCK: [@arch:DBG-01]
 
 ## [@arch:DBG-02] Gate and retention
+covers: src/logging/logger.ts#makeBoundedLogBuffer, src/logging/logger.ts#makeLogger, src/diagnostics/collectMetadata.ts
 
 `logger.debug()` (`src/logging/logger.ts`) is a NO-OP unless `setDebugEnabled(true)` was called. The manifest's `debug: true` drives it, toggleable from Settings → General and re-applied on every manifest (re)load by `extension.ts`'s `applyManifestDebug`. When off, a `debug()` call is a boolean check and a return. When on, entries go to the Karst output channel AND the diagnostic buffer, through the same sanitize/redaction pipeline as info/warn/error, so reports capture them. Debug mode also raises the buffer's retention to 2000 entries / 1 MB via `setDebugRetention`.
 

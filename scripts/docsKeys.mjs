@@ -4,7 +4,7 @@ import { globSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MAX_BLOCK_BYTES = 6200;
+export const MAX_BLOCK_BYTES = 6400; // 6200 -> 6400: the generated MAP-04 schema ER grew past 6200 with cloud_session_links (v90)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS_DIR = join(ROOT, 'docs');
 const SRC_DIR = join(ROOT, 'src');
