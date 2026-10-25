@@ -713,80 +713,6 @@ describe('dashboard webview.html', () => {
     expect(script).not.toMatch(/keys\.map\(\(s\) => s\.key\)/);
   });
 
-  /**
-   * Mergeability on the PR panel. The bug: ship probed once, said "clean", and
-   * nothing ever re-asked — a PR that stopped being mergeable an hour later read
-   * as fine until a human hit the merge button.
-   */
-  it('renders each PR’s merge verdict from the host-rendered headline', () => {
-    // The wording is `buildMergeCheckPanelRows`', host-side. A verdict phrased in
-    // the webview would be a fourth voice describing the same three-valued fact.
-    expect(HTML).toMatch(/renderPrs\(state\.prs,\s*state\.mergeChecks/);
-    expect(HTML).toContain('esc(m.headline)');
-    // The old single-line summary is gone, not merely unused.
-    expect(HTML).not.toContain('m.summary');
-  });
-
-  /**
-   * `mgwrap`'s `mg-${state}` class is the SOLE driver of the dot colour and the
-   * red conflicted text (`.mg-conflicted .mgdot` / `.mg-conflicted .mgtext`
-   * above). Nothing else in this suite pinned it before, so a future edit that
-   * dropped the class, moved it back onto `.mg`, or emitted `<details>` outside
-   * `.mgwrap` would render a colourless dot for a real conflict and this suite
-   * would stay green.
-   */
-  it('pins the state class to the wrapper, not just anywhere in the row', () => {
-    expect(HTML).toContain('class="mgwrap mg-${esc(m.state)}"');
-  });
-
-  it('opens the conflict list only when the host supplied a label for it', () => {
-    // '' means "there is nothing to open" — it must render no disclosure at all,
-    // not an empty one.
-    expect(HTML).toContain('m.detailsLabel');
-    expect(HTML).toContain('<details class="mgd"');
-  });
-
-  it('escapes the paths and git’s prose, which both come from outside karst', () => {
-    expect(HTML).toContain('esc(m.reason)');
-    expect(HTML).toContain('esc(f)');
-    expect(HTML).not.toContain('${m.reason}');
-    expect(HTML).not.toContain('${m.headline}');
-  });
-
-  it('hangs the absolute stamp off the headline as its tooltip', () => {
-    // The relative age drifts between state pushes; this is the part that stays
-    // true when it has. Pinned to the exact element and attribute — asserting
-    // only that `m.checkedTitle` appears somewhere would still pass if the
-    // tooltip moved onto the wrong node.
-    expect(HTML).toContain('<span class="mgtext"${title}>');
-    expect(HTML).toContain('title="checked ${esc(m.checkedTitle)}"');
-  });
-
-  it('keeps an open merge disclosure open across a re-render, like the stage selection', () => {
-    // render() replaces #prs wholesale on every `state` push AND every
-    // inside-progress tick ("pushState fires on every driver progress tick",
-    // above) — a user reading a long conflict list mid-ship must not have it
-    // snap shut under them. So which disclosures are open is local view state,
-    // exactly like `selectedStage`: never inside DashboardState, never
-    // round-tripped through the host, toggled only by a delegated listener.
-    expect(HTML).toMatch(/let openMergeRepos = new Set\(\)/);
-    expect(HTML).toContain('openMergeRepos.has(m.repo)');
-    expect(HTML).toMatch(/addEventListener\('toggle'/);
-    // render() itself must never reset the set — only the toggle listener may.
-    expect((HTML.match(/openMergeRepos\s*=\s*new Set\(\)/g) || []).length).toBe(1);
-  });
-
-  it('offers Resolve conflicts only on a repo the host called conflicted', () => {
-    // Not disabled-when-clean: a button that can never apply is a dead
-    // affordance. It exists only for the conflicted row, and carries the repo —
-    // never a path, which would let the webview name a directory to open a
-    // session in.
-    expect(HTML).toMatch(/m\.state === 'conflicted'/);
-    expect(HTML).toContain('data-act="resolve-conflicts"');
-    expect(HTML).toContain('data-repo=');
-    expect(HTML).not.toMatch(/data-act="resolve-conflicts"[^>]*data-path=/);
-  });
-
   it('sends the repo along with the click, so the host can resolve the worktree', () => {
     // Goes through the generic pending path (unlike merge-pr, resolve-conflicts
     // is not one of the three long-running actions that settle from a state
@@ -794,68 +720,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/karstSend\.resolveConflicts\(btn\.dataset\.repo, requestId\)/);
   });
 
-  /**
-   * The PR panel's refresh icon. The complaint: PR status and mergeability only
-   * move on a 60s sweep behind a 5-minute freshness floor, so after pushing a fix
-   * a user watches a stale panel for minutes with no way to ask again.
-   */
-  it('offers a refresh control on the Pull requests panel header', () => {
-    expect(HTML).toContain('id="prRefresh"');
-    expect(HTML).toContain('data-act="refresh-prs"');
-    // An icon, per the request — and a titled, labelled one, because an icon
-    // with no accessible name is a button a screen reader cannot announce.
-    expect(HTML).toMatch(/id="prRefresh"[^>]*aria-label=/);
-  });
-
-  it('carries no target on the refresh click — the host owns which ticket it is', () => {
-    // The delegated handler picks its payload from the button's dataset, so
-    // carrying none of `data-id`/`data-path`/`data-url`/`data-repo` is what makes
-    // the post `{ type: 'refresh-prs' }` and nothing else.
-    const btn = /<button id="prRefresh"[\s\S]*?>/.exec(HTML)?.[0] ?? '';
-    expect(btn).toContain('data-act="refresh-prs"');
-    expect(btn).not.toMatch(/data-(id|path|url|repo)=/);
-  });
-
-  /**
-   * A refresh runs `gh` and a `git fetch` per repo: seconds, not milliseconds.
-   * Without a pending state the click is silent and gets pressed again, queueing
-   * sweeps behind a slow remote.
-   */
-  it('shows the refresh as busy until the next state push clears it', () => {
-    expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
-    expect(HTML).toMatch(/karstSettle\(prRefreshId, true\)/);
-    expect(HTML).toMatch(/prRefreshId = null/);
-  });
-
   it('resolves the ship to an explicit success toast', () => {
     // On completion the indicator settles to a clear success beat, distinct from
     // the idle and processing states — the header toast now carries it.
     expect(HTML).toMatch(/shipDone = 'success'/);
     expect(HTML).toContain('Shipped ✓');
-  });
-  it('renders the PR path through the host’s display form, never the raw path', () => {
-    // The path-display preference (relative/absolute) is resolved host-side into
-    // repoDisplay. Rendering `p.repo` here would print an absolute path in a
-    // workspace set to relative — the bug this replaces.
-    expect(HTML).toContain('p.repoDisplay || p.repo');
-  });
-
-  it('renders PR metadata from host-rendered strings only', () => {
-    // Each part is '' when the fact is absent, so the webview can place them
-    // without formatting a date or counting a thread — no Date() in this file.
-    for (const field of ['p.branches', 'p.opened', 'p.merged', 'p.commentsLabel']) {
-      expect(HTML, `missing PR metadata field: ${field}`).toContain(field);
-    }
-    // A comment stamp is likewise pre-formatted (`c.when`), never parsed here.
-    expect(HTML).toContain('c.when');
-  });
-
-  it('offers merge from the host’s verdict, and disables it with the host’s reason', () => {
-    expect(HTML).toContain('data-act="merge-pr"');
-    expect(HTML).toContain('p.canMerge');
-    expect(HTML).toContain('p.mergeBlockedReason');
-    // A merged PR gets no control at all — there is nothing left to do to it.
-    expect(HTML).toContain("p.status === 'merged'");
   });
 
   it('guards the merge click against a double fire and clears it on the next state', () => {
@@ -1017,7 +886,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\bprRefreshing\b/);
     expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
     expect(HTML).toMatch(/let mergeRequests = \{\}/);
-    expect(HTML).toMatch(/let prRefreshId = null/);
     expect(HTML).toMatch(/let shipRequestId = null/);
   });
 
@@ -1025,12 +893,8 @@ describe('dashboard webview.html', () => {
     // Merge is NOT danger-colored merely because it is consequential — the
     // confirmation stays host-side (UI-R10b: "Merge is not automatically
     // danger-colored merely because it is consequential").
-    expect(HTML).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
-    expect(HTML).not.toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
     expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
     expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
-    expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
-    expect(HTML).toMatch(/karstBeginPending\(btn, prRefreshId\)/);
   });
 
   it('handles action-result in the message listener, settling through karstSettle', () => {
@@ -1067,21 +931,16 @@ describe('dashboard webview.html', () => {
     const iconOnlyBlocks = [
       /aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/, // track segment select
       /aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/, // the retry meter
-      /aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now"/, // prRefresh (idle)
     ];
     for (const re of iconOnlyBlocks) {
       expect(HTML, `missing matching aria-label/title for ${re}`).toMatch(re);
     }
-    // The dynamic prRefresh busy-state pair — set together, from one string.
-    expect(HTML).toMatch(/refresh\.title = refreshName;\s*\n\s*refresh\.setAttribute\('aria-label', refreshName\)/);
   });
 
   it('titles every previously-untitled control named in the remediation brief', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
       "Open this stage's log file", // open-stage-log (Inside block)
-      "Hand this repo's conflict to an agent session", // resolve-conflicts
-      'Open this pull request', // open-pr
     ]) {
       expect(HTML, `missing title: ${title}`).toContain(title);
     }
@@ -1107,7 +966,7 @@ describe('dashboard webview.html', () => {
     // Never invoked from ship/merge/refresh — the three mutations this task
     // wires to real terminal outcomes.
     const shipBranch = HTML.slice(HTML.indexOf("if (act === 'ship-ticket')"), HTML.indexOf("if (act === 'merge-pr')"));
-    const mergeBranch = HTML.slice(HTML.indexOf("if (act === 'merge-pr')"), HTML.indexOf("if (act === 'refresh-prs')"));
+    const mergeBranch = HTML.slice(HTML.indexOf("if (act === 'merge-pr')"), HTML.indexOf("if (act === 'refresh-ship-preview')"));
     expect(shipBranch).not.toContain('flashCopied');
     expect(mergeBranch).not.toContain('flashCopied');
   });
@@ -1118,7 +977,6 @@ describe('dashboard webview.html', () => {
     // monospace button now). The fixtoggle and the approach chips left with the
     // branch band: the track carries the fix loop inside the gate it retries and
     // the approach inside impl's own segment, so neither is a pill any more.
-    expect(HTML).toMatch(/class="k-chip pst pst-/);
     expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
     expect(HTML).not.toMatch(/class="k-chip keypill/);
   });
@@ -1126,8 +984,6 @@ describe('dashboard webview.html', () => {
   it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
     expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
     expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:[^}]*var\(--k-series-2\)/);
-    expect(HTML).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
-    expect(HTML).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
   });
 
   it('gives every native <summary> disclosure its own focus-visible ring', () => {
@@ -1136,8 +992,6 @@ describe('dashboard webview.html', () => {
     // The approach disclosure left with the branch band — impl's phases are pips
     // inside impl's own segment now, so there is nothing to open.
     expect(HTML).not.toMatch(/\.approach > summary/);
-    expect(HTML).toMatch(/\.mgd summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
-    expect(HTML).toMatch(/\.pcms summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
   });
 
   it('renders ticket identity as provider mark + copy-key button + separate board link', () => {
@@ -2656,6 +2510,13 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     // The env editor (like the base-change form) escapes a scope before
     // querying for its control; the VM has no DOM globals of its own.
     CSS: { escape: (v: string) => v },
+    // The page announces to the React panels with window CustomEvents (the karst:pr* seam).
+    CustomEvent: class {
+      constructor(public type: string, init?: { detail?: unknown }) {
+        this.detail = init?.detail;
+      }
+      detail: unknown;
+    },
   };
   runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, sandbox);
 
@@ -4396,49 +4257,6 @@ describe('ship CI actions (executed in a VM)', () => {
     expect(h.posted).toEqual([{ type: 'send-ci-failure' }]);
   });
 
-  describe('visible CI line on the PR row', () => {
-    const prWith = (state: 'failing' | 'pending' | 'passing', status = 'open') => ({
-      ...renderStateFor('ship').prs[0]!,
-      repo: '/wt/web', repoDisplay: 'web', number: 42, url: 'https://github.com/o/r/pull/42', status,
-      checks: {
-        state, label: state, title: state, detailsLabel: state === 'failing' ? '2 failing checks' : '',
-        failing: state === 'failing'
-          ? [{ name: 'build', url: 'https://x.test/run/1' }, { name: 'lint', url: null }] : [],
-      },
-    });
-    const boot = (pr: ReturnType<typeof prWith>, ci: { available: boolean; repos: string[] }) => {
-      const h = bootPreviewHarness();
-      h.receive({ type: 'state', state: shipWithCi({ prs: [pr] as never, ciFailure: ci }) });
-      return h;
-    };
-
-    it('failing + available: names the checks and offers a button that posts once', () => {
-      const h = boot(prWith('failing'), { available: true, repos: ['/wt/web'] });
-      const html = h.htmlOf('prs');
-      expect(html).toContain('CI failing — 2 checks');
-      expect(html).toContain('data-act="send-ci-failure"');
-      expect(html).toContain('Open this check run">build</a>');
-      h.click('[data-act]', { act: 'send-ci-failure' });
-      h.click('[data-act]', { act: 'send-ci-failure' });
-      expect(h.posted).toEqual([{ type: 'send-ci-failure' }]);
-      expect(h.htmlOf('prs')).toContain('aria-busy="true"');
-    });
-
-    it('failing + unavailable: the line stays, the button does not', () => {
-      const html = boot(prWith('failing'), { available: false, repos: [] }).htmlOf('prs');
-      expect(html).toContain('CI failing — 2 checks');
-      expect(html).not.toContain('data-act="send-ci-failure"');
-    });
-
-    it('pending reads CI running with no button; passing and merged render nothing', () => {
-      const pending = boot(prWith('pending'), { available: false, repos: [] }).htmlOf('prs');
-      expect(pending).toContain('CI running');
-      expect(pending).not.toContain('send-ci-failure');
-      expect(boot(prWith('passing'), { available: false, repos: [] }).htmlOf('prs')).not.toContain('mg-ci');
-      expect(boot(prWith('failing', 'merged'), { available: true, repos: ['/wt/web'] }).htmlOf('prs')).not.toContain('mg-ci');
-    });
-  });
-
   it('rebase item posts once and the next push re-arms it', () => {
     const h = bootPreviewHarness();
     const state = shipWithCi({ rebase: { available: true } });
@@ -5701,12 +5519,10 @@ describe('passive store-state refreshes', () => {
 
     h.click('[data-act]', { act: 'ship-ticket' });
     h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
-    h.click('[data-act]', { act: 'refresh-prs' });
     h.click('[data-act]', { act: 'send-back-to-implement' });
     expect(h.posted).toEqual([
       { type: 'ship-ticket' },
       { type: 'merge-pr', repo: '/repo/a' },
-      { type: 'refresh-prs' },
       { type: 'send-back-to-implement' },
     ]);
 
@@ -5716,9 +5532,8 @@ describe('passive store-state refreshes', () => {
 
     h.click('[data-act]', { act: 'ship-ticket' });
     h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
-    h.click('[data-act]', { act: 'refresh-prs' });
     h.click('[data-act]', { act: 'send-back-to-implement' });
-    expect(h.posted).toHaveLength(4);
+    expect(h.posted).toHaveLength(3);
   });
 });
 
@@ -6088,207 +5903,6 @@ describe('terminal console view (VM)', () => {
     expect(HTML).toMatch(/\.termview\{[^}]*display:flex/);
     expect(HTML).toMatch(/\.termview\.hidden\{display:none\}/);
     expect(HTML.indexOf('.termview.hidden')).toBeGreaterThan(HTML.indexOf('.termview{'));
-  });
-});
-
-describe('PR panel row (Variant C, executed in a VM)', () => {
-  const prsHtml = (prs: PrPanelRow[]): string => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: { ...renderStateFor('ship'), prs } });
-    return h.htmlOf('prs');
-  };
-
-  const openRow = (): PrPanelRow => ({
-    repo: '/wt/web',
-    repoDisplay: 'web',
-    number: 42,
-    url: 'https://github.com/o/r/pull/42',
-    status: 'open',
-    dismissed: false,
-    dismissedLabel: '',
-    canDismiss: true,
-    branches: 'feat/ui → develop',
-    baseRef: 'develop',
-    opened: 'opened 2h ago',
-    openedTitle: 'opened 8/14/2026, 10:04:12 AM',
-    merged: '',
-    mergedTitle: '',
-    commentsLabel: '',
-    comments: [],
-    checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
-    mergeBlockLabel: '',
-    canMerge: true,
-    mergeBlockedReason: '',
-  });
-
-  it('makes the PR number the open link and the URL text the copy control, and drops the Open button', () => {
-    const html = prsHtml([openRow()]);
-    // The PR number IS the open control (UI-R09c): a link-coloured anchor.
-    expect(html).toMatch(
-      /<a href="#" data-act="open-pr" data-url="https:\/\/github\.com\/o\/r\/pull\/42" title="Open this pull request">#42<\/a>/,
-    );
-    // The URL text IS the copy control (Variant C): a button styled as inline
-    // text (UI-R09b), clicking copies, glyph on hover.
-    expect(html).toMatch(
-      /<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="https:\/\/github\.com\/o\/r\/pull\/42" data-copy title="Copy pull request URL">/,
-    );
-    // Redundancy is gone: no Open button, no inert URL text beside the number.
-    expect(html).not.toContain('>Open</button>');
-    expect(html).not.toMatch(/data-act="open-pr"[^>]*>Open</);
-    // The repo shows its NAME, with the path (the row's identity) in the tooltip.
-    expect(html).toMatch(/<span class="prepo" title="\/wt\/web">web<\/span>/);
-    // The row still offers the merge control (consequential-primary).
-    expect(html).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
-  });
-
-  it('renders the meta line with a truncating branch and title-carrying stamps', () => {
-    const html = prsHtml([openRow()]);
-    expect(html).toMatch(/<span class="pbranch" title="feat\/ui → develop">feat\/ui → develop<\/span>/);
-    expect(html).toMatch(
-      /<span class="pstamp" title="opened 8\/14\/2026, 10:04:12 AM">opened 2h ago<\/span>/,
-    );
-    // Stamps are one flex:none group, so they wrap to a second line intact.
-    expect(html).toMatch(/<span class="pstamps"><span class="psep">·<\/span>/);
-  });
-
-  it('renders a merged row with the merged stamp, no Merge button, and a still-live link', () => {
-    const merged: PrPanelRow = {
-      ...openRow(),
-      status: 'merged',
-      merged: 'merged 1d ago',
-      mergedTitle: 'merged 8/15/2026, 9:12:00 AM',
-      canMerge: false,
-    };
-    const html = prsHtml([merged]);
-    expect(html).toContain('<span class="k-chip pst pst-merged">merged</span>');
-    expect(html).toMatch(
-      /<span class="pstamp pmerged" title="merged 8\/15\/2026, 9:12:00 AM">merged 1d ago<\/span>/,
-    );
-    expect(html).not.toContain('data-act="merge-pr"');
-    // A merged PR still opens and still copies.
-    expect(html).toContain('data-act="open-pr"');
-    expect(html).toContain('data-act="copy-pr-url"');
-  });
-
-  it('keeps the number as plain text when no URL is recorded — a link that opens nothing is worse than none', () => {
-    const noUrl: PrPanelRow = { ...openRow(), url: null, canMerge: false, mergeBlockedReason: 'no url' };
-    const html = prsHtml([noUrl]);
-    expect(html).toMatch(/<span class="pnum">#42<\/span>/);
-    expect(html).not.toContain('data-act="open-pr"');
-    expect(html).not.toContain('data-act="copy-pr-url"');
-  });
-
-  it('renders a passing checks chip from the host-worded label', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        checks: {
-          state: 'passing',
-          label: '3 passed',
-          title: '3 checks: 3 passed, 0 failed, 0 pending',
-          detailsLabel: '',
-          failing: [],
-        },
-      },
-    ]);
-    expect(html).toMatch(/<span class="k-chip pck pck-passing" title="3 checks: 3 passed, 0 failed, 0 pending">3 passed<\/span>/);
-    expect(html).not.toContain('<details class="pcks"');
-  });
-
-  it('opens a failing-check disclosure whose summary is the host’s detailsLabel', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        checks: {
-          state: 'failing',
-          label: '1 failing · 2 passed',
-          title: '3 checks: 2 passed, 1 failed, 0 pending',
-          detailsLabel: '1 failing check',
-          failing: [{ name: 'build', url: 'https://x.test/run/1' }],
-        },
-      },
-    ]);
-    expect(html).toContain('pck-failing');
-    expect(html).toContain('<details class="pcks"><summary>1 failing check</summary>');
-    // The failing check links through the SAME open-pr action, validated host-side.
-    expect(html).toContain('data-act="open-pr" data-url="https://x.test/run/1"');
-    expect(html).toMatch(/Open this check run">build<\/a>/);
-  });
-
-  it('renders a failing check with no url as plain text, not a dead link', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        checks: {
-          state: 'failing',
-          label: '1 failing',
-          title: '1 check: 0 passed, 1 failed, 0 pending',
-          detailsLabel: '1 failing check',
-          failing: [{ name: 'build', url: null }],
-        },
-      },
-    ]);
-    expect(html).toMatch(/<div class="pck-row"><span>build<\/span><\/div>/);
-    expect(html).not.toContain('data-act="open-pr" data-url="null"');
-  });
-
-  it('escapes an untrusted check name at render', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        checks: {
-          state: 'failing',
-          label: '1 failing',
-          title: '1 check: 0 passed, 1 failed, 0 pending',
-          detailsLabel: '1 failing check',
-          failing: [{ name: '<script>alert(1)</script>', url: null }],
-        },
-      },
-    ]);
-    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
-    expect(html).not.toContain('<script>alert(1)</script>');
-  });
-
-  it('renders the block chip and disables Merge with GitHub’s reason', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        canMerge: false,
-        mergeBlockLabel: 'blocked',
-        mergeBlockedReason: 'GitHub is blocking this merge — a required review or check has not passed.',
-      },
-    ]);
-    expect(html).toContain(
-      '<span class="k-chip pblock" title="GitHub is blocking this merge — a required review or check has not passed.">blocked</span>',
-    );
-    expect(html).not.toContain('data-act="merge-pr"');
-  });
-
-  it('renders neither chip nor the failing-check disclosure on a merged PR, even with a stale rollup', () => {
-    const html = prsHtml([
-      {
-        ...openRow(),
-        status: 'merged',
-        canMerge: false,
-        mergeBlockLabel: 'blocked',
-        mergeBlockedReason: 'stale',
-        checks: {
-          state: 'failing',
-          label: '1 failing',
-          title: '1 check: 0 passed, 1 failed, 0 pending',
-          detailsLabel: '1 failing check',
-          failing: [{ name: 'build', url: null }],
-        },
-      },
-    ]);
-    expect(html).not.toContain('class="k-chip pck');
-    expect(html).not.toContain('pblock');
-    expect(html).not.toContain('<details class="pcks"');
-  });
-
-  it('renders no checks chip when the host worded no label', () => {
-    const html = prsHtml([openRow()]);
-    expect(html).not.toContain('pck');
   });
 });
 
