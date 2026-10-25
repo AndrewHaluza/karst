@@ -29,6 +29,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 - Contrast is verified per theme
 - Mirrored TS→HTML constants
 - React views (the Settings webview, since NDL-126)
+- Dashboard migration in progress (strangler)
 END_DOC_BLOCK: [@ui:CONTENTS]
 
 ## [@ui:TITLE-KEY] The TITLE is a ticket's identity; the key is derived from it
@@ -159,6 +160,8 @@ no free text and no state. Like the park actions it expires with the dashboard's
 migration: the React app must re-home both controls, never carry the vanilla
 buttons across.
 
+**Dashboard migration in progress (2026-10-25):** a strangler with transition rules, see `ui:DASHBOARD-MIGRATION`.
+
 The Resources webview moved to React as the first step of the "Servers &
 resources" page (`src/ui/resources/app/**`, two tabs in one document): its Resources
 tab keeps the same panels and content, its tab strip and Servers tab are new. The
@@ -203,6 +206,11 @@ Three invariants the original investigators learned the hard way, now load-beari
 
 The Agents page follows the approved clickable prototype, kept in the repo: [`docs/design/agents-settings-prototype.html`](../design/agents-settings-prototype.html) (generation brief: [`pT2.txt`](../design/pT2.txt)). The prototype's regions, order and stacking are binding (`ui:UI-R39`); only tokens, controls and spacing values defer to UI-RULES and DESIGN-SYSTEM. The cell-edit rule is binding too (`arch:AGENTSPAGE`).
 END_DOC_BLOCK: [@ui:REACT-VIEWS]
+
+## [@ui:DASHBOARD-MIGRATION] Dashboard migration in progress (strangler, 2026-10-25)
+
+The dashboard is mid-migration as a strangler. A React app (`src/ui/dashboard/app/**`) owns the subtrees marked `data-react-owned` inside the vanilla `webview.html`, and migrates them slice by slice per `docs/plans/2026-10-25-dashboard-react-migration.md` (D1). Until the switch-over slice, the transition rules of plan §4 hold: (1) the vanilla delegators (`click`, `input`, `keydown`) return early inside `data-react-owned` and never query into it; (2) React never writes `vscode.setState`, so vanilla owns persistence (A3); (3) a slice PR deletes the vanilla renderer, its CSS and its source-text tests in the same PR, so no region has two live implementations; (4) a slice PR carries no feature, and behaviour changes are limited to the sidebar's two documented ones; (5) each slice passes the gates with no baseline or ledger edits and the conformance parity floor (`dashboard: 24`). Posting controls in React use the design-system runtime's pending primitives (`karstBeginPending` / `karstSettle`), as the sidebar does. This block and both dashboard exceptions in `ui:REACT-VIEWS` are removed at the switch-over slice (plan Phase 12).
+END_DOC_BLOCK: [@ui:DASHBOARD-MIGRATION]
 
 ## [@ui:SIDEBAR-PANES] Sidebar panes and presets (step 2)
 

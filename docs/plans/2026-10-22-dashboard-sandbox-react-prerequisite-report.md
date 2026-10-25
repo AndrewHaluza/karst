@@ -76,3 +76,7 @@ Inspection of the repository confirms that the dashboard webview has **not** yet
    - Retains all facts (backend, canonical core identity, workspace mode, network policy) and labelled actions (Sync, Diff, Stop, Carry to host, Remove...).
    - Restores the 2x2 grid layout (Servers and Worktrees share row 1, Pull requests spans row 2).
    - Covered by unit tests (`SandboxStrip.test.tsx`, `App.test.tsx`) and full DOM render integration tests (`sandboxCard.render.integration.test.ts`).
+
+## 5. Correction (2026-10-25)
+
+Section 4's "Prerequisite Landed" overstated the state. #713 mounted a React island that renders only the Sandbox strip inside the still-vanilla dashboard (`webview.html`); it did not migrate the dashboard. The migration itself is planned in `docs/plans/2026-10-25-dashboard-react-migration.md`. The strip's double-post defect (B1: each action posted twice) is fixed in that plan's Phase 0.
