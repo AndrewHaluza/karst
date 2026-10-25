@@ -1,5 +1,6 @@
 /**
- * Root component for the dashboard React app (phase 1 shell).
+ * Root component for the dashboard React app (migration shell: the sandbox strip at `#root`,
+ * migrated grid panels through `RegionPortal`).
  *
  * Sets `data-karst-ready` attribute on `document.documentElement` after the first commit
  * so `renderWebviewReady` waits until React has cleanly mounted into `#root`.
@@ -9,7 +10,9 @@
 import { useEffect } from 'react';
 import type { DashboardHostBridge } from './hostBridge.js';
 import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
+import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
+import { WorktreesPanel } from './WorktreesPanel.js';
 
 const READY_ATTR = ['data', 'karst', 'ready'].join('-');
 
@@ -31,6 +34,10 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
   return (
     <DashboardAppProvider bridge={bridge}>
       <DashboardSlices />
+      {/* Migrated panels render into their existing containers in webview.html (data-react-owned there). */}
+      <RegionPortal id="worktreesPanel">
+        <WorktreesPanel />
+      </RegionPortal>
     </DashboardAppProvider>
   );
 }
