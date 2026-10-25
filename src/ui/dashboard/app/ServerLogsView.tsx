@@ -14,7 +14,7 @@
 import { useEffect, useRef } from 'react';
 import type { ServerLogEntry } from '../messages.js';
 import { useDashboardSend, useHostMessage, useOverlays } from './DashboardAppContext.js';
-import { fromIsland } from './islands.js';
+import { fromRegion } from './pageRegions.js';
 import './ServerLogsView.css';
 
 interface LogsView {
@@ -87,7 +87,7 @@ export function ServerLogsView() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (!fromIsland(e) && scrollLogsByKey(e)) e.preventDefault();
+      if (!fromRegion(e) && scrollLogsByKey(e)) e.preventDefault();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

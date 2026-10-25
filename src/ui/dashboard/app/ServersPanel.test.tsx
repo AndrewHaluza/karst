@@ -245,17 +245,12 @@ describe('ServersPanel — filter', () => {
     expect(box.value).toBe('svc-2');
   });
 
-  it('announces every change on the transitional persistence seam', () => {
-    mount(stateWith(many(8)));
-    const seen: string[] = [];
-    const on = (e: Event): void => {
-      seen.push((e as CustomEvent<string>).detail);
-    };
-    window.addEventListener('karst:srvFilter', on);
+  it('persists every change with the view state, beside the snapshot', () => {
+    const h = mount(stateWith(many(8)));
     fireEvent.change(filterBox(), { target: { value: 'a' } });
     fireEvent.change(filterBox(), { target: { value: 'ab' } });
-    window.removeEventListener('karst:srvFilter', on);
-    expect(seen).toEqual(['a', 'ab']);
+    expect(h.setState.mock.calls.map(([envelope]) => (envelope as { srvFilter: string }).srvFilter)).toEqual(['a', 'ab']);
+    expect(h.setState).toHaveBeenLastCalledWith(expect.objectContaining({ state: stateWith(many(8)), sel: null, srvFilter: 'ab' }));
   });
 
   it('starts from the filter the page persisted', () => {

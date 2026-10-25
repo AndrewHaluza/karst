@@ -2,8 +2,7 @@
  * The dashboard's Artifacts shelf, rendered by React into the page's existing containers (the "View all N"
  * button in the header, `#artifacts`) through `RegionPortal`s. Same DOM as the vanilla renderer it replaced
  * (`renderArtifacts`, `artifactCardHtml`). The static root `#artPanel` keeps its `hidden` toggle in a layout
- * effect (transitional: the region parity snapshot pins the root without `data-*`, so `inReactIsland()` also
- * treats it as an island until Phase 12). A click opens the full-screen index or detail, the overlay stack's
+ * effect (the region parity snapshot pins the root as static markup). A click opens the full-screen index or detail, the overlay stack's
  * artifact view (`ArtifactView.tsx`).
  *
  * The shelf is absent while the ticket has no artifact (spec §4.1, never an empty section). The host sorts

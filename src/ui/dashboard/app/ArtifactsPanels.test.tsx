@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
-import { art, isHidden, mount, q, recordOpens, stateWith, stored, text } from './fixtures/artifactsPanelsKit.js';
+import { art, isHidden, mount, q, openedViews, stateWith, stored, text } from './fixtures/artifactsPanelsKit.js';
 
 const cards = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#artifacts .artcard')];
 
@@ -97,17 +97,15 @@ describe('Artifacts shelf', () => {
   });
 
   it('opens the index once from View all', () => {
-    const opens = recordOpens();
     mount(stateWith({ artifacts: [art('plan')] }));
     fireEvent.click(q('#artViewAll'));
-    expect(opens).toEqual(['index']);
+    expect(openedViews()).toEqual(['index']);
   });
 
   it('opens the clicked artifact once from a card, whichever child was hit', () => {
-    const opens = recordOpens();
     mount(stateWith({ artifacts: [art('plan'), art('review')] }));
     fireEvent.click(cards()[1]!.querySelector('.artcard-summary')!);
-    expect(opens).toEqual([{ id: 'review', from: 'ticket' }]);
+    expect(openedViews()).toEqual([{ id: 'review', from: 'ticket' }]);
   });
 
   it('hides again when the last artifact goes away', () => {
@@ -170,10 +168,9 @@ describe('Captured artifacts panel', () => {
   });
 
   it('opens the stored view once from Open', () => {
-    const opens = recordOpens();
     mount(stateWith({ storedArtifacts: stored([['plan', 1]]) }));
     fireEvent.click(q('#storedOpen'));
-    expect(opens).toEqual(['stored']);
+    expect(openedViews()).toEqual(['stored']);
   });
 
   it('hides again when the stored view disappears', () => {

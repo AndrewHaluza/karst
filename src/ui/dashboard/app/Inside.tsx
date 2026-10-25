@@ -1,6 +1,6 @@
 /**
  * The Inside block, rendered by React into the page's static `#inside` root through a `RegionPortal` (the region
- * parity snapshot pins the root, so `inReactIsland()` treats `#inside` as an island until Phase 12). Same DOM as the
+ * parity snapshot pins the root as static markup). Same DOM as the
  * vanilla `renderInside` it replaced: a viewing bar, the three-cell header (stage title, the live operation, the
  * clock) with the ⋯ menu, the Deliver row, the round switcher, then the ship preview and the process ledger.
  *

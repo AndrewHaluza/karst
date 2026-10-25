@@ -2,7 +2,7 @@
  * One posting control's pending state, via the design-system runtime's pending
  * primitives (`karstRequestId` + `karstBeginPending`) exactly as the sidebar's
  * `fire` does (UI-R11–R14): pending on click, non-re-triggerable, settled by the
- * host's `action-result` (the page's vanilla handler calls `karstSettle`), with
+ * host's `action-result` (`PendingOps` calls `karstSettle`), with
  * the runtime's watchdog as the backstop.
  */
 import { useCallback, type MouseEvent } from 'react';

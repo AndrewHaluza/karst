@@ -232,13 +232,14 @@ describe('Rail — selection (React owns it, the page persists it)', () => {
     expect(sel()).toEqual(['impl']);
   });
 
-  it('selects on click at once, announces it to the page exactly once, and never writes setState itself', () => {
+  it('selects on click at once and persists it exactly once, beside the snapshot', () => {
     const h = mountRail(railState());
     fireEvent.click(pick('uat'));
     expect(sel()).toEqual(['uat']);
     expect(segEl('uat').classList.contains('sel')).toBe(true);
     expect(h.selected).toEqual(['uat']);
-    expect(h.setState).not.toHaveBeenCalled();
+    expect(h.setState).toHaveBeenCalledTimes(1);
+    expect(h.setState).toHaveBeenCalledWith(expect.objectContaining({ state: railState(), sel: 'uat' }));
   });
 
   it('survives a state push, which must never snap the panel back to the current stage', () => {

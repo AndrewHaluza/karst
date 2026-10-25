@@ -5,7 +5,7 @@
  *
  * View state the vanilla panel kept at module level lives here now: which base forms are
  * open, the rebase switch per repo, and the base-change requests in flight. None of it is
- * persisted (vanilla owns `vscode.setState` until the switch-over slice).
+ * persisted.
  */
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -70,8 +70,7 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
     if (message.ok === true) setOpen((o) => ({ ...o, [repo]: false }));
   });
 
-  // Escape and an outside click close the open form. The vanilla document delegators skip this
-  // subtree (data-react-owned), so the panel closes it itself.
+  // Escape and an outside click close the open form.
   const anyOpen = firstOpen(open) !== undefined;
   useEffect(() => {
     if (!anyOpen) return undefined;
@@ -81,7 +80,7 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
         return repo === undefined ? o : { ...o, [repo]: false };
       });
     const onKey = (e: KeyboardEvent): void => {
-      // The vanilla handler claims Escape (preventDefault) when it closes an overlay: that press is spent.
+      // The overlay stack claims Escape (preventDefault) when it closes an overlay: that press is spent.
       if (e.key === 'Escape' && !e.defaultPrevented) closeFirst();
     };
     const onClick = (e: MouseEvent): void => {

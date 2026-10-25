@@ -1,13 +1,13 @@
 /**
- * Root component for the dashboard React app (migration shell: the sandbox strip at `#root`,
- * migrated grid panels and the overlay views through `RegionPortal`).
+ * Root component for the dashboard React app: the sandbox strip at `#root`, and every other region drawn into its
+ * static root in `webview.html` through `RegionPortal`.
  *
- * Sets `data-karst-ready` attribute on `document.documentElement` after the first commit
- * so `renderWebviewReady` waits until React has cleanly mounted into `#root`.
+ * Sets `data-karst-ready` on `document.documentElement` once the app is mounted and has applied the state it starts
+ * from: the snapshot restored from `vscode.getState()` and anything the host pushed before the app subscribed (both
+ * are in the DOM by then), so `renderWebviewReady` and the visual harness never read a half-drawn page.
  *
  * Provides `DashboardAppProvider` wrapping the dashboard slices.
  */
-import { useEffect } from 'react';
 import type { DashboardHostBridge } from './hostBridge.js';
 import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
 import { ArtifactsShelf } from './ArtifactsShelf.js';
@@ -29,22 +29,20 @@ const READY_ATTR = ['data', 'karst', 'ready'].join('-');
 function DashboardSlices() {
   const { state, bridge } = useDashboard();
   return (
-    // data-react-owned: transition rule — the vanilla document-level delegators in webview.html skip events from in here.
+    // `data-react-owned` stays: the region parity snapshot pins this root's markup.
     <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
       <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} />
     </div>
   );
 }
 
-export function App({ bridge }: { bridge: DashboardHostBridge }) {
-  useEffect(() => {
-    document.documentElement.setAttribute(READY_ATTR, 'true');
-  }, []);
+const markReady = (): void => document.documentElement.setAttribute(READY_ATTR, 'true');
 
+export function App({ bridge }: { bridge: DashboardHostBridge }) {
   return (
-    <DashboardAppProvider bridge={bridge}>
+    <DashboardAppProvider bridge={bridge} onSynced={markReady}>
       <DashboardSlices />
-      {/* Migrated panels render into their existing containers in webview.html (data-react-owned there). */}
+      {/* Each region draws into its static root in webview.html. */}
       <Header />
       <Rail />
       <Inside />

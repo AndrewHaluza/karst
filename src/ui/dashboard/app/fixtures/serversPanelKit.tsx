@@ -43,6 +43,8 @@ export interface Harness {
   readonly emit: (message: HostMessage) => void;
   /** The overlay stack the Logs and Env buttons open their views in. */
   readonly overlays: () => OverlayStack;
+  /** The view-state writes (`vscode.setState`), in order. */
+  readonly setState: ReturnType<typeof vi.fn>;
 }
 
 function OverlayProbe({ onOverlays }: { readonly onOverlays: (overlays: OverlayStack) => void }) {
@@ -54,6 +56,7 @@ export function mount(initial: DashboardState | null, persisted: unknown = null,
   document.body.innerHTML =
     '<div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>';
   let listener: ((message: HostMessage) => void) | null = null;
+  const setState = vi.fn();
   const send = {
     stopServer: vi.fn(),
     restartServer: vi.fn(),
@@ -68,7 +71,7 @@ export function mount(initial: DashboardState | null, persisted: unknown = null,
   const bridge: DashboardHostBridge = {
     send: send as unknown as DashboardSender,
     getState: () => persisted ?? (initial ? { state: initial } : null),
-    setState: vi.fn(),
+    setState,
     subscribe: (fn) => {
       listener = fn;
       return () => {
@@ -90,7 +93,7 @@ export function mount(initial: DashboardState | null, persisted: unknown = null,
       )}
     </DashboardAppProvider>,
   );
-  return { send, overlays: () => overlays!, emit: (message) => act(() => listener?.(message)) };
+  return { send, setState, overlays: () => overlays!, emit: (message) => act(() => listener?.(message)) };
 }
 
 const pending = new Set<Element>();

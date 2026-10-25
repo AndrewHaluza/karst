@@ -89,4 +89,91 @@ describe('DashboardAppContext', () => {
 
     expect(screen.getByTestId('ticket-id').textContent).toBe('T999');
   });
+
+  describe('view-state persistence', () => {
+    const bridgeWith = (getState: () => unknown) => {
+      let subscriber: ((msg: HostMessage) => void) | null = null;
+      const setState = vi.fn();
+      const bridge: DashboardHostBridge = {
+        send: {} as unknown as DashboardHostBridge['send'],
+        getState,
+        setState,
+        subscribe: (fn) => {
+          subscriber = fn;
+          return () => {};
+        },
+      };
+      return { bridge, setState, push: (msg: HostMessage) => act(() => subscriber?.(msg)) };
+    };
+    const snap = (id: number) => ({ ticketId: id }) as unknown as DashboardState;
+
+    it('writes the envelope on a real push and not on a live repaint', () => {
+      const { bridge, setState, push } = bridgeWith(() => null);
+      render(
+        <DashboardAppProvider bridge={bridge}>
+          <TestConsumer />
+        </DashboardAppProvider>,
+      );
+      push({ type: 'state', state: snap(1), live: true });
+      expect(setState).not.toHaveBeenCalled();
+      push({ type: 'state', state: snap(2) });
+      expect(setState).toHaveBeenCalledTimes(1);
+      expect(setState).toHaveBeenCalledWith({
+        state: snap(2),
+        sel: null,
+        shipWait: null,
+        srvFilter: '',
+        artView: null,
+        artScrolls: { ticket: 0, index: 0, detail: {} },
+      });
+    });
+
+    it('shows a snapshot persisted bare by an older build, and upgrades it to the envelope on the next push', () => {
+      const { bridge, setState, push } = bridgeWith(() => snap(41));
+      render(
+        <DashboardAppProvider bridge={bridge}>
+          <TestConsumer />
+        </DashboardAppProvider>,
+      );
+      expect(screen.getByTestId('ticket-id').textContent).toBe('T41');
+      expect(setState).not.toHaveBeenCalled();
+      push({ type: 'state', state: snap(41) });
+      expect(setState).toHaveBeenCalledWith(expect.objectContaining({ state: snap(41), sel: null, srvFilter: '' }));
+    });
+
+    it('survives a getState that throws', () => {
+      const { bridge } = bridgeWith(() => {
+        throw new Error('no state');
+      });
+      render(
+        <DashboardAppProvider bridge={bridge}>
+          <TestConsumer />
+        </DashboardAppProvider>,
+      );
+      expect(screen.getByTestId('ticket-id').textContent).toBe('no-ticket');
+    });
+  });
+
+  it("settles the runtime's pending request from the host's action-result", () => {
+    let subscriber: ((msg: HostMessage) => void) | null = null;
+    const settle = vi.fn();
+    (globalThis as unknown as { karstSettle: typeof settle }).karstSettle = settle;
+    render(
+      <DashboardAppProvider
+        bridge={{
+          send: {} as unknown as DashboardHostBridge['send'],
+          getState: () => null,
+          setState: vi.fn(),
+          subscribe: (fn) => {
+            subscriber = fn;
+            return () => {};
+          },
+        }}
+      >
+        <TestConsumer />
+      </DashboardAppProvider>,
+    );
+    act(() => subscriber?.({ type: 'action-result', requestId: 'r1', ok: false, message: 'Refused.' }));
+    expect(settle).toHaveBeenCalledExactlyOnceWith('r1', false, 'Refused.');
+  });
 });

@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { StageLogResult } from '../messages.js';
 import { useHostMessage, useOverlay, useOverlays } from './DashboardAppContext.js';
-import { fromIsland } from './islands.js';
+import { fromRegion } from './pageRegions.js';
 import { RegionPortal } from './RegionPortal.js';
 import { useOverlayRoot } from './useOverlayRoot.js';
 import { xtermGlobals, xtermPresent, type XtermTerminal } from './xtermLoader.js';
@@ -159,7 +159,7 @@ function Console({ stage, processId }: { readonly stage: string; readonly proces
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (termRef.current && !fromIsland(e) && scrollByKey(termRef.current, e)) e.preventDefault();
+      if (termRef.current && !fromRegion(e) && scrollByKey(termRef.current, e)) e.preventDefault();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

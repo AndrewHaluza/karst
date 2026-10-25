@@ -9,6 +9,7 @@ import { DashboardAppProvider, usePendingOps } from '../DashboardAppContext.js';
 import type { PendingOps } from '../pendingOps.js';
 import { BlockedBanner } from '../BlockedBanner.js';
 import { Rail } from '../Rail.js';
+import { tracePersist } from './persistTrace.js';
 
 export const TICKET = 942017;
 export const REPO = 'fixture:/repos/web';
@@ -85,7 +86,7 @@ const SENDERS = ['shipTicket', 'mergePr', 'resolveConflicts', 'stageResume', 'us
 export interface RailHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
-  /** What React asked the page to persist as the selection (`karst:persistSel`), in order; null = back to following the ticket. */
+  /** The selection written with the view state, per change; null = back to following the ticket. */
   readonly selected: Array<string | null>;
   readonly ops: () => PendingOps;
   readonly setState: ReturnType<typeof vi.fn>;
@@ -117,7 +118,8 @@ export function mountRail(initial: DashboardState | null, opts: MountOpts = {}):
   document.body.innerHTML = SCAFFOLD;
   let listener: ((message: HostMessage) => void) | null = null;
   const send = Object.fromEntries(SENDERS.map((name) => [name, vi.fn()])) as RailHarness['send'];
-  const setState = vi.fn();
+  const trace = tracePersist(opts.persisted);
+  const setState = trace.setState;
   const bridge: DashboardHostBridge = {
     send: send as unknown as DashboardSender,
     getState: () => (initial ? { state: initial, ...opts.persisted } : null),
@@ -129,12 +131,6 @@ export function mountRail(initial: DashboardState | null, opts: MountOpts = {}):
       };
     },
   };
-  const selected: Array<string | null> = [];
-  const record = (e: Event): void => {
-    selected.push((e as CustomEvent<{ sel: string | null }>).detail.sel);
-  };
-  window.addEventListener('karst:persistSel', record);
-  cleanups.push(() => window.removeEventListener('karst:persistSel', record));
   let ops: PendingOps | null = null;
   const body = (
     <>
@@ -157,7 +153,9 @@ export function mountRail(initial: DashboardState | null, opts: MountOpts = {}):
   );
   return {
     send,
-    selected,
+    get selected() {
+      return trace.sel.map((written) => written.sel);
+    },
     setState,
     ops: () => ops!,
     emit: (message) => act(() => listener?.(message)),

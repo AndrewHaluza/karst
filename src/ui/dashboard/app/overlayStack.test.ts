@@ -2,8 +2,7 @@
 /** The overlay stack: which overlay is open, the one Escape chain, the artifact navigation with its scroll memory. */
 import { describe, expect, it, vi } from 'vitest';
 import type { DashboardState } from '../state.js';
-import { OverlayStack, type ArtScrolls, type ArtView, type OverlayDeps, type ScrollPort } from './overlayStack.js';
-import type { PersistArt } from './artSeam.js';
+import { OverlayStack, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
 
 const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', ...over }) as unknown as DashboardState;
 

@@ -21,7 +21,8 @@
 // `src/ui/dashboard/logLine.ts` (plus `RUN_MARKER_PREFIX`/`isRunMarker` from
 // `src/runtime/serverLog.ts`), exported as `KARST_SERVER_LOGLINE` — the
 // mirrored-constants pattern in `docs/ui/UI-INVARIANTS.md`. The TS module stays
-// the tested source of truth: `webview.test.ts` pins the two decoders together,
+// the tested source of truth: `ui/dashboard/serverLogsSurface.test.ts` pins the
+// two decoders together,
 // so a drift fails the build rather than showing one thing and rendering
 // another.
 

@@ -101,8 +101,8 @@ export const SubtasksPanel = memo(function SubtasksPanel() {
   const subtasks = slice?.subtasks ?? [];
   const canAdd = slice?.canAdd ?? false;
   const hidden = subtasks.length === 0 && !canAdd;
-  // TRANSITIONAL (until the shell owns the grid, plan Phase 12): the panel root is static in webview.html, because the
-  // region parity snapshot pins it without any data-* attribute, so its visibility is toggled on the node here.
+  // The panel root is static in webview.html (the region parity snapshot pins it as markup), so its visibility is
+  // toggled on the node here.
   useLayoutEffect(() => {
     document.getElementById('subtaskPanel')?.classList.toggle('hidden', hidden);
   }, [hidden]);

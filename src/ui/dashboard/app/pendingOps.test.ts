@@ -147,3 +147,18 @@ describe('PendingOps — the store contract', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 });
+
+describe("PendingOps — the host's action-result settles the runtime request (the retired page script did this)", () => {
+  const result = (extra: Record<string, unknown>): void =>
+    ops.receive({ type: 'action-result', requestId: 'r9', ...extra } as unknown as HostMessage);
+
+  it("settles with the host's verdict and message", () => {
+    result({ ok: false, message: 'Merge refused: base moved' });
+    expect(settle).toHaveBeenCalledExactlyOnceWith('r9', false, 'Merge refused: base moved');
+  });
+
+  it('passes an absent message through as undefined', () => {
+    result({ ok: true });
+    expect(settle).toHaveBeenCalledExactlyOnceWith('r9', true, undefined);
+  });
+});

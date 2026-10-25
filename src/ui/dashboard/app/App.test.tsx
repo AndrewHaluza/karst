@@ -64,4 +64,48 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     render(<App bridge={bridge} />);
     expect(screen.getByTestId('sandbox-strip')).toBeTruthy();
   });
+
+  it('signals ready only once the DOM shows the first state the host pushed before the app subscribed', () => {
+    const sandbox = { backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true, carry: false };
+    const bridge = {
+      send: createSender({ postMessage: () => {} }),
+      getState: () => null,
+      setState: vi.fn(),
+      // The page's buffer replays what arrived before the first subscriber, inside the subscribe call.
+      subscribe: (listener: (message: unknown) => void) => {
+        listener({ type: 'state', state: { sandbox } });
+        return () => {};
+      },
+    };
+    const root = document.documentElement;
+    const original = root.setAttribute.bind(root);
+    const seenAtReady: boolean[] = [];
+    root.setAttribute = (name: string, value: string): void => {
+      if (name === 'data-karst-ready') seenAtReady.push(screen.queryByTestId('sandbox-strip') !== null);
+      original(name, value);
+    };
+    try {
+      render(<App bridge={bridge as never} />);
+    } finally {
+      root.setAttribute = original;
+    }
+    expect(seenAtReady).toEqual([true]);
+  });
+
+  it('signals ready once, and without a pushed state', () => {
+    const root = document.documentElement;
+    const original = root.setAttribute.bind(root);
+    let calls = 0;
+    root.setAttribute = (name: string, value: string): void => {
+      if (name === 'data-karst-ready') calls += 1;
+      original(name, value);
+    };
+    try {
+      render(<App bridge={{ send: createSender({ postMessage: () => {} }), getState: () => null, setState: vi.fn(), subscribe: () => () => {} }} />);
+    } finally {
+      root.setAttribute = original;
+    }
+    expect(calls).toBe(1);
+    expect(root.getAttribute('data-karst-ready')).toBe('true');
+  });
 });

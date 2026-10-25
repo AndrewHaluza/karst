@@ -95,8 +95,16 @@ export class PendingOps {
     return this.actionIds.has(name);
   }
 
-  /** Every host message; only a settling `state` push answers anything. */
+  /**
+   * Every host message. The host's `action-result` is the terminal result of every control that posts a request id
+   * (DESIGN-SYSTEM.md 5.3, UI-R13), so it settles that request in the runtime; ship, merge and the PR refresh carry no
+   * request id on the wire, by design, and settle from a `state` push instead.
+   */
   receive(message: HostMessage): void {
+    if (message.type === 'action-result') {
+      runtime().karstSettle(message.requestId, message.ok, message.message);
+      return;
+    }
     if (message.type !== 'state' || message.settlesActions === false) return;
     const state = message.state;
     this.settleShip(state);

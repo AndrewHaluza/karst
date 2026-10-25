@@ -12,79 +12,53 @@ import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import { DashboardStore } from './dashboardStore.js';
-import { announcePersistArt } from './artSeam.js';
-import { OverlayStack, restoreArt, type OverlaySnapshot } from './overlayStack.js';
+import { OverlayStack, type OverlaySnapshot } from './overlayStack.js';
 import { pageScroll } from './pageScroll.js';
 import { PendingOps, type OpsSnapshot } from './pendingOps.js';
 import { StageSelection, type SelectionSnapshot } from './stageSelection.js';
+import { readPersisted, ViewPersistence, type PersistedView } from './viewPersistence.js';
 
 const StoreContext = createContext<DashboardStore | null>(null);
 const BridgeContext = createContext<DashboardHostBridge | null>(null);
 const OpsContext = createContext<PendingOps | null>(null);
 const SelectionContext = createContext<StageSelection | null>(null);
 const OverlayContext = createContext<OverlayStack | null>(null);
-
-function restoreInitialState(bridge: DashboardHostBridge): DashboardState | null {
-  try {
-    const raw = bridge.getState();
-    if (raw && typeof raw === 'object' && 'state' in raw && raw.state) {
-      return raw.state as DashboardState;
-    }
-  } catch {
-    // If state restore fails, start with null
-  }
-  return null;
-}
-
-/** The selection and the Ship wait the page persisted with the view state; tolerant of the pre-envelope shape and of a failing restore. */
-function restoreSelection(bridge: DashboardHostBridge): { sel: string | null; shipWait: string | null } {
-  try {
-    const raw = bridge.getState();
-    const view = raw && typeof raw === 'object' ? (raw as { sel?: unknown; shipWait?: unknown }) : {};
-    return {
-      sel: typeof view.sel === 'string' && view.sel ? view.sel : null,
-      shipWait: typeof view.shipWait === 'string' && view.shipWait ? view.shipWait : null,
-    };
-  } catch {
-    return { sel: null, shipWait: null };
-  }
-}
-
-/** The artifact view and scroll memory the page persisted; tolerant of a failing restore. */
-function restoreArtView(bridge: DashboardHostBridge): ReturnType<typeof restoreArt> {
-  try {
-    const raw = bridge.getState();
-    // Only an envelope that holds a snapshot restores a view (an older build saved the bare snapshot, with no view state).
-    return restoreArt(raw && typeof raw === 'object' && 'state' in raw && raw.state ? raw : null);
-  } catch {
-    return restoreArt(null);
-  }
-}
+const PersistenceContext = createContext<ViewPersistence | null>(null);
 
 export function DashboardAppProvider({
   bridge,
   children,
+  onSynced,
 }: {
   bridge: DashboardHostBridge;
   children: ReactNode;
+  /** Called once the provider is subscribed and the messages buffered before it have been committed to the DOM. */
+  onSynced?: () => void;
 }) {
-  const [store] = useState(() => new DashboardStore(restoreInitialState(bridge)));
+  const [restored] = useState(() => readFromBridge(bridge));
+  const [persistence] = useState(() => new ViewPersistence((envelope) => bridge.setState(envelope), restored));
+  const [store] = useState(() => new DashboardStore(restored.state));
   const [ops] = useState(() => new PendingOps());
-  const [selection] = useState(() => new StageSelection(restoreSelection(bridge), store.getSnapshot().state));
+  const [selection] = useState(
+    () => new StageSelection({ sel: restored.sel, shipWait: restored.shipWait }, store.getSnapshot().state, persistence.selection),
+  );
   const [overlays] = useState(
     () =>
       new OverlayStack({
         send: bridge.send,
         getState: () => store.getSnapshot().state,
         scroll: pageScroll,
-        persistArt: announcePersistArt,
-        restored: restoreArtView(bridge),
+        persistArt: persistence.art,
+        restored: { art: restored.art, scrolls: restored.scrolls },
       }),
   );
+  const [subscribed, setSubscribed] = useState(false);
 
-  // The shared in-flight operations settle, and a new Ship wait selects Ship, from the same host messages every panel sees.
+  // The snapshot is held (and a real push written) first, so no write ever carries a stale one; then the shared
+  // in-flight operations settle, and a new Ship wait selects Ship, from the same host messages every panel sees.
   useEffect(() => {
     const off = store.onMessage((message) => {
+      persistence.receive(message);
       ops.receive(message);
       selection.receive(message);
       overlays.receive(message);
@@ -93,32 +67,59 @@ export function DashboardAppProvider({
       off();
       ops.dispose();
     };
-  }, [store, ops, selection, overlays]);
+  }, [store, persistence, ops, selection, overlays]);
 
   useEffect(() => {
     // Messages buffered before this subscription replay inside the call, i.e. inside this
     // effect, where a synchronous flush is not allowed; every later message flushes at once
-    // so the DOM matches the host's push the moment it lands (as the vanilla renderer did).
+    // so the DOM matches the host's push the moment it lands.
     let replaying = true;
     const unsubscribe = bridge.subscribe((message) => {
       if (replaying) store.receive(message);
       else flushSync(() => store.receive(message));
     });
     replaying = false;
+    setSubscribed(true);
     return unsubscribe;
   }, [bridge, store]);
+
+  // The render that follows `setSubscribed` also carries everything the replay absorbed, so this runs once the DOM
+  // shows the restored or first state.
+  useEffect(() => {
+    if (subscribed) onSynced?.();
+  }, [subscribed, onSynced]);
 
   return (
     <BridgeContext.Provider value={bridge}>
       <StoreContext.Provider value={store}>
         <OpsContext.Provider value={ops}>
           <SelectionContext.Provider value={selection}>
-            <OverlayContext.Provider value={overlays}>{children}</OverlayContext.Provider>
+            <OverlayContext.Provider value={overlays}>
+              <PersistenceContext.Provider value={persistence}>{children}</PersistenceContext.Provider>
+            </OverlayContext.Provider>
           </SelectionContext.Provider>
         </OpsContext.Provider>
       </StoreContext.Provider>
     </BridgeContext.Provider>
   );
+}
+
+/** The persisted view state, tolerant of a `getState()` that throws. */
+function readFromBridge(bridge: DashboardHostBridge): PersistedView {
+  try {
+    return readPersisted(bridge.getState());
+  } catch {
+    return readPersisted(null);
+  }
+}
+
+/** The view-state writer: the servers filter starts from `srvFilter` and reports its changes with `filter`. */
+export function usePersistence(): ViewPersistence {
+  const persistence = useContext(PersistenceContext);
+  if (!persistence) {
+    throw new Error('usePersistence must be used within DashboardAppProvider');
+  }
+  return persistence;
 }
 
 export function useStore(): DashboardStore {

@@ -8,7 +8,8 @@ import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAppContext.js';
 import type { PendingOps } from '../pendingOps.js';
-import type { PersistSel } from '../insideSeam.js';
+import type { PersistSel } from '../stageSelection.js';
+import { tracePersist } from './persistTrace.js';
 import type { ConsoleTarget } from '../overlayStack.js';
 import { Inside } from '../Inside.js';
 import { Rail } from '../Rail.js';
@@ -77,7 +78,7 @@ export const insideState = (opts: StateOpts = {}): DashboardState => {
 export interface InsideHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
-  /** What React asked the page to persist (`karst:persistSel`), in order. */
+  /** The selection written with the view state, per change. */
   readonly persisted: PersistSel[];
   /** The consoles the overlay stack opened, in order. */
   readonly terminals: ConsoleTarget[];
@@ -121,23 +122,16 @@ export interface MountOpts {
   readonly children?: ReactNode;
 }
 
-const listen = <T,>(name: string, into: T[]): void => {
-  const record = (e: Event): void => {
-    into.push((e as CustomEvent<T>).detail);
-  };
-  window.addEventListener(name, record);
-  cleanups.push(() => window.removeEventListener(name, record));
-};
-
 /** Mounts the Inside block (and, optionally, the rail) into the scaffold, like the page does through RegionPortal. */
 export function mountInside(initial: DashboardState | null, opts: MountOpts = {}): InsideHarness {
   document.body.innerHTML = SCAFFOLD;
   let listener: ((message: HostMessage) => void) | null = null;
   const send = Object.fromEntries(SENDERS.map((name) => [name, vi.fn()])) as InsideHarness['send'];
+  const trace = tracePersist(opts.persisted);
   const bridge: DashboardHostBridge = {
     send: send as unknown as DashboardSender,
     getState: () => (initial ? { state: initial, ...opts.persisted } : opts.persisted ? { ...opts.persisted } : null),
-    setState: vi.fn(),
+    setState: trace.setState,
     subscribe: (fn) => {
       listener = fn;
       return () => {
@@ -145,10 +139,8 @@ export function mountInside(initial: DashboardState | null, opts: MountOpts = {}
       };
     },
   };
-  const persisted: PersistSel[] = [];
   const terminals: ConsoleTarget[] = [];
   const menuOpen: boolean[] = [];
-  listen('karst:persistSel', persisted);
   let ops: PendingOps | null = null;
   const body = (
     <>
@@ -170,7 +162,7 @@ export function mountInside(initial: DashboardState | null, opts: MountOpts = {}
       )}
     </DashboardAppProvider>,
   );
-  return { send, persisted, terminals, menuOpen, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
+  return { send, persisted: trace.sel, terminals, menuOpen, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
 }
 
 export const q = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document): T | null => root.querySelector<T>(sel);

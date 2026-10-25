@@ -78,6 +78,7 @@ beforeEach(() => {
   let n = 0;
   Object.assign(globalThis, {
     karstRequestId: () => `req-${++n}`,
+    karstSettle: vi.fn(),
     karstIsPending: (el: Element) => pending.has(el),
     karstBeginPending: (el: Element) => {
       pending.add(el);

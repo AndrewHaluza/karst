@@ -1,9 +1,7 @@
 /**
- * Renders a migrated panel into its EXISTING container in `webview.html` (strangler,
- * `ui:DASHBOARD-MIGRATION`). The app stays mounted at `#root`; the container is looked
- * up once, and the page's `inReactIsland` selector covers it (`data-react-owned`, or the
- * region root's id/class where the parity snapshots pin it without `data-*`) so the vanilla
- * document delegators skip it. A missing container is a wiring fault, so it throws.
+ * Renders a panel into its container in `webview.html`: the static shell keeps the region roots the parity snapshots
+ * pin (`.dhead`, `.svpanel`, `#subtaskPanel`, ...), and each region draws into its own root. The container is looked up
+ * once. A missing container is a wiring fault, so it throws.
  */
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';

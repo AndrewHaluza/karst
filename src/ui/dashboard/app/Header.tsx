@@ -1,7 +1,6 @@
 /**
  * The dashboard header, rendered by React into the page's static `.dhead` and `#headerMeta` roots (the region
- * parity snapshots pin both roots without an id or any data-* attribute, so the roots stay in webview.html and
- * `inReactIsland()` treats them as islands until Phase 12).
+ * parity snapshots pin both roots without an id or any data-* attribute, so the roots stay in webview.html).
  *
  * Popovers: at most one of the agent switch form and the ticket-controls menu is open. A click anywhere else closes it
  * (another region, an overlay, the page itself); a click inside the header is decided here. Escape does not close them,

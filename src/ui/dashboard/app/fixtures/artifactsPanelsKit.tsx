@@ -1,5 +1,5 @@
 /** Shared fixtures and harness for the Artifacts shelf and Captured artifacts panel tests. */
-import { afterEach, vi } from 'vitest';
+import { afterEach } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { Profiler } from 'react';
 import type { HostMessage } from '../../messages.js';
@@ -8,7 +8,7 @@ import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider } from '../DashboardAppContext.js';
 import { ArtifactsShelf } from '../ArtifactsShelf.js';
 import { StoredPanel } from '../StoredPanel.js';
-import { PERSIST_ART_EVENT, type PersistArt } from '../artSeam.js';
+import { tracePersist, type PersistTrace } from './persistTrace.js';
 import type { ArtView } from '../overlayStack.js';
 
 type Summary = DashboardState['artifacts'][number];
@@ -59,13 +59,16 @@ const ROOTS =
   '<div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>' +
   '<div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts</div><div class="pbody" id="storedSummary"></div></div>';
 
+let trace: PersistTrace = tracePersist();
+
 export function mount(initial: DashboardState | null, onRender?: () => void): Harness {
   document.body.innerHTML = ROOTS;
+  trace = tracePersist();
   let listener: ((message: HostMessage) => void) | null = null;
   const bridge: DashboardHostBridge = {
     send: {} as unknown as DashboardSender,
     getState: () => (initial ? { state: initial } : null),
-    setState: vi.fn(),
+    setState: trace.setState,
     subscribe: (fn) => {
       listener = fn;
       return () => {
@@ -93,21 +96,11 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
   return { emit: (message) => act(() => listener?.(message)) };
 }
 
-const disposers: Array<() => void> = [];
-/** Records the artifact view each navigation lands on (announced as `karst:persistArt`), until the test ends. */
-export function recordOpens(): Array<ArtView | null> {
-  const seen: Array<ArtView | null> = [];
-  const handler = (e: Event): void => {
-    seen.push((e as CustomEvent<PersistArt>).detail.artView);
-  };
-  window.addEventListener(PERSIST_ART_EVENT, handler);
-  disposers.push(() => window.removeEventListener(PERSIST_ART_EVENT, handler));
-  return seen;
-}
+/** The artifact view each navigation has landed on since `mount` (written with the view state). */
+export const openedViews = (): Array<ArtView | null> => trace.art.map((written) => written.artView);
 
 afterEach(() => {
   cleanup();
-  disposers.splice(0).forEach((dispose) => dispose());
 });
 
 export const q = <T extends Element = HTMLElement>(sel: string): T => {

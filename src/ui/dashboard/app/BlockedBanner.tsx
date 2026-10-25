@@ -1,7 +1,7 @@
 /**
  * The blocked banner: why karst could not ask the CURRENT stage's question (`parkGateStage` /
  * `clearStageBlock`), plus the recovery actions. Rendered by React into the page's static `#blocked` root
- * (the region parity snapshot pins it, so `inReactIsland()` treats `#blocked` as an island until Phase 12, and
+ * (the region parity snapshot pins it as static markup, and
  * the root's `hidden` class is toggled on the node in a layout effect). Same DOM as the vanilla `renderBlocked`.
  *
  * Reads `state.currentStage.blocked` only: a stage that is not the ticket's current one is never the thing a

@@ -4,19 +4,17 @@
  * "Servers" caption stay static in `webview.html`. Same DOM as the vanilla renderer it replaced
  * (`renderServers`, `panelOps`, `serversEmpty`).
  *
- * The services filter is component state. Vanilla still owns persistence (`vscode.setState`) until
- * the switch-over slice, so the filter starts from the persisted value (read-only) and every change
- * is announced on the transitional seam in `serversSeam.ts`. The header's Logs and Env buttons open the overlay views
+ * The services filter is component state: it starts from the persisted value and every change is handed to
+ * `ViewPersistence`, which writes it with the rest of the view state. The header's Logs and Env buttons open the overlay views
  * (`Overlays.tsx`).
  */
 import { memo, useCallback, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
-import { useDashboardBridge, useDashboardSend, useOverlays } from './DashboardAppContext.js';
+import { useDashboardSend, useOverlays, usePersistence } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { RegionPortal } from './RegionPortal.js';
 import { LocalAction, PostAction } from './ServerActions.js';
 import { GroupHead, isOnline, ServerRow, SharedRow, type OwnServer, type SharedServer } from './ServerRows.js';
-import { announceFilter } from './serversSeam.js';
 import { useSlice } from './useSlice.js';
 import './ServersPanel.css';
 
@@ -98,20 +96,10 @@ function Empty({ runnable }: { readonly runnable: boolean }) {
   );
 }
 
-function persistedFilter(getState: () => unknown): string {
-  try {
-    const raw = getState();
-    const value = raw && typeof raw === 'object' ? (raw as { srvFilter?: unknown }).srvFilter : undefined;
-    return typeof value === 'string' ? value : '';
-  } catch {
-    return '';
-  }
-}
-
 function ServersBody({ slice }: { readonly slice: ServersSlice }) {
   const send = useDashboardSend();
-  const bridge = useDashboardBridge();
-  const [filter, setFilter] = useState(() => persistedFilter(bridge.getState));
+  const persistence = usePersistence();
+  const [filter, setFilter] = useState(() => persistence.srvFilter);
   const { servers, shared } = slice;
   const total = servers.length + shared.length;
   if (total === 0) return <Empty runnable={slice.runnable} />;
@@ -138,7 +126,7 @@ function ServersBody({ slice }: { readonly slice: ServersSlice }) {
             data-filter=""
             onChange={(e) => {
               setFilter(e.currentTarget.value);
-              announceFilter(e.currentTarget.value);
+              persistence.filter(e.currentTarget.value);
             }}
           />
         </div>

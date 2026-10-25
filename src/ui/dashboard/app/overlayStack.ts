@@ -7,15 +7,14 @@
  * drawer, stage menu, console, logs, env, artifact view; `escape()` is the ONE owner of that order.
  *
  * Artifact navigation keeps a scroll position per surface (spec §9): saved on leaving a surface, restored on
- * returning, one entry per artifact id for details. React never writes `vscode.setState` (A3): each navigation is
- * announced one way (`artSeam.ts`) and the page persists it; the initial view and scrolls are read once from the
- * persisted view state (`restoreArt`).
+ * returning, one entry per artifact id for details. Each navigation is handed to `persistArt` (`ViewPersistence`
+ * writes it with the rest of the view state); the initial view and scrolls are read once from the persisted view
+ * state (`restoreArt`).
  */
 import { formatId } from '../../../model/entityId.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import type { DashboardSender } from './hostBridge.js';
-import type { PersistArt } from './artSeam.js';
 import { initialXtermState, runXtermBundle, settledXtermState, type XtermState } from './xtermLoader.js';
 
 /** null = the ticket dashboard; a detail remembers where Back answers (the ticket, or the index it came from). */
@@ -25,6 +24,12 @@ export interface ArtScrolls {
   ticket: number;
   index: number;
   detail: Record<string, number>;
+}
+
+/** What is persisted beside the snapshot: the artifact surface (null = the ticket) and each surface's scroll. */
+export interface PersistArt {
+  readonly artView: ArtView | null;
+  readonly artScrolls: ArtScrolls;
 }
 
 export interface ConsoleTarget {

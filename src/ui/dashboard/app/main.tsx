@@ -4,7 +4,10 @@
  *
  * Injected into `src/ui/dashboard/webview.html` in place of the `KARST_DASHBOARD_APP` marker.
  * Reuses or acquires the VS Code webview API, exposes typed message sender,
- * and mounts `<App />` into `#root`.
+ * and mounts `<App />` into `#root`. This is the page's only script owner: the one `message` listener below is
+ * attached while the script runs, i.e. before the host can post anything, and holds what arrives until React has
+ * mounted and subscribed (React commits asynchronously, so a message can land in between). The first subscriber
+ * gets the held messages once.
  */
 import { createRoot } from 'react-dom/client';
 import { createSender } from '../webviewSend.js';

@@ -137,12 +137,13 @@
   }
 </style>
 
-<!-- React-owned header: app/Header.tsx renders the ticket identity, title, Detach / Close / Reopen, the agent popover,
-     the ship and wait chips and the "..." menu into this static root (the region parity snapshot pins it without any
-     id or data-*), so the island selector (app/islands.ts) also names .dhead (until Phase 12). -->
+<!-- The static shell: each region root below is drawn into by the React app (app/App.tsx, through RegionPortal), and
+     the region parity snapshots pin these roots as markup, so they stay here. -->
+<!-- Header: app/Header.tsx renders the ticket identity, title, Detach / Close / Reopen, the agent popover, the ship and
+     wait chips and the "..." menu into this root. -->
 <div class="dhead"></div>
 <!-- Second header row (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the parent relation leads, then one chip per model that
-     differs from implementation. React-owned (app/HeaderMeta.tsx), which also toggles this root's `hidden`. -->
+     differs from implementation. app/HeaderMeta.tsx draws it and toggles this root's `hidden`. -->
 <div id="headerMeta" class="headerMeta" hidden></div>
 
 <div class="stepper">
@@ -167,47 +168,42 @@
        while it has sub-tasks OR can still gain one (host-derived
        `canAddSubtask`); the button hides exactly when the writer would refuse
        (ship/done). Absence, never an empty card.
-       React-owned: app/SubtasksPanel.tsx renders into #subtaskCount, the header after it (the Add button) and
-       #subtasks, and toggles this root's `hidden`. The root stays static (the parity snapshot pins it without
-       data-react-owned), so the island selector (app/islands.ts) also names #subtaskPanel. -->
+       app/SubtasksPanel.tsx renders into #subtaskCount, the header after it (the Add button) and #subtasks, and
+       toggles this root's `hidden`. -->
   <div class="panel span hidden" id="subtaskPanel">
     <div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span></div>
     <div class="pbody" id="subtasks"></div>
   </div>
-  <!-- The Servers panel is React-owned: app/ServersPanel.tsx renders into #srvCount, #srvOps and #servers
-       through RegionPortals. The root and its caption stay static (the parity snapshot pins the root without
-       data-react-owned), so the island selector (app/islands.ts) also names `.svpanel`. -->
+  <!-- Servers: app/ServersPanel.tsx renders into #srvCount, #srvOps and #servers through RegionPortals; the root and
+       its caption are static. -->
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
-  <!-- The Worktrees panel (header + body) is React-owned: app/WorktreesPanel.tsx renders into this
-       container through a RegionPortal, and data-react-owned makes the vanilla delegators skip it. -->
-  <div class="panel" id="worktreesPanel" data-react-owned="true"></div>
-  <!-- The Pull requests panel's count, refresh control and body are React-owned: app/PrsPanel.tsx renders into
-       #prCount, #prOps and #prs through RegionPortals. `prpanel` marks the island (app/islands.ts),
-       because the region parity snapshots pin #prs without any data-* attribute. -->
+  <!-- Worktrees (header + body): app/WorktreesPanel.tsx renders into this container through a RegionPortal. -->
+  <div class="panel" id="worktreesPanel"></div>
+  <!-- Pull requests: app/PrsPanel.tsx renders the count, the refresh control and the body into #prCount, #prOps and
+       #prs through RegionPortals. -->
   <div class="panel span prpanel"><div class="phead">Pull requests<span class="count" id="prCount"></span><span class="pops" id="prOps"></span></div><div class="pbody" id="prs"></div></div>
-  <!-- The artifacts shelf (docs/design/artifacts) is React-owned: app/ArtifactsShelf.tsx puts the "View all N"
-       button into this header and renders the previews into #artifacts. It shows only while the ticket has at
-       least one artifact (the zero state is ABSENCE, never an empty section, §4.1): React toggles .hidden on
-       this root, which stays static because the region parity snapshot pins it without any data-* attribute, so
-       the island selector (app/islands.ts) names #artPanel. The panel carries NO `.count`: the button IS the counter. -->
+  <!-- The artifacts shelf (docs/design/artifacts): app/ArtifactsShelf.tsx puts the "View all N" button into this
+       header and renders the previews into #artifacts. It shows only while the ticket has at least one artifact
+       (the zero state is ABSENCE, never an empty section, §4.1): React toggles .hidden on this root. The panel
+       carries NO `.count`: the button IS the counter. -->
   <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>
   <!-- Captured artifacts (T2 store): app/StoredPanel.tsx puts the "Open N" button into the header and renders the
        per-kind summary into #storedSummary, once the host's first load answers. "Open" swaps in the stored view
-       (app/StoredView.tsx). Island for the same snapshot reason as #artPanel. -->
+       (app/StoredView.tsx). -->
   <div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts</div><div class="pbody" id="storedSummary"></div></div>
 </div>
 
 <!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring the ticket form's brief drawer.
-     React-owned (app/TicketDataDrawer.tsx): it renders the scrim and the dialog into this wrapper, which takes the
-     place the static pair held (display:contents, so the stacking order against the other fixed surfaces is
-     unchanged). The body is the composed ticket-data text as TEXT, never markup. -->
+     app/TicketDataDrawer.tsx renders the scrim and the dialog into this wrapper (display:contents, so the stacking
+     order against the other fixed surfaces is unchanged). The body is the composed ticket-data text as TEXT, never
+     markup. -->
 <div id="ticketDataHost" class="tdHost"></div>
 
 <!-- The overlay views: the SAME webview, never a second tab. While one is active it replaces the dashboard body
      (body.art-nav / term-nav / log-nav / env-nav hide .stepper and .grid); Back and Esc return to the ticket
-     dashboard (spec §7-8). React-owned (app/Overlays.tsx): the artifact view, the console and the env editor
-     draw into their root and toggle its `hidden` class (the region parity snapshots pin the roots without any
-     data-*); the shared server-logs runtime draws into #logsView itself, driven by app/ServerLogsView.tsx. -->
+     dashboard (spec §7-8). app/Overlays.tsx: the artifact view, the console and the env editor draw into their root
+     and toggle its `hidden` class; the shared server-logs runtime draws into #logsView itself, driven by
+     app/ServerLogsView.tsx. -->
 <div id="artView" class="artview hidden" tabindex="-1"></div>
 <div id="termView" class="termview hidden" tabindex="-1"></div>
 <div id="logsView" class="logsview hidden" tabindex="-1"></div>
@@ -241,77 +237,13 @@
   // sender, so a renamed message field is a tsc error instead of a silent drop.
   /*KARST_WEBVIEW_SEND_DASHBOARD*/
 
-  // Dashboard React app bundle (phase 1 foundation).
+  // The React app: it owns the page from here (view-state persistence and restore, the host message handling, every
+  // control). This bundle is the only page code besides the injected runtimes above.
   /*KARST_DASHBOARD_APP*/
 
-  // The shared server-logs runtime (injected above) escapes through the page's `esc`, as the standalone logs panel's own
-  // script defines it: the one helper the page keeps for the injected scripts.
+  // The injected server-logs runtime above escapes through a page-level `esc`, as every host of the shared surface
+  // defines it (the standalone logs panel's own script does the same). The one line of page code that is not React.
   const esc = karstEsc;
-
-  // Persistence only (migration plan, Phase 11). Every panel and overlay is React now (app/**), and React never writes
-  // `vscode.setState` (A3), so the page keeps the one writer until the switch-over (Phase 12). What the view state holds
-  // is announced one way by React, and each part is read back by React once, from `vscode.getState()`, when it mounts:
-  // the stage selection with the Ship wait it was auto-selected for (`karst:persistSel`), the servers filter
-  // (`karst:srvFilter`) and the artifact view with its scroll memory (`karst:persistArt`). TRANSITIONAL: all of this
-  // goes with the script.
-
-  // The last snapshot the host pushed, saved beside the view state so a reload shows the dashboard before the host
-  // re-pushes. The view state stays beside the host state, never inside it: the next push is built from the DB and
-  // would silently drop it.
-  let lastState = null;
-  let selectedStage = null;
-  let shipWaitSeen = null;
-  let srvFilter = '';
-  let artView = null;
-  let artScrolls = { ticket: 0, index: 0, detail: {} };
-
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, shipWait: shipWaitSeen, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
-
-  window.addEventListener('karst:persistSel', (e) => {
-    selectedStage = e.detail.sel;
-    shipWaitSeen = e.detail.shipWait;
-    if (lastState) persist();
-  });
-  window.addEventListener('karst:srvFilter', (e) => {
-    srvFilter = String(e.detail);
-    persist();
-  });
-  window.addEventListener('karst:persistArt', (e) => {
-    artView = e.detail.artView;
-    artScrolls = e.detail.artScrolls;
-    persist();
-  });
-
-  window.addEventListener('message', (e) => {
-    const msg = e.data;
-    if (!msg) return;
-    // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13). Ship, merge and the PR refresh carry no
-    // requestId on the wire, by design (React settles them, app/pendingOps.ts); every other posting control settles
-    // through this one line.
-    if (msg.type === 'action-result') {
-      karstSettle(msg.requestId, msg.ok, msg.message);
-      return;
-    }
-    // A LIVE repaint (the same snapshot re-read so the running rows' clocks stay current) carries no news to persist,
-    // so it only refreshes the held copy; a real push persists.
-    if (msg.type === 'state') {
-      lastState = msg.state;
-      if (!msg.live) persist();
-    }
-  });
-
-  // Restore the view state before the host re-pushes. Tolerates the pre-envelope shape a panel open across an upgrade
-  // may have persisted; an old build's persisted state simply has no artifact view.
-  const prev = vscode.getState();
-  const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
-  if (restored && restored.state) {
-    lastState = restored.state;
-    selectedStage = restored.sel || null;
-    shipWaitSeen = restored.shipWait || null;
-    srvFilter = restored.srvFilter || '';
-    artView = restored.artView || null;
-    artScrolls = restored.artScrolls || { ticket: 0, index: 0, detail: {} };
-  }
 </script>
 
 <style>/*KARST_PALETTE*/</style>

@@ -1,10 +1,9 @@
 /**
  * The dashboard's stage rail, rendered by React into the page's static `#rail` root through a
- * `RegionPortal` (the region parity snapshot pins the root, so `inReactIsland()` treats `#rail` as an island
- * until Phase 12). Same DOM as the vanilla `renderTrack` it replaced.
+ * `RegionPortal` (the region parity snapshot pins the root as static markup). Same DOM as the vanilla `renderTrack` it replaced.
  *
  * React owns the stage selection (`stageSelection.ts`), shared with the Inside block beside it: a pick re-points
- * the strip in the same turn. The page only persists it (`vscode.setState`, A3), through a one-way event.
+ * the strip in the same turn. `ViewPersistence` writes it with the rest of the view state.
  *
  * The track measures rather than positions: after every render and on resize it picks one of three
  * degradation classes (`snug`, `tight`, `bare`) and positions nothing, so a measurement taken before layout can

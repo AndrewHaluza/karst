@@ -6,7 +6,8 @@ import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider, useOverlays } from '../DashboardAppContext.js';
-import { PERSIST_ART_EVENT, type PersistArt } from '../artSeam.js';
+import type { PersistArt } from '../overlayStack.js';
+import { tracePersist } from './persistTrace.js';
 import type { OverlayStack } from '../overlayStack.js';
 import { Overlays } from '../Overlays.js';
 
@@ -25,7 +26,7 @@ export interface OverlayHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
   readonly overlays: OverlayStack;
-  /** What React asked the page to persist as the artifact view (`karst:persistArt`), in order. */
+  /** The artifact view and scroll memory written with the view state, per change. */
   readonly persisted: PersistArt[];
   /** Run store calls the way an opener's click does (inside act). */
   readonly act: (fn: () => void) => void;
@@ -43,10 +44,11 @@ export function mountOverlays(initial: DashboardState | null, opts: MountOptions
   document.documentElement.scrollTop = 0;
   let listener: ((message: HostMessage) => void) | null = null;
   const send = Object.fromEntries(SENDERS.map((name) => [name, vi.fn()])) as OverlayHarness['send'];
+  const trace = tracePersist(opts.persisted);
   const bridge: DashboardHostBridge = {
     send: send as unknown as DashboardSender,
     getState: () => (initial ? { state: initial, ...opts.persisted } : null),
-    setState: vi.fn(),
+    setState: trace.setState,
     subscribe: (fn) => {
       listener = fn;
       return () => {
@@ -54,10 +56,6 @@ export function mountOverlays(initial: DashboardState | null, opts: MountOptions
       };
     },
   };
-  const persisted: PersistArt[] = [];
-  const record = (e: Event): void => void persisted.push((e as CustomEvent<PersistArt>).detail);
-  window.addEventListener(PERSIST_ART_EVENT, record);
-  cleanups.push(() => window.removeEventListener(PERSIST_ART_EVENT, record));
 
   let overlays: OverlayStack | null = null;
   function Probe(): null {
@@ -73,7 +71,7 @@ export function mountOverlays(initial: DashboardState | null, opts: MountOptions
       <Overlays />
     </DashboardAppProvider>,
   );
-  return { send, persisted, overlays: overlays!, emit: (message) => act(() => listener?.(message)), act: (fn) => act(fn) };
+  return { send, persisted: trace.art, overlays: overlays!, emit: (message) => act(() => listener?.(message)), act: (fn) => act(fn) };
 }
 
 /** The design-system runtime's pending primitives and identity helpers, as doubles. */

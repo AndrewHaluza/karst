@@ -4,9 +4,8 @@
  * the host would snap the panel back mid-run. `null` means "no explicit selection": the strip follows the
  * ticket (presented stage, else the current one, else scope).
  *
- * The rail and the Inside block are both React now, so they share this one store. Persistence stays with the
- * page (A3): every change is announced one way (`insideSeam.ts`), and the initial value is read once from the
- * persisted view state.
+ * The rail and the Inside block share this one store. Every change is handed to `persist` (`ViewPersistence` writes it
+ * with the rest of the view state), and the initial value is read once from the persisted view state.
  *
  * Ship's one-time auto-select (D234, replacing D142's hard pin): entering a new wait (the slot in confirm/retry on
  * a ticket/kind that has not selected Ship yet) moves the view to Ship so the preview is on screen beside the
@@ -16,7 +15,12 @@
  */
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
-import { announcePersistSel, type PersistSel } from './insideSeam.js';
+
+/** What is persisted beside the snapshot: the explicit selection (null = follow the ticket) and the Ship wait it was auto-selected for. */
+export interface PersistSel {
+  readonly sel: string | null;
+  readonly shipWait: string | null;
+}
 
 export interface SelectionSnapshot {
   readonly selected: string | null;
@@ -39,7 +43,11 @@ export class StageSelection {
   private readonly listeners = new Set<() => void>();
 
   /** `initial` state is the one the page restored: a wait already on screen selects Ship, but announces nothing yet. */
-  constructor(persisted: PersistSel, initial: DashboardState | null) {
+  constructor(
+    persisted: PersistSel,
+    initial: DashboardState | null,
+    private readonly persistSel: (detail: PersistSel) => void,
+  ) {
     this.snapshot = { selected: persisted.sel, epoch: 0 };
     this.shipWait = persisted.shipWait;
     if (initial) this.observe(initial, false);
@@ -79,6 +87,6 @@ export class StageSelection {
   }
 
   private persist(): void {
-    announcePersistSel({ sel: this.snapshot.selected, shipWait: this.shipWait });
+    this.persistSel({ sel: this.snapshot.selected, shipWait: this.shipWait });
   }
 }

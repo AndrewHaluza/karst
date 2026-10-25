@@ -23,7 +23,7 @@
  * `src/ui/dashboard/logLine.ts` (plus `isRunMarker` from
  * `src/runtime/serverLog.ts`) — the mirrored-constants pattern in
  * `docs/ui/UI-INVARIANTS.md`. The TS module stays the tested source of truth:
- * `webview.test.ts` pins the two decoders together.
+ * `ui/dashboard/serverLogsSurface.test.ts` pins the two decoders together.
  *
  * CSS + JS live in the sibling `serverLogsView.webview.css`/`.webview.js`
  * source files — real CSS/JS a linter, formatter and editor can process,
