@@ -23,7 +23,8 @@ function walk(dir: string): string[] {
 
 const stripBlockComments = (text: string): string => text.replace(/\/\*.*?\*\//gs, '');
 const rel = (file: string): string => relative(ROOT, file);
-const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file);
+// Test files and `fixtures/` (test-only support, also excluded from the build emit) are not app source.
+const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file) || /[\\/]fixtures[\\/]/.test(file);
 
 const APP_SOURCE = walk(HERE).filter((file) => !isTest(file));
 

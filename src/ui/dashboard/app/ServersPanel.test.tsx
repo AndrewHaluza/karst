@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
-import { byAct, filterBox, many, mount, names, one, shared, srv, stateWith, text, installRuntimeDoubles } from '../../testing/serversPanelKit.js';
+import { byAct, filterBox, many, mount, names, one, shared, srv, stateWith, text, installRuntimeDoubles } from './fixtures/serversPanelKit.js';
 
 installRuntimeDoubles();
 

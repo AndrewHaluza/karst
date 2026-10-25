@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
 import type { DashboardState } from '../state.js';
-import { mount, one, shared, srv, stateWith, installRuntimeDoubles } from '../../testing/serversPanelKit.js';
+import { mount, one, shared, srv, stateWith, installRuntimeDoubles } from './fixtures/serversPanelKit.js';
 
 installRuntimeDoubles();
 

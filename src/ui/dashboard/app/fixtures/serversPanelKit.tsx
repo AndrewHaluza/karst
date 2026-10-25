@@ -2,11 +2,11 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { Profiler } from 'react';
-import type { HostMessage } from '../dashboard/messages.js';
-import type { DashboardState } from '../dashboard/state.js';
-import type { DashboardHostBridge, DashboardSender } from '../dashboard/app/hostBridge.js';
-import { DashboardAppProvider } from '../dashboard/app/DashboardAppContext.js';
-import { ServersPanel } from '../dashboard/app/ServersPanel.js';
+import type { HostMessage } from '../../messages.js';
+import type { DashboardState } from '../../state.js';
+import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
+import { DashboardAppProvider } from '../DashboardAppContext.js';
+import { ServersPanel } from '../ServersPanel.js';
 
 export const srv = (id: number, service: string, over: Record<string, unknown> = {}) => ({
   id,
