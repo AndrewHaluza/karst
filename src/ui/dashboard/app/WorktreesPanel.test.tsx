@@ -32,7 +32,7 @@ interface Harness {
 }
 
 function mount(initial: DashboardState | null, onRender?: () => void): Harness {
-  document.body.innerHTML = '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>';
+  document.body.innerHTML = '<div class="panel" data-region="worktrees" data-react-owned="true"></div>';
   let listener: ((message: HostMessage) => void) | null = null;
   const send = {
     showChanges: vi.fn(),
@@ -54,7 +54,7 @@ function mount(initial: DashboardState | null, onRender?: () => void): Harness {
     },
   };
   const panel = (
-    <RegionPortal id="worktreesPanel">
+    <RegionPortal region="worktrees">
       <WorktreesPanel />
     </RegionPortal>
   );

@@ -53,7 +53,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <ArtifactsShelf />
       <StoredPanel />
       <Overlays />
-      <RegionPortal id="worktreesPanel">
+      <RegionPortal region="worktrees">
         <WorktreesPanel />
       </RegionPortal>
     </DashboardAppProvider>

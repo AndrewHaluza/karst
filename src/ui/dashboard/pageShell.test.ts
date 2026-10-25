@@ -39,6 +39,12 @@ describe('dashboard page — the shell and the injection markers', () => {
     }
   });
 
+  it('keeps the worktrees root a bare `.panel` (no id, one class)', () => {
+    // The layout ledger (tests/visual/layout-known-failures.json) keys this panel's known clipped-text finding by its
+    // structural path, which an id or a second class would rename; `data-region` is how RegionPortal finds it instead.
+    expect(HTML).not.toContain('id="worktreesPanel"');
+  });
+
   it('keeps the static region roots the React app draws into', () => {
     for (const root of [
       'class="dhead"',
@@ -48,7 +54,7 @@ describe('dashboard page — the shell and the injection markers', () => {
       'id="blocked"',
       'id="subtaskPanel"',
       'class="panel svpanel"',
-      'id="worktreesPanel"',
+      '<div class="panel" data-region="worktrees"></div>',
       'class="panel span prpanel"',
       'id="artPanel"',
       'id="storedPanel"',
