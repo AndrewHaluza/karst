@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** A literal selector as a RegExp source: every metacharacter escaped, the backslash included. */
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const read = (name: string): string => readFileSync(join(HERE, name), 'utf8');
 /** In import order, which is the order the rules cascade in. */
 const CSS = ['Inside.css', 'InsideEvidence.css', 'InsideShipPreview.css', 'InsideResponsive.css'].map(read).join('\n');
@@ -172,7 +174,7 @@ describe('Inside CSS — the container queries', () => {
         ['.timeline-slot', 'the timeline node cell'],
       ] as const) {
         // The cell ITSELF may never be hidden; hiding one part of its contents (the model name inside an identity run) is a legal degradation.
-        expect(new RegExp(`${sel.replace(/\./g, '\\.')}\\{[^}]*display:none`).exec(block), `≤${w} hides ${what}`).toBeNull();
+        expect(new RegExp(`${escapeRegExp(sel)}\\{[^}]*display:none`).exec(block), `≤${w} hides ${what}`).toBeNull();
       }
     }
   });
@@ -184,7 +186,7 @@ describe('Inside CSS — the container queries', () => {
       ['#inside .phase-time', 'the timestamp'],
       ['#inside .duration', 'the duration'],
     ] as const) {
-      const rule = new RegExp(`${sel.replace(/\./g, '\\.')}[,{]([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+      const rule = new RegExp(`${escapeRegExp(sel)}[,{]([^}]*)\\}`).exec(CSS)?.[1] ?? '';
       expect(rule, `${label} cell lost its nowrap`).toContain('white-space:nowrap');
       expect(rule, `${label} cell must never claim a wrap point`).not.toContain('overflow-wrap');
     }
