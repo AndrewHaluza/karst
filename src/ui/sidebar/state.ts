@@ -38,6 +38,19 @@ import { formatId } from '../../model/entityId.js';
 import { ticketGlyph } from '../../model/ticketGlyph.js';
 import type { Glyph } from '../../model/glyph.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
+import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
+
+export type { CloudSessionChip };
+
+/** A cloud session with no ticket (arch:CLOUD-01); `proposalLabel` (`D5`) when it hangs on a live draft. */
+export interface UnlinkedCloudSession {
+  id: number;
+  provider: string;
+  label: string;
+  url: string;
+  proposalId: number | null;
+  proposalLabel?: string;
+}
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -99,6 +112,8 @@ export interface TicketRow extends TicketNode {
   peek: TicketPeek;
   /** Files captured for this ticket in the artifact store; 0 hides the sidebar chip. */
   artifacts: number;
+  /** Cloud agent sessions this ticket was done in; absent when it has none. */
+  cloudSessions?: CloudSessionChip[];
 }
 
 /**
@@ -212,6 +227,8 @@ export interface SidebarState {
   rows: TicketRow[];
   /** Planning sessions, newest first: live and archived (the Planning pane toggles archived), whatever the ticket facet. */
   planning: PlanningRow[];
+  /** Cloud sessions with no ticket, shown as rows in the tickets pane; empty without a project or a match. */
+  unlinkedCloudSessions: UnlinkedCloudSession[];
 }
 
 /**
@@ -272,6 +289,8 @@ export function buildSidebarState(
   pathContext?: PathContext,
 ): SidebarState {
   const scope = { projectId: opts.projectId };
+  const cloud =
+    opts.projectId === undefined ? undefined : cloudSessionsForSidebar(store, opts.projectId);
   const active = listTickets(store, scope);
   const archived = listArchivedTickets(store, scope);
 
@@ -327,6 +346,7 @@ export function buildSidebarState(
         // merge gate only for ship — so the board never pays per-ticket for
         // state it will not show.
         artifacts: opts.artifactCount?.(t.id) ?? 0,
+        ...(cloud?.byTicketId[t.id] ? { cloudSessions: cloud.byTicketId[t.id] } : {}),
         peek: buildPeek({
           stageCurrent: t.stageCurrent,
           current: t.stages.find((s) => s.stageKey === t.stageCurrent) ?? null,
@@ -356,7 +376,7 @@ export function buildSidebarState(
   };
 
   const counts = facetCounts(active, archived.length);
-  const base = { facets, filter: query, counts };
+  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query) };
 
   const isAll = facets.length === 1 && facets[0] === 'all';
   const isDone = facets.length === 1 && facets[0] === 'done';
@@ -410,6 +430,17 @@ export function buildSidebarState(
     rows: enrich(filterTickets(source, query)),
     planning: planningRows(store, opts.projectId, query, opts.planningLive),
   };
+}
+
+/** Unlinked sessions that survive the search: a query keeps one only when its URL, label or draft id matches. */
+function unlinkedRows(cloud: ReturnType<typeof cloudSessionsForSidebar> | undefined, query: string): UnlinkedCloudSession[] {
+  const needle = query.trim().toLowerCase();
+  return (cloud?.unlinked ?? [])
+    .map((u): UnlinkedCloudSession => ({
+      ...u,
+      ...(u.proposalId === null ? {} : { proposalLabel: formatId('draft', u.proposalId) }),
+    }))
+    .filter((u) => needle === '' || `${u.url} ${u.label} ${u.proposalLabel ?? ''}`.toLowerCase().includes(needle));
 }
 
 const isId = (n: number): boolean => Number.isSafeInteger(n) && n >= 1;
