@@ -48,6 +48,7 @@ export const EMPTY_STATE: SidebarState = {
   done: [],
   rows: [],
   planning: [],
+  unlinkedCloudSessions: [],
 };
 
 /**

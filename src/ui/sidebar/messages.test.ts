@@ -26,6 +26,20 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-proposal-discard', sessionId: 4 })).toBeNull();
   });
 
+  it('accepts cloud-session messages only with a non-empty url and exactly one link target', () => {
+    const url = 'https://claude.ai/code/session_a';
+    expect(parseSidebarMessage({ type: 'cloud-session-open', url })).toEqual({ type: 'cloud-session-open', url });
+    expect(parseSidebarMessage({ type: 'cloud-session-unlink', url })).toEqual({ type: 'cloud-session-unlink', url });
+    expect(parseSidebarMessage({ type: 'cloud-session-open', url: '' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-open', url: 5 })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url, ticketId: 3 })).toEqual({ type: 'cloud-session-link', url, ticketId: 3 });
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url, proposalId: 4 })).toEqual({ type: 'cloud-session-link', url, proposalId: 4 });
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url, ticketId: 3, proposalId: 4 })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url, ticketId: '3' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-link', url: '', ticketId: 3 })).toBeNull();
+  });
+
   it('rejects the removed plan-proposal-view message', () => {
     expect(parseSidebarMessage({ type: 'plan-proposal-view', proposalId: 4 })).toBeNull();
   });
@@ -112,6 +126,9 @@ describe('routeSidebarAction', () => {
       planUnarchive: vi.fn(),
       planProposalReview: vi.fn(),
       planProposalDiscard: vi.fn(),
+      cloudSessionOpen: vi.fn(),
+      cloudSessionLink: vi.fn(),
+      cloudSessionUnlink: vi.fn(),
     };
   }
 
@@ -156,6 +173,18 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'plan-proposal-discard', proposalId: 8 }, a);
     expect(a.planProposalReview).toHaveBeenCalledWith(7);
     expect(a.planProposalDiscard).toHaveBeenCalledWith(8);
+  });
+
+  it('dispatches cloud-session messages', () => {
+    const a = makeActions();
+    routeSidebarAction({ type: 'cloud-session-open', url: 'u1' }, a);
+    routeSidebarAction({ type: 'cloud-session-unlink', url: 'u2' }, a);
+    routeSidebarAction({ type: 'cloud-session-link', url: 'u3', ticketId: 9 }, a);
+    routeSidebarAction({ type: 'cloud-session-link', url: 'u4', proposalId: 5 }, a);
+    expect(a.cloudSessionOpen).toHaveBeenCalledWith('u1');
+    expect(a.cloudSessionUnlink).toHaveBeenCalledWith('u2');
+    expect(a.cloudSessionLink).toHaveBeenNthCalledWith(1, 'u3', { ticketId: 9 });
+    expect(a.cloudSessionLink).toHaveBeenNthCalledWith(2, 'u4', { proposalId: 5 });
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

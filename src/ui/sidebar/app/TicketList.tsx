@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react';
 import type { TicketRow as Row } from '../state.js';
 import { ActButton } from './action.js';
+import { CloudSessionRows } from './CloudSessions.js';
 import { visibleRows } from './format.js';
 import { Icon } from './Icon.js';
 import { useSidebar } from './SidebarContext.js';
@@ -74,7 +75,8 @@ function AllView() {
   const awaiting = visibleRows((secs && secs.awaitingReview) || [], c);
   const recent = visibleRows((secs && secs.recentlyDone) || [], c);
   const older = visibleRows((secs && secs.olderDone) || [], c);
-  if (!current.length && !awaiting.length && !recent.length && !older.length) return <Empty view="all" />;
+  const cloud = state.unlinkedCloudSessions || [];
+  if (!current.length && !awaiting.length && !recent.length && !older.length && !cloud.length) return <Empty view="all" />;
   const query = (state.filter || '').trim();
   // Auto-reveal: a query that matches Older Completed expands the section so the
   // match is visible, but that is NOT the user's explicit choice — clearing the
@@ -83,6 +85,7 @@ function AllView() {
   return (
     <>
       {current.length ? <><Section name="Current" count={current.length} /><Rows rows={current} /></> : null}
+      {cloud.length ? <><Section name="Cloud sessions" count={cloud.length} /><CloudSessionRows sessions={cloud} /></> : null}
       {awaiting.length ? <><Section name="Awaiting review" count={awaiting.length} /><Rows rows={awaiting} /></> : null}
       {recent.length ? <><Section name="Recently done" count={recent.length} /><Rows rows={recent} compact time /></> : null}
       {older.length ? (

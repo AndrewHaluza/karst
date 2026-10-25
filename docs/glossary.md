@@ -457,6 +457,10 @@ END_DOC_BLOCK: [@gloss:GL-09]
   `npm run dev:extension` / `npm run test:unit` restore the right binary automatically.
   A `NODE_MODULE_VERSION` mismatch is fixed with `rebuild:electron` /
   `rebuild:node`.
+- **Cloud session link** — a display-only link from a ticket (or draft) to the
+  agent session that ran in a vendor's cloud (claude.ai Code on the web first),
+  found by scanning commit messages and PR bodies for the session URL. Never
+  affects stage, gates or `agent_state`; rules in `@arch:CLOUD-01`.
 END_DOC_BLOCK: [@gloss:GL-10]
 
 ---

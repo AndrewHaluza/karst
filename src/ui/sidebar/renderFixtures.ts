@@ -95,6 +95,7 @@ function emptyState(): SidebarState {
     done: [],
     rows: [],
     planning: [],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -167,6 +168,7 @@ function allSectionsState(): SidebarState {
     done: [],
     rows: [],
     planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [fixtureDraft({ id: 501, title: 'Add rate limit', status: 'pending', ticketId: null, dependsOn: [] }), fixtureDraft({ id: 503, title: 'Split auth module', status: 'accepted', ticketId: 3, dependsOn: [501] })] }), fixturePlanningRow(89)],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -183,6 +185,7 @@ function doneFacetState(): SidebarState {
     done: doneRows,
     rows: [],
     planning: [],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -199,6 +202,7 @@ function archivedFacetState(): SidebarState {
       fixtureRow(2, { label: 'DELETED-3', glyph: 'gray' }),
     ],
     planning: [fixturePlanningRow(77, { title: 'Old plan', status: 'archived' })],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -216,6 +220,7 @@ function multiFacetState(): SidebarState {
       fixtureRow(3, { glyph: 'red' }),
     ],
     planning: [],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -233,6 +238,7 @@ function filteredState(): SidebarState {
     done: [],
     rows: [],
     planning: [],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -280,6 +286,7 @@ function subtasksState(): SidebarState {
     done: [],
     rows: [],
     planning: [],
+    unlinkedCloudSessions: [],
   };
 }
 
@@ -299,6 +306,7 @@ function hostileState(): SidebarState {
     done: [],
     rows: [],
     planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [fixtureDraft({ id: 502, title: HOSTILE_LABEL, status: 'pending', ticketId: null, dependsOn: [] })], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
+    unlinkedCloudSessions: [],
   };
 }
 

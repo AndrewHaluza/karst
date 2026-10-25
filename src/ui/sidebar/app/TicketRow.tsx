@@ -6,8 +6,10 @@
  * marks are identical either way: selecting a completed ticket behaves exactly
  * like selecting a Current one.
  */
+import type { CSSProperties } from 'react';
 import type { TicketRow as Row } from '../state.js';
 import { ActButton } from './action.js';
+import { CloudLinks } from './CloudSessions.js';
 import { Icon, KarstMark } from './Icon.js';
 import { IconAct } from './IconAct.js';
 import { MenuTrigger } from './MenuTrigger.js';
@@ -134,7 +136,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const cls = `ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${older ? ' older' : ''}${nest}`;
   return (
     <div className={cls} data-id={row.ticketId}>
-      <div className="row">
+      <div className="row" style={row.cloudSessions?.length ? ({ '--cloud-n': row.cloudSessions.length } as CSSProperties) : undefined}>
         <Guides row={row} />
         <button
           type="button"
@@ -156,6 +158,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
           </ActButton>
         )}
         <SubtreeToggle row={row} />
+        {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} /> : null}
         {/* Only rendered while COLLAPSED — expanding moves the same quick actions into the body's tools. */}
         {isOpen ? null : <HoverStrip row={row} sessVerb={sessVerb} />}
       </div>

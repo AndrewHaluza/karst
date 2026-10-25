@@ -171,6 +171,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
       if (spec.proposal !== undefined) payload.proposalId = spec.proposal;
       // resolve-conflicts carries the conflicted repo so the host re-verifies it.
       if (spec.repo) payload.repo = spec.repo;
+      if (spec.url) payload.url = spec.url;
       notes.current.note(type, requestId, spec.plan, stateRef.current.planning || ([] as PlanningRow[]));
       post(payload as unknown as OutboundMessage);
     },

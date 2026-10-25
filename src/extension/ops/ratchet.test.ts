@@ -85,7 +85,9 @@ import { join } from 'node:path';
 // `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
 // `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
 // Planning auto-archive (+2: 8747 -> 8749): the `sweepPlanningArchive` call and its comment; logic is `ops/planningAutoArchive.ts`.
-const MAX_EXTENSION_LINES = 8749;
+// Raised by 3 (8749 -> 8752): cloud-session scan binding (arch:CLOUD-01) — one import, the
+// `makeCloudScanTick` call and its PR-sync-tick line; logic is in `ops/cloudSessionScanOps.ts`.
+const MAX_EXTENSION_LINES = 8752;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
