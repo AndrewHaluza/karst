@@ -62,9 +62,9 @@ export function runCloseCommand(store: Store, argv: string[], opts: RunCloseOpti
   const target = resolveTicketByKey(store, parsed.key, opts.projectSlug);
   if (!target) throw new Error(`no ticket found for key or id '${parsed.key}'`);
   if (parsed.action === 'close') {
-    closeTicket(store, target.id, parsed.ref === undefined ? { reason: parsed.reason } : { reason: parsed.reason, ref: parsed.ref });
-  } else {
-    reopenTicket(store, target.id);
+    const left = closeTicket(store, target.id, parsed.ref === undefined ? { reason: parsed.reason } : { reason: parsed.reason, ref: parsed.ref });
+    return JSON.stringify({ ok: true, ticketId: target.id, stage: 'closed', left });
   }
+  reopenTicket(store, target.id);
   return JSON.stringify({ ok: true, ticketId: target.id, stage: getTicket(store, target.id).stageCurrent });
 }

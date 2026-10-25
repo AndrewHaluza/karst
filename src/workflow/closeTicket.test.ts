@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
-import { getTicket } from '../store/tickets.js';
+import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { deriveStageCurrent, reconcileOnStart } from '../recovery/reconcile.js';
@@ -86,5 +86,65 @@ describe('reopenTicket', () => {
   it('refuses a ticket that is not closed', () => {
     const { store, id } = ticketAtImpl();
     expect(() => reopenTicket(store, id)).toThrow(/not closed/);
+  });
+});
+
+describe('closeTicket cleanup', () => {
+  it('releases a queued autostart so a closed sub-task never starts', () => {
+    const store = openStore(':memory:');
+    const parent = createTicket(store, { key: 'P', title: 'p' });
+    const child = createTicket(store, {
+      key: 'C',
+      title: 'c',
+      subtaskParentId: parent.id,
+      autostartPending: true,
+    });
+    expect(getTicket(store, child.id).autostartPending).toBe(true);
+    closeTicket(store, child.id, { reason: 'r' });
+    const t = getTicket(store, child.id);
+    expect(t.autostartPending).toBe(false);
+    expect(t.autostartStarting).toBe(false);
+    expect(t.autostartClaimedAt).toBeNull();
+  });
+
+  it('resets a stale live agent state', () => {
+    const { store, id } = ticketAtImpl();
+    setAgentState(store, id, 'waiting');
+    closeTicket(store, id, { reason: 'r' });
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
+  it('refuses while an open sub-task exists and changes nothing', () => {
+    const store = openStore(':memory:');
+    const parent = createTicket(store, { key: 'P', title: 'p' });
+    createTicket(store, { key: 'C', title: 'c', subtaskParentId: parent.id });
+    expect(() => closeTicket(store, parent.id, { reason: 'r' })).toThrow(/open sub-tasks \(C\)/);
+    expect(getTicket(store, parent.id).stageCurrent).toBe('scope');
+  });
+
+  it('allows closing a parent whose sub-tasks are all finished', () => {
+    const store = openStore(':memory:');
+    const parent = createTicket(store, { key: 'P', title: 'p' });
+    const child = createTicket(store, { key: 'C', title: 'c', subtaskParentId: parent.id });
+    closeTicket(store, child.id, { reason: 'child done elsewhere' });
+    expect(() => closeTicket(store, parent.id, { reason: 'r' })).not.toThrow();
+  });
+
+  it('reports what it left behind: open PRs, worktrees and running servers', () => {
+    const { store, id } = ticketAtImpl();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, status) VALUES (?, 'a', 1, 'open')").run(id);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, status) VALUES (?, 'b', 2, 'merged')").run(id);
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path) VALUES (?, 'a', '/w/a')").run(id);
+    store.db
+      .prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (?, 'a', 'h', 1, 2, 'running', '/l')")
+      .run(id);
+    store.db
+      .prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path) VALUES (?, 'b', 'h', 2, NULL, 'stopped', '/l')")
+      .run(id);
+    expect(closeTicket(store, id, { reason: 'r' })).toEqual({
+      openPrs: 1,
+      worktrees: 1,
+      runningServers: 1,
+    });
   });
 });
