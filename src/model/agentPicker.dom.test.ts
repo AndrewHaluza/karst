@@ -136,3 +136,63 @@ describe('a picker only answers keys from its open menu', () => {
     expect(activeId(a)).toBe(before);
   });
 });
+
+describe('a picker chooses the row the key came from', () => {
+  // Rows are tabbable (`tabindex="0"`), so DOM focus can sit on a row the
+  // highlight does not cover (openMenu focuses the search box and highlights
+  // the saved row). Enter must choose the focused row, never the highlight.
+  const rows = (root: HTMLElement): Element[] =>
+    Array.from(menu(root).querySelectorAll('[role="option"]'));
+  const foot = (root: HTMLElement): string =>
+    root.querySelector('[data-ap-foot]')?.textContent ?? '';
+
+  it('commits the focused row on Enter, not the highlighted one', () => {
+    const { a, changed } = mountBoth();
+    click(trigger(a, 'model'));
+    expect(activeId(a)).toBe('opencode/big-pickle');
+
+    const go = rows(a)[1]!;
+    (go as HTMLElement).focus();
+    expect(document.activeElement).toBe(go);
+
+    key(go, 'Enter');
+
+    expect(changed).toEqual(['a:opencode-go/deepseek-v4.1-flash']);
+    expect(menu(a).hidden).toBe(true);
+  });
+
+  it('still commits the highlighted row when Enter comes from the search box', () => {
+    const { a, changed } = mountBoth();
+    click(trigger(a, 'model'));
+    const search = menu(a).querySelector('[data-ap-search]')!;
+    (search as HTMLElement).focus();
+
+    key(search, 'Enter');
+
+    expect(changed).toEqual(['a:opencode/big-pickle']);
+    expect(menu(a).hidden).toBe(true);
+  });
+
+  it('points the highlight and footer at the row focus lands on', () => {
+    const { a } = mountBoth();
+    click(trigger(a, 'model'));
+    const go = rows(a)[1]!;
+
+    (go as HTMLElement).focus();
+
+    expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(foot(a)).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+
+  it('moves focus with the highlight when arrowing from a focused row', () => {
+    const { a } = mountBoth();
+    click(trigger(a, 'model'));
+    const first = rows(a)[0]!;
+    (first as HTMLElement).focus();
+
+    key(first, 'ArrowDown');
+
+    expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(document.activeElement).toBe(rows(a)[1]);
+  });
+});

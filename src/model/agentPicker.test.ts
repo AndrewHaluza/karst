@@ -38,6 +38,7 @@ function load(): Record<string, unknown> {
     apMarkActive: typeof apMarkActive === 'function' ? apMarkActive : undefined,
     apMenuShellFor: typeof apMenuShellFor === 'function' ? apMenuShellFor : undefined,
     apKeyOwnedBy: typeof apKeyOwnedBy === 'function' ? apKeyOwnedBy : undefined,
+    apOptionAt: typeof apOptionAt === 'function' ? apOptionAt : undefined,
     apFilterModels: typeof apFilterModels === 'function' ? apFilterModels : undefined,
     apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
     apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
@@ -666,6 +667,42 @@ describe('a picker only drives its own open menu', () => {
     expect(fns.apKeyOwnedBy(shell, effort)).toBe(false);
     expect(fns.apKeyOwnedBy(null, search)).toBe(false);
     expect(fns.apKeyOwnedBy(shell, null)).toBe(false);
+  });
+});
+
+describe('a key answers from the row it was pressed on', () => {
+  const fns = load() as {
+    apOptionAt: (shell: unknown, target: unknown) => unknown;
+  };
+  const row = { id: 'row' };
+  const shell = { contains: (el: unknown) => el === row };
+
+  it('resolves the event target to its option inside the shell', () => {
+    expect(fns.apOptionAt(shell, { closest: () => row })).toBe(row);
+    expect(fns.apOptionAt(shell, { closest: () => null })).toBeNull();
+    expect(fns.apOptionAt(shell, {})).toBeNull();
+    expect(fns.apOptionAt(shell, null)).toBeNull();
+  });
+
+  it('never answers with a row from another menu', () => {
+    expect(fns.apOptionAt(shell, { closest: () => ({ id: 'theirs' }) })).toBeNull();
+    expect(fns.apOptionAt(null, { closest: () => row })).toBeNull();
+  });
+
+  it('prefers the key’s row in the handler and moves focus with the arrows', () => {
+    // The review found Enter committing the highlighted row while DOM focus sat
+    // on another row the user had tabbed to. The row the key came from wins;
+    // the highlight is only the fallback for keys from the search box/trigger.
+    const start = js.indexOf("root.addEventListener('keydown'");
+    const end = js.indexOf("document.addEventListener('click'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const keydown = js.slice(start, end);
+    expect(keydown).toContain('apOptionAt(shell, e.target) || apActiveOption(shell)');
+    expect(keydown).toContain('moveActive(shell, e.key === \'ArrowDown\' ? 1 : -1, e.target)');
+    // Tabbing into the list points the highlight and footer at the focused row.
+    expect(js).toContain("root.addEventListener('focusin'");
+    expect(js).toContain('apMarkActive(items, i);');
   });
 });
 

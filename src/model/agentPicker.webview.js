@@ -389,6 +389,17 @@ function apActiveOption(shell) {
 }
 
 /**
+ * The row a key or focus event came from, if it came from one of this shell's
+ * options. Rows are tabbable, so DOM focus can sit on a row the highlight does
+ * not cover; the key must answer from its own row, never from the highlight
+ * left somewhere else in the list.
+ */
+function apOptionAt(shell, target) {
+  var row = target && target.closest ? target.closest('[role="option"]') : null;
+  return row && shell && shell.contains && shell.contains(row) ? row : null;
+}
+
+/**
  * The open menu shell that belongs to `root`, if any. The stack is page-global
  * (only one picker menu is open anywhere on the page), but a key pressed in one
  * picker must never move or choose a row in another picker's menu.
@@ -637,16 +648,20 @@ function mountAgentPicker(root, opts) {
   }
 
   /** Move the keyboard-active row by one; headings are not options, so they are skipped. */
-  function moveActive(shell, delta) {
+  function moveActive(shell, delta, target) {
     var items = shell.querySelectorAll('[role="option"]');
     if (!items.length) return;
-    var current = apActiveOption(shell);
+    // A row carries DOM focus when the user tabbed into the list; moving the
+    // highlight away from it would leave Enter answering the old row.
+    var focused = apOptionAt(shell, target);
+    var current = focused || apActiveOption(shell);
     var idx = -1;
     for (var i = 0; i < items.length; i++) if (items[i] === current) { idx = i; break; }
     var next = idx < 0 ? (delta > 0 ? 0 : items.length - 1) : idx + delta;
     if (next < 0) next = 0;
     if (next > items.length - 1) next = items.length - 1;
     apMarkActive(items, next);
+    if (focused && items[next].focus) items[next].focus();
     if (items[next].scrollIntoView) items[next].scrollIntoView({ block: 'nearest' });
     syncMenuFoot(shell);
   }
@@ -763,6 +778,22 @@ function mountAgentPicker(root, opts) {
     syncMenuFoot($('[data-ap-shell="model"]'));
   });
 
+  // Tabbing into the list lands on a row: the highlight and the footer must
+  // follow focus, so the row under the keyboard is the one Enter answers.
+  root.addEventListener('focusin', function (e) {
+    var shell = apMenuShellFor(root, AP_MENU_STACK);
+    var row = apOptionAt(shell, e.target);
+    if (!row) return;
+    var items = shell.querySelectorAll('[role="option"]');
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] === row) {
+        apMarkActive(items, i);
+        syncMenuFoot(shell);
+        return;
+      }
+    }
+  });
+
   root.addEventListener('keydown', function (e) {
     // Another picker's menu can sit on top of the page-global stack; only this
     // root's own menu may answer this picker's keys.
@@ -774,14 +805,16 @@ function mountAgentPicker(root, opts) {
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      moveActive(shell, e.key === 'ArrowDown' ? 1 : -1);
+      moveActive(shell, e.key === 'ArrowDown' ? 1 : -1, e.target);
       return;
     }
     if (e.key === 'Enter') {
-      var active = apActiveOption(shell);
-      if (!active) return;
+      // The focused row wins: a key pressed on a row that is not highlighted
+      // must choose that row, not the highlight (review finding, round 4).
+      var row = apOptionAt(shell, e.target) || apActiveOption(shell);
+      if (!row) return;
       e.preventDefault();
-      active.click();
+      row.click();
     }
   });
 
