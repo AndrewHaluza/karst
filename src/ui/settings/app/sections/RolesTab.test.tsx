@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   delete (globalThis as unknown as Record<string, unknown>).mountAgentPicker;
+  delete (globalThis as unknown as Record<string, unknown>).AP_ROUTES;
 });
 
 function mount(route: AgentsRoute = { tab: 'roles' }) {
@@ -92,5 +93,24 @@ describe('RolesTab — presets toolbar and compare bar', () => {
 
     fireEvent.click(showMatrixBtn);
     expect(showMatrixBtn.getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('RolesTab — route identity reaches every picker', () => {
+  it('passes the host route map into the picker options', () => {
+    const routes = { openrouter: { name: 'OpenRouter' } };
+    const seen: unknown[] = [];
+    (globalThis as unknown as Record<string, unknown>).AP_ROUTES = routes;
+    (globalThis as unknown as Record<string, unknown>).mountAgentPicker = (
+      _root: HTMLElement,
+      opts: { routes?: unknown },
+    ) => {
+      seen.push(opts.routes);
+    };
+
+    mount();
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toEqual(routes);
   });
 });

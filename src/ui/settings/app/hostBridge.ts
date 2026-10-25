@@ -12,7 +12,10 @@
  * webview. Nothing else in `app/` touches `window` for messaging.
  */
 import { createSender, type SettingsSender, type WebviewApi } from '../webviewSend.js';
+import type { AgentPickerRoutes } from '../../../model/agentPicker.js';
 import type { SettingsHostMessage, SettingsWebviewMessage } from '../messages.js';
+
+export type { AgentPickerRoutes };
 
 /** The persisted shape the settings webview keeps across a reload. */
 export interface PersistedSettingsState {
@@ -42,6 +45,12 @@ export interface PageGlobals {
   readonly vscode?: PageVsCodeApi;
   readonly karstSend?: SettingsSender;
   readonly mountAgentPicker?: AgentPickerMount;
+  /**
+   * The route identity map emitted inside the picker blob
+   * (`agentPickerJs()` prefixes `var AP_ROUTES`, so a classic top-level `var`
+   * reaches this page global). Absent = no route icons.
+   */
+  readonly AP_ROUTES?: AgentPickerRoutes;
   readonly __karstSubscribe?: (listener: (message: SettingsHostMessage) => void) => () => void;
 }
 
@@ -64,6 +73,8 @@ export interface AgentPickerOptions {
   readonly cores: ReadonlyArray<{ readonly id: string; readonly label: string; readonly disabled?: boolean }>;
   readonly catalog: unknown;
   readonly recent: Readonly<Record<string, readonly string[]>>;
+  /** Route id → identity (route mark + name + badge); omitted = the pre-route look. */
+  readonly routes?: AgentPickerRoutes;
   readonly value: AgentPickerIdentity;
   readonly inherit: { readonly core?: string; readonly model?: string; readonly effort?: string };
   readonly inheritCore?: string;
@@ -129,6 +140,11 @@ export function pageHostBridge(scope: PageGlobals = globalThis as PageGlobals): 
 /** The injected shared picker runtime, or `null` when the blob is absent. */
 export function pageAgentPicker(scope: PageGlobals = globalThis as PageGlobals): AgentPickerMount | null {
   return scope.mountAgentPicker ?? null;
+}
+
+/** The host-supplied route identity map, or `{}` when the picker blob is absent. */
+export function pageRoutes(scope: PageGlobals = globalThis as PageGlobals): AgentPickerRoutes {
+  return scope.AP_ROUTES ?? {};
 }
 
 /**

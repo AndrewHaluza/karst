@@ -42,8 +42,14 @@
 .ap-model-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
 .ap-model-item.active,.ap-model-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
 .ap-model-item .ap-model-name{font-weight:500;font-size:var(--k-text-base)}
-.ap-model-item .ap-model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 .ap-model-item .ap-model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+.ap-model-main{min-width:0}
+/* Menu grouping (route → vendor) and the UI-R44 full-id footer. The footer is
+   OUTSIDE the scroll area, so it stays pinned (UI-R38) and announces the
+   keyboard-active row's full id. */
+.ap-group-sub{padding:0 var(--k-space-4) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+.ap-menu-foot{padding:var(--k-space-2) var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border);
+  color:var(--k-text-dim);font-size:var(--k-text-2xs);overflow-wrap:anywhere}
 .ap-model-tags{display:flex;flex-wrap:wrap;gap:var(--k-space-1);margin-top:var(--k-space-2)}
 .ap-tag{font-size:var(--k-text-2xs);line-height:1;color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-2);white-space:nowrap}
 .ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-sm);text-align:center}
@@ -53,6 +59,37 @@
   border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
   padding:var(--k-space-2) var(--k-space-4);font-family:inherit;font-size:var(--k-text-md)}
 .ap-effort:disabled{opacity:.45;cursor:default}
+
+/* Route + two-line model stack in the closed control (design § model menu).
+   The model name and the vendor each clip on one line; the trigger's accessible
+   name carries the full id (UI-R44). The `free` tag never shrinks — a long model
+   name used to push it out of the control. */
+.ap-route{flex:none;display:inline-flex;align-items:center;gap:var(--k-space-1);color:var(--k-text-dim)}
+.ap-route svg{width:16px;height:16px;display:block}
+.ap-route-badge{font-size:var(--k-text-2xs);line-height:1;padding:0 var(--k-space-1);border-radius:var(--k-radius-sm);
+  background:var(--k-surface);color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border)}
+/* The generated mark's surface is fixed (a route-derived hue), so its letter is
+   a fixed knockout too: the page background made the glyph dark in dark themes
+   and white in light ones, and one of the two failed AA (UI-R29). The dark
+   surface keeps >= 5:1 for every hue — pinned in agentPicker.test.ts. */
+.ap-mono{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:var(--k-radius-sm);background:hsl(var(--ap-hue,220) 55% 28%);color:#fff;
+  font-size:var(--k-text-2xs);font-weight:600;text-transform:uppercase}
+.ap-mstack{display:flex;flex-direction:column;justify-content:center;flex:1 1 auto;min-width:0;line-height:1.15}
+/* Two lines must fit the ONE control height every host shares (D108 aligned
+   Core | Model | Effort): the stacked trigger tightens its block padding so its
+   content stays under --k-control-h-lg instead of growing the control ~4px. */
+.ap-trigger:has(.ap-mstack){padding-top:var(--k-space-1);padding-bottom:var(--k-space-1)}
+.ap-mname,.ap-mvendor{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-mvendor{font-size:var(--k-text-2xs);color:var(--k-text-dim)}
+.ap-variant{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+.ap-free{flex:none;font-size:var(--k-text-2xs);color:var(--k-success-fg);background:var(--k-success);
+  border-radius:var(--k-radius-sm);padding:0 var(--k-space-2)}
+/* A tight control drops the TRIGGER's free tag rather than clipping the model
+   name. Menu rows keep theirs: the menu is wider than the trigger, and a hidden
+   tag there would misreport a free model. */
+.ap-shell[data-ap-shell="model"]{container-type:inline-size}
+@container (max-width: 130px){.ap-trigger .ap-free{display:none}}
 
 /* Compact-only "no effort for this model" placeholder: a disabled select, dashed and dim (UI-R39). */
 .ap-effort--na{color:var(--k-text-dim);border-style:dashed;opacity:1;cursor:default}

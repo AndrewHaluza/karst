@@ -196,6 +196,10 @@ describe('ticket-form webview.html', () => {
     expect(HTML).toContain('KARST_AGENT_PICKER_JS');
   });
 
+  it('hands the shared picker the route identity map (route icon + vendor line)', () => {
+    expect(HTML).toContain('routes: AP_ROUTES,');
+  });
+
   it('renders the unified agent identity picker (agent core + model + effort/variant)', () => {
     expect(HTML).toContain('id="agentIdentityPicker"');
     expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
@@ -274,6 +278,8 @@ describe('ticket-form webview.html', () => {
       lastRecentModels: {},
       draft: { selectedAgentProvider: null, selectedModel: null, selectedEffort: null },
       AGENT_PROVIDER_LABELS: { claude: 'Claude' },
+      // The injected picker blob defines this page global; the sandbox must too.
+      AP_ROUTES: {},
       post: () => {},
       mountAgentPicker: (_root: unknown, opts: { onChange: (v: unknown) => void }) => {
         (sandbox as { capturedOnChange?: (v: unknown) => void }).capturedOnChange = opts.onChange;

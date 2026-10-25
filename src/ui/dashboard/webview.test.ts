@@ -1582,6 +1582,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('id="agentPopover"');
     expect(HTML).toContain('id="agentSwitchPicker"');   // the UNIFIED picker
     expect(HTML).toContain('mountAgentPicker(root, {');
+    expect(HTML).toContain('routes: AP_ROUTES,');
     expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
     expect(HTML).toContain('KARST_AGENT_PICKER_JS');
     expect(HTML).toContain('id="switchBtn"');
