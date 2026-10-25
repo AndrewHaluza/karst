@@ -1,0 +1,15 @@
+/* Artifacts shelf (moved from webview.html with the panel; the shared chip rules and `.artcard-summary` stay there). */
+.artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
+/* The "View all N" button is the header's count now — it sits at the right edge exactly where the removed
+   `.count` did. */
+.phead #artViewAll{margin-left:auto}
+.artcard{display:block;width:100%;text-align:left;border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-lg);background:var(--k-surface);cursor:pointer;
+  padding:var(--k-space-5) var(--k-space-6);color:var(--k-text)}
+.artcard:hover{background:var(--k-surface-hover)}
+.artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
+.artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
+  font-weight:var(--k-weight-semibold);color:var(--k-text)}
+.artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);flex-wrap:wrap}
+/* The native origin's core icon sits in React's wrapper span; the wrapper must not become the flex item. */
+.art-origin .agenticon-island{display:contents}

@@ -11,14 +11,18 @@ export function RegionPortal({
   id,
   children,
   inParent = false,
+  into,
 }: {
   readonly id: string;
   readonly children: ReactNode;
   /** Render into `#id`'s parent instead (appended after its children): for a control that has no container of its own. */
   readonly inParent?: boolean;
+  /** Render into this descendant of `#id` (a CSS selector scoped to it): for a control in a static header that has no id of its own. */
+  readonly into?: string;
 }) {
   const [target] = useState(() => {
     const found = document.getElementById(id);
+    if (into) return found?.querySelector(into) ?? null;
     return inParent ? (found?.parentElement ?? null) : found;
   });
   if (!target) {

@@ -250,3 +250,67 @@ describe('React Pull requests island / vanilla page interop', () => {
   });
 });
 
+const shelfArt = (id: string, title: string, stage = 'impl') => ({
+  id, stage, kind: id, title, scope: null, summary: `${title} summary`, status: 'info', freshness: 'current',
+  origin: { kind: 'karst', core: 'codex' }, versionCount: 1, currentVersionLabel: 'v1', createdAt: null, metrics: [], gates: [], findings: [],
+  prs: [], commits: [], tasks: [], resources: [], detail: null, agentConsole: null,
+});
+const withShelf = (): DashboardState =>
+  ({
+    ...populatedStateFor('impl'),
+    artifacts: [shelfArt('plan', 'Plan'), shelfArt('uat-report', 'UAT report', 'uat')],
+    storedArtifacts: { total: 0, skips: [], globs: ['**/uat/**'], groups: [] },
+  }) as unknown as DashboardState;
+const artViewOpen = (v: RenderHandle): boolean => !v.query('#artView')!.classList.contains('hidden');
+const persistedArtView = (v: RenderHandle): unknown => (v.state as { artView?: unknown } | undefined)?.artView;
+
+describe('React Artifacts shelf and Captured artifacts islands / vanilla art view interop', () => {
+  const openShelf = async (): Promise<RenderHandle> => {
+    const v = await openWith(withShelf());
+    (v.window as unknown as { CSS: { escape(s: string): string } }).CSS = { escape: (x: string) => x };
+    return v;
+  };
+
+  it('a shelf card opens the vanilla detail view, shows the overlay and persists artView', async () => {
+    const v = await openShelf();
+    expect(artViewOpen(v)).toBe(false);
+    await click(v, '#artifacts [data-art-open="uat-report"]');
+    expect(artViewOpen(v)).toBe(true);
+    expect(v.query('#artView')!.textContent).toContain('UAT report');
+    expect(persistedArtView(v)).toEqual({ id: 'uat-report', from: 'ticket' });
+  });
+
+  it('View all opens the vanilla index once', async () => {
+    const v = await openShelf();
+    await click(v, '#artViewAll');
+    expect(artViewOpen(v)).toBe(true);
+    expect(v.queryAll('#artView .artrow')).toHaveLength(2);
+    expect(persistedArtView(v)).toBe('index');
+  });
+
+  it('Open on the Captured artifacts panel opens the vanilla stored view', async () => {
+    const v = await openShelf();
+    await click(v, '#storedOpen');
+    expect(artViewOpen(v)).toBe(true);
+    expect(v.query('#artView')!.textContent).toContain('No artifacts captured yet.');
+    expect(persistedArtView(v)).toBe('stored');
+  });
+
+  it('a click inside either panel closes the header popovers', async () => {
+    const v = await openShelf();
+    v.click('#agentButton');
+    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    await click(v, '#storedOpen');
+    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('Escape closes the overlay a panel opened, and the shelf is still there', async () => {
+    const v = await openShelf();
+    await click(v, '#artViewAll');
+    await escape(v);
+    expect(artViewOpen(v)).toBe(false);
+    expect(persistedArtView(v)).toBeNull();
+    expect(v.queryAll('#artifacts .artcard')).toHaveLength(2);
+  });
+});
+

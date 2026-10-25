@@ -10,10 +10,12 @@
 import { useEffect } from 'react';
 import type { DashboardHostBridge } from './hostBridge.js';
 import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
+import { ArtifactsShelf } from './ArtifactsShelf.js';
 import { PrsPanel } from './PrsPanel.js';
 import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
 import { ServersPanel } from './ServersPanel.js';
+import { StoredPanel } from './StoredPanel.js';
 import { SubtasksPanel } from './SubtasksPanel.js';
 import { WorktreesPanel } from './WorktreesPanel.js';
 
@@ -41,6 +43,8 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <SubtasksPanel />
       <ServersPanel />
       <PrsPanel />
+      <ArtifactsShelf />
+      <StoredPanel />
       <RegionPortal id="worktreesPanel">
         <WorktreesPanel />
       </RegionPortal>

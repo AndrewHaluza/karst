@@ -1432,22 +1432,10 @@
 
 
   /* Artifacts shelf + index + detail (§ docs/design/artifacts/README.md).
-     The shelf is a panel like any other; the index and the detail REPLACE the
+     The shelf's own rules live in app/ArtifactsPanels.css; the index and the detail REPLACE the
      dashboard body inside the SAME webview (spec §7: exactly three surfaces,
      no second tab/drawer), which is what body.art-nav hides below. */
-  .artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
-  /* The "View all N" button is the header's count now — it sits at the right
-     edge exactly where the removed `.count` did. */
-  .phead #artViewAll{margin-left:auto}
-  .artcard{display:block;width:100%;text-align:left;border:var(--k-border-w) solid var(--k-border);
-    border-radius:var(--k-radius-lg);background:var(--k-surface);cursor:pointer;
-    padding:var(--k-space-5) var(--k-space-6);color:var(--k-text)}
-  .artcard:hover{background:var(--k-surface-hover)}
-  .artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
-  .artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
-    font-weight:var(--k-weight-semibold);color:var(--k-text)}
   .artcard-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-2)}
-  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);flex-wrap:wrap}
   .art-status{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
     font-weight:var(--k-weight-semibold)}
   .art-status.passed{color:var(--k-passed)}
@@ -1883,19 +1871,16 @@
        #prCount, #prOps and #prs through RegionPortals. `prpanel` marks the island for the vanilla delegators
        (inReactIsland), because the region parity snapshots pin #prs without any data-* attribute. -->
   <div class="panel span prpanel"><div class="phead">Pull requests<span class="count" id="prCount"></span><span class="pops" id="prOps"></span></div><div class="pbody" id="prs"></div></div>
-  <!-- The artifacts shelf (docs/design/artifacts). Rendered only while the
-       ticket has at least one artifact — renderArtifacts() toggles .hidden —
-       because the spec's zero-artifact state is ABSENCE, never an empty
-       section (§4.1). The count is top-level semantic artifacts; the previews
-       are the host's semantic-priority order (state.artifacts is sorted), and
-       `View all N` opens the index INSIDE this webview. The panel carries NO
-       `.count` of its own — the "View all N" button IS the counter (the two
-       repeated the same number twice in one header). -->
-  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
-  <!-- Stored artifacts (T2 store): the captured outputs of every approach. The
-       panel shows once the host's first load answers; "Open" swaps in the
-       Artifacts view (artView === 'stored'). -->
-  <div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts<button id="storedOpen" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="stored" title="Browse captured output files and their revision history">Open <span id="storedTotal"></span> ›</button></div><div class="pbody" id="storedSummary"></div></div>
+  <!-- The artifacts shelf (docs/design/artifacts) is React-owned: app/ArtifactsShelf.tsx puts the "View all N"
+       button into this header and renders the previews into #artifacts. It shows only while the ticket has at
+       least one artifact (the zero state is ABSENCE, never an empty section, §4.1): React toggles .hidden on
+       this root, which stays static because the region parity snapshot pins it without any data-* attribute, so
+       inReactIsland() treats #artPanel as an island. The panel carries NO `.count`: the button IS the counter. -->
+  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>
+  <!-- Captured artifacts (T2 store): app/StoredPanel.tsx puts the "Open N" button into the header and renders the
+       per-kind summary into #storedSummary, once the host's first load answers. "Open" swaps in the still-vanilla
+       Artifacts view (artView === 'stored'). Island for the same snapshot reason as #artPanel. -->
+  <div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts</div><div class="pbody" id="storedSummary"></div></div>
 </div>
 
 <!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring
@@ -3798,11 +3783,12 @@
   // Transition rule: the React island (#root, marked data-react-owned) owns its own
   // events. Every document-level delegator below must ignore events from inside it,
   // otherwise a control React already handled would be handled a second time here.
-  // `.svpanel`, `.prpanel` and `#subtaskPanel` are islands too: their regions' parity snapshots pin the roots
-  // without any data-* attribute, so they cannot carry data-react-owned. All go with the vanilla script (Phase 12).
+  // `.svpanel`, `.prpanel`, `#subtaskPanel`, `#artPanel` and `#storedPanel` are islands too: their regions' parity
+  // snapshots pin the roots without any data-* attribute, so they cannot carry data-react-owned. All go with the
+  // vanilla script (Phase 12).
   function inReactIsland(e) {
     const t = e.target;
-    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel, .prpanel, #subtaskPanel'));
+    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel, .prpanel, #subtaskPanel, #artPanel, #storedPanel'));
   }
   // A click inside the island is outside every header popover, so it dismisses them like any outside click.
   function closePopoversFromIsland(e) {
@@ -3945,37 +3931,6 @@
       : '';
   }
 
-  // One shelf preview card. The semantic title is the subject; the origin chip
-  // and status ride the meta row; raw filenames NEVER appear on the shelf
-  // (spec §4.4) — resources only exist inside the detail view.
-  function artifactCardHtml(a) {
-    return `<button type="button" class="artcard" data-art-open="${esc(a.id)}"`
-      + ` aria-label="Open ${esc(a.title)}">`
-      + `<span class="artcard-title">${esc(a.title)}`
-      + (a.scope ? `<span class="art-sub">· ${esc(a.scope)}</span>` : '') + `</span>`
-      + `<span class="artcard-summary">${esc(a.summary)}</span>`
-      + `<span class="artcard-meta">${artifactStatusHtml(a)}${artifactStaleHtml(a)}`
-      + `${originChip(a.origin)}</span></button>`;
-  }
-
-  // The shelf: absent while the ticket has no artifact (spec §4.1 — never an
-  // empty section). Previews are state.artifacts.slice(0,3): the host SORTS
-  // by semantic priority, so the first three ARE the three most useful
-  // outputs, stably ordered (spec §5).
-  function renderArtifacts(state) {
-    const panel = el('artPanel');
-    const body = el('artifacts');
-    if (!panel || !body) return;
-    const all = state.artifacts || [];
-    panel.classList.toggle('hidden', all.length === 0);
-    if (all.length === 0) { body.innerHTML = ''; return; }
-    // The one count lives in the "View all N" button — the panel header
-    // carries no `.count` of its own (the two would repeat the same number).
-    const total = el('artTotal');
-    if (total) total.textContent = String(all.length);
-    body.innerHTML = `<div class="artcards">${all.slice(0, 3).map(artifactCardHtml).join('')}</div>`;
-  }
-
   // The index: artifacts grouped by producing stage, empty groups omitted
   // (spec §10). Rows are real buttons (UI-R09), each carrying its semantic
   // name, one useful summary line, status/staleness and the origin chip.
@@ -4051,20 +4006,6 @@
         + v.skips.map((k) => `<div class="sa-skip">${esc(k.path)} — ${esc(k.reason)}</div>`).join('') + `</section>`
       : '';
     return head + groups + skips;
-  }
-
-  function renderStoredPanel(state) {
-    const panel = el('storedPanel');
-    const body = el('storedSummary');
-    if (!panel || !body) return;
-    const v = state.storedArtifacts;
-    panel.classList.toggle('hidden', !v);
-    if (!v) { body.innerHTML = ''; return; }
-    const total = el('storedTotal');
-    if (total) total.textContent = String(v.total);
-    body.innerHTML = v.total === 0
-      ? `<span class="sa-empty">Nothing captured yet.</span>`
-      : `<span class="sa-meta">${v.groups.map((g) => `${esc(g.kind)} ${g.approaches.reduce((n, a) => n + a.rows.length, 0)}`).join(' · ')}</span>`;
   }
 
   const ART_STAGE_LABEL = { impl: 'Implement', uat: 'UAT', review: 'Review', ship: 'Ship' };
@@ -4749,6 +4690,16 @@
     persist();
   }
 
+  // TRANSITIONAL seam (removed in Phase 12 with the vanilla script): the React Artifacts shelf and Captured
+  // artifacts panels are islands the click delegator skips, so they announce what to open as `karst:openArt`
+  // and this does what the delegator's data-art / data-art-open branches do for the vanilla surfaces.
+  window.addEventListener('karst:openArt', (e) => {
+    const d = e.detail;
+    if (d.kind === 'index') openArtifactIndex();
+    else if (d.kind === 'stored') openStoredArtifacts();
+    else if (d.kind === 'artifact') openArtifact(d.id, artView === 'index' ? 'index' : 'ticket');
+  });
+
   // Back is deterministic (spec §7.3): detail→its origin, index→ticket.
   function artifactBack() {
     artSaveScroll();
@@ -4853,8 +4804,6 @@
     renderBlocked(state);
     renderSubtaskBlock(state);
     renderShip(state);
-    renderArtifacts(state);
-    renderStoredPanel(state);
     renderArtView();
     renderFollowUp(state);
     renderPause(state);
@@ -4991,14 +4940,10 @@
     // carries one.
     const goBtn = e.target.closest('[data-goto]');
     if (goBtn) { gotoAction(goBtn.dataset.go); return; }
-    // Artifact navigation: Back (detail→origin, index→ticket) and opening an
-    // artifact (shelf card or index row). Local, like stage selection.
+    // Artifact navigation: Back (detail→origin, index→ticket) and opening an artifact from an index row. Local,
+    // like stage selection. The shelf and Captured artifacts panels (React) open theirs through karst:openArt.
     const artNav = e.target.closest('[data-art]');
-    if (artNav) {
-      if (artNav.dataset.art === 'back') { artifactBack(); return; }
-      if (artNav.dataset.art === 'index') { openArtifactIndex(); return; }
-      if (artNav.dataset.art === 'stored') { openStoredArtifacts(); return; }
-    }
+    if (artNav && artNav.dataset.art === 'back') { artifactBack(); return; }
     const artOpen = e.target.closest('[data-art-open]');
     if (artOpen) {
       const from = artView === 'index' ? 'index' : 'ticket';

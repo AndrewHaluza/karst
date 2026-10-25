@@ -2357,13 +2357,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     'prs',
     'prCount',
     'prRefresh',
-    'artPanel',
-    'artTotal',
-    'artViewAll',
-    'artifacts',
-    'storedPanel',
-    'storedTotal',
-    'storedSummary',
     'artView',
     'termView',
     'termHost',
@@ -5030,35 +5023,10 @@ describe('baseline review (executed in a VM)', () => {
 });
 
 describe('artifacts render round trip (executed in a VM)', () => {
-  it('renders the shelf only when artifacts exist, with the semantic count and at most 3 previews', () => {
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: renderStateFor('uat') });
-    expect(h.classesOf('artPanel')).toContain('hidden');
-    expect(h.htmlOf('artifacts')).toBe('');
-
-    h.receive({ type: 'state', state: stateWithArtifacts() });
-    expect(h.classesOf('artPanel')).not.toContain('hidden');
-    // The ONE count lives in the "View all N" button — the panel header has no
-    // redundant `.count` of its own (issue: two counters for one number).
-    expect(h.textOf('artTotal')).toBe('4');
-    const body = h.htmlOf('artifacts');
-    // Exactly 3 previews (slice(0,3) of the priority order), each a real button.
-    expect(body.match(/data-art-open=/g)).toHaveLength(3);
-    expect(body).toContain('data-art-open="plan"');
-    expect(body).toContain('data-art-open="uat-report"');
-    expect(body).toContain('data-art-open="review"');
-    // Raw filenames never reach the shelf (spec §4.4) — resources exist only
-    // in the detail view.
-    expect(body).not.toContain('uat-ticket-1.log');
-    // The origin chip labels ride every card (Karst · Codex / Karst).
-    expect(body).toContain('Karst · Codex');
-    expect(body).toContain('Karst');
-  });
-
   it('opens the index in-webview from View all, grouped by stage, and returns via Back', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     // The dashboard body is hidden while the index surface is active.
     expect(h.bodyClasses).toContain('art-nav');
     const index = h.htmlOf('artView');
@@ -5080,7 +5048,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
   it('opens a detail from the index, renders semantic-first with files last, and Esc returns to the index', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'uat-report' });
 
     const detail = h.htmlOf('artView');
@@ -5134,7 +5102,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
       ],
     });
     h.receive({ type: 'state', state: { ...renderStateFor('uat'), artifacts: arts } });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'plan' });
     const detail = h.htmlOf('artView');
     expect(detail).toMatch(/Implement the feature[\s\S]*?data-index="1"[\s\S]*?Brief ↗[\s\S]*?Verify[\s\S]*?data-index="2"[\s\S]*?Output · verify-report ↗/);
@@ -5156,7 +5124,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
       resources: [{ name: 'brief.md', path: '/p/brief.md', label: 'Brief', taskId: 'impl' }],
     });
     h.receive({ type: 'state', state: { ...renderStateFor('uat'), artifacts: arts } });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'plan' });
     const detail = h.htmlOf('artView');
     expect(detail).toContain('Brief ↗');
@@ -5176,7 +5144,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
         : a)),
     };
     h.receive({ type: 'state', state: patched });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'ship-summary' });
     const detail = h.htmlOf('artView');
     expect(detail).toMatch(/<span class="af-repo" title="\/Users\/x\/karst\/">karst<\/span>/);
@@ -5194,7 +5162,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
         : a)),
     };
     h.receive({ type: 'state', state: patched });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'ship-summary' });
     const detail = h.htmlOf('artView');
     expect(detail).not.toMatch(/abc123<\/a>\s*·/);
@@ -5205,7 +5173,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
   it('renders the ship detail with the PR number and commit SHA as the open controls', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'ship-summary' });
     const detail = h.htmlOf('artView');
     // The PR number IS the link — never inert text beside an "Open PR" button.
@@ -5225,7 +5193,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
   it('renders the review detail with the finding location as the open-file control', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'review' });
     const detail = h.htmlOf('artView');
     expect(detail).toContain('Credential cache is not cleared');
@@ -5241,7 +5209,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
   it('offers no agent console on an artifact the host did not flag', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'ship-summary' });
     expect(h.htmlOf('artView')).not.toContain('data-console-proc');
   });
@@ -5249,7 +5217,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
   it('renders the plan detail with the task list as the tracking surface', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
-    h.click('[data-art]', { art: 'index' });
+    h.fireWindow('karst:openArt', { kind: 'index' });
     h.click('[data-art-open]', { artOpen: 'plan' });
     const detail = h.htmlOf('artView');
     // The plan detail carries the tracking metrics and the Tasks section.
@@ -5293,19 +5261,10 @@ describe('artifacts render round trip (executed in a VM)', () => {
       }],
     };
 
-    it('shows the panel only once the host answered, with the count on its button', () => {
-      const h = bootPreviewHarness();
-      h.receive({ type: 'state', state: stateWithArtifacts() });
-      expect(h.classesOf('storedPanel')).toContain('hidden');
-      h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
-      expect(h.classesOf('storedPanel')).not.toContain('hidden');
-      expect(h.htmlOf('storedSummary')).toContain('plan 1');
-    });
-
     it('groups kind then approach, lists rows, history and skipped files', () => {
       const h = bootPreviewHarness();
       h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
-      h.click('[data-art]', { art: 'stored' });
+      h.fireWindow('karst:openArt', { kind: 'stored' });
       const html = h.htmlOf('artView');
       expect(html).toMatch(/artgroup-title">plan[\s\S]*gsd[\s\S]*app \/ plans\/a\.md/);
       expect(html).toContain('2 revisions');
@@ -5320,14 +5279,14 @@ describe('artifacts render round trip (executed in a VM)', () => {
       const h = bootPreviewHarness();
       const empty = { total: 0, groups: [], skips: [], globs: ['plans/**', 'docs/spec/*.md'] };
       h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: empty } });
-      h.click('[data-art]', { art: 'stored' });
+      h.fireWindow('karst:openArt', { kind: 'stored' });
       expect(h.htmlOf('artView')).toMatch(/No artifacts captured yet\. Watching: <code>plans\/\*\*<\/code>, <code>docs\/spec\/\*\.md<\/code>/);
     });
 
     it('posts store paths and shas only, and Back returns to the ticket', () => {
       const h = bootPreviewHarness();
       h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
-      h.click('[data-art]', { art: 'stored' });
+      h.fireWindow('karst:openArt', { kind: 'stored' });
       h.click('[data-act]', { act: 'stored-artifact-open', path: 'app/plans/a.md', sha: SHA2 });
       h.click('[data-act]', { act: 'stored-artifact-diff', path: 'app/plans/a.md', from: SHA1, to: SHA2 });
       h.click('[data-act]', { act: 'stored-artifact-live', path: 'app/plans/a.md' });
