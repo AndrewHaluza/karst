@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main, develop]
+    # `edited` re-runs docs-gate when the PR body changes (a citation can be added there).
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, develop]
   # Daily backstop for the branch-drift job. `push` only fires when main
@@ -145,6 +147,28 @@ jobs:
           git config --global init.defaultBranch main
       - name: Linux docker sandbox checks
         run: bash spikes/docker-sandbox/opencode/linux-ci.sh
+
+  # Blocking (arch:DOC-03): a PR whose diff touches a symbol listed in a docs
+  # block's `covers:` must cite that block in the PR body or edit it. The body
+  # reaches the script through `env:` only — never interpolate it into `run:`
+  # (script injection). The script has no npm dependencies, so no `npm ci`.
+  docs-gate:
+    name: Docs gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Check covered symbols are cited or documented
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/docsGate.mjs
 
   mutation:
     name: Mutation score

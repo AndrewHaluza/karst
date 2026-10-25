@@ -65,3 +65,15 @@ A `covers:` line sits on the line immediately after a block heading and lists re
 
 The symbol is a `function`/`const`/`let`/`class`/`interface`/`type`/`enum` declaration, or a `name(` class method. Its end line is the brace that closes the first `{` at or after the declaration (string- and comment-naive). `symbolRange(text, name)` implements this and is reused by the W4 PR gate. `lint` fails a glob that matches nothing, a missing file, or an unknown symbol; `covers --check` fails when `docs/COVERS.json` is stale.
 END_DOC_BLOCK: [@arch:DOC-02]
+
+## [@arch:DOC-03] Docs gate (PR check)
+
+`docs-gate` (`.github/workflows/ci.yml`, `scripts/docsGate.mjs`) runs on pull requests and re-runs when the PR body is edited. It diffs `origin/$BASE_REF...HEAD` (`-U0`) and checks each changed hunk against `docs/COVERS.json`.
+
+- **BLOCK** (exit 1): a hunk overlaps a `path#symbol` range (`symbolRange`) on the base or head side of the file. A symbol missing on both sides is an error (`covers stale`).
+- **WARN**: a changed file matches a glob item. Never fails.
+- **skip**: files in `HUB_EXCLUDE` (`src/extension.ts`, `src/**/index.ts`).
+- **Pass** — either: write `@arch:KEY` in the PR description, or edit that key's block (`## [@arch:KEY]` … `END_DOC_BLOCK`) in the same diff. Citing any one of the keys covering a hunk passes it.
+
+The PR body is read from the `PR_BODY` env var and treated as text only.
+END_DOC_BLOCK: [@arch:DOC-03]
