@@ -33,8 +33,17 @@ describe('dashboard static guards — non-vacuity', () => {
   });
 });
 
-/** The one sanctioned raw-HTML site: the agent-identity runtime's trusted icon markup (mirrors sidebar Icon.tsx). */
-const RAW_HTML_ALLOWED = ['AgentIcon.tsx'];
+/**
+ * The sanctioned raw-HTML sites: the agent-identity runtime's trusted icon markup (AgentIcon.tsx) and
+ * the Tabler catalog's trusted glyph paths (Icon.tsx), both mirroring sidebar Icon.tsx.
+ */
+const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
+
+/**
+ * The one sanctioned imperative-style site: placeBelow.ts positions a `position:fixed` popover from its
+ * trigger's measured rect, which CSS cannot express.
+ */
+const IMPERATIVE_STYLE_ALLOWED = ['placeBelow.ts'];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
@@ -50,6 +59,7 @@ describe('R-X6 — no inline style, no raw HTML', () => {
       const text = stripBlockComments(readFileSync(file, 'utf8'));
       for (const [name, pattern] of BANNED) {
         if (/HTML/.test(name) && RAW_HTML_ALLOWED.includes(basename(file))) continue;
+        if (name === 'imperative element style' && IMPERATIVE_STYLE_ALLOWED.includes(basename(file))) continue;
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
@@ -73,9 +83,14 @@ describe('R-X5/R26/R09b — imperative DOM and unstable keys', () => {
   });
 });
 
-describe('raw HTML allowance is scoped to the single sanctioned file', () => {
-  it('only AgentIcon.tsx uses dangerouslySetInnerHTML', () => {
+describe('raw HTML allowance is scoped to the sanctioned files', () => {
+  it('only the icon components use dangerouslySetInnerHTML', () => {
     const users = APP_SOURCE.filter((f) => /dangerouslySetInnerHTML|innerHTML/.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
-    expect(users).toEqual(RAW_HTML_ALLOWED);
+    expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
+  });
+
+  it('only placeBelow.ts writes element styles imperatively', () => {
+    const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
+    expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });
 });

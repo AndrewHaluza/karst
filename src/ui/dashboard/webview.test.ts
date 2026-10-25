@@ -122,79 +122,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/link\.hidden\s*=/);
   });
 
-  it('renders ticket changes as one accessible diff icon button', () => {
-    expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
-    expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
-    expect(HTML).toMatch(/id="wtChanges"[^>]*title="Show ticket changes"/);
-    // The glyph is the Tabler catalog's `git-compare` on the shared treatment
-    // (docs/ui/ICONS.md §4) — never a hand-rolled sprite reference.
-    expect(HTML).toMatch(/id="wtChanges"[^>]*>[\s\S]{0,200}<svg class="k-icon"[^>]*viewBox="0 0 24 24"[^>]*><path d="M4 6a2 2/);
-    expect(HTML).not.toContain('href="#i-');
-    expect(HTML).not.toMatch(/id="wtChanges"[^>]*>Changes<\/button>/);
-    expect(HTML).not.toContain('diff-worktree');
-  });
-
-  it('renders terminal, branch-copy, and reveal actions for each worktree', () => {
-    expect(HTML).toContain('data-act="open-worktree-terminal"');
-    expect(HTML).toContain('data-act="copy-worktree-branch"');
-    expect(HTML).toContain('data-branch="${esc(w.branch)}"');
-    expect(HTML).toContain('data-copy');
-    expect(HTML).toContain('aria-label="Open terminal"');
-    expect(HTML).toContain('aria-label="Reveal in file explorer"');
-    expect(HTML).not.toContain('>Open folder</button>');
-  });
-
-  it('offers Launch Dev only on worktrees the host marked launchable', () => {
-    expect(HTML).toContain('data-act="launch-worktree-extension"');
-    expect(HTML).toContain('data-path="${esc(w.path)}"');
-    // Rendered conditionally on the host-probed flag — a non-karst worktree
-    // must not show a button that can only fail.
-    expect(HTML).toContain('w.launchable');
-    expect(HTML).toMatch(/Build this worktree and open its extension in a new dev window/);
-  });
-
-  it('primary base button reads "Rebase onto <base>" when the typed base is the current one', () => {
-    expect(HTML).toContain("'Rebase onto ' + esc(current) : 'Change base'");
-    expect(HTML).toContain("primary.textContent = same ? 'Rebase onto ' + cur : 'Change base'");
-  });
-
-  it('renders a base-branch control on the scope card and posts change-base-ref', () => {
-    // The label always shows: the worktree's own baseRef, or the manifest
-    // default when unset — never an empty cell.
-    expect(HTML).toMatch(/w\.baseRef \|\| w\.baseDefault \|\| /);
-    expect(HTML).toContain('data-act="toggle-base-form"');
-    // The confirm form: the SAME combobox shape as the ticket-form picker
-    // (Task 8) — a free-text input with a `<datalist>` of candidates — plus
-    // the rebase switch, defaulted ON (a missing/never-touched switch reads
-    // as ON — the safe reading of a missing flag).
-    expect(HTML).toContain('data-base-input=');
-    expect(HTML).toMatch(/<datalist id="\$\{listId\}">/);
-    expect(HTML).toContain('w.baseCandidates');
-    expect(HTML).toContain('data-act="toggle-rebase-switch"');
-    expect(HTML).toMatch(/role="switch" aria-checked="\$\{rebaseOn\}"/);
-    expect(HTML).toMatch(/baseFormRebase\[repo\] !== false/);
-    // The destructive-half copy: stated plainly, and never tells the user to
-    // force-push themselves — Karst arms the lease automatically.
-    expect(HTML).toMatch(/Rebasing rewrites the ticket branch's commits/);
-    expect(HTML).not.toMatch(/force-push (it |the branch )?yourself/i);
-    // The submit posts the closed message shape messages.ts validates.
-    expect(HTML).toContain("if (act === 'change-base-ref')");
-    expect(HTML).toMatch(/karstSend\.changeBaseRef\(repo, baseRef, rebase, requestId\)/);
-    // A refusal must change nothing: no repaint happens from this branch —
-    // only the shared action-result channel (karstSettle) reports it, and a
-    // success closes the form via the SAME channel rather than optimistically
-    // here.
-    expect(HTML).toMatch(/if \(msg\.ok === true\)[\s\S]{0,200}baseFormOpen/);
-  });
-
-  it('renders ephemeral additions and deletions by host-owned repo identity', () => {
-    expect(HTML).toMatch(/worktreeStats\[w\.repo\]/);
-    expect(HTML).toContain("msg.type === 'worktree-stats'");
-    expect(HTML).toContain('stats.additions');
-    expect(HTML).toContain('stats.deletions');
-    expect(HTML).toContain('worktreeStats = {}');
-  });
-
   /**
    * The panels sit side by side in one grid row: a header that sizes itself to
    * its own contents puts its body on a different line from its neighbour's,
@@ -1091,24 +1018,17 @@ describe('dashboard webview.html', () => {
     // token step at 3px.
     // Two further `4px` entries are the v60 checks/block chips' uppercase
     // tracking, the same `.4px` the status chip (`.pst`) already uses.
-    // `380px` is the worktree row's narrow-layout @media breakpoint — an
-    // @media condition cannot read a custom property, so it is literal by
-    // construction, the same exemption class as `300px`/`360px`/`430px`.
-    const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
+    const ALLOWED = ['46px', '72px', '640px', '82px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
       '200px', '720px',
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
-      '12px', '12px', '12px', '12px',
+      '12px', '12px', '12px',
       '4px', '4px', '4px', '4px', '4px', '4px', '4px', '4px',
-      '150px', '3px',
-      '380px',
-      // `280px` is the worktree-base popover's fixed width — a `position:fixed`
-      // surface that must not resize with its content (the layout shift this
-      // width exists to prevent), and no space step expresses it. Same
-      // exemption class as `200px`/`150px`.
-      '280px'];
+      '150px', '3px'];
+    // The Worktrees panel's literals (74px, 12px, the 380px breakpoint, the popover's 280px) moved to
+    // app/WorktreesPanel.css with the panel, so they are no longer in this inline stylesheet.
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -1421,8 +1341,6 @@ describe('dashboard webview.html', () => {
       /aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/, // track segment select
       /aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/, // the retry meter
       /aria-label="\$\{esc\(disabledWhy \|\| label\)\}" title="\$\{esc\(disabledWhy \|\| label\)\}"/, // iact()
-      /aria-label="Copy branch name" title="Copy branch name"/, // copy-worktree-branch
-      /aria-label="Show ticket changes"[\s\S]{0,80}title="Show ticket changes"/, // wtChanges
       /aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now"/, // prRefresh (idle)
     ];
     for (const re of iconOnlyBlocks) {
@@ -1436,9 +1354,6 @@ describe('dashboard webview.html', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
       "Open this stage's log file", // open-stage-log (Inside block)
-      'Open a terminal in this worktree', // open-worktree-terminal
-      'Reveal this worktree in the file explorer', // open-worktree-folder
-      'Build this worktree and open its extension in a new dev window', // launch-worktree-extension
       "Hand this repo's conflict to an agent session", // resolve-conflicts
       'Open this pull request', // open-pr
     ]) {
@@ -1462,7 +1377,6 @@ describe('dashboard webview.html', () => {
   });
 
   it('marks the optimistic copy confirmation as such, and only for the copy actions (UI-R15)', () => {
-    expect(HTML).toMatch(/Optimistic \(UI-R15\)/);
     expect(HTML).toMatch(/Optimistic feedback for the copy button \(UI-R15\)/);
     // Never invoked from ship/merge/refresh — the three mutations this task
     // wires to real terminal outcomes.
@@ -2875,8 +2789,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     'menuGates',
     'srvCount',
     'srvOps',
-    'worktrees',
-    'wtChanges',
     'prs',
     'prCount',
     'prRefresh',
@@ -6054,7 +5966,6 @@ describe('deferring a live repaint', () => {
 
   it('defers only a LIVE push; a push that carries news always renders', () => {
     expect(HTML).toMatch(/msg\.live && !liveRepaintSafe\(\)/);
-    expect(HTML).toContain("if (!msg.live && msg.supplemental !== false) worktreeStats = {};");
   });
 });
 

@@ -1,25 +1,20 @@
 /**
  * The dashboard app's state and host bridge context.
  *
- * Provides current DashboardState and DashboardHostBridge to React components.
- * Subscribes to host messages on mount and keeps state synchronized.
+ * Provides the host snapshot store and the DashboardHostBridge to React components.
+ * The provider is the only subscriber to host messages. The store and the bridge each
+ * have a context that never changes identity, so a panel that selects a slice
+ * (`useSlice`) is not re-rendered by a push that did not change its slice.
  */
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
+import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
+import { DashboardStore } from './dashboardStore.js';
 
-interface DashboardAppContextValue {
-  readonly state: DashboardState | null;
-  readonly bridge: DashboardHostBridge;
-}
-
-const DashboardAppContext = createContext<DashboardAppContextValue | null>(null);
+const StoreContext = createContext<DashboardStore | null>(null);
+const BridgeContext = createContext<DashboardHostBridge | null>(null);
 
 function restoreInitialState(bridge: DashboardHostBridge): DashboardState | null {
   try {
@@ -40,39 +35,65 @@ export function DashboardAppProvider({
   bridge: DashboardHostBridge;
   children: ReactNode;
 }) {
-  const [state, setState] = useState<DashboardState | null>(() => restoreInitialState(bridge));
+  const [store] = useState(() => new DashboardStore(restoreInitialState(bridge)));
 
   useEffect(() => {
-    return bridge.subscribe((msg) => {
-      if (msg.type === 'state') {
-        setState(msg.state);
-      }
+    // Messages buffered before this subscription replay inside the call, i.e. inside this
+    // effect, where a synchronous flush is not allowed; every later message flushes at once
+    // so the DOM matches the host's push the moment it lands (as the vanilla renderer did).
+    let replaying = true;
+    const unsubscribe = bridge.subscribe((message) => {
+      if (replaying) store.receive(message);
+      else flushSync(() => store.receive(message));
     });
-  }, [bridge]);
+    replaying = false;
+    return unsubscribe;
+  }, [bridge, store]);
 
   return (
-    <DashboardAppContext.Provider value={{ state, bridge }}>
-      {children}
-    </DashboardAppContext.Provider>
+    <BridgeContext.Provider value={bridge}>
+      <StoreContext.Provider value={store}>{children}</StoreContext.Provider>
+    </BridgeContext.Provider>
   );
 }
 
-export function useDashboard(): DashboardAppContextValue {
-  const ctx = useContext(DashboardAppContext);
-  if (!ctx) {
+export function useStore(): DashboardStore {
+  const store = useContext(StoreContext);
+  if (!store) {
     throw new Error('useDashboard must be used within DashboardAppProvider');
   }
-  return ctx;
+  return store;
+}
+
+export function useDashboardBridge(): DashboardHostBridge {
+  const bridge = useContext(BridgeContext);
+  if (!bridge) {
+    throw new Error('useDashboard must be used within DashboardAppProvider');
+  }
+  return bridge;
+}
+
+/** The whole snapshot's state plus the bridge: re-renders on every push. Prefer `useSlice`. */
+export function useDashboard(): { readonly state: DashboardState | null; readonly bridge: DashboardHostBridge } {
+  const store = useStore();
+  const state = useSyncExternalStore(store.subscribe, () => store.getSnapshot().state);
+  return { state, bridge: useDashboardBridge() };
 }
 
 export function useDashboardState(): DashboardState | null {
   return useDashboard().state;
 }
 
-export function useDashboardBridge(): DashboardHostBridge {
-  return useDashboard().bridge;
+export function useDashboardSend(): DashboardSender {
+  return useDashboardBridge().send;
 }
 
-export function useDashboardSend(): DashboardSender {
-  return useDashboard().bridge.send;
+/** Runs `handler` for every host message (after the snapshot absorbed it), without re-subscribing per render. */
+export function useHostMessage(handler: (message: HostMessage) => void): void {
+  const store = useStore();
+  const latest = useRef(handler);
+  useEffect(() => {
+    latest.current = handler;
+  });
+  useEffect(() => store.onMessage((message) => latest.current(message)), [store]);
 }
