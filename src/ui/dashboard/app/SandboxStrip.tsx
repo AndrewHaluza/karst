@@ -16,6 +16,43 @@ export interface SandboxStripProps {
   readonly send?: Partial<DashboardSender> | null;
 }
 
+interface HostBadgeProps {
+  readonly testId: string;
+  readonly label: string;
+  readonly ariaLabel: string;
+  readonly title: string;
+  readonly body: string;
+  readonly tone: 'success' | 'warning';
+}
+
+/** A hover/focus badge with the same popover shell as the sandbox badges. */
+function HostBadge({ testId, label, ariaLabel, title, body, tone }: HostBadgeProps) {
+  return (
+    <span
+      className="sandbox-badge"
+      tabIndex={0}
+      role="button"
+      aria-haspopup="true"
+      aria-label={ariaLabel}
+      data-testid={testId}
+    >
+      <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" />
+      </svg>
+      <span>{label}</span>
+      <svg className="k-icon k-icon-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 9l6 6l6 -6" />
+      </svg>
+      <div className="sandbox-popover" role="tooltip">
+        <div className={`sandbox-popover-header k-icon-${tone}`}>
+          <span>{title}</span>
+        </div>
+        <div className="sandbox-popover-body">{body}</div>
+      </div>
+    </span>
+  );
+}
+
 export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
   const iconRef = useRef<HTMLSpanElement | null>(null);
   const core = sandbox?.core;
@@ -76,6 +113,41 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
           ·
         </span>
 
+        {sandbox.backend === 'host' ? (
+          <>
+            <HostBadge
+              testId="sandbox-host-worktree-badge"
+              label="Host Git Worktree"
+              ariaLabel="Filesystem: Host Git Worktree"
+              title="Host Git Worktree (Shared Host)"
+              body="The agent runs directly in this ticket's host git worktree, with direct access to host tools, filesystem and network."
+              tone="warning"
+            />
+            <span className="sandbox-sep" aria-hidden="true">
+              ·
+            </span>
+            {sandbox.hostProtection === 'core-native' ? (
+              <HostBadge
+                testId="sandbox-host-protection-badge"
+                label="Core OS Sandbox"
+                ariaLabel="Host protection: Core OS Sandbox"
+                title="Built-in Core OS Sandbox"
+                body="The agent core's native OS sandbox is active (claude seatbelt/bubblewrap, or codex --sandbox workspace-write). File writes are restricted to the worktree and commands outside it are gated."
+                tone="success"
+              />
+            ) : (
+              <HostBadge
+                testId="sandbox-host-protection-badge"
+                label="Prompted on Host"
+                ariaLabel="Host protection: Prompted on Host"
+                title="No Core OS Sandbox (Prompted)"
+                body="No container or built-in OS sandbox is active for this core on the host, so commands run with your user and host permissions."
+                tone="warning"
+              />
+            )}
+          </>
+        ) : (
+          <>
         {sandbox.workspace === 'clone' ? (
           <span
             className="sandbox-badge"
@@ -233,6 +305,8 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
             network: {sandbox.network}
           </span>
         )}
+          </>
+        )}
 
         {sandbox.note && (
           <>
@@ -240,7 +314,7 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
               ·
             </span>
             <span className="sandbox-fallback-note">
-              {sandbox.note} — runs prompted on the host.
+              {sandbox.note}
             </span>
           </>
         )}

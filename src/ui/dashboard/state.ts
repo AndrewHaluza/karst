@@ -748,6 +748,7 @@ export function buildDashboardState(
       ticketOverride: ticket.agentBackend,
       core: sessionCore,
       rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
+      agentSandbox: agentContext.agentSandbox,
     }),
     servers: serverRows,
     // The read-only half of the stack. Kept OUT of `servers` so no action that

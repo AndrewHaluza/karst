@@ -3138,7 +3138,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
+      modelCatalog, agentBackends: currentManifest()?.agentBackends, agentSandbox: currentManifest()?.agentSandbox, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually

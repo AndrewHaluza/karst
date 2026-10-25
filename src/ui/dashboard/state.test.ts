@@ -132,8 +132,8 @@ describe('buildDashboardState', () => {
     const t = createTicket(store, { key: 'PROJ-7', title: 'sb' });
     const withBackend = (backend: 'host' | 'sbx' | 'docker' | undefined) =>
       buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackends: backend ? { claude: backend } : undefined }).sandbox;
-    expect(withBackend(undefined)).toBeNull();
-    expect(withBackend('host')).toBeNull();
+    expect(withBackend(undefined)).toMatchObject({ backend: 'host', workspace: 'worktree', actions: false, hostProtection: 'prompted' });
+    expect(withBackend('host')).toMatchObject({ backend: 'host', workspace: 'worktree', actions: false, hostProtection: 'prompted' });
     expect(withBackend('sbx')).toMatchObject({ backend: 'sbx', core: 'claude', workspace: 'clone', actions: true });
     expect(withBackend('docker')).toMatchObject({ backend: 'host', note: 'claude: docker backend unsupported', actions: false });
     updateTicketFields(store, t.id, { agentBackend: 'host' });
@@ -143,9 +143,18 @@ describe('buildDashboardState', () => {
   it('shows the sandbox card by the ticket session core, not by any core', () => {
     const t = createTicket(store, { key: 'PROJ-8', title: 'cores' });
     const agentBackends = { opencode: 'docker' } as const;
-    expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackends }).sandbox).toBeNull();
+    expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackends }).sandbox)
+      .toMatchObject({ backend: 'host', core: 'claude' });
     expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'opencode', { agentBackends }).sandbox)
       .toMatchObject({ backend: 'docker', core: 'opencode', workspace: 'clone' });
+  });
+
+  it('passes the manifest agentSandbox opt-in to the host strip', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'native' });
+    const sandbox = (agentSandbox: boolean) =>
+      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentSandbox }).sandbox;
+    expect(sandbox(true)).toMatchObject({ backend: 'host', hostProtection: 'core-native' });
+    expect(sandbox(false)).toMatchObject({ backend: 'host', hostProtection: 'prompted' });
   });
 
   it('carries the parent relationship for a follow-up and null otherwise', () => {
