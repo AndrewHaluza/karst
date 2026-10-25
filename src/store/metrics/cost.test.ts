@@ -38,6 +38,14 @@ describe('cost metrics', () => {
       );
   };
 
+  it('still counts the spend of a closed ticket: closing never un-spends tokens', () => {
+    const p = upsertProject(store, { slug: 'p' });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: p.id });
+    usage({ projectId: p.id, ticketId: t.id, callSite: 'gate', total: 70 });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('closed', t.id);
+    expect(tokenBurn(store, { projectId: p.id }).reportedTokens).toBe(70);
+  });
+
   it('splits token burn by call site, provider, model, and reported vs estimated', () => {
     const p = upsertProject(store, { slug: 'p' });
     usage({ projectId: p.id, callSite: 'gate', total: 100 });

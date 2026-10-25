@@ -80,6 +80,20 @@ describe('delivery metrics', () => {
     expect(result.medianHours).toBeCloseTo(24);
   });
 
+  it('leaves a closed ticket out of cycle time even when one of its PRs merged', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    store.db.prepare('UPDATE tickets SET created_at = ?, stage_current = ? WHERE id = ?').run('2026-07-20T00:00:00.000Z', 'closed', t.id);
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, merged_at) VALUES (?, ?, 1, ?)').run(t.id, 'one', '2026-07-20T06:00:00.000Z');
+    expect(cycleTime(store, {}).mergedTickets).toBe(0);
+  });
+
+  it('does not count a closed ticket as work that could escape a defect', () => {
+    createTicket(store, { key: 'A', title: 'a' });
+    const closed = createTicket(store, { key: 'B', title: 'b' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('closed', closed.id);
+    expect(escapedDefects(store, {}).tickets).toBe(1);
+  });
+
   it('reports no cycle time when nothing merged', () => {
     createTicket(store, { key: 'A', title: 'a' });
     const result = cycleTime(store, {});
