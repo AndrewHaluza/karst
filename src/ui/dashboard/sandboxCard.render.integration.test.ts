@@ -75,7 +75,7 @@ describe('dashboard sandbox strip (V1)', () => {
   it('a host fallback explains why and offers no actions', async () => {
     const v = await open({ backend: 'host', core: 'antigravity', workspace: 'worktree', network: 'none (host)', actions: false, carry: false, note: 'antigravity: sbx backend unsupported' });
     const strip = v.query('[data-region="sandbox"]')!;
-    expect(strip.textContent).toContain('antigravity: sbx backend unsupported — runs prompted on the host.');
+    expect(strip.textContent).toContain('antigravity: sbx backend unsupported');
     expect(strip.querySelectorAll('button')).toHaveLength(0);
   });
 

@@ -50,6 +50,8 @@ export interface DashboardAgentContext {
   modelCatalog?: ModelCatalog;
   /** The manifest's `agentBackends`; the Sandbox card shows only for a ticket whose session core uses a sandbox. */
   agentBackends?: AgentBackends;
+  /** The manifest's `agentSandbox` opt-in; picks the host strip's core-native vs prompted badge. */
+  agentSandbox?: boolean;
   /** True while the ticket's last refused sandbox sync was a host rewrite (offers "Carry sandbox commits"). */
   sandboxRewritten?: (ticketId: number) => boolean;
   /** What the open PRs still lack, measured on the PR refresh ("Deliver to PR"); undefined = nothing. */
@@ -230,7 +232,7 @@ export interface DashboardState {
    * the manifest, ticket preset/provider, and per-capability defaults.
    */
   capabilityIdentity: Record<PresetCapability, CapabilityIdentity | null>;
-  /** Where this ticket's session runs under a sandbox backend; null = no card (host project). */
+  /** Where this ticket's session runs (sandbox backend or host); null only before the card is built. */
   sandbox: DashboardSandboxView | null;
   servers: ServerView[];
   /**
