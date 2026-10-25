@@ -7,8 +7,20 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export function RegionPortal({ id, children }: { readonly id: string; readonly children: ReactNode }) {
-  const [target] = useState(() => document.getElementById(id));
+export function RegionPortal({
+  id,
+  children,
+  inParent = false,
+}: {
+  readonly id: string;
+  readonly children: ReactNode;
+  /** Render into `#id`'s parent instead (appended after its children): for a control that has no container of its own. */
+  readonly inParent?: boolean;
+}) {
+  const [target] = useState(() => {
+    const found = document.getElementById(id);
+    return inParent ? (found?.parentElement ?? null) : found;
+  });
   if (!target) {
     throw new Error(`dashboard app: #${id} region container is missing from the document`);
   }

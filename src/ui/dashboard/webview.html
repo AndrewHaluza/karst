@@ -1397,26 +1397,6 @@
      button there would read as the panel's subject. */
   .phead .iconbtn{margin-left:auto}
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
-  /* The Sub-tasks panel's "Add sub-task" action sits at the right edge, flat
-     (a ghost button), so it never reads as the panel's subject. The selector is
-     attribute-based: an id selector for the button would look like a colour
-     literal to the stylesheet's hex audit. */
-  .phead [data-act="create-subtask"]{margin-left:auto}
-  /* One sub-task row: status dot, key, title, optional blocking badge, stage
-     pill. A layout container, not a control (STYLE-GUIDE §9.2). */
-  .subtask{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
-  .subtask:hover{background:var(--k-surface-hover)}
-  .subtask .subtask-key{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);flex:0 0 auto}
-  .subtask .subtask-title{font-size:var(--k-text-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-  /* An informational badge, locally composed: the shipped `.k-badge` is still a
-     documented gap (UI-INVARIANTS G1), so this is product composition
-     (UI-R08), not a new primitive. Attention ink + a text label, never colour
-     alone (UI-R28). */
-  .subtask .subtaskBlock{flex:0 0 auto;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
-    color:var(--k-attention);border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-pill);
-    padding:0 var(--k-space-3);text-transform:uppercase;letter-spacing:.06em}
-  .subtask .stage{margin-left:auto;flex:0 0 auto}
-  .subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}
 
   .pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
   /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
@@ -2015,11 +1995,12 @@
   <!-- The sub-tasks this ticket delegated (design NDL-70 §8). Rendered only
        while it has sub-tasks OR can still gain one (host-derived
        `canAddSubtask`); the button hides exactly when the writer would refuse
-       (ship/done). Absence, never an empty card. -->
+       (ship/done). Absence, never an empty card.
+       React-owned: app/SubtasksPanel.tsx renders into #subtaskCount, the header after it (the Add button) and
+       #subtasks, and toggles this root's `hidden`. The root stays static (the parity snapshot pins it without
+       data-react-owned), so inReactIsland() also treats #subtaskPanel as an island. -->
   <div class="panel span hidden" id="subtaskPanel">
-    <div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span>
-      <button id="addSubtask" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="create-subtask" title="Create a sub-task under this ticket">Add sub-task…</button>
-    </div>
+    <div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span></div>
     <div class="pbody" id="subtasks"></div>
   </div>
   <!-- The Servers panel is React-owned: app/ServersPanel.tsx renders into #srvCount, #srvOps and #servers
@@ -4025,54 +4006,6 @@
     if (reopenBtn) reopenBtn.classList.toggle('hidden', !state.canReopen);
   }
 
-  // The status glyph a sub-task row paints: the shipped `.k-dot` primitive
-  // (UI-INVARIANTS G1), recoloured per state — never a new dot. `gray` (no
-  // signal yet) keeps the ringless default.
-  const SUBTASK_DOT = { blue: 'k-dot--running', amber: 'k-dot--attention', green: 'k-dot--passed', red: 'k-dot--failed' };
-
-  const SUBTASK_AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
-
-  function subtaskRowHtml(s) {
-    // `autostart` is host-derived (UI-R31): a sub-task waiting at scope for
-    // the autostart sweep reads "Queued", one being started reads "Starting".
-    const stage = SUBTASK_AUTOSTART_WORD[s.autostart] || s.stage || 'none';
-    const dot = SUBTASK_DOT[s.glyph] || '';
-    const word = s.done ? 'done' : stage;
-    const block = s.blocking
-      ? '<span class="subtaskBlock" title="Holds the parent before it leaves implement">Blocking</span>'
-      : '';
-    return `<div class="subtask" data-id="${s.id}">`
-      + `<span class="k-dot ${dot}" role="img" aria-label="${esc(word)}"></span>`
-      + `<span class="k-id">${esc(s.idLabel)}</span>`
-      + `<span class="subtask-key">${esc(s.key)}</span>`
-      + `<span class="subtask-title">${esc(s.title || '(untitled)')}</span>`
-      + block
-      + `<span class="stage ${esc(s.stageClass)}" title="${esc(stage)}">${esc(stage)}</span>`
-      + `</div>`;
-  }
-
-  // The parent's Sub-tasks section, and the awaiting-subtask block chip. The
-  // section renders while the ticket HAS sub-tasks or can still gain one
-  // (`canAddSubtask`, host-derived); the "Add sub-task" button hides exactly
-  // when the writer would refuse it (ship/done).
-  function renderSubtasks(state) {
-    const panel = el('subtaskPanel');
-    const list = el('subtasks');
-    if (!panel || !list) return;
-    const subs = state.subtasks || [];
-    const canAdd = !!state.canAddSubtask;
-    panel.classList.toggle('hidden', subs.length === 0 && !canAdd);
-    const add = el('addSubtask');
-    if (add) add.classList.toggle('hidden', !canAdd);
-    const progress = state.subtaskProgress || { done: 0, total: 0 };
-    const count = el('subtaskCount');
-    if (count) count.textContent = progress.total ? `${progress.done}/${progress.total} done` : '';
-    list.innerHTML = subs.length
-      ? subs.map(subtaskRowHtml).join('')
-      : '<div class="subtask-empty">No sub-tasks yet. Add one to split off unfinished work.</div>';
-    renderSubtaskBlock(state);
-  }
-
   // The header block chip for a parent parked `awaiting-subtask`: it lists the
   // linked sub-task keys the parent is waiting on. `awaiting-subtask` is a
   // genuine wait (not a fault — model/stepper.ts marks it non-resumable like
@@ -4258,7 +4191,8 @@
   // otherwise a control React already handled would be handled a second time here.
   function inReactIsland(e) {
     const t = e.target;
-    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel'));
+    // .svpanel and #subtaskPanel are React-owned panels whose static roots cannot carry data-react-owned (the region parity snapshots pin the roots without data-*). Both go with Phase 12.
+    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel, #subtaskPanel'));
   }
   // A click inside the island is outside every header popover, so it dismisses them like any outside click.
   function closePopoversFromIsland(e) {
@@ -5307,7 +5241,7 @@
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);
-    renderSubtasks(state);
+    renderSubtaskBlock(state);
     renderShip(state);
     renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
@@ -5604,7 +5538,6 @@
     'edit-ticket': (btn, requestId) => karstSend.editTicket(requestId),
     'open-dependency': (btn, requestId) => karstSend.openDependency(Number(btn.dataset.ticket), requestId),
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
-    'create-subtask': (btn, requestId) => karstSend.createSubtask(requestId),
     'detach-subtask': (btn, requestId) => karstSend.detachSubtask(requestId),
     'close-ticket': (btn, requestId) => karstSend.closeTicket(requestId),
     'reopen-ticket': (btn, requestId) => karstSend.reopenTicket(requestId),

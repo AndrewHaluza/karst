@@ -92,6 +92,18 @@ describe('React island / vanilla delegator interop', () => {
     expect(sent.map((m) => m.type)).toEqual(['stop-server']);
   });
 
+  it('clicking Add sub-task posts exactly once (no vanilla double post) and holds the button pending', async () => {
+    const v = await renderWebviewReady('dashboard');
+    h = v;
+    v.receive({ type: 'state', state: { ...populatedStateFor('impl'), canAddSubtask: true } });
+    await drainReactWork(v);
+    const before = v.posted.length;
+    await click(v, '#addSubtask');
+    const sent = v.posted.slice(before) as Array<{ type: string }>;
+    expect(sent.map((m) => m.type)).toEqual(['create-subtask']);
+    expect(v.query('#addSubtask')!.classList.contains('is-pending')).toBe(true);
+  });
+
   it('the header Logs and Env buttons open their vanilla surfaces once', async () => {
     const v = await open();
     const before = v.posted.length;

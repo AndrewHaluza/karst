@@ -1,0 +1,19 @@
+/* Sub-tasks panel (moved from webview.html with the panel). */
+/* The "Add sub-task" action sits at the right edge, flat (a ghost button), so it never reads as the panel's
+   subject. The selector is attribute-based: an id selector for the button would look like a colour literal to
+   the stylesheet's hex audit. */
+.phead [data-act="create-subtask"]{margin-left:auto}
+/* One sub-task row: status dot, key, title, optional blocking badge, stage pill. A layout container, not a
+   control (STYLE-GUIDE §9.2). */
+.subtask{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+.subtask:hover{background:var(--k-surface-hover)}
+.subtask .subtask-key{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);flex:0 0 auto}
+.subtask .subtask-title{font-size:var(--k-text-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+/* An informational badge, locally composed: the shipped `.k-badge` is still a documented gap (UI-INVARIANTS G1),
+   so this is product composition (UI-R08), not a new primitive. Attention ink + a text label, never colour alone
+   (UI-R28). */
+.subtask .subtaskBlock{flex:0 0 auto;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
+  color:var(--k-attention);border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-pill);
+  padding:0 var(--k-space-3);text-transform:uppercase;letter-spacing:.06em}
+.subtask .stage{margin-left:auto;flex:0 0 auto}
+.subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}
