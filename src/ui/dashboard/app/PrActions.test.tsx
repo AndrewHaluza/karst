@@ -77,13 +77,14 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
 });
 
 describe('PrsPanel — merge-pr (pending until the next settling state push)', () => {
-  it('posts exactly {repo} with no request id, goes pending, and announces itself to the page', () => {
+  it('posts exactly {repo} with no request id, goes pending in the shared state, and announces nothing to the page', () => {
     const h = mount(twoMergeable());
     const b = mergeOf();
     fireEvent.click(b);
     expect(h.send.mergePr).toHaveBeenCalledTimes(1);
     expect(h.send.mergePr.mock.calls[0]).toEqual([REPO]);
-    expect(h.begun).toEqual([{ kind: 'merge', repo: REPO, requestId: 'req-1' }]);
+    expect([...h.ops().getSnapshot().merging]).toEqual([REPO]);
+    expect(h.begun).toEqual([]);
     expect(b.getAttribute('aria-busy')).toBe('true');
     expect(b.disabled).toBe(true);
     expect(b.title).toBe('Confirm the merge in the dialog');
@@ -140,16 +141,19 @@ describe('PrsPanel — merge-pr (pending until the next settling state push)', (
     expect(mergeRows()).toHaveLength(1);
   });
 
-  it('leaves settling the runtime request to the page, which owns the shared map until the switch-over', () => {
+  it('settles the runtime request itself on the settling push: unknown while the PR is open, merged once it landed', () => {
     const h = mount(twoMergeable());
     fireEvent.click(mergeRows()[0]!);
     h.emit({ type: 'state', state: twoMergeable() });
-    expect(settled).toEqual([]);
+    expect(settled).toEqual([['req-1', null, undefined]]);
+    fireEvent.click(mergeRows()[1]!);
+    h.emit({ type: 'state', state: stateWith([pr(mergeable), apiPr({ status: 'merged' })]) });
+    expect(settled[1]).toEqual(['req-2', true, 'Merged.']);
   });
 
-  it('shows a merge that the PAGE started (the rail button) as pending, announcing nothing back', () => {
+  it('shows a merge that the stage rail started as pending, and the panel Merge then posts nothing', () => {
     const h = mount(twoMergeable());
-    vanillaPending({ kind: 'merge', repo: API });
+    act(() => h.ops().beginMerge(API, 'rail-1'));
     expect(mergeRows()[1]!.disabled).toBe(true);
     expect(mergeRows()[1]!.getAttribute('aria-busy')).toBe('true');
     expect(mergeRows()[1]!.title).toBe('Confirm the merge in the dialog');

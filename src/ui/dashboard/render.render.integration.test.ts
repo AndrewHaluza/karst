@@ -152,8 +152,8 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders a bypassed rail segment distinctly from passed (P2-18)', () => {
-    const h = renderWebview('dashboard');
+  it('renders a bypassed rail segment distinctly from passed (P2-18)', async () => {
+    const h = await renderWebviewReady('dashboard');
     const stages = [
       { stageKey: 'scope', status: 'passed' },
       { stageKey: 'impl', status: 'passed' },
@@ -170,6 +170,7 @@ describe('dashboard render — fixture corpus', () => {
       type: 'state',
       state: { ...renderStateFor('ship'), stageCurrent: 'ship', rail },
     });
+    await drainReactWork(h);
     const seg = h.query('.track .seg.bypassed');
     expect(seg, 'bypassed segment not rendered').toBeTruthy();
     // The glyph is ⊘ — the rail's distinct bypass marker, never the passed ✓.
@@ -406,28 +407,34 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('auto-selects Ship once on entering a wait, then leaves the user choice alone (D234)', () => {
+  it('auto-selects Ship once on entering a wait, then leaves the user choice alone (D234)', async () => {
     const base = confirmPendingWithViews();
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
+    // The rail is React's: each push is drawn once React has committed it.
+    const push = async (state: object, extra: Record<string, unknown> = {}): Promise<void> => {
+      h.receive({ type: 'state', state, ...extra });
+      await drainReactWork(h);
+    };
     // Before the wait the user is on Review.
-    h.receive({ type: 'state', state: { ...base, ship: { kind: 'none' as const }, shipPreview: undefined } });
+    await push({ ...base, ship: { kind: 'none' as const }, shipPreview: undefined });
     h.click('[data-stage="review"]');
     expect(insideClock(h)).toBe(REVIEW_CLOCK);
     // Entering the wait selects Ship so the preview is beside Confirm ship.
-    h.receive({ type: 'state', state: base });
+    await push(base);
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    expect(h.query('.pick[data-stage="ship"]')!.getAttribute('aria-pressed')).toBe('true');
     // The user navigates away; a later push for the SAME wait keeps them there.
     h.click('[data-stage="uat"]');
-    h.receive({ type: 'state', state: base });
+    await push(base);
     expect(insideClock(h)).toBe(UAT_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     // A retry after the confirm is a NEW wait: Ship is selected once more.
-    h.receive({ type: 'state', state: { ...base, ship: { kind: 'retry' } } });
+    await push({ ...base, ship: { kind: 'retry' } });
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     // ...and a wait on a DIFFERENT ticket is new too.
     h.click('[data-stage="review"]');
-    h.receive({ type: 'state', state: { ...base, ticketId: base.ticketId + 1, ship: { kind: 'retry' } } });
+    await push({ ...base, ticketId: base.ticketId + 1, ship: { kind: 'retry' } });
     expect(insideClock(h)).toBe(SHIP_CLOCK);
     h.close();
   });
@@ -454,10 +461,11 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('a live repaint follows the user selection, not the pending wait (D234)', () => {
-    const h = renderWebview('dashboard');
+  it('a live repaint follows the user selection, not the pending wait (D234)', async () => {
+    const h = await renderWebviewReady('dashboard');
     const state = confirmPendingWithViews();
     h.receive({ type: 'state', state });
+    await drainReactWork(h);
     h.click('[data-stage="uat"]');
     // A live repaint is the same snapshot re-read: it must advance the SELECTED
     // view's clock, never re-derive Ship from the waiting slot.
@@ -487,10 +495,11 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('persists the auto-selected wait so a reopen does not yank the selection (D234)', () => {
+  it('persists the auto-selected wait so a reopen does not yank the selection (D234)', async () => {
     const state = confirmPendingWithViews();
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state });
+    await drainReactWork(h);
     h.click('[data-stage="uat"]');
     expect(h.state).toMatchObject({ sel: 'uat', shipWait: `${state.ticketId}:confirm` });
     h.close();

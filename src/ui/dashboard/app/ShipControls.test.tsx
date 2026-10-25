@@ -2,12 +2,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
 import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
-import { SHIP_BEGIN_EVENT, SHIP_STATE_EVENT } from './headerSeam.js';
 
 installHeaderDoubles();
 
-const shipState = (inFlight: boolean, shipped = false): void =>
-  act(() => void window.dispatchEvent(new CustomEvent(SHIP_STATE_EVENT, { detail: { inFlight, shipped } })));
 const btn = (): HTMLButtonElement => $<HTMLButtonElement>('#confirmShip');
 
 describe('ShipControls — the ship slot', () => {
@@ -35,11 +32,11 @@ describe('ShipControls — the ship slot', () => {
     expect(btn().getAttribute('aria-busy')).toBe('true');
   });
 
-  it('holds Shipping... while the page has a request in flight, whatever the slot says', () => {
-    mountHeader(headerState({ ship: { kind: 'confirm' } }));
-    shipState(true);
+  it('holds Shipping... while a request is in flight (the rail started it), whatever the slot says, and lets go when it settles', () => {
+    const h = mountHeader(headerState({ ship: { kind: 'confirm' } }));
+    act(() => h.ops().beginShip('rail-1'));
     expect(btn().textContent).toBe('Shipping…');
-    shipState(false);
+    h.emit({ type: 'state', state: headerState({ ship: { kind: 'confirm' }, stageCurrent: 'ship', currentStage: { stageKey: 'ship', status: 'failed' } }) });
     expect(btn().textContent).toBe('Confirm ship');
   });
 
@@ -56,32 +53,33 @@ describe('ShipControls — the ship slot', () => {
 });
 
 describe('ShipControls — Confirm ship', () => {
-  it('posts exactly once with no request id on the wire, and tells the page its request id', () => {
+  it('posts exactly once with no request id on the wire, and goes in flight in the state it shares with the rail', () => {
     const h = mountHeader(headerState({ ship: { kind: 'confirm' } }));
-    const begin = vi.fn();
-    window.addEventListener(SHIP_BEGIN_EVENT, begin);
+    const heard = vi.fn();
+    window.addEventListener('karst:shipBegin', heard);
     fireEvent.click(btn());
     fireEvent.click(btn());
-    window.removeEventListener(SHIP_BEGIN_EVENT, begin);
+    window.removeEventListener('karst:shipBegin', heard);
     expect(h.send.shipTicket).toHaveBeenCalledTimes(1);
     expect(h.send.shipTicket).toHaveBeenCalledWith();
-    expect(begin).toHaveBeenCalledTimes(1);
-    expect((begin.mock.calls[0]![0] as CustomEvent<string>).detail).toBe('req-1');
+    expect(h.ops().getSnapshot().shipping).toBe(true);
+    expect(heard).not.toHaveBeenCalled();
     expect(has('#confirmShip', 'is-pending')).toBe(true);
   });
 
   it('does nothing while a request is already in flight', () => {
     const h = mountHeader(headerState({ ship: { kind: 'confirm' } }));
-    shipState(true);
+    act(() => h.ops().beginShip('rail-1'));
     fireEvent.click(btn());
     expect(h.send.shipTicket).not.toHaveBeenCalled();
   });
 
-  it('flashes "Shipped" in the toast for a moment', () => {
+  it('flashes "Shipped" in the toast once the ticket has left ship', () => {
     vi.useFakeTimers();
-    mountHeader(headerState());
+    const h = mountHeader(headerState({ ship: { kind: 'confirm' }, stageCurrent: 'ship' }));
     expect(has('#toast', 'show')).toBe(false);
-    shipState(false, true);
+    fireEvent.click(btn());
+    h.emit({ type: 'state', state: headerState({ ship: { kind: 'none' }, stageCurrent: 'done' }) });
     expect(has('#toast', 'show')).toBe(true);
     expect($('#toast').textContent).toBe('Shipped ✓');
     act(() => void vi.advanceTimersByTime(1400));

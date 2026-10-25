@@ -4,7 +4,8 @@ import { act, cleanup, render } from '@testing-library/react';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
-import { DashboardAppProvider } from '../DashboardAppContext.js';
+import { DashboardAppProvider, usePendingOps } from '../DashboardAppContext.js';
+import type { PendingOps } from '../pendingOps.js';
 import { Header } from '../Header.js';
 
 export const headerState = (over: Record<string, unknown> = {}): DashboardState =>
@@ -46,6 +47,13 @@ export const headerState = (over: Record<string, unknown> = {}): DashboardState 
 export interface HeaderHarness {
   readonly send: Record<string, ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
+  /** The in-flight operations the header shares with the stage rail (ship). */
+  readonly ops: () => PendingOps;
+}
+
+function OpsProbe({ onOps }: { readonly onOps: (ops: PendingOps) => void }) {
+  onOps(usePendingOps());
+  return null;
 }
 
 const SENDERS = [
@@ -68,12 +76,14 @@ export function mountHeader(initial: DashboardState | null): HeaderHarness {
       };
     },
   };
+  let ops: PendingOps | null = null;
   render(
     <DashboardAppProvider bridge={bridge}>
+      <OpsProbe onOps={(o) => (ops = o)} />
       <Header />
     </DashboardAppProvider>,
   );
-  return { send, emit: (message) => act(() => listener?.(message)) };
+  return { send, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
 }
 
 const pending = new Set<Element>();
@@ -85,6 +95,7 @@ export function installHeaderDoubles(): void {
     Object.assign(globalThis, {
       karstRequestId: () => `req-${++n}`,
       karstIsPending: (el: Element) => pending.has(el),
+      karstSettle: vi.fn(),
       karstBeginPending: (el: Element) => {
         pending.add(el);
         el.classList.add('is-pending');

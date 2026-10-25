@@ -3,12 +3,12 @@
  * ship / sub-task / paused wait chips. Same DOM as the vanilla `renderShip`, `renderSubtaskBlock` and
  * `renderPause` they replaced.
  *
- * The host's `state.ship` is the placement truth. The in-flight ship request is page state (the stage rail's Ship
- * button shares it), so it arrives through the `karst:shipState` seam and the click announces `karst:shipBegin`.
+ * The host's `state.ship` is the placement truth. The in-flight ship request is shared with the stage rail's Ship
+ * button (`pendingOps.ts`): one operation, so a second click on either can never open a second dialog. The same
+ * state carries the brief post-ship flash.
  */
 import { memo, useEffect, useState } from 'react';
-import { useDashboardSend } from './DashboardAppContext.js';
-import { announceShipBegin, onShipState, type ShipState } from './headerSeam.js';
+import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
 import { selectControls } from './headerSlices.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -16,14 +16,6 @@ import { useSlice } from './useSlice.js';
 /** How long the "Shipped" confirmation shows. */
 const TOAST_MS = 1400;
 const SHIPPED_TEXT = 'Shipped ✓';
-
-const IDLE: ShipState = { inFlight: false, shipped: false };
-
-function useShipState(): ShipState {
-  const [ship, setShip] = useState<ShipState>(IDLE);
-  useEffect(() => onShipState(setShip), []);
-  return ship;
-}
 
 function Toast({ shipped }: { readonly shipped: boolean }) {
   const [toast, setToast] = useState({ text: '', show: false });
@@ -51,20 +43,21 @@ function Mark() {
 export const ShipControls = memo(function ShipControls() {
   const controls = useSlice(selectControls);
   const send = useDashboardSend();
-  const ship = useShipState();
+  const ship = useOps();
+  const ops = usePendingOps();
   const slot = controls?.ship ?? { kind: 'none' as const };
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
 
   const waiting = slot.kind === 'waiting-merge';
-  const offered = (slot.kind === 'confirm' || slot.kind === 'retry') && !ship.inFlight;
-  const shipping = !waiting && !offered && (slot.kind === 'shipping' || ship.inFlight);
+  const offered = (slot.kind === 'confirm' || slot.kind === 'retry') && !ship.shipping;
+  const shipping = !waiting && !offered && (slot.kind === 'shipping' || ship.shipping);
   const subtaskWait = controls?.subtaskWait ?? null;
 
   const onConfirm = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    if (ship.inFlight) return;
+    if (ship.shipping) return;
     const requestId = beginPending(e);
     if (requestId === null) return;
-    announceShipBegin(requestId);
+    ops.beginShip(requestId);
     send.shipTicket();
   };
 

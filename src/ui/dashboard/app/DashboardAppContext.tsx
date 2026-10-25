@@ -12,9 +12,11 @@ import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import { DashboardStore } from './dashboardStore.js';
+import { PendingOps, type OpsSnapshot } from './pendingOps.js';
 
 const StoreContext = createContext<DashboardStore | null>(null);
 const BridgeContext = createContext<DashboardHostBridge | null>(null);
+const OpsContext = createContext<PendingOps | null>(null);
 
 function restoreInitialState(bridge: DashboardHostBridge): DashboardState | null {
   try {
@@ -36,6 +38,16 @@ export function DashboardAppProvider({
   children: ReactNode;
 }) {
   const [store] = useState(() => new DashboardStore(restoreInitialState(bridge)));
+  const [ops] = useState(() => new PendingOps());
+
+  // The shared in-flight operations settle from the same host messages every panel sees.
+  useEffect(() => {
+    const off = store.onMessage((message) => ops.receive(message));
+    return () => {
+      off();
+      ops.dispose();
+    };
+  }, [store, ops]);
 
   useEffect(() => {
     // Messages buffered before this subscription replay inside the call, i.e. inside this
@@ -52,7 +64,9 @@ export function DashboardAppProvider({
 
   return (
     <BridgeContext.Provider value={bridge}>
-      <StoreContext.Provider value={store}>{children}</StoreContext.Provider>
+      <StoreContext.Provider value={store}>
+        <OpsContext.Provider value={ops}>{children}</OpsContext.Provider>
+      </StoreContext.Provider>
     </BridgeContext.Provider>
   );
 }
@@ -63,6 +77,21 @@ export function useStore(): DashboardStore {
     throw new Error('useDashboard must be used within DashboardAppProvider');
   }
   return store;
+}
+
+/** The operations the rail, the header and the PR panel share (ship, merge): begin them here. */
+export function usePendingOps(): PendingOps {
+  const ops = useContext(OpsContext);
+  if (!ops) {
+    throw new Error('usePendingOps must be used within DashboardAppProvider');
+  }
+  return ops;
+}
+
+/** The shared operations' current state: re-renders only when one of them changes. */
+export function useOps(): OpsSnapshot {
+  const ops = usePendingOps();
+  return useSyncExternalStore(ops.subscribe, ops.getSnapshot);
 }
 
 export function useDashboardBridge(): DashboardHostBridge {

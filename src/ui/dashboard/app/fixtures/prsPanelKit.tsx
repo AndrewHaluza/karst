@@ -5,7 +5,8 @@ import { Profiler } from 'react';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
-import { DashboardAppProvider } from '../DashboardAppContext.js';
+import { DashboardAppProvider, usePendingOps } from '../DashboardAppContext.js';
+import type { PendingOps } from '../pendingOps.js';
 import { PrsPanel } from '../PrsPanel.js';
 
 export const REPO = '/repos/web';
@@ -78,6 +79,13 @@ export interface Harness {
   readonly emit: (message: HostMessage) => void;
   /** Announcements React made to the vanilla page (the transitional seam). */
   readonly begun: unknown[];
+  /** The in-flight operations the panel shares with the stage rail and the header (merge, ship). */
+  readonly ops: () => PendingOps;
+}
+
+function OpsProbe({ onOps }: { readonly onOps: (ops: PendingOps) => void }) {
+  onOps(usePendingOps());
+  return null;
 }
 
 const SCAFFOLD =
@@ -114,8 +122,10 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
   window.addEventListener('karst:prBegin', record);
   cleanups.push(() => window.removeEventListener('karst:prBegin', record));
   const panel = <PrsPanel />;
+  let ops: PendingOps | null = null;
   render(
     <DashboardAppProvider bridge={bridge}>
+      <OpsProbe onOps={(o) => (ops = o)} />
       {onRender ? (
         <Profiler id="prs" onRender={onRender}>
           {panel}
@@ -125,11 +135,11 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
       )}
     </DashboardAppProvider>,
   );
-  return { send, begun, emit: (message) => act(() => listener?.(message)) };
+  return { send, begun, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
 }
 
-/** The vanilla page announcing that ITS control (rail Merge, stage menu CI) went pending. */
-export const vanillaPending = (detail: { kind: 'merge'; repo: string } | { kind: 'ci-failure' }): void =>
+/** The vanilla page announcing that ITS control (the stage menu's Send CI failure) went pending. */
+export const vanillaPending = (detail: { kind: 'ci-failure' }): void =>
   act(() => {
     window.dispatchEvent(new CustomEvent('karst:prPending', { detail }));
   });

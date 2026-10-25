@@ -6,7 +6,7 @@
  */
 import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
-import { useDashboardSend } from './DashboardAppContext.js';
+import { useDashboardSend, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import type { PrPendingApi } from './usePrPending.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
@@ -94,17 +94,19 @@ interface Pendable {
  * chooses the strategy) before anything runs. The webview posts only `{type:'merge-pr', repo}` (UI-R37).
  * `.k-btn--primary` is its treatment per UI-R10b. Offered or not is the host's verdict, never this file's.
  */
-export const MergeButton = memo(function MergeButton({ p, api, busy }: Pendable & { readonly p: PrPanelRow }) {
+export const MergeButton = memo(function MergeButton({ p, busy }: { readonly p: PrPanelRow; readonly busy: boolean }) {
   const send = useDashboardSend();
+  // Held in the state the stage rail's Merge shares (pendingOps.ts): one operation, one dialog.
+  const ops = usePendingOps();
   const repo = p.repo;
   const onClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       const requestId = beginPending(e);
       if (requestId === null) return;
-      api.beginMerge(repo, requestId);
+      ops.beginMerge(repo, requestId);
       send.mergePr(repo);
     },
-    [api, send, repo],
+    [ops, send, repo],
   );
   if (p.status === 'merged') return null;
   // One <button> in every state: the node (and the runtime's is-pending class on it) survives going pending.

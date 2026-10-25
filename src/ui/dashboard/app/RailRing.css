@@ -1,0 +1,118 @@
+/* The selection and focus rings of the stage rail, in the segment's own shape. Loaded after Rail.css: it must follow the
+   `.sel` / `:focus-visible` baselines declared there (same specificity, so source order decides). */
+
+/* ── the selection and focus rings, in the segment's own shape ───────────
+   An outline (or an inset shadow — same rectangle) cannot outline a chevron:
+   `clip-path` clips a CHILD's rendering, so the vertical strokes fall inside
+   the two notches and are cut, leaving a border that visibly does not close
+   around the arrow it belongs to. The first attempt at that was the selection
+   ring; the underline it became read as a stray bottom border on the segment,
+   which is the same complaint from the other side — a mark that is not the
+   shape it marks. So the ring is drawn as a SHAPE: `.pick` is filled and
+   clipped to the chevron MINUS a smaller chevron (`evenodd`), which leaves
+   exactly the band between them.
+
+   ONE shape, two states. Selection wears the shared categorical purple
+   (UI-R08) and focus wears `--k-focus` and OUTRANKS it — a focused segment is
+   already the selected one in every case the user can reach by keyboard, and
+   two concentric bands say nothing the colour does not. `aria-pressed` carries
+   selection either way, so nothing is lost while the ring is showing focus.
+
+   The inner chevron is the outer one offset PERPENDICULARLY — not by the same
+   px horizontally and vertically, which would splay the diagonals and taper
+   the ring. For an edge of length `--trk-diag` over a half-height of
+   `--trk-half`, an inset of `q` moves the tip by `q · diag / half` and the
+   top/bottom corners by `q · (diag ∓ notch) / half` (the notch is concave on
+   the left, convex on the right — hence the two signs). All three fall out of
+   the two dimensions the segment is already drawn from, so the ring stays
+   parallel to the shape at any lane height or notch depth.
+
+   The outer boundary IS the segment's own polygon, written out verbatim rather
+   than inset: an inset one read as a hairline gap all the way round, and at the
+   ends of the lane its square corners sat inside the lane's `--k-radius-lg` —
+   the same "mark shifted off its block" complaint in a smaller form. Flush, the
+   lane's own rounded overflow clips the ring exactly as it clips the segment,
+   so the corners agree by construction instead of by arithmetic.
+
+   The hole is joined to the outer boundary by a ZERO-AREA SLIT, and every point
+   of it is load-bearing. `polygon()` is ONE contour with no move-to, so the two
+   implicit connectors that reach the hole REPLACE whatever inner edge they jump
+   across — and that edge is simply gone from the shape, taking its band with it.
+   Both earlier orderings lost the left stroke that way: same-direction contours
+   cross in the middle of it, reversed ones drop the inner notch edge. So the
+   outer loop is CLOSED first (its start point repeated), and the inner loop both
+   starts and ends at the same point, which makes the two connectors coincident
+   and opposite — they cancel, and every real edge survives.
+
+   @supports, because a browser without `hypot()` (or without length division
+   in `calc()`) would drop the `clip-path` and keep the `background` — a solid
+   fill over the whole segment. The guard keeps such a browser on the plain
+   outline and the underline above, both of which still say what they mean. */
+@supports (width: calc(1px * hypot(1px,1px) / 1px)){
+  .track .seg.sel{box-shadow:none}
+  .track .seg.sel .pick,
+  .track .seg .pick:focus-visible{
+    /* q: how far the inner edge sits from the segment's edge, i.e. the ring's
+       own width. Two focus widths, not one — a 1px band is what the diagonals
+       eat first, and neither of these marks may be the thing that degrades. */
+    --rq:calc(var(--k-focus-w) * 2);
+    --rt:calc(var(--rq) * var(--trk-diag) / var(--trk-half));
+    --rr:calc(var(--rq) * (var(--trk-diag) - var(--trk-notch)) / var(--trk-half));
+    --rl:calc(var(--rq) * (var(--trk-diag) + var(--trk-notch)) / var(--trk-half));
+    background:var(--k-series-2);
+    clip-path:polygon(evenodd,
+      0 0,
+      calc(100% - var(--trk-notch)) 0,
+      100% 50%,
+      calc(100% - var(--trk-notch)) 100%,
+      0 100%,
+      var(--trk-notch) 50%,
+      0 0,
+      var(--rl) var(--rq),
+      calc(var(--trk-notch) + var(--rt)) 50%,
+      var(--rl) calc(100% - var(--rq)),
+      calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+      calc(100% - var(--rt)) 50%,
+      calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+      var(--rl) var(--rq))}
+  /* The ends of the lane have one notch, not two — same rule as the segment
+     shapes above, and for the same reason: a wedge at the outer end would
+     point at nothing. A square corner insets by q in both axes, and takes the
+     lane's radius: `clip-path` cannot round a corner, so a flush ring met the
+     lane's rounded end square and the lane's own overflow cut the difference
+     away. `border-radius` clips the fill, so the two curve together. */
+  .track .seg:first-child.sel .pick,
+  .track .seg:first-child .pick:focus-visible{
+    border-radius:var(--trk-r) 0 0 var(--trk-r);
+    clip-path:polygon(evenodd,
+      0 0,
+      calc(100% - var(--trk-notch)) 0,
+      100% 50%,
+      calc(100% - var(--trk-notch)) 100%,
+      0 100%,
+      0 0,
+      var(--rq) var(--rq),
+      var(--rq) calc(100% - var(--rq)),
+      calc(100% - var(--trk-notch) - var(--rr)) calc(100% - var(--rq)),
+      calc(100% - var(--rt)) 50%,
+      calc(100% - var(--trk-notch) - var(--rr)) var(--rq),
+      var(--rq) var(--rq))}
+  .track .seg:last-child.sel .pick,
+  .track .seg:last-child .pick:focus-visible{
+    border-radius:0 var(--trk-r) var(--trk-r) 0;
+    clip-path:polygon(evenodd,
+      0 0,
+      100% 0,
+      100% 100%,
+      0 100%,
+      var(--trk-notch) 50%,
+      0 0,
+      var(--rl) var(--rq),
+      calc(var(--trk-notch) + var(--rt)) 50%,
+      var(--rl) calc(100% - var(--rq)),
+      calc(100% - var(--rq)) calc(100% - var(--rq)),
+      calc(100% - var(--rq)) var(--rq),
+      var(--rl) var(--rq))}
+  /* Last, so focus wins the colour on a segment that is both. The outline goes
+     with it — the ring IS the indicator now (UI-R23). */
+  .track .seg .pick:focus-visible{outline:0;background:var(--k-focus)}}

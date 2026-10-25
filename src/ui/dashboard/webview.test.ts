@@ -61,9 +61,8 @@ function containerBlock(w: string): string {
  * maps, geometry, clocks, durations, blurbs, the armed flag — leaving the file
  * with little more than `map` over precomputed data.
  *
- * What these tests can catch: a lost injection marker, the rail regressing to
- * the flat stepper, selection leaking into host-owned state, an action the host
- * does not validate. What they cannot catch: a mistyped class, a broken calc(),
+ * What these tests can catch: a lost injection marker, selection leaking into
+ * host-owned state, an action the host does not validate. What they cannot catch: a mistyped class, a broken calc(),
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
@@ -150,256 +149,6 @@ describe('dashboard webview.html', () => {
     }
   });
 
-  it('draws the rail from state.rail, not from the flat stepper', () => {
-    // The regression net for the flattening bug: state.stepper contains fix, so
-    // rendering the rail from it puts fix back on the forward path.
-    expect(HTML).toContain('state.rail');
-    expect(HTML).not.toContain('renderStepper(state.stepper)');
-  });
-
-  it('keeps fix off the forward path — it is drawn on the gate it retries', () => {
-    // The regression net for the flattening bug, restated for the track: `fix` is
-    // reached only by a failed verdict and its only edge returns to uat, so it can
-    // never be a segment. It appears exactly once, as the retry meter's own
-    // data-stage — which is also how it stays selectable now the node is gone.
-    expect(HTML).toContain('rail.main.map');
-    expect(HTML).not.toMatch(/rail\.(branch|geometry|armed|cap)\b/);
-    expect(HTML.match(/data-stage="fix"/g)).toHaveLength(1);
-    expect(HTML).toMatch(/class="fixm [^"]*"[^>]*data-stage="fix"/);
-  });
-
-  it('draws the retry meter only on the gate that carries the loop', () => {
-    // Not on fix, not on every gate, and not at all before the loop is entered —
-    // the host decides that (model/stageRail.ts) and the webview only renders
-    // what it is given.
-    expect(HTML).toMatch(/if \(s\.retry\) extra \+= renderMeter\(s\.retry\)/);
-    expect(HTML).toMatch(/function renderMeter\(retry\)/);
-  });
-
-  it('draws one tick per ALLOWED attempt, from the host’s cap', () => {
-    // A meter with more ticks than the driver will spend lies about how many
-    // retries are left, which is the one thing the meter exists to say. The cap
-    // comes from the manifest via the host; a literal 3 here would ignore a
-    // narrowed uat.maxFixAttempts.
-    expect(HTML).toContain('{ length: retry.cap }');
-    expect(HTML).not.toMatch(/length:\s*3\b/);
-    expect(HTML).toContain('i < retry.spent');
-  });
-
-  it('never nests a button inside a button — the parser would close the outer one', () => {
-    // The segment is a <div> wrapper holding the select control AND, when the
-    // stage is parked on the user, the action control. Nested, the parser closes
-    // the outer button and the whole track loses its structure.
-    expect(HTML).toMatch(/<div class="seg stg-\$\{esc\(k\)\}/);
-    expect(HTML).not.toMatch(/<button[^>]*class="pick"[^>]*>[^<]*<button/);
-  });
-
-  it('makes every segment a real button, so the track is keyboard-reachable', () => {
-    expect(HTML).toMatch(/<button type="button" class="pick"/);
-    expect(HTML).toContain('aria-pressed');
-    // Never a clickable div (UI-R09): the wrapper carries no handler of its own.
-    expect(HTML).not.toMatch(/<div class="seg[^"]*"[^>]*data-stage=/);
-  });
-
-  it('puts the retry loop in the accessible name, not only in the meter', () => {
-    // Everything the narrow steps drop must already be in the name, because the
-    // name does not degrade — the attempt count and the return target included.
-    expect(HTML).toContain('fix ${s.retry.spent}/${s.retry.cap}');
-    expect(HTML).toContain('revalidates from ${s.retry.returnsTo}');
-  });
-
-  it('says needs-you in words, not only in the amber', () => {
-    // UI-R28: four carriers — wash, glyph, the reason, the action.
-    expect(HTML).toMatch(/needs \? `\$\{title\}: needs you`/);
-    expect(HTML).toContain("const NEEDS_GLYPH");
-    expect(HTML).toContain("const CONFLICT_GLYPH");
-    expect(HTML).toMatch(/s\.needs \? s\.needs\.detail/);
-  });
-
-  it('reads needs-you from the host, never re-deriving it in the webview', () => {
-    // A second answer to "is this blocked on the user" is exactly what the single
-    // derivation (model/ticketGlyph.needsUser) exists to prevent.
-    const track = HTML.slice(
-      HTML.indexOf('function renderTrack('),
-      HTML.indexOf('function renderPips('),
-    );
-    expect(track).toMatch(/s\.needsUser === true/);
-    // No stage-name test and no status test: `needsConfirm(stage) && pending` is
-    // the host's answer, and asking it a second time here is how two surfaces
-    // start disagreeing about whether a ticket is blocked.
-    expect(track).not.toMatch(/=== 'ship'|'pending'/);
-  });
-
-  it('makes the needs-you control act for confirm ship, a single merge, and a single conflict, navigate otherwise', () => {
-    // The HOST decides what the control does (`s.needs.cta`), never the webview
-    // deriving it from the label. The acting kinds carry `data-act` so the
-    // generic delegated handler gives them the same pending lifecycle as the
-    // header's Confirm ship, the PR panel's Merge and its Resolve conflicts
-    // button — the host's confirmation still guards the irreversible merge,
-    // and resolve-conflicts re-derives the brief from the store before handing
-    // it to a session. The navigational kinds keep `data-goto data-go` and
-    // gotoAction() scrolls to the owning control.
-    expect(HTML).toContain('goButton(s.needs)');
-    expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
-    expect(HTML).toMatch(/data-act="ship-ticket"/);
-    expect(HTML).toMatch(/cta\.kind === 'merge'/);
-    expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
-    expect(HTML).toMatch(/cta\.kind === 'resolve-conflicts'/);
-    expect(HTML).toMatch(/data-act="resolve-conflicts" data-repo="/);
-    expect(HTML).toContain('data-goto data-go');
-    expect(HTML).toMatch(/function gotoAction\(kind\)/);
-    const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
-    const body = fn.slice(0, fn.indexOf('\n  }'));
-    expect(body).toContain('scrollIntoView');
-    expect(body).toContain("kind === 'graph-panel'");
-    expect(body).toContain("document.querySelector('#inside')");
-    expect(body, 'the navigational path posts nothing').not.toContain('post(');
-  });
-
-  it('fills a phase pip only for a phase the agent reported', () => {
-    // Declared is not observed. A hollow pip means "not reported", never "not
-    // done" — karst records no per-phase state it was not explicitly told.
-    expect(HTML).toContain('approach.reported');
-    expect(HTML).toMatch(/done\.has\(p\)/);
-    expect(HTML).toContain('not reported');
-  });
-
-  it('names the approach on impl even when it declares no phases', () => {
-    // An approach with an empty `workflow` (the built-in `direct`, or a package
-    // that ships prompts only) is still the thing driving impl, and the current
-    // segment is the one place the panel says so. Returning early on an empty
-    // `phases` left the widest segment on the track completely blank.
-    const fn = HTML.slice(HTML.indexOf('function renderPips('));
-    const body = fn.slice(0, fn.indexOf('\n  }'));
-    expect(body, 'an approach with no phases renders nothing').not.toMatch(
-      /if \(!phases\.length\) return ''/,
-    );
-    expect(body).toContain('approach.id');
-  });
-
-  it('keeps the current segment’s text legible on its own wash (UI-R29)', () => {
-    // `--k-success-fg` is the KNOCKOUT foreground — `--vscode-editor-background`,
-    // paired with a saturated feedback FILL. The running segment is not a fill:
-    // it is a 34% wash of the stage hue over the lane, so the knockout resolves
-    // to (near) the background it sits on — dark-on-dark in a dark theme and
-    // white-on-lavender in a light one. The wash is designed to carry ordinary
-    // body text, so it takes ordinary body text.
-    expect(HTML).toMatch(/\.track \.seg\.running\{[^}]*color:var\(--k-text\)/);
-    expect(HTML).not.toMatch(/\.track \.seg[^{]*\{[^}]*color:var\(--k-success-fg\)/);
-  });
-
-  it('marks the selected segment with the segment’s own shape, never a stray edge', () => {
-    // A segment is a CHEVRON (clip-path), and `clip-path` clips a child's
-    // rendering — so a rectangular ring on the inset `.pick` lost its left and
-    // right strokes in the two notches and survived as two detached horizontal
-    // bars; at the ends of the lane its square corners sat inside the lane's
-    // `--k-radius-lg`, which read as the mark being shifted off the block it
-    // marks. The underline that replaced it had the same problem from the other
-    // side: it read as a stray bottom border on the segment. Selection is drawn
-    // as the chevron ring, sharing one shape with focus.
-    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
-    expect(ring).toContain('.track .seg.sel .pick,');
-    expect(ring).toContain('.track .seg:first-child.sel .pick,');
-    expect(ring).toContain('.track .seg:last-child.sel .pick,');
-    // Focus outranks selection on a segment that is both, so it is stated LAST —
-    // and it is what drops the outline, so the two can never both be missing.
-    const focusLast = ring.lastIndexOf('.track .seg .pick:focus-visible{outline:0');
-    expect(focusLast, 'focus does not win the ring colour').toBeGreaterThan(
-      ring.indexOf('.track .seg.sel .pick,'),
-    );
-    // The baseline survives for a browser that cannot compute the shape — and
-    // the guard turns it off rather than painting both.
-    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:inset[^}]*var\(--k-series-2\)\}/);
-    expect(ring).toContain('.track .seg.sel{box-shadow:none}');
-    // …which only works if the baseline is declared BEFORE the guard: same
-    // specificity, so a later baseline would win and the underline would come
-    // back underneath the ring.
-    expect(HTML.indexOf('.track .seg.sel{box-shadow:inset')).toBeLessThan(
-      HTML.indexOf('@supports (width: calc(1px * hypot'),
-    );
-  });
-
-  it('draws the ring flush to the segment, joined without crossing itself', () => {
-    // Brace-balanced, not `[\s\S]*?\n  }` — this test asserts on what the guard
-    // does NOT contain, so an over-capture that ran into the next rule would
-    // read a later `--k-focus-offset` as this block's.
-    const at = HTML.indexOf('@supports (width: calc(1px * hypot');
-    let depth = 0;
-    let end = at;
-    for (let i = HTML.indexOf('{', at); i < HTML.length; i += 1) {
-      if (HTML[i] === '{') depth += 1;
-      else if (HTML[i] === '}') {
-        depth -= 1;
-        if (depth === 0) {
-          end = i + 1;
-          break;
-        }
-      }
-    }
-    const ring = HTML.slice(at, end);
-    expect(ring, 'the chevron ring is not behind an @supports guard').toContain('clip-path');
-    // FLUSH. An outer boundary inset by `--k-focus-offset` read as a hairline gap
-    // all the way round, and at the ends of the lane its square corners sat
-    // inside the lane's own `--k-radius-lg`. On the segment's own edge, the
-    // lane's rounded overflow clips ring and segment identically.
-    expect(ring, 'the ring is inset off the segment edge').not.toContain('--k-focus-offset');
-    for (const [, points] of ring.matchAll(/clip-path:polygon\(evenodd,([\s\S]*?)\)\}/g)) {
-      const pts = points!
-        .split(/,(?![^(]*\))/)
-        .map((p) => p.replace(/\s+/g, ' ').trim());
-      // Each ring opens on the segment's own polygon: its first point is the
-      // segment's, and every outer point is free of the inset vars.
-      expect(pts[0], `ring does not start on the segment corner: ${pts[0]}`).toBe('0 0');
-      // ZERO-AREA SLIT. `polygon()` is ONE contour with no move-to, so the two
-      // connectors that reach the hole REPLACE the inner edge they jump across —
-      // and that edge, with the band it bounds, is simply gone from the shape.
-      // Both earlier orderings lost the ring's left stroke that way. So the outer
-      // loop closes on its own first point, and the inner loop starts AND ends on
-      // one point: the two connectors coincide and cancel, and no edge is lost.
-      const outerEnd = pts.indexOf('0 0', 1);
-      expect(outerEnd, 'the outer loop is not closed before the hole').toBeGreaterThan(2);
-      expect(pts[outerEnd + 1], 'the hole does not close on the point it opened on')
-        .toBe(pts[pts.length - 1]);
-      // Every inner point is derived perpendicularly; none is a bare axis inset.
-      for (const p of pts.slice(outerEnd + 1)) {
-        expect(p, `inner point is not inset from the edge: ${p}`).toMatch(/var\(--r[tlrq]\)/);
-      }
-    }
-  });
-
-  it('outlines a focused segment in the segment’s own shape, with a working fallback', () => {
-    // Same defect as the selection ring, one state further: an `outline` is a
-    // rectangle, `clip-path` clips a child's rendering, so the focus ring's
-    // vertical strokes fell inside the two notches and were cut — a border that
-    // visibly did not close around the arrow it belonged to. The ring is drawn
-    // as a SHAPE instead: the chevron minus a smaller chevron (`evenodd`).
-    const ring = HTML.match(/@supports \(width: calc\(1px \* hypot[^{]*\{[\s\S]*?\n  \}/)?.[0] ?? '';
-    expect(ring, 'the chevron ring is not behind an @supports guard').not.toBe('');
-    expect(ring).toContain('clip-path:polygon(evenodd,');
-    // The inner chevron is offset PERPENDICULARLY to the edge — derived from the
-    // edge length, never the same px in both axes, which would splay the
-    // diagonals and taper the ring.
-    expect(ring).toContain('var(--trk-diag)');
-    expect(HTML).toMatch(/--trk-diag:hypot\(var\(--trk-notch\),var\(--trk-half\)\)/);
-    // Both ends of the lane carry one notch, not two.
-    expect(ring).toContain('.track .seg:first-child .pick:focus-visible');
-    expect(ring).toContain('.track .seg:last-child .pick:focus-visible');
-    // The guard exists because a browser that cannot compute the ring would drop
-    // the clip-path and keep the fill — a focus-coloured block over the whole
-    // segment. Outside it, the plain outline must survive as the indicator.
-    const outside = HTML.replace(ring, '');
-    expect(outside).toMatch(
-      /\.track \.seg \.pick:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/,
-    );
-  });
-
-  it('names the track’s two controls for a screen reader, not just a hover title', () => {
-    // Both are glyph-or-shape only — aria-label and title must carry the SAME
-    // string (UI-R21/R24).
-    expect(HTML).toMatch(/aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/);
-    expect(HTML).toMatch(/aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/);
-  });
-
   it('keeps the selection beside the host state, never inside it', () => {
     // Persisting `sel` inside `state` would mean the next pushState — which the
     // host builds from the DB — silently drops it, and would put a webview
@@ -420,8 +169,7 @@ describe('dashboard webview.html', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'),
       'utf8',
     );
-    // Literal names only. Ship rides the fixed confirmShip button markup; the
-    // other data-act values are static strings declared below. `preview-ticket-data`
+    // Literal names only. The data-act values are static strings declared below. `preview-ticket-data`
     // is the ONE local-only action: the delegated handler answers it in an explicit
     // branch BEFORE the posting path, so it never becomes a host message (same
     // carve-out as the constant CONSOLE_ACT, which reads `data-console`).
@@ -434,15 +182,10 @@ describe('dashboard webview.html', () => {
     // locally — view state only, no host round trip.
     // `artifact-findings-repo` (§ findings severity ramp) filters findings
     // cards client-side in the Artifacts panel — no host round trip.
-    // `baseline-view` / `baseline-reject-open` / `baseline-reject-cancel`
-    // (@arch:BASELINE-REVIEW) are the same carve-out: the Old|New|Difference
-    // tab and the reject form's open/close are view state. Only approve and reject (with a
-    // validated reason) reach the host.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
       .map((m) => m[1]!)
       .filter(
         (act) => act !== 'preview-ticket-data'
-          && !['baseline-view', 'baseline-reject-open', 'baseline-reject-cancel'].includes(act)
           && act !== 'toggle-base-form'
           && act !== 'toggle-rebase-switch'
           && act !== 'artifact-findings-repo'
@@ -453,115 +196,6 @@ describe('dashboard webview.html', () => {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);
     }
     expect(emitted).not.toContain('switch-agent');
-  });
-
-  /**
-   * Guards on the rail's decoration geometry.
-   *
-   * Be honest about what these are: a text assertion CANNOT catch a visual
-   * regression. It cannot tell you the ring is clipped, fused, or painted under
-   * a connector — only that the rule which stops that is still in the file. Each
-   * one below was written after reproducing the defect in a browser, and each
-   * exists so the fix cannot be quietly deleted by someone tidying the CSS.
-   * Re-verifying the pixels needs F5 (or the iframe harness).
-   */
-  it('keeps the lane scrollable, never clipped', () => {
-    // overflow:hidden is what turned an over-wide track into an INVISIBLE defect:
-    // the current segment's own action button was clipped away with nothing to
-    // say so, and the two-step degradation only looked correct because of it. A
-    // scrollbar is something the user can act on; silent clipping is not.
-    expect(HTML).toMatch(/\.lane\{[^}]*overflow-x:auto/);
-    expect(HTML).not.toMatch(/\.lane\{[^}]*overflow:hidden/);
-    // …and the wrapper no longer needs a scroller of its own.
-    expect(HTML).not.toMatch(/\.railwrap\{[^}]*overflow-x:auto/);
-  });
-
-  it('degrades in three measured steps, each of which drops something', () => {
-    // Two was the first draft and it did not fit: at a 397px lane five of the
-    // eight mockup cases were still over after `tight`.
-    for (const step of ['snug', 'tight', 'bare']) {
-      const rules = HTML.match(new RegExp(`\\.track\\.${step}[^{]*\\{[^}]*\\}`, 'g')) ?? [];
-      expect(rules.length, `no .track.${step} rule`).toBeGreaterThan(0);
-      expect(
-        rules.some((r) => /display:none|min-width:0|padding/.test(r)),
-        `.track.${step} drops nothing`,
-      ).toBe(true);
-    }
-  });
-
-  it('never hides the current segment’s name or its action, at any step', () => {
-    // The floor: the name says where the ticket is and the button says what is
-    // wanted. Both survive to 300px; only annotations are given up.
-    const hiders = HTML.match(/\.track\.(?:snug|tight|bare)[^{]*\{[^}]*display:none[^}]*\}/g) ?? [];
-    for (const rule of hiders) {
-      const selector = rule.slice(0, rule.indexOf('{'));
-      expect(selector, 'a step hides the current segment’s name').not.toMatch(/\.seg\.cur \.nm[,{\s]*$/);
-      expect(selector, 'a step hides the current segment’s action').not.toMatch(/\.seg\.cur \.go/);
-    }
-  });
-
-  it('measures rather than positions — the track pushes no geometry from the host', () => {
-    // The old rail bolted a second lane to specific columns with calc() inputs
-    // written inline from state.rail.geometry. There is no second lane, so the
-    // one measurement left picks a class and positions nothing.
-    expect(HTML).toContain('lane.scrollWidth > lane.clientWidth');
-    expect(HTML).not.toMatch(/--cols:\$\{/);
-    expect(HTML).toMatch(/window\.addEventListener\('resize', place\)/);
-  });
-
-  it('lets the stage palette win the hue, because the segment never claims it', () => {
-    // `.track .seg` is (0,2,0); the injected `stg-<stage>` classes are (0,1,0), so
-    // a `color`/`--stg-color` on the scoped rule beats them at ANY source order
-    // and every travelled segment renders neutral grey — which silently kills the
-    // one thing the wash exists to say. The old `.st` rule tied at (0,1,0) and
-    // lost to the later injection; scoping is what broke that tie.
-    const base = HTML.match(/\.track \.seg\{[^}]*\}/)?.[0] ?? '';
-    expect(base, 'the base segment rule must not set a colour').not.toMatch(/(^|[;{])color:/);
-    expect(base, 'the base segment rule must not set --stg-color').not.toContain('--stg-color:');
-    // Untravelled is neutral by its own class, not by the base rule's default.
-    expect(HTML).toMatch(/\.track \.seg\.pending\{color:var\(--k-text-faint\)\}/);
-    expect(HTML).toMatch(/pending: 'pending'/);
-  });
-
-  it('fills travelled Scope segments with their approved background, else the wash (869ej2cfz)', () => {
-    // passed and running are the two fills that paint STAGE identity; the status
-    // overrides (needs/failed/skipped/sel) must stay untouched.
-    expect(HTML).toMatch(
-      /\.track \.seg\.passed\{background:var\(--stg-bg,color-mix\(in srgb,var\(--stg-color,var\(--k-pending\)\) 20%,transparent\)\);/,
-    );
-    expect(HTML).toMatch(
-      /\.track \.seg\.running\{background:var\(--stg-bg,color-mix\(in srgb,var\(--stg-color,var\(--k-pending\)\) 34%,transparent\)\);/,
-    );
-  });
-
-  // P2-18: a stage whose every gate was disabled is BYPASSED — the rail must
-  // render it distinctly from passed (a different class, a different glyph),
-  // never with the green ✓ a real gate pass wears.
-  it('renders a bypassed stage with its own class and glyph, distinct from passed', () => {
-    expect(HTML).toMatch(/bypassed: 'bypassed'/);
-    expect(HTML).toMatch(/bypassed: '⊘'/);
-    // The passed glyph is the checkmark; bypassed must not carry it.
-    expect(HTML).toMatch(/passed: '✓'/);
-    expect(HTML).not.toMatch(/bypassed: '✓'/);
-    expect(HTML).toMatch(/\.track \.seg\.bypassed\{/);
-  });
-
-  it('scopes every track selector, so it cannot collide with the strip', () => {
-    // The dashboard owns `.ph*` (panel headers) and the inside ledger owns the
-    // `.p*` row classes (the activity strip `.act` was retired with the
-    // legacy inside block, Task 3); an unscoped `.seg`/`.fixm` would silently
-    // restyle them.
-    expect(HTML).not.toMatch(/^\s*\.seg\{/m);
-    expect(HTML).not.toMatch(/^\s*\.fixm\{/m);
-    expect(HTML).toMatch(/\.track \.seg\{/);
-    expect(HTML).toMatch(/\.track \.fixm\{/);
-  });
-
-  it('stops the spinner and the needs-you breathe under reduced motion (UI-R30)', () => {
-    const rm = HTML.match(/@media \(prefers-reduced-motion:reduce\)\{[\s\S]*?\n  \}/)?.[0] ?? '';
-    expect(rm).toContain('.spin');
-    expect(rm).toContain('.track .seg.needs');
-    expect(rm).toContain('animation:none');
   });
 
   it('keeps the server filter beside the host state, like the selection', () => {
@@ -577,34 +211,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toContain('implPhases');
   });
 
-  /**
-   * Confirm-ship progress feedback. The bug: clicking Confirm ship kicked off
-   * slow backend work (model call + `gh pr create`) with zero UI change until it
-   * finished — the button looked inert and users could not tell the click even
-   * registered. Live feedback now rides the generic inside-progress protocol
-   * (Finding 12): the host streams `active`/`completed`/`cleared` ship events
-   * that overlay the ledger, and the click's own pending lifecycle is keyed to
-   * `shipRequestId` — the same runtime every other control uses. The old
-   * `shipping` flag and its flat `ship-progress` overlay are gone.
-   */
-  it('registers the confirm-ship click before the host round trip', () => {
-    expect(HTML).toMatch(/act === 'ship-ticket'/);
-    expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
-    expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
-  });
-
-  it('guards against a double confirm-ship submit while one is in flight', () => {
-    expect(HTML).toMatch(/if \(shipRequestId\) return/);
-  });
-
-  it('holds the ship header slot across state pushes until the stage resolves', () => {
-    expect(HTML).toMatch(/function renderShip\(\)[\s\S]*?karst:shipState[\s\S]*?shipRequestId/);
-    expect(HTML).toMatch(/stageCurrent === 'ship'/);   // resolveShipping still keys off host truth
-    expect(HTML).toMatch(/status === 'failed'/);
-    expect(HTML).not.toMatch(/if \(shipping\)/);
-    expect(HTML).not.toContain('id="now"');
-  });
-
   it('feeds live Ship events through the generic inside-progress protocol, never a flat overlay', () => {
     // Finding 12: the per-repo/per-step `ship-progress` stream is gone; ship's
     // lifecycle rides the same `inside-progress` union as gates and Fix, and
@@ -616,50 +222,6 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/shipOps|seedShipOps/);
     expect(HTML).not.toMatch(/renderInside\(shippingView/);
     expect(HTML).not.toMatch(/renderInsideFlat/);
-  });
-
-  it('sends the repo along with the click, so the host can resolve the worktree', () => {
-    // Goes through the generic pending path (unlike merge-pr, resolve-conflicts
-    // is not one of the three long-running actions that settle from a state
-    // push), so it carries a requestId same as every other generic control.
-    expect(HTML).toMatch(/karstSend\.resolveConflicts\(btn\.dataset\.repo, requestId\)/);
-  });
-
-  it('resolves the ship to an explicit success toast', () => {
-    // On completion the indicator settles to a clear success beat, distinct from
-    // the idle and processing states — the header toast now carries it.
-    expect(HTML).toMatch(/shipDone = 'success'/);
-    expect(HTML).toMatch(/shipped: shipDone === 'success'/);   // the header toast (app/ShipControls.tsx) shows it
-  });
-
-  it('guards the merge click against a double fire and clears it on the next state', () => {
-    // Merging is irreversible: a second click while the host's confirmation is up
-    // must not post a second request, and the pending flag must not be able to
-    // stick (the host pushes state on success, failure, AND cancel).
-    const pendingAt = HTML.indexOf('mergeRequests = { ...mergeRequests');
-    expect(pendingAt).toBeGreaterThan(-1);
-    expect(HTML).toContain('if (!repo || mergeRequests[repo]) return;');
-    // Cleared unconditionally on every state push — resolveMergeOutcome() is
-    // called before this and settles each outstanding request first.
-    expect(HTML).toContain('mergeRequests = {};');
-    expect(HTML).toMatch(/function resolveMergeOutcome/);
-  });
-
-  it('settles a merge request from the fresh PR list, never as a false failure', () => {
-    // The only outcome the webview can verify over this channel is "merged".
-    // Anything else settles unknown (null), never false — a user who simply
-    // cancelled the host's confirmation dialog must not be told the merge
-    // failed (UI-R14: unknown is a different claim from failed).
-    const fn = HTML.match(/function resolveMergeOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
-    expect(fn).toMatch(/merged \? true : null/);
-    expect(fn).not.toMatch(/karstSettle\([^)]*,\s*false/);
-  });
-
-  it('carries no requestId on the merge-pr wire payload — it settles from state', () => {
-    // UI-R37: merge-pr keeps posting only {type:'merge-pr', repo}. Attaching
-    // the generic requestId would make extension.ts's immediate (unawaited)
-    // ack settle the button long before the real merge finishes.
-    expect(HTML).toMatch(/karstSend\.mergePr\(repo\);/);
   });
 
   it('never lets the webview choose the merge strategy', () => {
@@ -784,22 +346,14 @@ describe('dashboard webview.html', () => {
    * `mergePending`, `prRefreshing`. All three are gone — `shipping` with the
    * legacy ship-progress overlay it drove (Finding 12) — replaced by
    * requestId-keyed state that reports a real terminal outcome instead of
-   * clearing identically on every state push.
+   * clearing identically on every state push. Ship and merge keep theirs in
+   * React now (app/pendingOps.ts), so the page holds neither request.
    */
   it('replaces the three ad-hoc pending booleans with the runtime lifecycle', () => {
     expect(HTML).not.toMatch(/\bmergePending\b/);
     expect(HTML).not.toMatch(/\bprRefreshing\b/);
     expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
-    expect(HTML).toMatch(/let mergeRequests = \{\}/);
-    expect(HTML).toMatch(/let shipRequestId = null/);
-  });
-
-  it('gives merge the consequential-primary variant (UI-R10b), and ship and refresh the runtime pending lifecycle', () => {
-    // Merge is NOT danger-colored merely because it is consequential — the
-    // confirmation stays host-side (UI-R10b: "Merge is not automatically
-    // danger-colored merely because it is consequential").
-    expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
-    expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
+    expect(HTML).not.toMatch(/let mergeRequests|let shipRequestId|let shipDone/);
   });
 
   it('handles action-result in the message listener, settling through karstSettle', () => {
@@ -824,22 +378,6 @@ describe('dashboard webview.html', () => {
     // are karstSend.* senders from webviewSend.ts — never a raw post.
     expect(generic).toMatch(/SEND_BY_ACT\[act\]/);
     expect(generic).toMatch(/send\(btn, requestId\)/);
-  });
-
-  /**
-   * Every `.k-iconbtn`/icon-only control in this file: the rail/fix nodes
-   * (glyph-only), the panel header refresh/diff icons, and the copy-branch icon
-   * (the Servers panel's own actions are React: ServersPanel.test.tsx) all carry a matching
-   * aria-label + title pair (UI-R19–R21, R24).
-   */
-  it('gives every icon-only control a matching aria-label and title', () => {
-    const iconOnlyBlocks = [
-      /aria-label="\$\{esc\(aria\)\}" title="\$\{esc\(aria\)\}"/, // track segment select
-      /aria-label="\$\{esc\(label\)\}" title="\$\{esc\(label\)\}"/, // the retry meter
-    ];
-    for (const re of iconOnlyBlocks) {
-      expect(HTML, `missing matching aria-label/title for ${re}`).toMatch(re);
-    }
   });
 
   it('titles every previously-untitled control named in the remediation brief', () => {
@@ -868,12 +406,10 @@ describe('dashboard webview.html', () => {
 
   it('marks the optimistic copy confirmation as such, and only for the copy actions (UI-R15)', () => {
     expect(HTML).toMatch(/Optimistic feedback for the copy button \(UI-R15\)/);
-    // Never invoked from ship/merge/refresh — the three mutations this task
-    // wires to real terminal outcomes.
-    const shipBranch = HTML.slice(HTML.indexOf("if (act === 'ship-ticket')"), HTML.indexOf("if (act === 'merge-pr')"));
-    const mergeBranch = HTML.slice(HTML.indexOf("if (act === 'merge-pr')"), HTML.indexOf("if (act === 'refresh-ship-preview')"));
-    expect(shipBranch).not.toContain('flashCopied');
-    expect(mergeBranch).not.toContain('flashCopied');
+    // Called from exactly one place, behind the copy marker — never from a mutation wired to a real terminal
+    // outcome (ship, merge and refresh are React's now and flash through their own state).
+    expect(HTML).toMatch(/if \(btn\.hasAttribute\('data-copy'\)\) flashCopied\(btn\);/);
+    expect(HTML.match(/flashCopied\(/g)).toHaveLength(2);
   });
 
   it('gives every rounded pill in the file the shared .k-chip primitive (UI-R08)', () => {
@@ -887,8 +423,8 @@ describe('dashboard webview.html', () => {
   });
 
   it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
+    // The selection mark's own rule moved to app/Rail.css (guarded in Rail.css.test.ts).
     expect(HTML).not.toMatch(/#8957e5|#a371f7|#8a63d2|#c297ff/);
-    expect(HTML).toMatch(/\.track \.seg\.sel\{box-shadow:[^}]*var\(--k-series-2\)/);
   });
 
   it('gives every native <summary> disclosure its own focus-visible ring', () => {
@@ -919,109 +455,6 @@ describe('dashboard webview.html', () => {
     // The old provider-mark hover carried the WHOLE brief on a tiny icon; the
     // button owns the preview now, so the giant title tooltip is gone.
     expect(HTML).not.toMatch(/mark\.setAttribute\('title', esc\(state\.brief\)\)/);
-  });
-
-  it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
-    expect(HTML).toContain('<div class="fault blocked hidden" id="blocked">');
-    expect(HTML).toMatch(/function renderBlocked\(state\)/);
-    expect(HTML).toMatch(/cell && cell\.blocked/);
-    expect(HTML).toMatch(/box\.classList\.toggle\('hidden', !show\)/);
-    expect(HTML).toContain('renderBlocked(state);');
-  });
-
-  it('resumes a blocked stage on its own dataset key, never the rail\'s selection one', () => {
-    // The rail's stage-selection click handler matches ANY `[data-stage]`
-    // ancestor via `closest`, so the Resume button must use a differently
-    // named attribute — `data-stagekey` — or clicking it would also silently
-    // re-point the Inside panel to whatever stage it names.
-    const renderBlockedBody = HTML.slice(
-      HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('function renderShip()'),
-    );
-    expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
-    expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
-    expect(renderBlockedBody).not.toMatch(/data-stage="/);
-  });
-
-  it('renders NO banner for an awaiting-merge wait — the wait lives in the header chip and Inside view', () => {
-    // A ticket parked at `ship` blocked with `awaiting-merge` is not a fault —
-    // it's a normal wait for a PR to land. The header already shows a
-    // "Waiting to merge" chip (state.ship waiting-merge) and the Inside ship
-    // view's merge process rows carry the detail (per-repo PR state, conflict
-    // paths). A separate blocked banner would be a THIRD surface for the same
-    // fact — the legacy block this fault chain exists to remove. So the
-    // awaiting-merge branch renders nothing: the box stays hidden and empty,
-    // and the banner is reserved for resumable blocks (real faults) with a
-    // Resume action.
-    const renderBlockedBody = HTML.slice(
-      HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('function renderShip()'),
-    );
-    // The RESUMABILITY verdict is the host's `resumable` flag, never a
-    // reason-string match in the webview, and the box is hidden for anything
-    // that must not render.
-    expect(renderBlockedBody).toMatch(/blocked\.resumable !== false/);
-    expect(renderBlockedBody).toMatch(/box\.classList\.toggle\('hidden', !show\)/);
-    // The non-resumable branch must hide the box and render nothing — it must
-    // return before ever reaching the Resume-button markup and must not paint
-    // a "Waiting to merge" banner.
-    const nonResumableBranch = renderBlockedBody.slice(
-      renderBlockedBody.indexOf('if (!show)'),
-      renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
-    );
-    expect(nonResumableBranch).toMatch(/box\.innerHTML = ''/);
-    expect(nonResumableBranch).not.toContain('Waiting to merge');
-    expect(nonResumableBranch).not.toMatch(/data-act="stage-resume"/);
-    expect(nonResumableBranch).not.toMatch(/karstIcon\(/);
-    // The old amber `.fault.waiting` treatment is gone with the banner it
-    // styled — a wait is no longer a banner at all.
-    expect(HTML).not.toMatch(/\.fault\.waiting/);
-  });
-
-  it('renders the blocked banner for a non-resumable usage-limit park, with Pick/Retry/Dismiss controls (D159)', () => {
-    const renderBlockedBody = HTML.slice(
-      HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('function renderShip()'),
-    );
-    // The host verdict still gates the box, and the park is one of the kinds
-    // that keeps it visible (like baseline-review) so the user can see WHY the
-    // stage stopped. It carries the reason and NO Resume — a retry cannot reset
-    // a quota; D159 adds the pick/retry/dismiss actions.
-    expect(renderBlockedBody).toMatch(/blocked\.kind === 'usage-limit'/);
-    expect(renderBlockedBody).toMatch(/blocked\.resumable !== false \|\| review \|\| usageLimit/);
-    const branch = renderBlockedBody.slice(
-      renderBlockedBody.indexOf('if (usageLimit)'),
-      renderBlockedBody.indexOf('if (review)'),
-    );
-    expect(branch).toContain('Provider out of quota');
-    expect(branch).toMatch(/esc\(blocked\.reason\)/);
-    expect(branch).not.toMatch(/data-act="stage-resume"/);
-    expect(branch).toMatch(/data-act="usage-limit-pick"/);
-    expect(branch).toMatch(/data-act="usage-limit-retry"/);
-    expect(branch).toMatch(/data-act="usage-limit-dismiss"/);
-    expect(branch).toContain('Pick agent/model…');
-    expect(branch).toContain('Retry same');
-    expect(branch).toContain('Dismiss');
-  });
-
-  it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
-    // The generic path routes through SEND_BY_ACT; stage-resume's entry carries
-    // ITS OWN ticketId/stageKey (the host re-validates both) via the typed sender.
-    expect(HTML).toMatch(
-      /karstSend\.stageResume\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
-    );
-  });
-
-  it('posts usage-limit-pick, usage-limit-retry, and usage-limit-dismiss with ticket id and stage key (D159)', () => {
-    expect(HTML).toMatch(
-      /karstSend\.usageLimitPick\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
-    );
-    expect(HTML).toMatch(
-      /karstSend\.usageLimitRetry\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
-    );
-    expect(HTML).toMatch(
-      /karstSend\.usageLimitDismiss\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
-    );
   });
 
   it('leaves stop-driver unreachable from the rendered UI (tracked, not silently wired)', () => {
@@ -1687,7 +1120,8 @@ describe('dashboard webview.html', () => {
     // reduced-motion block is a (0,1,0) rule, so a later scoped rule such as
     // `.inside-head .alive .spin` (0,3,1) would win by specificity and spin
     // again under reduced motion.
-    for (const scoped of ['.inside-head .alive .spin', '.track .seg .spin']) {
+    // (`.track .seg .spin`, the rail's, moved to app/Rail.css and is guarded in Rail.css.test.ts.)
+    for (const scoped of ['.inside-head .alive .spin']) {
       expect(HTML, `${scoped} re-declares an animation`).not.toMatch(
         new RegExp(`${scoped.replace('.', '\\.')}\\{[^}]*animation`),
       );
@@ -1987,8 +1421,6 @@ function previewElement(id: string, initial: string[] = []) {
     disabled: false,
     hidden: false,
     dataset: {} as Record<string, string>,
-    scrollWidth: 100,
-    clientWidth: 100,
     attrs,
     classes,
     classList: {
@@ -2092,8 +1524,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
   for (const id of [
     'servers',
     'inside',
-    'rail',
-    'blocked',
     'ticketDataScrim',
     'ticketDataDrawer',
     'ticketDataTitle',
@@ -2141,8 +1571,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
   const posted: unknown[] = [];
 
   const appendedScripts: Array<{ nonce: string; textContent: string }> = [];
-  const lane = { scrollWidth: 100, clientWidth: 100 };
-  const track = { classList: previewElement('track').classList, querySelector: (sel: string) => (sel === '.lane' ? lane : null) };
 
   const documentDouble = {
     getElementById: (id: string) => elements[id] ?? null,
@@ -2154,7 +1582,6 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     // The env editor reads its textarea by `[data-env-scope="…"]`; the harness
     // answers with a stub carrying whatever the test typed into that scope.
     querySelector: (sel: string) => {
-      if (sel === '.track') return track;
       if (sel === 'script[nonce]') return { nonce: 'HARNESS-NONCE' };
       const m = /^\[data-env-scope="(.*)"\]$/.exec(sel);
       if (m) return { value: envTextareas[m[1]!] ?? '' };
@@ -2583,65 +2010,7 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).not.toMatch(/class="glyph run"/);
     // The strip header's clock stops at the block's own timestamp, never at now.
     expect(html).toContain('· 33m 42s elapsed');
-    // The stage strip's segment for the blocked stage carries no spinner.
-    expect(h.htmlOf('rail')).not.toContain('<span class="spin"');
-  });
-
-  it('renders NO banner for a non-resumable awaiting-merge block', () => {
-    // `awaiting-merge` is the one block a retry cannot clear — the merge sweep
-    // clears it when the PR lands. It is not a fault: the wait is already
-    // carried by the header "Waiting to merge" chip and the Inside ship view's
-    // merge process rows, so the dashboard must not also paint a blocked
-    // banner for it (the legacy block this fault chain removes). Resumability
-    // is the host's `resumable` flag, never a reason-string match.
-    const store = openStore(':memory:');
-    const t = createTicket(store, { key: 'AWM-1', title: 'awaiting merge at ship' });
-    setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
-    parkGateStage(store, {
-      ticketId: t.id,
-      stageKey: 'ship',
-      kind: 'awaiting-merge',
-      reason: 'PR #412 is open and unmerged',
-      runAt: '2026-08-09T10:33:42.000Z',
-      gates: [],
-    });
-    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
-    const state = buildDashboardState(store, t.id);
-    store.close();
-
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state });
-    // The blocked banner stays hidden and empty for an awaiting-merge wait.
-    expect(h.classesOf('blocked')).toContain('hidden');
-    expect(h.htmlOf('blocked')).toBe('');
-    // The wait is NOT lost: the React header's ship chip carries it (app/ShipControls.test.tsx).
-  });
-
-  it('offers Resume on an unmapped-repository block', () => {
-    // The block's own reason tells the user to edit karst.yml; once they
-    // have, a retry is the only way forward and nothing sweeps this block
-    // clear on its own. Withholding the button would strand the ticket.
-    const store = openStore(':memory:');
-    const t = createTicket(store, { key: 'UNM-1', title: 'unmapped at uat' });
-    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
-    parkGateStage(store, {
-      ticketId: t.id,
-      stageKey: 'uat',
-      kind: 'unmapped-repository',
-      reason: 'these worktrees match no repository in karst.yml: /unmapped',
-      runAt: '2026-08-09T10:33:42.000Z',
-      gates: [],
-    });
-    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
-    const state = buildDashboardState(store, t.id);
-    store.close();
-
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state });
-    const banner = h.htmlOf('blocked');
-    expect(banner).toContain('these worktrees match no repository in karst.yml: /unmapped');
-    expect(banner).toContain('data-act="stage-resume"');
-    expect(banner).toContain('data-stagekey="uat"');
+    // (The rail segment's spinner is the React rail's: app/Rail.test.tsx.)
   });
 
   // ── the approved prototype ledger (Task 3) ──────────────────────────────
@@ -4595,24 +3964,6 @@ describe('baseline review (executed in a VM)', () => {
     return h;
   };
 
-  it('the blocked banner is "Review baselines" with one row per file: Old | New | Difference, state words, Approve/Reject — and no Resume', () => {
-    const banner = open().htmlOf('blocked');
-    expect(banner).toContain('Review baselines');
-    expect(banner).not.toContain('stage-resume');
-    expect(banner).toContain('2 of 3 changed baselines need your approval');
-    expect(banner).toContain('a/settings.png');
-    for (const word of ['Old', 'New', 'Difference']) expect(banner).toContain(`>${word}</button>`);
-    // The default view of a modified image is the difference: both images, stacked.
-    expect(banner).toMatch(/class="bldiff"><img src="vscode-webview:\/\/x\/old.png"[\s\S]*<img src="vscode-webview:\/\/x\/new.png"/);
-    // State is a visible WORD with a glyph, not colour alone (UI-R28).
-    expect(banner).toContain('○ Needs review');
-    expect(banner).toContain('✓ Approved');
-    expect(banner).toContain('✕ Rejected');
-    expect(banner).toContain('Rejected: ledger grew');
-    expect(banner).toContain('data-indices="0,2"');
-    expect(banner).toContain('No preview for this file type');
-  });
-
   it('the UAT report only LISTS the baselines — no Approve/Reject, no images (@arch:SHELF)', () => {
     const h = open();
     h.click('[data-art-open]', { artOpen: 'uat-report' });
@@ -4625,45 +3976,6 @@ describe('baseline review (executed in a VM)', () => {
     expect(detail).not.toContain('<img');
   });
 
-  it('toggles the view locally with aria-pressed, an added file showing New by default', () => {
-    const h = open();
-    h.click('[data-act]', { act: 'baseline-view', index: '0', view: 'old' });
-    const banner = h.htmlOf('blocked');
-    expect(banner).toMatch(/data-view="old"[^>]*aria-pressed="true"/);
-    expect(banner).toMatch(/data-view="diff"[^>]*aria-pressed="false"/);
-    expect(banner).not.toContain('class="bldiff"');
-    expect(banner).toMatch(/data-index="1" data-view="new" aria-pressed="true"/);
-    expect(h.posted.filter((m) => (m as { type?: string }).type?.startsWith('baseline'))).toEqual([]);
-  });
-
-  it('Approve all posts the block id and indices only', () => {
-    const h = open();
-    h.click('[data-act]', { act: 'baseline-approve', blockId: 'baseline-review', indices: '0,2' });
-    expect(h.posted.find((m) => (m as { type?: string }).type === 'baseline-approve')).toMatchObject({
-      type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 2],
-    });
-  });
-
-  it('Reject requires a reason: an empty one names the field and posts nothing', () => {
-    const h = open();
-    h.click('[data-act]', { act: 'baseline-reject-open', index: '0' });
-    expect(h.htmlOf('blocked')).toContain('id="blreason-0"');
-    h.click('[data-act]', { act: 'baseline-reject', blockId: 'baseline-review', index: '0' });
-    const banner = h.htmlOf('blocked');
-    expect(banner).toMatch(/aria-invalid="true"[^>]*aria-describedby="blreason-err-0"/);
-    expect(banner).toContain('A reason is required.');
-    expect(h.posted.some((m) => (m as { type?: string }).type === 'baseline-reject')).toBe(false);
-  });
-
-  it('Reject posts the typed reason with the entry index', () => {
-    const h = open();
-    h.click('[data-act]', { act: 'baseline-reject-open', index: '0' });
-    h.input('[data-bl-reason]', { blReason: '0' }, 'wrong colour');
-    h.click('[data-act]', { act: 'baseline-reject', blockId: 'baseline-review', index: '0' });
-    expect(h.posted.find((m) => (m as { type?: string }).type === 'baseline-reject')).toMatchObject({
-      type: 'baseline-reject', blockId: 'baseline-review', index: 0, reason: 'wrong colour',
-    });
-  });
 });
 
 describe('artifacts render round trip (executed in a VM)', () => {
@@ -5103,23 +4415,16 @@ describe('passive store-state refreshes', () => {
     const state = renderStateFor('uat');
     h.receive({ type: 'state', state });
 
-    h.click('[data-act]', { act: 'ship-ticket' });
-    h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
+    // (Ship and merge are React's now; their passive-push behaviour is pinned in app/pendingOps.test.ts.)
     h.click('[data-act]', { act: 'send-back-to-implement' });
-    expect(h.posted).toEqual([
-      { type: 'ship-ticket' },
-      { type: 'merge-pr', repo: '/repo/a' },
-      { type: 'send-back-to-implement' },
-    ]);
+    expect(h.posted).toEqual([{ type: 'send-back-to-implement' }]);
 
     // Interactive usage changed the store snapshot, but none of these actions
     // produced this message. Their request ids must remain pending.
     h.receive({ type: 'state', state, supplemental: false, settlesActions: false });
 
-    h.click('[data-act]', { act: 'ship-ticket' });
-    h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
     h.click('[data-act]', { act: 'send-back-to-implement' });
-    expect(h.posted).toHaveLength(3);
+    expect(h.posted).toHaveLength(1);
   });
 });
 

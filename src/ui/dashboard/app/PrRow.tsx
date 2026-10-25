@@ -226,7 +226,7 @@ export const PrRow = memo(function PrRow({ p, m, ciOffer, mergeBusy, dismissBusy
         <span className="pacts">
           {p.dismissedLabel ? <span className="pstamp">{p.dismissedLabel}</span> : null}
           <DismissButton p={p} api={api} busy={dismissBusy} />
-          <MergeButton p={p} api={api} busy={mergeBusy} />
+          <MergeButton p={p} busy={mergeBusy} />
         </span>
       </div>
       <Meta p={p} />
