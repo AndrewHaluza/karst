@@ -1,0 +1,137 @@
+/**
+ * The dashboard header's rules (identity, agent button and popover, ship and wait chips, the "..." menu and its
+ * gate toggles). Moved out of webview.html with the markup (migration plan A6). `.menuButton` stays in the page:
+ * the Inside stage menu shares it.
+ */
+/* Header (prototype v8): ticket identity + agent identity + ship action + … menu. */
+.dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+.ticketIdentity{display:inline-flex;align-items:center;gap:var(--k-space-3);flex:none}
+.ticketIdentity .provicon{width:var(--k-space-7);height:var(--k-space-7)}
+.dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
+.ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
+.ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+/* The header's provider-native priority chip. A READ-only provider fact, so
+   it is a plain span on the shared `.k-chip` pill shape (UI-R08), never a
+   control. Local color only: the priority label is provider-authored copy,
+   not a workflow state, so it gets no semantic feedback token. */
+.prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
+.ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
+.headerMeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
+.headerMeta[hidden]{display:none}
+.capabilityLabels{display:contents}
+.capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
+.capChip .capModel{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--k-font-mono)}
+.headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
+.agentWrap,.menuWrap{position:relative}
+.agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
+.agentButton:hover:not(:disabled){background:var(--k-surface-hover);border-color:var(--k-border)}
+.agentButton:disabled{opacity:.72;cursor:default}
+.agentButton .agentSep{color:var(--k-text-faint);flex:none}
+.agentMeta{min-width:0;max-width:calc(var(--k-space-8) * 9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.agentLive{display:inline-flex;align-items:center;gap:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap;flex:none}
+.agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
+.agentLiveDot.running{background:var(--k-running)}
+.agentLiveDot.waiting{background:var(--k-attention)}
+.agentLiveDot.not-started{background:var(--k-attention)}
+/* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
+   svg carries no intrinsic size — the shared `.k-icon` rule applies only
+   the stroke treatment — so an unsized one renders at the browser's default
+   replaced-object size: in the agent button's unclipped flex row that
+   ballooned to ~275px and inflated the whole header. Every other icon in
+   this file carries its size (the panel headers' width/height attributes,
+   `.ib svg`); these five did not. */
+.dhead .k-icon{width:var(--k-space-7);height:var(--k-space-7)}
+/* The two popovers — agent switch form + ticket-controls menu (UI-R04: composed
+   from control-height tokens, no raw widths). */
+.popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+.popover.hidden{display:none}
+.popover.open{display:block}
+/* 26 control-heights: model ids are long, and at 20 every model row
+   ellipsised. Still composed from control tokens (UI-R04), still clamped to
+   the viewport so a narrow editor column never overflows. */
+.agentPopover{width:calc(var(--k-control-h-lg) * 26);max-width:calc(100vw - var(--k-space-8));padding:0}
+.menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
+.agentForm{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--k-space-3);padding:var(--k-space-4)}
+/* The label column is max-content, never a fixed step: "Agent core" is wider
+   than any spacing token, and a 20px column let the right-aligned label spill
+   out of the popover's left edge and over whatever sat beside it. `contents`
+   dissolves the row wrapper so label + control place straight into the two
+   columns; the help line takes the control column, so it can never drift from
+   the controls' indent. */
+.fieldRow{display:contents}
+.fieldLabel{margin:0;color:var(--k-text-faint);font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);line-height:1;text-align:right;white-space:nowrap}
+.fieldControl{min-width:0}
+.fieldHelp{grid-column:2;color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
+.popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+.menuHeading{margin:var(--k-space-2) var(--k-space-4) var(--k-space-3);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+.menuDivider{height:1px;background:var(--k-border);margin:var(--k-space-3)}
+.settingRow{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-4)}
+.settingCopy{min-width:0;flex:1}
+.settingTitle{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+.settingHelp{margin-top:1px;color:var(--k-text-faint);font-size:var(--k-text-2xs);line-height:1.35}
+.k-switch{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.k-switch input{position:absolute;opacity:0;pointer-events:none}
+.gateGroup{margin:0 var(--k-space-3) var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);overflow:hidden}
+.gateHead{min-height:var(--k-control-h-sm);display:flex;align-items:center;padding:0 var(--k-space-4);background:var(--k-surface-sunken);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+.gateRow{min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);padding:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+.gateName{flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.gateSwitch{margin-left:auto}
+/* Select shell / dropdown — shared agent-switch picker (same pattern as
+   Settings → General, adapted to dashboard design tokens). */
+.select-shell{position:relative;min-width:0}
+.select-trigger{width:100%;min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-3);
+  padding:var(--k-space-2) calc(var(--k-space-8) + var(--k-space-3)) var(--k-space-2) var(--k-space-4);
+  text-align:left;position:relative;cursor:pointer;overflow:hidden;
+  background:var(--k-surface);color:var(--k-text);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
+  font:inherit;font-size:var(--k-text-base)}
+.select-trigger:hover{border-color:var(--k-focus)}
+.select-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.select-trigger .chev{position:absolute;right:var(--k-space-4);top:50%;transform:translateY(-50%);
+  width:var(--k-space-6);height:var(--k-space-6);flex:none;margin:var(--k-space-0);
+  background:var(--chevron) no-repeat center/var(--k-space-6)}
+.select-trigger .sel-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:var(--k-space-2)}
+.select-shell.is-open{z-index:calc(var(--k-z-drawer) + 1)}
+.dropdown{position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+  min-width:100%;z-index:var(--k-z-drawer);display:none;
+  background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);
+  border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
+.dropdown.open{display:block}
+.drop-item{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+  border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+.drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.drop-item.active,.drop-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+.model-pop{position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+  min-width:calc(var(--k-space-8) * 12);z-index:var(--k-z-drawer);display:none;overflow:hidden;
+  background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);
+  border-radius:var(--k-radius-md);box-shadow:var(--k-elev-2)}
+.model-pop.open{display:block}
+.model-search{padding:var(--k-space-3);border-bottom:var(--k-border-w) solid var(--k-border)}
+.model-search input{width:100%}
+.model-scroll{max-height:calc(var(--k-space-8) * 12);overflow:auto}
+.model-group-label{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-2xs);
+  font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+.model-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs);text-align:center}
+.model-item{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
+  padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer}
+.model-item:hover{background:var(--k-surface-hover)}
+.model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}
+.model-item.active,.model-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+.model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}
+.model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
+.model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+.model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+.menuBlurb{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+/* The header ship workflow-action slot (UI-R28b): Confirm ship / Shipping… is
+   the primary action; Waiting to merge is the parked-wait chip. The two never
+   render together — the host's ShipSlot union is mutually exclusive. The
+   min-width is `calc`-composed so the label swap (Confirm ship / Retry ship /
+   Shipping…) never shifts the neighbouring controls (UI-R18). */
+.shipAction{min-width:calc(var(--k-control-h-lg) * 3)}
+.shipWait{display:inline-flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border-radius:var(--k-radius-sm);color:var(--k-attention);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);white-space:nowrap}
+.shipWait.hidden{display:none}
+.attentionMark{width:var(--k-space-4);height:var(--k-space-4);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-2xs);line-height:1}
+.toast{color:var(--k-success);font-size:var(--k-text-xs);opacity:0;transition:opacity var(--k-dur-fast) var(--k-ease-standard);white-space:nowrap}
+.toast.show{opacity:1}
+/* The Resume button inside the paused chip. */
+.shipWait > .k-btn{margin-left:var(--k-space-2)}

@@ -176,17 +176,19 @@ describe('icon use across webviews', () => {
 
   it('every static .k-icon svg in a webview carries Tabler viewBox and catalog paths', () => {
     const dSet = new Set(Object.values(TABLER_ICONS).map((p) => [...p.matchAll(/d="([^"]+)"/g)].map((m) => m[1]!).join('|')));
-    let found = 0;
+    // The React views render icons through the catalog by construction (`Icon.tsx`), so a webview may carry no static
+    // .k-icon svg at all; the guard stays to catch one being re-introduced with a non-catalog path.
+    const STATIC_ICON = /<svg\b([^>]*\bclass="[^"]*\bk-icon\b[^"]*"[^>]*)>([\s\S]*?)<\/svg>/g;
+    // Non-vacuity: the pattern must still match a static icon, or the loop below checks nothing.
+    expect([...'<svg class="k-icon" viewBox="0 0 24 24"><path d="M0 0"/></svg>'.matchAll(STATIC_ICON)]).toHaveLength(1);
     for (const name of WEBVIEWS) {
       const html = read(name);
-      for (const svg of html.matchAll(/<svg\b([^>]*\bclass="[^"]*\bk-icon\b[^"]*"[^>]*)>([\s\S]*?)<\/svg>/g)) {
-        found += 1;
+      for (const svg of html.matchAll(STATIC_ICON)) {
         expect(svg[1]!, `${name} static icon without 24 viewBox`).toContain('viewBox="0 0 24 24"');
         const d = [...svg[2]!.matchAll(/d="([^"]+)"/g)].map((m) => m[1]!).join('|');
         expect(dSet, `${name} static icon path not in catalog`).toContain(d);
       }
     }
-    expect(found, 'no static .k-icon svg found — the guard would be dead').toBeGreaterThan(0);
   });
 
   it('leaves no hand-rolled icon sprite in any webview', () => {
