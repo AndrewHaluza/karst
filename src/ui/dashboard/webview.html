@@ -3661,7 +3661,7 @@
     const deliverRow = dv && dv.available && view.stageKey === 'ship'
       ? `<div class="inside-deliver" role="status"><span>${dv.notOnPr} commit${dv.notOnPr === 1 ? '' : 's'} not on the PR`
         + `${dv.inSandbox > 0 ? ` (${dv.inSandbox} still in the sandbox)` : ''}</span>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr"`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr"${deliverRequestId ? ' aria-busy="true" disabled' : ''}`
         + ` title="Sync the sandbox, then push the branch onto the open pull request">Deliver to PR</button></div>`
       : '';
     el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
@@ -3816,7 +3816,7 @@
       wait.title = slot.repos > 0 ? `Waiting for ${slot.repos} ${slot.repos === 1 ? 'repo' : 'repos'} to be merged` : 'Waiting for the pull requests to be merged';
       return;
     }
-    if (slot.kind === 'confirm' || slot.kind === 'retry') {
+    if ((slot.kind === 'confirm' || slot.kind === 'retry') && !inFlight) {
       btn.hidden = false;
       btn.textContent = slot.kind === 'retry' ? 'Retry ship' : 'Confirm ship';
       btn.setAttribute('aria-busy', 'false');
@@ -6159,8 +6159,6 @@
     'open-ticket-link': (btn, requestId) => karstSend.openTicketLink(btn.dataset.url, requestId),
     'edit-ticket': (btn, requestId) => karstSend.editTicket(requestId),
     'open-dependency': (btn, requestId) => karstSend.openDependency(Number(btn.dataset.ticket), requestId),
-    'stop-driver': (btn, requestId) => karstSend.stopDriver(requestId),
-    'resume-ticket': (btn, requestId) => karstSend.resumeTicket(requestId),
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
     'create-subtask': (btn, requestId) => karstSend.createSubtask(requestId),
     'detach-subtask': (btn, requestId) => karstSend.detachSubtask(requestId),

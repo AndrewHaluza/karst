@@ -225,12 +225,6 @@ interface ParityCase {
   after?: (h: RenderHandle) => void;
   /** Re-open the control after the click and assert a second click posts nothing. */
   repeat?: boolean;
-  /**
-   * The vanilla view re-renders the control without its pending marker although the click was
-   * accepted (a repeat is still dropped). The REAL contract (aria-busy after click) runs in a
-   * separate `it.fails` so a fix flips it; the rest of the case asserts only what holds today.
-   */
-  pendingBug?: string;
 }
 
 const q = (h: RenderHandle, sel: string): HTMLElement | null => h.query<HTMLElement>(sel);
@@ -290,7 +284,7 @@ export const COVERED: readonly ParityCase[] = [
   { act: 'preview-ticket-data', state: () => st('impl'), sel: act('preview-ticket-data'), posts: [], pendingSel: false },
   {
     act: 'ship-ticket', state: () => shipPreviewStateFor('ready'), sel: '#confirmShip' + act('ship-ticket'),
-    posts: [{ type: 'ship-ticket' }], rid: false, pendingBug: 'renderShip() resets #confirmShip to aria-busy=false and enabled while shipRequestId is set and the slot is still confirm/retry',
+    posts: [{ type: 'ship-ticket' }], rid: false,
   },
   {
     act: 'refresh-ship-preview', state: () => shipPreviewStateFor('ready'), sel: act('refresh-ship-preview'),
@@ -413,7 +407,7 @@ export const COVERED: readonly ParityCase[] = [
   },
   {
     act: 'deliver-to-pr', state: shipMenuState, sel: act('deliver-to-pr'),
-    posts: [{ type: 'deliver-to-pr' }], rid: false, pendingBug: 'the Deliver to PR row is re-rendered without a pending marker; deliverRequestId only blocks the repeat',
+    posts: [{ type: 'deliver-to-pr' }], rid: false,
   },
   {
     act: 'inside-action', state: () => st('impl'), sel: act('inside-action', '[data-action-id="fixture:open-full-evidence:1"]'),
@@ -521,8 +515,6 @@ export const COVERED: readonly ParityCase[] = [
 
 /** Acts the guard accepts without a case — each with the reason it cannot be driven through the DOM. */
 export const NOT_COVERED: Readonly<Record<string, string>> = {
-  'stop-driver': 'in SEND_BY_ACT but no renderer in the dashboard emits data-act="stop-driver" (vestigial; the host message exists)',
-  'resume-ticket': 'in SEND_BY_ACT but no renderer in the dashboard emits data-act="resume-ticket" (vestigial; the host message exists)',
 };
 
 // ---- the coverage guard ---------------------------------------------------
@@ -592,14 +584,14 @@ describe('dashboard parity — click → posted message', () => {
       expect(h.errors).toEqual([]);
 
       c.after?.(h);
-      if (c.repeat || c.pendingBug) {
-        // The control re-renders (a menu item, or without a pending marker): re-find it; a repeat is dropped.
+      if (c.repeat) {
+        // The control re-renders (a menu item): re-find it; a repeat is dropped.
         await c.prep?.(h);
         const n = h.posted.length;
         clickEl(q(h, c.sel)!);
         expect(h.posted.length, 'repeat click posted again').toBe(n);
       }
-      if (c.posts.length === 0 || c.pendingSel === false || c.pendingBug) return;
+      if (c.posts.length === 0 || c.pendingSel === false) return;
 
       const pending = q(h, c.pendingSel ?? c.sel);
       expect(pending, `no pending marker at ${c.pendingSel ?? c.sel}`).not.toBeNull();
@@ -607,22 +599,6 @@ describe('dashboard parity — click → posted message', () => {
       const n = h.posted.length;
       clickEl(pending!);
       expect(h.posted.length, 'repeat click while pending posted again').toBe(n);
-    } finally {
-      h.close();
-    }
-  });
-});
-
-describe('dashboard parity — known pending-marker gaps (flip when fixed)', () => {
-  it.fails.each(COVERED.filter((c) => c.pendingBug).map((c) => ({ ...c, id: c.act })))('$id: $pendingBug', async (c) => {
-    const h = await renderWebviewReady('dashboard');
-    try {
-      polyfillCss(h);
-      h.receive({ type: 'state', state: c.state() });
-      await c.prep?.(h);
-      clickEl(q(h, c.sel)!);
-      // Contract (UI-R11): the control reports pending after the click.
-      expect(q(h, c.sel)?.getAttribute('aria-busy')).toBe('true');
     } finally {
       h.close();
     }
