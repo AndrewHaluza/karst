@@ -49,7 +49,11 @@ import { refuseUnsandboxedBypass } from './sandbox.js';
 import { describePermissionDenial, headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
-import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import {
+  KARST_INSTRUCTIONS_ENV,
+  renderInstructionsPointer,
+  withInstructionsPointer,
+} from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 
 const AGY_BIN = 'agy';
@@ -278,7 +282,10 @@ export class AntigravityAdapter implements AgentAdapter {
     // The instruction layer is a pointer in the kickoff, after any leading
     // slash command, so the agent reads `$KARST_INSTRUCTIONS` before it starts.
     const kickoff = opts.instructions
-      ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
+      ? withInstructionsPointer(
+          opts.initialPrompt,
+          renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions.path),
+        )
       : opts.initialPrompt;
     // `-i` takes the kickoff as one argv entry; spill an oversized one to a
     // file exactly as the other cores do (E2BIG backstop).

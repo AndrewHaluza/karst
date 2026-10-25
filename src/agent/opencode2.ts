@@ -23,7 +23,11 @@ import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
-import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import {
+  KARST_INSTRUCTIONS_ENV,
+  renderInstructionsPointer,
+  withInstructionsPointer,
+} from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
 import type { InteractivePolicy } from './gatePolicy.js';
@@ -442,7 +446,10 @@ export class Opencode2Adapter implements AgentAdapter {
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     const deliver = opts.instructions !== undefined && opts.soloAgent !== true;
     const kickoff = deliver
-      ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
+      ? withInstructionsPointer(
+          opts.initialPrompt,
+          renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions?.path),
+        )
       : opts.initialPrompt;
     // No `--model`: v2 preselects through the config blob (verified PASS,
     // including the `#<effort>` variant).
