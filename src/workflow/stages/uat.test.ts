@@ -11,7 +11,7 @@ import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
-import { isCoverageRecord } from '../coverageRecord.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
 
 /** The agent's observations only: the advisory coverage record is not one. */
 const listObservations = (store: Parameters<typeof listUatFindings>[0], id: number) =>

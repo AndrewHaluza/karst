@@ -2,7 +2,7 @@ import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { Severity } from '../../manifest/types.js';
-import { isCoverageRecord } from '../../workflow/coverageRecord.js';
+import { isCoverageRecord } from '../coverageRecord.js';
 import {
   parseShipPreState,
   type ShipEvidence,

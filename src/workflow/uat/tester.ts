@@ -58,7 +58,7 @@ import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
-import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../coverageRecord.js';
+import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is

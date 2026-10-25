@@ -5,7 +5,7 @@ import { createTicketFlow } from '../stages/create.js';
 import { transition } from '../machine.js';
 import { listProcessRuns, openProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
-import { isCoverageRecord } from '../coverageRecord.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
 import {
   buildTesterPrompt,
   countBlockingObservations,

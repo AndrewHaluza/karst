@@ -31,7 +31,7 @@ import { nowIso } from '../../model/time.js';
 import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
-import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage } from '../coverageRecord.js';
+import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
 import {

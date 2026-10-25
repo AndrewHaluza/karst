@@ -7,7 +7,7 @@ import { getTicket, pauseTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listUatFindings as listAllUatFindings } from '../store/uatFindings.js';
-import { isCoverageRecord } from './coverageRecord.js';
+import { isCoverageRecord } from '../model/coverageRecord.js';
 
 /** The agent's observations only: the advisory coverage record is not one. */
 const listUatFindings = (...args: Parameters<typeof listAllUatFindings>) =>

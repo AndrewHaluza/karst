@@ -39,7 +39,7 @@ import {
   type FindingsLaneOutcome,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
-import { isCoverageRecord } from '../coverageRecord.js';
+import { isCoverageRecord } from '../../model/coverageRecord.js';
 import type { ReviewArtifacts } from '../review/conformance.js';
 import type { WarnFn } from '../review/findings.js';
 import { mergeReviewKeptOutcome } from '../review/keptOutcome.js';

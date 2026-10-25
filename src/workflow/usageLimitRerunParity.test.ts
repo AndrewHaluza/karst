@@ -10,7 +10,7 @@ import { listStageRuns, openStageRun } from '../store/stageRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listRecoveryRounds } from '../store/recoveryRounds.js';
 import { listFindings as listAllFindings } from '../store/reviewFindings.js';
-import { isCoverageRecord } from './coverageRecord.js';
+import { isCoverageRecord } from '../model/coverageRecord.js';
 
 /** The agent's findings only: the advisory coverage record is asserted on its own. */
 const listFindings = (...args: Parameters<typeof listAllFindings>) =>

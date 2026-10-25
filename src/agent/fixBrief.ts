@@ -4,7 +4,7 @@ import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { lastFailedGate } from '../workflow/fixAttempts.js';
-import { isCoverageRecord } from '../workflow/coverageRecord.js';
+import { isCoverageRecord } from '../model/coverageRecord.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
 /** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */

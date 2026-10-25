@@ -8,7 +8,7 @@ import { collapseDiagnostic } from '../diagnosticText.js';
 import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../manifest/qualityDefaults.js';
 import type { Severity } from '../../manifest/types.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
-import { isCoverageRecord } from '../../workflow/coverageRecord.js';
+import { isCoverageRecord } from '../coverageRecord.js';
 
 /** The advisory coverage record is `info` and never blocks, even at the lowest threshold. */
 const isBlockingFinding = (f: { severity: string; title: string }, threshold: Parameters<typeof isBlockingSeverity>[1]) =>
