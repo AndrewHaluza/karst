@@ -349,6 +349,18 @@
   "src/model/bulletinRelevance.ts": [
     "arch:BULLETIN"
   ],
+  "src/model/entityId.ratchet.test.ts": [
+    "arch:IDS-00"
+  ],
+  "src/model/entityId.ts": [
+    "arch:IDS-00"
+  ],
+  "src/model/entityId.ts#formatId": [
+    "arch:IDS-01"
+  ],
+  "src/model/entityId.ts#parseId": [
+    "arch:IDS-01"
+  ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
