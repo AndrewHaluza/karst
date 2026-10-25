@@ -69,21 +69,22 @@
   .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
   .pane[data-pane="tickets"]:not([data-collapsed="true"]){flex:1 1 0}
   .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
-  .pane + .pane{border-top:var(--k-border-w) solid var(--k-border)}
+  .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
   .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
     min-height:calc(var(--k-space-8) + var(--k-space-2))}
   .pane-toggle{flex:1;min-width:0;display:flex;align-items:center;gap:var(--k-space-2);background:none;border:0;
-    padding:var(--k-space-2) var(--k-space-2);color:var(--k-text-faint);font:inherit;font-size:var(--k-text-2xs);
+    padding:var(--k-space-2) var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);
     font-weight:var(--k-weight-semibold);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-align:left}
   .pane-toggle:focus-visible,.pane-attention:focus-visible,.pt-accepted-toggle:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   .pane-chev{display:inline-flex;transition:transform .12s}
   .pane-toggle[aria-expanded="true"] .pane-chev{transform:rotate(90deg)}
-  .pane-count{font-family:var(--k-font-mono);opacity:.8}
+  .k-empty-hint .k-btn--link{min-height:var(--k-hit-min)}
+  .pane-count{font-family:var(--k-font-mono)}
   .pane-acts{display:flex;gap:var(--k-space-1);align-items:center}
   .pane-acts .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0}
   .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
-  .pane-attention{display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
+  .pane-attention{min-height:var(--k-hit-min);display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
     background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;
     border-radius:var(--k-radius-md)}
   .pane-attention:hover{background:var(--vscode-list-hoverBackground)}
@@ -95,7 +96,7 @@
     border-radius:var(--k-radius-md);box-shadow:var(--k-elev-3)}
   .filter-pop [role="menuitemradio"]{text-align:left;padding-left:var(--k-space-8);position:relative}
   .filter-pop [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
-  .pt-accepted-toggle{background:none;border:0;padding:0 var(--k-space-2);color:var(--k-text-faint);font:inherit;font-size:var(--k-text-2xs);cursor:pointer;white-space:nowrap}
+  .pt-accepted-toggle{min-height:var(--k-hit-min);background:none;border:0;padding:0 var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);cursor:pointer;white-space:nowrap}
   .pt-accepted-toggle:hover{color:var(--k-text)}
 
   /* rows */
@@ -170,7 +171,7 @@
      on hover — not nested inside this button. Built on `.k-btn--link` (zero
      chrome already) with only layout + colour overridden locally (UI-R07 does
      not restrict colour). */
-  .rowopen{display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
+  .rowopen{min-height:var(--k-hit-min);display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
     text-align:left;color:inherit}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
@@ -271,10 +272,13 @@
       icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
       clips the name text at the row boundary so it never bleeds under the
       actions overlay on narrow rows. */
-  .rowacts{display:flex;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
+  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
-  .row:hover .rowacts{opacity:1;pointer-events:auto}
+  /* display:none until the row is hovered or holds focus: the overlay must not
+     sit over the row's open button in the resting layout (layout-sanity
+     sibling-overlap), and focus-within keeps it keyboard-reachable. */
+  .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* On a row that carries a sub-tree collapse control, the hover strip starts
      one control-width further left. Both live in the row's right-edge slot —
      the strip is absolute, `.subchev` is in flow — so without the shift the
@@ -429,7 +433,7 @@
   .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);min-width:0;
     padding:var(--k-space-1) var(--k-space-1) var(--k-space-2) calc(var(--k-space-1) + var(--k-space-7) * 2);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pt-dep{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
+  .pt-dep{min-height:var(--k-hit-min);display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
     padding:var(--k-space-1) var(--k-space-3);font:inherit;line-height:var(--k-leading-tight);
     color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
     background:transparent;cursor:pointer;overflow-wrap:anywhere;text-align:left;

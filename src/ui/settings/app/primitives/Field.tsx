@@ -186,7 +186,22 @@ function TextArea({ value, onValueChange, ...rest }: TextProps<ComponentProps<'t
   return <textarea {...rest} value={local} onChange={(e) => update(e.target.value)} />;
 }
 
-export function Field({
+/**
+ * A field normally takes its DOM id from `useId()`. Those ids are global
+ * mount-order counters and the layout ledger keys later sections by them, so a
+ * field added early in the tree can pass a fixed `id` instead and consume none
+ * (`ui:README-ORDER`, the f2d73f4a lesson).
+ */
+export function Field(props: FieldProps & { readonly id?: string }) {
+  return props.id === undefined ? <GeneratedIdField {...props} /> : <FieldBody {...props} id={props.id} />;
+}
+
+function GeneratedIdField(props: FieldProps) {
+  return <FieldBody {...props} id={useId()} />;
+}
+
+function FieldBody({
+  id,
   label,
   control,
   help,
@@ -195,8 +210,7 @@ export function Field({
   required = false,
   hideLabel = false,
   className,
-}: FieldProps) {
-  const id = useId();
+}: FieldProps & { readonly id: string }) {
   const errorId = `${id}-error`;
   const helpId = `${id}-help`;
   const describedBy =

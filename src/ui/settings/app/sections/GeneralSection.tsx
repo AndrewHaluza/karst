@@ -404,6 +404,7 @@ export function GeneralSection() {
             }}
           />
           <Field
+            id="field-archive-planning-days"
             label="Archive finished planning sessions after"
             help="Blank = the 3-day default. Only sessions with every draft accepted and no live terminal are archived."
             control={{
