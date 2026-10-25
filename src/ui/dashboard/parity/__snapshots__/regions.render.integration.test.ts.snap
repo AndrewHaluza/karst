@@ -1,0 +1,2458 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dashboard region parity (DOM contract) > artView #artView · closed > artView · closed 1`] = `"<div#artView.artview.hidden tabindex="-1">"`;
+
+exports[`dashboard region parity (DOM contract) > artView #artView · detail > artView · detail 1`] = `
+"<div#artView.artview tabindex="-1">
+  <div.arthead>
+    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the artifacts index" type="button"> "← Artifacts"
+  <div.artdetail>
+    <div.arthero>
+      <span.art-title> "UAT report"
+      <span.art-status.passed> "Passed"
+    <div.artcard-summary> "2 passed · 1 failed"
+    <div.artmetrics>
+      <span.artmetric> "2"
+        <span.am-label> "done"
+    <section.artsection aria-label="Gate runs">
+      <div.artheading> "Gate runs"
+        <span.sp>
+          <button.ib.k-iconbtn.t-open aria-label="View this stage's console output in the dashboard" data-act="console" data-console="uat" title="View this stage's console output in the dashboard" type="button">
+            <svg.k-icon aria-hidden="true">
+      <div.artgate>
+        <span.ag-state.pass>
+          <span.ag-dot aria-label="passed" role="img">
+        <span.ag-name> "lint"
+        <span.ag-code> "exit 0"
+      <div.artgate>
+        <span.ag-state.fail>
+          <span.ag-dot aria-label="failed" role="img">
+        <span.ag-name> "e2e"
+        <span.ag-code> "exit 2"
+    <section.artsection aria-label="Details">
+      <div.artheading> "Details"
+      <div.artmeta>
+        <span.am-key> "Stage"
+        <span> "UAT"
+        <span.am-key> "Produced by"
+        <span.am-origin>
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+          <button.ib.k-iconbtn.t-open aria-label="View the Tester's console output in the dashboard" data-act="console" data-console="uat" data-console-proc="tester" title="View the Tester's console output in the dashboard" type="button">
+            <svg.k-icon aria-hidden="true">
+        <span.am-key> "Version"
+        <span> "v1 · current"
+        <span.am-key> "Created"
+        <span> "<stamp>"
+    <section.artsection aria-label="Underlying files">
+      <div.artheading> "Underlying files"
+      <ul.artfiles>
+        <li>
+          <span.af-label> "UAT log"
+          <span.af-name> "uat.log"
+          <button.k-btn.k-btn--secondary.k-btn--sm data-act="artifact-open-resource" data-artifact-id="uat-report" data-index="0" title="Open UAT log (uat.log) in the editor" type="button"> "Open in editor ↗""
+`;
+
+exports[`dashboard region parity (DOM contract) > artView #artView · index > artView · index 1`] = `
+"<div#artView.artview tabindex="-1">
+  <div.arthead>
+    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the ticket dashboard" type="button"> "← Ticket"
+    <h2> "FEAT-142 · Add per-repo base branch override to the worktree picker"
+    <span.artsub> "Artifacts · 3"
+  <section.artgroup aria-label="Implement artifacts">
+    <div.artgroup-title> "Implement"
+    <ul.artrows>
+      <li>
+        <button.artrow data-art-open="plan" type="button">
+          <span.artrow-body>
+            <span.artrow-title> "Plan"
+            <span.artrow-summary> "3 tasks · 2 done"
+          <span.art-status.info> "In progress"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+          <span.arw aria-hidden="true"> "›"
+  <section.artgroup aria-label="UAT artifacts">
+    <div.artgroup-title> "UAT"
+    <ul.artrows>
+      <li>
+        <button.artrow data-art-open="uat-report" type="button">
+          <span.artrow-body>
+            <span.artrow-title> "UAT report"
+            <span.artrow-summary> "2 passed · 1 failed"
+          <span.art-status.passed> "Passed"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+          <span.arw aria-hidden="true"> "›"
+  <section.artgroup aria-label="Review artifacts">
+    <div.artgroup-title> "Review"
+    <ul.artrows>
+      <li>
+        <button.artrow data-art-open="review" type="button">
+          <span.artrow-body>
+            <span.artrow-title> "Review"
+            <span.artrow-summary> "1 finding"
+          <span.art-status.attention> "Needs attention"
+          <span.art-stale title="No longer validates the current implementation"> "Stale"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+          <span.arw aria-hidden="true"> "›""
+`;
+
+exports[`dashboard region parity (DOM contract) > artView #artView · stored index > artView · stored index 1`] = `
+"<div#artView.artview tabindex="-1">
+  <div.arthead>
+    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the ticket dashboard" type="button"> "← Ticket"
+    <h2> "FEAT-142 · Add per-repo base branch override to the worktree picker"
+    <span.artsub> "Artifacts · 2"
+    <span.sa-bar>
+      <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder" type="button"> "Reveal folder"
+      <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" type="button"> "Purge artifacts"
+  <section.artgroup aria-label="screenshot artifacts">
+    <div.artgroup-title> "screenshot"
+    <div.sa-meta> "default"
+    <ul.artrows>
+      <li.sa-row>
+        <div.sa-main>
+          <span.sa-path> "web / a.png"
+          <span.sa-chip> "default"
+          <span.sa-chip> "uat"
+          <span.sa-meta> "2 revisions · <stamp>"
+        <div.sa-main>
+          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="abcdef1234" title="Open the latest revision read-only" type="button"> "Open latest"
+          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-live" data-path="web/a.png" title="Open the worktree file, if it still exists" type="button"> "Open live file"
+        <details.sa-hist>
+          <summary> "History"
+          <ul.artrows>
+            <li.sa-rev>
+              <span.sa-meta> "<stamp>"
+              <span.sa-chip> "uat"
+              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="abcdef1234" title="Open this revision read-only" type="button"> "Open"
+              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-diff" data-from="1234abcdef" data-path="web/a.png" data-to="abcdef1234" title="Show changes since the previous revision" type="button"> "Diff vs previous"
+            <li.sa-rev>
+              <span.sa-meta> "<stamp>"
+              <span.sa-chip> "uat"
+              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="1234abcdef" title="Open this revision read-only" type="button"> "Open"
+      <li.sa-row>
+        <div.sa-main>
+          <span.sa-path> "api / b.png"
+          <span.sa-chip> "default"
+          <span.sa-chip> "uat"
+          <span.sa-meta> "1 revision · <stamp>"
+        <div.sa-main>
+          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="api/b.png" data-sha="fedcba9876" title="Open the latest revision read-only" type="button"> "Open latest"
+          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-live" data-path="api/b.png" title="Open the worktree file, if it still exists" type="button"> "Open live file"
+        <details.sa-hist>
+          <summary> "History"
+          <ul.artrows>
+            <li.sa-rev>
+              <span.sa-meta> "<stamp>"
+              <span.sa-chip> "uat"
+              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="api/b.png" data-sha="fedcba9876" title="Open this revision read-only" type="button"> "Open"
+  <section.artgroup aria-label="Skipped files">
+    <div.artgroup-title> "Skipped files"
+    <div.sa-skip> "web/big.bin — too large""
+`;
+
+exports[`dashboard region parity (DOM contract) > artifacts #artPanel · three artifacts > artifacts · three artifacts 1`] = `
+"<div#artPanel.panel.span>
+  <div.phead> "Artifacts"
+    <button#artViewAll.k-btn.k-btn--ghost.k-btn--sm data-art="index" title="Show every artifact this ticket has produced" type="button"> "View all ›"
+      <span#artTotal> "3"
+  <div#artifacts.pbody>
+    <div.artcards>
+      <button.artcard aria-label="Open Plan" data-art-open="plan" type="button">
+        <span.artcard-title> "Plan"
+        <span.artcard-summary> "3 tasks · 2 done"
+        <span.artcard-meta>
+          <span.art-status.info> "In progress"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+      <button.artcard aria-label="Open UAT report" data-art-open="uat-report" type="button">
+        <span.artcard-title> "UAT report"
+        <span.artcard-summary> "2 passed · 1 failed"
+        <span.artcard-meta>
+          <span.art-status.passed> "Passed"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex"
+      <button.artcard aria-label="Open Review" data-art-open="review" type="button">
+        <span.artcard-title> "Review"
+        <span.artcard-summary> "1 finding"
+        <span.artcard-meta>
+          <span.art-status.attention> "Needs attention"
+          <span.art-stale title="No longer validates the current implementation"> "Stale"
+          <span.art-origin aria-label="karst artifact for Codex">
+            <svg.kmark aria-hidden="true">
+            <span> "Karst · Codex""
+`;
+
+exports[`dashboard region parity (DOM contract) > artifacts #artPanel · zero artifacts (hidden) > artifacts · zero artifacts (hidden) 1`] = `
+"<div#artPanel.hidden.panel.span>
+  <div.phead> "Artifacts"
+    <button#artViewAll.k-btn.k-btn--ghost.k-btn--sm data-art="index" title="Show every artifact this ticket has produced" type="button"> "View all ›"
+      <span#artTotal>
+  <div#artifacts.pbody>"
+`;
+
+exports[`dashboard region parity (DOM contract) > blocked #blocked · awaiting-merge renders no banner > blocked · awaiting-merge renders no banner 1`] = `"<div#blocked.blocked.fault.hidden>"`;
+
+exports[`dashboard region parity (DOM contract) > blocked #blocked · baseline review with one pending row > blocked · baseline review with one pending row 1`] = `
+"<div#blocked.blocked.fault>
+  <div.ftitle> "Review baselines"
+  <div.freason> "1 baseline changed"
+  <div.blhead>
+    <span> "1 of 1 changed baseline needs your approval"
+    <button.bl-all.k-btn.k-btn--primary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve all"
+  <section.blrow aria-label="Baseline home.png">
+    <div.blrow-top>
+      <span.bl-label> "home.png"
+      <span.bl-status> "modified"
+      <span.blstate.pending> "○ Needs review"
+    <div.blnote> "No preview for this file type — open it from Source Control."
+    <div.blactions>
+      <button.k-btn.k-btn--primary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="baseline-reject-open" data-index="0" type="button"> "Reject…""
+`;
+
+exports[`dashboard region parity (DOM contract) > blocked #blocked · no block (hidden) > blocked · no block (hidden) 1`] = `"<div#blocked.blocked.fault.hidden>"`;
+
+exports[`dashboard region parity (DOM contract) > blocked #blocked · resumable boot failure > blocked · resumable boot failure 1`] = `
+"<div#blocked.blocked.fault>
+  <div.ftitle> "UAT is blocked"
+  <div.freason> "api never became healthy"
+  <div.facts>
+    <button.k-btn.k-btn--secondary.k-btn--sm data-act="stage-resume" data-stagekey="uat" title="Clear the block and let karst try this stage again" type="button"> "Resume""
+`;
+
+exports[`dashboard region parity (DOM contract) > blocked #blocked · usage-limit park actions > blocked · usage-limit park actions 1`] = `
+"<div#blocked.blocked.fault>
+  <div.ftitle> "Provider out of quota"
+  <div.freason> "Claude quota exhausted until 5pm"
+  <div.facts>
+    <button.k-btn.k-btn--primary.k-btn--sm data-act="usage-limit-pick" data-stagekey="uat" type="button"> "Pick agent/model…"
+    <button.k-btn.k-btn--secondary.k-btn--sm data-act="usage-limit-retry" data-stagekey="uat" type="button"> "Retry same"
+    <button.k-btn.k-btn--secondary.k-btn--sm data-act="usage-limit-dismiss" data-stagekey="uat" type="button"> "Dismiss""
+`;
+
+exports[`dashboard region parity (DOM contract) > envView #envView · closed > envView · closed 1`] = `"<div#envView.envview.hidden tabindex="-1">"`;
+
+exports[`dashboard region parity (DOM contract) > envView #envView · editor open > envView · editor open 1`] = `
+"<div#envView.envview tabindex="-1">
+  <div.thead>
+    <span.ttitle> "Environment variables"
+    <span.sp>
+      <button.k-btn.k-btn--ghost.k-btn--sm data-env-close title="Close the environment variables view" type="button"> "Close"
+  <div.ebody>
+    <div.elead> "One per line. These extend each service’s own and override the keys they name — for this ticket only. The repository’s file is never written. Saved values apply the next time the services are started."
+      <code> "KEY=value"
+      <code> ".env"
+      <code> ".env"
+    <section.envscope>
+      <header>
+        <span.ename> "All services"
+        <span.ecount> "1 variable"
+      <div.ehint> "Applied to every service of this ticket. A service’s own section below wins where both name the same variable."
+      <label.sr for="env-ta-*"> "Environment variables for All services"
+      <textarea#env-ta-*.k-input data-env-scope="*" placeholder="APP_HISTORY_FEATURE=true"> "A=1"
+      <footer>
+        <button.k-btn.k-btn--primary.k-btn--sm data-env-save="*" title="Save these variables for this ticket" type="button"> "Save"
+        <button.k-btn.k-btn--ghost.k-btn--sm data-env-revert="*" title="Discard unsaved edits to this section" type="button"> "Revert"
+        <span.msg role="status">
+    <section.envscope>
+      <header>
+        <span.ename> "web"
+        <span.ecount> "1 variable"
+      <div.ehint> "Applied to web only."
+      <label.sr for="env-ta-web"> "Environment variables for web"
+      <textarea#env-ta-web.k-input data-env-scope="web" placeholder="APP_HISTORY_FEATURE=true"> "PORT=5173"
+      <footer>
+        <button.k-btn.k-btn--primary.k-btn--sm data-env-save="web" title="Save these variables for this ticket" type="button"> "Save"
+        <button.k-btn.k-btn--ghost.k-btn--sm data-env-revert="web" title="Discard unsaved edits to this section" type="button"> "Revert"
+        <span.msg role="status">
+    <section.envscope>
+      <header>
+        <span.ename> "api"
+        <span.ecount> "none set"
+      <div.ehint> "Applied to api only."
+      <label.sr for="env-ta-api"> "Environment variables for api"
+      <textarea#env-ta-api.k-input data-env-scope="api" placeholder="APP_HISTORY_FEATURE=true">
+      <footer>
+        <button.k-btn.k-btn--primary.k-btn--sm data-env-save="api" title="Save these variables for this ticket" type="button"> "Save"
+        <button.k-btn.k-btn--ghost.k-btn--sm data-env-revert="api" title="Discard unsaved edits to this section" type="button"> "Revert"
+        <span.msg role="status">"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket that can reopen > header · closed ticket that can reopen 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket > header · empty ticket 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T0"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "(untitled)"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · paused execution > header · paused execution 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.hidden.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · populated impl with board link and priority > header · populated impl with board link and priority 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+      <span.provicon aria-hidden="true">
+        <svg aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label="Priority: urgent"> "urgent"
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" data-url="fixture:https://app.clickup.com/t/abc" href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · running agent with switch catalog > header · running agent with switch catalog 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.running>
+          <span#agentLiveText> "running"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm > header · ship confirm 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T0"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "(untitled)"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · ship retry after failure > header · ship retry after failure 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" type="button"> "Retry ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting to merge > header · ship waiting to merge 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that can detach > header · sub-task that can detach 1`] = `
+"<div.dhead>
+  <div.ticketIdentity>
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
+    <span#priorityChip.prio aria-label hidden>
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+      <svg.k-icon aria-hidden="true">
+  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <button#detachSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
+  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
+  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
+  <div.headerActions>
+    <div.agentWrap>
+      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+        <span#agentCore.k-agent-core>
+          <span.agentbadge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.agentname> "Claude Code"
+        <span.agentSep aria-hidden="true"> "·"
+        <span#agentModel.agentMeta> "Agent default"
+        <span.agentLive>
+          <span#agentDot.agentLiveDot.none>
+          <span#agentLiveText> "none"
+        <svg.k-icon aria-hidden="true">
+      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
+        <div.agentForm>
+          <div#agentSwitchPicker>
+          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+        <div.popActions>
+          <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
+    <span#toast.toast aria-live="polite">
+    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
+exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · all roles match implementation (hidden) > headerMeta · all roles match implementation (hidden) 1`] = `
+"<div#headerMeta.headerMeta>
+  <span#parentRef.ticketParent> "from D88 (P17) · Sub-task of T942001 · FEAT-100"
+  <span#capabilityLabels.capabilityLabels>"
+`;
+
+exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · follow-up, blocked-by and sub-task relations > headerMeta · follow-up, blocked-by and sub-task relations 1`] = `
+"<div#headerMeta.headerMeta>
+  <span#parentRef.ticketParent> "from D88 (P17) · Sub-task of T942001 · FEAT-100 · Follow-up of T9 · FEAT-99 · ·"
+    <span.k-chip> "Blocked by"
+      <a data-act="open-dependency" data-ticket="42" href="#"> "T42 · CU-123"
+    <span.k-chip> "Blocked by external"
+  <span#capabilityLabels.capabilityLabels>"
+`;
+
+exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · review differs (chip) > headerMeta · review differs (chip) 1`] = `
+"<div#headerMeta.headerMeta>
+  <span#parentRef.ticketParent> "from D88 (P17) · Sub-task of T942001 · FEAT-100"
+  <span#capabilityLabels.capabilityLabels>
+    <span.capChip title="Review: claude/claude-sonnet-5-5">
+      <span> "Review"
+      <span.agenticon aria-hidden="true">
+        <svg>
+      <span.capModel> "Sonnet 5.5""
+`;
+
+exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket > inside · empty ticket 1`] = `
+"<div#inside>
+  <section.inside aria-labelledby="inside-title">
+    <div.inside-head title="Implementation">
+      <span#inside-title.inside-title> "Inside impl"
+      <span.inside-live>
+      <span.inside-meta> "started <clock> · <dur> <dur> elapsed · attempt 1"
+    <div.ledger>
+      <details.live.op.run data-proc-id="impl:session">
+        <summary>
+          <span.glyph.run aria-label="running">
+          <span.op-name title="Session">
+            <span.op-name-text> "Session"
+            <span.ai-mark> "AI"
+          <span.op-detail.run>
+            <span.op-detail-text> "session k-9f2e — claude-opus-4-1"
+          <span.op-tail>
+            <span.agent-id>
+              <span.agenticon aria-hidden="true">
+                <svg>
+              <span.agent-core> "Claude Code"
+              <span.agent-sep> "·"
+              <span.agent-model> "Claude Opus 4.1"
+            <span.live.token-stat title="12,435 fresh tokens"> "12.4k tok"
+              <span.sigma> "Σ"
+            <span.duration> "<dur> <dur>"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="inside-action" data-action-id="fixture:open-full-evidence:1" title="Show every recorded row" type="button"> "Show all"
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.session-segments>
+            <div.timeline-row.timeline-start>
+              <span.timeline-slot>
+                <span.start.timeline-node aria-hidden="true">
+              <span.timeline-start-label> "started"
+              <span.switch-value>
+                <span>
+              <span.timeline-tail>
+                <span.segment-window> "<clock>"
+                <span.segment-window> "<dur> <dur>"
+            <div.switch-event.timeline-row>
+              <span.switch-slot.timeline-slot aria-hidden="true">
+                <span.switch-branch>
+              <span.switch-label title="Provider switched here">
+                <span.switch-arrow aria-hidden="true"> "↳"
+                <span> "switch"
+              <span.switch-value>
+                <span.agent-id>
+                  <span.agenticon aria-hidden="true">
+                    <svg>
+                  <span.agent-core> "Codex · Codex X"
+              <span.timeline-tail>
+                <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
+                  <span.sigma> "Σ"
+            <div.switch-event.timeline-row>
+              <span.switch-slot.timeline-slot aria-hidden="true">
+                <span.switch-branch>
+              <span.switch-label title="Session resumed here">
+                <span.switch-arrow aria-hidden="true"> "↳"
+                <span> "resumed"
+              <span.switch-value>
+                <span.agent-id>
+                  <span.agenticon aria-hidden="true">
+                    <svg>
+                  <span.agent-core> "Claude Code · Claude Opus 4.1"
+              <span.timeline-tail>
+                <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
+                  <span.sigma> "Σ"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.note.phase-status aria-label="note">
+              <span.phase-name> "research"
+              <span.note.phase-detail> "<clock>"
+              <span.phase-time>
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.note.phase-status aria-label="note">
+              <span.phase-name> "plan"
+              <span.note.phase-detail> "<clock>"
+              <span.phase-time>"
+`;
+
+exports[`dashboard region parity (DOM contract) > inside #inside · implementation prototype > inside · implementation prototype 1`] = `
+"<div#inside>
+  <section.inside aria-labelledby="inside-title">
+    <div.inside-head title="Implementation">
+      <span#inside-title.inside-title> "Inside impl"
+      <span.inside-live>
+      <span.inside-meta> "completed"
+    <div.ledger>
+      <details.op.pass data-proc-id="impl:session">
+        <summary>
+          <span.glyph.pass aria-label="Completed">
+          <span.op-name title="Session">
+            <span.op-name-text> "Session"
+            <span.ai-mark> "AI"
+          <span.op-detail.pass>
+            <span.op-detail-text> "session c7f1 · completed"
+          <span.op-tail>
+            <span.agent-id>
+              <span.agenticon aria-hidden="true">
+                <svg>
+              <span.agent-core> "Claude Code"
+              <span.agent-sep> "·"
+              <span.agent-model> "Sonnet"
+            <span.token-stat title="58,300 fresh tokens"> "58.3k tok"
+              <span.sigma> "Σ"
+            <span.duration> "<dur>"
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.session-segments>
+            <div.timeline-row.timeline-start>
+              <span.timeline-slot>
+                <span.start.timeline-node aria-hidden="true">
+              <span.timeline-start-label> "started with"
+              <span.switch-value>
+                <span.agent-id>
+                  <span.agenticon aria-hidden="true">
+                    <svg>
+                  <span.agent-core> "Claude Code · Opus"
+              <span.timeline-tail>
+                <span.token-stat title="18,600 fresh tokens"> "18.6k tok"
+                  <span.sigma> "Σ"
+                <span.segment-window> "10:03–10:09"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.pass.phase-status aria-label="passed">
+              <span.phase-name> "Understand"
+              <span.pass.phase-detail> "reported · <clock>"
+              <span.phase-time> "10:06"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.pass.phase-status aria-label="passed">
+              <span.phase-name> "Plan"
+              <span.pass.phase-detail> "reported · <clock>"
+              <span.phase-time> "10:08"
+            <div.switch-event.timeline-row>
+              <span.switch-slot.timeline-slot aria-hidden="true">
+                <span.switch-branch>
+              <span.switch-label title="Provider switched here">
+                <span.switch-arrow aria-hidden="true"> "↳"
+                <span> "switched core + model"
+              <span.switch-value>
+                <span.agent-id>
+                  <span.agenticon aria-hidden="true">
+                    <svg>
+                  <span.agent-core> "Codex · Sol"
+              <span.timeline-tail>
+                <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
+                  <span.sigma> "Σ"
+                <span.segment-window> "<clock>"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.pass.phase-status aria-label="passed">
+              <span.phase-name> "Implement"
+              <span.pass.phase-detail> "reported · <clock>"
+              <span.phase-time> "10:15"
+            <div.switch-event.timeline-row>
+              <span.switch-slot.timeline-slot aria-hidden="true">
+                <span.switch-branch>
+              <span.switch-label title="Provider switched here">
+                <span.switch-arrow aria-hidden="true"> "↳"
+                <span> "switched core + model"
+              <span.switch-value>
+                <span.agent-id>
+                  <span.agenticon aria-hidden="true">
+                    <svg>
+                  <span.agent-core> "Claude Code · Sonnet"
+              <span.timeline-tail>
+                <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
+                  <span.sigma> "Σ"
+                <span.segment-window> "<clock>"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.pass.phase-status aria-label="passed">
+              <span.phase-name> "Tests"
+              <span.pass.phase-detail> "reported · <clock>"
+              <span.phase-time> "10:20"
+            <div.phase-row.timeline-row>
+              <span.phase-rail.timeline-slot>
+                <span.glyph.pass.phase-status aria-label="passed">
+              <span.phase-name> "Done"
+              <span.pass.phase-detail> "done marker · <clock>"
+              <span.phase-time> "10:22"
+          <div.session-foot>
+            <span> "session c7f1"
+            <span> "2 switches"
+            <span> "46.1k input · 12.2k output"
+            <span> "same session continues across switches"
+            <span.session-rule> "advances only on explicit done marker""
+`;
+
+exports[`dashboard region parity (DOM contract) > inside #inside · ship preview blocked > inside · ship preview blocked 1`] = `
+"<div#inside>
+  <section.inside aria-labelledby="inside-title">
+    <div.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside ship"
+      <span.inside-live>
+      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
+      <div.sp-head>
+        <span#ship-preview-title.sp-title> "Ship preview"
+        <span.sp-meta> "as of 09:41 AM"
+        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
+      <section.sp-repo data-region="ship-preview-repo">
+        <div.sp-repo-head>
+          <span.sp-repo-name> "web"
+          <span.sp-badge.sp-badge--danger>
+            <svg.k-icon aria-hidden="true">
+            <span> "blocked"
+        <div.sp-grid>
+          <div.sp-row.sp-row--danger>
+            <span.sp-label>
+              <svg.k-icon aria-hidden="true">
+              <span> "Blocked"
+            <span.sp-value> "ship refuses .env, id_rsa — commit them deliberately or ignore them"
+          <div.sp-row>
+            <span.sp-label> "PR title"
+            <span.sp-value> "feat(web): land the change"
+          <div.sp-row>
+            <span.sp-label> "Commit"
+            <span.sp-value> "feat(web): land the change"
+    <div.ledger>
+      <details.op.pass data-proc-id="ship:commit">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Commit">
+            <span.op-name-text> "Commit"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.commit-grid>
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "web"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
+                  <span.commit-message> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:100" href="#" title="Open this commit on the host"> "d4e5f60"
+                  <span.commit-message> "chore(web): tidy up"
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "api"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
+                  <span.commit-message> "feat(api): land the change"
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:101" href="#" title="Open this commit on the host"> "d4e5f61"
+                  <span.commit-message> "chore(api): tidy up"
+      <details.op.pass data-proc-id="ship:push">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Push">
+            <span.op-name-text> "Push"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "web"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "api"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+      <details.op.pass data-proc-id="ship:pr">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Pull request">
+            <span.op-name-text> "Pull request"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.pr-branches>
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "web"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#120"
+                    <span.draft.pr-status> "draft"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #120 was created in this ship run."
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "api"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#121"
+                    <span.open.pr-status> "open"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #121 was created in this ship run."
+      <details.op.wait.waiting-source data-proc-id="ship:merge">
+        <summary>
+          <span.glyph.wait aria-label="waiting">
+          <span.op-name title="Merge">
+            <span.op-name-text> "Merge"
+          <span.op-detail.wait>
+            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "conflict"
+            <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-state.wait>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "open"
+            <span.ev-detail> "api #121 · not merged yet"
+            <span.ev-state.wait>"
+`;
+
+exports[`dashboard region parity (DOM contract) > inside #inside · ship preview loading > inside · ship preview loading 1`] = `
+"<div#inside>
+  <section.inside aria-labelledby="inside-title">
+    <div.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside ship"
+      <span.inside-live>
+      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
+      <div.sp-head>
+        <span#ship-preview-title.sp-title> "Ship preview"
+        <span.sp-meta> "reading…"
+        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
+      <div.sp-repo aria-hidden="true" data-region="ship-preview-repo">
+        <div.sp-repo-head>
+          <span.sp-skel.sp-skel-name>
+        <div.sp-grid>
+          <div.sp-row.sp-skel-row>
+            <span.sp-label>
+            <span.sp-value>
+              <span.sp-skel>
+          <div.sp-row.sp-skel-row>
+            <span.sp-label>
+            <span.sp-value>
+              <span.sp-skel>
+          <div.sp-row.sp-skel-row>
+            <span.sp-label>
+            <span.sp-value>
+              <span.sp-skel>
+    <div.ledger>
+      <details.op.pass data-proc-id="ship:commit">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Commit">
+            <span.op-name-text> "Commit"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.commit-grid>
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "web"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
+                  <span.commit-message> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:100" href="#" title="Open this commit on the host"> "d4e5f60"
+                  <span.commit-message> "chore(web): tidy up"
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "api"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
+                  <span.commit-message> "feat(api): land the change"
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:101" href="#" title="Open this commit on the host"> "d4e5f61"
+                  <span.commit-message> "chore(api): tidy up"
+      <details.op.pass data-proc-id="ship:push">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Push">
+            <span.op-name-text> "Push"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "web"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "api"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+      <details.op.pass data-proc-id="ship:pr">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Pull request">
+            <span.op-name-text> "Pull request"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.pr-branches>
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "web"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#120"
+                    <span.draft.pr-status> "draft"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #120 was created in this ship run."
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "api"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#121"
+                    <span.open.pr-status> "open"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #121 was created in this ship run."
+      <details.op.wait.waiting-source data-proc-id="ship:merge">
+        <summary>
+          <span.glyph.wait aria-label="waiting">
+          <span.op-name title="Merge">
+            <span.op-name-text> "Merge"
+          <span.op-detail.wait>
+            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "conflict"
+            <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-state.wait>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "open"
+            <span.ev-detail> "api #121 · not merged yet"
+            <span.ev-state.wait>"
+`;
+
+exports[`dashboard region parity (DOM contract) > inside #inside · ship preview ready > inside · ship preview ready 1`] = `
+"<div#inside>
+  <section.inside aria-labelledby="inside-title">
+    <div.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside ship"
+      <span.inside-live>
+      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
+      <div.sp-head>
+        <span#ship-preview-title.sp-title> "Ship preview"
+        <span.sp-meta> "as of 09:41 AM"
+        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
+      <section.sp-repo data-region="ship-preview-repo">
+        <div.sp-repo-head>
+          <span.sp-repo-name> "web"
+          <span.sp-badge.sp-badge--ok>
+            <svg.k-icon aria-hidden="true">
+            <span> "will commit"
+        <div.sp-grid>
+          <div.sp-row>
+            <span.sp-label> "PR title"
+            <span.sp-value> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+          <div.sp-row>
+            <span.sp-label> "Commit"
+            <span.sp-value> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+          <div.sp-row>
+            <span.sp-label> "Commits"
+            <span.sp-value>
+              <details.sp-files>
+                <summary> "2 files"
+                <ul.sp-file-list>
+                  <li.sp-file> "src/app.ts"
+                  <li.sp-file> "src/app.test.ts"
+      <section.sp-repo data-region="ship-preview-repo">
+        <div.sp-repo-head>
+          <span.sp-repo-name> "api"
+          <span.sp-badge.sp-badge--ok>
+            <svg.k-icon aria-hidden="true">
+            <span> "will commit"
+        <div.sp-grid>
+          <div.sp-row>
+            <span.sp-label> "PR title"
+            <span.sp-value> "feat(api): land the change"
+          <div.sp-row>
+            <span.sp-label> "Commit"
+            <span.sp-value> "feat(api): land the change"
+          <div.sp-row>
+            <span.sp-label> "Commits"
+            <span.sp-value>
+              <details.sp-files>
+                <summary> "1 file"
+                <ul.sp-file-list>
+                  <li.sp-file> "src/handler.ts"
+    <div.ledger>
+      <details.op.pass data-proc-id="ship:commit">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Commit">
+            <span.op-name-text> "Commit"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.commit-grid>
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "web"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
+                  <span.commit-message> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:100" href="#" title="Open this commit on the host"> "d4e5f60"
+                  <span.commit-message> "chore(web): tidy up"
+            <div.commit-repo>
+              <div.commit-repo-head>
+                <span.commit-repo-name> "api"
+                <span.commit-repo-summary> "2 created · 1 before"
+                <span.commit-origin.ship> "created by ship"
+              <div.commit-list>
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
+                  <span.commit-message> "feat(api): land the change"
+                <div.commit-item>
+                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:101" href="#" title="Open this commit on the host"> "d4e5f61"
+                  <span.commit-message> "chore(api): tidy up"
+      <details.op.pass data-proc-id="ship:push">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Push">
+            <span.op-name-text> "Push"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "web"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pass aria-label="passed">
+            <span.ev-key> "api"
+            <span.ev-detail> "pushed"
+            <span.ev-state.pass>
+      <details.op.pass data-proc-id="ship:pr">
+        <summary>
+          <span.glyph.pass aria-label="passed">
+          <span.op-name title="Pull request">
+            <span.op-name-text> "Pull request"
+          <span.op-detail.pass>
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.pr-branches>
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "web"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#120"
+                    <span.draft.pr-status> "draft"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #120 was created in this ship run."
+            <div>
+              <div.pr-branch>
+                <span.pr-repo> "api"
+                <div.pr-path>
+                  <span.pr-object>
+                    <span.pr-link> "#121"
+                    <span.open.pr-status> "open"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "description generated"
+                  <span.pr-arrow aria-hidden="true"> "→"
+                  <span.done.pr-step> "PR opened"
+              <div.pr-branch-note> "PR #121 was created in this ship run."
+      <details.op.wait.waiting-source data-proc-id="ship:merge">
+        <summary>
+          <span.glyph.wait aria-label="waiting">
+          <span.op-name title="Merge">
+            <span.op-name-text> "Merge"
+          <span.op-detail.wait>
+            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+          <span.op-tail>
+          <span.chev aria-hidden="true">
+        <div.op-body>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "conflict"
+            <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-state.wait>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.wait aria-label="waiting">
+            <span.ev-key> "open"
+            <span.ev-detail> "api #121 · not merged yet"
+            <span.ev-state.wait>"
+`;
+
+exports[`dashboard region parity (DOM contract) > logsView #logsView · closed > logsView · closed 1`] = `"<div#logsView.hidden.logsview tabindex="-1">"`;
+
+exports[`dashboard region parity (DOM contract) > logsView #logsView · open > logsView · open 1`] = `
+"<div#logsView.logsview tabindex="-1">
+  <div.thead>
+    <span.ttitle> "Server Logs"
+    <span.logcontrols>
+      <input#logsSearch.k-input aria-label="Search logs" placeholder="Search logs" type="search">
+      <span#logsMatches>
+      <button.k-btn.k-btn--ghost.k-btn--sm aria-label="Previous match" data-log-prev title="Previous match" type="button"> "Prev"
+      <button.k-btn.k-btn--ghost.k-btn--sm aria-label="Next match" data-log-next title="Next match" type="button"> "Next"
+      <label.logcheck> "Filter"
+        <input data-log-filter type="checkbox">
+      <label.logcheck> "Current run only"
+        <input data-log-current-run type="checkbox">
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-clear type="button"> "Clear"
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-detach type="button"> "Open in Window"
+    <span.sp>
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-close title="Close the logs view" type="button"> "Close"
+  <div#logsStatus.tstatus role="status"> "Loading server logs…"
+  <div#logsTabs.tabs>
+  <div#logsHost.loghost tabindex="0">
+    <div.blurb> "Loading…""
+`;
+
+exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge, conflict, dismissed > prs · multi-repo: merge, conflict, dismissed 1`] = `
+"<div#prs.pbody>
+  <div.prrow>
+    <div.pr>
+      <span.k-chip.pst.pst-open> "open"
+      <span.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
+      <span.prepo title="fixture:/repos/web"> "web"
+      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
+        <span.u> "fixture:https://github.com/fixture-org/web/pull/421"
+        <span.glyph>
+          <svg.k-icon aria-hidden="true">
+      <span.pnum>
+        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
+      <span.pacts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/web" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
+        <button.k-btn.k-btn--primary.k-btn--sm.mgbtn data-act="merge-pr" data-repo="fixture:/repos/web" title="Merge PR #421 into main — cannot be undone" type="button"> "Merge"
+    <div.pmeta>
+      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
+      <span.pstamps>
+        <span.psep> "·"
+        <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
+    <details.pcms>
+      <summary> "2 comments"
+      <div.pcm>
+        <span.pcmwho> "octoreviewer"
+        <span.pcmwhen> "1 day ago"
+        <div.pcmbody> "Looks right — one nit on the combobox label."
+      <div.pcm>
+        <span.pcmwho> "fixture-author"
+        <span.pcmwhen> "20 hours ago"
+        <div.pcmbody> "Fixed, PTAL."
+  <div.prrow>
+    <div.pr>
+      <span.k-chip.pst.pst-open> "open"
+      <span.k-chip.pck.pck-failing title="1 failing"> "1 failing"
+      <span.k-chip.pblock title="merge conflicts"> "conflicts"
+      <span.prepo title="fixture:/repos/api"> "api"
+      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/api/pull/88" title="Copy pull request URL" type="button">
+        <span.u> "fixture:https://github.com/fixture-org/api/pull/88"
+        <span.glyph>
+          <svg.k-icon aria-hidden="true">
+      <span.pnum>
+        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/api/pull/88" href="#" title="Open this pull request"> "#88"
+      <span.pacts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="merge conflicts" type="button"> "Merge"
+    <div.pmeta>
+      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
+      <span.pstamps>
+        <span.psep> "·"
+        <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
+    <details.pcks>
+      <summary> "1 failing check"
+      <div.pck-row>
+        <span> "unit"
+    <div.mg-ci.mg-ci-failing.mgwrap>
+      <div.mg>
+        <span.mgdot aria-hidden="true">
+        <span.mgtext> "CI failing — 1 check"
+      <div.pck-row>
+        <span> "unit"
+    <div.mg-conflicted.mgwrap>
+      <div.mg>
+        <span.mgdot aria-hidden="true">
+        <span.mgtext title="checked checked Aug 11, 2026, 2:05 PM"> "conflicted · 2 files · vs main"
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="resolve-conflicts" data-repo="fixture:/repos/api" title="Hand this repo's conflict to an agent session" type="button"> "Resolve conflicts"
+      <details.mgd data-repo="fixture:/repos/api">
+        <summary> "2 conflicting files"
+        <div.mgdbody>
+          <div.mgfile> "src/a.ts"
+          <div.mgfile> "src/b.ts"
+  <div.prrow>
+    <div.pr>
+      <span.k-chip.pst.pst-closed> "closed"
+      <span.prepo title="fixture:/repos/docs"> "docs"
+      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/docs/pull/7" title="Copy pull request URL" type="button">
+        <span.u> "fixture:https://github.com/fixture-org/docs/pull/7"
+        <span.glyph>
+          <svg.k-icon aria-hidden="true">
+      <span.pnum>
+        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/docs/pull/7" href="#" title="Open this pull request"> "#7"
+      <span.pacts>
+        <span.pstamp> "dismissed Aug 11, 2026, 2:10 PM"
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+    <div.pmeta>
+      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
+      <span.pstamps>
+        <span.psep> "·"
+        <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago""
+`;
+
+exports[`dashboard region parity (DOM contract) > prs #prs · none > prs · none 1`] = `
+"<div#prs.pbody>
+  <div.k-empty>
+    <div.k-empty-title> "No pull requests.""
+`;
+
+exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiting review > prs · one open PR awaiting review 1`] = `
+"<div#prs.pbody>
+  <div.prrow>
+    <div.pr>
+      <span.k-chip.pst.pst-open> "open"
+      <span.prepo title="fixture:/repos/web"> "web"
+      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
+        <span.u> "fixture:https://github.com/fixture-org/web/pull/421"
+        <span.glyph>
+          <svg.k-icon aria-hidden="true">
+      <span.pnum>
+        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
+      <span.pacts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+    <div.pmeta>
+      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
+      <span.pstamps>
+        <span.psep> "·"
+        <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
+    <details.pcms>
+      <summary> "2 comments"
+      <div.pcm>
+        <span.pcmwho> "octoreviewer"
+        <span.pcmwhen> "1 day ago"
+        <div.pcmbody> "Looks right — one nit on the combobox label."
+      <div.pcm>
+        <span.pcmwho> "fixture-author"
+        <span.pcmwhen> "20 hours ago"
+        <div.pcmbody> "Fixed, PTAL.""
+`;
+
+exports[`dashboard region parity (DOM contract) > rail #rail · empty ticket > rail · empty ticket 1`] = `
+"<div#rail.railwrap>
+  <div.track>
+    <div.lane>"
+`;
+
+exports[`dashboard region parity (DOM contract) > rail #rail · populated impl > rail · populated impl 1`] = `
+"<div#rail.railwrap>
+  <div.track>
+    <div.lane>
+      <div.passed.seg.stg-scope>
+        <button.pick aria-label="Scope: passed" aria-pressed="false" data-stage="scope" title="Scope: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "scope"
+      <div.cur.running.seg.sel.stg-impl>
+        <button.pick aria-label="Implementation: running" aria-pressed="true" data-stage="impl" title="Implementation: running" type="button">
+        <span.g>
+          <span.spin aria-hidden="true">
+        <span.nm>
+          <span.full> "Implementation"
+          <span.abbr> "impl"
+      <div.pending.seg.stg-uat>
+        <button.pick aria-label="UAT: pending" aria-pressed="false" data-stage="uat" title="UAT: pending" type="button">
+        <span.g> "·"
+        <span.nm> "uat"
+      <div.pending.seg.stg-review>
+        <button.pick aria-label="Review: pending" aria-pressed="false" data-stage="review" title="Review: pending" type="button">
+        <span.g> "·"
+        <span.nm> "review"
+      <div.pending.seg.stg-ship>
+        <button.pick aria-label="Ship: pending" aria-pressed="false" data-stage="ship" title="Ship: pending" type="button">
+        <span.g> "·"
+        <span.nm> "ship"
+      <div.pending.seg.stg-done>
+        <button.pick aria-label="Done: pending" aria-pressed="false" data-stage="done" title="Done: pending" type="button">
+        <span.g> "·"
+        <span.nm> "done""
+`;
+
+exports[`dashboard region parity (DOM contract) > rail #rail · populated ship > rail · populated ship 1`] = `
+"<div#rail.railwrap>
+  <div.track>
+    <div.lane>
+      <div.passed.seg.stg-scope>
+        <button.pick aria-label="Scope: passed" aria-pressed="false" data-stage="scope" title="Scope: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "scope"
+      <div.passed.seg.stg-impl>
+        <button.pick aria-label="Implementation: passed" aria-pressed="false" data-stage="impl" title="Implementation: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "impl"
+      <div.passed.seg.stg-uat>
+        <button.pick aria-label="UAT: passed" aria-pressed="false" data-stage="uat" title="UAT: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "uat"
+      <div.passed.seg.stg-review>
+        <button.pick aria-label="Review: passed" aria-pressed="false" data-stage="review" title="Review: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "review"
+      <div.cur.running.seg.sel.stg-ship>
+        <button.pick aria-label="Ship: running" aria-pressed="true" data-stage="ship" title="Ship: running" type="button">
+        <span.g>
+          <span.spin aria-hidden="true">
+        <span.nm>
+          <span.full> "Ship"
+          <span.abbr> "ship"
+      <div.pending.seg.stg-done>
+        <button.pick aria-label="Done: pending" aria-pressed="false" data-stage="done" title="Done: pending" type="button">
+        <span.g> "·"
+        <span.nm> "done""
+`;
+
+exports[`dashboard region parity (DOM contract) > rail #rail · uat parked on a boot failure > rail · uat parked on a boot failure 1`] = `
+"<div#rail.railwrap>
+  <div.track>
+    <div.lane>
+      <div.passed.seg.stg-scope>
+        <button.pick aria-label="Scope: passed" aria-pressed="false" data-stage="scope" title="Scope: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "scope"
+      <div.passed.seg.stg-impl>
+        <button.pick aria-label="Implementation: passed" aria-pressed="false" data-stage="impl" title="Implementation: passed" type="button">
+        <span.g> "✓"
+        <span.nm> "impl"
+      <div.cur.running.seg.sel.stg-uat>
+        <button.pick aria-label="UAT: running" aria-pressed="true" data-stage="uat" title="UAT: running" type="button">
+        <span.g>
+          <span.spin aria-hidden="true">
+        <span.nm>
+          <span.full> "UAT"
+          <span.abbr> "uat"
+      <div.pending.seg.stg-review>
+        <button.pick aria-label="Review: pending" aria-pressed="false" data-stage="review" title="Review: pending" type="button">
+        <span.g> "·"
+        <span.nm> "review"
+      <div.pending.seg.stg-ship>
+        <button.pick aria-label="Ship: pending" aria-pressed="false" data-stage="ship" title="Ship: pending" type="button">
+        <span.g> "·"
+        <span.nm> "ship"
+      <div.pending.seg.stg-done>
+        <button.pick aria-label="Done: pending" aria-pressed="false" data-stage="done" title="Done: pending" type="button">
+        <span.g> "·"
+        <span.nm> "done""
+`;
+
+exports[`dashboard region parity (DOM contract) > root #root · host project, no sandbox strip > root · host project, no sandbox strip 1`] = `
+"<div#root>
+  <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">"
+`;
+
+exports[`dashboard region parity (DOM contract) > root #root · sandbox strip with carry > root · sandbox strip with carry 1`] = `
+"<div#root>
+  <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
+    <div.sandbox-strip aria-label="Sandbox" data-region="sandbox" data-testid="sandbox-strip" role="region">
+      <div.sandbox-strip-main>
+        <span.sandbox-strip-title>
+          <svg.k-icon aria-hidden="true">
+          <span> "Sandbox"
+        <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
+          <span.agenticon-island>
+            <span.agenticon aria-hidden="true">
+              <svg>
+          <span.agentname> "Claude Code"
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.sandbox-badge aria-haspopup="true" aria-label="Filesystem Containment: Isolated Git Clone" data-testid="sandbox-workspace-badge" role="button" tabindex="0" title="workspace: clone">
+          <svg.k-icon aria-hidden="true">
+          <span> "Isolated Git Clone"
+          <svg.k-icon.k-icon-chevron aria-hidden="true">
+          <div.sandbox-popover role="tooltip">
+            <div.sandbox-popover-header>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Filesystem Containment"
+            <div.sandbox-popover-title> "Isolation Boundary"
+            <div.sandbox-popover-body> "Runs in a private, standalone Git clone inside the container. Never mounts your host worktree or shared ."
+              <code> ".git"
+            <div.sandbox-popover-title> "Host Synchronization"
+            <div.sandbox-popover-body> "Agent edits and commits remain contained in the container until you click or the stage successfully finishes."
+              <strong> "Sync"
+            <div.sandbox-popover-footer>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Host workspace and git hooks are fully protected."
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.sandbox-badge aria-haspopup="true" aria-label="Network Allowlist Perimeter: Allowlist Proxy" data-testid="sandbox-network-badge" role="button" tabindex="0" title="network: sbx network policy (allowlist)">
+          <svg.k-icon aria-hidden="true">
+          <span> "Allowlist Proxy"
+          <svg.k-icon.k-icon-chevron aria-hidden="true">
+          <div.sandbox-popover role="tooltip">
+            <div.sandbox-popover-header>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Network Allowlist Perimeter"
+            <div.sandbox-popover-title> "AI Model Endpoints"
+            <ul.sandbox-popover-domain-list>
+              <li.sandbox-popover-domain-tag> "api.anthropic.com"
+              <li.sandbox-popover-domain-tag> "api.openai.com"
+              <li.sandbox-popover-domain-tag> "opencode.ai"
+              <li.sandbox-popover-domain-tag> "openrouter.ai"
+            <div.sandbox-popover-title> "Package Registries"
+            <ul.sandbox-popover-domain-list>
+              <li.sandbox-popover-domain-tag> "registry.npmjs.org"
+              <li.sandbox-popover-domain-tag> "pypi.org"
+              <li.sandbox-popover-domain-tag> "crates.io"
+              <li.sandbox-popover-domain-tag> "proxy.golang.org"
+              <li.sandbox-popover-domain-tag> "rubygems.org"
+            <div.sandbox-popover-footer>
+              <svg.k-icon.k-icon-warning aria-hidden="true">
+              <span> "All other outbound and LAN traffic is blocked."
+      <div.sandbox-strip-actions>
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Sync sandbox commits into the worktree" data-act="sandbox-sync" title="Sync sandbox commits into the worktree" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Show what a sync would bring in" data-act="sandbox-diff" title="Show what a sync would bring in" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Diff"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stash uncommitted sandbox changes and update from the host" data-act="sandbox-stash-update" title="Stash uncommitted sandbox changes (kept in git stash) and update from the host" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Stash & update"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stop the sandbox (kept for the next open)" data-act="sandbox-stop" title="Stop the sandbox (kept for the next open)" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Stop"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Carry sandbox commits onto host branch" data-act="sandbox-carry" title="Carry sandbox commits onto host branch" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Carry to host"
+        <button.k-btn.k-btn--danger.k-btn--sm aria-label="Remove the sandbox" data-act="sandbox-remove" title="Remove the sandbox" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Remove…""
+`;
+
+exports[`dashboard region parity (DOM contract) > root #root · sbx sandbox strip > root · sbx sandbox strip 1`] = `
+"<div#root>
+  <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
+    <div.sandbox-strip aria-label="Sandbox" data-region="sandbox" data-testid="sandbox-strip" role="region">
+      <div.sandbox-strip-main>
+        <span.sandbox-strip-title>
+          <svg.k-icon aria-hidden="true">
+          <span> "Sandbox"
+        <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
+          <span.agenticon-island>
+            <span.agenticon aria-hidden="true">
+              <svg>
+          <span.agentname> "Claude Code"
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.sandbox-badge aria-haspopup="true" aria-label="Filesystem Containment: Isolated Git Clone" data-testid="sandbox-workspace-badge" role="button" tabindex="0" title="workspace: clone">
+          <svg.k-icon aria-hidden="true">
+          <span> "Isolated Git Clone"
+          <svg.k-icon.k-icon-chevron aria-hidden="true">
+          <div.sandbox-popover role="tooltip">
+            <div.sandbox-popover-header>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Filesystem Containment"
+            <div.sandbox-popover-title> "Isolation Boundary"
+            <div.sandbox-popover-body> "Runs in a private, standalone Git clone inside the container. Never mounts your host worktree or shared ."
+              <code> ".git"
+            <div.sandbox-popover-title> "Host Synchronization"
+            <div.sandbox-popover-body> "Agent edits and commits remain contained in the container until you click or the stage successfully finishes."
+              <strong> "Sync"
+            <div.sandbox-popover-footer>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Host workspace and git hooks are fully protected."
+        <span.sandbox-sep aria-hidden="true"> "·"
+        <span.sandbox-badge aria-haspopup="true" aria-label="Network Allowlist Perimeter: Allowlist Proxy" data-testid="sandbox-network-badge" role="button" tabindex="0" title="network: sbx network policy (allowlist)">
+          <svg.k-icon aria-hidden="true">
+          <span> "Allowlist Proxy"
+          <svg.k-icon.k-icon-chevron aria-hidden="true">
+          <div.sandbox-popover role="tooltip">
+            <div.sandbox-popover-header>
+              <svg.k-icon.k-icon-success aria-hidden="true">
+              <span> "Network Allowlist Perimeter"
+            <div.sandbox-popover-title> "AI Model Endpoints"
+            <ul.sandbox-popover-domain-list>
+              <li.sandbox-popover-domain-tag> "api.anthropic.com"
+              <li.sandbox-popover-domain-tag> "api.openai.com"
+              <li.sandbox-popover-domain-tag> "opencode.ai"
+              <li.sandbox-popover-domain-tag> "openrouter.ai"
+            <div.sandbox-popover-title> "Package Registries"
+            <ul.sandbox-popover-domain-list>
+              <li.sandbox-popover-domain-tag> "registry.npmjs.org"
+              <li.sandbox-popover-domain-tag> "pypi.org"
+              <li.sandbox-popover-domain-tag> "crates.io"
+              <li.sandbox-popover-domain-tag> "proxy.golang.org"
+              <li.sandbox-popover-domain-tag> "rubygems.org"
+            <div.sandbox-popover-footer>
+              <svg.k-icon.k-icon-warning aria-hidden="true">
+              <span> "All other outbound and LAN traffic is blocked."
+      <div.sandbox-strip-actions>
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Sync sandbox commits into the worktree" data-act="sandbox-sync" title="Sync sandbox commits into the worktree" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Show what a sync would bring in" data-act="sandbox-diff" title="Show what a sync would bring in" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Diff"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stash uncommitted sandbox changes and update from the host" data-act="sandbox-stash-update" title="Stash uncommitted sandbox changes (kept in git stash) and update from the host" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Stash & update"
+        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stop the sandbox (kept for the next open)" data-act="sandbox-stop" title="Stop the sandbox (kept for the next open)" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Stop"
+        <button.k-btn.k-btn--danger.k-btn--sm aria-label="Remove the sandbox" data-act="sandbox-remove" title="Remove the sandbox" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Remove…""
+`;
+
+exports[`dashboard region parity (DOM contract) > servers .svpanel · none, nothing runnable > servers · none, nothing runnable 1`] = `
+"<div.panel.svpanel>
+  <div.phead> "Servers"
+    <span#srvCount.count>
+    <span#srvOps.pops>
+  <div#servers.pbody>
+    <div.dead.estate>
+      <span.emark>
+        <svg.k-icon aria-hidden="true">
+      <div>
+        <div.ehead> "No runnable services in scope"
+        <div.esub> "This ticket scopes only repositories without a service block, so there is nothing here to run.""
+`;
+
+exports[`dashboard region parity (DOM contract) > servers .svpanel · own and shared services > servers · own and shared services 1`] = `
+"<div.panel.svpanel>
+  <div.phead> "Servers"
+    <span#srvCount.count> "4"
+    <span#srvOps.pops>
+      <button.ib.k-iconbtn.t-start aria-label="Every ticket service is already running" data-act="spin-servers" disabled title="Every ticket service is already running" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-restart aria-label="Restart all ticket services" data-act="restart-servers" title="Restart all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-stop aria-label="Stop all ticket services" data-act="stop-servers" title="Stop all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="Configure environment variables" data-act="env-overrides-open" title="Configure environment variables" type="button">
+        <svg.k-icon aria-hidden="true">
+  <div#servers.pbody>
+    <div.scroll>
+      <table>
+        <thead>
+          <tr>
+            <th>
+              <span.sr> "Status"
+            <th> "Service"
+            <th> "Address"
+            <th> "Actions"
+        <tbody>
+          <tr.srvgroup>
+            <th>
+              <div.gwrap>
+                <span.gname> "Ticket services"
+                <span.gcount> "2"
+                <span.gnote> "run from this ticket's worktrees"
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="web"> "web"
+            <td.c-addr title="localhost:5173">
+              <span.full> "localhost:5173"
+              <span.short> ":5173"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="1" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="api"> "api"
+            <td.c-addr title="localhost:4000">
+              <span.full> "localhost:4000"
+              <span.short> ":4000"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="2" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">
+          <tr.srvgroup>
+            <th>
+              <div.gwrap>
+                <span.gname> "Shared services"
+                <span.gcount> "2"
+                <span.gnote> "one copy per repository, from the base branch"
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name>
+              <span.srvname title="api"> "api"
+              <span.srvmeta>
+                <span.k-chip.srvbranch> "develop"
+                <span.srvnote> "shared with T942018, T942019"
+            <td.c-addr title="localhost:4000">
+              <span.full> "localhost:4000"
+              <span.short> ":4000"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="942101" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
+                  <svg.k-icon aria-hidden="true">
+          <tr>
+            <td.c-dot>
+              <span.glyph.off aria-label="stopped" role="img" title="stopped">
+            <td.c-name>
+              <span.srvname title="web"> "web"
+              <span.srvmeta>
+                <span.k-chip.srvbranch> "main"
+                <span.srvnote> "no other live tickets"
+            <td.c-addr.off title="stopped — no address"> "—"
+              <span.offword> "stopped"
+            <td.c-addrops>
+              <span.g>
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
+                  <svg.k-icon aria-hidden="true">"
+`;
+
+exports[`dashboard region parity (DOM contract) > servers .svpanel · runnable but stopped (no rows) > servers · runnable but stopped (no rows) 1`] = `
+"<div.panel.svpanel>
+  <div.phead> "Servers"
+    <span#srvCount.count>
+    <span#srvOps.pops>
+      <button.ib.k-iconbtn.t-start aria-label="Start all ticket services" data-act="spin-servers" title="Start all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-restart aria-label="No ticket services to restart" data-act="restart-servers" disabled title="No ticket services to restart" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-stop aria-label="No ticket service is running" data-act="stop-servers" disabled title="No ticket service is running" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="No services to show logs for" data-act="server-logs-request" disabled title="No services to show logs for" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="Configure environment variables" data-act="env-overrides-open" title="Configure environment variables" type="button">
+        <svg.k-icon aria-hidden="true">
+  <div#servers.pbody>
+    <div.estate>
+      <span.emark>
+        <svg.k-icon aria-hidden="true">
+      <div>
+        <div.ehead> "No servers running"
+        <div.esub> "Start the services in scope to get their local addresses here.""
+`;
+
+exports[`dashboard region parity (DOM contract) > servers .svpanel · two running services > servers · two running services 1`] = `
+"<div.panel.svpanel>
+  <div.phead> "Servers"
+    <span#srvCount.count> "2"
+    <span#srvOps.pops>
+      <button.ib.k-iconbtn.t-start aria-label="Every ticket service is already running" data-act="spin-servers" disabled title="Every ticket service is already running" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-restart aria-label="Restart all ticket services" data-act="restart-servers" title="Restart all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-stop aria-label="Stop all ticket services" data-act="stop-servers" title="Stop all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="Configure environment variables" data-act="env-overrides-open" title="Configure environment variables" type="button">
+        <svg.k-icon aria-hidden="true">
+  <div#servers.pbody>
+    <div.scroll>
+      <table>
+        <thead>
+          <tr>
+            <th>
+              <span.sr> "Status"
+            <th> "Service"
+            <th> "Address"
+            <th> "Actions"
+        <tbody>
+          <tr.srvgroup>
+            <th>
+              <div.gwrap>
+                <span.gname> "Ticket services"
+                <span.gcount> "2"
+                <span.gnote> "run from this ticket's worktrees"
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="web"> "web"
+            <td.c-addr title="localhost:5173">
+              <span.full> "localhost:5173"
+              <span.short> ":5173"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="1" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="api"> "api"
+            <td.c-addr title="localhost:4000">
+              <span.full> "localhost:4000"
+              <span.short> ":4000"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="2" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">"
+`;
+
+exports[`dashboard region parity (DOM contract) > stored #storedPanel · loaded with two files > stored · loaded with two files 1`] = `
+"<div#storedPanel.panel.span>
+  <div.phead> "Captured artifacts"
+    <button#storedOpen.k-btn.k-btn--ghost.k-btn--sm data-art="stored" title="Browse captured output files and their revision history" type="button"> "Open ›"
+      <span#storedTotal> "2"
+  <div#storedSummary.pbody>
+    <span.sa-meta> "screenshot 2""
+`;
+
+exports[`dashboard region parity (DOM contract) > stored #storedPanel · not loaded (hidden) > stored · not loaded (hidden) 1`] = `
+"<div#storedPanel.hidden.panel.span>
+  <div.phead> "Captured artifacts"
+    <button#storedOpen.k-btn.k-btn--ghost.k-btn--sm data-art="stored" title="Browse captured output files and their revision history" type="button"> "Open ›"
+      <span#storedTotal>
+  <div#storedSummary.pbody>"
+`;
+
+exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none and cannot add (hidden) > subtasks · none and cannot add (hidden) 1`] = `
+"<div#subtaskPanel.hidden.panel.span>
+  <div.phead> "Sub-tasks"
+    <span#subtaskCount.count>
+    <button#addSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+  <div#subtasks.pbody>
+    <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
+`;
+
+exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none but can add > subtasks · none but can add 1`] = `
+"<div#subtaskPanel.panel.span>
+  <div.phead> "Sub-tasks"
+    <span#subtaskCount.count>
+    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+  <div#subtasks.pbody>
+    <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
+`;
+
+exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · populated with progress > subtasks · populated with progress 1`] = `
+"<div#subtaskPanel.panel.span>
+  <div.phead> "Sub-tasks"
+    <span#subtaskCount.count> "1/3 done"
+    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+  <div#subtasks.pbody>
+    <div.subtask data-id="942018">
+      <span.k-dot.k-dot--passed aria-label="done" role="img">
+      <span.k-id> "T942018"
+      <span.subtask-key> "FEAT-142-s1"
+      <span.subtask-title> "Extract the base-branch resolver"
+      <span.stage.stg-done title="done"> "done"
+    <div.subtask data-id="942019">
+      <span.k-dot.k-dot--running aria-label="impl" role="img">
+      <span.k-id> "T942019"
+      <span.subtask-key> "FEAT-142-s2"
+      <span.subtask-title> "Add per-repo override to the picker"
+      <span.subtaskBlock title="Holds the parent before it leaves implement"> "Blocking"
+      <span.stage.stg-impl title="impl"> "impl"
+    <div.subtask data-id="942020">
+      <span.k-dot aria-label="Queued" role="img">
+      <span.k-id> "T942020"
+      <span.subtask-key> "FEAT-142-s3"
+      <span.subtask-title> "Waiting for a free sub-task slot"
+      <span.stage.stg-scope title="Queued"> "Queued""
+`;
+
+exports[`dashboard region parity (DOM contract) > termView #termView · closed > termView · closed 1`] = `"<div#termView.hidden.termview tabindex="-1">"`;
+
+exports[`dashboard region parity (DOM contract) > termView #termView · tester process console while loading > termView · tester process console while loading 1`] = `
+"<div#termView.termview tabindex="-1">
+  <div.thead>
+    <span.ttitle> "Console · Tester"
+    <span.sp>
+      <button.k-btn.k-btn--ghost.k-btn--sm data-term="close" title="Close the console view" type="button"> "Close"
+  <div#tstatus.tstatus role="status"> "Loading console output…"
+  <div#termHost.termhost>"
+`;
+
+exports[`dashboard region parity (DOM contract) > termView #termView · uat stage console while loading > termView · uat stage console while loading 1`] = `
+"<div#termView.termview tabindex="-1">
+  <div.thead>
+    <span.ttitle> "Console · UAT"
+    <span.sp>
+      <button.k-btn.k-btn--ghost.k-btn--sm data-term="close" title="Close the console view" type="button"> "Close"
+  <div#tstatus.tstatus role="status"> "Loading console output…"
+  <div#termHost.termhost>"
+`;
+
+exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · closed > ticketData · closed 1`] = `
+"<aside#ticketDataDrawer.k-drawer.tdDrawer aria-hidden="true" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
+  <div.tdDrawerHead>
+    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
+    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
+  <div#ticketDataBody.tdDrawerBody>"
+`;
+
+exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · open falling back to description > ticketData · open falling back to description 1`] = `
+"<aside#ticketDataDrawer.k-drawer.open.tdDrawer aria-hidden="false" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
+  <div.tdDrawerHead>
+    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
+    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
+  <div#ticketDataBody.tdDrawerBody> "# FEAT-142 — Add per-repo base branch override to the worktree picker Do the thing.""
+`;
+
+exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · open with brief > ticketData · open with brief 1`] = `
+"<aside#ticketDataDrawer.k-drawer.open.tdDrawer aria-hidden="false" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
+  <div.tdDrawerHead>
+    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
+    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
+  <div#ticketDataBody.tdDrawerBody> "# FEAT-142 A brief.""
+`;
+
+exports[`dashboard region parity (DOM contract) > worktrees #worktrees · none > worktrees · none 1`] = `
+"<div#worktrees.pbody>
+  <div.k-empty>
+    <div.k-empty-title> "No worktrees.""
+`;
+
+exports[`dashboard region parity (DOM contract) > worktrees #worktrees · two repos > worktrees · two repos 1`] = `
+"<div#worktrees.pbody>
+  <div.wtwrap data-wtwrap="fixture:/repos/web">
+    <div.wt>
+      <span.wrepo title="web"> "web"
+      <span.wbase>
+        <svg>
+        <span.wbasebr> "main"
+        <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/web" title="Change base branch" type="button"> "✎"
+      <span.wbranch>
+        <span.wbr> "feat/FEAT-142-base-branch-override"
+        <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
+          <svg.k-icon aria-hidden="true">
+      <span.wsep>
+      <span.wacts>
+        <button.ib.k-iconbtn.t-open aria-label="Open terminal" data-act="open-worktree-terminal" data-path="fixture:/worktrees/FEAT-142/web" title="Open a terminal in this worktree" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.t-copy aria-label="Reveal in file explorer" data-act="open-worktree-folder" data-path="fixture:/worktrees/FEAT-142/web" title="Reveal this worktree in the file explorer" type="button">
+          <svg.k-icon aria-hidden="true">
+  <div.wtwrap data-wtwrap="fixture:/repos/api">
+    <div.wt>
+      <span.wrepo title="api"> "api"
+      <span.wbase>
+        <svg>
+        <span.wbasebr> "main"
+        <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/api" title="Change base branch" type="button"> "✎"
+      <span.wbranch>
+        <span.wbr> "feat/FEAT-142-base-branch-override"
+        <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
+          <svg.k-icon aria-hidden="true">
+      <span.wsep>
+      <span.wacts>
+        <button.ib.k-iconbtn.t-open aria-label="Open terminal" data-act="open-worktree-terminal" data-path="fixture:/worktrees/FEAT-142/api" title="Open a terminal in this worktree" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.t-copy aria-label="Reveal in file explorer" data-act="open-worktree-folder" data-path="fixture:/worktrees/FEAT-142/api" title="Reveal this worktree in the file explorer" type="button">
+          <svg.k-icon aria-hidden="true">"
+`;
