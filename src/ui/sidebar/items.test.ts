@@ -376,6 +376,13 @@ describe('completedAt', () => {
     expect(completedAt(t)).toBe('2026-08-11T12:00:00Z');
   });
 
+  it('reads the closed row for a closed ticket, not the never-entered done row', () => {
+    const closed = { ...doneStage({ endedAt: '2026-08-12T09:00:00Z' }), stageKey: 'closed' as const };
+    const neverDone = { ...doneStage({ endedAt: null }), status: 'pending' as const };
+    const t = ticket({ stageCurrent: 'closed', stages: [neverDone, closed] });
+    expect(completedAt(t)).toBe('2026-08-12T09:00:00Z');
+  });
+
   it('falls back to the done stage startedAt when endedAt is missing', () => {
     const t = ticket({
       stageCurrent: 'done',

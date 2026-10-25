@@ -125,6 +125,22 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
     });
   });
 
+  it('a closed ticket says it was closed outside Karst, quotes the reason, and offers no action', () => {
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'closed',
+          current: stage({ stageKey: 'closed', status: 'passed', verdict: 'Sam did it (CU-9)' }),
+        }),
+      ),
+    ).toEqual({ title: 'Closed outside Karst', detail: 'Sam did it (CU-9)', next: null });
+  });
+
+  it('a closed ticket without a recorded reason still reads closed', () => {
+    const peek = buildPeek(input({ stageCurrent: 'closed', current: null }));
+    expect(peek).toEqual({ title: 'Closed outside Karst', detail: null, next: null });
+  });
+
   it('a conflicted ship names the conflict and offers Resolve conflicts for the first repo', () => {
     expect(
       buildPeek(

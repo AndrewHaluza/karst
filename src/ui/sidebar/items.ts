@@ -369,7 +369,8 @@ export function isAwaitingReview(
  * invariant only holds for the stage writers).
  */
 export function completedAt(t: TicketWithStages): string | null {
-  const done = t.stages.find((s) => s.stageKey === 'done');
+  // A closed ticket never entered `done`; its completion is the closed row's.
+  const done = t.stages.find((s) => s.stageKey === (t.stageCurrent === 'closed' ? 'closed' : 'done'));
   const raw = done?.endedAt ?? done?.startedAt ?? t.updatedAt ?? null;
   if (raw === null) return null;
   const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
