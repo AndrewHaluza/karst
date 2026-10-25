@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../../store/db.js';
 import type { GitResult, GitRunner } from '../../integrations/git.js';
-import { listCloudSessionLinks } from '../../store/cloudSessionLinks.js';
+import { listCloudSessionLinks, setManualLink } from '../../store/cloudSessionLinks.js';
 import { makeCloudScanTick, makeCloudSessionScanner } from './cloudSessionScanOps.js';
 
 const S1 = 'https://claude.ai/code/session_one';
@@ -164,6 +164,21 @@ describe('makeCloudSessionScanner', () => {
     const sc = makeCloudSessionScanner({ store, git: fakeGit(world), fetchPrBody: async () => null });
     await sc.scan(1);
     expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S2]);
+  });
+
+  it('removes a previously scanned link once its session proves host-run, keeping manual ones', async () => {
+    const { store, world } = setup();
+    const sc = makeCloudSessionScanner({ store, git: fakeGit(world), fetchPrBody: async () => null });
+    await sc.scan(1);
+    expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S1, S2]);
+    world.host['karst/p-10'] = ['h0'];
+    world.heads['karst/p-10'] = 'a2';
+    expect(await sc.scan(1)).toBe(true);
+    expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S2]);
+    setManualLink(store, { projectId: 1, provider: 'claude', url: S1 }, { ticketId: 10 });
+    world.heads['karst/p-10'] = 'a3';
+    await sc.scan(1);
+    expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => r.url)).toEqual([S2, S1]);
   });
 
   it('records an ambiguous session as unlinked', async () => {

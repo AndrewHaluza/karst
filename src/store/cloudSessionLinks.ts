@@ -65,6 +65,16 @@ export function upsertCloudSessionLink(
     .run(ref.projectId, ref.provider, ref.url, match?.ticketId ?? null, match?.source ?? null);
 }
 
+/** Drop a scan-made row (never a 'manual' one), e.g. once the session proves to be host-run. */
+export function deleteScannedLink(store: Store, ref: CloudSessionRef): void {
+  store.db
+    .prepare(
+      `DELETE FROM cloud_session_links
+        WHERE project_id = ? AND provider = ? AND url = ? AND link_source IS NOT 'manual'`,
+    )
+    .run(ref.projectId, ref.provider, ref.url);
+}
+
 /** Pin a session to a ticket or a draft proposal by hand (exactly one target). */
 export function setManualLink(
   store: Store,

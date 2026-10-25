@@ -8,7 +8,7 @@ import {
   type CloudMatchTicket,
 } from '../../cloud/match.js';
 import { fetchPrBody, type GhRunner } from '../../integrations/github.js';
-import { listCloudSessionLinks, upsertCloudSessionLink } from '../../store/cloudSessionLinks.js';
+import { deleteScannedLink, listCloudSessionLinks, upsertCloudSessionLink } from '../../store/cloudSessionLinks.js';
 
 /**
  * Cloud-session scan (arch:CLOUD-01). Reads commit messages of each ticket's
@@ -164,7 +164,10 @@ export function makeCloudSessionScanner(deps: CloudScanDeps): CloudSessionScanne
       for (const u of scanCloudSessionUrls(text)) urls.set(u.url, u);
     }
     for (const u of urls.values()) {
-      if (hostUrls.has(u.url)) continue;
+      if (hostUrls.has(u.url)) {
+        deleteScannedLink(store, { projectId, provider: u.provider, url: u.url });
+        continue;
+      }
       const m = matchCloudSession({ url: u.url, tickets, prs, commits });
       upsertCloudSessionLink(
         store,
