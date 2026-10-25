@@ -133,3 +133,20 @@ export function listCloudSessionLinks(
     };
   });
 }
+
+/** True when the ticket belongs to the project. */
+export function ticketInProject(store: Store, projectId: number, ticketId: number): boolean {
+  return store.db.prepare('SELECT 1 FROM tickets WHERE id = ? AND project_id = ?').get(ticketId, projectId) !== undefined;
+}
+
+/** True when the proposal belongs to the project (through its planning session) and is not discarded. */
+export function liveProposalInProject(store: Store, projectId: number, proposalId: number): boolean {
+  return (
+    store.db
+      .prepare(
+        `SELECT 1 FROM planning_proposals p JOIN planning_sessions s ON s.id = p.session_id
+          WHERE p.id = ? AND s.project_id = ? AND p.status != 'discarded'`,
+      )
+      .get(proposalId, projectId) !== undefined
+  );
+}
