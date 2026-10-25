@@ -87,6 +87,9 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Approve planning draft | `check` | Planning tree draft action (opens the prefilled form) |
 | Discard planning draft | `x` | Planning tree draft action |
 | Pending planning draft (status) | `file-text` | Planning tree, tinted `--k-attention` |
+| Cloud agent session (open in browser) | `cloud` | sidebar ticket row + unlinked-session row |
+| Unlink a cloud session | `unlink` | sidebar context window, manual links only |
+| Link a cloud session to a ticket/draft | `link` | sidebar unlinked-session row |
 | Collapse all | `chevrons-up` | Planning section header |
 
 Scope note: **attach/detach** and **clear-terminal** controls have no current
