@@ -22,6 +22,7 @@ import {
   type LinuxUser,
   rewritePaths,
 } from './dockerRunArgs.js';
+import type { DockerMemoryLimits } from './dockerMemory.js';
 import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
@@ -38,6 +39,8 @@ export interface DockerRunnerOptions {
   /** Agent-visible evidence dir (the bridge mount), exported to gates as `KARST_EVIDENCE_DIR`. */
   readonly evidenceDir?: string;
   /** What a setup window needs to recreate the proxy: its bundled script and the baseline host ports. */
+  /** Resolved container memory limits; absent = no memory flags. */
+  readonly memory?: DockerMemoryLimits;
   readonly proxy?: { readonly script: string; readonly hostPorts?: readonly number[] };
 }
 
@@ -82,6 +85,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
           names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
           hostWorktreePath: spec.hostWorktreePath, args: [...launch.args, ...spec.args], env,
           ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
+          ...(opts.memory ? { memory: opts.memory } : {}),
         }),
         env,
       };
@@ -110,7 +114,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       const onAbort = () => void remove();
       gateOpts?.signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts);
+        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv, opts.memory), cwd, gateOpts);
       } finally {
         gateOpts?.signal?.removeEventListener('abort', onAbort);
         await remove();

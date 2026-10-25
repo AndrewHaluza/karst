@@ -3,6 +3,7 @@
  * validation; every downstream consumer (resolver, spin) reads this shape.
  */
 
+import type { SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import type { AgentBackends, CoreBackend } from '../agent/backendChoices.js';
 
 export interface PortSlot {
@@ -995,6 +996,12 @@ export interface Manifest {
    * Independent of `agentSandbox`.
    */
   agentBackends?: AgentBackends;
+  /**
+   * Overrides for the docker sandbox's container memory (`--memory` /
+   * `--memory-reservation`), in Docker's `512m` / `2g` form. Absent keys scale
+   * from the Docker VM's total memory; values above 85% of it are clamped.
+   */
+  sandboxMemory?: SandboxMemoryConfig;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"

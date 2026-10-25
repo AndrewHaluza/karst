@@ -202,6 +202,16 @@ quota:
 # it; opencode, opencode2 and agy cannot, and keep prompting. Off by default.
 # agentSandbox: false
 
+# Docker sandbox container memory (opencode / opencode2 on the docker backend).
+# By default the limits scale from the Docker VM's total memory (`docker info`),
+# so two sessions plus gates fit; set any of these to override one. Docker
+# syntax (512m, 2g). A value above 85% of the VM is clamped down to it.
+# sandboxMemory:
+#   interactiveMemory: 2g          # hard cap of the interactive session
+#   interactiveReservation: 1g     # soft limit the kernel reclaims toward
+#   gateMemory: 3g                 # hard cap of a one-shot gate container
+#   gateReservation: 1536m
+
 repositories:
   backend:
     repoPath: /absolute/path/to/backend

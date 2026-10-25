@@ -1,4 +1,5 @@
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
+import type { SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
@@ -44,6 +45,7 @@ export interface BackendSessionInput {
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
   readonly hostPorts?: readonly number[];
+  readonly sandboxMemory?: SandboxMemoryConfig;
   /**
    * F8: before a session starts or resumes in a sandbox that already exists, sync sandbox → host
    * and refresh host → sandbox. A blocker (dirty clone, divergence) stops the launch.
@@ -72,8 +74,8 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const out = await resolve({
       backends: { ...input.backends, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
-      ...(input.debug || input.hostPorts ? {
-        docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },
+      ...(input.debug || input.hostPorts || input.sandboxMemory ? {
+        docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
       } : {}),
     });
     // The fail-closed fallback is never silent (arch:AC-31): say why it runs prompted.
