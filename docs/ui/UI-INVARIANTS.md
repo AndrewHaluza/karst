@@ -29,7 +29,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 - Contrast is verified per theme
 - Mirrored TS→HTML constants
 - React views (the Settings webview, since NDL-126)
-- Dashboard migration in progress (strangler)
+- Dashboard migration completed (2026-10-25)
 END_DOC_BLOCK: [@ui:CONTENTS]
 
 ## [@ui:TITLE-KEY] The TITLE is a ticket's identity; the key is derived from it
@@ -135,32 +135,22 @@ migrated stay vanilla v3.0: bug fixes only, and a feature there means migrating
 the view first, as a separate change.
 
 **Recorded exception (T690, 2026-10-23):** D159's usage-limit park actions
-('Pick agent/model…', 'Retry same', 'Dismiss') are a feature on two vanilla
-views — the dashboard's blocked banner and the ticket form's op-park error — and
-the ticket owner approved the deviation with the trade-off stated. The
-alternative was a feature nobody could reach: a `usage-limit` block is
-non-resumable (`resumeBlockedStage` refuses it) and no other surface offers the
-action, so shipping the host half without these buttons would leave the ticket
-parked with no way to act. The exception is scoped to those three actions on
-those two surfaces and expires with each view's migration: whichever view moves
-to React must re-home its park actions in the React app, never carry the vanilla
-buttons across.
+('Pick agent/model…', 'Retry same', 'Dismiss') are a feature on a vanilla view,
+the ticket form's op-park error, and the ticket owner approved the deviation
+with the trade-off stated. The alternative was a feature nobody could reach: a
+`usage-limit` block is non-resumable (`resumeBlockedStage` refuses it) and no
+other surface offers the action, so shipping the host half without these
+buttons would leave the ticket parked with no way to act. The exception is
+scoped to those three actions on that surface and expires with the ticket
+form's migration: the React ticket form must re-home its park actions, never
+carry the vanilla buttons across. (The dashboard's blocked banner carries the
+same three actions in React.)
 
-**Second recorded exception (2026-10-25):** the dashboard's header carries two
-small controls, "Close — done outside Karst…" and "Reopen" (`#closeTicket`,
-`#reopenTicket`), for the human-only `closed` state (`arch:STAGEMACH`,
-`arch:CLI-18`). The project owner asked for the buttons on the vanilla view so
-the feature is reachable without the command palette. Scope is deliberately the
-smallest that works: two ghost buttons beside "Detach from parent…", gated by the
-host flags `canClose` / `canReopen` (`model/closeRules.ts`), sending two
-payload-free messages (`close-ticket`, `reopen-ticket`); the host runs the same
-`karst.closeTicket` / `karst.reopenTicket` commands as the palette, whose input
-boxes are the confirmation and collect the reason, so the webview holds no form,
-no free text and no state. Like the park actions it expires with the dashboard's
-migration: the React app must re-home both controls, never carry the vanilla
-buttons across.
-
-**Dashboard migration in progress (2026-10-25):** a strangler with transition rules, see `ui:DASHBOARD-MIGRATION`.
+**The dashboard is React (migrated 2026-10-25, `ui:DASHBOARD-MIGRATION`):**
+`src/ui/dashboard/app/**` draws every region and overlay, and its header's
+Close/Reopen buttons and the banner's park actions are React controls like the
+rest. `webview.html` keeps the static shell, the injected runtimes and markers,
+and one line of script for the shared server-logs runtime.
 
 The Resources webview moved to React as the first step of the "Servers &
 resources" page (`src/ui/resources/app/**`, two tabs in one document): its Resources
@@ -207,9 +197,16 @@ Three invariants the original investigators learned the hard way, now load-beari
 The Agents page follows the approved clickable prototype, kept in the repo: [`docs/design/agents-settings-prototype.html`](../design/agents-settings-prototype.html) (generation brief: [`pT2.txt`](../design/pT2.txt)). The prototype's regions, order and stacking are binding (`ui:UI-R39`); only tokens, controls and spacing values defer to UI-RULES and DESIGN-SYSTEM. The cell-edit rule is binding too (`arch:AGENTSPAGE`).
 END_DOC_BLOCK: [@ui:REACT-VIEWS]
 
-## [@ui:DASHBOARD-MIGRATION] Dashboard migration in progress (strangler, 2026-10-25)
+## [@ui:DASHBOARD-MIGRATION] Dashboard migration completed (2026-10-25)
 
-The dashboard is mid-migration as a strangler. A React app (`src/ui/dashboard/app/**`) owns the subtrees marked `data-react-owned` inside the vanilla `webview.html`, and migrates them slice by slice per `docs/plans/2026-10-25-dashboard-react-migration.md` (D1). Until the switch-over slice, the transition rules of plan §4 hold: (1) the vanilla delegators (`click`, `input`, `keydown`) return early inside `data-react-owned` and never query into it; (2) React never writes `vscode.setState`, so vanilla owns persistence (A3); (3) a slice PR deletes the vanilla renderer, its CSS and its source-text tests in the same PR, so no region has two live implementations; (4) a slice PR carries no feature, and behaviour changes are limited to the sidebar's two documented ones; (5) each slice passes the gates with no baseline or ledger edits and the conformance parity floor (`dashboard: 24`). Posting controls in React use the design-system runtime's pending primitives (`karstBeginPending` / `karstSettle`), as the sidebar does. This block and both dashboard exceptions in `ui:REACT-VIEWS` are removed at the switch-over slice (plan Phase 12).
+The dashboard moved from a vanilla `webview.html` script to the React app in `src/ui/dashboard/app/**` as a strangler, slice by slice, and the switch-over (plan Phase 12) is done; the history, the phases and the per-slice differences are in `docs/plans/2026-10-25-dashboard-react-migration.md` (§8 Log). The transition rules (`data-react-owned` delegator skips, "React never writes `vscode.setState`", one-slice-one-renderer) are retired with the vanilla script.
+
+What stays, deliberately:
+- **Static shell.** `webview.html` keeps the region roots (`.dhead`, `#headerMeta`, `#rail`, `#inside`, `#blocked`, the grid panels, the overlay roots) and `RegionPortal` draws into them, because the region parity snapshots (`parity/__snapshots__`) pin those roots as markup, hidden toggles included. `#root` holds the sandbox strip and the app's `data-react-owned` mark (also pinned). Rendering the whole body from `#root` would change the snapshotted DOM, so it was not done.
+- **Page script.** One line, `const esc = karstEsc;`, for the injected shared server-logs runtime; `dashboard/pageShell.test.ts` pins it.
+- **Region keys.** `app/pageRegions.ts` names the regions that own their own Escape and paging keys (pinned by `parity/interopOverlays`).
+
+Invariants now: `app/main.tsx` is the only page script owner and holds host messages until React subscribes; `app/viewPersistence.ts` is the only `vscode.setState` writer and reader (envelope `{ state, sel, shipWait, srvFilter, artView, artScrolls }`, plus the bare snapshot older builds wrote); `PendingOps` settles `action-result` through `karstSettle`; `data-karst-ready` is set after the restored or first buffered state is in the DOM; no `*Seam` window events exist.
 END_DOC_BLOCK: [@ui:DASHBOARD-MIGRATION]
 
 ## [@ui:SIDEBAR-PANES] Sidebar panes and presets (step 2)
