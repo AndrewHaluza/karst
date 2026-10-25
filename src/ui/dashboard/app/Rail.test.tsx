@@ -7,7 +7,7 @@ import { setStage } from '../../../store/stages.js';
 import { createTicket } from '../../../store/tickets.js';
 import { buildDashboardState } from '../state.js';
 import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
-import { all, cleanupRail, go, mainLine, must, mountRail, needs, pageSelects, pick, q, railState, retry, seg, segEl } from './fixtures/railKit.js';
+import { all, cleanupRail, go, mainLine, must, mountRail, needs, pick, q, railState, retry, seg, segEl } from './fixtures/railKit.js';
 
 installRuntimeDoubles();
 afterEach(cleanupRail);
@@ -248,12 +248,15 @@ describe('Rail — selection (React owns it, the page persists it)', () => {
     expect(sel()).toEqual(['review']);
   });
 
-  it('follows the page when it changes the selection (auto-select Ship, Back, an Inside control), null meaning the default', () => {
-    mountRail(railState());
-    pageSelects('ship');
+  it('a new ship wait selects Ship once, and the user can leave it (the page only persists it)', () => {
+    const waiting = (over: Record<string, unknown> = {}) => railState({ stageCurrent: 'ship', ship: { kind: 'confirm' }, ...over });
+    const h = mountRail(railState());
+    h.emit({ type: 'state', state: waiting() });
     expect(sel()).toEqual(['ship']);
-    pageSelects(null);
-    expect(sel()).toEqual(['impl']);
+    expect(h.selected).toEqual(['ship']);
+    fireEvent.click(pick('uat'));
+    h.emit({ type: 'state', state: waiting() });
+    expect(sel()).toEqual(['uat']);
   });
 });
 

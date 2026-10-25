@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { failing, installRuntimeDoubles, mc, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL, vanillaPending } from './fixtures/prsPanelKit.js';
+import { failing, installRuntimeDoubles, mc, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -72,7 +72,6 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
     expect(b.getAttribute('aria-busy')).toBe('true');
     fireEvent.click(b);
     expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
-    expect(h.begun).toEqual([]);
   });
 });
 
@@ -84,7 +83,6 @@ describe('PrsPanel — merge-pr (pending until the next settling state push)', (
     expect(h.send.mergePr).toHaveBeenCalledTimes(1);
     expect(h.send.mergePr.mock.calls[0]).toEqual([REPO]);
     expect([...h.ops().getSnapshot().merging]).toEqual([REPO]);
-    expect(h.begun).toEqual([]);
     expect(b.getAttribute('aria-busy')).toBe('true');
     expect(b.disabled).toBe(true);
     expect(b.title).toBe('Confirm the merge in the dialog');
@@ -158,7 +156,6 @@ describe('PrsPanel — merge-pr (pending until the next settling state push)', (
     expect(mergeRows()[1]!.getAttribute('aria-busy')).toBe('true');
     expect(mergeRows()[1]!.title).toBe('Confirm the merge in the dialog');
     expect(mergeRows()[0]!.disabled).toBe(false);
-    expect(h.begun).toEqual([]);
     h.emit({ type: 'state', state: twoMergeable(), live: true, settlesActions: false });
     expect(mergeRows()[1]!.disabled).toBe(true);
     h.emit({ type: 'state', state: twoMergeable() });
@@ -185,7 +182,6 @@ describe('PrsPanel — dismiss-pr / undismiss-pr (pending until the next settlin
     keepsClass(b, 'k-btn k-btn--secondary k-btn--sm mgbtn');
     fireEvent.click(b);
     expect(h.send.dismissPr).toHaveBeenCalledTimes(1);
-    expect(h.begun).toEqual([]);
   });
 
   it('undismiss posts {repo} only and its pending label is the short "Undo"', () => {
@@ -275,12 +271,12 @@ describe('PrsPanel — send-ci-failure (pending until the next settling state pu
     stateWith([pr({ checks: failing(['a', null]) }), apiPr({ checks: failing(['b', null]) })], { ci: { available: true, repos: [REPO, API] } });
   const ciBtns = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLButtonElement>('.mg-ci-failing .mgbtn')];
 
-  it('posts its type only, announces the request id to the page and disables every row’s button', () => {
+  it('posts its type only and disables every row’s button, here and in the stage menu', () => {
     const h = mount(ciState());
     fireEvent.click(ciBtns()[0]!);
     expect(h.send.sendCiFailure).toHaveBeenCalledTimes(1);
     expect(h.send.sendCiFailure.mock.calls[0]).toEqual([]);
-    expect(h.begun).toEqual([{ kind: 'ci-failure', requestId: 'req-1' }]);
+    expect(h.ops().isRunning('ci')).toBe(true);
     for (const b of ciBtns()) {
       expect(b.getAttribute('aria-busy')).toBe('true');
       expect(b.disabled).toBe(true);
@@ -301,16 +297,19 @@ describe('PrsPanel — send-ci-failure (pending until the next settling state pu
     expect(ciBtns().every((b) => b.disabled)).toBe(true);
     h.emit({ type: 'state', state: ciState() });
     expect(ciBtns().every((b) => !b.disabled && b.dataset.act === 'send-ci-failure')).toBe(true);
-    expect(settled).toEqual([]);
+    // The shared operations settle the runtime request on that push: the ticket did not move, which is unknown, never failed.
+    expect(settled).toEqual([['req-1', null, 'The ticket was not moved.']]);
   });
 
-  it('shows a request the PAGE started (the stage menu) as pending without announcing back', () => {
+  it('shows a request the Inside stage menu started as pending, and clears it on the same push', () => {
     const h = mount(ciState());
-    vanillaPending({ kind: 'ci-failure' });
+    act(() => h.ops().beginAction('ci', 'menu-1'));
     expect(ciBtns().every((b) => b.disabled && b.getAttribute('aria-busy') === 'true')).toBe(true);
-    expect(h.begun).toEqual([]);
+    fireEvent.click(ciBtns()[0]!);
+    expect(h.send.sendCiFailure).not.toHaveBeenCalled();
     h.emit({ type: 'state', state: ciState() });
     expect(ciBtns().every((b) => !b.disabled)).toBe(true);
+    expect(settled).toEqual([['menu-1', null, 'The ticket was not moved.']]);
   });
 });
 

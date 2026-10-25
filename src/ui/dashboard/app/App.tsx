@@ -13,6 +13,7 @@ import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
 import { ArtifactsShelf } from './ArtifactsShelf.js';
 import { BlockedBanner } from './BlockedBanner.js';
 import { Header } from './Header.js';
+import { Inside } from './Inside.js';
 import { PrsPanel } from './PrsPanel.js';
 import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
@@ -45,6 +46,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       {/* Migrated panels render into their existing containers in webview.html (data-react-owned there). */}
       <Header />
       <Rail />
+      <Inside />
       <BlockedBanner />
       <SubtasksPanel />
       <ServersPanel />

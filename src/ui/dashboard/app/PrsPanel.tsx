@@ -3,7 +3,7 @@
  * (`#prCount`, `#prOps`, `#prs`) through three `RegionPortal`s. The panel root and its caption stay
  * static in `webview.html`. Same DOM as the vanilla renderer it replaced (`renderPrs`).
  *
- * The operations in flight (dismiss, refresh, CI) live in `usePrPending`, Merge in `pendingOps.ts` (shared with the stage rail); the merge-check
+ * The operations in flight (dismiss, refresh) live in `usePrPending`, Merge and Send CI failure in `pendingOps.ts` (shared with the stage rail and the Inside stage menu); the merge-check
  * disclosures the user opened are panel state, so they outlive the line that holds them.
  */
 import { memo, useCallback, useState } from 'react';
@@ -35,8 +35,8 @@ const selectPrs = (snapshot: DashboardSnapshot): PrsSlice | null => {
 export const PrsPanel = memo(function PrsPanel() {
   const slice = useSlice(selectPrs);
   const { pending, api } = usePrPending();
-  // Merge is held in the state the stage rail's Merge shares (pendingOps.ts).
-  const { merging } = useOps();
+  // Merge and Send CI failure are held in the state the stage rail's Merge and the Inside stage menu share (pendingOps.ts).
+  const { merging, running } = useOps();
   const [openMerge, setOpenMerge] = useState<ReadonlySet<string>>(new Set());
   const toggleMerge = useCallback(
     (repo: string, open: boolean) =>
@@ -71,7 +71,7 @@ export const PrsPanel = memo(function PrsPanel() {
               ciOffer={slice.ciRepos.includes(p.repo)}
               mergeBusy={merging.has(p.repo)}
               dismissBusy={pending.dismiss.has(p.repo)}
-              ciBusy={pending.ci}
+              ciBusy={running.has('ci')}
               mergeOpen={openMerge.has(p.repo)}
               onMergeToggle={toggleMerge}
               api={api}

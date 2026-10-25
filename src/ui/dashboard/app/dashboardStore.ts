@@ -10,6 +10,7 @@ import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import type { WorktreeStats } from '../worktreeStats.js';
 import type { GateOptions } from '../gateOptions.js';
+import { applyClocks, receiveProgress, retireOverlays, type LiveOps } from './insideLive.js';
 
 export interface DashboardSnapshot {
   readonly state: DashboardState | null;
@@ -19,6 +20,8 @@ export interface DashboardSnapshot {
   readonly bind: boolean;
   /** The togglable gates (`gate-options` message), replaced wholesale on each answer; never cleared by a state push. Null until the first answer. */
   readonly gateOptions: GateOptions | null;
+  /** The Inside block's transient overlays (`inside-progress`), keyed by stage; retired by the snapshot that holds their process. */
+  readonly liveOps: LiveOps;
 }
 
 const NO_STATS: DashboardSnapshot['worktreeStats'] = Object.freeze({});
@@ -29,7 +32,7 @@ export class DashboardStore {
   private readonly messageListeners = new Set<(message: HostMessage) => void>();
 
   constructor(state: DashboardState | null) {
-    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, gateOptions: null };
+    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, gateOptions: null, liveOps: {} };
   }
 
   readonly getSnapshot = (): DashboardSnapshot => this.snapshot;
@@ -55,8 +58,19 @@ export class DashboardStore {
       // numbers for an older working tree. A live repaint or a store-only push is not followed
       // by one, and the worktrees did not change, so the current totals stay.
       const keep = message.live === true || message.supplemental === false;
-      this.snapshot = { ...this.snapshot, state: message.state, worktreeStats: keep ? this.snapshot.worktreeStats : NO_STATS };
+      // The snapshot supersedes any overlay that it actually contains (a live repaint included).
+      const liveOps = retireOverlays(this.snapshot.liveOps, message.state);
+      this.snapshot = { ...this.snapshot, state: message.state, liveOps, worktreeStats: keep ? this.snapshot.worktreeStats : NO_STATS };
       this.notify();
+    } else if (message.type === 'inside-progress') {
+      this.snapshot = { ...this.snapshot, liveOps: receiveProgress(this.snapshot.liveOps, message.event) };
+      this.notify();
+    } else if (message.type === 'clocks') {
+      // Only time moved: merge the clock text into the snapshot held. Before the first snapshot there is nothing to merge into.
+      if (this.snapshot.state) {
+        this.snapshot = { ...this.snapshot, state: applyClocks(this.snapshot.state, message.clocks ?? {}) };
+        this.notify();
+      }
     } else if (message.type === 'worktree-stats') {
       this.snapshot = {
         ...this.snapshot,

@@ -1,0 +1,45 @@
+/** The Ship preview (D142). Imported after InsideEvidence.css: same specificity, original source order. */
+/* Ship preview (D142): the advisory, read-only preview of what ship's sweep
+   commit and PR will do, shown only while the ship slot waits for Confirm.
+   One card per repo; every label/value row shares one left edge (UI-R41). */
+#inside .ship-preview{border-bottom:var(--k-border-w) solid var(--p-border);background:var(--p-surface2)}
+#inside .sp-head{display:flex;align-items:center;gap:var(--p-s2);padding:var(--p-s2) var(--p-s4);
+  border-bottom:var(--k-border-w) solid var(--p-border)}
+#inside .sp-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong)}
+#inside .sp-meta{margin-left:auto;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+  white-space:nowrap}
+#inside .sp-repo{padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+#inside .sp-repo:last-child{border-bottom:0}
+#inside .sp-repo-head{display:flex;align-items:center;gap:var(--p-s2);margin-bottom:var(--p-s1);flex-wrap:wrap}
+#inside .sp-repo-name{font-family:var(--p-mono);font-size:var(--p-sm);color:var(--p-strong);
+  overflow-wrap:anywhere;min-width:0}
+#inside .sp-badge{display:inline-flex;align-items:center;gap:var(--p-s1);font-size:var(--p-xs);
+  color:var(--p-muted);border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-sm);
+  padding:0 var(--p-s1);white-space:nowrap}
+#inside .sp-badge .k-icon{width:14px;height:14px}
+#inside .sp-badge--ok{color:var(--p-passed)}
+#inside .sp-badge--danger{color:var(--p-failed)}
+#inside .sp-grid{display:grid;gap:var(--p-s1)}
+#inside .sp-row{display:grid;grid-template-columns:minmax(84px,128px) minmax(0,1fr);
+  gap:var(--p-s2);align-items:baseline}
+#inside .sp-label{color:var(--p-muted2);font-size:var(--p-xs);text-transform:uppercase;letter-spacing:.04em;
+  display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0}
+#inside .sp-label .k-icon{width:14px;height:14px;flex:none}
+#inside .sp-value{color:var(--p-text);font-size:var(--p-sm);min-width:0;overflow-wrap:anywhere;white-space:normal}
+#inside .sp-row--danger .sp-value{color:var(--p-failed)}
+#inside .sp-row--warn .sp-value{color:var(--p-attention)}
+#inside .sp-files summary{cursor:pointer;color:var(--p-muted);font-size:var(--p-xs)}
+#inside .sp-files summary::-webkit-details-marker{display:none}
+#inside .sp-files summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+#inside .sp-file-list{margin:var(--p-s1) 0 0;padding:0;list-style:none;display:grid;gap:var(--k-border-w)}
+#inside .sp-file{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted);overflow-wrap:anywhere}
+#inside .sp-more{font-style:italic;color:var(--p-muted2)}
+#inside .sp-note{display:flex;align-items:center;gap:var(--p-s1);margin:0;padding:var(--p-s2) var(--p-s4);
+  font-size:var(--p-sm);color:var(--p-muted);overflow-wrap:anywhere}
+#inside .sp-note .k-icon{flex:none}
+#inside .sp-note--warn{color:var(--p-attention)}
+#inside .sp-skel{display:inline-block;height:10px;width:60%;border-radius:var(--k-radius-sm);
+  background:var(--p-border);opacity:.6}
+#inside .sp-skel-name{width:40%}
+#inside .sp-skel-row .sp-label:before{content:"…";visibility:visible}
+#inside .sp-skel-row .sp-label{visibility:hidden}

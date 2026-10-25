@@ -3,22 +3,20 @@
  * `RegionPortal` (the region parity snapshot pins the root, so `inReactIsland()` treats `#rail` as an island
  * until Phase 12). Same DOM as the vanilla `renderTrack` it replaced.
  *
- * React owns the stage selection. The page keeps persisting it (`vscode.setState`, A3) and renders the Inside
- * block for it (Phase 10), so a pick is announced to the page (`stageSeam.ts`), and the page announces back
- * when it changes the selection itself. The initial value is read once from the persisted state.
+ * React owns the stage selection (`stageSelection.ts`), shared with the Inside block beside it: a pick re-points
+ * the strip in the same turn. The page only persists it (`vscode.setState`, A3), through a one-way event.
  *
  * The track measures rather than positions: after every render and on resize it picks one of three
  * degradation classes (`snug`, `tight`, `bare`) and positions nothing, so a measurement taken before layout can
  * only under-degrade for a frame. The classes are written on the node, never through `className`.
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
-import { useDashboardBridge, useOps } from './DashboardAppContext.js';
+import { memo, useEffect, useLayoutEffect, useRef } from 'react';
+import { useOps, useSelection } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { Segment } from './RailSegment.js';
 import { selectRail, type RailSlice } from './railSlices.js';
 import { ctaOf, showsApproach, type RailSeg } from './railText.js';
-import { announceSelectStage, onStageSelection } from './stageSeam.js';
+import { shownStage } from './stageSelection.js';
 import { useSlice } from './useSlice.js';
 import './Rail.css';
 import './RailRing.css';
@@ -34,29 +32,6 @@ function place(track: HTMLElement | null): void {
   if (!over()) return;
   track.classList.add('tight');
   if (over()) track.classList.add('bare');
-}
-
-function persistedSelection(getState: () => unknown): string | null {
-  try {
-    const raw = getState();
-    const sel = raw && typeof raw === 'object' ? (raw as { sel?: unknown }).sel : undefined;
-    return typeof sel === 'string' && sel ? sel : null;
-  } catch {
-    return null;
-  }
-}
-
-function useSelection(): { readonly selected: string | null; readonly select: (stage: string) => void } {
-  const bridge = useDashboardBridge();
-  const [selected, setSelected] = useState<string | null>(() => persistedSelection(bridge.getState));
-  // The page changed the selection (auto-select Ship, Back, an Inside control) or repainted: converge on its value.
-  useEffect(() => onStageSelection((stage) => flushSync(() => setSelected(stage))), []);
-  const select = useCallback((stage: string) => {
-    // At once, like the vanilla click: the page re-renders Inside for it in the same turn.
-    flushSync(() => setSelected(stage));
-    announceSelectStage(stage);
-  }, []);
-  return { selected, select };
 }
 
 /** The ship / merge control of this segment is busy when the operation it shares with the header / PR panel is in flight. */
@@ -106,8 +81,8 @@ function Track({ slice, sel, select }: { readonly slice: RailSlice; readonly sel
 
 export const Rail = memo(function Rail() {
   const slice = useSlice(selectRail);
-  const { selected, select } = useSelection();
+  const { selection, select } = useSelection();
   // The selection is local (never in DashboardState), so a push cannot reset it; with none it follows the ticket.
-  const sel = slice ? selected || slice.presentedStage || slice.stageCurrent || 'scope' : '';
+  const sel = slice ? shownStage(selection.selected, slice) : '';
   return <RegionPortal id="rail">{slice ? <Track slice={slice} sel={sel} select={select} /> : null}</RegionPortal>;
 });

@@ -85,8 +85,8 @@ const SENDERS = ['shipTicket', 'mergePr', 'resolveConflicts', 'stageResume', 'us
 export interface RailHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
-  /** What React announced to the page: `karst:selectStage` details, in order. */
-  readonly selected: string[];
+  /** What React asked the page to persist as the selection (`karst:persistSel`), in order; null = back to following the ticket. */
+  readonly selected: Array<string | null>;
   readonly ops: () => PendingOps;
   readonly setState: ReturnType<typeof vi.fn>;
 }
@@ -129,12 +129,12 @@ export function mountRail(initial: DashboardState | null, opts: MountOpts = {}):
       };
     },
   };
-  const selected: string[] = [];
+  const selected: Array<string | null> = [];
   const record = (e: Event): void => {
-    selected.push((e as CustomEvent<string>).detail);
+    selected.push((e as CustomEvent<{ sel: string | null }>).detail.sel);
   };
-  window.addEventListener('karst:selectStage', record);
-  cleanups.push(() => window.removeEventListener('karst:selectStage', record));
+  window.addEventListener('karst:persistSel', record);
+  cleanups.push(() => window.removeEventListener('karst:persistSel', record));
   let ops: PendingOps | null = null;
   const body = (
     <>
@@ -163,12 +163,6 @@ export function mountRail(initial: DashboardState | null, opts: MountOpts = {}):
     emit: (message) => act(() => listener?.(message)),
   };
 }
-
-/** The page telling React the selection (autoSelectShip, Back, an Inside control). */
-export const pageSelects = (stage: string | null): void =>
-  act(() => {
-    window.dispatchEvent(new CustomEvent('karst:stageSelection', { detail: stage }));
-  });
 
 export const q = <T extends HTMLElement = HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
 export const must = <T extends HTMLElement = HTMLElement>(sel: string): T => {

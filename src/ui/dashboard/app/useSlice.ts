@@ -22,15 +22,19 @@ export function structurallyEqual(a: unknown, b: unknown): boolean {
   return keys.every((key) => Object.hasOwn(right, key) && structurallyEqual(left[key], right[key]));
 }
 
-/** `select` must be a stable (module-level) function. */
-export function useSlice<T>(select: (snapshot: DashboardSnapshot) => T): T {
+/**
+ * `select` must be a stable (module-level, or memoised) function. `equal` decides when the new slice counts as the
+ * previous one (default: structurally); a slice that carries ticking clocks passes `sameIgnoringLive` so a push that
+ * only advanced them hands back the previous object.
+ */
+export function useSlice<T>(select: (snapshot: DashboardSnapshot) => T, equal: (a: T, b: T) => boolean = structurallyEqual): T {
   const store = useStore();
   const last = useRef<{ value: T } | null>(null);
   const getSnapshot = useCallback((): T => {
     const next = select(store.getSnapshot());
-    if (last.current && structurallyEqual(last.current.value, next)) return last.current.value;
+    if (last.current && equal(last.current.value, next)) return last.current.value;
     last.current = { value: next };
     return next;
-  }, [store, select]);
+  }, [store, select, equal]);
   return useSyncExternalStore(store.subscribe, getSnapshot);
 }

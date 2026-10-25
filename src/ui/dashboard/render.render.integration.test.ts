@@ -7,7 +7,7 @@
  * rules are out of scope until FEAT-37 supplies their corpora.
  */
 import { describe, it, expect } from 'vitest';
-import { drainReactWork, renderWebview, renderWebviewReady } from '../testing/renderHarness.js';
+import { drainReactWork, renderWebview, renderWebviewReady, waitForSettingsReady } from '../testing/renderHarness.js';
 import { buildStepper } from '../../model/stepper.js';
 import { buildStageRail } from '../../model/stageRail.js';
 import {
@@ -57,9 +57,10 @@ describe('dashboard render — fixture corpus', () => {
 
   it.each(renderFixtures())(
     '$repositoryCount repos, $scenario ($stage): renders #inside with rows and zero errors',
-    (f) => {
-      const h = renderWebview('dashboard');
+    async (f) => {
+      const h = await renderWebviewReady('dashboard');
       h.receive(envelope(f));
+      await drainReactWork(h);
       const inside = h.query('#inside');
       expect(inside, '#inside not found').toBeTruthy();
       expect(inside!.innerHTML.length, '#inside is empty').toBeGreaterThan(0);
@@ -72,9 +73,10 @@ describe('dashboard render — fixture corpus', () => {
 
   it.each(renderFixtures())(
     '$repositoryCount repos, $scenario ($stage): escapes hostile labels (UI-R32)',
-    (f) => {
-      const h = renderWebview('dashboard');
+    async (f) => {
+      const h = await renderWebviewReady('dashboard');
       h.receive(envelope(f));
+      await drainReactWork(h);
       const inside = h.query('#inside')!;
       // No script elements should appear inside #inside, even though fixture
       // labels contain literal "<script>" strings.
@@ -141,10 +143,11 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('implementationPrototypeFixture renders session segments', () => {
-    const h = renderWebview('dashboard');
+  it('implementationPrototypeFixture renders session segments', async () => {
+    const h = await renderWebviewReady('dashboard');
     const f = implementationPrototypeFixture();
     h.receive(envelope(f));
+    await drainReactWork(h);
     const inside = h.query('#inside');
     expect(inside, '#inside not found').toBeTruthy();
     expect(inside!.innerHTML.length).toBeGreaterThan(0);
@@ -182,8 +185,8 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', () => {
-    const h = renderWebview('dashboard');
+  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', async () => {
+    const h = await renderWebviewReady('dashboard');
     const base = renderStateFor('ship');
     h.receive({
       type: 'state',
@@ -195,13 +198,14 @@ describe('dashboard render — fixture corpus', () => {
         openPrFeedback: 2,
       },
     });
+    await drainReactWork(h);
     expect(h.query('[data-stage-menu="ship"]'), '⋯ menu not rendered').toBeTruthy();
     expect(h.errors).toEqual([]);
     h.close();
   });
 
-  it('renders no ship ⋯ menu when the host withholds every recovery action', () => {
-    const h = renderWebview('dashboard');
+  it('renders no ship ⋯ menu when the host withholds every recovery action', async () => {
+    const h = await renderWebviewReady('dashboard');
     const base = renderStateFor('ship');
     h.receive({
       type: 'state',
@@ -213,6 +217,7 @@ describe('dashboard render — fixture corpus', () => {
         rerunGate: { available: false, reason: 'not-gate-stage' },
       },
     });
+    await drainReactWork(h);
     expect(h.query('[data-stage-menu]')).toBeNull();
     h.close();
   });
@@ -290,9 +295,11 @@ describe('dashboard render — fixture corpus', () => {
 });
 
 describe('dashboard render — ship preview (D142)', () => {
-  const render = (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
-    const h = renderWebview('dashboard');
+  // Inside is React's: the block is drawn once React has committed the push.
+  const render = async (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: shipPreviewStateFor(kind) });
+    await drainReactWork(h);
     return h;
   };
 
@@ -314,17 +321,18 @@ describe('dashboard render — ship preview (D142)', () => {
   const SHIP_CLOCK = '09:40:02 · 1m 40s · attempt 1';
   const UAT_CLOCK = '10:03:55 · 41.2s · attempt 3';
   const REVIEW_CLOCK = '09:20:11 · 3m 02s · attempt 2';
-  const insideClock = (h: ReturnType<typeof renderWebview>) => h.query('#inside .inside-meta')?.textContent;
+  const insideClock = (h: Awaited<ReturnType<typeof renderWebviewReady>>) => h.query('#inside .inside-meta')?.textContent;
 
-  it('is absent unless the ship slot waits for Confirm/Retry', () => {
-    const h = renderWebview('dashboard');
+  it('is absent unless the ship slot waits for Confirm/Retry', async () => {
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: renderStateFor('ship') }); // slot: none
+    await drainReactWork(h);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     h.close();
   });
 
-  it('ready: renders one card per repo with the PR title and commit subject', () => {
-    const h = render('ready');
+  it('ready: renders one card per repo with the PR title and commit subject', async () => {
+    const h = await render('ready');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section).toBeTruthy();
     const cards = h.queryAll('[data-region="ship-preview-repo"]');
@@ -337,8 +345,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('excluded + warning: names the excluded files and the committed-match warning', () => {
-    const h = render('excluded-warning');
+  it('excluded + warning: names the excluded files and the committed-match warning', async () => {
+    const h = await render('excluded-warning');
     const text = h.query('[data-region="ship-preview"]')!.textContent!;
     expect(text).toContain('Excluded');
     expect(text).toContain('(ship.exclude)');
@@ -347,8 +355,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', () => {
-    const h = render('blocked');
+  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', async () => {
+    const h = await render('blocked');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('.env');
     expect(section.querySelector('.sp-badge--danger')).toBeTruthy();
@@ -359,24 +367,24 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('nothing-to-commit: says the agent already committed its work', () => {
-    const h = render('nothing-to-commit');
+  it('nothing-to-commit: says the agent already committed its work', async () => {
+    const h = await render('nothing-to-commit');
     expect(h.query('[data-region="ship-preview"]')!.textContent).toContain(
       'nothing to commit — agent committed its work',
     );
     h.close();
   });
 
-  it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', () => {
-    const h = render('all-nothing');
+  it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', async () => {
+    const h = await render('all-nothing');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('ship will fail — no repo has changes');
     expect(section.querySelector('.sp-note--warn')).toBeTruthy();
     h.close();
   });
 
-  it('error: renders the per-repo message and never a "no changes" verdict', () => {
-    const h = render('error');
+  it('error: renders the per-repo message and never a "no changes" verdict', async () => {
+    const h = await render('error');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('git status exited 128');
     expect(section.textContent).not.toContain('no changes from base');
@@ -384,14 +392,14 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('loading: keeps geometry with a skeleton while the read lands', () => {
-    const h = render('loading');
+  it('loading: keeps geometry with a skeleton while the read lands', async () => {
+    const h = await render('loading');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.querySelector('.sp-skel')).toBeTruthy();
     h.close();
   });
 
-  it('caps the visible file list at 50 and names the remainder (UI-R44)', () => {
+  it('caps the visible file list at 50 and names the remainder (UI-R44)', async () => {
     const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
     const state = shipPreviewStateFor('ready');
     const preview = shipPreviewFixture('ready')!;
@@ -399,8 +407,9 @@ describe('dashboard render — ship preview (D142)', () => {
       ...state,
       shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] },
     };
-    const h = renderWebview('dashboard');
+    const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withFiles });
+    await drainReactWork(h);
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.querySelectorAll('.sp-file').length).toBe(51); // 50 + the remainder row
     expect(section.textContent).toContain('and 10 more');
@@ -478,7 +487,7 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('restores a recorded wait without re-selecting Ship over the user choice (D234)', () => {
+  it('restores a recorded wait without re-selecting Ship over the user choice (D234)', async () => {
     const state = confirmPendingWithViews();
     const h = renderWebview('dashboard', {
       persistedState: {
@@ -490,6 +499,8 @@ describe('dashboard render — ship preview (D142)', () => {
         artScrolls: { ticket: 0, index: 0, detail: {} },
       },
     });
+    await waitForSettingsReady(h);
+    await drainReactWork(h);
     expect(insideClock(h)).toBe(UAT_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
     h.close();
@@ -505,8 +516,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', () => {
-    const h = render('re-ship');
+  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', async () => {
+    const h = await render('re-ship');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('PR #42 open — this commit is pushed onto it');
     expect(section.textContent).not.toContain('skipped');
@@ -514,8 +525,8 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', () => {
-    const h = render('ready');
+  it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', async () => {
+    const h = await render('ready');
     h.click('[data-act="refresh-ship-preview"]');
     expect(h.posted).toHaveLength(1);
     expect(h.posted[0]).toMatchObject({ type: 'refresh-ship-preview' });

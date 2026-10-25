@@ -117,7 +117,7 @@ function ChecksDetails({ p }: { readonly p: PrPanelRow }) {
 }
 
 /** Pending reads "CI running"; failing names the failures, with the host's availability deciding the button; anything else renders nothing. */
-function CiLine({ p, offer, busy, api }: { readonly p: PrPanelRow; readonly offer: boolean; readonly busy: boolean; readonly api: PrPendingApi }) {
+function CiLine({ p, offer, busy }: { readonly p: PrPanelRow; readonly offer: boolean; readonly busy: boolean }) {
   if (!p.checks || p.status === 'merged') return null;
   if (p.checks.state === 'pending') {
     return (
@@ -134,7 +134,7 @@ function CiLine({ p, offer, busy, api }: { readonly p: PrPanelRow; readonly offe
     <div className="mgwrap mg-ci mg-ci-failing">
       <Dot>
         <span className="mgtext">{`CI failing — ${n} ${n === 1 ? 'check' : 'checks'}`}</span>
-        {offer ? <CiButton api={api} busy={busy} /> : null}
+        {offer ? <CiButton busy={busy} /> : null}
       </Dot>
       <CheckRows failing={p.checks.failing} />
     </div>
@@ -231,7 +231,7 @@ export const PrRow = memo(function PrRow({ p, m, ciOffer, mergeBusy, dismissBusy
       </div>
       <Meta p={p} />
       <ChecksDetails p={p} />
-      <CiLine p={p} offer={ciOffer} busy={ciBusy} api={api} />
+      <CiLine p={p} offer={ciOffer} busy={ciBusy} />
       {m ? <MergeLine m={m} open={mergeOpen} onToggle={onMergeToggle} /> : null}
       <Comments p={p} />
     </div>

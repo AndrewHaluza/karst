@@ -77,9 +77,7 @@ type SendName = 'openPr' | 'copyPrUrl' | 'resolveConflicts' | 'mergePr' | 'dismi
 export interface Harness {
   readonly send: Record<SendName, ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
-  /** Announcements React made to the vanilla page (the transitional seam). */
-  readonly begun: unknown[];
-  /** The in-flight operations the panel shares with the stage rail and the header (merge, ship). */
+  /** The in-flight operations the panel shares with the stage rail, the header and the Inside stage menu (merge, ship, CI). */
   readonly ops: () => PendingOps;
 }
 
@@ -115,12 +113,6 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
       };
     },
   };
-  const begun: unknown[] = [];
-  const record = (e: Event): void => {
-    begun.push((e as CustomEvent).detail);
-  };
-  window.addEventListener('karst:prBegin', record);
-  cleanups.push(() => window.removeEventListener('karst:prBegin', record));
   const panel = <PrsPanel />;
   let ops: PendingOps | null = null;
   render(
@@ -135,14 +127,8 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
       )}
     </DashboardAppProvider>,
   );
-  return { send, begun, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
+  return { send, ops: () => ops!, emit: (message) => act(() => listener?.(message)) };
 }
-
-/** The vanilla page announcing that ITS control (the stage menu's Send CI failure) went pending. */
-export const vanillaPending = (detail: { kind: 'ci-failure' }): void =>
-  act(() => {
-    window.dispatchEvent(new CustomEvent('karst:prPending', { detail }));
-  });
 
 const cleanups: Array<() => void> = [];
 const pending = new Map<string, HTMLButtonElement>();

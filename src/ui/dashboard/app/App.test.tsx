@@ -10,7 +10,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     // The page's migrated-panel containers (webview.html): RegionPortal renders into these.
     document.body.innerHTML =
       '<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div>'
-      + '<div class="railwrap" id="rail"></div><div class="fault blocked hidden" id="blocked"></div>'
+      + '<div class="railwrap" id="rail"></div><div id="inside"></div><div class="fault blocked hidden" id="blocked"></div>'
       + '<div class="panel span hidden" id="subtaskPanel"><div class="phead">Sub-tasks<span id="subtaskCount"></span></div><div id="subtasks"></div></div>'
       + '<div class="panel svpanel"><div class="phead">Servers<span id="srvCount"></span><span id="srvOps"></span></div><div id="servers"></div></div>'
       + '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>'

@@ -174,16 +174,19 @@ export const DismissButton = memo(function DismissButton({ p, api, busy }: Penda
 });
 
 /** Sends the failing CI log to the agent: host-confirmed, then a state push. One request in flight for every row. */
-export const CiButton = memo(function CiButton({ api, busy }: Pendable) {
+export const CiButton = memo(function CiButton({ busy }: { readonly busy: boolean }) {
   const send = useDashboardSend();
+  // Held in the state the Inside stage menu's item shares (pendingOps.ts): one operation, one dialog.
+  const ops = usePendingOps();
   const onClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
+      if (ops.isRunning('ci')) return;
       const requestId = beginPending(e);
       if (requestId === null) return;
-      api.beginCi(requestId);
+      ops.beginAction('ci', requestId);
       send.sendCiFailure();
     },
-    [api, send],
+    [ops, send],
   );
   return (
     <button
