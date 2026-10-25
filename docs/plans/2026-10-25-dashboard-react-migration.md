@@ -153,8 +153,8 @@ Transition rules (recorded in `ui:REACT-VIEWS` in Phase 0, deleted at switch-ove
 |---|---|---|---|
 | 0 | **Fix the hybrid** | B1–B8; transition rules into `ui:REACT-VIEWS`; correct the prerequisite report (B9). | Bug-fix only; unblocks everything. |
 | 1 | **Parity harness** | Characterisation tests per region via `renderWebviewReady('dashboard')` using `renderFixtures.ts` states: header, rail, inside, blocked banner, each grid panel, each overlay. Click-to-message assertions for every `SEND_BY_ACT` entry. | No production change. Oracle for all later slices. |
-| 2 | **Shell** | Move `#root` to wrap `.grid`; `usePendingAction`; slice selector + memo pattern; `Icon.tsx`. | Strip moves inside the grid root unchanged. |
-| 3 | **Worktrees panel** | incl. base-branch control/popover and its input draft. | Leaf, low coupling. |
+| 2 | **Shell** (merged into 3) | `RegionPortal` (React renders a migrated panel into its existing container via `createPortal`; that container gets `data-react-owned`), `useSlice` selector + memo. `#root` stays where it is. | Landed with its first consumer, not alone (no speculative infra). Wrapping `.grid` in `#root` was wrong: it would mark the still-vanilla panels React-owned and the vanilla delegators would skip them. |
+| 3 | **Worktrees panel** (+ shell) | incl. base-branch control/popover and its input draft. | Leaf, low coupling. First `RegionPortal` consumer. |
 | 4 | **Servers panel** | incl. shared-services rows, filter (read-only use of vanilla-owned `srvFilter` until 9). | |
 | 5 | **Sub-tasks panel** | | |
 | 6 | **Pull requests panel** | merge / dismiss / undismiss / refresh / CI rows and their pending maps. | Highest-risk grid panel (irreversible merge). |
