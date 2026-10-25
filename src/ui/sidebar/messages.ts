@@ -37,7 +37,12 @@ export type SidebarWebviewMessage =
   | { type: 'plan-unarchive'; sessionId: number }
   // A pending planning proposal carries its own `proposalId`.
   | { type: 'plan-proposal-review'; proposalId: number }
-  | { type: 'plan-proposal-discard'; proposalId: number };
+  | { type: 'plan-proposal-discard'; proposalId: number }
+  // Cloud agent sessions are addressed by URL (arch:CLOUD-01); the host re-validates it.
+  | { type: 'cloud-session-open'; url: string }
+  | { type: 'cloud-session-unlink'; url: string }
+  | { type: 'cloud-session-link'; url: string; ticketId: number }
+  | { type: 'cloud-session-link'; url: string; proposalId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -89,6 +94,9 @@ export interface SidebarActions {
   planProposalReview(proposalId: number): void | Promise<void>;
   planProposalDiscard(proposalId: number): void | Promise<void>;
   planUnarchive(sessionId: number): void | Promise<void>;
+  cloudSessionOpen(url: string): void | Promise<void>;
+  cloudSessionLink(url: string, target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
+  cloudSessionUnlink(url: string): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -123,6 +131,18 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
       return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId)
         ? { type: m.type, proposalId: m.proposalId }
         : null;
+    case 'cloud-session-open':
+    case 'cloud-session-unlink':
+      return typeof m.url === 'string' && m.url !== '' ? { type: m.type, url: m.url } : null;
+    case 'cloud-session-link': {
+      if (typeof m.url !== 'string' || m.url === '') return null;
+      const proposal = typeof m.proposalId === 'number' && Number.isFinite(m.proposalId);
+      // Exactly one target: a ticket or a draft, never both and never neither.
+      if (id === proposal) return null;
+      return id
+        ? { type: 'cloud-session-link', url: m.url, ticketId: m.ticketId as number }
+        : { type: 'cloud-session-link', url: m.url, proposalId: m.proposalId as number };
+    }
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
         ? { type: 'toggle-facet', facet: m.facet as FacetKey }
@@ -209,5 +229,11 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planProposalReview(msg.proposalId);
     case 'plan-proposal-discard':
       return actions.planProposalDiscard(msg.proposalId);
+    case 'cloud-session-open':
+      return actions.cloudSessionOpen(msg.url);
+    case 'cloud-session-unlink':
+      return actions.cloudSessionUnlink(msg.url);
+    case 'cloud-session-link':
+      return actions.cloudSessionLink(msg.url, 'ticketId' in msg ? { ticketId: msg.ticketId } : { proposalId: msg.proposalId });
   }
 }

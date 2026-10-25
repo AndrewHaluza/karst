@@ -50,6 +50,7 @@ import {
   type ServerOpsDeps,
 } from './extension/ops/serverOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
+import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { resolveSidebarEdge } from './ui/sidebar/edge.js';
@@ -899,6 +900,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
+    ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), refresh: () => mgr.refresh() }),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
