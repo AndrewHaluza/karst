@@ -61,6 +61,15 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/hookFailureLog.ts": [
+    "arch:DIAG-00"
+  ],
+  "src/agent/hookFailureLog.ts#bridgeOutcomeDetail": [
+    "arch:DIAG-03"
+  ],
+  "src/agent/hookFailureLog.ts#writeCurrentEndpoint": [
+    "arch:DIAG-03"
+  ],
   "src/agent/instrumentedAdapter.ts#instrumentAdapter": [
     "arch:DBG-01"
   ],
@@ -253,8 +262,20 @@
   "src/cloud/sidebarView.ts": [
     "arch:CLOUD-01"
   ],
+  "src/diagnostics/**/*.ts": [
+    "arch:DIAG-00"
+  ],
   "src/diagnostics/collectMetadata.ts": [
     "arch:DBG-02"
+  ],
+  "src/diagnostics/hookChannel.ts#normalizeHookEventName": [
+    "arch:DIAG-03"
+  ],
+  "src/diagnostics/issuePrefill.ts#coreLines": [
+    "arch:DIAG-04"
+  ],
+  "src/diagnostics/storeEvidence.ts#readCoreUsage": [
+    "arch:DIAG-04"
   ],
   "src/doctor/applyFixes.ts#applyFixes": [
     "arch:CLI-16"
