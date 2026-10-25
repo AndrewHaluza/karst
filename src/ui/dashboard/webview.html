@@ -1392,138 +1392,7 @@
   .phead{display:flex;align-items:center;gap:var(--k-space-4);min-height:var(--phead-h);padding:var(--k-space-4) var(--k-space-7);
     border-bottom:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
   .phead .count{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);font-weight:var(--k-weight-normal)}
-  /* An icon-only panel control, built on `.k-iconbtn` (UI-R07) — quiet until
-     hovered, since it sits in a header, not a row of actions, and a filled
-     button there would read as the panel's subject. */
-  .phead .iconbtn{margin-left:auto}
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
-
-  .pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
-  /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
-     `#42`/Merge drop below it. (Worktree rows: app/WorktreesPanel.css.) */
-  .pr{flex-wrap:wrap}
-  .pr:hover{background:var(--k-surface-hover)}
-  .pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
-  /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
-     approach .aid); only the monospace uppercase treatment stays local. Every
-     status renders one of the variants below, so the chip's own default fill
-     never shows in practice. */
-  .pr .pst{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
-  /* Live PR state at a glance: open green, merged purple (the shared
-     categorical token, UI-R08), closed red, draft muted — every fill is paired
-     with the SAME "text on a filled surface" token the design system already
-     defines for success/danger (UI-R29: paired tokens, never a hand-picked
-     foreground). */
-  .pr .pst-open{background:var(--k-success);color:var(--k-success-fg)}
-  .pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
-  .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
-  .pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
-  /* v60: the CI rollup and GitHub's refusal. Both are host-worded and host-
-     counted (`p.checks`, `p.mergeBlockLabel`); these rules only paint them, and
-     every fill pairs with the "text on a filled surface" token the vocabulary
-     above already uses (UI-R29). */
-  .pr .pck{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
-  .pr .pck-passing{background:var(--k-success);color:var(--k-success-fg)}
-  .pr .pck-failing{background:var(--k-danger);color:var(--k-danger-fg)}
-  .pr .pck-pending{background:var(--k-text-faint);color:var(--k-success-fg)}
-  .pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;background:var(--k-attention);color:var(--k-success-fg)}
-  /* The PR number IS the open control (UI-R09c): an underlined link-coloured
-     anchor, keyboard-focusable, in the same visual language as the ship view's
-     `pr-link`. With no recorded URL it degrades to plain text — a link that
-     opens nothing is worse than none. */
-  .pr .pnum{font-family:var(--k-font-mono);white-space:nowrap;flex:none}
-  .pr .pnum a{color:var(--k-link);text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
-    text-decoration-color:var(--k-border-strong);text-underline-offset:2px;cursor:pointer;font-weight:var(--k-weight-semibold);border-radius:var(--k-radius-sm)}
-  .pr .pnum a:hover{color:var(--k-link-active);text-decoration-color:currentColor}
-  .pr .pnum a:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  /* The PR URL is the copy control (UI-R09c + R09b): a BUTTON styled as inline
-     text (an action, so a real button — keyboard-focusable, its own pending
-     state), whose visible text IS the URL. It is the row's ONE flexible item —
-     a long URL ellipsizes first, and `#42` and Merge never move. The 150px
-     floor keeps a narrow row from collapsing it to a dot; the copy glyph
-     appears on hover (Variant C). */
-  .pr .url-copy{flex:1;min-width:150px;display:inline-flex;align-items:center;gap:var(--k-space-2);overflow:hidden;cursor:pointer;
-    font:inherit;font-size:var(--k-text-md);color:var(--k-text-dim);background:none;border:none;padding:0;text-align:left;border-radius:var(--k-radius-sm)}
-  .pr .url-copy .u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-  .pr .url-copy .glyph{opacity:0;transform:translateX(-3px);transition:opacity var(--k-dur-fast) var(--k-ease-standard),transform var(--k-dur-fast) var(--k-ease-standard);color:var(--k-text-dim);flex:none}
-  .pr .url-copy .glyph svg{width:var(--k-space-6);height:var(--k-space-6);display:block}
-  .pr .url-copy:hover .glyph{opacity:1;transform:none}
-  .pr .url-copy:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .pr .url-copy.ok .u{color:var(--k-success)}
-  /* The repo label: the manifest NAME (host-resolved), ellipsized with its path
-     in the tooltip — never a second path format, and never pushed off the row. */
-  .pr .prepo{font-size:var(--k-text-md);min-width:0;max-width:34%;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  /* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
-     never as a second pull request. Shape (filled/hollow/ring) carries the state
-     alongside colour, matching the servers panel's dot. */
-  .mg{display:flex;align-items:center;gap:var(--k-space-4);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-3) var(--k-space-6);
-    padding:var(--k-space-1) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
-  .mg-clean .mgdot{background:var(--k-success)}
-  .mg-conflicted .mgdot{background:var(--k-danger)}
-  .mg-ci .mgdot{background:var(--k-warning)}
-  .mg-ci-failing .mgdot{background:var(--k-danger)}
-  .mg-ci-failing .mgtext{color:var(--k-danger)}
-  .mg-ci .pck-row{margin-left:var(--k-space-6);overflow-wrap:anywhere}
-  /* A check that ERRORED is a fault, not a neutral pending state: every
-     `unknown` verdict carries a `reason` (git failed, git too old, no base ref),
-     so it reads red like a conflict — shape (hollow ring vs filled dot) keeps
-     the two distinguishable without colour alone (UI-R28). */
-  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-danger);width:var(--k-space-3);height:var(--k-space-3)}
-  .mg-conflicted .mgtext{color:var(--k-danger)}
-  .mg-unknown .mgtext{color:var(--k-danger)}
-  .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .mg .mgbtn{flex:none}
-  /* The conflict list / the reason karst could not tell. Collapsed by default,
-     like the PR comments thread further down this same panel — the count is what
-     a reader scans, the detail is what they open. Capped and scrollable so a
-     forty-file conflict cannot push the rest of the panel off screen. */
-  .mgd{margin:calc(var(--k-space-2) * -1) 0 var(--k-space-3) var(--k-space-9);font-size:var(--k-text-sm)}
-  .mgd summary{cursor:pointer;color:var(--k-link);width:fit-content}
-  /* <summary> is not a <button>/<a>/<input>, so it gets no ring from the
-     primitives' generic :focus-visible rule (same reasoning as the approach
-     disclosure above). */
-  .mgd summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  /* 180px has no scale match — a scroll cap sized to the panel, not a spacing
-     value (same category as the servers panel's 288px below). */
-  .mgdbody{max-height:180px;overflow-y:auto;margin-top:var(--k-space-2)}
-  .mgfile{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);word-break:break-all}
-  /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
-  .mgreason{white-space:pre-wrap;color:var(--k-text-dim);word-break:break-word}
-  /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
-     verdict, so it reads as facts ABOUT that pull request.
-     The branch is sized by AVAILABLE space (flex:1 1 0), so at normal widths a
-     long branch ellipsizes and the stamps (one flex:none group) stay flush right
-     and never move; the wrap point is driven ONLY by the stamp group's own width
-     — when the row is too narrow for the stamps they drop to a second line
-     intact, so an opened/merged date is never cut off. */
-  .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-2) var(--k-space-6);padding:0 var(--k-space-3);
-    font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden}
-  .pmeta .pbranch{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);color:var(--k-text)}
-  .pmeta .pstamps{flex:none;display:flex;align-items:center;gap:var(--k-space-3);min-width:0}
-  .pmeta .pstamp{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pmeta .pmerged{color:var(--k-series-2)}
-  .pmeta .psep{color:var(--k-text-faint)}
-  /* Comments collapse: the count is what a reader scans, the bodies are what they
-     open. `pre-wrap` keeps a review comment's own line breaks. */
-  .pcms{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
-  .pcms summary{cursor:pointer;color:var(--k-link);width:fit-content}
-  .pcms summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .pcm{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
-  .pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
-  .pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
-  .pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
-  /* The failing checks: the count is what a reader scans for, the names and their
-     runs are what they open when it matters. Same collapse shape as the comments
-     above, so one panel uses one disclosure. */
-  .pcks{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
-  .pcks summary{cursor:pointer;color:var(--k-link);width:fit-content}
-  .pcks summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .pck-row{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
-  /* The merge control is `.k-btn--primary` (consequential-primary, UI-R10b:
-     "Merge is not automatically danger-colored merely because it is
-     consequential"), built in markup — no bespoke color rule left here. */
-  .mgbtn{flex:none}
 
   /* ===================== Shared helpers: .sr and .ib ====================
      The Servers panel's own rules live in app/ServersPanel.css. */
@@ -2010,10 +1879,10 @@
   <!-- The Worktrees panel (header + body) is React-owned: app/WorktreesPanel.tsx renders into this
        container through a RegionPortal, and data-react-owned makes the vanilla delegators skip it. -->
   <div class="panel" id="worktreesPanel" data-react-owned="true"></div>
-  <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="k-iconbtn iconbtn" data-act="refresh-prs" type="button"
-    aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
-    <svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
-  </button></div><div class="pbody" id="prs"></div></div>
+  <!-- The Pull requests panel's count, refresh control and body are React-owned: app/PrsPanel.tsx renders into
+       #prCount, #prOps and #prs through RegionPortals. `prpanel` marks the island for the vanilla delegators
+       (inReactIsland), because the region parity snapshots pin #prs without any data-* attribute. -->
+  <div class="panel span prpanel"><div class="phead">Pull requests<span class="count" id="prCount"></span><span class="pops" id="prOps"></span></div><div class="pbody" id="prs"></div></div>
   <!-- The artifacts shelf (docs/design/artifacts). Rendered only while the
        ticket has at least one artifact — renderArtifacts() toggles .hidden —
        because the spec's zero-artifact state is ABSENCE, never an empty
@@ -2140,10 +2009,10 @@
   // unrelated refresh. The follow-up message replaces it wholesale — including
   // with an empty list when resolution fails — so it cannot go stale unnoticed.
   let gateOptions = { uat: [], review: [] };
-  // `shipRequestId` / `mergeRequests` / `prRefreshId` below are the runtime's
-  // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge/
-  // refresh-prs controls. They are tracked SEPARATELY from the view state
-  // because ship/merge/refresh-prs are the one place this file's full-innerHTML
+  // `shipRequestId` / `mergeRequests` below are the runtime's
+  // pending bookkeeping (karstBeginPending/karstSettle) for the ship/merge
+  // controls. They are tracked SEPARATELY from the view state
+  // because ship/merge are the one place this file's full-innerHTML
   // re-render (§ render()) collides with the runtime's element-keyed pending
   // map: a `state` push mid-ship replaces the "Confirm ship" button with a
   // brand-new DOM node, so a pending flag living only on the OLD (now detached)
@@ -2154,29 +2023,18 @@
   // when a request begins or ends. `shipDone` is the brief post-success flash.
   let shipDone = null;
   let shipRequestId = null;
-  // Per-repo merge-in-flight request ids, keyed by repo path. NOT persisted: a
+  // Per-repo merge-in-flight request ids, keyed by repo path. The rail's Merge
+  // button reads it; the React Pull requests panel's own Merge buttons tell the
+  // page when they begin (the `karst:prBegin` listener below), so both settle
+  // here. NOT persisted: a
   // merge is a one-shot host round trip, and an id restored from a reload
   // would claim a merge is underway that nobody is running. Cleared on the
   // action-settling state push — extension.ts's mergePr always refreshes in a
   // `finally` (success, refusal, cancel, or throw), so that push is guaranteed
   // to arrive and end the pending state; it is never left to a watchdog alone.
   let mergeRequests = {};
-  // Per-repo dismiss/undismiss request ids, keyed by repo path. Same shape and
-  // same reason as `mergeRequests`: the host answers a dismiss with a
-  // confirmation modal and then a state push (confirm, cancel, refusal or
-  // throw — always), so the pending flag has to survive the full-innerHTML
-  // redraw that push causes. Cleared wholesale on that push.
-  let dismissRequests = {};
-  // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
-  // state, exactly like `selectedStage`: render() replaces #prs wholesale on
-  // every `state` push AND every inside-progress tick, so a disclosure that is
-  // open only in the DOM — and the reader's scroll position inside it — would
-  // snap shut on the very next one. Never in DashboardState, never
-  // round-tripped through the host; only the `toggle` listener below mutates
-  // it, and render() itself must never reset it.
-  let openMergeRepos = new Set();
   // Which inside process disclosures are open, keyed `stage:id`. Local view
-  // state, exactly like `openMergeRepos`: render() replaces #inside wholesale
+  // state, exactly like `selectedStage`: render() replaces #inside wholesale
   // on every state push, so a disclosure open only in the DOM would snap shut
   // on the very next one. Never in DashboardState, never round-tripped
   // through the host; only the native `toggle` listener mutates it (B3), and
@@ -2186,14 +2044,8 @@
   // (Task 3, Step 5). openProcesses holds open keys only, so absence cannot
   // tell "never opened" from "closed" — this set can. Only `toggle` mutates.
   let closedProcesses = new Set();
-  // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
-  // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
-  // in which a button with no busy state looks inert and gets pressed again.
-  // Cleared by the next action-settling state push (the host always sends one
-  // when the refresh settles, including when nothing moved), so it cannot stick.
-  let prRefreshId = null;
-  // The Ship preview's explicit Refresh is in flight (D142). Same contract as
-  // prRefreshId: set on the click BEFORE the host round trip, settled by the
+  // The Ship preview's explicit Refresh is in flight (D142). Set on
+  // the click BEFORE the host round trip, settled by the
   // next action-settling state push (the host always sends one, whether or not
   // the preview changed), so it cannot stick.
   let shipPreviewRefreshId = null;
@@ -2301,7 +2153,7 @@
   // The env-override editor's own state. `envDrafts` holds what the user has
   // TYPED, per scope, so a state push (a live tick, a server change) re-renders
   // the surface without discarding an unsaved edit — the same reason
-  // `openMergeRepos` and `baseFormRebase` live at module level. A scope is
+  // `baseFormRebase` lives at module level. A scope is
   // dropped from the drafts once the host's push carries the saved value.
   let envView = null;
   let envDrafts = {};
@@ -3691,250 +3543,7 @@
     karstIcon(name, size)
   );
 
-  // Mergeability under a PR row. Every string is the host's
-  // (`buildMergeCheckPanelRows`) — the webview only places them. A repo with no
-  // check renders NOTHING: never asked is not the same as clean, and the one
-  // thing this panel must not do is reassure about a question nobody put.
-  //
-  // The headline is bounded (verdict, count, base ref, age), so it fits the line
-  // it is given. Everything unbounded — the path list, git's own error prose —
-  // lives in the disclosure, which is where it can wrap and be selected. A row
-  // the host gave no `detailsLabel` renders no disclosure at all.
-  function mergeLine(m) {
-    if (!m) return '';
-    const act = m.state === 'conflicted'
-      ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="resolve-conflicts" data-repo="${esc(m.repo)}"`
-        + ` title="Hand this repo's conflict to an agent session">Resolve conflicts</button>`
-      : '';
-    // The relative age drifts between state pushes; the absolute stamp does not.
-    const title = m.checkedTitle ? ` title="checked ${esc(m.checkedTitle)}"` : '';
-    const body = m.reason
-      ? `<div class="mgreason">${esc(m.reason)}</div>`
-      : (m.files || []).map((f) => `<div class="mgfile">${esc(f)}</div>`).join('');
-    // Re-open exactly the disclosures the user had open before this render —
-    // see `openMergeRepos` above.
-    const openAttr = openMergeRepos.has(m.repo) ? ' open' : '';
-    const details = m.detailsLabel
-      ? `<details class="mgd"${openAttr} data-repo="${esc(m.repo)}"><summary>${esc(m.detailsLabel)}</summary>`
-        + `<div class="mgdbody">${body}</div></details>`
-      : '';
-    return `<div class="mgwrap mg-${esc(m.state)}">`
-      + `<div class="mg"><span class="mgdot" aria-hidden="true"></span>`
-      + `<span class="mgtext"${title}>${esc(m.headline)}</span>${act}</div>`
-      + details
-      + `</div>`;
-  }
-
-  // The merge control. Rendered from the host's verdict (`canMerge` +
-  // `mergeBlockedReason`) — the webview never decides that a PR is mergeable, and
-  // never phrases the reason it isn't.
-  //
-  // Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in
-  // front of the user (which also chooses the strategy) before anything runs.
-  // `.k-btn--primary` (consequential-primary) is its treatment per UI-R10b —
-  // "Merge is not automatically danger-colored merely because it is
-  // consequential; required confirmation remains host-side". The pending state
-  // (aria-busy, via `mergeRequests`) exists so a click on an irreversible action
-  // is never silent while that dialog is up, and it
-  // is cleared by the next state push — including the one the host sends after
-  // a cancel, so the button can never stick (see `mergeRequests`' own comment).
-  function mergeButton(p) {
-    if (p.status === 'merged') return '';
-    if (mergeRequests[p.repo]) {
-      return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" aria-busy="true" disabled`
-        + ` title="Confirm the merge in the dialog">Merge</button>`;
-    }
-    if (!p.canMerge) {
-      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
-    }
-    const num = p.number ? ` #${p.number}` : '';
-    return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
-      + ` title="Merge PR${esc(num)} into ${esc(p.baseRef || 'its base')} — cannot be undone">Merge</button>`;
-  }
-
-  // The dismiss control — the ONLY way out of a ship stage parked behind a pull
-  // request that was closed rather than merged (a closed PR can never become
-  // 'merged', so the merge gate has no terminating answer without this).
-  //
-  // `.k-btn--secondary` (UI-R10b): dismissing is consequential but reversible —
-  // the undo below puts the PR straight back in the gate's way — so it is not
-  // danger-coloured. The host still confirms it, and the pending state exists
-  // for the same reason merge's does: a click must never look inert while that
-  // dialog is up.
-  //
-  // Whether it is offered at all is the HOST's verdict (`canDismiss`), never
-  // this file's: a merged PR landed and a dismissed one already carries the
-  // acknowledgement.
-  function dismissButton(p) {
-    if (dismissRequests[p.repo]) {
-      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" aria-busy="true" disabled`
-        + ` title="Confirm in the dialog">${p.dismissed ? 'Undo' : 'Dismiss'}</button>`;
-    }
-    if (p.dismissed) {
-      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="undismiss-pr" data-repo="${esc(p.repo)}"`
-        + ` title="Wait on this pull request again">Undo dismiss</button>`;
-    }
-    if (!p.canDismiss) return '';
-    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="dismiss-pr" data-repo="${esc(p.repo)}"`
-      + ` title="Stop waiting on this pull request — it will never land">Dismiss</button>`;
-  }
-
-  // The metadata line under a PR: from-to, when it was opened, when it merged, and
-  // how many comments it carries. Every part is a host-rendered string that is ''
-  // when the fact is absent, so a PR karst has not fully probed simply shows less
-  // — never a blank field, a placeholder, or "Invalid Date".
-  //
-  // The branch (flex:1 1 0) truncates at normal widths — its full value and the
-  // full stamps ride in `title`, so nothing is lost to the compaction. The stamps
-  // are ONE flex:none group so they wrap to a second line intact on narrow rows.
-  function prMetaLine(p) {
-    const branch = p.branches
-      ? `<span class="pbranch" title="${esc(p.branches)}">${esc(p.branches)}</span>`
-      : '';
-    const stamps = [
-      p.opened
-        ? `<span class="pstamp"${p.openedTitle ? ` title="${esc(p.openedTitle)}"` : ''}>${esc(p.opened)}</span>`
-        : '',
-      p.merged
-        ? `<span class="pstamp pmerged"${p.mergedTitle ? ` title="${esc(p.mergedTitle)}"` : ''}>${esc(p.merged)}</span>`
-        : '',
-    ].filter(Boolean);
-    const group = stamps.length
-      ? `<span class="pstamps"><span class="psep">·</span>${stamps.join('<span class="psep">·</span>')}</span>`
-      : '';
-    const bits = [branch, group].filter(Boolean);
-    if (!bits.length) return '';
-    return `<div class="pmeta">${bits.join('')}</div>`;
-  }
-
-  // Comments collapse by default: the count is the fact a reader scans for, the
-  // bodies are what they open when it matters. A PR with none renders nothing at
-  // all rather than an empty disclosure.
-  function prComments(p) {
-    if (!p.commentsLabel) return '';
-    const rows = p.comments.map((c) => (
-      `<div class="pcm"><span class="pcmwho">${esc(c.author || 'unknown')}</span>`
-      + (c.when ? `<span class="pcmwhen">${esc(c.when)}</span>` : '')
-      + `<div class="pcmbody">${esc(c.body)}</div></div>`
-    )).join('');
-    return `<details class="pcms"><summary>${esc(p.commentsLabel)}</summary>${rows}</details>`;
-  }
-
-  // The failing checks: the count is what a reader scans for, the names and
-  // their runs are what they open when it matters. Each name links through the
-  // SAME `open-pr` action the PR number uses — the host validates the url with
-  // `isHttpUrl` before opening it, so no new message type is needed.
-  function prChecksDetails(p) {
-    // Suppressed on a merged PR for the same reason the chips are (`live` in
-    // `renderPrs`): it landed, and a stale rollup beside `merged` would state a
-    // question that is closed.
-    if (p.status === 'merged') return '';
-    if (!p.checks || !p.checks.detailsLabel) return '';
-    const rows = p.checks.failing.map((c) => (
-      `<div class="pck-row">` + (c.url
-        ? `<a href="#" data-act="open-pr" data-url="${esc(c.url)}" title="Open this check run">${esc(c.name)}</a>`
-        : `<span>${esc(c.name)}</span>`) + `</div>`
-    )).join('');
-    return `<details class="pcks"><summary>${esc(p.checks.detailsLabel)}</summary>${rows}</details>`;
-  }
-
-  // The CI line under a PR row, mirroring `mergeLine`. The host's availability
-  // (`state.ciFailure.repos`, from `ciFailureState`) decides the button; this file
-  // only places it. A failing rollup the host refuses (in-flight / landed) still
-  // names the failure, without the button. Pending reads 'CI running'; anything
-  // else renders nothing.
-  function ciLine(p) {
-    if (!p.checks || p.status === 'merged') return '';
-    if (p.checks.state === 'pending') {
-      return `<div class="mgwrap mg-ci"><div class="mg"><span class="mgdot" aria-hidden="true"></span>`
-        + `<span class="mgtext">CI running</span></div></div>`;
-    }
-    if (p.checks.state !== 'failing') return '';
-    const n = p.checks.failing.length;
-    const ci = (lastState && lastState.ciFailure) || { available: false, repos: [] };
-    const offer = ci.available && ci.repos.includes(p.repo);
-    const busy = !!ciFailureRequestId;
-    const act = !offer ? ''
-      : busy
-        ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" aria-busy="true" disabled`
-          + ` title="Fetching the failing logs">Send CI failure to agent</button>`
-        : `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="send-ci-failure"`
-          + ` title="Send the failing CI log to the agent — UAT and Review will run again">Send CI failure to agent</button>`;
-    const names = p.checks.failing.map((c) => (
-      `<div class="pck-row">` + (c.url
-        ? `<a href="#" data-act="open-pr" data-url="${esc(c.url)}" title="Open this check run">${esc(c.name)}</a>`
-        : `<span>${esc(c.name)}</span>`) + `</div>`
-    )).join('');
-    return `<div class="mgwrap mg-ci mg-ci-failing"><div class="mg"><span class="mgdot" aria-hidden="true"></span>`
-      + `<span class="mgtext">CI failing — ${n} ${n === 1 ? 'check' : 'checks'}</span>${act}</div>${names}</div>`;
-  }
-
-  function renderPrs(prs, mergeChecks) {
-    const byRepo = {};
-    for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
-    el('prCount').textContent = prs.length ? `${prs.length}` : '';
-    // The refresh stays live even with zero PRs: "none yet" is exactly the answer
-    // a user wants to re-ask right after a ship.
-    const refresh = el('prRefresh');
-    const refreshing = !!prRefreshId;
-    if (refreshing) refresh.setAttribute('aria-busy', 'true');
-    else refresh.removeAttribute('aria-busy');
-    refresh.disabled = refreshing;
-    // aria-label and title stay the SAME string in both states (UI-R21) — an
-    // icon-only control's accessible name and its tooltip must never diverge.
-    const refreshName = refreshing
-      ? 'Re-checking pull requests…'
-      : 'Re-check pull request status and mergeability now';
-    refresh.title = refreshName;
-    refresh.setAttribute('aria-label', refreshName);
-    el('prs').innerHTML = prs.length ? prs.map((p) => {
-      // The PR number IS the open control (UI-R09c): with a recorded URL it is
-      // an underlined link-coloured anchor; with none it is plain text.
-      const hasUrl = !!p.url;
-      const numLabel = p.number != null ? `#${esc(p.number)}` : '';
-      const num = `<span class="pnum">${hasUrl
-        ? `<a href="#" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">${numLabel}</a>`
-        : numLabel}</span>`;
-      // The URL text IS the copy control (Variant C): a button styled as inline
-      // text — clicking copies it, a copy glyph appears on hover, and
-      // `data-copy` triggers the optimistic flash.
-      const copy = hasUrl
-        ? `<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="${esc(p.url)}" data-copy title="Copy pull request URL">`
-          + `<span class="u">${esc(p.url)}</span><span class="glyph">${svgIcon('copy')}</span></button>`
-        : '';
-      // The repo label is the manifest NAME when one resolves — the path (the
-      // row's identity) rides in `title`, never shown beside the name again.
-      const repoLabel = p.repoDisplay || p.repo;
-      const repoTitle = repoLabel !== p.repo ? p.repo : '';
-      // The CI rollup and GitHub's refusal, both host-worded (`p.checks`,
-      // `p.mergeBlockLabel`) — this file never counts a check or decides that a
-      // merge is blocked. Each renders nothing at all when its fact is absent.
-      // Suppressed on a merged PR: it landed, and a stale rollup beside `merged`
-      // would state a question that is closed.
-      const live = p.status !== 'merged';
-      const ckChip = live && p.checks && p.checks.label
-        ? `<span class="k-chip pck pck-${esc(p.checks.state)}" title="${esc(p.checks.title)}">${esc(p.checks.label)}</span>`
-        : '';
-      const blockChip = live && p.mergeBlockLabel
-        ? `<span class="k-chip pblock" title="${esc(p.mergeBlockedReason)}">${esc(p.mergeBlockLabel)}</span>`
-        : '';
-      return `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
-      + ckChip
-      + blockChip
-      // The repo NAME (host-resolved from the manifest), never the path — the
-      // same identity the inside ship rows show; the path rides in `title`.
-      + `<span class="prepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
-      + copy
-      + num
-      + `<span class="pacts">${p.dismissedLabel ? `<span class="pstamp">${esc(p.dismissedLabel)}</span>` : ''}${dismissButton(p)}${mergeButton(p)}</span></div>`
-      + prMetaLine(p)
-      + prChecksDetails(p)
-      + ciLine(p)
-      + mergeLine(byRepo[p.repo])
-      + prComments(p)
-      + `</div>`;
-    }).join('') : '<div class="k-empty"><div class="k-empty-title">No pull requests.</div></div>';
-  }
+  // The Pull requests panel is React-owned (app/PrsPanel.tsx); see the `karst:prBegin` / `karst:prPending` seam below.
 
   // The header's ticket identity: provider mark + copy-key button + a SEPARATE
   // board link (the key no longer doubles as the link — a regular click copies
@@ -4189,10 +3798,11 @@
   // Transition rule: the React island (#root, marked data-react-owned) owns its own
   // events. Every document-level delegator below must ignore events from inside it,
   // otherwise a control React already handled would be handled a second time here.
+  // `.svpanel`, `.prpanel` and `#subtaskPanel` are islands too: their regions' parity snapshots pin the roots
+  // without any data-* attribute, so they cannot carry data-react-owned. All go with the vanilla script (Phase 12).
   function inReactIsland(e) {
     const t = e.target;
-    // .svpanel and #subtaskPanel are React-owned panels whose static roots cannot carry data-react-owned (the region parity snapshots pin the roots without data-*). Both go with Phase 12.
-    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel, #subtaskPanel'));
+    return !!(t && t.closest && t.closest('[data-react-owned], .svpanel, .prpanel, #subtaskPanel'));
   }
   // A click inside the island is outside every header popover, so it dismisses them like any outside click.
   function closePopoversFromIsland(e) {
@@ -5243,7 +4853,6 @@
     renderBlocked(state);
     renderSubtaskBlock(state);
     renderShip(state);
-    renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
     renderStoredPanel(state);
     renderArtView();
@@ -5356,6 +4965,20 @@
   // The panel header's Logs and Env buttons open surfaces that still live in this script.
   window.addEventListener('karst:openServerLogs', () => openServerLogs());
   window.addEventListener('karst:openEnvOverrides', () => openEnvOverrides());
+  // TRANSITIONAL SEAM (removed in Phase 12): the React Pull requests panel (app/PrsPanel.tsx) begins a Merge or
+  // a Send CI failure. The page keeps the in-flight ids the rail's Merge button and the stage menu read, and
+  // settles them on the next settling state push (resolveMergeOutcome / resolveCiActionOutcomes), so it records
+  // them here; the panel has already marked its own control pending and posted the message.
+  window.addEventListener('karst:prBegin', (e) => {
+    const d = e.detail;
+    if (d.kind === 'merge') {
+      mergeRequests = { ...mergeRequests, [d.repo]: d.requestId };
+    } else {
+      stageMenuStage = null;
+      ciFailureRequestId = d.requestId;
+    }
+    if (lastState) render(lastState);
+  });
 
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
@@ -5484,40 +5107,11 @@
     }
   });
 
-  // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
-  // by a state push or an inside-progress tick, not by this click — restores
-  // exactly the ones the user had open. Listens in the CAPTURE phase: `toggle`
-  // does not bubble in every engine, so a bubble-phase delegate on `#prs` could
-  // silently miss it.
-  document.addEventListener('toggle', (e) => {
-    if (inReactIsland(e)) return;
-    const node = e.target && e.target.closest && e.target.closest('.mgd');
-    if (!node || !node.dataset.repo) return;
-    const next = new Set(openMergeRepos);
-    if (node.open) next.add(node.dataset.repo);
-    else next.delete(node.dataset.repo);
-    openMergeRepos = next;
-  }, true);
-
   // Optimistic feedback for the copy button (UI-R15) — the host does the actual
   // clipboard write, and a webview that cannot confirm a write is not something
   // the user needs to act on (the click is trivially repeatable), so this
   // confirms without waiting for a round trip. Never used for a mutation.
   function flashCopied(btn) {
-    // The PR URL copy control is text WITH a hover glyph, not an icon button:
-    // swap the text span's label and colour the URL green, keeping the glyph.
-    if (btn.classList.contains('url-copy')) {
-      const u = btn.querySelector('.u');
-      if (!u) return;
-      const prev = u.textContent;
-      u.textContent = COPIED_TOAST_TEXT;
-      btn.classList.add('ok');
-      setTimeout(() => {
-        u.textContent = prev;
-        btn.classList.remove('ok');
-      }, 1200);
-      return;
-    }
     const prev = btn.textContent;
     btn.textContent = COPIED_TOAST_TEXT;
     btn.disabled = true;
@@ -5533,7 +5127,6 @@
    */
   const SEND_BY_ACT = {
     'open-pr': (btn, requestId) => karstSend.openPr(btn.dataset.url, requestId),
-    'copy-pr-url': (btn, requestId) => karstSend.copyPrUrl(btn.dataset.url, requestId),
     'open-ticket-link': (btn, requestId) => karstSend.openTicketLink(btn.dataset.url, requestId),
     'edit-ticket': (btn, requestId) => karstSend.editTicket(requestId),
     'open-dependency': (btn, requestId) => karstSend.openDependency(Number(btn.dataset.ticket), requestId),
@@ -5617,32 +5210,10 @@
       const requestId = karstRequestId();
       karstBeginPending(btn, requestId);
       mergeRequests = { ...mergeRequests, [repo]: requestId };
+      // The React Pull requests panel shows the same repo's Merge busy.
+      window.dispatchEvent(new CustomEvent('karst:prPending', { detail: { kind: 'merge', repo } }));
       render(lastState);
       karstSend.mergePr(repo);
-      return;
-    }
-    // Dismissing (and its undo) is confirmed host-side and answered with a state
-    // push, exactly like merge-pr — same pending contract, same wire shape of
-    // `{type, repo}` with no requestId.
-    if (act === 'dismiss-pr' || act === 'undismiss-pr') {
-      const repo = btn.dataset.repo;
-      if (!repo || dismissRequests[repo]) return;
-      const requestId = karstRequestId();
-      karstBeginPending(btn, requestId);
-      dismissRequests = { ...dismissRequests, [repo]: requestId };
-      render(lastState);
-      if (act === 'dismiss-pr') karstSend.dismissPr(repo);
-      else karstSend.undismissPr(repo);
-      return;
-    }
-    // Same reason as the two above: the work is a slow host round trip (gh
-    // per PR, git fetch per repo), so show it landed and stop it repeating.
-    if (act === 'refresh-prs') {
-      if (prRefreshId) return;
-      prRefreshId = karstRequestId();
-      karstBeginPending(btn, prRefreshId);
-      if (lastState) render(lastState);
-      karstSend.refreshPrs();
       return;
     }
     // The Ship preview's Refresh (D142): the host re-reads every worktree, so
@@ -5699,6 +5270,8 @@
       stageMenuStage = null;
       const id = karstRequestId();
       if (isCi) ciFailureRequestId = id; else rebaseRequestId = id;
+      // The React Pull requests panel's Send CI failure buttons go busy with it.
+      if (isCi) window.dispatchEvent(new CustomEvent('karst:prPending', { detail: { kind: 'ci-failure' } }));
       karstBeginPending(btn, id);
       if (lastState) render(lastState);
       if (isCi) karstSend.sendCiFailure(); else karstSend.rebaseOnBase();
@@ -5893,22 +5466,6 @@
     // way, via extension.ts's `finally`). Clearing here is what stops a
     // button sticking on "Merge" (pending) forever.
     mergeRequests = {};
-  }
-
-  // Settle every outstanding dismiss/undismiss against the fresh PR list. The
-  // one outcome this file can verify is the PR's own `dismissed` flag having
-  // flipped; a cancelled confirmation settles `null` (unknown), never `false`,
-  // for the same reason a cancelled merge does — a dismissal the user thought
-  // better of is not a failure.
-  function resolveDismissOutcome(state) {
-    if (!Object.keys(dismissRequests).length) return;
-    const prByRepo = {};
-    for (const p of (state.prs || [])) prByRepo[p.repo] = p;
-    for (const [repo, requestId] of Object.entries(dismissRequests)) {
-      const row = prByRepo[repo];
-      karstSettle(requestId, row ? true : null, undefined);
-    }
-    dismissRequests = {};
   }
 
   // Settle an in-flight "Send back to Implement" against the fresh snapshot.
@@ -6188,18 +5745,10 @@
         // Likewise merge — settle every outstanding request against the fresh
         // PR list before rendering, so pending state and toast land together.
         resolveMergeOutcome(msg.state);
-        // Likewise dismiss/undismiss — same post-modal push settles them.
-        resolveDismissOutcome(msg.state);
         // Likewise recovery — the post-modal snapshot settles the pending item.
         resolveSendBackOutcome(msg.state);
         resolvePrFeedbackOutcome(msg.state);
         resolveCiActionOutcomes(msg.state);
-        // Likewise refresh: the host sends an action-settling snapshot when its
-        // sweep ends, including when nothing moved. Both outcomes are success.
-        if (prRefreshId) {
-          karstSettle(prRefreshId, true);
-          prRefreshId = null;
-        }
         // Likewise the Ship preview's Refresh: the host sends an action-settling
         // snapshot after its read, changed or not.
         if (shipPreviewRefreshId) {

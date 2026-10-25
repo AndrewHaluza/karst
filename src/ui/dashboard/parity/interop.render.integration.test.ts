@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { drainReactWork, pumpRenderRealm, renderWebviewReady, type RenderHandle } from '../../testing/renderHarness.js';
 import { populatedStateFor } from '../renderFixtures.js';
 import type { DashboardState } from '../state.js';
+import { buildStageRail } from '../../../model/stageRail.js';
 
 let h: RenderHandle | null = null;
 afterEach(() => { h?.close(); h = null; });
@@ -132,3 +133,120 @@ describe('React island / vanilla delegator interop', () => {
     expect(btn().hasAttribute('data-copied')).toBe(true);
   });
 });
+
+// ---- Pull requests island -------------------------------------------------
+
+const REPO = 'fixture:/repos/web';
+const PR_URL = 'fixture:https://github.com/fixture-org/web/pull/421';
+const shipWith = (prOver: Record<string, unknown>, over: Record<string, unknown> = {}): DashboardState => {
+  const s = populatedStateFor('ship');
+  return { ...s, prs: [{ ...s.prs[0]!, ...prOver }], ...over } as DashboardState;
+};
+const mergeable = (over: Record<string, unknown> = {}): DashboardState => shipWith({ canMerge: true, mergeBlockedReason: '' }, over);
+const railMerge = (): DashboardState => {
+  const s = mergeable();
+  const rail = buildStageRail(s.stepper, s.stepper, {
+    current: 'ship', needsUser: true, needs: { detail: 'needs you', action: 'Merge', cta: { kind: 'merge', repo: REPO } },
+  } as unknown as Parameters<typeof buildStageRail>[2]);
+  return { ...s, rail } as DashboardState;
+};
+const failingCi = (): DashboardState =>
+  shipWith(
+    { checks: { state: 'failing', label: 'failing', title: '', detailsLabel: '1 failing', failing: [{ name: 'lint', url: '' }] } },
+    { ciFailure: { available: true, repos: [REPO] } },
+  );
+const push = async (v: RenderHandle, state: DashboardState, extra: Record<string, unknown> = {}): Promise<void> => {
+  v.receive({ type: 'state', state, ...extra });
+  await drainReactWork(v);
+};
+const openWith = async (state: DashboardState): Promise<RenderHandle> => {
+  h = await renderWebviewReady('dashboard');
+  await push(h, state);
+  return h;
+};
+const sentTypes = (v: RenderHandle, from: number): string[] => (v.posted.slice(from) as Array<{ type: string }>).map((m) => m.type);
+const MERGE = `.mgbtn[data-act="merge-pr"][data-repo="${REPO}"]`;
+
+describe('React Pull requests island / vanilla page interop', () => {
+  it('a click inside the PR island closes the header popovers', async () => {
+    const v = await openWith(mergeable());
+    v.click('#agentButton');
+    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    await click(v, '#prs .pst');
+    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('a Merge click posts exactly {type, repo} once, and the rail button goes busy with it', async () => {
+    const v = await openWith(railMerge());
+    const before = v.posted.length;
+    await click(v, `#prs ${MERGE}`);
+    expect(v.posted.slice(before)).toEqual([{ type: 'merge-pr', repo: REPO }]);
+    expect(v.query(`.go[data-repo="${REPO}"]`)!.getAttribute('aria-busy')).toBe('true');
+    expect(v.query<HTMLButtonElement>('#prs .pacts .mgbtn:last-child')!.disabled).toBe(true);
+  });
+
+  it('a pending merge survives live and passive pushes, then a settling push clears panel and rail', async () => {
+    const v = await openWith(railMerge());
+    await click(v, `#prs ${MERGE}`);
+    await push(v, railMerge(), { live: true, settlesActions: false });
+    await push(v, railMerge(), { settlesActions: false });
+    expect(v.query<HTMLButtonElement>('#prs .pacts .mgbtn:last-child')!.disabled).toBe(true);
+    expect(v.query(`.go[data-repo="${REPO}"]`)!.getAttribute('aria-busy')).toBe('true');
+    await push(v, railMerge());
+    expect(v.query<HTMLButtonElement>('#prs .pacts .mgbtn:last-child')!.disabled).toBe(false);
+    expect(v.query(`.go[data-repo="${REPO}"]`)!.hasAttribute('aria-busy')).toBe(false);
+    expect(v.errors).toEqual([]);
+  });
+
+  it('a Merge started from the rail makes the panel Merge pending, and the panel posts nothing', async () => {
+    const v = await openWith(railMerge());
+    const before = v.posted.length;
+    await click(v, `.go[data-act="merge-pr"]`);
+    expect(sentTypes(v, before)).toEqual(['merge-pr']);
+    expect(v.query<HTMLButtonElement>('#prs .pacts .mgbtn:last-child')!.disabled).toBe(true);
+    await click(v, '#prs .pacts .mgbtn:last-child');
+    expect(sentTypes(v, before)).toEqual(['merge-pr']);
+  });
+
+  it('Send CI failure is one operation across the panel and the stage menu', async () => {
+    const v = await openWith(failingCi());
+    const before = v.posted.length;
+    await click(v, '#prs .mg-ci-failing .mgbtn');
+    expect(sentTypes(v, before)).toEqual(['send-ci-failure']);
+    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(true);
+    await push(v, failingCi());
+    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(false);
+  });
+
+  it('open-pr from the PR panel posts once; the artifact view (vanilla) still posts it too', async () => {
+    const v = await openWith(mergeable());
+    const before = v.posted.length;
+    await click(v, `#prs [data-act="open-pr"][data-url="${PR_URL}"]`);
+    expect(v.posted.slice(before)).toMatchObject([{ type: 'open-pr', url: PR_URL }]);
+
+    const art = {
+      id: 'ship-pr', stage: 'ship', kind: 'plan', title: 'Delivery', scope: null, summary: '', status: 'info', freshness: 'current',
+      origin: { kind: 'karst', core: 'codex' }, versionCount: 1, currentVersionLabel: 'v1', createdAt: null, metrics: [], gates: [], findings: [],
+      prs: [{ repo: REPO, number: 421, url: PR_URL, status: 'open' }], commits: [], tasks: [], resources: [], detail: null, agentConsole: null,
+    };
+    await push(v, { ...mergeable(), artifacts: [art] } as unknown as DashboardState);
+    (v.window as unknown as { CSS: { escape(s: string): string } }).CSS = { escape: (x: string) => x };
+    await click(v, '#artPanel [data-art="index"]');
+    await click(v, '#artView [data-art-open="ship-pr"]');
+    const mark = v.posted.length;
+    await click(v, `#artView [data-act="open-pr"][data-url="${PR_URL}"]`);
+    expect(v.posted.slice(mark)).toMatchObject([{ type: 'open-pr', url: PR_URL }]);
+  });
+
+  it('a refresh stays pending across a passive push and ends on a settling one', async () => {
+    const v = await openWith(mergeable());
+    const before = v.posted.length;
+    await click(v, '#prRefresh');
+    expect(v.posted.slice(before)).toEqual([{ type: 'refresh-prs' }]);
+    await push(v, mergeable(), { live: true, settlesActions: false });
+    expect(v.query<HTMLButtonElement>('#prRefresh')!.disabled).toBe(true);
+    await push(v, mergeable());
+    expect(v.query<HTMLButtonElement>('#prRefresh')!.disabled).toBe(false);
+  });
+});
+

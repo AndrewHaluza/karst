@@ -11,7 +11,8 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     document.body.innerHTML =
       '<div class="panel span hidden" id="subtaskPanel"><div class="phead">Sub-tasks<span id="subtaskCount"></span></div><div id="subtasks"></div></div>'
       + '<div class="panel svpanel"><div class="phead">Servers<span id="srvCount"></span><span id="srvOps"></span></div><div id="servers"></div></div>'
-      + '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>';
+      + '<div class="panel" id="worktreesPanel" data-react-owned="true"></div>'
+      + '<div class="panel span prpanel"><div class="phead">Pull requests<span id="prCount"></span><span id="prOps"></span></div><div id="prs"></div></div>';
   });
   afterEach(() => {
     cleanup();

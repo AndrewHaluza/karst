@@ -1,0 +1,132 @@
+/* Pull requests panel (moved from webview.html with the panel). The refresh control sits in a header
+   wrapper like the Servers panel's ops, so the wrapper takes the auto margin the button used to carry. */
+.prpanel .phead .pops{margin-left:auto;display:flex}
+/* The refresh is an icon-only panel control, built on `.k-iconbtn` (UI-R07): quiet until hovered, since it sits in a
+   header, not a row of actions, and a filled button there would read as the panel's subject. */
+
+.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+/* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
+   `#42`/Merge drop below it. (Worktree rows: app/WorktreesPanel.css.) */
+.pr{flex-wrap:wrap}
+.pr:hover{background:var(--k-surface-hover)}
+.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
+/* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
+   approach .aid); only the monospace uppercase treatment stays local. Every
+   status renders one of the variants below, so the chip's own default fill
+   never shows in practice. */
+.pr .pst{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
+/* Live PR state at a glance: open green, merged purple (the shared
+   categorical token, UI-R08), closed red, draft muted — every fill is paired
+   with the SAME "text on a filled surface" token the design system already
+   defines for success/danger (UI-R29: paired tokens, never a hand-picked
+   foreground). */
+.pr .pst-open{background:var(--k-success);color:var(--k-success-fg)}
+.pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
+.pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
+.pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
+/* v60: the CI rollup and GitHub's refusal. Both are host-worded and host-
+   counted (`p.checks`, `p.mergeBlockLabel`); these rules only paint them, and
+   every fill pairs with the "text on a filled surface" token the vocabulary
+   above already uses (UI-R29). */
+.pr .pck{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
+.pr .pck-passing{background:var(--k-success);color:var(--k-success-fg)}
+.pr .pck-failing{background:var(--k-danger);color:var(--k-danger-fg)}
+.pr .pck-pending{background:var(--k-text-faint);color:var(--k-success-fg)}
+.pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;background:var(--k-attention);color:var(--k-success-fg)}
+/* The PR number IS the open control (UI-R09c): an underlined link-coloured
+   anchor, keyboard-focusable, in the same visual language as the ship view's
+   `pr-link`. With no recorded URL it degrades to plain text — a link that
+   opens nothing is worse than none. */
+.pr .pnum{font-family:var(--k-font-mono);white-space:nowrap;flex:none}
+.pr .pnum a{color:var(--k-link);text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+  text-decoration-color:var(--k-border-strong);text-underline-offset:2px;cursor:pointer;font-weight:var(--k-weight-semibold);border-radius:var(--k-radius-sm)}
+.pr .pnum a:hover{color:var(--k-link-active);text-decoration-color:currentColor}
+.pr .pnum a:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* The PR URL is the copy control (UI-R09c + R09b): a BUTTON styled as inline
+   text (an action, so a real button — keyboard-focusable, its own pending
+   state), whose visible text IS the URL. It is the row's ONE flexible item —
+   a long URL ellipsizes first, and `#42` and Merge never move. The 150px
+   floor keeps a narrow row from collapsing it to a dot; the copy glyph
+   appears on hover (Variant C). */
+.pr .url-copy{flex:1;min-width:150px;display:inline-flex;align-items:center;gap:var(--k-space-2);overflow:hidden;cursor:pointer;
+  font:inherit;font-size:var(--k-text-md);color:var(--k-text-dim);background:none;border:none;padding:0;text-align:left;border-radius:var(--k-radius-sm)}
+.pr .url-copy .u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pr .url-copy .glyph{opacity:0;transform:translateX(-3px);transition:opacity var(--k-dur-fast) var(--k-ease-standard),transform var(--k-dur-fast) var(--k-ease-standard);color:var(--k-text-dim);flex:none}
+.pr .url-copy .glyph svg{width:var(--k-space-6);height:var(--k-space-6);display:block}
+.pr .url-copy:hover .glyph{opacity:1;transform:none}
+.pr .url-copy:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.pr .url-copy[data-copied] .u{color:var(--k-success)}
+/* The repo label: the manifest NAME (host-resolved), ellipsized with its path
+   in the tooltip — never a second path format, and never pushed off the row. */
+.pr .prepo{font-size:var(--k-text-md);min-width:0;max-width:34%;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
+   never as a second pull request. Shape (filled/hollow/ring) carries the state
+   alongside colour, matching the servers panel's dot. */
+.mg{display:flex;align-items:center;gap:var(--k-space-4);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-3) var(--k-space-6);
+  padding:var(--k-space-1) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
+.mg-clean .mgdot{background:var(--k-success)}
+.mg-conflicted .mgdot{background:var(--k-danger)}
+.mg-ci .mgdot{background:var(--k-warning)}
+.mg-ci-failing .mgdot{background:var(--k-danger)}
+.mg-ci-failing .mgtext{color:var(--k-danger)}
+.mg-ci .pck-row{margin-left:var(--k-space-6);overflow-wrap:anywhere}
+/* A check that ERRORED is a fault, not a neutral pending state: every
+   `unknown` verdict carries a `reason` (git failed, git too old, no base ref),
+   so it reads red like a conflict — shape (hollow ring vs filled dot) keeps
+   the two distinguishable without colour alone (UI-R28). */
+.mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-danger);width:var(--k-space-3);height:var(--k-space-3)}
+.mg-conflicted .mgtext{color:var(--k-danger)}
+.mg-unknown .mgtext{color:var(--k-danger)}
+.mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mg .mgbtn{flex:none}
+/* The conflict list / the reason karst could not tell. Collapsed by default,
+   like the PR comments thread further down this same panel — the count is what
+   a reader scans, the detail is what they open. Capped and scrollable so a
+   forty-file conflict cannot push the rest of the panel off screen. */
+.mgd{margin:calc(var(--k-space-2) * -1) 0 var(--k-space-3) var(--k-space-9);font-size:var(--k-text-sm)}
+.mgd summary{cursor:pointer;color:var(--k-link);width:fit-content}
+/* <summary> is not a <button>/<a>/<input>, so it gets no ring from the
+   primitives' generic :focus-visible rule (same reasoning as the approach
+   disclosure above). */
+.mgd summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* 180px has no scale match — a scroll cap sized to the panel, not a spacing
+   value (same category as the servers panel's 288px below). */
+.mgdbody{max-height:180px;overflow-y:auto;margin-top:var(--k-space-2)}
+.mgfile{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);word-break:break-all}
+/* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
+.mgreason{white-space:pre-wrap;color:var(--k-text-dim);word-break:break-word}
+/* PR metadata: from-to, opened, merged. Indented under its PR like the merge
+   verdict, so it reads as facts ABOUT that pull request.
+   The branch is sized by AVAILABLE space (flex:1 1 0), so at normal widths a
+   long branch ellipsizes and the stamps (one flex:none group) stay flush right
+   and never move; the wrap point is driven ONLY by the stamp group's own width
+   — when the row is too narrow for the stamps they drop to a second line
+   intact, so an opened/merged date is never cut off. */
+.pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-2) var(--k-space-6);padding:0 var(--k-space-3);
+  font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden}
+.pmeta .pbranch{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);color:var(--k-text)}
+.pmeta .pstamps{flex:none;display:flex;align-items:center;gap:var(--k-space-3);min-width:0}
+.pmeta .pstamp{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pmeta .pmerged{color:var(--k-series-2)}
+.pmeta .psep{color:var(--k-text-faint)}
+/* Comments collapse: the count is what a reader scans, the bodies are what they
+   open. `pre-wrap` keeps a review comment's own line breaks. */
+.pcms{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
+.pcms summary{cursor:pointer;color:var(--k-link);width:fit-content}
+.pcms summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.pcm{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
+.pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
+.pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
+.pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
+/* The failing checks: the count is what a reader scans for, the names and their
+   runs are what they open when it matters. Same collapse shape as the comments
+   above, so one panel uses one disclosure. */
+.pcks{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
+.pcks summary{cursor:pointer;color:var(--k-link);width:fit-content}
+.pcks summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.pck-row{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
+/* The merge control is `.k-btn--primary` (consequential-primary, UI-R10b:
+   "Merge is not automatically danger-colored merely because it is
+   consequential"), built in markup — no bespoke color rule left here. */
+.mgbtn{flex:none}
