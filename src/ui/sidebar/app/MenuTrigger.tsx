@@ -7,6 +7,7 @@
  * second-guesses it.
  */
 import type { TicketRow } from '../state.js';
+import { unlinkItems } from './CloudSessions.js';
 import { Icon } from './Icon.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
 
@@ -23,6 +24,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
       danger: true,
       title: 'Archive ticket, hiding it from the active list',
     },
+    ...unlinkItems(row),
   ];
 }
 

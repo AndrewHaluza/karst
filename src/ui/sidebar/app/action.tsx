@@ -18,6 +18,8 @@ export interface ActionSpec {
   readonly plan?: number;
   readonly proposal?: number;
   readonly repo?: string;
+  /** A cloud session's URL (cloud-session-* messages); the host re-validates it. */
+  readonly url?: string;
 }
 
 /** The `data-*` attribute set a spec stamps on its control (test and styling hooks, and the menu's source). */
@@ -29,6 +31,7 @@ export function specAttrs(spec: ActionSpec): Record<string, string | number> {
   if (spec.plan !== undefined) out['data-plan'] = spec.plan;
   if (spec.proposal !== undefined) out['data-proposal'] = spec.proposal;
   if (spec.repo !== undefined) out['data-repo'] = spec.repo;
+  if (spec.url !== undefined) out['data-url'] = spec.url;
   return out;
 }
 

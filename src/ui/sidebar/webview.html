@@ -286,6 +286,14 @@
      collapse control unclickable with a pointer (NDL-86). */
   .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min))}
   .row:hover .stage{opacity:0}
+  /* Cloud-session icon links (arch:CLOUD-01): in flow at the row's right edge,
+     always visible; the absolute hover strip starts that many controls further
+     left (--cloud-n is the session count, stamped on the row) so it never covers them. */
+  .cloudlinks{display:flex;flex:0 0 auto}
+  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * var(--cloud-n,1))}
+  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
+  /* A session with no ticket has no expanded body to carry its actions, so its strip is also keyboard-reachable. */
+  .cloudrow .row:focus-within .rowacts{opacity:1;pointer-events:auto}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
      collapsed hover strip is suppressed and the stage stays the right anchor —
      never two copies of the same quick actions visible at once. */
@@ -382,7 +390,7 @@
   .ctxmenu{position:fixed;z-index:var(--k-z-tooltip);display:none;min-width:calc(var(--k-space-8) * 9);
     padding:var(--k-space-2);border-radius:var(--k-radius-md);
     background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3)}
-  .ctxmenu.open{display:block}
+  .ctxmenu.open{display:block;max-height:calc(var(--k-space-8) * 10);overflow-y:auto}
   .ctxitem{display:flex;width:100%;align-items:center;gap:var(--k-space-3);text-align:left;
     padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer;
     font:inherit;font-size:var(--k-text-base);background:transparent;color:var(--k-text);border:none}
