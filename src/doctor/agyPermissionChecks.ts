@@ -59,22 +59,92 @@ function allows(allow: readonly string[], cmd: string): boolean {
   });
 }
 
+export const AGY_SANDBOX_GLOBS_CHECK_ID = 'tools.agy-sandbox-globs';
+
+export interface OffendingGlobRule {
+  rule: string;
+  tool: 'read_file' | 'write_file';
+  rawPath: string;
+  plainPath: string;
+  replacement: string;
+}
+
+/**
+ * agy 1.3.x terminal sandbox translates `read_file(<path>)` and
+ * `write_file(<path>)` into macOS `sandbox-exec` mount directives (readonly/readwrite).
+ * It rejects globs (`/**` or `*`) with:
+ * `sandbox configuration error: <readonly|readwrite> <path>: globs not supported`.
+ * Plain directory paths mount the entire subtree automatically.
+ */
+export function findAgySandboxGlobRules(allow: readonly string[]): OffendingGlobRule[] {
+  const offending: OffendingGlobRule[] = [];
+  for (const rule of allow) {
+    const match = /^(read_file|write_file)\((.*)\)$/.exec(rule);
+    if (!match || !match[1] || !match[2]) continue;
+    const tool = match[1] as 'read_file' | 'write_file';
+    const rawPath = match[2].trim();
+    if (rawPath.includes('*')) {
+      let plainPath = rawPath.replace(/(?:\/\*+)+\/?$/, '');
+      if (plainPath === '') plainPath = '/';
+      const replacement = `${tool}(${plainPath})`;
+      offending.push({ rule, tool, rawPath, plainPath, replacement });
+    }
+  }
+  return offending;
+}
+
+export function checkAgySandboxGlobs(p: AgyPermissionProbe): DoctorCheck[] {
+  if (p.allow === undefined) return [];
+  const offending = findAgySandboxGlobRules(p.allow);
+  if (offending.length === 0) return [];
+
+  const errorExplanations = offending
+    .map(
+      (o) =>
+        `sandbox configuration error: ${o.tool === 'read_file' ? 'readonly' : 'readwrite'} ${o.rawPath}: globs not supported`,
+    )
+    .join('; ');
+  const offendingRules = offending.map((o) => `"${o.rule}"`).join(', ');
+  const replacements = offending.map((o) => `"${o.replacement}"`).join(', ');
+  const plainPaths = offending.map((o) => `"${o.plainPath}"`).join(', ');
+
+  const detail =
+    `agy terminal sandbox rejects globs with ${errorExplanations}. ` +
+    `Replace ${offendingRules} with plain directory paths ${plainPaths} (${replacements}) in ${p.settingsPath}.`;
+
+  const command = `In ${p.settingsPath}, replace ${offending.map((o) => `"${o.rule}" with "${o.replacement}"`).join(', ')}.`;
+
+  return [
+    {
+      id: AGY_SANDBOX_GLOBS_CHECK_ID,
+      area: 'tools',
+      status: 'warn',
+      detail,
+      fix: {
+        tier: 'consented',
+        summary: 'Replace glob rules in agy permissions.allow with plain directory paths',
+        command,
+      },
+    },
+  ];
+}
+
 export function checkAgyPermissions(p: AgyPermissionProbe): DoctorCheck[] {
   const id = 'tools.agy-permissions';
+  const out: DoctorCheck[] = [];
   const missing =
     p.allow === undefined
       ? AGY_REQUIRED_COMMANDS
       : AGY_REQUIRED_COMMANDS.filter((c) => !allows(p.allow ?? [], c));
   if (p.allow !== undefined && missing.length === 0) {
-    return [{ id, area: 'tools', status: 'ok', detail: 'agy allows the read-only review/UAT commands' }];
-  }
-  const lines = missing.map((c) => `"command(${c})"`).join(', ');
-  const detail =
-    p.allow === undefined
-      ? `agy settings not readable at ${p.settingsPath}; headless review/UAT cannot run shell commands`
-      : `agy headless review/UAT will auto-deny: ${missing.join(', ')}`;
-  return [
-    {
+    out.push({ id, area: 'tools', status: 'ok', detail: 'agy allows the read-only review/UAT commands' });
+  } else {
+    const lines = missing.map((c) => `"command(${c})"`).join(', ');
+    const detail =
+      p.allow === undefined
+        ? `agy settings not readable at ${p.settingsPath}; headless review/UAT cannot run shell commands`
+        : `agy headless review/UAT will auto-deny: ${missing.join(', ')}`;
+    out.push({
       id,
       area: 'tools',
       status: 'warn',
@@ -84,6 +154,8 @@ export function checkAgyPermissions(p: AgyPermissionProbe): DoctorCheck[] {
         summary: 'Allow the read-only commands review/UAT need on agy',
         command: `Add ${lines} to permissions.allow in ${p.settingsPath}, or run review/UAT on another agent core.`,
       },
-    },
-  ];
+    });
+  }
+  out.push(...checkAgySandboxGlobs(p));
+  return out;
 }

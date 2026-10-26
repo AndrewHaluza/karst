@@ -50,9 +50,15 @@ export function writeSessionInstructions(sessionDir: string, body: string): Sess
  */
 export const INSTRUCTIONS_POINTER_MARKER = 'Read the karst instructions at';
 
+export { KARST_INSTRUCTIONS_ENV } from './cliEnv.js';
+
 /** The one-line pointer a fallback core places in its kickoff / developer channel. */
-export function renderInstructionsPointer(envName: string = KARST_INSTRUCTIONS_ENV): string {
-  return `${INSTRUCTIONS_POINTER_MARKER} "$${envName}" before you begin.`;
+export function renderInstructionsPointer(
+  envName: string = KARST_INSTRUCTIONS_ENV,
+  resolvedPath?: string,
+): string {
+  const target = resolvedPath ? `"$${envName}" (${resolvedPath})` : `"$${envName}"`;
+  return `${INSTRUCTIONS_POINTER_MARKER} ${target} before you begin.`;
 }
 
 /** Whether text carries the instructions pointer (matches the stable phrase). */

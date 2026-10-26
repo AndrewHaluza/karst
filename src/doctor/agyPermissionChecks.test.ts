@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AGY_READ_ONLY_COMMANDS,
   AGY_REQUIRED_COMMANDS,
+  AGY_SANDBOX_GLOBS_CHECK_ID,
   checkAgyPermissions,
+  checkAgySandboxGlobs,
 } from './agyPermissionChecks.js';
 
 const ALL = AGY_REQUIRED_COMMANDS.map((c) => `command(${c})`);
@@ -75,5 +77,51 @@ describe('checkAgyPermissions', () => {
     const [c] = checkAgyPermissions({ settingsPath: '/s.json', allow: undefined });
     expect(c?.status).toBe('warn');
     expect(c?.detail).toContain('/s.json');
+  });
+
+  it('warns when permissions.allow contains read_file or write_file entries with * globs', () => {
+    const settingsPath = '/Users/nd/.gemini/antigravity-cli/settings.json';
+    const checks = checkAgyPermissions({
+      settingsPath,
+      allow: [
+        ...ALL,
+        'read_file(/Users/nd/Work/projects/karst/**)',
+        'write_file(/Users/nd/Work/projects/karst/*)',
+      ],
+    });
+    const globCheck = checks.find((c) => c.id === AGY_SANDBOX_GLOBS_CHECK_ID);
+    expect(globCheck).toBeDefined();
+    expect(globCheck?.area).toBe('tools');
+    expect(globCheck?.status).toBe('warn');
+    expect(globCheck?.detail).toContain('sandbox configuration error:');
+    expect(globCheck?.detail).toContain('globs not supported');
+    expect(globCheck?.detail).toContain('read_file(/Users/nd/Work/projects/karst/**)');
+    expect(globCheck?.detail).toContain('write_file(/Users/nd/Work/projects/karst/*)');
+    expect(globCheck?.detail).toContain('read_file(/Users/nd/Work/projects/karst)');
+    expect(globCheck?.detail).toContain('write_file(/Users/nd/Work/projects/karst)');
+    expect(globCheck?.detail).toContain('/Users/nd/Work/projects/karst');
+    expect(globCheck?.detail).toContain(settingsPath);
+
+    expect(globCheck?.fix).toMatchObject({
+      tier: 'consented',
+      summary: 'Replace glob rules in agy permissions.allow with plain directory paths',
+    });
+    const fix = globCheck?.fix;
+    expect(fix?.tier === 'consented' && fix.command).toContain(
+      '"read_file(/Users/nd/Work/projects/karst/**)" with "read_file(/Users/nd/Work/projects/karst)"',
+    );
+    expect(fix?.tier === 'consented' && fix.command).toContain(
+      '"write_file(/Users/nd/Work/projects/karst/*)" with "write_file(/Users/nd/Work/projects/karst)"',
+    );
+  });
+
+  it('companion checkAgySandboxGlobs returns empty when allow has no globs', () => {
+    expect(
+      checkAgySandboxGlobs({
+        settingsPath: '/s.json',
+        allow: ['read_file(/Users/nd/karst)', 'write_file(/tmp)'],
+      }),
+    ).toEqual([]);
+    expect(checkAgySandboxGlobs({ settingsPath: '/s.json', allow: undefined })).toEqual([]);
   });
 });

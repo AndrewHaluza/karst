@@ -882,6 +882,9 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     } else if (delivery.interactive === 'pointer') {
       expect(argv, `${provider} pointer marker`).toContain(INSTRUCTIONS_POINTER_MARKER);
       expect(argv, `${provider} pointer env name`).toContain('KARST_INSTRUCTIONS');
+      if (provider === 'antigravity') {
+        expect(argv, `${provider} pointer resolved path`).toContain(`(${INSTRUCTIONS.path})`);
+      }
     }
   });
 

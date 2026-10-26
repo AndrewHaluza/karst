@@ -58,7 +58,11 @@ import {
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeScripts } from './hookBridgeFiles.js';
-import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import {
+  KARST_INSTRUCTIONS_ENV,
+  renderInstructionsPointer,
+  withInstructionsPointer,
+} from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 
 const OPENCODE_BIN = 'opencode';
@@ -1087,7 +1091,10 @@ export class OpencodeAdapter implements AgentAdapter {
     // reports `fallback` (the native channel cannot coexist).
     const deliver = opts.instructions !== undefined && opts.soloAgent !== true;
     const kickoff = deliver
-      ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
+      ? withInstructionsPointer(
+          opts.initialPrompt,
+          renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions?.path),
+        )
       : opts.initialPrompt;
     const resuming = Boolean(opts.resume && opts.resume.length > 0);
     if (resuming && opts.hookChannel) {

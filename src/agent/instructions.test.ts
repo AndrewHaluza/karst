@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   INSTRUCTIONS_FILENAME,
   INSTRUCTIONS_POINTER_MARKER,
+  KARST_INSTRUCTIONS_ENV,
   hashInstructions,
   hasInstructionsPointer,
   instructionsCharLength,
@@ -46,6 +47,19 @@ describe('instructions pointer', () => {
     expect(hasInstructionsPointer(renderInstructionsPointer())).toBe(true);
     expect(hasInstructionsPointer('no pointer')).toBe(false);
     expect(hasInstructionsPointer(undefined)).toBe(false);
+  });
+
+  it('includes resolvedPath alongside the env var when provided', () => {
+    const rendered = renderInstructionsPointer(
+      KARST_INSTRUCTIONS_ENV,
+      '/path/to/karst-instructions.md',
+    );
+    expect(rendered).toBe(
+      `${INSTRUCTIONS_POINTER_MARKER} "$KARST_INSTRUCTIONS" (/path/to/karst-instructions.md) before you begin.`,
+    );
+    expect(rendered).toContain('"$KARST_INSTRUCTIONS"');
+    expect(rendered).toContain('(/path/to/karst-instructions.md)');
+    expect(hasInstructionsPointer(rendered)).toBe(true);
   });
 
   it('leads an ordinary kickoff with the pointer', () => {
