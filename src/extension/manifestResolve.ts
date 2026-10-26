@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
+import { loadManifestWithDiagnostics, parseManifestText, type Manifest } from '../manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS, DEFAULT_SUBTASK_LIMITS } from '../manifest/schema.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
@@ -173,4 +173,13 @@ export function emptyManifest(): Manifest {
     subtasks: { ...DEFAULT_SUBTASK_LIMITS },
     stopServersOnDone: 'ask',
   };
+}
+
+/** The bundled template as a loaded manifest, or `undefined` when it cannot be read. */
+export function readScaffoldManifest(): Manifest | undefined {
+  try {
+    return parseManifestText(`id: scaffold\n\n${readFileSync(EXAMPLE_YML, 'utf8')}`, EXAMPLE_YML).manifest;
+  } catch {
+    return undefined;
+  }
 }

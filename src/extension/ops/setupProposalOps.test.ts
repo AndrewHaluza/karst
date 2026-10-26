@@ -2,15 +2,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parseManifestText } from '../../manifest/load.js';
 import { createSetupProposalOps, defaultSetupProposalFs, type SetupProposalFs } from './setupProposalOps.js';
+import type { ProposalResult } from '../../setup/ledger.js';
 import { MAX_SETUP_PROPOSAL_BYTES, type ManifestProposal, type ChangeProposal } from '../../setup/proposal.js';
 
 const VALID_YAML = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nrepositories:\n  web:\n    repoPath: ../web\n`;
 
-function fakeFs(files: Record<string, string>): SetupProposalFs & { removed: string[] } {
+function fakeFs(files: Record<string, string>): SetupProposalFs & { removed: string[]; results: ProposalResult[] } {
   const removed: string[] = [];
+  const results: ProposalResult[] = [];
+  let tick = 0;
   return {
     removed,
+    results,
+    mtime: () => ++tick,
+    writeResult: (_dir, r) => void results.push(r),
     readdir: (dir) => Object.keys(files).filter((p) => p.startsWith(dir + '/') && !p.slice(dir.length + 1).includes('/')).map((p) => p.slice(dir.length + 1)),
     readFile: (p) => {
       if (!(p in files)) throw new Error('ENOENT');
@@ -30,10 +37,10 @@ function manifestProposal(): ManifestProposal {
 
 function deps(files: Record<string, string>) {
   const fs = fakeFs(files);
-  const applyManifest = vi.fn();
+  const applyManifest = vi.fn((_applied: unknown, _scratch: string) => 'sha-1');
   const runCommand = vi.fn(async () => {});
   const applyPatch = vi.fn(async () => {});
-  const confirm = vi.fn(async () => true);
+  const confirm = vi.fn(async (_d: { message: string; detail: string; startCommandsChanged: boolean }) => true);
   return {
     fs,
     applyManifest,
@@ -59,9 +66,8 @@ describe('createSetupProposalOps.scan', () => {
     await createSetupProposalOps(f.deps).scan();
     expect(f.confirm).toHaveBeenCalledOnce();
     expect(f.applyManifest).toHaveBeenCalledOnce();
-    const [proposal, proposed] = f.applyManifest.mock.calls[0]!;
-    expect((proposal as ManifestProposal).kind).toBe('manifest');
-    expect(Object.keys((proposed as { repositories: object }).repositories)).toEqual(['web']);
+    const [applied] = f.applyManifest.mock.calls[0]!;
+    expect(Object.keys((applied as { repositories: object }).repositories)).toEqual(['web']);
     expect(f.fs.removed).toEqual(['/s/1/outbox/a.json']);
   });
 
@@ -162,7 +168,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
     const d = realDeps();
     await createSetupProposalOps(d).scan();
     expect(d.applyManifest).toHaveBeenCalledOnce();
-    expect(readdirSync(join(root, 'outbox'))).toEqual([]);
+    expect(readdirSync(join(root, 'outbox'))).toEqual(['results']);
   });
 
   it('ignores a non-file entry and a missing outbox without throwing', async () => {
@@ -208,7 +214,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
     await Promise.all([first, second]);
     expect(confirm).toHaveBeenCalledOnce();
     expect(applyManifest).toHaveBeenCalledOnce();
-    expect(readdirSync(join(root, 'outbox'))).toEqual([]);
+    expect(readdirSync(join(root, 'outbox'))).toEqual(['results']);
   });
 
   it('drops an oversize proposal without parsing or prompting', async () => {
@@ -216,7 +222,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
     const d = realDeps();
     await createSetupProposalOps(d).scan();
     expect(d.confirm).not.toHaveBeenCalled();
-    expect(readdirSync(join(root, 'outbox'))).toEqual([]);
+    expect(readdirSync(join(root, 'outbox'))).toEqual(['results']);
   });
 });
 
@@ -266,6 +272,8 @@ describe('createSetupProposalOps branches', () => {
       },
       remove: (p) => void removed.push(p),
       exists: (p) => p in files,
+      mtime: () => 0,
+      writeResult: () => {},
     };
     return {
       removed,
@@ -311,4 +319,111 @@ describe('createSetupProposalOps branches', () => {
     expect(d.runCommand).not.toHaveBeenCalled();
     expect(removed).toEqual(['/s/1/outbox/a.json']);
   });
+});
+
+describe('proposal ledger', () => {
+  const A = '/s/1/outbox/a.json';
+  const B = '/s/1/outbox/b.json';
+  const last = (f: ReturnType<typeof deps>) => f.fs.results[f.fs.results.length - 1]!;
+
+  it('records applied with the file hash', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps(f.deps).scan();
+    expect(last(f)).toMatchObject({ id: 'a', kind: 'manifest', status: 'applied', sha256: 'sha-1' });
+  });
+
+  it('records declined', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    f.confirm.mockResolvedValue(false);
+    await createSetupProposalOps(f.deps).scan();
+    expect(last(f)).toMatchObject({ id: 'a', status: 'declined' });
+  });
+
+  it('records invalid for a bad manifest, a bad shape and an apply failure', async () => {
+    const bad = { ...manifestProposal(), yaml: 'repositories: {}\n' };
+    const f = deps({ [A]: JSON.stringify(bad), [B]: '{"kind":"nope"}' });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.fs.results.map((r) => [r.id, r.status]).sort()).toEqual([['a', 'invalid'], ['b', 'invalid']]);
+    expect(f.fs.results.every((r) => r.reason)).toBe(true);
+
+    const g = deps({ [A]: JSON.stringify(manifestProposal()) });
+    g.applyManifest.mockImplementation(() => { throw new Error('disk full'); });
+    await createSetupProposalOps(g.deps).scan();
+    expect(last(g)).toMatchObject({ status: 'invalid', reason: 'apply failed: disk full' });
+  });
+
+  it('supersedes older pending manifest proposals and applies only the newest', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.applyManifest).toHaveBeenCalledOnce();
+    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['a', 'superseded'], ['b', 'applied']]);
+    expect(f.fs.results[0]!.reason).toBe('superseded by b');
+    expect(f.fs.removed).toContain(A);
+  });
+
+  it('does not supersede a change proposal', async () => {
+    const change = { kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' };
+    const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(change) });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.runCommand).toHaveBeenCalledOnce();
+    expect(f.fs.results.map((r) => r.status)).toEqual(['applied', 'applied']);
+  });
+
+  it('records withdrawn and skips the apply when the file vanishes during consent', async () => {
+    const files: Record<string, string> = { [A]: JSON.stringify(manifestProposal()) };
+    const f = deps(files);
+    f.confirm.mockImplementation(async () => { delete files[A]; return true; });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.applyManifest).not.toHaveBeenCalled();
+    expect(last(f)).toMatchObject({ id: 'a', status: 'withdrawn' });
+  });
+
+  it('records change outcomes', async () => {
+    const change = { kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' };
+    const f = deps({ [A]: JSON.stringify(change) });
+    f.runCommand.mockRejectedValue(new Error('npm missing'));
+    await createSetupProposalOps(f.deps).scan();
+    expect(last(f)).toMatchObject({ kind: 'change', status: 'invalid', reason: 'apply failed: npm missing' });
+  });
+
+  it('survives a ledger write failure', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    f.fs.writeResult = () => { throw new Error('ro'); };
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.applyManifest).toHaveBeenCalledOnce();
+  });
+});
+
+describe('first setup vs established manifest', () => {
+  const A = '/s/1/outbox/a.json';
+  const yaml = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nconventions:\n  commitStyle: x\nrepositories:\n  web:\n    repoPath: ../web\n`;
+  const prop = { ...manifestProposal(), yaml };
+
+  it('takes protected fields from the proposal when the current manifest is a scaffold, naming them in the modal', async () => {
+    const files = { [A]: JSON.stringify(prop) };
+    const f = deps(files);
+    const scaffold = parseManifestText(VALID_YAML, 'x').manifest;
+    const d = { ...f.deps, readCurrentManifest: () => scaffold, isScaffold: () => true };
+    await createSetupProposalOps(d).scan();
+    const [applied] = f.applyManifest.mock.calls[0]!;
+    expect((applied as { baselineBranch: string }).baselineBranch).toBe('main');
+    expect(f.confirm.mock.calls[0]![0].detail).toMatch(/First setup: .*protected fields/);
+    expect(last(f)).toMatchObject({ status: 'applied', dropped: [] });
+  });
+
+  it('keeps protection on an established manifest and reports each dropped field', async () => {
+    const f = deps({ [A]: JSON.stringify(prop) });
+    const current = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
+    const d = { ...f.deps, readCurrentManifest: () => current, isScaffold: () => false };
+    await createSetupProposalOps(d).scan();
+    const [applied] = f.applyManifest.mock.calls[0]!;
+    expect((applied as { baselineBranch: string }).baselineBranch).toBe('develop');
+    const dropped = last(f).dropped;
+    expect(dropped).toContain('baselineBranch');
+    expect(f.confirm.mock.calls[0]![0].detail).toMatch(/Protected fields NOT applied .*baselineBranch/);
+  });
+
+  function last(f: ReturnType<typeof deps>): ProposalResult {
+    return f.fs.results[f.fs.results.length - 1]!;
+  }
 });

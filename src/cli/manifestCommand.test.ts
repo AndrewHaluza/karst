@@ -83,7 +83,7 @@ describe('runManifestCommand propose', () => {
     const out = JSON.parse(
       runManifestCommand(['manifest', 'propose', '--file', file], { outboxEnv: outbox, uuid: () => 'fixed' }),
     );
-    expect(out).toEqual({ ok: true, kind: 'manifest', file: join(realpathSync(outbox), 'fixed.json') });
+    expect(out).toEqual({ ok: true, kind: 'manifest', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json') });
     const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
     expect(written.kind).toBe('manifest');
     expect(written.targetPath).toBe(file);

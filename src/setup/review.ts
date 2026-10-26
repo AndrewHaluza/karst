@@ -25,6 +25,7 @@ export function describeManifestProposal(
   current: Manifest | undefined,
   proposal: ManifestProposal,
   proposed: Manifest,
+  fields: { dropped?: readonly string[]; adopted?: readonly string[] } = {},
 ): ProposalDescription {
   const diff = diffManifest(current, proposed);
   const lines: string[] = [];
@@ -44,6 +45,12 @@ export function describeManifestProposal(
   }
   if (diff.startCommandsChanged) {
     lines.push('', 'These start commands differ from the current manifest.');
+  }
+  if (fields.adopted !== undefined && fields.adopted.length > 0) {
+    lines.push('', `First setup: this proposal also sets protected fields: ${fields.adopted.join(', ')}.`);
+  }
+  if (fields.dropped !== undefined && fields.dropped.length > 0) {
+    lines.push('', `Protected fields NOT applied (kept from the current manifest): ${fields.dropped.join(', ')}.`);
   }
   const repos = Object.keys(proposed.repositories).length;
   const services = Object.values(proposed.repositories).filter((r) => r.service !== undefined).length;

@@ -56,7 +56,7 @@ describe('runSetupCommand propose-change', () => {
         readStdin: () => JSON.stringify(change),
       }),
     );
-    expect(out).toEqual({ ok: true, kind: 'change', file: join(realpathSync(outbox), 'fixed.json') });
+    expect(out).toEqual({ ok: true, kind: 'change', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json') });
     const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ChangeProposal;
     expect(written).toEqual(change);
   });
@@ -102,5 +102,32 @@ describe('runSetupCommand propose-change', () => {
 
   it('rejects an unknown subcommand', () => {
     expect(() => runSetupCommand(['setup', 'nope'])).toThrow(/unknown subcommand/);
+  });
+});
+
+describe('runSetupCommand status and withdraw', () => {
+  it('prints proposal ids, lists status and withdraws a pending proposal', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'setup-status-'));
+    try {
+      const out = JSON.parse(
+        runSetupCommand(['setup', 'propose-change'], {
+          outboxEnv: dir,
+          uuid: () => 'abc',
+          readStdin: () => JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' }),
+        }),
+      );
+      expect(out.id).toBe('abc');
+      const status = JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: dir }));
+      expect(status.proposals).toMatchObject([{ id: 'abc', status: 'pending' }]);
+      expect(JSON.parse(runSetupCommand(['setup', 'withdraw', 'abc'], { outboxEnv: dir }))).toMatchObject({ status: 'withdrawn' });
+      expect(JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: dir })).proposals).toMatchObject([
+        { id: 'abc', status: 'withdrawn' },
+      ]);
+      expect(() => runSetupCommand(['setup', 'withdraw', 'abc'], { outboxEnv: dir })).toThrow(/no pending proposal/);
+      expect(() => runSetupCommand(['setup', 'withdraw'], { outboxEnv: dir })).toThrow(/usage/);
+      expect(() => runSetupCommand(['setup', 'status', 'x'], { outboxEnv: dir })).toThrow(/no arguments/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

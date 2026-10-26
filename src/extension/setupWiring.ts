@@ -1,16 +1,17 @@
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
-import { mkdirSync, watch as fsWatch } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
-import { applyManifestProposal } from '../setup/manifestApply.js';
+import { isScaffoldManifest } from '../setup/manifestApply.js';
 import { resolveChangeRepoDir } from '../setup/changeTarget.js';
 import type { SetupManifest } from '../setup/instructions.js';
 import { createSetupOps } from './ops/setupOps.js';
 import { createSetupProposalOps } from './ops/setupProposalOps.js';
 import type { Notify } from './ops/notify.js';
 import type { TerminalHost } from '../ui/session.js';
-import { manifestPathOrThrow } from './manifestResolve.js';
+import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js';
 import { writeManifest } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 
@@ -137,12 +138,13 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     readCurrentManifest: deps.currentManifest,
     confirm: async (d) =>
       (await vscode.window.showWarningMessage(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
-    applyManifest: (_proposal, proposed, scratch) => {
+    isScaffold: (current) => isScaffoldManifest(current, readScaffoldManifest()),
+    applyManifest: (applied, scratch) => {
       // Target the launching window's manifest, not whatever this window resolves.
       const path = readSetupOwner(scratch)?.manifestPath ?? manifestPathOrThrow();
-      const applied = applyManifestProposal(deps.currentManifest(), proposed);
       mkdirSync(dirname(path), { recursive: true });
       writeManifest(path, applied);
+      return createHash('sha256').update(readFileSync(path)).digest('hex');
     },
     runCommand: (repo, command) => runShellCommand(repoCwd(repo), command),
     applyPatch: (repo, patch) => applyPatch(repoCwd(repo), patch),

