@@ -55,6 +55,7 @@ import {
   withInstructionsPointer,
 } from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
+import { isFileChannel, writeBridgeScripts } from './hookBridgeFiles.js';
 
 const AGY_BIN = 'agy';
 
@@ -257,6 +258,9 @@ export class AntigravityAdapter implements AgentAdapter {
   // `opts.sessionName` is deliberately dropped: the agy CLI has no launch-time
   // session-naming flag, so there is nothing to carry the terminal name into.
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
+    if (opts.hookChannel && isFileChannel(opts.hookChannel.endpointUrl, opts.hookChannel.runDir)) {
+      writeBridgeScripts(join(opts.hookChannel.configDir, 'antigravity'));
+    }
     const args: string[] = [];
     // Lifecycle signals do not ride the launch: the conversation watch
     // (agyConversationWatch.ts) reads them from the CLI's conversation DB.

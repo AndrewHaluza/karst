@@ -105,6 +105,20 @@ describe('AntigravityAdapter', () => {
       });
       expect(cmd.args).toEqual(['--add-dir', '/tmp/foo', '-i', 'hello']);
     });
+
+    it('writes bridge scripts into <configDir>/antigravity when given a file hook channel', () => {
+      const adapter = new AntigravityAdapter();
+      const configDir = getTmp();
+      const hookChannel = {
+        endpointUrl: 'file:///tmp/events.ndjson',
+        runDir: '/karst-bridge/7',
+        configDir,
+      };
+      adapter.buildInteractiveCommand({ cwd: '/test', hookChannel });
+      expect(existsSync(join(configDir, 'antigravity', 'emit-marker.cjs'))).toBe(true);
+      expect(existsSync(join(configDir, 'antigravity', 'emit-ack.cjs'))).toBe(true);
+      expect(existsSync(join(configDir, 'antigravity', 'bridge.cjs'))).toBe(true);
+    });
   });
 
   describe('runHeadless', () => {
