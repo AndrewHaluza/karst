@@ -14,7 +14,7 @@ const manifest = (extra: Record<string, unknown> = {}, repo: Record<string, unkn
 const input = (over: Partial<ReadinessInput> = {}): ReadinessInput => ({
   manifest: manifest(), warnings: [], repos: [], probes: fakeProbes(), ...over,
 });
-const find = (r: { items: { id: string; status: string }[] }, id: string) => r.items.find((x) => x.id === id);
+const find = (r: { items: { id: string; status: string; detail: string }[] }, id: string) => r.items.find((x) => x.id === id);
 
 describe('coresUsed', () => {
   it('defaults to claude', () => expect(coresUsed(manifest())).toEqual(['claude']));
