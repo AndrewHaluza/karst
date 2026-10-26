@@ -14,3 +14,8 @@ for (const key of Object.keys(process.env)) {
 // `act` deliberately, so declare the environment once here instead of letting
 // ~240 identical stderr blocks bury real failures.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+// Snapshots format times with toLocaleTimeString (e.g. the ship-preview "as of"
+// line), so they only hold in the zone they were recorded in. Pin UTC so a
+// host in another zone (the uat gate runs on the developer's machine) agrees.
+process.env.TZ = 'UTC';
