@@ -31,6 +31,13 @@ describe('runBridgeSweep', () => {
     expect(sweep).toHaveBeenCalledWith(new Set([s.open]), new Set(), new Set([s.done]));
   });
 
+  it('attaches a live sandbox ticket even without persisted terminal ownership (T801)', async () => {
+    const s = setup();
+    const sweep = vi.fn(async () => ({ reattached: [s.open], removed: [] }));
+    await runBridgeSweep({ store: s.store, bridges: { sweep }, owned: new Set(), liveSandboxTicketIds: async () => new Set([s.open]), info: s.info, logError: s.logError });
+    expect(sweep).toHaveBeenCalledWith(new Set([s.open]), new Set([s.open]), undefined);
+  });
+
   it('is silent when there is nothing to report', async () => {
     const s = setup();
     await runBridgeSweep({ store: s.store, bridges: { sweep: async () => ({ reattached: [], removed: [] }) }, owned: new Set(), info: s.info, logError: s.logError });

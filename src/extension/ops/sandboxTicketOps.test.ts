@@ -246,7 +246,7 @@ describe('scheduleSandboxReattach / withSandboxSpin / createTicketSandboxBinding
       await vi.advanceTimersByTimeAsync(14_999);
       expect(proc.calls).toHaveLength(0);
       await vi.advanceTimersByTimeAsync(1);
-      expect(proc.calls[0]!.args).toEqual(['ls']);
+      expect(proc.calls[0]!.args).toEqual(['ls', '--json']);
     } finally {
       vi.useRealTimers();
     }

@@ -1054,7 +1054,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => {
-      bridges?.detach(ticketId).catch((e: unknown) => logError('karst: bridge detach failed', e)); // the sandbox lives on: keep its bridge dir (arch:AC-32)
+      void sandboxLife.onSessionClosed(ticketId).catch((e: unknown) => logError('karst: bridge session-close check failed', e)); // a live sandbox keeps its poller (T801)
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
@@ -3954,7 +3954,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
-  await sandboxLife.backfillPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
+  await sandboxLife.backfillPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, liveSandboxTicketIds: () => sandboxLife.liveSandboxTicketIds(), sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with

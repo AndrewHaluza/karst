@@ -18,7 +18,8 @@ import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
-import { parseNames, SBX_BIN } from './sbxPreflight.js';
+import { SBX_BIN } from './sbxPreflight.js';
+import { listSbx } from './sbxList.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
@@ -84,9 +85,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const gateProcess = opts.gateProcess ?? runProcess;
   const sbx = (args: string[]) => opts.proc.run(SBX_BIN, args);
   const probe = async (): Promise<SandboxProbe> => {
-    const ls = await sbx(['ls']);
+    const ls = await listSbx(opts.proc);
     if (ls.code !== 0) return { state: 'unknown', reason: ls.code === 127 ? `\`sbx\` was not found on the PATH (${ls.stderr.trim()})` : `\`sbx ls\` exited ${ls.code}: ${ls.stderr.trim()}` };
-    return { state: parseNames(ls.stdout).includes(opts.name) ? 'present' : 'absent' };
+    return { state: ls.entries.some((e) => e.name === opts.name) ? 'present' : 'absent' };
   };
   const listed = async (): Promise<boolean> => (await probe()).state === 'present';
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];

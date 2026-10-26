@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HookPayload } from '../../hooks/dispatch.js';
-import { bridgePaths, type BridgePaths } from './bridgeDir.js';
+import { bridgePaths, ensureBridgeDir, type BridgePaths } from './bridgeDir.js';
 import { createBridgeAttachment, type MarkerRunner } from './bridgeSink.js';
 import type { BridgeExpectation } from './bridgeVerifier.js';
 
@@ -23,8 +23,7 @@ const hookLine = (ticket = 7) =>
   JSON.stringify({ v: 1, kind: 'hook', ticket, payload: { hook_event_name: 'Notification', session_id: 's1', cwd: '/x' } });
 const markerLine = (o: Record<string, unknown> = {}) => JSON.stringify({ v: 1, kind: 'marker', ticket: 7, stage: 'impl', ...o });
 const write = async (...lines: string[]) => {
-  const { mkdir } = await import('node:fs/promises');
-  await mkdir(paths.dir, { recursive: true });
+  await ensureBridgeDir(paths);
   await appendFile(paths.eventsFile, lines.map((l) => `${l}\n`).join(''));
 };
 const flush = () => new Promise((r) => setImmediate(r));
@@ -116,6 +115,18 @@ describe('createBridgeAttachment', () => {
     await flush();
     await vi.waitFor(async () => { await readFile(join(paths.resultsDir, 'n1.json')); });
     expect(JSON.parse(await readFile(join(paths.resultsDir, 'n1.json'), 'utf8'))).toEqual({ v: 1, stage: 'impl', ok: true, retrying: false, reason: '' });
+  });
+  it('keeps polling after a retrying result: the queued marker does not detach the tail', async () => {
+    const att = make(vi.fn<MarkerRunner>(async () => ({ code: 1, stderr: 'sync failed', transient: true })));
+    await write(markerLine({ seq: 'r1' }));
+    await att.pollOnce();
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await readFile(join(paths.resultsDir, 'r1.json'), 'utf8'))).toMatchObject({ ok: false, retrying: true });
+    });
+    // The next line the agent writes is still read and dispatched.
+    await write(hookLine());
+    await att.pollOnce();
+    expect(dispatched).toHaveLength(1);
   });
   it('replies with the failure reason and reports it', async () => {
     const seen: string[] = [];

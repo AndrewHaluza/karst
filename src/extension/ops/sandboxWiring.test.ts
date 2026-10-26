@@ -305,6 +305,173 @@ describe('makeSandboxWiring ownership after the session closed (review fix)', ()
   });
 });
 
+describe('makeSandboxWiring bridge lifetime after a session closes (T801)', () => {
+  const ROOT = '/p/karst.yml';
+  function setup(state: 'running' | 'stopped', pending = false, agentState = 'idle', sessionOpen = false) {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'B-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    store.db.prepare('UPDATE tickets SET agent_state = ? WHERE id = ?').run(agentState, a);
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude ● ${state}\n` } });
+    const detach = vi.fn(async () => {});
+    const bridges = {
+      dispose: vi.fn(async () => {}),
+      detach,
+      markerStatus: vi.fn(() => (pending
+        ? { stage: 'impl' as const, reason: 'sync failed', attempt: 1, maxRetries: 8, nextAt: 0 }
+        : undefined)),
+    };
+    const r = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), bridges: () => bridges, sessionOpen: () => sessionOpen,
+    });
+    return { ...r, a, detach };
+  }
+
+  it('a running sbx sandbox keeps its poller when the terminal closes', async () => {
+    const { w, a, detach } = setup('running');
+    await w.onSessionClosed(a);
+    expect(detach).not.toHaveBeenCalled();
+  });
+  it('a stopped sandbox detaches the poller', async () => {
+    const { w, a, detach } = setup('stopped');
+    await w.onSessionClosed(a);
+    expect(detach).toHaveBeenCalledWith(a);
+  });
+  it('a queued retrying marker keeps the poller even while the sandbox reads stopped', async () => {
+    const { w, a, detach } = setup('stopped', true);
+    await w.onSessionClosed(a);
+    expect(detach).not.toHaveBeenCalled();
+  });
+  it('a host ticket detaches without listing any sandbox', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'H-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'antigravity');
+    const detach = vi.fn(async () => {});
+    const proc = fakeSbxProcess();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach, markerStatus: vi.fn(() => undefined) }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).toHaveBeenCalledWith(a);
+    expect(proc.calls).toEqual([]);
+  });
+  it('no backend detaches a host session; no bridge binding is a no-op', async () => {
+    const detach = vi.fn(async () => {});
+    const bridges = { dispose: vi.fn(async () => {}), detach };
+    const off = wiring({ bridges: () => bridges });
+    await off.w.onSessionClosed(id);
+    expect(detach).toHaveBeenCalledWith(id);
+    const none = wiring();
+    await expect(none.w.onSessionClosed(id)).resolves.toBeUndefined();
+  });
+  it('an unreadable listing keeps the poller: unknown is never absent', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'U-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const detach = vi.fn(async () => {});
+    const logError = vi.fn();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc: { run: vi.fn(async () => { throw new Error('down'); }) },
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), logError,
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith(`karst: bridge session-close check failed for ticket ${a}`, expect.any(Error));
+  });
+  it('a failed sbx listing (not a throw) also keeps the poller', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'F-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'daemon down' } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).not.toHaveBeenCalled();
+  });
+  it('boot attachment includes a running sandbox this window controls, not another window\'s session', async () => {
+    const idle = setup('running');
+    expect(await idle.w.liveSandboxTicketIds()).toEqual(new Set([idle.a]));
+    const elsewhere = setup('running', false, 'running');
+    expect(await elsewhere.w.liveSandboxTicketIds()).toEqual(new Set());
+    const stopped = setup('stopped');
+    expect(await stopped.w.liveSandboxTicketIds()).toEqual(new Set());
+  });
+  it('a running sandbox of one ticket keeps its poller even when another ticket\'s sandbox is stopped', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'M-1', title: 'a', projectId }).id;
+    const b = createTicket(store, { key: 'M-2', title: 'b', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    setSessionId(store, b, 's', 'codex');
+    const running = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const stopped = sbxName({ projectRoot: ROOT, ticketId: b, core: 'codex' });
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${running} claude ● running\n${stopped} codex ● stopped\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    await w.onSessionClosed(b);
+    expect(detach).toHaveBeenCalledExactlyOnceWith(b);
+  });
+  it('boot attachment is empty when the project id is unknown, even with a running sandbox', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'N-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => undefined, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude ● running\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    });
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set());
+  });
+  it('boot attachment is empty on a failed sbx listing even when docker lists a running sandbox', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'D-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'opencode');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'opencode' });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'daemon down' } }),
+      dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${name}\trunning\n` } }), { pipe: vi.fn() }),
+    });
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set());
+  });
+  it('boot attachment skips a failed listing, an invalid-core object, and a project with no backend', async () => {
+    const failedProc = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => 1, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'down' } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    });
+    expect(await failedProc.w.liveSandboxTicketIds()).toEqual(new Set());
+    const logError = vi.fn();
+    const off = wiring({ projectId: () => 1, logError });
+    expect(await off.w.liveSandboxTicketIds()).toEqual(new Set());
+    expect(logError).not.toHaveBeenCalled();
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'I-1', title: 'a', projectId }).id;
+    const bad = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }).replace(/claude$/, 'null');
+    const invalid = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${bad} null ● running\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    });
+    expect(await invalid.w.liveSandboxTicketIds()).toEqual(new Set());
+  });
+});
+
 describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
   const ROOT = '/p/karst.yml';
   function withSandbox() {

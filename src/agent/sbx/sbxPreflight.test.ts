@@ -2,13 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { fakeSbxProcess } from './fakeSbxProcess.js';
 import { sbxPreflight } from './sbxPreflight.js';
 
-const LS = 'SANDBOX   AGENT   STATUS\nkarst-ab12cd34-7-claude   claude   running\nother   codex   stopped\n';
+const LS = 'SANDBOX   AGENT   STATUS\nkarst-ab12cd34-7-claude   claude   ● running\nother   codex   stopped\n';
+const LS_JSON = JSON.stringify([{ name: 'karst-ab12cd34-7-claude', status: 'running' }, { name: 'other', status: 'stopped' }]);
 
 describe('sbxPreflight', () => {
-  it('passes and lists existing sandboxes', async () => {
-    const proc = fakeSbxProcess({ 'sbx ls': { stdout: LS }, 'sbx policy ls': { stdout: 'balanced\n' } });
+  it('passes and lists existing sandboxes from --json', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls --json': { stdout: LS_JSON }, 'sbx policy ls': { stdout: 'balanced\n' } });
     await expect(sbxPreflight(proc)).resolves.toEqual({ ok: true, existing: ['karst-ab12cd34-7-claude', 'other'] });
-    expect(proc.calls.map((c) => c.args.join(' '))).toEqual(['version', 'ls', 'policy ls']);
+    expect(proc.calls.map((c) => c.args.join(' '))).toEqual(['version', 'ls --json', 'policy ls']);
+  });
+
+  it('falls back to the table (glyph status and all) when --json is unsupported', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls --json': { code: 2, stderr: 'unknown flag' }, 'sbx ls': { stdout: LS }, 'sbx policy ls': { stdout: 'balanced\n' } });
+    await expect(sbxPreflight(proc)).resolves.toEqual({ ok: true, existing: ['karst-ab12cd34-7-claude', 'other'] });
+    expect(proc.calls.map((c) => c.args.join(' '))).toEqual(['version', 'ls --json', 'ls', 'policy ls']);
   });
 
   it('reports a missing binary', async () => {

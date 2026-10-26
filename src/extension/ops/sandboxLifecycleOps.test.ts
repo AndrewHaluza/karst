@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
-import type { ProjectSandbox, SandboxInventory } from '../../agent/sandboxInventory.js';
+import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
   backendKindOf, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
@@ -211,6 +211,25 @@ describe('reconcileSandboxes', () => {
     const r = reconcileSandboxes(inv, live, (id) => id !== 10, clear);
     expect(r).toEqual({ running: [7], stopped: [8], missing: [9], orphans: [box(42)] });
     expect(clear.mock.calls).toEqual([[9]]);
+  });
+  it('adopts a `● running` sbx table row as running (T801: sbx prints a status glyph)', async () => {
+    const inv = await listProjectSandboxes({
+      projectRoot: ROOT,
+      sbx: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name(7)} claude ● running\n` } }),
+      docker: fakeSbxProcess(),
+    });
+    expect(inv.errors).toEqual([]);
+    const r = reconcileSandboxes(inv, [{ id: 7, sessionId: 's7', sessionProvider: 'claude' }], () => true, vi.fn());
+    expect(r).toEqual({ running: [7], stopped: [], missing: [], orphans: [] });
+  });
+  it('adopts a running sbx sandbox from the JSON listing (T801)', async () => {
+    const inv = await listProjectSandboxes({
+      projectRoot: ROOT,
+      sbx: fakeSbxProcess({ 'sbx ls --json': { stdout: JSON.stringify([{ name: name(7), status: 'running' }]) } }),
+      docker: fakeSbxProcess(),
+    });
+    const r = reconcileSandboxes(inv, [{ id: 7, sessionId: 's7', sessionProvider: 'claude' }], () => true, vi.fn());
+    expect(r).toEqual({ running: [7], stopped: [], missing: [], orphans: [] });
   });
   it('a failed listing proves nothing missing', () => {
     const clear = vi.fn();

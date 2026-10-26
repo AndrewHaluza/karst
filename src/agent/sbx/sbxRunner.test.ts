@@ -298,6 +298,10 @@ describe('createSbxSessionRunner.probeSandbox (arch:AC-39)', () => {
     await expect(runner({ 'sbx ls': { stdout: `NAME\n${NAME}` } }).probeSandbox!()).resolves.toEqual({ state: 'present' });
     await expect(runner({ 'sbx ls': { stdout: 'NAME\nother' } }).probeSandbox!()).resolves.toEqual({ state: 'absent' });
   });
+  it('reads the --json listing, and tolerates a leading status glyph in the table fallback', async () => {
+    await expect(runner({ 'sbx ls --json': { stdout: JSON.stringify([{ name: NAME, status: 'running' }]) } }).probeSandbox!()).resolves.toEqual({ state: 'present' });
+    await expect(runner({ 'sbx ls': { stdout: `NAME AGENT STATUS\n${NAME} claude ● running` } }).probeSandbox!()).resolves.toEqual({ state: 'present' });
+  });
   it('exit 127 and any other failing ls are unknown, and hasSandbox stays false', async () => {
     const missing = runner({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
     await expect(missing.probeSandbox!()).resolves.toEqual({ state: 'unknown', reason: '`sbx` was not found on the PATH (spawn sbx ENOENT)' });
