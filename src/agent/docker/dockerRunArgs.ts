@@ -1,5 +1,6 @@
+import { join } from 'node:path';
 import { SANDBOX_BRIDGE_MOUNT_ROOT } from '../bridge/bridgeDir.js';
-import { containerBinary, type DockerCore, OPENCODE_IMAGE } from './dockerImage.js';
+import { containerBinary, type DockerCore, type DockerRunnerCore, OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerMemoryLimits } from './dockerMemory.js';
 import type { DockerNames } from './dockerNames.js';
 import { PROXY_URL } from './proxySidecar.js';
@@ -109,7 +110,7 @@ export function memoryArgs(limit: string | undefined, reservation: string | unde
 
 export interface InteractiveArgsInput {
   readonly names: DockerNames;
-  readonly core: DockerCore;
+  readonly core: DockerRunnerCore;
   readonly user: LinuxUser | undefined;
   /** Host opencode v1 `auth.json`, mounted read-only over the data volume. */
   readonly authFile: string | undefined;
@@ -140,11 +141,15 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     input.bridgeDir !== undefined
       ? ['--mount', bindMount(input.bridgeDir, `${SANDBOX_BRIDGE_MOUNT_ROOT}/${input.ticketId}`, false)]
       : [];
+  const gemini =
+    (input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir !== undefined
+      ? ['--mount', bindMount(join(input.bridgeDir, 'antigravity', 'gemini'), `${CONTAINER_HOME}/.gemini`, false)]
+      : [];
   return [
     'run', '--interactive', '--tty', '--rm', ...REAPER, '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
-    ...volumeMounts(input.names), ...auth, ...bridge, ...userArgs(input.user),
+    ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, containerBinary(input.core), ...rewritePaths(input.args, input.hostWorktreePath),
   ];
