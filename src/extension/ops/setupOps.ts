@@ -13,6 +13,7 @@ import {
   type SetupManifest,
 } from '../../setup/instructions.js';
 import { setupOutboxDir } from '../../setup/outbox.js';
+import { writeSetupOwner } from '../../setup/owner.js';
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import type { Notify } from './notify.js';
@@ -82,6 +83,12 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
       const outbox = setupOutboxDir(cwd);
       try {
         mkdirSync(outbox, { recursive: true });
+        // Owner marker first: scopes this scratch's proposals to the launching window.
+        const launchRoot = deps.workspaceRoot();
+        if (launchRoot) {
+          const manifestPath = deps.manifestPath();
+          writeSetupOwner(cwd, { workspaceRoot: launchRoot, ...(manifestPath ? { manifestPath } : {}) });
+        }
         const manifest = deps.manifest();
         const instructions = writeSessionInstructions(cwd, setupInstructions({ title: 'Workspace setup', manifest }));
         const adapter = resolveAdapter(core);

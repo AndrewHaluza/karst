@@ -71,13 +71,13 @@ export const defaultSetupProposalFs: SetupProposalFs = {
 };
 
 export interface SetupProposalOpsDeps {
-  /** The setup scratch dirs to scan; each holds an `outbox/` subdir. */
+  /** The setup scratch dirs to scan (already filtered to this window's own); each holds an `outbox/` subdir. */
   outboxes: () => string[];
   readCurrentManifest: () => Manifest | undefined;
   /** Show the proposal to the user; resolve true only on explicit approval. */
   confirm: (description: ProposalDescription) => Promise<boolean>;
   /** Apply an approved manifest proposal (write karst.yml, preserving identity). */
-  applyManifest: (proposal: ManifestProposal, proposed: Manifest) => void;
+  applyManifest: (proposal: ManifestProposal, proposed: Manifest, scratch: string) => void;
   /** Run an approved change command. */
   runCommand: (repo: string, command: string) => Promise<void>;
   /** Apply an approved change patch. */
@@ -95,7 +95,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   const fs = deps.fs ?? defaultSetupProposalFs;
   const debug = (m: string): void => deps.debug?.(`[setup] ${m}`);
 
-  async function handleManifest(file: string, proposal: ManifestProposal): Promise<void> {
+  async function handleManifest(file: string, scratch: string, proposal: ManifestProposal): Promise<void> {
     let proposed: Manifest;
     try {
       proposed = parseManifestText(proposal.yaml, proposal.targetPath).manifest;
@@ -114,7 +114,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       return;
     }
     try {
-      deps.applyManifest(proposal, proposed);
+      deps.applyManifest(proposal, proposed, scratch);
       debug(`applied manifest proposal ${file}`);
     } catch (e) {
       deps.notify.warn(`Karst: could not apply the manifest proposal (${(e as Error).message}).`);
@@ -161,7 +161,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
           fs.remove(file);
           continue;
         }
-        if (checked.value.kind === 'manifest') await handleManifest(file, checked.value);
+        if (checked.value.kind === 'manifest') await handleManifest(file, scratch, checked.value);
         else await handleChange(file, checked.value);
       }
     }
