@@ -11,7 +11,19 @@ import type { StepResult } from './dockerClone.js';
 /** opencode's own endpoints (ST2B exp 8): `models.opencode.ai` is covered by the suffix. */
 export const OPENCODE_PROVIDER_DOMAINS: readonly string[] = ['opencode.ai', 'openrouter.ai', 'models.dev'];
 
-export const DOCKER_ALLOWLIST: readonly string[] = [...SANDBOX_NETWORK_ALLOWLIST, ...OPENCODE_PROVIDER_DOMAINS];
+export const GOOGLE_ANTIGRAVITY_DOMAINS: readonly string[] = [
+  'googleapis.com',
+  'accounts.google.com',
+  'antigravity.google',
+  'antigravity.google.com',
+  'antigravity-unleash.goog',
+];
+
+export const DOCKER_ALLOWLIST: readonly string[] = [
+  ...SANDBOX_NETWORK_ALLOWLIST,
+  ...OPENCODE_PROVIDER_DOMAINS,
+  ...GOOGLE_ANTIGRAVITY_DOMAINS,
+];
 
 /** The proxy's name on the ticket network; the agent container's `HTTPS_PROXY` points here. */
 export const PROXY_ALIAS = 'karst-proxy';
