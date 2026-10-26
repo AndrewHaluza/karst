@@ -17,6 +17,8 @@ export default defineConfig({
       'src/**/*.e2e.test.ts',
     ],
     environment: 'node',
+    // Snapshots with local clock text (ship preview "as of") were recorded in UTC.
+    env: { TZ: 'UTC' },
     // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
     setupFiles: ['./scripts/vitest-setup-env.mjs'],
     // Per-file jsdom render tests rely on `forks` (each file is its own
