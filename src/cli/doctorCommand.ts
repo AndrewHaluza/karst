@@ -3,11 +3,10 @@ import { selectedSandboxBackends, wantedBackends } from '../agent/backendChoices
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
-import { dirname } from 'node:path';
 import { nodeEnvProbe } from '../manifest/nodeEnvProbe.js';
 import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } from '../runtime/deps.js';
 import { SCHEMA_VERSION } from '../store/schemaVersion.js';
