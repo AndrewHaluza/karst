@@ -69,14 +69,41 @@ const BUNDLE_B64 = Buffer.from('bundle').toString('base64');
 const EXEC = `sbx exec ${NAME} --`;
 const text = (c: { command: string; args: readonly string[] }) => [c.command, ...c.args].join(' ');
 
+const HOST_SHA = 'a'.repeat(40);
+
+describe('createSbxSessionRunner.sync thin bundle', () => {
+  const run = async (revParse: { code?: number; stdout?: string }) => {
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} rev-parse HEAD`]: revParse });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await runner.sync!(ticket);
+    return proc.calls.find((c) => c.command === 'sbx')!;
+  };
+
+  it('passes the host HEAD so the sandbox excludes it (guarded by cat-file, tip==HEAD excludes parents)', async () => {
+    const call = await run({ stdout: `${HOST_SHA}\n` });
+    expect(call.args.slice(-2)).toEqual(['feat/x', HOST_SHA]);
+    const script = call.args.find((a) => a.includes('bundle create'))!;
+    expect(script).toContain('cat-file -e "$2^{commit}"');
+    expect(script).toContain('"^$2"');
+    expect(script).toContain('"^$2^@"');
+  });
+
+  it('falls back to the full bundle (empty exclusion) when the host HEAD is unreadable', async () => {
+    expect((await run({ code: 128 })).args.slice(-2)).toEqual(['feat/x', '']);
+    expect((await run({ stdout: 'not-a-sha' })).args.slice(-2)).toEqual(['feat/x', '']);
+  });
+});
+
 describe('createSbxSessionRunner.sync', () => {
   it('bundles inside the sandbox, fetches that bundle, then fast-forwards (no git in the clone)', async () => {
     const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/p/clone' });
     await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: "fast-forwarded feat/x to the sbx sandbox's commits" });
-    const lines = proc.calls.map(text);
-    expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x$`));
-    expect(proc.calls[0]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+    const [head, ...rest] = proc.calls.map(text);
+    expect(head).toBe(`${G} rev-parse HEAD`);
+    const lines = rest;
+    expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x $`));
+    expect(proc.calls[1]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
     expect(lines[1]).toMatch(new RegExp(`^${G} fetch \\S+/out\\.bundle refs/heads/feat/x$`));
     expect(lines.slice(2)).toEqual([`${G} merge-base --is-ancestor HEAD FETCH_HEAD`, `${G} merge --ff-only FETCH_HEAD`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);

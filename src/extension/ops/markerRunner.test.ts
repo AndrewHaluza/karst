@@ -31,6 +31,13 @@ describe('createMarkerRunner', () => {
     const result = await createMarkerRunner({ ...facts, ensureSynced: async () => ({ ok: false, reason: 'not a fast-forward', diverged: true }) }, vi.fn())('impl');
     expect(result).toMatchObject({ transient: false, diverged: true });
   });
+  it('an output-cap overflow in the sync is permanent: the same bundle overflows again', async () => {
+    const reason = 'no sandbox clone to sync from: output exceeded 134217728 bytes';
+    const spawn = vi.fn();
+    const result = await createMarkerRunner({ ...facts, ensureSynced: async () => ({ ok: false, reason, diverged: false }) }, spawn)('impl');
+    expect(result).toEqual({ code: 1, stderr: reason, transient: false, diverged: false });
+    expect(spawn).not.toHaveBeenCalled();
+  });
   it('a host ticket (no ensureSynced) runs the CLI directly', async () => {
     const spawn = vi.fn<MarkerSpawn>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
     await createMarkerRunner(facts, spawn)('impl');
