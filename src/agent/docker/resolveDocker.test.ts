@@ -82,6 +82,12 @@ describe('linuxUser', () => {
 });
 
 describe('resolveDocker: baseline host ports (arch:AC-32)', () => {
+  it('threads bridgeDir through to prepareDockerSandbox', async () => {
+    const prepare = vi.fn().mockResolvedValue({ ok: true });
+    await resolveDocker({ ...base, core: 'opencode', bridgeDir: '/bridge/dir/7', deps: deps({ prepare }) });
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ bridgeDir: '/bridge/dir/7' }));
+  });
+
   it('passes declared baseline ports to prepare, and none when empty', async () => {
     const prepare = vi.fn().mockResolvedValue({ ok: true });
     await resolveDocker({ ...base, core: 'opencode', deps: deps({ prepare, hostPorts: [5432] }) });
