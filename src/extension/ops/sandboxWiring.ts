@@ -260,8 +260,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       // Only live tickets can carry a poller: an orphan sandbox of a deleted
       // ticket must not throw (getTicket does) and abort the whole sweep.
       const live = new Set(liveTickets().map((t) => t.id));
+      const merged = doneMergedTicketIds(w.store);
+      // A session this window owns may belong to another project's ticket; it is still live unless archived, merged or deleted.
+      const ownedLive = (id: number): boolean => {
+        if (w.projectId() === undefined || !w.owned.has(id) || merged.has(id)) return false;
+        try { return getTicket(w.store, id).archivedAt === null; } catch { return false; }
+      };
       return new Set(inv.sandboxes
-        .filter((s) => s.state === 'running' && s.invalidCore !== true && live.has(s.ticketId) && controls(s.ticketId))
+        .filter((s) => s.state === 'running' && s.invalidCore !== true && (live.has(s.ticketId) || ownedLive(s.ticketId)) && controls(s.ticketId))
         .map((s) => s.ticketId));
     } catch (err) {
       w.logError('karst: sandbox listing for the bridge sweep failed', err);
