@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
 import type { Manifest } from './types.js';
 import { validateManifest } from './schema.js';
@@ -8,9 +9,16 @@ import { foldProcessRows } from './foldProcessRows.js';
 import { detectInertKeys } from './inertKeys.js';
 import { uatEnvWarnings } from './validate/uat.js';
 import { deprecatedPresetKeyWarnings } from './validate/agentPresets.js';
+import { assertReferencesResolve } from './validate/semantics.js';
+import { envWarnings, type EnvProbe } from './validate/envWarnings.js';
+import { nodeEnvProbe } from './nodeEnvProbe.js';
 
 export type { Manifest } from './types.js';
 export { ManifestError } from './error.js';
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
 
 export interface LoadedManifestResult {
   manifest: Manifest;
@@ -47,22 +55,31 @@ export interface LoadedManifestResult {
  * manifests — being told "portRange must be a [min, max] number pair" without
  * knowing WHICH file is not actionable.
  */
-export function loadManifestWithDiagnostics(path: string): LoadedManifestResult {
+export function loadManifestWithDiagnostics(
+  path: string,
+  probe: EnvProbe | null = nodeEnvProbe(dirname(path)),
+): LoadedManifestResult {
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
   } catch (e) {
     throw new ManifestError(`cannot read ${path}: ${(e as Error).message}`);
   }
-  return parseManifestText(text, path);
+  return parseManifestText(text, path, probe);
 }
 
 /**
  * Parse + migrate + validate manifest TEXT (no file read). The setup session's
  * proposal carries the raw YAML text, so the host can validate it before
  * applying without a temp file. `path` is only used to attribute an error.
+ * `probe` (default none: the parse stays pure) supplies the environment facts
+ * for the repository/branch/script/remote warnings.
  */
-export function parseManifestText(text: string, path?: string): LoadedManifestResult {
+export function parseManifestText(
+  text: string,
+  path?: string,
+  probe: EnvProbe | null = null,
+): LoadedManifestResult {
   let parsed: unknown;
   try {
     parsed = yamlLoad(text);
@@ -76,6 +93,7 @@ export function parseManifestText(text: string, path?: string): LoadedManifestRe
     // BEFORE validation, which refuses them on an unpinned row.
     const { raw, notices: folded } = foldProcessRows(migrated);
     const manifest = validateManifest(raw);
+    assertReferencesResolve(manifest, isObject(raw) && isObject(raw.review) && Array.isArray(raw.review.gates) && raw.review.gates.length === 0);
     return {
       manifest,
       // uatEnvWarnings has existed since UAT landed and was called by nothing,
@@ -86,6 +104,7 @@ export function parseManifestText(text: string, path?: string): LoadedManifestRe
         ...(manifest.uat ? uatEnvWarnings(manifest.uat) : []),
         // §6: `processes.<key>.preset` is deprecated but still honoured.
         ...deprecatedPresetKeyWarnings(manifest.processes),
+        ...(probe ? envWarnings(manifest, probe) : []),
       ],
       notices: [...folded, ...detectInertKeys(raw)],
       migrated: folded.length > 0,

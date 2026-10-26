@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { manifest, repo, runnableRepo, dependsOn, slot, svc } from '../manifest/fixtures.js';
+import { manifest, repo, runnableRepo, dependsOn, slot, svc, uat } from '../manifest/fixtures.js';
 import type { Manifest } from '../manifest/types.js';
 import { checkManifest, type ManifestProbes } from './manifestChecks.js';
 import type { DoctorCheck } from './types.js';
@@ -10,6 +10,8 @@ function probes(over: Partial<ManifestProbes> = {}): ManifestProbes {
     pathExists: () => true,
     isGitRepo: () => true,
     branchExists: () => true,
+    hasRemote: () => true,
+    fileExists: () => true,
     binaryResolves: () => true,
     portHolder: () => 'free',
     ...over,
@@ -386,5 +388,31 @@ describe('checkManifest: scope and shape', () => {
       expect(fix.tier).toBe('consented');
       expect(fix).not.toHaveProperty('action');
     }
+  });
+});
+
+describe('checkManifest: env warnings (macos_iot retro)', () => {
+  it('warns when a repository has no origin remote', () => {
+    const checks = checkManifest(
+      probes({ manifest: manifest({ backend: repo({ repoPath: '/r/backend' }) }), hasRemote: () => false }),
+    );
+    const c = byId(checks, 'manifest.env.repositories.backend');
+    expect(c.status).toBe('warn');
+    expect(c.detail).toContain("no 'origin' remote in /r/backend");
+  });
+
+  it('warns when testerVerifier scripts/verify-uat.sh does not exist', () => {
+    const m = manifest(
+      { backend: repo({ repoPath: '/r/backend' }) },
+      { uat: uat({ testerVerifier: { name: 'v', kind: 'command', command: 'scripts/verify-uat.sh' } }) },
+    );
+    const c = byId(checkManifest(probes({ manifest: m, fileExists: () => false })), 'manifest.env.uat.testerVerifier.command');
+    expect(c.status).toBe('warn');
+    expect(c.detail).toContain("'scripts/verify-uat.sh' not found in /r/backend");
+  });
+
+  it('adds no env check when the environment is sound', () => {
+    const ids = checkManifest(probes({ manifest: manifest({ backend: repo() }) })).map((c) => c.id);
+    expect(ids.some((id) => id.startsWith('manifest.env.'))).toBe(false);
   });
 });

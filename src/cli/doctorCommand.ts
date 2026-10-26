@@ -3,10 +3,11 @@ import { selectedSandboxBackends, wantedBackends } from '../agent/backendChoices
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import { nodeEnvProbe } from '../manifest/nodeEnvProbe.js';
 import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } from '../runtime/deps.js';
 import { SCHEMA_VERSION } from '../store/schemaVersion.js';
 import { checkTools } from '../doctor/toolsChecks.js';
@@ -220,9 +221,11 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
     }
     if (areas.includes('manifest')) {
       const live = new Set((store.db.prepare("SELECT pid FROM servers WHERE status = 'running' AND pid IS NOT NULL").all() as { pid: number }[]).map((r) => r.pid));
+      const envProbe = nodeEnvProbe(io.manifestPath ? dirname(io.manifestPath) : undefined);
       out.push(...checkManifest({
         manifest, ...(manifestError ? { manifestError } : {}),
         pathExists: probes.pathExists, isGitRepo: probes.isGitRepo, branchExists: probes.branchExists, binaryResolves: probes.binaryResolves,
+        hasRemote: envProbe.hasRemote, fileExists: envProbe.fileExists,
         portHolder: (port) => { const pids = probes.listeningPids(port); return pids.length === 0 ? 'free' : pids.every((p) => live.has(p)) ? 'karst' : 'foreign'; },
       }));
     }

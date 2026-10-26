@@ -7,6 +7,7 @@
 
 import { resolveTarget, unitsOf } from '../manifest/runnable.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { envWarnings } from '../manifest/validate/envWarnings.js';
 import type { DoctorCheck, DoctorFix, DoctorStatus } from './types.js';
 
 export interface ManifestProbes {
@@ -16,6 +17,9 @@ export interface ManifestProbes {
   pathExists: (p: string) => boolean;
   isGitRepo: (p: string) => boolean;
   branchExists: (repoPath: string, branch: string) => boolean;
+  hasRemote: (repoPath: string, remote: string) => boolean;
+  /** repo-relative file inside `repoPath` */
+  fileExists: (repoPath: string, rel: string) => boolean;
   /** given the first token of `start` */
   binaryResolves: (command: string) => boolean;
   /** Who holds a TCP port: 'free' | 'karst' (a karst-recorded live server) | 'foreign'. */
@@ -161,11 +165,33 @@ function checksForRepo(name: string, repo: RepositoryDef, m: Manifest, p: Manife
   return out;
 }
 
+/**
+ * The loader's environment warnings (no origin, missing gate script, no review
+ * signal) as warn checks. Baseline branches are skipped: `manifest.baseline.*`
+ * already fails them, with a fix command.
+ */
+function envChecks(m: Manifest, p: ManifestProbes): DoctorCheck[] {
+  const warnings = envWarnings(m, {
+    pathExists: p.pathExists,
+    branchExists: () => true,
+    hasRemote: p.hasRemote,
+    fileExists: p.fileExists,
+  });
+  return warnings.map((w) =>
+    check(
+      `manifest.env.${w.slice(0, w.indexOf(':'))}`,
+      'warn',
+      w,
+      consented('Fix the environment or karst.yml', 'Follow the fix named in the detail above'),
+    ),
+  );
+}
+
 /** Every manifest check, in report order. */
 export function checkManifest(p: ManifestProbes): DoctorCheck[] {
   const valid = checkValid(p);
   const m = p.manifest;
   if (m === undefined) return [valid];
   const repoChecks = enabledRepos(m).flatMap(([name, repo]) => checksForRepo(name, repo, m, p));
-  return [valid, ...repoChecks];
+  return [valid, ...repoChecks, ...envChecks(m, p)];
 }
