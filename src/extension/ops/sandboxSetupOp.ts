@@ -42,6 +42,28 @@ export interface TicketSetupDeps {
   readonly sleep?: (ms: number) => Promise<void>;
 }
 
+const CLONE_READY_SH = 'git rev-parse --verify HEAD >/dev/null 2>&1 && [ -n "$(git ls-tree --name-only HEAD | head -n 1)" ]';
+const LOCKFILES_SH = 'ls package-lock.json pnpm-lock.yaml yarn.lock >/dev/null 2>&1';
+/** A lockfile-strict install: with no lockfile it fails for a reason that says nothing about the setup. */
+const CI_STYLE = /\b(npm\s+ci|(pnpm|yarn)\s+install\s+[^&|;]*--frozen-lockfile|pnpm\s+i\s+[^&|;]*--frozen-lockfile)/;
+
+async function probeOk(runGate: GateProcessRunner, script: string, cwd: string): Promise<boolean> {
+  const out = await runGate('sh', ['-c', script], cwd);
+  return out.kind === 'completed' && out.exitCode === 0;
+}
+
+/** Does every setup-declaring worktree of the ticket hold a checked-out commit with a non-empty tree? */
+export async function ticketCloneReady(deps: Pick<TicketSetupDeps, 'manifest' | 'worktrees' | 'gateProcess'>, ticketId: number): Promise<boolean> {
+  const manifest = deps.manifest();
+  const runGate = deps.gateProcess(ticketId);
+  if (!manifest || !runGate) return true;
+  for (const wt of deps.worktrees(ticketId)) {
+    const def = Object.entries(manifest.repositories).find(([key, r]) => key === wt.repo || r.repoPath === wt.repo)?.[1];
+    if (def?.sandbox && !(await probeOk(runGate, CLONE_READY_SH, wt.path))) return false;
+  }
+  return true;
+}
+
 /**
  * Run each declared `sandbox.setup` of the ticket's repositories inside its sandbox
  * (arch:AC-36), in order; the first failure stops. A host ticket, or one whose repos declare
@@ -64,6 +86,11 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     return name && def?.sandbox ? [{ name, setup: def.sandbox.setup, hosts: setupHostsOf(def.sandbox.setupHosts), cwd: wt.path }] : [];
   });
   for (const [i, job] of todo.entries()) {
+    // Background only: a ci-style setup with no lockfile saw an unfinished clone. Never record that as `failed`; the pre-gate run decides.
+    if (opts.background && CI_STYLE.test(job.setup) && !(await probeOk(runGate, LOCKFILES_SH, job.cwd))) {
+      deps.debug?.(`[sandbox] ticket ${ticketId} ${job.name}: no lockfile yet, background setup skipped`);
+      return { ok: true };
+    }
     // The first repo owns `<id>.setup.json`; further ones get their own file beside it.
     const stateFile = paths ? (i === 0 ? paths.setupStateFile : paths.setupStateFile.replace(/\.setup\.json$/, `.${job.name}.setup.json`)) : undefined;
     if (!stateFile) return { ok: true }; // no bridge dir: nowhere outside the mount to record, so no step

@@ -500,13 +500,16 @@ describe('resolveTicketSandbox / ticketSandboxContext edge cases', () => {
 describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
   const boxFor = (id: number) => ({ runner: 'sbx' as const, name: sbxName({ projectRoot: '/p', ticketId: id, core: 'claude' }), ticketId: id, core: 'claude', state: 'running' as const });
   const HASH = 'd'.repeat(64);
-  async function make(opts: { listed?: (box: ReturnType<typeof boxFor>) => Promise<readonly ReturnType<typeof boxFor>[]>; withNotify?: boolean; setupExit?: number; extra?: Record<string, unknown>; pick?: string } = {}) {
+  async function make(opts: { listed?: (box: ReturnType<typeof boxFor>) => Promise<readonly ReturnType<typeof boxFor>[]>; withNotify?: boolean; setupExit?: number; emptyClone?: boolean; noLockfile?: boolean; extra?: Record<string, unknown>; pick?: string } = {}) {
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const { runProcess } = await import('../../workflow/gates/run.js');
     const ran: string[] = [];
     vi.mocked(runProcess).mockImplementation((_c, args) => {
-      const fp = args.join(' ').includes('command -v node');
-      ran.push(args.join(' '));
+      const joined = args.join(' ');
+      if (joined.includes('ls package-lock.json')) return Promise.resolve({ kind: 'completed', exitCode: opts.noLockfile ? 2 : 0, output: '', stdout: '' }) as never;
+      if (joined.includes('git rev-parse')) return Promise.resolve({ kind: 'completed', exitCode: opts.emptyClone ? 1 : 0, output: '', stdout: '' }) as never;
+      const fp = joined.includes('command -v node');
+      ran.push(joined);
       return Promise.resolve({ kind: 'completed', exitCode: fp ? 0 : (opts.setupExit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' }) as never;
     });
     const store = openStore(':memory:');
@@ -634,6 +637,23 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     await vi.waitFor(() => expect(m.errors).toHaveLength(1), { timeout: 10_000 });
     expect(wait).toHaveBeenCalledTimes(2);
     expect(wait).toHaveBeenCalledWith(5_000);
+  });
+
+  it('provisionInBackground on a clone with no checkout writes no state and notifies nothing', async () => {
+    const m = await make({ setupExit: 1, emptyClone: true });
+    const wait = vi.fn(() => Promise.resolve());
+    m.b.provisionInBackground(m.id, wait);
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledTimes(12), { timeout: 10_000 });
+    expect(m.ran).toHaveLength(0);
+    expect(m.errors).toHaveLength(0);
+    expect(m.infos).toHaveLength(0);
+  });
+
+  it('a background ci-style setup with no lockfile is skipped: no state, no notify', async () => {
+    const m = await make({ setupExit: 1, noLockfile: true });
+    await m.b.provision(m.id, { background: true });
+    expect(m.ran).toHaveLength(0);
+    expect(m.errors).toHaveLength(0);
   });
 
   it('provisionInBackground gives up waiting after 12 polls and provisions nothing', async () => {

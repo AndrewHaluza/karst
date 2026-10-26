@@ -29,7 +29,7 @@ import { isServing } from '../../runtime/health.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement, type TicketPlacement } from '../../store/placement.js';
-import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, provisionTicketSandbox } from './sandboxSetupOp.js';
+import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, provisionTicketSandbox, ticketCloneReady } from './sandboxSetupOp.js';
 import type { Notify } from './notify.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
@@ -361,6 +361,11 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },
+    /** Is the ticket's clone checked out (HEAD resolves, tree non-empty)? Always true without a sandbox. */
+    cloneReady: async (ticketId: number): Promise<boolean> => {
+      if (!(await resolveTicketSandbox(deps, ticketId)).listed) return true;
+      return ticketCloneReady({ manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id) }, ticketId);
+    },
     /** `karst.sandbox.setup`: forget the recorded setup, then run it again now (an unchanged lockfile would otherwise skip it). */
     rerunSetup: async (ticketId: number): Promise<void> => {
       const bridge = deps.bridgeOf?.(ticketId);
@@ -378,6 +383,13 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
           if ((await resolveTicketSandbox(deps, ticketId)).listed) break;
           await wait(5_000);
         }
+        // The clone's checkout may lag the listing: wait (bounded) for it, else leave setup to the pre-gate run.
+        let ready = false;
+        for (let i = 0; i < 12 && !ready; i += 1) {
+          ready = await bindings.cloneReady(ticketId);
+          if (!ready) await wait(5_000);
+        }
+        if (!ready) return;
         await bindings.provision(ticketId, { background: true });
       })().catch(input.onError);
     },
