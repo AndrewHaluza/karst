@@ -24,6 +24,9 @@ export interface MarkerRunnerFacts {
 /** The CLI refusals that a retry cannot change (empty work, wrong stage, guard). Anything else is transient. */
 const PERMANENT_REFUSAL = /cannot (mark|advance)|refused|unknown verdict/i;
 
+/** A sync output-cap overflow is deterministic: the same bundle overflows again, so it is surfaced once, never retried. */
+const PERMANENT_SYNC = /output exceeded \d+ bytes/;
+
 /**
  * Runs `karst stage <stage> pass` on the HOST for a verified sandbox marker
  * (arch:AC-34): the same CLI path a host session's marker takes. A sandboxed
@@ -36,7 +39,7 @@ export function createMarkerRunner(
   return async (stage) => {
     if (facts.ensureSynced) {
       const synced = await facts.ensureSynced();
-      if (!synced.ok) return { code: 1, stderr: synced.reason, transient: !synced.diverged, diverged: synced.diverged };
+      if (!synced.ok) return { code: 1, stderr: synced.reason, transient: !synced.diverged && !PERMANENT_SYNC.test(synced.reason), diverged: synced.diverged };
     }
     const args = [
       facts.cliEntry, 'stage', stage, 'pass',

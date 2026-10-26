@@ -39,12 +39,22 @@ export interface SbxRunnerOptions {
   readonly cloneDir?: string;
 }
 
-/** Runs in the sandbox: bundle `$1` into a temp file and print it as base64 (no host path crosses). */
+/**
+ * Runs in the sandbox: bundle `$1` into a temp file and print it as base64 (no host path crosses).
+ * `$2` is the host worktree's HEAD: when the clone has it, the bundle is thin (`^$2`, only what the host
+ * lacks) so a big repo stays under MAX_BUNDLE_STDOUT_BYTES. A tip equal to `$2` excludes its parents instead
+ * (git refuses an empty bundle). No `$2`, or one the clone lacks: the full bundle.
+ */
 const BUNDLE_OUT = [
   'sh', '-c',
-  'set -e; t=$(mktemp); trap \'rm -f "$t"\' EXIT; git -c safe.directory=\'*\' bundle create -q "$t" "$1"; base64 < "$t"',
+  'set -e; t=$(mktemp); trap \'rm -f "$t"\' EXIT; g="git -c safe.directory=*"; '
+  + 'if [ -n "$2" ] && $g cat-file -e "$2^{commit}" 2>/dev/null; then '
+  + 'if [ "$($g rev-parse "$1")" = "$2" ]; then set -- "$1" "^$2^@"; else set -- "$1" "^$2"; fi; else set -- "$1"; fi; '
+  + '$g bundle create -q "$t" "$@"; base64 < "$t"',
   'karst-bundle',
 ] as const;
+
+const SHA = /^[0-9a-f]{40,64}$/;
 
 /** Host git never runs repo hooks/fsmonitor and ignores system/global config (the host worktree is the only repo it touches). */
 const HARDENED_GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] as const;
@@ -89,7 +99,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
    */
   const fetchSandbox = (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> =>
     withXfer(async (xfer) => {
-      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+      const head = await git(wt, ['rev-parse', 'HEAD']);
+      const have = head.code === 0 && SHA.test(head.stdout.trim()) ? head.stdout.trim() : '';
+      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch, have], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
       if (made.code !== 0) return { ok: false as const, reason: `no sandbox clone to sync from: ${made.stderr.trim()}` };
       const bytes = Buffer.from(made.stdout, 'base64');
       if (bytes.length === 0) return { ok: false as const, reason: 'sandbox returned an empty bundle' };
