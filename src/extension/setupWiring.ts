@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, watch as fsWatch } from 'node:fs';
+import { mkdirSync, watch as fsWatch } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { applyManifestProposal } from '../setup/manifestApply.js';
@@ -12,6 +12,7 @@ import type { Notify } from './ops/notify.js';
 import type { TerminalHost } from '../ui/session.js';
 import { manifestPathOrThrow } from './manifestResolve.js';
 import { writeManifest } from '../manifest/write.js';
+import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 
 /**
  * The vscode binding for the onboarding setup feature (§ ONBOARDING-SETUP-AGENT).
@@ -132,18 +133,13 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
   });
 
   const proposals = createSetupProposalOps({
-    outboxes: () => {
-      try {
-        return readdirSync(setupRoot).map((id) => join(setupRoot, id));
-      } catch {
-        return [];
-      }
-    },
+    outboxes: () => ownedScratches(setupRoot, workspaceRoot(), deps.debug),
     readCurrentManifest: deps.currentManifest,
     confirm: async (d) =>
       (await vscode.window.showWarningMessage(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
-    applyManifest: (_proposal, proposed) => {
-      const path = manifestPathOrThrow();
+    applyManifest: (_proposal, proposed, scratch) => {
+      // Target the launching window's manifest, not whatever this window resolves.
+      const path = readSetupOwner(scratch)?.manifestPath ?? manifestPathOrThrow();
       const applied = applyManifestProposal(deps.currentManifest(), proposed);
       mkdirSync(dirname(path), { recursive: true });
       writeManifest(path, applied);

@@ -68,6 +68,15 @@ describe('setup ops', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it('writes the owner marker into the scratch before the terminal starts', async () => {
+    const ops = createSetupOps({ ...deps, nextId: () => 'own1' });
+    await ops.create();
+    expect(JSON.parse(readFileSync(join(scratch, 'own1', 'owner.json'), 'utf8'))).toEqual({
+      workspaceRoot: '/ws',
+      manifestPath: '/ws/.karst/karst.yml',
+    });
+  });
+
   it('pre-trusts the setup scratch dir before launching a core that prompts', async () => {
     const logs: string[] = [];
     const ops = createSetupOps({ ...deps, debug: (m) => logs.push(m) });
