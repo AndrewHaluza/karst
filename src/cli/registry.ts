@@ -493,7 +493,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     summary: 'Setup session: discover repos, or propose a consented repo change.',
     input: obj(
       {
-        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'verify'] },
+        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'verify', 'check'] },
         root: str,
         defaultBranch: str,
         repos: csvArray,
@@ -514,8 +514,8 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         pushFlag(argv, '--default-branch', input.defaultBranch);
         return argv;
       }
-      if (sub === 'verify') {
-        const argv = ['setup', 'verify'];
+      if (sub === 'verify' || sub === 'check') {
+        const argv = ['setup', sub];
         pushFlag(argv, '--repos', input.repos);
         return argv;
       }

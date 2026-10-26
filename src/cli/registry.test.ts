@@ -107,6 +107,12 @@ describe('validateCommandInput', () => {
 });
 
 describe('toArgv encoders', () => {
+  it('encodes setup check with and without --repos', () => {
+    const spec = getCommandSpec('setup')!;
+    expect(spec.toArgv!({ subcommand: 'check' })).toEqual(['setup', 'check']);
+    expect(spec.toArgv!({ subcommand: 'check', repos: ['a', 'b'] })).toEqual(['setup', 'check', '--repos', 'a,b']);
+  });
+
   it('encodes subtask create with flags and inverse --no-start', () => {
     const spec = getCommandSpec('subtask')!;
     expect(spec.toArgv!({ title: 'T', description: 'D', blocking: true, repos: ['a', 'b'] })).toEqual(
