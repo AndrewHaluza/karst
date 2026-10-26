@@ -402,7 +402,7 @@ describe('first setup vs established manifest', () => {
   it('takes protected fields from the proposal when the current manifest is a scaffold, naming them in the modal', async () => {
     const files = { [A]: JSON.stringify(prop) };
     const f = deps(files);
-    const scaffold = parseManifestText(VALID_YAML, 'x').manifest;
+    const scaffold = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
     const d = { ...f.deps, readCurrentManifest: () => scaffold, isScaffold: () => true };
     await createSetupProposalOps(d).scan();
     const [applied] = f.applyManifest.mock.calls[0]!;
@@ -423,7 +423,65 @@ describe('first setup vs established manifest', () => {
     expect(f.confirm.mock.calls[0]![0].detail).toMatch(/Protected fields NOT applied .*baselineBranch/);
   });
 
+  it('treats an established manifest as protected when no scaffold detector is injected', async () => {
+    const f = deps({ [A]: JSON.stringify(prop) });
+    const current = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
+    await createSetupProposalOps({ ...f.deps, readCurrentManifest: () => current }).scan();
+    const [applied] = f.applyManifest.mock.calls[0]!;
+    expect((applied as { baselineBranch: string }).baselineBranch).toBe('develop');
+  });
+
   function last(f: ReturnType<typeof deps>): ProposalResult {
     return f.fs.results[f.fs.results.length - 1]!;
   }
+});
+
+describe('ledger details', () => {
+  const A = '/s/1/outbox/a.json';
+  const B = '/s/1/outbox/b.json';
+
+  it('supersedes by modification time, not file name', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(manifestProposal()) });
+    f.fs.mtime = (p) => (p === A ? 2 : 1);
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['b', 'superseded'], ['a', 'applied']]);
+    expect(f.fs.results[0]!.reason).toBe('superseded by a');
+  });
+
+  it('records reasons for decline, withdrawal and an unreadable file', async () => {
+    const files: Record<string, string> = { [A]: JSON.stringify({ kind: 'change', repo: 'w', reason: 'r', command: 'x' }), [B]: 'not json' };
+    const f = deps(files);
+    f.confirm.mockImplementation(async () => false);
+    await createSetupProposalOps(f.deps).scan();
+    const byId = Object.fromEntries(f.fs.results.map((r) => [r.id, r]));
+    expect(byId.a).toMatchObject({ status: 'declined', reason: 'declined by the user' });
+    expect(byId.b!.reason).toMatch(/^unreadable: /);
+
+    const g = deps({ [A]: JSON.stringify({ kind: 'change', repo: 'w', reason: 'r', command: 'x' }) });
+    g.confirm.mockImplementation(async () => { g.fs.remove(A); return true; });
+    await createSetupProposalOps(g.deps).scan();
+    expect(g.fs.results.at(-1)).toMatchObject({ status: 'withdrawn', reason: 'withdrawn while awaiting consent' });
+  });
+
+  it('declined manifest keeps the dropped list and a withdrawn manifest has the reason', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    f.confirm.mockImplementation(async () => { f.fs.remove(A); return true; });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'withdrawn', reason: 'withdrawn while awaiting consent' });
+  });
+});
+
+describe('default fs ledger seam', () => {
+  it('reads mtime (0 when missing) and writes a result file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'spo-'));
+    try {
+      writeFileSync(join(root, 'a.json'), 'x');
+      expect(defaultSetupProposalFs.mtime(join(root, 'a.json'))).toBeGreaterThan(0);
+      expect(defaultSetupProposalFs.mtime(join(root, 'missing'))).toBe(0);
+      defaultSetupProposalFs.writeResult(root, { id: 'a', kind: 'change', status: 'applied', dropped: [], at: 't' });
+      expect(readdirSync(join(root, 'results'))).toEqual(['a.json']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
