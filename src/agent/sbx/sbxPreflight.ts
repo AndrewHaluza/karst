@@ -1,4 +1,7 @@
 import type { ProcessResult, SbxProcess } from './sbxProcess.js';
+import { listSbx } from './sbxList.js';
+
+export { parseNames } from './sbxList.js';
 
 export const SBX_BIN = 'sbx';
 
@@ -20,14 +23,16 @@ export async function sbxPreflight(proc: SbxProcess): Promise<SbxPreflight> {
     const version = await proc.run(SBX_BIN, ['version']);
     if (version.code === 127) return fail('sbx not installed (not on PATH)');
     if (version.code !== 0) return fail(`sbx version failed: ${detail(version)}`);
-    const ls = await proc.run(SBX_BIN, ['ls']);
+    // `--json` is the stable machine listing; the table is the fallback when the
+    // flag is unsupported or the call itself fails (including "not signed in").
+    const ls = await listSbx(proc);
     if (NOT_SIGNED_IN.test(ls.stdout + ls.stderr)) return fail('sbx not signed in (run `sbx login`)');
     if (ls.code !== 0) return fail(`sbx ls failed: ${detail(ls)}`);
     const policy = await proc.run(SBX_BIN, ['policy', 'ls']);
     if (policy.code !== 0 || policy.stdout.trim() === '') {
       return fail('sbx has no network policy (run `sbx policy init`)');
     }
-    return { ok: true, existing: parseNames(ls.stdout) };
+    return { ok: true, existing: ls.entries.map((e) => e.name) };
   } catch (err) {
     return fail(`sbx preflight failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -39,13 +44,4 @@ function fail(reason: string): SbxPreflight {
 
 function detail(result: ProcessResult): string {
   return (result.stderr.trim() || result.stdout.trim()).split('\n')[0]!.slice(0, 200);
-}
-
-/** First column of `sbx ls`, header row dropped. */
-export function parseNames(stdout: string): string[] {
-  return stdout
-    .split('\n')
-    .slice(1)
-    .map((line) => line.trim().split(/\s+/)[0] ?? '')
-    .filter((name) => name !== '');
 }

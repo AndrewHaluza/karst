@@ -51,6 +51,37 @@ describe('listProjectSandboxes', () => {
     ]);
     expect(docker.calls[0]!.args).toEqual(['ps', '-a', '--filter', `name=${own(9, 'opencode').split('-').slice(0, 2).join('-')}-`, '--format', '{{.Names}}\t{{.State}}']);
   });
+  it('reads the machine listing: a `● running` table row is running, not stopped', async () => {
+    const sbx = fakeSbxProcess({
+      'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${own(7, 'claude')} claude ● running\n${own(8, 'codex')} codex ● stopped\n` },
+    });
+    const r = await listProjectSandboxes({ projectRoot: ROOT, sbx, docker: fakeSbxProcess() });
+    expect(r.sandboxes).toEqual([
+      { runner: 'sbx', name: own(7, 'claude'), ticketId: 7, core: 'claude', state: 'running' },
+      { runner: 'sbx', name: own(8, 'codex'), ticketId: 8, core: 'codex', state: 'stopped' },
+    ]);
+  });
+  it('prefers `sbx ls --json` (name + status) over the human table', async () => {
+    const sbx = fakeSbxProcess({
+      'sbx ls --json': { stdout: JSON.stringify([{ name: own(7, 'claude'), status: 'running' }, { name: own(8, 'codex'), status: 'stopped' }, { name: foreign, status: 'running' }]) },
+    });
+    const r = await listProjectSandboxes({ projectRoot: ROOT, sbx, docker: fakeSbxProcess() });
+    expect(sbx.calls[0]!.args).toEqual(['ls', '--json']);
+    expect(r.sandboxes).toEqual([
+      { runner: 'sbx', name: own(7, 'claude'), ticketId: 7, core: 'claude', state: 'running' },
+      { runner: 'sbx', name: own(8, 'codex'), ticketId: 8, core: 'codex', state: 'stopped' },
+    ]);
+  });
+  it('falls back to the table when --json is unsupported', async () => {
+    const sbx = fakeSbxProcess({
+      'sbx ls --json': { code: 2, stderr: 'unknown flag: --json' },
+      'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${own(7, 'claude')} claude ● running\n` },
+    });
+    const r = await listProjectSandboxes({ projectRoot: ROOT, sbx, docker: fakeSbxProcess() });
+    expect(r.errors).toEqual([]);
+    expect(r.sandboxes).toEqual([{ runner: 'sbx', name: own(7, 'claude'), ticketId: 7, core: 'claude', state: 'running' }]);
+    expect(sbx.calls.map((c) => c.args.join(' '))).toEqual(['ls --json', 'ls']);
+  });
   it('reports a failing tool instead of throwing, keeps the other', async () => {
     const sbx = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'not found' } });
     const docker = fakeSbxProcess({ 'docker ps': { stdout: `${own(9, 'opencode')}\trunning\n` } });

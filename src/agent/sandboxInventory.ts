@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { SBX_CORES } from './sbx/sbxRunner.js';
 import { DOCKER_CORES } from './docker/dockerImage.js';
+import { listSbx } from './sbx/sbxList.js';
 import type { SbxProcess, ProcessResult } from './sbx/sbxProcess.js';
 
 export type SandboxRunnerKind = 'sbx' | 'docker';
@@ -65,12 +66,11 @@ export interface InventoryDeps {
 export async function listProjectSandboxes(deps: InventoryDeps): Promise<SandboxInventory> {
   const sandboxes: ProjectSandbox[] = [];
   const errors: string[] = [];
-  const ls = await deps.sbx.run('sbx', ['ls']);
+  const ls = await listSbx(deps.sbx);
   if (ls.code !== 0) errors.push(failure('sbx ls', ls));
   else {
-    for (const line of ls.stdout.split('\n').slice(1)) {
-      const [name, , status] = line.trim().split(/\s+/);
-      const s = name ? own('sbx', name, deps.projectRoot, status === 'running') : undefined;
+    for (const { name, running } of ls.entries) {
+      const s = own('sbx', name, deps.projectRoot, running);
       if (s) sandboxes.push(s);
     }
   }

@@ -19,12 +19,13 @@ import type { Notify } from './notify.js';
 import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
+import type { QueuedMarker } from '../../agent/bridge/markerFlow.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
-  cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
+  backendKindOf, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -36,7 +37,12 @@ export interface SandboxWiringInput {
   readonly backendOn: () => boolean;
   readonly projectId: () => number | undefined;
   readonly owned: ReadonlySet<number>;
-  readonly bridges: () => { dispose(ticketId: number): Promise<void>; retryPending?(ticketId: number): Promise<void> } | undefined;
+  readonly bridges: () => {
+    dispose(ticketId: number): Promise<void>;
+    detach?(ticketId: number): Promise<void>;
+    retryPending?(ticketId: number): Promise<void>;
+    markerStatus?(ticketId: number): QueuedMarker | undefined;
+  } | undefined;
   readonly openSyncDiff: (ticketId: number) => Promise<void>;
   /** Opens a unified diff in a read-only editor. */
   readonly showDiff: (title: string, diff: string) => Promise<void>;
@@ -201,7 +207,78 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const { d, t } = await manualDeps(ticketId);
     if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
   };
+  /**
+   * Only the ticket's OWN runner listing counts. The other runner's failure
+   * (sbx not installed, no docker daemon) proves nothing about this ticket's
+   * sandbox: in a real host both CLIs are listed on every sweep, and one broken
+   * runner must not hide the sandbox the other one reports (T801).
+   */
+  const listingFailed = (inv: SandboxInventory, kind: BackendKind): boolean =>
+    inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
+
+  /**
+   * A closed terminal does not mean a closed sandbox: sbx keeps it running, and
+   * an agent that got a `retrying` done-marker still has work the host owes it.
+   * Keep the bridge poller attached while the sandbox is live (or a queued
+   * marker is still waiting), so the next marker is read and answered instead of
+   * sitting in events.ndjson until a reload (T801).
+   */
+  const onSessionClosed = async (ticketId: number): Promise<void> => {
+    const bridges = w.bridges();
+    if (!bridges?.detach) return;
+    if (bridges.markerStatus?.(ticketId) !== undefined) return;
+    const d = deps();
+    // No backend here: a host session ends with its terminal, so detach.
+    if (!d) { await bridges.detach(ticketId); return; }
+    let core: string | null = null;
+    try {
+      core = target(ticketId).core;
+    } catch {
+      core = null;
+    }
+    if (backendKindOf(core) === 'host') { await bridges.detach(ticketId); return; }
+    const kind = backendKindOf(core);
+    let inv: SandboxInventory;
+    try {
+      inv = await inventoryOf(d);
+    } catch (err) {
+      // Cannot prove the sandbox is gone: a failed listing must never detach a live agent.
+      w.logError(`karst: bridge session-close check failed for ticket ${ticketId}`, err);
+      return;
+    }
+    // A failed listing of THIS ticket's runner proves neither presence nor absence (arch:AC-39): keep the poller.
+    if (listingFailed(inv, kind)) return;
+    if (inv.sandboxes.some((s) => s.ticketId === ticketId && s.state === 'running')) return;
+    await bridges.detach(ticketId);
+  };
+  /** Running sandboxes this window controls: their bridge must survive a reload even without a live terminal (T801). */
+  const liveSandboxTicketIds = async (): Promise<ReadonlySet<number>> => {
+    const d = deps();
+    if (!d) return new Set();
+    try {
+      const inv = await inventoryOf(d);
+      // Only live tickets can carry a poller: an orphan sandbox of a deleted
+      // ticket must not throw (getTicket does) and abort the whole sweep.
+      const live = new Set(liveTickets().map((t) => t.id));
+      const merged = doneMergedTicketIds(w.store);
+      // A session this window owns may belong to another project's ticket; it is still live unless archived, merged or deleted.
+      const ownedLive = (id: number): boolean => {
+        if (w.projectId() === undefined || !w.owned.has(id) || merged.has(id)) return false;
+        try { return getTicket(w.store, id).archivedAt === null; } catch { return false; }
+      };
+      return new Set(inv.sandboxes
+        .filter((s) => s.state === 'running' && s.invalidCore !== true && (live.has(s.ticketId) || ownedLive(s.ticketId)) && controls(s.ticketId))
+        .map((s) => s.ticketId));
+    } catch (err) {
+      w.logError('karst: sandbox listing for the bridge sweep failed', err);
+      return new Set();
+    }
+  };
   const wiring = {
+    /** A terminal closed: stop the poller only when no live sandbox still needs it (T801). */
+    onSessionClosed,
+    /** Boot sweep: attach the bridge of a running sandbox even when no terminal ownership was persisted. */
+    liveSandboxTicketIds,
     /** An accepted done marker + `session.idle` ends the sandbox session (arch:AC-37). */
     sessionEnder: createSandboxSessionEnder({
       launchIdFor: w.launchIdFor ?? (() => undefined),

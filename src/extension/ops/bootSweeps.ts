@@ -300,6 +300,8 @@ export interface BridgeSweepDeps {
   readonly bridges: Pick<BridgeRegistry, 'sweep'>;
   /** Tickets whose session this window owns: only those are re-attached. */
   readonly owned: ReadonlySet<number>;
+  /** Running sandboxes this window controls: a live agent needs its poller even with no persisted terminal ownership (T801). */
+  readonly liveSandboxTicketIds?: () => Promise<ReadonlySet<number>>;
   /** Tickets whose sandbox is still listed: their dirs are kept. */
   readonly sandboxTicketIds?: () => Promise<ReadonlySet<number>>;
   readonly info: (message: string) => void;
@@ -316,7 +318,12 @@ export interface BridgeSweepDeps {
 export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
   try {
     const keep = deps.sandboxTicketIds ? await deps.sandboxTicketIds() : undefined;
-    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), deps.owned, keep);
+    // A running sandbox keeps its poller even when the terminal that opened it
+    // is gone: the sandbox outlives the terminal and its agent may still emit a
+    // done marker (T801).
+    const attach = new Set(deps.owned);
+    for (const id of (await deps.liveSandboxTicketIds?.()) ?? []) attach.add(id);
+    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), attach, keep);
     if (reattached.length > 0) deps.info(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${reattached.join(', ')}`);
     if (removed.length > 0) deps.info(`karst: removed sandbox evidence bridge(s) of closed ticket(s) ${removed.join(', ')}`);
   } catch (err) {
