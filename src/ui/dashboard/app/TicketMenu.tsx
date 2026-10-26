@@ -1,5 +1,6 @@
 /**
- * The header's "..." ticket-controls menu: Edit ticket, Pause / Resume execution, Create follow-up, the
+ * The header's "..." ticket-controls menu: Edit ticket, Pause / Resume execution, Create follow-up, Detach from
+ * parent, Close, Reopen, the
  * "Link dashboard and terminal" quick setting and the per-ticket gate toggles. Same DOM as the vanilla markup,
  * `renderPause`, `renderFollowUp`, `renderBind` and `renderMenuGates` it replaced. The open state lives in
  * `Header` (one popover at a time).
@@ -92,6 +93,9 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
   const onPause = usePendingAction((requestId) => send.pauseExecution(requestId));
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
   const onFollowUp = usePendingAction((requestId) => send.createFollowUpTicket(requestId));
+  const onDetach = usePendingAction((requestId) => send.detachSubtask(requestId));
+  const onClose = usePendingAction((requestId) => send.closeTicket(requestId));
+  const onReopen = usePendingAction((requestId) => send.reopenTicket(requestId));
   return (
     <div className="menuWrap">
       <button
@@ -123,6 +127,45 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
         <HideableButton off={!controls?.done} id="followUpItem" className="menuButton" data-act="create-follow-up-ticket" role="menuitem" onClick={onFollowUp}>
           <Icon name="corner-down-right" />
           <span>Create follow-up</span>
+        </HideableButton>
+        {/* Detach (design NDL-70 5): offered only where the writer would allow it (host-derived `canDetachSubtask`). */}
+        <HideableButton
+          off={!controls?.canDetach}
+          id="detachSubtask"
+          className="menuButton"
+          data-act="detach-subtask"
+          role="menuitem"
+          title="Detach this sub-task from its parent and rebase it onto the root base"
+          onClick={onDetach}
+        >
+          <Icon name="unlink" />
+          <span>Detach from parent…</span>
+        </HideableButton>
+        {/* Close / Reopen (@arch:STAGEMACH): a person records that the work was done outside karst. Host-gated
+            (`canClose` / `canReopen`); the click sends no payload and the host asks for the reason. */}
+        <HideableButton
+          off={!controls?.canClose}
+          id="closeTicket"
+          className="menuButton danger"
+          data-act="close-ticket"
+          role="menuitem"
+          title="Mark closed: the work was done outside Karst. Nothing is verified"
+          onClick={onClose}
+        >
+          <Icon name="circle-x" />
+          <span>Close — done outside Karst…</span>
+        </HideableButton>
+        <HideableButton
+          off={!controls?.canReopen}
+          id="reopenTicket"
+          className="menuButton"
+          data-act="reopen-ticket"
+          role="menuitem"
+          title="Bring this closed ticket back to implementation"
+          onClick={onReopen}
+        >
+          <Icon name="history" />
+          <span>Reopen</span>
         </HideableButton>
         <div className="menuDivider" />
         <div className="menuHeading">Quick setting</div>

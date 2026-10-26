@@ -1,16 +1,15 @@
 /**
- * The header's ship and wait surfaces, in their DOM order: the post-ship toast, Confirm ship, and the
- * ship / sub-task / paused wait chips. Same DOM as the vanilla `renderShip`, `renderSubtaskBlock` and
+ * The header's ship and wait surfaces, in their DOM order: the post-ship toast and the
+ * ship / sub-task / paused wait chips. Shipping itself lives only on the stage rail's Ship button. Same DOM as the vanilla `renderShip`, `renderSubtaskBlock` and
  * `renderPause` they replaced.
  *
- * The host's `state.ship` is the placement truth. The in-flight ship request is shared with the stage rail's Ship
- * button (`pendingOps.ts`): one operation, so a second click on either can never open a second dialog. The same
- * state carries the brief post-ship flash.
+ * The host's `state.ship` is the placement truth. The post-ship flash comes from the same shared ops state
+ * (`pendingOps.ts`) the rail's Ship button drives.
  */
 import { memo, useEffect, useState } from 'react';
-import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
+import { useDashboardSend, useOps } from './DashboardAppContext.js';
 import { selectControls } from './headerSlices.js';
-import { beginPending, usePendingAction } from './usePendingAction.js';
+import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
 
 /** How long the "Shipped" confirmation shows. */
@@ -44,39 +43,15 @@ export const ShipControls = memo(function ShipControls() {
   const controls = useSlice(selectControls);
   const send = useDashboardSend();
   const ship = useOps();
-  const ops = usePendingOps();
   const slot = controls?.ship ?? { kind: 'none' as const };
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
 
   const waiting = slot.kind === 'waiting-merge';
-  const offered = (slot.kind === 'confirm' || slot.kind === 'retry') && !ship.shipping;
-  const shipping = !waiting && !offered && (slot.kind === 'shipping' || ship.shipping);
   const subtaskWait = controls?.subtaskWait ?? null;
-
-  const onConfirm = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    if (ship.shipping) return;
-    const requestId = beginPending(e);
-    if (requestId === null) return;
-    ops.beginShip(requestId);
-    send.shipTicket();
-  };
 
   return (
     <>
       <Toast shipped={ship.shipped} />
-      <button
-        id="confirmShip"
-        type="button"
-        className="k-btn k-btn--primary k-btn--sm shipAction"
-        data-act="ship-ticket"
-        title="Ship this ticket — commit, push, and open pull requests"
-        aria-busy={shipping ? 'true' : 'false'}
-        hidden={!offered && !shipping}
-        disabled={shipping}
-        onClick={onConfirm}
-      >
-        {shipping ? 'Shipping…' : slot.kind === 'retry' ? 'Retry ship' : 'Confirm ship'}
-      </button>
       <span
         id="shipWait"
         className={waiting ? 'shipWait' : 'shipWait hidden'}

@@ -118,34 +118,22 @@ describe('React header / vanilla page interop — actions', () => {
   });
 });
 
-describe('React header / vanilla page interop — Confirm ship', () => {
-  it('posts ship-ticket once, shows Shipping..., and the rail Ship button goes busy with it', async () => {
+describe('React header / vanilla page interop — Ship lives on the rail', () => {
+  it('draws no header ship button; the rail Ship button posts ship-ticket once and goes busy', async () => {
     const v = await open(railShip());
-    const before = v.posted.length;
-    await click(v, '#confirmShip');
-    await click(v, '#confirmShip');
-    expect(v.posted.slice(before)).toEqual([{ type: 'ship-ticket' }]);
-    expect(v.query('#confirmShip')!.textContent).toBe('Shipping…');
-    expect((v.query('#confirmShip') as HTMLButtonElement).disabled).toBe(true);
-    expect(v.query('.go[data-act="ship-ticket"]')!.getAttribute('aria-busy')).toBe('true');
-  });
-
-  it('a Ship started from the rail puts the header button in Shipping... and the header posts nothing', async () => {
-    const v = await open(railShip());
+    expect(v.query('#confirmShip')).toBeNull();
     const before = v.posted.length;
     await click(v, '.go[data-act="ship-ticket"]');
+    await click(v, '.go[data-act="ship-ticket"]');
     expect(types(v, before)).toEqual(['ship-ticket']);
-    expect(v.query('#confirmShip')!.textContent).toBe('Shipping…');
-    await click(v, '#confirmShip');
-    expect(types(v, before)).toEqual(['ship-ticket']);
+    expect(v.query('.go[data-act="ship-ticket"]')!.getAttribute('aria-busy')).toBe('true');
   });
 
   it('a push past the ship stage settles the request and flashes the toast', async () => {
     const v = await open(railShip());
-    await click(v, '#confirmShip');
+    await click(v, '.go[data-act="ship-ticket"]');
     v.receive({ type: 'state', state: populatedStateFor('done') });
     await drainReactWork(v);
-    expect(v.query('#confirmShip')!.hasAttribute('hidden')).toBe(true);
     expect(v.query('#toast')!.textContent).toBe('Shipped ✓');
     expect(v.errors).toEqual([]);
   });
