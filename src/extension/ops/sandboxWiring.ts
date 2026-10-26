@@ -25,7 +25,7 @@ import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
-  backendKindOf, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
+  backendKindOf, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -208,6 +208,15 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
   };
   /**
+   * Only the ticket's OWN runner listing counts. The other runner's failure
+   * (sbx not installed, no docker daemon) proves nothing about this ticket's
+   * sandbox: in a real host both CLIs are listed on every sweep, and one broken
+   * runner must not hide the sandbox the other one reports (T801).
+   */
+  const listingFailed = (inv: SandboxInventory, kind: BackendKind): boolean =>
+    inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
+
+  /**
    * A closed terminal does not mean a closed sandbox: sbx keeps it running, and
    * an agent that got a `retrying` done-marker still has work the host owes it.
    * Keep the bridge poller attached while the sandbox is live (or a queued
@@ -228,7 +237,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       core = null;
     }
     if (backendKindOf(core) === 'host') { await bridges.detach(ticketId); return; }
-    let inv;
+    const kind = backendKindOf(core);
+    let inv: SandboxInventory;
     try {
       inv = await inventoryOf(d);
     } catch (err) {
@@ -236,20 +246,22 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       w.logError(`karst: bridge session-close check failed for ticket ${ticketId}`, err);
       return;
     }
-    // A failed listing proves neither presence nor absence (arch:AC-39): keep the poller.
-    if (inv.errors.length > 0) return;
+    // A failed listing of THIS ticket's runner proves neither presence nor absence (arch:AC-39): keep the poller.
+    if (listingFailed(inv, kind)) return;
     if (inv.sandboxes.some((s) => s.ticketId === ticketId && s.state === 'running')) return;
     await bridges.detach(ticketId);
   };
   /** Running sandboxes this window controls: their bridge must survive a reload even without a live terminal (T801). */
   const liveSandboxTicketIds = async (): Promise<ReadonlySet<number>> => {
     const d = deps();
-    if (!d || w.projectId() === undefined) return new Set();
+    if (!d) return new Set();
     try {
       const inv = await inventoryOf(d);
-      if (inv.errors.length > 0) return new Set();
+      // Only live tickets can carry a poller: an orphan sandbox of a deleted
+      // ticket must not throw (getTicket does) and abort the whole sweep.
+      const live = new Set(liveTickets().map((t) => t.id));
       return new Set(inv.sandboxes
-        .filter((s) => s.state === 'running' && s.invalidCore !== true && controls(s.ticketId))
+        .filter((s) => s.state === 'running' && s.invalidCore !== true && live.has(s.ticketId) && controls(s.ticketId))
         .map((s) => s.ticketId));
     } catch (err) {
       w.logError('karst: sandbox listing for the bridge sweep failed', err);

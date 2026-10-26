@@ -127,6 +127,12 @@ describe('createBridgeAttachment', () => {
     await write(hookLine());
     await att.pollOnce();
     expect(dispatched).toHaveLength(1);
+    // And a marker fired after the retrying result is answered, not left waiting.
+    await write(markerLine({ seq: 'r2' }));
+    await att.pollOnce();
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await readFile(join(paths.resultsDir, 'r2.json'), 'utf8'))).toMatchObject({ ok: false, retrying: true });
+    });
   });
   it('replies with the failure reason and reports it', async () => {
     const seen: string[] = [];

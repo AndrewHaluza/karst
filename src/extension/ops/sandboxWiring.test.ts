@@ -437,7 +437,7 @@ describe('makeSandboxWiring bridge lifetime after a session closes (T801)', () =
     });
     expect(await w.liveSandboxTicketIds()).toEqual(new Set());
   });
-  it('boot attachment is empty on a failed sbx listing even when docker lists a running sandbox', async () => {
+  it('boot attachment attaches a docker sandbox even when the sbx listing fails (no sbx CLI)', async () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const a = createTicket(store, { key: 'D-1', title: 'a', projectId }).id;
     setSessionId(store, a, 's', 'opencode');
@@ -447,7 +447,100 @@ describe('makeSandboxWiring bridge lifetime after a session closes (T801)', () =
       proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'daemon down' } }),
       dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${name}\trunning\n` } }), { pipe: vi.fn() }),
     });
-    expect(await w.liveSandboxTicketIds()).toEqual(new Set());
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set([a]));
+  });
+  it('boot attachment attaches a running sbx sandbox when the docker listing fails (no docker CLI)', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'D-2', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls --json': { stdout: JSON.stringify([{ name, status: 'running' }]) } }),
+      dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { code: 127, stderr: 'docker: not found' } }), { pipe: vi.fn() }),
+    });
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set([a]));
+  });
+  it('an orphan sandbox of a deleted ticket never suppresses a live ticket\'s boot attachment', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'O-2', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const live = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const orphan = sbxName({ projectRoot: ROOT, ticketId: 999, core: 'codex' });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set(),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${live} claude ● running\n${orphan} codex ● running\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    });
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set([a]));
+  });
+  it('a running sandbox of an owned session is attached even when its ticket is in another project', async () => {
+    const here = upsertProject(store, { slug: 'here' }).id;
+    const elsewhere = upsertProject(store, { slug: 'elsewhere' }).id;
+    const a = createTicket(store, { key: 'E-1', title: 'a', projectId: elsewhere }).id;
+    setSessionId(store, a, 's', 'claude');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => here, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude ● running\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+    });
+    expect(await w.liveSandboxTicketIds()).toEqual(new Set([a]));
+  });
+  it('a failed docker listing does not keep a stopped sbx sandbox attached at session close', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'X-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude ● stopped\n` } }),
+      dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { code: 127, stderr: 'not found' } }), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).toHaveBeenCalledWith(a);
+  });
+  it('a docker sandbox keeps its poller even when the sbx listing fails at session close', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'X-2', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'opencode2');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'opencode2' });
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'not signed in' } }),
+      dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${name}\trunning\n` } }), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).not.toHaveBeenCalled();
+  });
+  it('a stopped docker sandbox detaches, even when the sbx listing fails', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'X-3', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'opencode2');
+    const name = sbxName({ projectRoot: ROOT, ticketId: a, core: 'opencode2' });
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc: fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'not signed in' } }),
+      dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${name}\texited\n` } }), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(a);
+    expect(detach).toHaveBeenCalledWith(a);
+  });
+  it('a ticket that no longer exists cannot be proven to have a sandbox: detach', async () => {
+    const detach = vi.fn(async () => {});
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => 1, owned: new Set([999]),
+      proc: fakeSbxProcess(), dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+      bridges: () => ({ dispose: vi.fn(async () => {}), detach }),
+    });
+    await w.onSessionClosed(999);
+    expect(detach).toHaveBeenCalledWith(999);
   });
   it('boot attachment skips a failed listing, an invalid-core object, and a project with no backend', async () => {
     const failedProc = wiring({
