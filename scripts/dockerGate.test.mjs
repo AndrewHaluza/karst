@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   BASELINE_ENV_MARKER,
   dockerArgv,
+  gateContainerName,
+  withContainerName,
   envFromDockerArgs,
   EXIT_COMMAND_NOT_FOUND,
   gatePlan,
@@ -164,5 +166,79 @@ describe('the gate scripts', () => {
     // /work, and the CI script inside it.
     expect(pkg.scripts['test:visual:docker']).toContain('mcr.microsoft.com/playwright:v1.63.0-noble');
     expect(pkg.scripts['test:visual:docker']).toContain('npm run test:visual:ci');
+  });
+});
+
+describe('gateContainerName', () => {
+  it('builds karst-pw-<gate>-<who>-<pid> from the lifecycle event and ticket', () => {
+    expect(gateContainerName({ event: 'test:visual:docker', ticket: 'T807', cwd: '/w/x', pid: 42 })).toBe(
+      'karst-pw-visual-docker-t807-42',
+    );
+  });
+
+  it('keeps the :update suffix and maps every colon to a dash', () => {
+    expect(gateContainerName({ event: 'test:visual:docker:update', ticket: 'T1', cwd: '/w', pid: 1 })).toBe(
+      'karst-pw-visual-docker-update-t1-1',
+    );
+  });
+
+  it('falls back to the worktree directory name without a ticket', () => {
+    expect(gateContainerName({ event: 'test:layout:docker', cwd: '/w/My Tree', pid: 7 })).toBe(
+      'karst-pw-layout-docker-my-tree-7',
+    );
+  });
+
+  it('slugs to the docker name set and collapses repeats', () => {
+    const name = gateContainerName({ event: 'test:a', ticket: 'Fix//Bad  Name!!', cwd: '/w', pid: 3 });
+    expect(name).toBe('karst-pw-a-fix-bad-name-3');
+  });
+
+  it('truncates who so the whole name stays within 63 chars', () => {
+    const name = gateContainerName({ event: 'test:visual:docker', ticket: 'x'.repeat(200), cwd: '/w', pid: 123456 });
+    expect(name.length).toBe(63);
+    expect(name.endsWith('-123456')).toBe(true);
+  });
+
+  it('never ends who with a dash after truncation', () => {
+    const name = gateContainerName({ event: 'e', ticket: `${'a'.repeat(44)}-bbbb`, cwd: '/w', pid: 9 });
+    expect(name).not.toMatch(/--/);
+    expect(name.length).toBeLessThanOrEqual(63);
+  });
+
+  it('never matches the ticket-service orphan pattern /^karst-t\\d+-/', () => {
+    const name = gateContainerName({ event: 't1', ticket: 'T807', cwd: '/w', pid: 1 });
+    expect(name).not.toMatch(/^karst-t\d/);
+    expect(name.startsWith('karst-pw-')).toBe(true);
+  });
+
+  it('uses a placeholder gate and who when nothing is known', () => {
+    expect(gateContainerName({ cwd: '/', pid: 5 })).toBe('karst-pw-gate-gate-5');
+  });
+});
+
+describe('withContainerName', () => {
+  it('injects --name right after run', () => {
+    expect(withContainerName(['run', '--rm', 'img'], 'n')).toEqual(['run', '--name', 'n', '--rm', 'img']);
+  });
+
+  it('leaves a caller-supplied --name alone', () => {
+    const argv = ['run', '--name', 'mine', 'img'];
+    expect(withContainerName(argv, 'n')).toEqual(argv);
+  });
+
+  it('leaves a --name=value form alone', () => {
+    const argv = ['run', '--name=mine', 'img'];
+    expect(withContainerName(argv, 'n')).toEqual(argv);
+  });
+
+  it('leaves non-run commands alone', () => {
+    expect(withContainerName(['ps'], 'n')).toEqual(['ps']);
+  });
+});
+
+describe('gatePlan local path', () => {
+  it('is unaffected by container naming', () => {
+    const plan = gatePlan({ docker: false, baseline: true, local: { command: 'x', rest: ['-e', 'A=1'] } });
+    expect(plan).toEqual({ kind: 'local', command: 'x', env: { A: '1' } });
   });
 });
