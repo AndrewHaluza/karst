@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { seedOpencode2Credentials } from './dockerCredentials.js';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
@@ -65,5 +68,66 @@ describe('seedOpencode2Credentials', () => {
     const proc = fakeDockerProcess({ 'docker run': { stdout: 'x  y  stored' } });
     await seedOpencode2Credentials({ proc, names, user: undefined, hostCommand: 'opencode2', hostEnv: {}, debug });
     expect(debug).toHaveBeenCalledWith('[docker] opencode2 store already has credentials');
+  });
+});
+
+describe('seedAgyCredentials', () => {
+  it('creates directory segments with mode 0o700 and copies host credential files', async () => {
+    const bridgeDir = mkdtempSync(join(tmpdir(), 'karst-bridge-test-'));
+    const hostHome = mkdtempSync(join(tmpdir(), 'karst-hosthome-test-'));
+    const hostAgyDir = join(hostHome, '.gemini', 'antigravity-cli');
+    mkdirSync(hostAgyDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(hostAgyDir, 'antigravity-oauth-token'), 'token-data', { mode: 0o600 });
+    writeFileSync(join(hostAgyDir, 'installation_id'), 'id-data', { mode: 0o600 });
+
+    const debug = vi.fn();
+    const result = await seedAgyCredentials({ bridgeDir, hostHome, debug });
+    expect(result).toEqual({ ok: true });
+
+    const targetDir = join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli');
+    expect(existsSync(join(targetDir, 'antigravity-oauth-token'))).toBe(true);
+    expect(readFileSync(join(targetDir, 'antigravity-oauth-token'), 'utf8')).toBe('token-data');
+    expect(existsSync(join(targetDir, 'installation_id'))).toBe(true);
+    expect(readFileSync(join(targetDir, 'installation_id'), 'utf8')).toBe('id-data');
+    expect(existsSync(join(bridgeDir, 'antigravity', 'gemini', 'config'))).toBe(true);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('jetski_state.pbtxt'));
+
+    rmSync(bridgeDir, { recursive: true, force: true });
+    rmSync(hostHome, { recursive: true, force: true });
+  });
+
+  it('refuses when any segment is a symbolic link', async () => {
+    const bridgeDir = mkdtempSync(join(tmpdir(), 'karst-bridge-test-'));
+    const fakeTarget = mkdtempSync(join(tmpdir(), 'karst-fake-target-'));
+    symlinkSync(fakeTarget, join(bridgeDir, 'antigravity'));
+
+    const result = await seedAgyCredentials({ bridgeDir });
+    expect(result.ok).toBe(false);
+    expect((result as { reason: string }).reason).toMatch(/symlink|symbolic link/i);
+
+    rmSync(bridgeDir, { recursive: true, force: true });
+    rmSync(fakeTarget, { recursive: true, force: true });
+  });
+
+  it('preserves newer destination credential files refreshed in the container', async () => {
+    const bridgeDir = mkdtempSync(join(tmpdir(), 'karst-bridge-test-'));
+    const hostHome = mkdtempSync(join(tmpdir(), 'karst-hosthome-test-'));
+    const hostAgyDir = join(hostHome, '.gemini', 'antigravity-cli');
+    const targetDir = join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli');
+    mkdirSync(hostAgyDir, { recursive: true });
+    mkdirSync(targetDir, { recursive: true });
+
+    writeFileSync(join(hostAgyDir, 'antigravity-oauth-token'), 'old-token');
+    utimesSync(join(hostAgyDir, 'antigravity-oauth-token'), new Date(1000), new Date(1000));
+
+    writeFileSync(join(targetDir, 'antigravity-oauth-token'), 'newer-container-token');
+    utimesSync(join(targetDir, 'antigravity-oauth-token'), new Date(2000), new Date(2000));
+
+    const result = await seedAgyCredentials({ bridgeDir, hostHome });
+    expect(result).toEqual({ ok: true });
+    expect(readFileSync(join(targetDir, 'antigravity-oauth-token'), 'utf8')).toBe('newer-container-token');
+
+    rmSync(bridgeDir, { recursive: true, force: true });
+    rmSync(hostHome, { recursive: true, force: true });
   });
 });
