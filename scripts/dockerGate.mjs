@@ -19,7 +19,8 @@
 // missing capability from a failing test (karst parks on 127; see
 // src/workflow/gates/capabilityGap.ts).
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import { hasBinary } from './onPath.mjs';
 
@@ -66,6 +67,44 @@ export function isBaselineEnvironment(marker = BASELINE_ENV_MARKER) {
  */
 export function dockerArgv(argv, cwd = process.cwd()) {
   return argv.map((arg) => arg.split(REPO_PLACEHOLDER).join(cwd));
+}
+
+/** Docker's container-name length cap, in practice (DNS label). */
+const MAX_NAME_LENGTH = 63;
+
+/**
+ * Prefix of every gate container. Must NOT start with `karst-t`: the orphan
+ * reaper kills /^karst-t(\d+)-/ as ticket service containers (D75).
+ */
+export const GATE_CONTAINER_PREFIX = 'karst-pw-';
+
+/** Lowercase, docker's [a-z0-9_.-] set only, repeats collapsed, no edge dashes. */
+function slug(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * `karst-pw-<gate>-<who>-<pid>`: gate = the npm script without `test:`, who =
+ * the ticket (else the worktree directory), pid keeps concurrent runs apart.
+ */
+export function gateContainerName({ event, ticket, cwd = process.cwd(), pid = process.pid }) {
+  const gate = slug((event ?? '').replace(/^test:/, '')) || 'gate';
+  const head = `${GATE_CONTAINER_PREFIX}${gate}-`;
+  const tail = `-${pid}`;
+  const room = Math.max(1, MAX_NAME_LENGTH - head.length - tail.length);
+  const who = slug(slug(ticket || basename(cwd)).slice(0, room)) || 'gate';
+  return `${head}${who}${tail}`;
+}
+
+/** Inject `--name <name>` right after `run`, unless the caller named it. */
+export function withContainerName(argv, name) {
+  if (argv[0] !== 'run') return argv;
+  if (argv.some((arg) => arg === '--name' || arg.startsWith('--name='))) return argv;
+  return ['run', '--name', name, ...argv.slice(1)];
 }
 
 /**
@@ -131,12 +170,22 @@ function main(argv) {
     });
     process.exit(result.status ?? 1);
   }
-  const result = spawnSync('docker', dockerArgv(local ? local.rest : argv), { stdio: 'inherit' });
-  if (result.error) {
-    console.error(`docker could not start: ${result.error.message}`);
-    process.exit(EXIT_COMMAND_NOT_FOUND);
+  const name = gateContainerName({ event: process.env.npm_lifecycle_event, ticket: process.env.KARST_TICKET });
+  const args = withContainerName(dockerArgv(local ? local.rest : argv), name);
+  const forceRemove = () => spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => {
+      forceRemove();
+      process.exit(130);
+    });
   }
-  process.exit(result.status ?? 1);
+  // Async spawn: spawnSync would block the signal handlers above until docker exits.
+  const child = spawn('docker', args, { stdio: 'inherit' });
+  child.on('error', (error) => {
+    console.error(`docker could not start: ${error.message}`);
+    process.exit(EXIT_COMMAND_NOT_FOUND);
+  });
+  child.on('close', (status) => process.exit(status ?? 1));
 }
 
 if (process.argv[1] && process.argv[1].endsWith('dockerGate.mjs')) {
