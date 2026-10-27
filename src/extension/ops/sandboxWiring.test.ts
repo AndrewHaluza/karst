@@ -27,8 +27,9 @@ function wiring(over: Partial<SandboxWiringInput> = {}) {
   const w = makeSandboxWiring({
     store, notify, choose, projectRoot: () => '/p/karst.yml', backendOn: () => false, projectId: () => undefined,
     owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(),
-    // Unit tests never touch the host Docker daemon: inventory paths fall back
-    // to NODE_DOCKER_PROCESS otherwise, and this suite runs where none exists.
+    // Unit tests never touch the host sbx or Docker daemon: inventory paths fall back
+    // to NODE_SBX_PROCESS / NODE_DOCKER_PROCESS otherwise, and this suite runs where none exists.
+    proc: fakeSbxProcess(),
     dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
     ...over,
   });
@@ -73,7 +74,7 @@ describe('makeSandboxWiring manual commands', () => {
 
 describe('makeSandboxWiring with a backend (host core → no sandbox work)', () => {
   it('provider switch drops the session id; archive of a host-core ticket passes', async () => {
-    setSessionId(store, id, 's1', 'antigravity');
+    setSessionId(store, id, 's1', null);
     const { w } = wiring({ backendOn: () => true });
     await expect(w.beforeArchive(id)).resolves.toBe(true);
     await expect(w.onProviderSwitch(id, 'opencode2')).resolves.toBe(true);
