@@ -15,7 +15,7 @@
    control. Local color only: the priority label is provider-authored copy,
    not a workflow state, so it gets no semantic feedback token. */
 .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
-.ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
+.ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono);line-height:1.1}
 .headerMeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
 .headerMeta[hidden]{display:none}
 .capabilityLabels{display:contents}

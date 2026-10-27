@@ -68,6 +68,59 @@ function urlOf(node: Record<string, unknown>): string | null {
   return typeof raw === 'string' && raw !== '' ? raw : null;
 }
 
+/** gh prints this for an unset time (e.g. `completedAt` of a running check). */
+const GH_ZERO_TIME = '0001-01-01T00:00:00Z';
+
+/** Epoch ms of a gh timestamp; -Infinity when empty, zero-time or unparseable. */
+function timeOf(value: unknown): number {
+  if (typeof value !== 'string' || value === '' || value === GH_ZERO_TIME) return -Infinity;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? -Infinity : ms;
+}
+
+/** `workflow\0name` / `context`; null when the node has no derivable identity. */
+function identityOf(node: Record<string, unknown>): string | null {
+  if (node.__typename === 'StatusContext') {
+    return typeof node.context === 'string' && node.context !== '' ? `ctx\0${node.context}` : null;
+  }
+  const name = typeof node.name === 'string' ? node.name : '';
+  const workflow = typeof node.workflowName === 'string' ? node.workflowName : '';
+  return name === '' && workflow === '' ? null : `run\0${workflow}\0${name}`;
+}
+
+/** True when `a` is at least as new as `b`: startedAt, then completedAt; a tie favours `a`. */
+function isNewerOrEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const byStart = timeOf(a.startedAt) - timeOf(b.startedAt);
+  if (byStart !== 0 && !Number.isNaN(byStart)) return byStart > 0;
+  const byEnd = timeOf(a.completedAt) - timeOf(b.completedAt);
+  return Number.isNaN(byEnd) || byEnd >= 0;
+}
+
+/**
+ * A re-run (or a PR-title edit) adds a new run of the same check on the same
+ * head SHA, and the rollup keeps the old one. Collapse to the newest per
+ * identity so a stale FAILURE cannot outvote the run that superseded it.
+ * Array order is preserved; non-objects and identity-less nodes pass through.
+ */
+function newestPerCheck(raw: readonly unknown[]): unknown[] {
+  const kept = new Map<string, number>();
+  raw.forEach((node, i) => {
+    if (!isObject(node)) return;
+    const id = identityOf(node);
+    if (id === null) return;
+    const prev = kept.get(id);
+    if (prev === undefined || isNewerOrEqual(node, raw[prev] as Record<string, unknown>)) {
+      kept.set(id, i);
+    }
+  });
+  const winners = new Set(kept.values());
+  return raw.filter((node, i) => {
+    if (!isObject(node)) return true;
+    const id = identityOf(node);
+    return id === null || winners.has(i);
+  });
+}
+
 /**
  * gh's `statusCheckRollup` → the stored rollup.
  *
@@ -84,7 +137,8 @@ export function normalizeChecks(raw: unknown): PrChecks | null {
   let failed = 0;
   let pending = 0;
   const failing: FailingCheck[] = [];
-  for (const node of raw) {
+  const nodes = newestPerCheck(raw);
+  for (const node of nodes) {
     if (!isObject(node)) {
       pending += 1;
       continue;
@@ -101,7 +155,7 @@ export function normalizeChecks(raw: unknown): PrChecks | null {
       pending += 1;
     }
   }
-  const total = raw.length;
+  const total = nodes.length;
   // Precedence (Key Decision 6): failing > pending > passing > none. A reader
   // scanning for "is this PR OK" must not see `pending` once something failed.
   const state: ChecksState =

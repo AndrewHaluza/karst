@@ -64,6 +64,102 @@ describe('normalizeChecks', () => {
     expect(checks?.passed).toBe(1);
   });
 
+  describe('re-run dedupe', () => {
+    const ZERO = '0001-01-01T00:00:00Z';
+    const lintOld = checkRun({
+      name: 'lint-title',
+      workflowName: 'PR',
+      status: 'COMPLETED',
+      conclusion: 'FAILURE',
+      startedAt: '2026-10-27T10:10:55Z',
+      completedAt: '2026-10-27T10:11:10Z',
+    });
+    const lintNew = checkRun({
+      name: 'lint-title',
+      workflowName: 'PR',
+      status: 'COMPLETED',
+      conclusion: 'SUCCESS',
+      startedAt: '2026-10-27T10:26:23Z',
+      completedAt: '2026-10-27T10:26:40Z',
+    });
+    const build = checkRun({
+      name: 'build',
+      workflowName: 'CI',
+      status: 'COMPLETED',
+      conclusion: 'SUCCESS',
+      startedAt: '2026-10-27T10:10:00Z',
+      completedAt: '2026-10-27T10:12:00Z',
+    });
+
+    it('newer SUCCESS replaces older FAILURE, in either array order', () => {
+      for (const rollup of [[lintOld, lintNew, build], [build, lintNew, lintOld]]) {
+        const checks = normalizeChecks(rollup);
+        expect(checks?.state).toBe('passing');
+        expect(checks?.total).toBe(2);
+        expect(checks?.failed).toBe(0);
+        expect(checks?.failing).toEqual([]);
+      }
+    });
+
+    it('newer FAILURE over older SUCCESS → failing', () => {
+      const checks = normalizeChecks([lintNew, { ...lintOld, startedAt: '2026-10-27T11:00:00Z' }]);
+      expect(checks?.state).toBe('failing');
+      expect(checks?.total).toBe(1);
+    });
+
+    it('newer IN_PROGRESS (zero completedAt) over older FAILURE → pending', () => {
+      const running = checkRun({
+        name: 'lint-title',
+        workflowName: 'PR',
+        status: 'IN_PROGRESS',
+        conclusion: '',
+        startedAt: '2026-10-27T10:30:00Z',
+        completedAt: ZERO,
+      });
+      const checks = normalizeChecks([lintOld, running]);
+      expect(checks?.state).toBe('pending');
+      expect(checks?.total).toBe(1);
+    });
+
+    it('completedAt breaks a startedAt tie; a full tie keeps the later position', () => {
+      const a = { ...lintOld, startedAt: lintNew.startedAt, completedAt: '2026-10-27T10:20:00Z' };
+      expect(normalizeChecks([lintNew, a])?.state).toBe('passing');
+      expect(normalizeChecks([a, lintNew])?.state).toBe('passing');
+      const x = checkRun({ name: 'x', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: ZERO });
+      const y = checkRun({ name: 'x', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: 'junk' });
+      expect(normalizeChecks([x, y])?.state).toBe('passing');
+      expect(normalizeChecks([y, x])?.state).toBe('failing');
+    });
+
+    it('same name in two workflows stays two checks', () => {
+      const checks = normalizeChecks([
+        { ...lintOld, workflowName: 'A' },
+        { ...lintNew, workflowName: 'B' },
+      ]);
+      expect(checks?.total).toBe(2);
+      expect(checks?.state).toBe('failing');
+    });
+
+    it('StatusContext dedupes by context', () => {
+      const checks = normalizeChecks([
+        statusContext({ context: 'ci/x', state: 'FAILURE', startedAt: '2026-10-27T10:00:00Z' }),
+        statusContext({ context: 'ci/x', state: 'SUCCESS', startedAt: '2026-10-27T10:05:00Z' }),
+      ]);
+      expect(checks?.state).toBe('passing');
+      expect(checks?.total).toBe(1);
+    });
+
+    it('nodes without identity and non-objects are never merged', () => {
+      const checks = normalizeChecks([
+        checkRun({ status: 'COMPLETED', conclusion: 'FAILURE' }),
+        checkRun({ status: 'COMPLETED', conclusion: 'SUCCESS' }),
+        null,
+        null,
+      ]);
+      expect(checks?.total).toBe(4);
+    });
+  });
+
   it('[] is "no checks"; undefined is "gh did not say"', () => {
     expect(normalizeChecks([])).toEqual({
       state: 'none',
