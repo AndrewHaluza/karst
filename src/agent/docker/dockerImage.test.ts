@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGY_VERSION,
   containerBinary,
+  DOCKER_CORES,
   imageBuildArgs,
   OPENCODE_IMAGE,
   OPENCODE_IMAGE_REVISION,
@@ -102,6 +103,7 @@ describe('dockerImage', () => {
   });
 
   it('maps each core to its launcher inside the image', () => {
+    expect(DOCKER_CORES).toEqual(['opencode', 'opencode2', 'antigravity', 'agy']);
     expect(containerBinary('opencode')).toBe('opencode1');
     expect(containerBinary('opencode2')).toBe('opencode2');
     expect(containerBinary('antigravity')).toBe('agy');
