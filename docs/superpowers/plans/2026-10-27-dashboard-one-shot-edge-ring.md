@@ -16,6 +16,8 @@
 - **Both activation sources:**
   1. Sidebar ticket click (`openDashboard(ticketId)` with `preserveFocus: undefined/false`).
   2. Terminal click (`binder.onTerminalActivated(ticketId)` → `revealDashboard(ticketId)` → `openDashboard(ticketId, { preserveFocus: true })`).
+- **Split editor scenario:** When multiple dashboards are open and visible in split editor groups, clicking a ticket in the sidebar pulses ONLY that ticket's dashboard, never neighbor dashboards.
+- **Tab clicks & keyboard focus:** Switching tabs or moving keyboard focus between open dashboards triggers `onDidChangeViewState`, which updates activation state but NEVER posts `{ type: 'attention' }`.
 - **Active panel pulse:** Revealing a dashboard that is already active and visible STILL pulses the ring.
 - **Repeat click behavior:** Rapid repeat clicks restart the pulse animation immediately from 0% (remove class, reflow `void el.offsetWidth`, re-add class) and never stack or duplicate overlay elements.
 - **Message schema:** Strictly `{ type: 'attention' }` with no extra properties. No persistent marker or cue stays on screen.
@@ -103,7 +105,13 @@ git commit -m "feat(ui): add --k-dur-flash-attention motion token"
 
 - [ ] **Step 1: Write the failing tests**
 
-In `src/ui/dashboard/panel.test.ts`, add test suite for attention pulse on reveal:
+In `src/ui/dashboard/panel.test.ts`, add tests covering:
+1. Standard reveal pulses existing panel.
+2. Terminal click path (`preserveFocus: true`) pulses existing panel.
+3. Multiple dashboards open in split editor (pulses only the targeted panel).
+4. Tab switching or keyboard focus (`onDidChangeViewState`) does NOT pulse.
+5. Already visible and active panel STILL pulses on re-click.
+6. Initial open and state pushes do NOT pulse.
 
 ```ts
   describe('attention pulse on reveal', () => {
@@ -129,6 +137,47 @@ In `src/ui/dashboard/panel.test.ts`, add test suite for attention pulse on revea
 
       mgr.openDashboard(t.id, { preserveFocus: true });
       expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+    });
+
+    it('pulses only the targeted dashboard when multiple dashboards are open in split editor', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      panels[0]!.visible = true;
+      panels[1]!.visible = true;
+      panels[0]!.posted = [];
+      panels[1]!.posted = [];
+
+      // Click ticket A in sidebar
+      mgr.openDashboard(a.id);
+
+      expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+      expect(panels[1]!.posted.some((m) => (m as { type: string }).type === 'attention')).toBe(false);
+    });
+
+    it('does not pulse when switching between dashboards via editor tab clicks or keyboard focus', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      panels[0]!.posted = [];
+      panels[1]!.posted = [];
+
+      // User clicks tab or focuses keyboard on dashboard B, deactivating A
+      panels[0]!.emitViewState(false);
+      panels[1]!.emitViewState(true);
+
+      const attentionsA = panels[0]!.posted.filter((m) => (m as { type: string }).type === 'attention');
+      const attentionsB = panels[1]!.posted.filter((m) => (m as { type: string }).type === 'attention');
+      expect(attentionsA).toHaveLength(0);
+      expect(attentionsB).toHaveLength(0);
     });
 
     it('posts attention message even when existing panel is already visible and active', () => {
@@ -218,7 +267,7 @@ git commit -m "feat(dashboard): post attention message on ticket and terminal re
 
 ---
 
-### Task 4: AttentionRing Component and CSS Styles
+### Task 3: AttentionRing Component and CSS Styles
 
 **Files:**
 - Create: `src/ui/dashboard/app/AttentionRing.css`
@@ -364,6 +413,57 @@ describe('AttentionRing', () => {
 
     // Ensure only one overlay element exists in document.body
     expect(document.body.querySelectorAll('.attention-ring')).toHaveLength(1);
+  });
+
+  it('frames the full dashboard edge at the 320px floor and wider widths without layout shift', () => {
+    renderComponent();
+    const el = document.body.querySelector('.attention-ring') as HTMLElement;
+    expect(el).not.toBeNull();
+
+    // Verify fixed inset 0 framing at 320px viewport width
+    window.innerWidth = 320;
+    window.innerHeight = 600;
+    const computed = window.getComputedStyle(el);
+    expect(computed.position).toBe('fixed');
+    expect(computed.top).toBe('0px');
+    expect(computed.left).toBe('0px');
+    expect(computed.right).toBe('0px');
+    expect(computed.bottom).toBe('0px');
+    expect(computed.pointerEvents).toBe('none');
+    expect(computed.boxSizing).toBe('border-box');
+  });
+
+  it('stacks below menus, popovers, and drawers, but above normal content', () => {
+    const popover = document.createElement('div');
+    popover.className = 'popover';
+    popover.style.zIndex = '50';
+    document.body.appendChild(popover);
+
+    const menu = document.createElement('div');
+    menu.className = 'stageMenu';
+    menu.style.zIndex = '40';
+    document.body.appendChild(menu);
+
+    const content = document.createElement('div');
+    content.className = 'panel';
+    content.style.zIndex = '1';
+    document.body.appendChild(content);
+
+    renderComponent();
+    const ring = document.body.querySelector('.attention-ring') as HTMLElement;
+
+    const ringZ = parseInt(window.getComputedStyle(ring).zIndex || '20', 10);
+    const popoverZ = parseInt(window.getComputedStyle(popover).zIndex, 10);
+    const menuZ = parseInt(window.getComputedStyle(menu).zIndex, 10);
+    const contentZ = parseInt(window.getComputedStyle(content).zIndex, 10);
+
+    expect(ringZ).toBeGreaterThan(contentZ);
+    expect(ringZ).toBeLessThan(menuZ);
+    expect(ringZ).toBeLessThan(popoverZ);
+
+    document.body.removeChild(popover);
+    document.body.removeChild(menu);
+    document.body.removeChild(content);
   });
 
   it('cleans up active timer on unmount', () => {
