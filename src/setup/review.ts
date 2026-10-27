@@ -47,7 +47,9 @@ export function describeManifestProposal(
     lines.push('', 'These start commands differ from the current manifest.');
   }
   if (fields.adopted !== undefined && fields.adopted.length > 0) {
-    lines.push('', `First setup: this proposal also sets protected fields: ${fields.adopted.join(', ')}.`);
+    lines.push('', 'First setup: this proposal also sets protected fields (may include commands that run):');
+    const prop = proposed as unknown as Record<string, unknown>;
+    for (const f of fields.adopted) lines.push(`  ${f}: ${JSON.stringify(prop[f])}`);
   }
   if (fields.dropped !== undefined && fields.dropped.length > 0) {
     lines.push('', `Protected fields NOT applied (kept from the current manifest): ${fields.dropped.join(', ')}.`);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, symlinkSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readLedger, withdrawProposal, writeProposalResult, resultsDir } from './ledger.js';
@@ -15,6 +15,12 @@ const result = (id: string, status: 'applied' | 'declined' = 'applied') => ({
 });
 
 describe('ledger', () => {
+  it('skips a pending file that vanishes mid-scan', () => {
+    symlinkSync(join(outbox, 'gone-target'), join(outbox, 'gone.json'));
+    writeFileSync(join(outbox, 'p1.json'), '{}');
+    expect(readLedger(outbox).map((r) => r.id)).toEqual(['p1']);
+  });
+
   it('lists pending files with their kind, and host results', () => {
     writeFileSync(join(outbox, 'p1.json'), JSON.stringify({ kind: 'change' }));
     writeFileSync(join(outbox, 'p2.json'), 'garbage');

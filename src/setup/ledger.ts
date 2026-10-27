@@ -82,13 +82,13 @@ export function readLedger(outbox: string): ProposalResult[] {
   for (const name of list(outbox)) {
     const id = basename(name, '.json');
     const file = join(outbox, name);
-    out.set(id, {
-      id,
-      kind: pendingKind(file),
-      status: 'pending',
-      dropped: [],
-      at: statSync(file).mtime.toISOString(),
-    });
+    let at: string;
+    try {
+      at = statSync(file).mtime.toISOString();
+    } catch {
+      continue; // host consumed or withdrew it mid-scan
+    }
+    out.set(id, { id, kind: pendingKind(file), status: 'pending', dropped: [], at });
   }
   try {
     for (const id of readdirSync(withdrawnDir(outbox))) {
