@@ -204,7 +204,8 @@
     "arch:PM-00"
   ],
   "src/cli/manifestCommand.ts#runManifestCommand": [
-    "arch:CLI-14"
+    "arch:CLI-14",
+    "arch:CLI-20"
   ],
   "src/cli/mcp/installCommand.ts#runMcpInstall": [
     "arch:CLI-04"
@@ -377,6 +378,9 @@
   "src/manifest/*.ts": [
     "arch:MS-00"
   ],
+  "src/manifest/scaffoldStamp.ts#stampScaffold": [
+    "arch:CLI-20"
+  ],
   "src/manifest/validate/*.ts": [
     "arch:MS-00"
   ],
@@ -517,6 +521,9 @@
   ],
   "src/runtime/worktreeServers.ts#stopServersUnder": [
     "arch:WT-REMOVE"
+  ],
+  "src/setup/changeTarget.ts#resolveChangeDir": [
+    "arch:CLI-20"
   ],
   "src/setup/ledger.ts#readLedger": [
     "arch:CLI-19"
