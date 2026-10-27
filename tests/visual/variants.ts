@@ -59,19 +59,25 @@ export interface Variant {
   readonly route?: { readonly section: SettingsSection; readonly hash?: string };
   /** Settings only: id of the settingsRoutes() entry that runs this variant's layout geometry. */
   readonly layoutRouteId?: string;
+  /**
+   * Screenshot-only: no layout-gate run. The ledger never grows, and a new dashboard route would inherit the
+   * page's known failures (rail, PR rows), so a variant that adds no layout of its own opts out.
+   */
+  readonly skipLayout?: boolean;
 }
 
 function variant(
   view: ViewId,
   id: string,
   corpus: () => ViewCorpus,
-  opts: { baseline?: string; themes?: readonly string[] } = {},
+  opts: { baseline?: string; themes?: readonly string[]; skipLayout?: boolean } = {},
 ): Variant {
   return {
     id,
     baseline: opts.baseline ?? `${view}--${id}`,
     themes: opts.themes ?? DARK_ONLY,
     corpus,
+    ...(opts.skipLayout ? { skipLayout: true } : {}),
   };
 }
 
@@ -130,7 +136,7 @@ const dashboardVariants = (): Variant[] => [
     },
   }))),
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
-  variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'] }),
+  variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
     ...s,
     sandbox: {
@@ -417,11 +423,13 @@ export interface LayoutTarget {
 /** Layout-gate runs, one per variant; settings route variants reuse their settingsRoutes() id. */
 export function layoutTargets(): readonly LayoutTarget[] {
   return WEBVIEW_NAMES.flatMap((view) =>
-    VARIANTS[view].map((variant) => ({
-      id: variant.layoutRouteId ?? `${view}/${variant.id}`,
-      view,
-      variant,
-    })),
+    VARIANTS[view]
+      .filter((variant) => !variant.skipLayout)
+      .map((variant) => ({
+        id: variant.layoutRouteId ?? `${view}/${variant.id}`,
+        view,
+        variant,
+      })),
   );
 }
 
