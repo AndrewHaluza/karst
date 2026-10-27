@@ -1,7 +1,7 @@
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
-import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
+import { backendCoreKey, backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
@@ -72,7 +72,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
     const out = await resolve({
-      backends: { ...input.backends, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+      backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },

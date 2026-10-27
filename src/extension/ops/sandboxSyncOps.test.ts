@@ -108,6 +108,22 @@ describe('backendSessionOptions per-ticket opt-out and visible fallback (arch:AC
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('sets both backendCoreKey and core in backends for resolveRunner when antigravity has host opt-out', async () => {
+    const resolve = vi.fn().mockResolvedValue(onHost('agentBackends.agy: host'));
+    const opts = backendSessionOptions({
+      ...base,
+      core: 'antigravity',
+      backends: { agy: 'docker' },
+      ticketOverride: 'host',
+      resolve,
+      warn: vi.fn(),
+    });
+    await opts.resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      backends: expect.objectContaining({ agy: 'host', antigravity: 'host' }),
+    }));
+  });
+
   it('adds nothing when neither project nor ticket picks a backend', () => {
     expect(backendSessionOptions({ ...base, backends: undefined, ticketOverride: 'host' })).toEqual({});
   });
@@ -157,12 +173,12 @@ describe('syncSandboxOp', () => {
     const proc = fakeSbxProcess();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: undefined })).resolves.toBe(false);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: { path: '/wt/a', branch: null } })).resolves.toBe(false);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'antigravity' })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'gemini' })).resolves.toBe(false);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toBe(false);
     expect(r.errors).toEqual([
       'Karst: K-7 has no worktree branch to sync into.',
       'Karst: K-7 has no worktree branch to sync into.',
-      'Karst: K-7 has no sandbox (core antigravity).',
+      'Karst: K-7 has no sandbox (core gemini).',
       'Karst: K-7 has no sandbox (core unknown).',
     ]);
     expect(proc.calls).toEqual([]);
