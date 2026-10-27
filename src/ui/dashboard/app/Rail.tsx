@@ -68,8 +68,10 @@ function Track({ slice, sel, select }: { readonly slice: RailSlice; readonly sel
             key={seg.cell.stageKey}
             seg={seg}
             sel={sel === seg.cell.stageKey}
-            approach={showsApproach(seg, slice.approach) ? slice.approach : null}
+            // A faulted stage names its block in the label; the approach pips would only crowd it.
+            approach={!(slice.faulted && seg.current) && showsApproach(seg, slice.approach) ? slice.approach : null}
             busy={busyOf(seg)}
+            faulted={slice.faulted && seg.current}
             onSelect={select}
           />
         ))}

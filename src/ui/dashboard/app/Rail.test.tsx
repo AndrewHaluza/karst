@@ -7,7 +7,7 @@ import { setStage } from '../../../store/stages.js';
 import { createTicket } from '../../../store/tickets.js';
 import { buildDashboardState } from '../state.js';
 import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
-import { all, cleanupRail, go, mainLine, must, mountRail, needs, pick, q, railState, retry, seg, segEl } from './fixtures/railKit.js';
+import { all, blockedState, cleanupRail, go, mainLine, must, mountRail, needs, pick, q, railState, retry, seg, segEl } from './fixtures/railKit.js';
 
 installRuntimeDoubles();
 afterEach(cleanupRail);
@@ -340,5 +340,21 @@ describe('Rail — the real host path', () => {
     mountRail(state);
     expect(segEl('uat').classList.contains('blocked')).toBe(true);
     expect(all('#rail .spin')).toHaveLength(0);
+  });
+});
+
+describe('Rail — a stage parked on a strip-rendering block', () => {
+  it('wears the faulted class, the BLOCKED label and aria-label, with the attention glyph instead of a spinner', () => {
+    mountRail(blockedState({ kind: 'boot-failed', reason: 'api down', at: '2026-08-11T14:00:00.000Z', resumable: true }));
+    const cur = q('#rail .seg.cur') as HTMLElement;
+    expect(cur.classList.contains('faulted')).toBe(true);
+    expect(cur.querySelector('.nm .full')?.textContent).toMatch(/ · BLOCKED$/);
+    expect(cur.querySelector('.pick')?.getAttribute('aria-label')).toMatch(/ blocked$/);
+    expect(cur.querySelector('.g')?.textContent).toBe('⚠');
+    expect(all('#rail .spin')).toHaveLength(0);
+  });
+  it('leaves a stage with no block untouched', () => {
+    mountRail(blockedState(undefined));
+    expect(all('#rail .seg.faulted')).toHaveLength(0);
   });
 });

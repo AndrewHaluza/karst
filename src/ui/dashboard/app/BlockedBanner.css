@@ -1,15 +1,23 @@
 /* The blocked banner and its baseline review rows, moved out of webview.html with the React banner
    (app/BlockedBanner.tsx; migration plan A6). `.blstate` and `.blline` stay in the page: the artifact view lists baselines too. */
 
-/* The blocked banner — the one loud element on the page, because a wait for
-   the user is the one moment the user MUST read. Machine truth (reason) is
-   monospace. */
-.fault{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);padding:var(--k-space-5) var(--k-space-6);
-  border-left:calc(var(--k-border-w) * 3) solid var(--k-failed);
-  border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
-.fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin-bottom:var(--k-space-3)}
-.fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);white-space:pre-wrap;word-break:break-word}
-.fault .facts{margin-top:var(--k-space-6)}
+/* The blocked banner: a one-line status strip flush on the bottom edge of the stepper card (variant B).
+   Machine truth (reason) is monospace. Danger is a tint and a dot, never a solid fill. */
+.fault{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);margin:var(--k-space-4) calc(var(--k-space-4) * -1) calc(var(--k-space-4) * -1);
+  padding:var(--k-space-4) var(--k-space-5);border:0;border-radius:0 0 var(--k-radius-lg) var(--k-radius-lg);
+  border-top:var(--k-border-w) solid color-mix(in srgb,var(--k-failed) 35%,transparent);
+  background:color-mix(in srgb,var(--k-failed) 7%,transparent)}
+.fault > :not(.fdot):not(.ftext):not(.facts){flex:1 1 100%;min-width:0}
+.fault .fdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);
+  background:var(--k-failed);flex:none}
+.fault .ftext{flex:1;min-width:220px}
+.fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-failed)}
+.fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);
+  white-space:pre-wrap;word-break:break-word}
+.fault .facts{display:flex;gap:var(--k-space-3);margin-top:0;flex-wrap:nowrap}
+.fault .k-btn--ghost{background:transparent;border-color:transparent;color:var(--k-text-dim)}
+.fault .k-btn--ghost:hover{background:var(--k-surface-hover)}
+.fault .k-btn--ghost:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
 /* Baseline review rows (UI-R07: shared k-btn/k-input/k-field primitives; this is layout only). */
 .blhead{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;margin-bottom:var(--k-space-3)}

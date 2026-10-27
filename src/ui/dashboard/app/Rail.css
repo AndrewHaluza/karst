@@ -158,6 +158,12 @@
 .track .seg.blocked{background:color-mix(in srgb,var(--k-attention) 30%,transparent);
   color:var(--k-attention)}
 
+/* Faulted: the current stage is parked on a fault the strip below explains. Danger outline, not the running wash. */
+.track .seg.faulted{background:color-mix(in srgb,var(--k-failed) 7%,transparent);color:var(--k-failed);
+}
+/* The label carries the block in words, so it must not cost the lane more width than the name alone did. */
+.track .seg.faulted.cur .nm{font-size:var(--k-text-sm);letter-spacing:.02em}
+
 /* min-content, not 0: at 0 the current segment absorbs every overflow by
    shrinking, so its own action button is clipped by the chevron AND the lane
    never reports an overflow — the degradation below would never fire. The extra

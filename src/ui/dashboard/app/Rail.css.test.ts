@@ -165,8 +165,11 @@ describe('RailRing.css — the selection and focus ring, in the segment’s own 
 });
 
 describe('BlockedBanner.css — the banner moved with its markup', () => {
-  it('keeps the loud treatment and the machine-truth monospace reason', () => {
-    expect(BANNER).toMatch(/\.fault\{[^}]*border-left:calc\(var\(--k-border-w\) \* 3\) solid var\(--k-failed\)/);
+  it('is a flush danger-tinted strip (no left stripe, no solid fill) with a machine-truth monospace reason', () => {
+    expect(BANNER).toMatch(/\.fault\{[^}]*border-top:var\(--k-border-w\) solid color-mix\(in srgb,var\(--k-failed\) 35%,transparent\)/);
+    expect(BANNER).toMatch(/\.fault\{[^}]*background:color-mix\(in srgb,var\(--k-failed\) 7%,transparent\)/);
+    expect(BANNER).not.toContain('border-left');
+    expect(BANNER).not.toContain('inputValidation');
     expect(BANNER).toMatch(/\.fault \.freason\{[^}]*font-family:var\(--k-font-mono\)/);
     expect(BANNER).not.toMatch(/\.fault\.waiting/);
   });
