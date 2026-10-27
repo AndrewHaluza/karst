@@ -2123,8 +2123,8 @@ describe('agentBackends (AC-32: per-core, default host)', () => {
   });
 
   it('parses a valid per-core map', () => {
-    const m = load('agentBackends:\n  claude: sbx\n  codex: host\n  opencode: docker\n  opencode2: docker\n  agy: host');
-    expect(m.agentBackends).toEqual({ claude: 'sbx', opencode: 'docker', opencode2: 'docker' });
+    const m = load('agentBackends:\n  claude: sbx\n  codex: host\n  opencode: docker\n  opencode2: docker\n  agy: docker');
+    expect(m.agentBackends).toEqual({ claude: 'sbx', opencode: 'docker', opencode2: 'docker', agy: 'docker' });
   });
 
   it.each([
@@ -2132,8 +2132,7 @@ describe('agentBackends (AC-32: per-core, default host)', () => {
     ['codex: docker', /agentBackends\.codex must be one of host, sbx/],
     ['opencode: sbx', /agentBackends\.opencode must be one of host, docker/],
     ['opencode2: sbx', /agentBackends\.opencode2 must be one of host, docker/],
-    ['agy: sbx', /agentBackends\.agy must be one of host/],
-    ['agy: docker', /agentBackends\.agy must be one of host/],
+    ['agy: sbx', /agentBackends\.agy must be one of host, docker/],
     ['claude: Sbx', /agentBackends\.claude must be one of/],
     ['claude: true', /agentBackends\.claude must be one of/],
     ['gemini: sbx', /unknown core 'gemini'/],
@@ -2158,7 +2157,7 @@ describe('agentBackends (AC-32: per-core, default host)', () => {
 
   it('reads the legacy scalar as a fallback for the cores that support it', () => {
     expect(load('agentBackend: sbx').agentBackends).toEqual({ claude: 'sbx', codex: 'sbx' });
-    expect(load('agentBackend: docker').agentBackends).toEqual({ opencode: 'docker', opencode2: 'docker' });
+    expect(load('agentBackend: docker').agentBackends).toEqual({ opencode: 'docker', opencode2: 'docker', agy: 'docker' });
     expect(load('agentBackend: host').agentBackends).toBeUndefined();
   });
 

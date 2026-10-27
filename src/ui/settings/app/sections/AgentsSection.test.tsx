@@ -639,14 +639,15 @@ describe('Agents page — sandbox backend', () => {
     expect(values('codex')).toEqual(['host', 'sbx']);
     expect(values('opencode')).toEqual(['host', 'docker']);
     expect(values('opencode2')).toEqual(['host', 'docker']);
-    expect(values('agy')).toEqual(['host']);
+    expect(values('agy')).toEqual(['host', 'docker']);
     for (const core of ['claude', 'codex', 'opencode', 'opencode2', 'agy']) expect(checkedOf(core)).toEqual(['host']);
   });
 
-  it('the agy row is host only, disabled, with a "no sandbox yet" note', () => {
+  it('the agy row offers host and docker enabled without a "no sandbox yet" note', () => {
     mount();
-    expect((radio('agy', 'host') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('backend-row-agy').textContent).toContain('no sandbox yet');
+    expect((radio('agy', 'host') as HTMLButtonElement).disabled).toBe(false);
+    expect((radio('agy', 'docker') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId('backend-row-agy').textContent).not.toContain('no sandbox yet');
   });
 
   it('choosing a backend edits only that core in the draft map', () => {
