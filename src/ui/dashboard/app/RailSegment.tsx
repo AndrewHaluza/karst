@@ -7,6 +7,7 @@
  * on the user, the action control, and a <button> may not contain a <button>.
  */
 import { memo } from 'react';
+import { FAULT_GLYPH } from './railText.js';
 import { RailGo } from './RailGo.js';
 import { durationText, look, meterLabel, segAria, showsApproach, type Approach, type RailSeg, type Retry } from './railText.js';
 import { structurallyEqual } from './useSlice.js';
@@ -55,24 +56,26 @@ export interface SegmentProps {
   readonly approach: Approach | null;
   /** The shared ship / merge request behind this segment's control is in flight. */
   readonly busy: boolean;
+  /** The current stage is parked on a banner-rendering block: drawn danger, not running. */
+  readonly faulted: boolean;
   readonly onSelect: (stage: string) => void;
 }
 
-function SegmentView({ seg, sel, approach, busy, onSelect }: SegmentProps) {
+function SegmentView({ seg, sel, approach, busy, faulted, onSelect }: SegmentProps) {
   const k = seg.cell.stageKey;
   const l = look(seg);
-  const aria = segAria(seg, approach);
-  const cls = ['seg', `stg-${k}`, l.statusClass, seg.current ? 'cur' : '', sel ? 'sel' : ''].filter(Boolean).join(' ');
+  const aria = faulted ? `${l.title} blocked` : segAria(seg, approach);
+  const cls = ['seg', `stg-${k}`, l.statusClass, faulted ? 'faulted' : '', seg.current ? 'cur' : '', sel ? 'sel' : ''].filter(Boolean).join(' ');
   const duration = durationText(seg.cell);
   return (
     <div className={cls}>
       <button type="button" className="pick" data-stage={k} aria-pressed={sel} aria-label={aria} title={aria} onClick={() => onSelect(k)} />
-      <span className="g">{l.running ? <span className="spin" aria-hidden="true" /> : l.glyph}</span>
+      <span className="g">{faulted ? FAULT_GLYPH : l.running ? <span className="spin" aria-hidden="true" /> : l.glyph}</span>
       {/* Both name forms ship and the CSS picks one: swapping the text here would mean re-rendering on every resize. */}
       <span className="nm">
         {seg.current ? (
           <>
-            <span className="full">{l.title}</span>
+            <span className="full">{faulted ? `${l.title} · BLOCKED` : l.title}</span>
             <span className="abbr">{k}</span>
           </>
         ) : (
@@ -98,5 +101,5 @@ function SegmentView({ seg, sel, approach, busy, onSelect }: SegmentProps) {
 /** Re-renders only for a change in what THIS segment draws: a 1 Hz push that moved one segment leaves the rest alone. */
 export const Segment = memo(
   SegmentView,
-  (a, b) => a.sel === b.sel && a.busy === b.busy && a.onSelect === b.onSelect && structurallyEqual(a.seg, b.seg) && structurallyEqual(a.approach, b.approach),
+  (a, b) => a.sel === b.sel && a.busy === b.busy && a.faulted === b.faulted && a.onSelect === b.onSelect && structurallyEqual(a.seg, b.seg) && structurallyEqual(a.approach, b.approach),
 );

@@ -66,7 +66,7 @@ describe('BlockedBanner — when it shows', () => {
     expect(banner().childElementCount).toBe(0);
     cleanupRail();
     mountRail(park('unmapped-repository', 'uat', 'these worktrees match no repository in karst.yml: /unmapped'));
-    expect(text('.freason')).toBe('these worktrees match no repository in karst.yml: /unmapped');
+    expect(text('.freason')).toBe(' · these worktrees match no repository in karst.yml: /unmapped');
     expect(btn('stage-resume').dataset.stagekey).toBe('uat');
   });
 });
@@ -75,9 +75,9 @@ describe('BlockedBanner — a resumable fault', () => {
   it('names the stage, shows the machine reason, and offers Resume on the block’s own key, never the rail’s data-stage', () => {
     mountRail(blockedState(block('boot-failed')));
     expect(text('.ftitle')).toBe('UAT is blocked');
-    expect(text('.freason')).toBe('api never became healthy');
+    expect(text('.freason')).toBe(' · api never became healthy');
     const b = btn('stage-resume');
-    expect(b.className).toBe('k-btn k-btn--secondary k-btn--sm');
+    expect(b.className).toBe('k-btn k-btn--primary k-btn--sm');
     expect(b.title).toBe('Clear the block and let karst try this stage again');
     expect(b.dataset.stagekey).toBe('uat');
     expect(b.hasAttribute('data-stage')).toBe(false);
@@ -102,7 +102,7 @@ describe('BlockedBanner — a resumable fault', () => {
     h.emit({ type: 'state', state: blockedState(block('boot-failed')), live: true });
     expect(btn('stage-resume')).toBe(b);
     expect(b.classList.contains('is-pending')).toBe(true);
-    expect(b.className).toContain('k-btn--secondary');
+    expect(b.className).toContain('k-btn--primary');
   });
 });
 
@@ -112,7 +112,7 @@ describe('BlockedBanner — usage-limit park actions (D159, re-homed from the va
   it('says why the stage stopped and carries no Resume', () => {
     mountRail(parked());
     expect(text('.ftitle')).toBe('Provider out of quota');
-    expect(text('.freason')).toBe('Provider quota exhausted until 5pm');
+    expect(text('.freason')).toBe(' · Provider quota exhausted until 5pm');
     expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
   });
 
@@ -121,7 +121,7 @@ describe('BlockedBanner — usage-limit park actions (D159, re-homed from the va
     const buttons = all<HTMLButtonElement>('#blocked .facts button');
     expect(buttons.map((b) => b.dataset.act)).toEqual(['usage-limit-pick', 'usage-limit-retry', 'usage-limit-dismiss']);
     expect(buttons.map((b) => b.textContent)).toEqual(['Pick agent/model…', 'Retry same', 'Dismiss']);
-    expect(buttons.map((b) => b.className)).toEqual(['k-btn k-btn--primary k-btn--sm', 'k-btn k-btn--secondary k-btn--sm', 'k-btn k-btn--secondary k-btn--sm']);
+    expect(buttons.map((b) => b.className)).toEqual(['k-btn k-btn--primary k-btn--sm', 'k-btn k-btn--secondary k-btn--sm', 'k-btn k-btn--secondary k-btn--sm k-btn--ghost']);
     expect(buttons.map((b) => b.dataset.stagekey)).toEqual(['uat', 'uat', 'uat']);
   });
 
@@ -321,7 +321,7 @@ describe('BlockedBanner — slice selection (migration plan A4)', () => {
     expect(onRender.mock.calls.length).toBe(before);
     h.emit({ type: 'state', state: make('y') });
     expect(onRender.mock.calls.length).toBeGreaterThan(before);
-    expect(text('.freason')).toBe('y');
+    expect(text('.freason')).toBe(' · y');
   });
 
   it('is independent of the rail: a plain rail change leaves the banner node alone', () => {

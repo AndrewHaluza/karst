@@ -47,6 +47,8 @@ const SEG_GLYPH: Readonly<Record<string, string>> = {
 /** A parked confirm stage carries a pause; a conflicted merge a warning. Two glyphs, ONE state. */
 const NEEDS_GLYPH = '❚❚';
 const CONFLICT_GLYPH = '⚠';
+/** A stage parked on a fault the banner explains: the attention triangle, never the running spinner. */
+export const FAULT_GLYPH = CONFLICT_GLYPH;
 
 export interface SegLook {
   readonly status: string;

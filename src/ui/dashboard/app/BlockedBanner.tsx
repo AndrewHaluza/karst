@@ -66,8 +66,11 @@ interface ActionProps {
 /** Why the stage stopped: machine truth, so the reason is monospace. */
 const Head = ({ title, reason }: { readonly title: string; readonly reason: string }) => (
   <>
-    <div className="ftitle">{title}</div>
-    <div className="freason">{reason}</div>
+    <span className="fdot" aria-hidden="true" />
+    <span className="ftext">
+      <span className="ftitle">{title}</span>
+      <span className="freason">{` · ${reason}`}</span>
+    </span>
   </>
 );
 
@@ -85,7 +88,7 @@ function ParkActions({ ticketId, stageKey }: ActionProps) {
       <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-retry" data-stagekey={stageKey} onClick={onRetry}>
         Retry same
       </button>
-      <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-dismiss" data-stagekey={stageKey} onClick={onDismiss}>
+      <button type="button" className="k-btn k-btn--secondary k-btn--sm k-btn--ghost" data-act="usage-limit-dismiss" data-stagekey={stageKey} onClick={onDismiss}>
         Dismiss
       </button>
     </div>
@@ -100,7 +103,7 @@ function Resume({ ticketId, stageKey }: ActionProps) {
     <div className="facts">
       <button
         type="button"
-        className="k-btn k-btn--secondary k-btn--sm"
+        className="k-btn k-btn--primary k-btn--sm"
         data-act="stage-resume"
         data-stagekey={stageKey}
         title="Clear the block and let karst try this stage again"

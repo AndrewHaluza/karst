@@ -11,7 +11,13 @@ export interface RailSlice {
   readonly approach: Approach | null;
   readonly presentedStage: string;
   readonly stageCurrent: string;
+  /** The current stage is blocked on a kind the strip renders (resumable fault, usage-limit). */
+  readonly faulted: boolean;
 }
+
+/** The blocks the banner draws as a strip: a resumable fault or a usage-limit park. */
+export const isStripBlock = (b: { readonly kind: string; readonly resumable?: boolean } | null | undefined): boolean =>
+  !!b && b.kind !== 'baseline-review' && b.kind !== 'awaiting-merge' && (b.resumable !== false || b.kind === 'usage-limit');
 
 /** null before the first host snapshot: the rail is empty. */
 export const selectRail = (snapshot: DashboardSnapshot): RailSlice | null => {
@@ -22,5 +28,6 @@ export const selectRail = (snapshot: DashboardSnapshot): RailSlice | null => {
     approach: s.approach ?? null,
     presentedStage: s.presentedStage || '',
     stageCurrent: s.stageCurrent || '',
+    faulted: isStripBlock(s.currentStage?.blocked),
   };
 };
