@@ -1,19 +1,65 @@
 /* Sub-tasks panel (moved from webview.html with the panel). */
+/* The panel is the size container the compaction ladder below queries (@ui:RD-TIERS): container queries, never
+   viewport media queries, because the panel's width is the dashboard's, not the window's. */
+#subtaskPanel{container-type:inline-size}
 /* The "Add sub-task" action sits at the right edge, flat (a ghost button), so it never reads as the panel's
    subject. The selector is attribute-based: an id selector for the button would look like a colour literal to
    the stylesheet's hex audit. */
-.phead [data-act="create-subtask"]{margin-left:auto}
-/* One sub-task row: status dot, key, title, optional blocking badge, stage pill. A layout container, not a
-   control (STYLE-GUIDE §9.2). */
+.phead [data-act="create-subtask"]{margin-left:auto;display:inline-flex;align-items:center;gap:var(--k-space-3)}
+.phead .subtask-progress + [data-act="create-subtask"]{margin-left:var(--k-space-5)}
+/* 72px segmented progress bar: done / running / blocked / the rest, each segment grown by its sub-task count. */
+.subtask-progress{display:flex;flex:none;width:72px;height:var(--k-space-3);margin-left:auto;overflow:hidden;
+  border-radius:var(--k-radius-pill);background:var(--k-border)}
+.subtask-progress .seg--passed{background:var(--k-passed)}
+.subtask-progress .seg--running{background:var(--k-running)}
+.subtask-progress .seg--failed{background:var(--k-failed)}
+.subtask-progress .seg--rest{background:var(--k-border)}
+/* One sub-task row, left to right: dot, id, key, title (the only cell that ellipsizes), PR, lock, agent, time,
+   stage pill. A layout container, not a control (STYLE-GUIDE §9.2): no click action, so the default cursor. */
 .subtask{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+.subtask + .subtask{box-shadow:inset 0 var(--k-border-w) 0 color-mix(in srgb, var(--k-border) 55%, transparent)}
 .subtask:hover{background:var(--k-surface-hover)}
+/* A queued row (gray glyph) is a hollow ring: it holds a place, it is not running. */
+.subtask .k-dot:not([class*="k-dot--"]){background:transparent;box-shadow:inset 0 0 0 var(--k-border-w) var(--k-pending)}
 .subtask .subtask-key{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);flex:0 0 auto}
 .subtask .subtask-title{font-size:var(--k-text-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-/* An informational badge, locally composed: the shipped `.k-badge` is still a documented gap (UI-INVARIANTS G1),
-   so this is product composition (UI-R08), not a new primitive. Attention ink + a text label, never colour alone
-   (UI-R28). */
-.subtask .subtaskBlock{flex:0 0 auto;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
-  color:var(--k-attention);border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-pill);
-  padding:0 var(--k-space-3);text-transform:uppercase;letter-spacing:.06em}
-.subtask .stage{margin-left:auto;flex:0 0 auto}
+.subtask--done .subtask-title{color:var(--k-text-dim)}
+/* PR chip: a filled state chip paired with its "text on a filled surface" token (UI-R29), the PR panel's colours. */
+.subtask .subtask-pr{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);padding:0 var(--k-space-3);
+  border-radius:var(--k-radius-lg);white-space:nowrap;background:var(--k-text-faint);color:var(--k-success-fg)}
+.subtask .subtask-pr--open{background:var(--k-success)}
+.subtask .subtask-pr--merged{background:var(--k-series-2)}
+.subtask .subtask-pr--closed{background:var(--k-danger);color:var(--k-danger-fg)}
+/* The blocker lock is neutral on purpose: attention ink means needs-you, and a blocker is not that. */
+.subtask .subtask-lock{flex:none;display:inline-flex;color:var(--k-text-dim)}
+.subtask .subtask-agent{flex:none;display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-sm);
+  color:var(--k-text-dim);white-space:nowrap}
+.subtask .subtask-agent svg{width:12px;height:12px;display:block}
+.subtask .subtask-age{flex:none;min-width:3.2em;text-align:right;font-family:var(--k-font-mono);font-size:var(--k-text-sm);
+  color:var(--k-text-dim);white-space:nowrap}
+/* A blocked row wraps; the inset top hairline is a shadow, not a border, so the row never changes size (@ui:GEOMETRY-STABLE). */
+.subtask--blocked{flex-wrap:wrap;background:color-mix(in srgb, var(--k-failed) 7%, transparent);
+  box-shadow:inset 0 var(--k-border-w) 0 color-mix(in srgb, var(--k-failed) 35%, transparent)}
+.subtask--blocked:hover{background:color-mix(in srgb, var(--k-failed) 11%, transparent)}
+/* Line 2: dot width + row gap, a fixed indent that does not depend on the hidden T-id / key. */
+.subtask .subtask-fault{flex:0 0 100%;min-width:0;padding-left:calc(var(--k-space-4) + var(--k-space-5));overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-sm)}
+.subtask .ftitle{color:var(--k-failed);font-weight:var(--k-weight-semibold)}
+.subtask .freason{font-family:var(--k-font-mono);color:var(--k-text-dim)}
+.subtask .stage{flex:0 0 auto}
 .subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}
+
+/* Compaction ladder: each tier only removes; the dot, lock, agent icon, PR chip and pill never shrink or hide. */
+@container (max-width: 720px){
+  .subtask .subtask-agent-model{display:none}
+}
+@container (max-width: 600px){
+  .subtask .subtask-agent-name{display:none}
+  .subtask .k-id{display:none}
+}
+@container (max-width: 460px){
+  .phead .k-btn-label,.subtask-progress,.subtask .subtask-pr-state{display:none}
+}
+@container (max-width: 400px){
+  .subtask .subtask-key,.subtask .subtask-age{display:none}
+}

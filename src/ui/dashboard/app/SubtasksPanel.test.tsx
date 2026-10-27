@@ -19,10 +19,15 @@ const sub = (id: number, over: Record<string, unknown> = {}) => ({
   blocking: false,
   done: false,
   autostart: null,
+  fault: null,
+  pr: null,
+  agent: null,
+  stageSince: null,
+  queuePos: null,
   ...over,
 });
 const stateWith = (over: Record<string, unknown>): DashboardState =>
-  ({ ticketId: 1, subtasks: [], subtaskProgress: { done: 0, total: 0 }, canAddSubtask: false, ...over }) as unknown as DashboardState;
+  ({ ticketId: 1, key: 'FEAT-1', subtasks: [], subtaskProgress: { done: 0, total: 0 }, canAddSubtask: false, ...over }) as unknown as DashboardState;
 
 const PANEL =
   '<div class="panel span hidden" id="subtaskPanel"><div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span></div><div class="pbody" id="subtasks"></div></div>';
@@ -170,19 +175,144 @@ describe('SubtasksPanel — count and rows', () => {
     expect(rows().map((r) => r.querySelector('.k-dot')!.getAttribute('aria-label'))).toEqual(['Queued', 'Starting']);
   });
 
-  it('marks a blocking sub-task with a text chip, others without', () => {
+});
+
+const FAULT = { kind: 'usage-limit', title: 'Provider out of quota', reason: 'anthropic: monthly quota exceeded', since: new Date(Date.now() - 12 * 60_000).toISOString() };
+
+describe('SubtasksPanel — evolved row', () => {
+  it('lays the cells out in the brief order', () => {
+    mount(
+      stateWith({
+        subtasks: [
+          sub(1, {
+            blocking: true,
+            pr: { number: 422, state: 'open', more: 0 },
+            agent: { core: 'claude', coreLabel: 'Claude', model: 'm', modelShort: 'Sonnet 5.5' },
+            stageSince: new Date(Date.now() - 4 * 60_000).toISOString(),
+          }),
+        ],
+      }),
+    );
+    const cls = [...rows()[0]!.children].map((c) => c.className.split(' ').find((k) => /^(k-dot|k-id|subtask-|stage)/.test(k)));
+    expect(cls).toEqual(['k-dot', 'k-id', 'subtask-key', 'subtask-title', 'subtask-pr', 'subtask-lock', 'subtask-agent', 'subtask-age', 'stage']);
+  });
+
+  it('puts the T-id · key — title tooltip on the title cell and none on the row', () => {
+    mount(stateWith({ subtasks: [sub(7)] }));
+    expect(rows()[0]!.hasAttribute('title')).toBe(false);
+    expect(rows()[0]!.querySelector('.subtask-title')!.getAttribute('title')).toBe('T7 · FEAT-1-s7 — Sub 7');
+  });
+
+  it('dims done rows and omits their agent', () => {
+    const agent = { core: 'claude', coreLabel: 'Claude', model: 'm', modelShort: 'S' };
+    mount(stateWith({ subtasks: [sub(1, { done: true, stage: 'done', stageClass: 'stg-done', agent })] }));
+    expect(rows()[0]!.classList.contains('subtask--done')).toBe(true);
+    expect(rows()[0]!.querySelector('.subtask-agent')).toBeNull();
+  });
+
+  it('renders the agent as core · model with the full text in the tooltip', () => {
+    mount(stateWith({ subtasks: [sub(1, { agent: { core: 'claude', coreLabel: 'Claude', model: 'claude-x', modelShort: 'Sonnet 5.5' } })] }));
+    const agent = rows()[0]!.querySelector('.subtask-agent')!;
+    expect(agent.textContent).toBe('Claude · Sonnet 5.5');
+    expect(agent.getAttribute('title')).toBe('Claude · claude-x');
+    expect(agent.querySelector('.subtask-agent-model')!.textContent).toBe(' · Sonnet 5.5');
+  });
+
+  it('names the core alone when no model resolves', () => {
+    mount(stateWith({ subtasks: [sub(1, { agent: { core: 'codex', coreLabel: 'Codex', model: null, modelShort: null } })] }));
+    expect(rows()[0]!.querySelector('.subtask-agent')!.textContent).toBe('Codex');
+  });
+
+  it('chips the first PR with its state, +N for more', () => {
+    mount(
+      stateWith({
+        subtasks: [sub(1, { pr: { number: 418, state: 'merged', more: 0 } }), sub(2, { pr: { number: 422, state: 'open', more: 1 } }), sub(3)],
+      }),
+    );
+    const chips = rows().map((r) => r.querySelector('.subtask-pr'));
+    expect(chips[0]!.textContent).toBe('#418 merged');
+    expect(chips[1]!.textContent).toBe('#422 open +1');
+    expect(chips[0]!.querySelector('.subtask-pr-state')!.textContent).toBe(' merged');
+    expect(chips[2]).toBeNull();
+  });
+
+  it('keeps the normal pill and shows a time cell with its tooltip', () => {
+    mount(stateWith({ subtasks: [sub(1, { stageSince: new Date(Date.now() - 4 * 60_000).toISOString() })] }));
+    const age = rows()[0]!.querySelector('.subtask-age')!;
+    expect(age.textContent).toBe('4m');
+    expect(age.getAttribute('title')).toBe('In impl for 4m');
+    expect(rows()[0]!.querySelector('.stage')!.className).toBe('stage stg-impl');
+  });
+
+  it('shows the queue position of a queued row', () => {
+    mount(stateWith({ subtasks: [sub(1, { autostart: 'queued', stage: 'scope', glyph: 'gray', queuePos: 2 })] }));
+    const age = rows()[0]!.querySelector('.subtask-age')!;
+    expect([age.textContent, age.getAttribute('title')]).toEqual(['#2', '#2 in the autostart queue']);
+  });
+
+  it('marks the lock only on a blocker: neutral, labelled, naming the parent', () => {
     mount(stateWith({ subtasks: [sub(1, { blocking: true }), sub(2)] }));
-    const chip = rows()[0]!.querySelector('.subtaskBlock')!;
-    expect(chip.textContent).toBe('Blocking');
-    expect(chip.getAttribute('title')).toBe('Holds the parent before it leaves implement');
-    expect(rows()[1]!.querySelector('.subtaskBlock')).toBeNull();
+    const lock = rows()[0]!.querySelector('.subtask-lock')!;
+    expect(lock.getAttribute('role')).toBe('img');
+    expect(lock.getAttribute('aria-label')).toBe('blocker');
+    expect(lock.getAttribute('title')).toBe('Blocker: FEAT-1 can’t leave impl until this sub-task is done');
+    expect(lock.className).toBe('subtask-lock');
+    expect(rows()[0]!.querySelector('.subtaskBlock')).toBeNull();
+    expect(rows()[1]!.querySelector('.subtask-lock')).toBeNull();
+  });
+
+  it('draws a blocked row as a wrapped row with the fault on line 2 and no BLOCKED text', () => {
+    mount(stateWith({ subtasks: [sub(1, { glyph: 'red', fault: FAULT })] }));
+    const row = rows()[0]!;
+    expect(row.classList.contains('subtask--blocked')).toBe(true);
+    const line = row.querySelector('.subtask-fault')!;
+    expect(line.querySelector('b.ftitle')!.textContent).toBe('Provider out of quota');
+    expect(line.querySelector('.freason')!.textContent).toBe('anthropic: monthly quota exceeded');
+    expect(line.textContent).toBe('Provider out of quota · anthropic: monthly quota exceeded');
+    expect(line.getAttribute('title')).toBe('Provider out of quota · anthropic: monthly quota exceeded');
+    expect(row.querySelector('.stage')!.textContent).toBe('impl');
+    expect(row.textContent).not.toMatch(/BLOCKED/);
+    expect(row.querySelector('.k-dot')!.getAttribute('aria-label')).toBe('blocked');
+    expect(row.querySelector('.subtask-age')!.getAttribute('title')).toBe('Blocked for 12m');
+    expect(row.classList.contains('attention')).toBe(false);
+  });
+});
+
+describe('SubtasksPanel — header', () => {
+  it('draws a segmented progress bar from the row states', () => {
+    mount(
+      stateWith({
+        subtasks: [sub(1, { done: true, stage: 'done', glyph: 'green' }), sub(2), sub(3, { glyph: 'red', fault: FAULT }), sub(4, { glyph: 'gray' })],
+        subtaskProgress: { done: 1, total: 4 },
+      }),
+    );
+    const bar = document.querySelector('.subtask-progress')!;
+    expect(bar.getAttribute('aria-hidden')).toBe('true');
+    const segs = [...bar.children].map((c) => [c.className, (c as HTMLElement).style.flexGrow]);
+    expect(segs).toEqual([
+      ['seg seg--passed', '1'],
+      ['seg seg--running', '1'],
+      ['seg seg--failed', '1'],
+      ['seg seg--rest', '1'],
+    ]);
+  });
+
+  it('draws no bar without sub-tasks', () => {
+    mount(stateWith({ canAddSubtask: true }));
+    expect(document.querySelector('.subtask-progress')).toBeNull();
+  });
+
+  it('keeps the Add label as a span CSS can hide', () => {
+    mount(stateWith({ canAddSubtask: true }));
+    expect(add().querySelector('.k-btn-label')!.textContent).toBe('Add sub-task');
   });
 });
 
 describe('SubtasksPanel — Add sub-task', () => {
   it('keeps the vanilla markup contract', () => {
     mount(stateWith({ canAddSubtask: true }));
-    expect(add().textContent).toBe('Add sub-task…');
+    expect(add().textContent).toBe('Add sub-task');
+    expect(add().getAttribute('aria-label')).toBe('Add sub-task');
     expect(add().getAttribute('data-act')).toBe('create-subtask');
     expect(add().getAttribute('title')).toBe('Create a sub-task under this ticket');
     expect(add().getAttribute('type')).toBe('button');

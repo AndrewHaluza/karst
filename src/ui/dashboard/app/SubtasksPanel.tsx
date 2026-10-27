@@ -7,26 +7,16 @@
 import { memo, useLayoutEffect, useRef } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
+import { SubtaskRow, type SubtaskRowData } from './SubtaskRow.js';
+import { Icon } from './Icon.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
 import './SubtasksPanel.css';
 
-interface SubtaskRow {
-  readonly id: number;
-  readonly idLabel: string;
-  readonly key: string;
-  readonly title: string | null;
-  readonly stage: string | null;
-  readonly glyph: string;
-  readonly stageClass: string;
-  readonly blocking: boolean;
-  readonly done: boolean;
-  readonly autostart: string | null;
-}
-
 interface SubtasksSlice {
-  readonly subtasks: readonly SubtaskRow[];
+  readonly subtasks: readonly SubtaskRowData[];
+  readonly parentKey: string;
   readonly done: number;
   readonly total: number;
   readonly canAdd: boolean;
@@ -37,38 +27,32 @@ const selectSubtasks = (snapshot: DashboardSnapshot): SubtasksSlice | null =>
   snapshot.state
     ? {
         subtasks: snapshot.state.subtasks ?? [],
+        parentKey: snapshot.state.key ?? '',
         done: snapshot.state.subtaskProgress?.done ?? 0,
         total: snapshot.state.subtaskProgress?.total ?? 0,
         canAdd: !!snapshot.state.canAddSubtask,
       }
     : null;
 
-// The status glyph a row paints: the shipped `.k-dot` primitive, recoloured per state. `gray` (no signal yet) keeps the ringless default.
-const DOT: Record<string, string> = { blue: 'k-dot--running', amber: 'k-dot--attention', green: 'k-dot--passed', red: 'k-dot--failed' };
+type Seg = 'passed' | 'running' | 'failed' | 'rest';
+const SEGMENTS: readonly Seg[] = ['passed', 'running', 'failed', 'rest'];
 
-// `autostart` is host-derived (UI-R31): a sub-task waiting at scope for the autostart sweep reads "Queued", one being started "Starting".
-const AUTOSTART_WORD: Record<string, string> = { queued: 'Queued', starting: 'Starting' };
+const segOf = (s: SubtaskRowData): Seg =>
+  s.done ? 'passed' : s.fault ? 'failed' : s.glyph === 'blue' || s.glyph === 'amber' ? 'running' : 'rest';
 
-const Row = memo(function Row({ s }: { readonly s: SubtaskRow }) {
-  const stage = (s.autostart ? AUTOSTART_WORD[s.autostart] : undefined) || s.stage || 'none';
-  const dot = DOT[s.glyph];
+/** The 72px segmented bar: done / running / blocked / the rest, proportional by sub-task count. Decoration only. */
+function Progress({ subtasks }: { readonly subtasks: readonly SubtaskRowData[] }) {
+  if (!subtasks.length) return null;
+  const counts = new Map<Seg, number>();
+  for (const s of subtasks) counts.set(segOf(s), (counts.get(segOf(s)) ?? 0) + 1);
   return (
-    <div className="subtask" data-id={s.id}>
-      <span className={dot ? `k-dot ${dot}` : 'k-dot'} role="img" aria-label={s.done ? 'done' : stage} />
-      <span className="k-id">{s.idLabel}</span>
-      <span className="subtask-key">{s.key}</span>
-      <span className="subtask-title">{s.title || '(untitled)'}</span>
-      {s.blocking ? (
-        <span className="subtaskBlock" title="Holds the parent before it leaves implement">
-          Blocking
-        </span>
-      ) : null}
-      <span className={`stage ${s.stageClass}`} title={stage}>
-        {stage}
-      </span>
-    </div>
+    <span className="subtask-progress" aria-hidden="true">
+      {SEGMENTS.filter((k) => counts.has(k)).map((k) => (
+        <span key={k} className={`seg seg--${k}`} style={{ flexGrow: counts.get(k) }} />
+      ))}
+    </span>
   );
-});
+}
 
 /**
  * The button never changes its className: a runtime-pending control keeps the runtime's `is-pending`
@@ -88,10 +72,12 @@ function AddButton({ canAdd }: { readonly canAdd: boolean }) {
       type="button"
       className="k-btn k-btn--ghost k-btn--sm"
       data-act="create-subtask"
+      aria-label="Add sub-task"
       title="Create a sub-task under this ticket"
       onClick={onClick}
     >
-      Add sub-task…
+      <Icon name="plus" size={14} />
+      <span className="k-btn-label">Add sub-task</span>
     </button>
   );
 }
@@ -110,12 +96,13 @@ export const SubtasksPanel = memo(function SubtasksPanel() {
     <>
       <RegionPortal id="subtaskCount">{slice?.total ? `${slice.done}/${slice.total} done` : null}</RegionPortal>
       <RegionPortal id="subtaskCount" inParent>
+        <Progress subtasks={subtasks} />
         <AddButton canAdd={canAdd} />
       </RegionPortal>
       <RegionPortal id="subtasks">
         {slice ? (
           subtasks.length ? (
-            subtasks.map((s) => <Row key={s.id} s={s} />)
+            subtasks.map((s) => <SubtaskRow key={s.id} s={s} parentKey={slice?.parentKey ?? ''} />)
           ) : (
             <div className="subtask-empty">No sub-tasks yet. Add one to split off unfinished work.</div>
           )
