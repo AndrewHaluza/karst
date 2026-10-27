@@ -21,7 +21,11 @@ describe('dockerNames', () => {
 });
 
 describe('dockerNames core guard (F6)', () => {
-  it.each(['null', 'antigravity', 'claude', 'codex'])('rejects the non-docker core %s', (core) => {
+  it.each(['null', 'claude', 'codex'])('rejects the non-docker core %s', (core) => {
     expect(() => dockerNames({ projectRoot: '/p', ticketId: 7, core })).toThrow(/not a docker core/);
+  });
+
+  it.each(['opencode', 'opencode2', 'antigravity', 'agy'])('accepts the docker core %s', (core) => {
+    expect(() => dockerNames({ projectRoot: '/p', ticketId: 7, core })).not.toThrow();
   });
 });
