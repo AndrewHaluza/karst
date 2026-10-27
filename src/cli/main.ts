@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
@@ -38,6 +39,7 @@ import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
 import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
 import { runBaseCommand } from './baseCommand.js';
@@ -658,6 +660,46 @@ export async function runCliAsync(
   if (rest[0] === 'mcp') {
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
   }
+  // `setup check` dry-runs everything a first ticket needs. Ticketless; it
+  // opens a store only to run `setup verify` on declared services (needs --db).
+  if (rest[0] === 'setup' && rest[1] === 'check') {
+    if (!manifestPath) throw new Error('missing --manifest <path>');
+    const parsed = parseSetupCheckArgs(rest);
+    let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
+    let loadError: string | undefined;
+    try {
+      loaded = loadManifestWithDiagnostics(manifestPath);
+    } catch (e) {
+      loadError = (e as Error).message;
+    }
+    const manifest = loaded?.manifest;
+    const { nodeReadinessProbes } = await import('../setup/readiness/nodeProbes.js');
+    return runSetupCheckCommand({
+      manifest,
+      loadError,
+      warnings: loaded?.warnings ?? [],
+      repos: parsed.repos,
+      probes: nodeReadinessProbes(dirname(resolve(manifestPath))),
+      verifyServices:
+        db && manifest
+          ? async (repos) => {
+              const store = openWritableStore(db);
+              try {
+                const { ensureBaseline } = await import('../runtime/baseline.js');
+                const out = JSON.parse(
+                  await runSetupVerifyCommand(store, manifest, { repos: [...repos] }, (s, m, service) =>
+                    ensureBaseline(s, m, service),
+                  ),
+                ) as { ok: boolean; error?: string; services?: { service?: string; ok: boolean }[] };
+                const failed = (out.services ?? []).filter((r) => !r.ok).map((r) => r.service ?? '?');
+                return { ok: out.ok, error: out.error, failed };
+              } finally {
+                store.close();
+              }
+            }
+          : undefined,
+    });
+  }
   // `setup verify` spins the proposed manifest's baseline services with health
   // gates. It is async (like `servers`) and needs a store + manifest, but no
   // ticket — the baseline singleton is ticketless.
@@ -780,7 +822,7 @@ function fail(message: string): never {
  * in the process-exit block, which vitest never takes.
  */
 export function exitsAfterFlush(rest: readonly string[]): boolean {
-  return rest[0] === 'servers' || (rest[0] === 'setup' && rest[1] === 'verify');
+  return rest[0] === 'servers' || (rest[0] === 'setup' && (rest[1] === 'verify' || rest[1] === 'check'));
 }
 
 // Only run when invoked directly (`node main.js …`), not when imported by a test.

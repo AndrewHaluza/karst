@@ -251,6 +251,9 @@
   "src/cli/schemaCommand.ts#runSchemaCommand": [
     "arch:CLI-03"
   ],
+  "src/cli/setupCheck.ts#runSetupCheckCommand": [
+    "arch:CLI-14"
+  ],
   "src/cli/setupCommand.ts#runSetupCommand": [
     "arch:CLI-14"
   ],

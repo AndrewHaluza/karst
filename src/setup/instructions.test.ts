@@ -30,6 +30,8 @@ describe('setupInstructions', () => {
     expect(text).toContain('setup propose-change');
     expect(text).toMatch(/spins the baseline services/);
     expect(text).toContain('setup verify');
+    expect(text).toContain('setup check');
+    expect(text).toMatch(/End the session ONLY when it reports ok/);
   });
 
   it('states the never-assume-develop rule and the no-placeholder rule', () => {

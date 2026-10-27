@@ -667,6 +667,7 @@ describe('exitsAfterFlush', () => {
     expect(exitsAfterFlush(['servers', 'list'])).toBe(true);
     expect(exitsAfterFlush(['setup', 'verify'])).toBe(true);
     expect(exitsAfterFlush(['setup', 'verify', '--repos', 'web'])).toBe(true);
+    expect(exitsAfterFlush(['setup', 'check'])).toBe(true);
   });
 
   it('leaves the ordinary synchronous verbs writing and returning normally', () => {

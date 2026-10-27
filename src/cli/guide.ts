@@ -180,6 +180,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     prints each service's outcome as JSON. If a service fails, report the
     blocker; if a revision changes a start command, it must be accepted again
     before you verify.
+ - \`setup check [--repos a,b]\` — the LAST step of a setup session, after verify.
+    Dry-runs what a first ticket needs (manifest warnings as fails, git/baseline/
+    origin, a temp worktree, gate scripts, UAT tester paths, services, agent
+    CLIs) and prints JSON items with fix hints. Do not end the session until
+    \`ok\` is true or you have reported every remaining fail with a proposed fix.
  - \`message send --to parent|<child-key> --body <text>\` — leave an async
    note for your direct parent or one of your direct children (nobody else:
    siblings route through the parent). The sender is the ticket \`--ticket\`
