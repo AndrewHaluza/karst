@@ -116,8 +116,20 @@ describe('createSetupProposalOps.scan', () => {
     expect(f.confirm).not.toHaveBeenCalled();
     expect(f.runCommand).not.toHaveBeenCalled();
     expect(f.fs.removed).toEqual(['/s/1/outbox/a.json']);
-    expect(f.fs.results[0]).toMatchObject({ status: 'invalid', reason: expect.stringContaining('outside the workspace root') });
-    expect(warns.some((m) => /outside the workspace root/.test(m))).toBe(true);
+    expect(f.fs.results[0]).toMatchObject({ kind: 'change', status: 'invalid', reason: expect.stringContaining('outside the workspace root') });
+    expect(warns).toEqual(['Karst: could not apply the change for "web" (path "../x" is outside the workspace root /w).']);
+  });
+
+  it('records a declined change and an applied change in the ledger', async () => {
+    const change: ChangeProposal = { kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' };
+    const declined = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    declined.confirm.mockResolvedValue(false);
+    await createSetupProposalOps(declined.deps).scan();
+    expect(declined.runCommand).not.toHaveBeenCalled();
+    expect(declined.fs.results[0]).toMatchObject({ kind: 'change', status: 'declined', reason: 'declined by the user' });
+    const applied = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    await createSetupProposalOps(applied.deps).scan();
+    expect(applied.fs.results[0]).toMatchObject({ kind: 'change', status: 'applied' });
   });
 
   it('drops an invalid proposal with a warning and ignores non-json', async () => {
