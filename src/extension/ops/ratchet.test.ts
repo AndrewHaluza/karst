@@ -90,7 +90,8 @@ import { join } from 'node:path';
 // Raised by 17 (8752 -> 8769): human-only close/reopen palette commands (@arch:STAGEMACH) — one import,
 // the `registerCloseCommands` call with its vscode seams and the dashboard Close/Reopen actions; the
 // logic is in `ops/closeOps.ts` and `ops/closeCommands.ts`.
-const MAX_EXTENSION_LINES = 8769;
+// Raised by 5 (8769 -> 8774): sidebar menu actions (+3) merged from develop (#778) and agy sandbox appDataDir (+2) in createAgyWatchLoop (ENABLE-DOCKER-BACKEND-FOR-AGY).
+const MAX_EXTENSION_LINES = 8774;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

@@ -24,9 +24,10 @@ export function sbxName(input: SbxNameInput): string {
   if (!(ALLOWED_CORES as readonly string[]).includes(input.core)) {
     throw new Error(`sbx name: core ${JSON.stringify(input.core)} is not a sandbox core`);
   }
+  const core = input.core === 'agy' ? 'antigravity' : input.core;
   const hash = createHash('sha256').update(input.projectRoot).digest('hex').slice(0, 8);
-  const name = `karst-${hash}-${input.ticketId}-${input.core}`;
-  if (!SAFE.test(input.core) || name.length > MAX_LEN) {
+  const name = `karst-${hash}-${input.ticketId}-${core}`;
+  if (!SAFE.test(core) || name.length > MAX_LEN) {
     throw new Error(`sbx name: unsafe name ${JSON.stringify(name)}`);
   }
   return name;

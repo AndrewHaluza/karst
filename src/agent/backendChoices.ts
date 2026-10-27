@@ -13,16 +13,26 @@ export type BackendCore = (typeof BACKEND_CORES)[number];
 /** `Manifest.agentBackends`: absent key = host. */
 export type AgentBackends = { readonly [C in BackendCore]?: CoreBackend };
 
+/**
+ * Canonical key for looking up a core in `AgentBackends` maps.
+ * Manifest keys and Settings use 'agy', while session providers use 'antigravity'.
+ */
+export function backendCoreKey(core: string): string {
+  return core === 'antigravity' ? 'agy' : core;
+}
+
 /** The values a core can be set to; host is always first. */
 export function allowedBackends(core: string): readonly CoreBackend[] {
-  if ((SBX_CORES as readonly string[]).includes(core)) return ['host', 'sbx'];
-  if ((DOCKER_CORES as readonly string[]).includes(core)) return ['host', 'docker'];
+  const key = backendCoreKey(core);
+  if ((SBX_CORES as readonly string[]).includes(key)) return ['host', 'sbx'];
+  if ((DOCKER_CORES as readonly string[]).includes(key) || (DOCKER_CORES as readonly string[]).includes(core)) return ['host', 'docker'];
   return ['host'];
 }
 
-/** The backend one core is set to (absent → host). */
+/** The backend one core is set to (absent → host). Exact key wins, then mapped key. */
 export function backendForCore(backends: AgentBackends | undefined, core: string): CoreBackend {
-  return (backends as Readonly<Record<string, CoreBackend | undefined>> | undefined)?.[core] ?? 'host';
+  const map = backends as Readonly<Record<string, CoreBackend | undefined>> | undefined;
+  return map?.[core] ?? map?.[backendCoreKey(core)] ?? 'host';
 }
 
 /** The sandbox backends some core selects (`host` excluded). */

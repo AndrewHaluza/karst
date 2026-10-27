@@ -32,11 +32,11 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 
 import { DOCKER_CORES, type DockerCore } from '../sandboxCores.js';
 
-/** The cores the docker backend can host. agy is deferred (no spike). */
+/** The cores the docker backend can host. */
 export { DOCKER_CORES, type DockerCore };
 
 /** Cores accepted by the Docker runner (arch:AC-33). */
-export type DockerRunnerCore = DockerCore | 'antigravity' | 'agy';
+export type DockerRunnerCore = DockerCore;
 
 export function opencodeImageTag(v1: string, v2: string): string {
   if (!SEMVER.test(v1) || !SEMVER.test(v2)) {

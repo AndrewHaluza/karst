@@ -43,8 +43,8 @@ describe('diffSandboxOp', () => {
     await expect(diffSandboxOp(a.deps, { ...target, worktree: undefined })).resolves.toBe(false);
     expect(a.errors).toEqual(['Karst: K-7 has no worktree branch to diff against.']);
     const b = setup();
-    await expect(diffSandboxOp(b.deps, { ...target, core: 'antigravity' })).resolves.toBe(false);
-    expect(b.errors).toEqual(['Karst: K-7 has no sandbox (core antigravity).']);
+    await expect(diffSandboxOp(b.deps, { ...target, core: 'none' })).resolves.toBe(false);
+    expect(b.errors).toEqual(['Karst: K-7 has no sandbox (core none).']);
     expect(a.proc.calls.length + b.proc.calls.length).toBe(0);
   });
 });

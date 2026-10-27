@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { HookChannelRecorder } from '../../diagnostics/hookChannel.js';
+import { CONTAINER_REPO } from '../../agent/docker/dockerRunArgs.js';
 import {
   agyWatchTick,
   findConversationForWorktree,
@@ -28,6 +30,8 @@ export interface AgyWatchLoopDeps {
   readonly store: Store;
   /** The terminals currently open in the window. */
   readonly listTerminals: () => Iterable<unknown>;
+  /** Optional directory where the container mirrors agy app data for sandboxed tickets. */
+  readonly sandboxAppDataDir?: (ticketId: number) => string | undefined;
   /** Resolve a terminal to its ticket identity, or `undefined` if unnamed. */
   readonly identifyTerminal: (terminal: unknown) => AgyTerminalNamed | undefined;
   /** Per-ticket memory of the lifecycle watch (conversation db, pending state). */
@@ -136,24 +140,36 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
         }
         let snapshot: AgyConversationSnapshot | null = null;
         let agyUsage: AgyConversationUsage | null = null;
+        const custom = deps.sandboxAppDataDir?.(named.ticketId);
+        const ticketAppDataDir = custom && existsSync(custom) ? custom : appDataDir;
         try {
-          const found = findConversationForWorktree(appDataDir, worktree.path);
+          const found = findConversationForWorktree(ticketAppDataDir, [worktree.path, CONTAINER_REPO]);
           if (found) {
             const db = openAgyConversationDb(found.dbPath);
             try {
+              let pending = false;
+              try {
+                pending = db.pendingApprovalCount() > 0;
+              } catch {
+                // transient SQLITE_BUSY: leave pending as false
+              }
               snapshot = {
                 dbPath: found.dbPath,
                 conversationId: found.conversationId,
-                pendingApproval: db.pendingApprovalCount() > 0,
+                pendingApproval: pending,
                 // The per-conversation DB cannot say whether a turn is in
                 // flight; the CLI's summary DB carries the run status. `null`
                 // (no row / unreadable) stays UNKNOWN — the typed route defers
                 // only on an explicit running status, never holds forever.
-                idle: readAgyConversationIdle(appDataDir, found.conversationId),
+                idle: readAgyConversationIdle(ticketAppDataDir, found.conversationId),
               };
               // Read usage while the DB is open — the lifecycle watch
               // doubles as the usage channel for antigravity sessions.
-              agyUsage = db.usage();
+              try {
+                agyUsage = db.usage();
+              } catch {
+                // transient SQLITE_BUSY: leave usage as null
+              }
             } finally {
               db.close();
             }

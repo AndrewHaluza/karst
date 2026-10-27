@@ -119,6 +119,12 @@ const FOCUS_CAP = 12;
  * existing control closes or reopens a ticket, and Detach/Pause/Stop act on
  * other states. They are mutually exclusive and host-gated (`hidden` unless
  * `canClose` / `canReopen`), but the sweep's selector counts hidden controls.
+ *
+ * Updated a fifteenth time by enabling Docker backend for agy (ENABLE-DOCKER-BACKEND-FOR-AGY):
+ * `settings` 193 → 195 — on the Agents page's Sandbox backend panel (`BackendPanel`),
+ * the `agy` row previously rendered a single disabled `host` button (`no sandbox yet`);
+ * with `docker` enabled as an allowed backend for `agy`, both `host` and `docker` buttons
+ * render enabled (`allowed.length === 2`), adding exactly two focusable buttons to the Settings view.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
@@ -127,7 +133,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   serverLogs: 11,
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
-  settings: 193,
+  settings: 195,
   ticketForm: 28,
   gettingStarted: 6,
 };

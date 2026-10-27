@@ -2,5 +2,5 @@
 export type SbxCore = 'claude' | 'codex';
 export const SBX_CORES: readonly SbxCore[] = ['claude', 'codex'];
 
-export type DockerCore = 'opencode' | 'opencode2';
-export const DOCKER_CORES: readonly DockerCore[] = ['opencode', 'opencode2'];
+export type DockerCore = 'opencode' | 'opencode2' | 'antigravity' | 'agy';
+export const DOCKER_CORES: readonly DockerCore[] = ['opencode', 'opencode2', 'antigravity', 'agy'] as const;

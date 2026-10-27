@@ -57,7 +57,9 @@ describe('backendKindOf', () => {
     expect(backendKindOf('claude')).toBe('sbx');
     expect(backendKindOf('codex')).toBe('sbx');
     expect(backendKindOf('opencode2')).toBe('docker');
-    expect(backendKindOf('agy')).toBe('host');
+    expect(backendKindOf('antigravity')).toBe('docker');
+    expect(backendKindOf('agy')).toBe('docker');
+    expect(backendKindOf('none')).toBe('host');
     expect(backendKindOf(null)).toBe('host');
   });
 });
@@ -163,7 +165,7 @@ describe('stopSandboxOp', () => {
     const { d, proc } = deps({ owns: () => false });
     await expect(stopSandboxOp(d, target)).resolves.toBe(false);
     const host = deps();
-    await expect(stopSandboxOp(host.d, { ...target, core: 'agy' })).resolves.toBe(false);
+    await expect(stopSandboxOp(host.d, { ...target, core: 'none' })).resolves.toBe(false);
     expect([...proc.calls, ...host.proc.calls]).toEqual([]);
   });
 });
@@ -209,8 +211,8 @@ describe('reconcileSandboxes', () => {
     const clear = vi.fn();
     const inv = { sandboxes: [box(7), box(8, 'codex', 'stopped'), box(42)], errors: [] };
     const r = reconcileSandboxes(inv, live, (id) => id !== 10, clear);
-    expect(r).toEqual({ running: [7], stopped: [8], missing: [9], orphans: [box(42)] });
-    expect(clear.mock.calls).toEqual([[9]]);
+    expect(r).toEqual({ running: [7], stopped: [8], missing: [9, 11], orphans: [box(42)] });
+    expect(clear.mock.calls).toEqual([[9], [11]]);
   });
   it('adopts a `● running` sbx table row as running (T801: sbx prints a status glyph)', async () => {
     const inv = await listProjectSandboxes({

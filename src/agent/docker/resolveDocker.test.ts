@@ -8,16 +8,17 @@ const base = { projectRoot: '/p', ticketId: 7, worktree: WT };
 const deps = (extra = {}) => ({ proc: fakeDockerProcess(), preflight: pass, prepare: pass, platform: 'darwin' as const, hostAuthFile: () => Promise.resolve(undefined), ...extra });
 
 describe('resolveDocker', () => {
-  it.each(['opencode', 'opencode2'])('prepares and returns an enforcing docker runner for %s', async (core) => {
+  it.each(['opencode', 'opencode2', 'antigravity', 'agy'])('prepares and returns an enforcing docker runner for %s', async (core) => {
     const out = await resolveDocker({ ...base, core, deps: deps() });
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.runner.kind).toBe('docker');
     expect(out.runner.enforcesSandbox).toBe(true);
-    expect(out.names.container).toMatch(new RegExp(`^karst-[0-9a-f]{8}-7-${core}$`));
+    const expectedCore = core === 'agy' ? 'antigravity' : core;
+    expect(out.names.container).toMatch(new RegExp(`^karst-[0-9a-f]{8}-7-${expectedCore}$`));
   });
 
-  it.each(['claude', 'codex', 'antigravity'])('refuses %s (agy deferred, claude/codex are sbx)', async (core) => {
+  it.each(['claude', 'codex'])('refuses %s (claude/codex are sbx)', async (core) => {
     const preflight = vi.fn();
     await expect(resolveDocker({ ...base, core, deps: deps({ preflight }) })).resolves.toEqual({ ok: false, reason: `${core}: docker backend unsupported` });
     expect(preflight).not.toHaveBeenCalled();

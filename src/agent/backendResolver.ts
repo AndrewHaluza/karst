@@ -19,6 +19,7 @@ export interface ResolveBackendInput {
   readonly host?: SessionRunner;
   /** The ticket worktree and branch; the docker backend clones it. */
   readonly worktree?: SandboxTicketRef;
+  readonly bridgeDir?: string;
   readonly docker?: DockerResolveDeps;
 }
 
@@ -41,6 +42,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   if (backend === 'docker') {
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,
+      bridgeDir: input.bridgeDir,
       ...(input.docker ? { deps: input.docker } : {}),
     });
     return docker.ok ? { runner: docker.runner, line: `docker (${docker.names.container})` } : onHost(docker.reason);

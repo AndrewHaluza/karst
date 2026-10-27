@@ -64,16 +64,30 @@ describe('resolveBackend', () => {
   const dockerDeps = { preflight: vi.fn().mockResolvedValue({ ok: true }), prepare: vi.fn().mockResolvedValue({ ok: true }), hostAuthFile: () => Promise.resolve(undefined) };
   const worktree = { hostWorktreePath: '/w/t7', branch: 'feat/x' };
 
-  it.each(['opencode', 'opencode2'])('picks docker for %s when preflight and prepare pass', async (core) => {
-    const out = await resolveBackend({ ...base, core, backends: { [core]: 'docker' }, worktree, docker: dockerDeps });
+  it.each(['opencode', 'opencode2', 'antigravity', 'agy'])('picks docker for %s when preflight and prepare pass', async (core) => {
+    const out = await resolveBackend({ ...base, core, backends: { [core]: 'docker' } as any, worktree, docker: dockerDeps });
     expect(out.runner.kind).toBe('docker');
     expect(out.runner.enforcesSandbox).toBe(true);
-    expect(out.line).toMatch(new RegExp(`^docker \\(karst-[0-9a-f]{8}-7-${core}\\)$`));
+    const expectedName = core === 'agy' ? 'antigravity' : core;
+    expect(out.line).toMatch(new RegExp(`^docker \\(karst-[0-9a-f]{8}-7-${expectedName}\\)$`));
   });
 
-  it.each(['claude', 'codex', 'antigravity'])('keeps %s on host under docker with a reason', async (core) => {
+  it.each(['claude', 'codex'])('keeps %s on host under docker with a reason', async (core) => {
     const out = await resolveBackend({ ...base, core, backends: { [core]: 'docker' }, worktree, docker: dockerDeps });
     expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: `host (${core}: docker backend unsupported)` });
+  });
+
+  it('forwards bridgeDir to resolveDocker when backend is docker', async () => {
+    const prepare = vi.fn().mockResolvedValue({ ok: true });
+    await resolveBackend({
+      ...base,
+      core: 'agy',
+      backends: { agy: 'docker' },
+      worktree,
+      bridgeDir: '/bridge/events/7',
+      docker: { ...dockerDeps, prepare },
+    });
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ bridgeDir: '/bridge/events/7' }));
   });
 
   it('falls back to host with the docker reason', async () => {

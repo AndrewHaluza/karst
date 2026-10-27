@@ -229,7 +229,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (bridges.markerStatus?.(ticketId) !== undefined) return;
     const d = deps();
     // No backend here: a host session ends with its terminal, so detach.
-    if (!d) { await bridges.detach(ticketId); return; }
+    if (!d || recordedHost(ticketId)) { await bridges.detach(ticketId); return; }
     let core: string | null = null;
     try {
       core = target(ticketId).core;
