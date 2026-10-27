@@ -166,9 +166,17 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     existing manifest is present, propose a MINIMAL edit: keep \`id\`, presets,
     agent settings, processes and every field you did not infer; only add or
     correct repositories and services. The host re-enforces that on apply.
+ - \`manifest show --active\` — ONLY inside a setup session. Prints the active
+    \`karst.yml\` re-dumped WITHOUT comments (pass \`--manifest "$KARST_MANIFEST"\`).
+    Read this instead of the annotated file, which is a long cookbook.
  - \`setup propose-change\` — ONLY inside a setup session. Reads ONE JSON object
-    on stdin, \`{"kind":"change","repo":…,"reason":…,"command":…}\` (or
-    \`"patch"\` instead of \`"command"\`), and writes it into
+    (\`--file <path>\` is preferred: build the payload in a file, shell echo
+    corrupts quoting), \`{"subcommand":"propose-change","repo":…,"reason":…,"command":…,"path":…}\`
+    (or \`"patch"\` instead of \`"command"\`). \`repo\` is a manifest repository
+    name or a folder name; \`path\` (optional, absolute or relative to the
+    workspace root, must stay inside it, \`.\` = the root) overrides \`repo\` for
+    where the change runs — use \`path: "."\` to git init the root. The consent
+    dialog shows the resolved directory. It writes the proposal into
     \`$KARST_SETUP_OUTBOX\`. The extension shows the exact command or patch and
     applies it only after the user agrees — git init, dependency installs,
     \`.env\` creation and the like all need that consent; you must NOT edit a
@@ -183,7 +191,9 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     fields (gates, conventions, processes, …) are taken from your proposal only
     on first setup (no manifest, or an unedited scaffold); afterwards they are
     kept and each dropped field is named in the result. \`withdraw\` removes a
-    pending proposal.
+    pending proposal. After each proposal, confirm it shows \`applied\` (plus the
+    sha256 for a manifest): the propose command's ok only means queued. Retry at
+    most once, then report.
  - \`setup verify [--repos a,b]\` — ONLY inside a setup session, AFTER the user
     accepted the manifest. Starts the proposed manifest's baseline services with
     health gates (the ticketless baseline path, so no ticket is needed) and
