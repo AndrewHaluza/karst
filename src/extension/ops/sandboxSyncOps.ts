@@ -71,8 +71,10 @@ export function backendSessionOptions(input: BackendSessionInput): {
   }
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
+    const bridgePaths = input.bridgeFor ? await input.bridgeFor(input.ticketId).catch(() => undefined) : undefined;
     const out = await resolve({
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+      ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },

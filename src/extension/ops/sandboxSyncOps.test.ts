@@ -130,10 +130,15 @@ describe('backendSessionOptions per-ticket opt-out and visible fallback (arch:AC
 });
 
 describe('backendSessionOptions bridgeFor', () => {
-  it('passes bridgeFor through only with a backend', () => {
-    const bridgeFor = vi.fn();
-    const base = { core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), bridgeFor };
-    expect(backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' } }).bridgeFor).toBe(bridgeFor);
+  it('passes bridgeFor through only with a backend and forwards bridgeDir to resolve', async () => {
+    const bridgeFor = vi.fn().mockResolvedValue({ dir: '/g/bridge/7' });
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (done)' });
+    const base = { core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), bridgeFor, resolve };
+    const opts = backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' } });
+    expect(opts.bridgeFor).toBe(bridgeFor);
+    await opts.resolveRunner!();
+    expect(bridgeFor).toHaveBeenCalledWith(7);
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ bridgeDir: '/g/bridge/7' }));
     expect(backendSessionOptions({ ...base, backends: undefined })).toEqual({});
   });
 });
