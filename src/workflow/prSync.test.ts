@@ -250,6 +250,40 @@ describe('syncPrStatuses', () => {
     expect(listPrsByTicket(store, a.id)[0]!.checks?.state).toBe('failing');
   });
 
+  it('a stored failing rollup turns passing when the probe holds a newer re-run of the same check', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    const run = (conclusion: string, startedAt: string) => ({
+      __typename: 'CheckRun',
+      name: 'lint-title',
+      workflowName: 'PR',
+      status: 'COMPLETED',
+      conclusion,
+      startedAt,
+      completedAt: startedAt,
+    });
+    const probe = (rollup: unknown[]): GhRunner => async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [],
+        statusCheckRollup: rollup,
+      }),
+      exitCode: 0,
+    });
+
+    await syncPrStatuses(store, probe([run('FAILURE', '2026-10-27T10:10:55Z')]), { projectId: 1 });
+    expect(listPrsByTicket(store, a.id)[0]!.checks?.state).toBe('failing');
+    const both = [run('FAILURE', '2026-10-27T10:10:55Z'), run('SUCCESS', '2026-10-27T10:26:23Z')];
+    expect(await syncPrStatuses(store, probe(both), { projectId: 1 })).toBe(1);
+    expect(listPrsByTicket(store, a.id)[0]!.checks?.state).toBe('passing');
+  });
+
   it('reports a change when only GitHub’s merge block moved', async () => {
     const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
     seedPr(store, a.id, 'api', 12, 'open');

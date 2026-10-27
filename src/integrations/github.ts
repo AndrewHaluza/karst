@@ -27,6 +27,7 @@ export interface OpenPrOpts {
   title: string;
   body: string;
   base?: string; // target branch; gh defaults to the repo default
+  head?: string; // branch being shipped, named in the nothing-to-open hint
 }
 
 export interface OpenedPr {
@@ -623,6 +624,14 @@ export async function openPr(gh: GhRunner, opts: OpenPrOpts): Promise<CreatedPr>
     // and on whether gh thinks it is talking to a tty.
     const existing = prFromAlreadyExists(`${r.stderr ?? ''}\n${r.stdout}`);
     if (existing) return { ...existing, adopted: true };
+    if (/No commits between|Head sha can't be blank/.test(reason)) {
+      const branch = opts.head ?? '<branch>';
+      throw new Error(
+        `gh pr create failed in ${opts.cwd}: ${branch} has nothing new vs ${opts.base ?? 'base'} ` +
+          `or its remote head branch is gone (${reason}). ` +
+          `Check \`gh pr list --head ${branch} --state all\` — it may already be merged.`,
+      );
+    }
     throw new Error(`gh pr create failed in ${opts.cwd}: ${reason}`);
   }
 
