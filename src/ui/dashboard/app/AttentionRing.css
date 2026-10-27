@@ -1,0 +1,37 @@
+.attention-ring {
+  position:fixed;
+  inset:0;
+  top:0px;
+  left:0px;
+  right:0px;
+  bottom:0px;
+  pointer-events:none;
+  box-sizing:border-box;
+  border:calc(var(--k-border-w) * 2) solid var(--k-focus);
+  opacity:0;
+  z-index:20;
+}
+
+.attention-ring.pulsing {
+  opacity:1;
+  animation:attention-pulse var(--k-dur-flash-attention) var(--k-ease-out) forwards;
+}
+
+@keyframes attention-pulse {
+  0% {
+    opacity:1;
+  }
+  60% {
+    opacity:1;
+  }
+  100% {
+    opacity:0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-ring.pulsing {
+    animation:none;
+    opacity:1;
+  }
+}
