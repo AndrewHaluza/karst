@@ -289,6 +289,7 @@ export class DashboardManager extends DashboardManagerBase {
       // fires on changes, so the reveal that caused this one must be reported here
       // (idempotent and order-safe — a later event can only correct it).
       if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
+      existing.postMessage({ type: 'attention' });
       return;
     }
 

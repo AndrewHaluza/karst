@@ -2115,4 +2115,98 @@ describe('DashboardManager', () => {
 
     expect(detached).toEqual([t.id]);
   });
+
+  describe('attention pulse on reveal', () => {
+    it('posts attention message when revealing an existing panel', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted.some((m) => (m as { type: string }).type === 'attention')).toBe(false);
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+    });
+
+    it('posts attention message when reveal preserves focus (terminal click path)', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.posted.some((m) => (m as { type: string }).type === 'attention')).toBe(false);
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+    });
+
+    it('pulses only the targeted dashboard when multiple dashboards are open in split editor', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      panels[0]!.visible = true;
+      panels[1]!.visible = true;
+      panels[0]!.posted = [];
+      panels[1]!.posted = [];
+
+      // Click ticket A in sidebar
+      mgr.openDashboard(a.id);
+
+      expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+      expect(panels[1]!.posted.some((m) => (m as { type: string }).type === 'attention')).toBe(false);
+    });
+
+    it('does not pulse when switching between dashboards via editor tab clicks or keyboard focus', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      panels[0]!.posted = [];
+      panels[1]!.posted = [];
+
+      // User clicks tab or focuses keyboard on dashboard B, deactivating A
+      panels[0]!.emitViewState(false);
+      panels[1]!.emitViewState(true);
+
+      const attentionsA = panels[0]!.posted.filter((m) => (m as { type: string }).type === 'attention');
+      const attentionsB = panels[1]!.posted.filter((m) => (m as { type: string }).type === 'attention');
+      expect(attentionsA).toHaveLength(0);
+      expect(attentionsB).toHaveLength(0);
+    });
+
+    it('posts attention message even when existing panel is already visible and active', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      panels[0]!.visible = true;
+      panels[0]!.emitViewState(true);
+
+      mgr.openDashboard(t.id);
+      expect(panels[0]!.posted).toContainEqual({ type: 'attention' });
+    });
+
+    it('does not post attention on initial open, state push, or viewState change', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      mgr.pushState(t.id);
+      panels[0]!.emitViewState(true);
+      panels[0]!.emitViewState(false);
+
+      const attentions = panels[0]!.posted.filter((m) => (m as { type: string }).type === 'attention');
+      expect(attentions).toHaveLength(0);
+    });
+  });
 });
