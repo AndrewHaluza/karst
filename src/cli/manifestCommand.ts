@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dump, load } from 'js-yaml';
 import { basename, resolve } from 'node:path';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { validateSetupProposal, type ManifestProposal } from '../setup/proposal.js';
@@ -23,11 +24,14 @@ import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 export interface ManifestCommandDeps {
   /** `KARST_SETUP_OUTBOX` from the session env, read and injected by main.ts. */
   outboxEnv?: string;
+  /** The `--manifest` global; `show` reads it. */
+  manifestPath?: string;
   /** Injectable uuid for deterministic tests. */
   uuid?: () => string;
 }
 
-const USAGE = 'usage: karst manifest <validate|propose> --file <path> [--summary <text>]';
+const USAGE =
+  'usage: karst manifest <validate|propose> --file <path> [--summary <text>] | karst manifest show --active';
 
 interface Parsed {
   sub: 'validate' | 'propose';
@@ -39,7 +43,7 @@ export function parseManifestArgs(argv: readonly string[]): Parsed {
   const [cmd, sub, ...rest] = argv;
   if (cmd !== 'manifest') throw new Error(`karst manifest: unknown command '${cmd ?? ''}'`);
   if (sub !== 'validate' && sub !== 'propose') {
-    throw new Error(`karst manifest: unknown subcommand '${sub ?? ''}' (want 'validate' or 'propose')`);
+    throw new Error(`karst manifest: unknown subcommand '${sub ?? ''}' (want 'validate', 'propose' or 'show')`);
   }
   let file: string | undefined;
   let summary: string | undefined;
@@ -97,7 +101,26 @@ function runPropose(file: string, summary: string | undefined, deps: ManifestCom
   return JSON.stringify({ ok: true, kind: 'manifest', id: basename(out, '.json'), file: out });
 }
 
+/**
+ * `manifest show --active`: the active karst.yml re-dumped without comments.
+ * A fresh scaffold is a long annotated template; this is the compact view the
+ * setup agent reads instead (the annotated file stays a cookbook).
+ */
+function runShow(rest: readonly string[], deps: ManifestCommandDeps): string {
+  if (rest.length !== 1 || rest[0] !== '--active') {
+    throw new Error(`karst manifest show: needs --active (${USAGE})`);
+  }
+  if (deps.manifestPath === undefined) {
+    throw new Error('karst manifest show: no manifest path (pass --manifest "$KARST_MANIFEST")');
+  }
+  if (!existsSync(deps.manifestPath)) {
+    throw new Error(`karst manifest show: no active manifest at ${deps.manifestPath}`);
+  }
+  return dump(load(readFileSync(deps.manifestPath, 'utf8')), { lineWidth: -1, noRefs: true });
+}
+
 export function runManifestCommand(argv: readonly string[], deps: ManifestCommandDeps = {}): string {
+  if (argv[1] === 'show') return runShow(argv.slice(2), deps);
   const { sub, file, summary } = parseManifestArgs(argv);
   return sub === 'validate' ? runValidate(file) : runPropose(file, summary, deps);
 }

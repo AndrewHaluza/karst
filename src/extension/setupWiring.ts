@@ -5,7 +5,8 @@ import { mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
-import { resolveChangeRepoDir } from '../setup/changeTarget.js';
+import { resolveChangeDir, type ChangeDir } from '../setup/changeTarget.js';
+import type { ChangeProposal } from '../setup/proposal.js';
 import type { SetupManifest } from '../setup/instructions.js';
 import { createSetupOps } from './ops/setupOps.js';
 import { createSetupProposalOps } from './ops/setupProposalOps.js';
@@ -97,19 +98,9 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
   const workspaceRoot = (): string | undefined => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const manifestOrEmpty = (): SetupManifest | undefined => deps.currentManifest();
 
-  /**
-   * A consented change runs in the repo's directory. A registered repo uses its
-   * resolved `repoPath`; a not-yet-registered one (greenfield's `git init` /
-   * `.env` / install) uses the folder the user named under the workspace root —
-   * never the root itself, which applied the change one level up from the folder
-   * the consent modal named (see `setup/changeTarget.ts`).
-   */
-  const repoCwd = (repo: string): string =>
-    resolveChangeRepoDir(
-      repo,
-      workspaceRoot() ?? process.cwd(),
-      deps.currentManifest()?.repositories[repo]?.repoPath,
-    );
+  /** A consented change runs in the resolved directory (`setup/changeTarget.ts`). */
+  const resolveDir = (change: ChangeProposal): ChangeDir =>
+    resolveChangeDir(change, workspaceRoot() ?? process.cwd(), deps.currentManifest()?.repositories[change.repo]?.repoPath);
 
   const setup = createSetupOps({
     manifest: manifestOrEmpty,
@@ -146,8 +137,9 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       writeManifest(path, applied);
       return createHash('sha256').update(readFileSync(path)).digest('hex');
     },
-    runCommand: (repo, command) => runShellCommand(repoCwd(repo), command),
-    applyPatch: (repo, patch) => applyPatch(repoCwd(repo), patch),
+    resolveDir,
+    runCommand: (cwd, command) => runShellCommand(cwd, command),
+    applyPatch: (cwd, patch) => applyPatch(cwd, patch),
     notify: deps.notify,
     debug: deps.debug,
   });

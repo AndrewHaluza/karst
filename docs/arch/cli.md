@@ -271,3 +271,11 @@ covers: src/setup/ledger.ts#readLedger, src/setup/ledger.ts#withdrawProposal
 
 The host writes `<outbox>/results/<id>.json` per proposal (`pending|applied|declined|invalid|superseded|withdrawn`, a reason, `dropped` protected fields, the sha256 of karst.yml after an apply). The newest manifest proposal of a session supersedes older pending ones. `setup status` prints the ledger; `setup withdraw <id>` removes a pending file and leaves a `withdrawn/<id>` marker, and the host skips the apply if the file vanished during consent. `manifest propose` / `setup propose-change` print the `id`. The ledger is display only: the host never reads it to decide anything, so an agent forging a result changes nothing but its own `status` output.
 END_DOC_BLOCK: [@arch:CLI-19]
+
+## [@arch:CLI-20] `propose-change` path, `manifest show --active`, and the cookbook scaffold
+covers: src/setup/changeTarget.ts#resolveChangeDir, src/cli/manifestCommand.ts#runManifestCommand, src/manifest/scaffoldStamp.ts#stampScaffold
+
+`setup propose-change` takes an optional `path` (absolute, or relative to the workspace root, inside it; `.` = the root) that overrides `repo` for where the change runs. `resolveChangeDir` resolves it; the consent modal's first line is `Directory: <resolved>`; an escaping path is recorded `invalid` without prompting. Containment is lexical. Build the payload in a file and pass `--file`: it is schema-validated before anything is queued.
+
+`manifest show --active` prints the active manifest (`--manifest`) re-dumped without comments, because a fresh scaffold is a long annotated template that truncates an agent's first read. The annotated file is a cookbook, not a read-whole document. The scaffold declares one live repository (`app`, `repoPath` stamped by `stampScaffold`); the backend/frontend/db/tooling shapes and the Playwright/verify-uat gates sit in a commented cookbook that `example.test.ts` uncomments and loads.
+END_DOC_BLOCK: [@arch:CLI-20]

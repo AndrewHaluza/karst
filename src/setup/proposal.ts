@@ -29,6 +29,7 @@ export const MAX_SETUP_SUMMARY = 8 * 1024;
 export const MAX_SETUP_REASON = 2 * 1024;
 export const MAX_SETUP_COMMAND = 4 * 1024;
 export const MAX_SETUP_PATCH = 256 * 1024;
+export const MAX_SETUP_PATH = 1024;
 /** Repository names use the same grammar as a manifest repository key. */
 export const SETUP_REPO_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -52,6 +53,8 @@ export interface ChangeProposal {
   command?: string;
   /** A unified-diff patch, when the change is a file edit (e.g. a new .env). */
   patch?: string;
+  /** Directory the change runs in: absolute, or relative to the workspace root; must stay inside it. Overrides `repo` for resolution. */
+  path?: string;
 }
 
 export type SetupProposal = ManifestProposal | ChangeProposal;
@@ -112,8 +115,8 @@ function validateManifestProposal(rec: Record<string, unknown>): SetupProposalRe
 }
 
 function validateChangeProposal(rec: Record<string, unknown>): SetupProposalResult {
-  if (!exactKeys(rec, ['kind', 'repo', 'reason'], ['kind', 'repo', 'reason', 'command', 'patch'])) {
-    return fail('change proposal keys must be exactly kind, repo, reason (plus an optional command or patch)');
+  if (!exactKeys(rec, ['kind', 'repo', 'reason'], ['kind', 'repo', 'reason', 'command', 'patch', 'path'])) {
+    return fail('change proposal keys must be exactly kind, repo, reason (plus an optional command or patch, and an optional path)');
   }
   const repo = rec.repo;
   if (typeof repo !== 'string' || !SETUP_REPO_NAME.test(repo) || repo === '.' || repo === '..') {
@@ -137,7 +140,15 @@ function validateChangeProposal(rec: Record<string, unknown>): SetupProposalResu
   if (command === undefined && patch === undefined) {
     return fail('a change proposal needs an exact command or patch');
   }
+  const path = rec.path;
+  if (
+    path !== undefined &&
+    (typeof path !== 'string' || path.trim() === '' || path.length > MAX_SETUP_PATH || path.replace(ALL_CONTROLS, '') !== path)
+  ) {
+    return fail(`path must be a non-empty string of at most ${MAX_SETUP_PATH} characters without control characters`);
+  }
   const value: ChangeProposal = { kind: 'change', repo, reason };
+  if (path !== undefined) value.path = path;
   if (command !== undefined) value.command = command;
   if (patch !== undefined) value.patch = patch;
   return { ok: true, value };

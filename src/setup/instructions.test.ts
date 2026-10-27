@@ -34,6 +34,19 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/End the session ONLY when it reports ok/);
   });
 
+  it('states the process rules a check cannot enforce', () => {
+    expect(text).toContain('the host is the only writer of karst.yml');
+    expect(text).toContain('setup status');
+    expect(text).toContain('`applied`');
+    expect(text).toMatch(/at most ONE retry/);
+    expect(text).toContain('propose-change --file');
+    expect(text).not.toContain("printf '%s'");
+    expect(text).toContain('`path` overrides `repo`');
+    expect(text).toContain('path: "."');
+    expect(text).toContain('manifest show --active');
+    expect(text).toContain('cookbook');
+  });
+
   it('states the never-assume-develop rule and the no-placeholder rule', () => {
     expect(text).toMatch(/NEVER assume develop/);
     expect(text).toMatch(/never invent a placeholder/);

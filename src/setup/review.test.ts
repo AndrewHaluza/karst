@@ -44,7 +44,7 @@ describe('describeManifestProposal', () => {
 
 describe('describeChangeProposal', () => {
   it('shows the reason and the exact command', () => {
-    const d = describeChangeProposal({ kind: 'change', repo: 'web', reason: 'deps missing', command: 'npm ci' });
+    const d = describeChangeProposal({ kind: 'change', repo: 'web', reason: 'deps missing', command: 'npm ci' }, '/ws/web');
     expect(d.message).toBe('Apply this change to "web"?');
     expect(d.detail).toContain('deps missing');
     expect(d.detail).toContain('Command: npm ci');
@@ -52,8 +52,13 @@ describe('describeChangeProposal', () => {
   });
 
   it('shows a patch when there is no command', () => {
-    const d = describeChangeProposal({ kind: 'change', repo: 'web', reason: 'env', patch: '+++ b/.env\n' });
+    const d = describeChangeProposal({ kind: 'change', repo: 'web', reason: 'env', patch: '+++ b/.env\n' }, '/ws/web');
     expect(d.detail).toContain('Patch:');
     expect(d.detail).toContain('+++ b/.env');
+  });
+
+  it('names the resolved directory first in the detail', () => {
+    const d = describeChangeProposal({ kind: 'change', repo: 'macos_iot', reason: 'init', command: 'git init', path: '.' }, '/ws');
+    expect(d.detail.split('\n')[0]).toBe('Directory: /ws');
   });
 });

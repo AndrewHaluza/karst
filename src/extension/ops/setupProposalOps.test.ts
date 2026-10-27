@@ -48,6 +48,7 @@ function deps(files: Record<string, string>) {
     applyPatch,
     confirm,
     deps: {
+      resolveDir: (c: ChangeProposal) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
       outboxes: () => ['/s/1'],
       readCurrentManifest: () => undefined,
       confirm,
@@ -93,9 +94,42 @@ describe('createSetupProposalOps.scan', () => {
     const patch: ChangeProposal = { kind: 'change', repo: 'api', reason: 'env', patch: '+++ b/.env\n' };
     const f = deps({ '/s/1/outbox/a.json': JSON.stringify(command), '/s/1/outbox/b.json': JSON.stringify(patch) });
     await createSetupProposalOps(f.deps).scan();
-    expect(f.runCommand).toHaveBeenCalledWith('web', 'npm ci');
-    expect(f.applyPatch).toHaveBeenCalledWith('api', '+++ b/.env\n');
+    expect(f.runCommand).toHaveBeenCalledWith('/w/web', 'npm ci');
+    expect(f.applyPatch).toHaveBeenCalledWith('/w/api', '+++ b/.env\n');
     expect(f.fs.removed.sort()).toEqual(['/s/1/outbox/a.json', '/s/1/outbox/b.json']);
+  });
+
+  it('runs a change in the resolved path, and the modal names that directory', async () => {
+    const change: ChangeProposal = { kind: 'change', repo: 'macos_iot', reason: 'init', command: 'git init', path: '.' };
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    await createSetupProposalOps(f.deps).scan();
+    expect(f.confirm.mock.calls[0]![0].detail).toContain('Directory: /w/.');
+    expect(f.runCommand).toHaveBeenCalledWith('/w/.', 'git init');
+  });
+
+  it('marks a change whose path escapes the root invalid without prompting', async () => {
+    const warns: string[] = [];
+    const change: ChangeProposal = { kind: 'change', repo: 'web', reason: 'r', command: 'ls', path: '../x' };
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    const resolveDir = () => ({ ok: false as const, reason: 'path "../x" is outside the workspace root /w' });
+    await createSetupProposalOps({ ...f.deps, resolveDir, notify: { info: () => {}, warn: (m: string) => void warns.push(m) } as never }).scan();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.runCommand).not.toHaveBeenCalled();
+    expect(f.fs.removed).toEqual(['/s/1/outbox/a.json']);
+    expect(f.fs.results[0]).toMatchObject({ kind: 'change', status: 'invalid', reason: expect.stringContaining('outside the workspace root') });
+    expect(warns).toEqual(['Karst: could not apply the change for "web" (path "../x" is outside the workspace root /w).']);
+  });
+
+  it('records a declined change and an applied change in the ledger', async () => {
+    const change: ChangeProposal = { kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' };
+    const declined = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    declined.confirm.mockResolvedValue(false);
+    await createSetupProposalOps(declined.deps).scan();
+    expect(declined.runCommand).not.toHaveBeenCalled();
+    expect(declined.fs.results[0]).toMatchObject({ kind: 'change', status: 'declined', reason: 'declined by the user' });
+    const applied = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
+    await createSetupProposalOps(applied.deps).scan();
+    expect(applied.fs.results[0]).toMatchObject({ kind: 'change', status: 'applied' });
   });
 
   it('drops an invalid proposal with a warning and ignores non-json', async () => {
@@ -152,6 +186,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
 
   function realDeps(confirm = true) {
     return {
+      resolveDir: (c: { repo: string; path?: string }) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
       outboxes: () => [root],
       readCurrentManifest: () => undefined,
       confirm: vi.fn(async () => confirm),
@@ -278,6 +313,7 @@ describe('createSetupProposalOps branches', () => {
     return {
       removed,
       deps: {
+        resolveDir: (c: { repo: string; path?: string }) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
         outboxes: () => ['/s/1'],
         readCurrentManifest: () => undefined,
         confirm: vi.fn(async () => true),
@@ -305,8 +341,8 @@ describe('createSetupProposalOps branches', () => {
       ['a.json', 'b.json'],
     );
     await createSetupProposalOps(d).scan();
-    expect(d.runCommand).toHaveBeenCalledWith('web', 'npm ci');
-    expect(d.applyPatch).toHaveBeenCalledWith('api', '+++ b/.env\n');
+    expect(d.runCommand).toHaveBeenCalledWith('/w/web', 'npm ci');
+    expect(d.applyPatch).toHaveBeenCalledWith('/w/api', '+++ b/.env\n');
   });
 
   it('declines a change proposal without applying it', async () => {
