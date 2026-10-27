@@ -251,6 +251,19 @@ describe('toGhResult', () => {
   });
 });
 
+describe('openPr nothing-to-open failures', () => {
+  it('names the cause and hints gh pr list', async () => {
+    const gh = async () => ({
+      stdout: '',
+      stderr: "Head sha can't be blank, No commits between main and b",
+      exitCode: 1,
+    });
+    await expect(openPr(gh, { cwd: '/w', title: 't', body: 'b', base: 'main', head: 'b' })).rejects.toThrow(
+      /nothing new vs main.*gh pr list --head b --state all/,
+    );
+  });
+});
+
 describe('openPr', () => {
   it('runs `gh pr create` in the repo cwd and parses the returned URL', async () => {
     const calls: { args: string[]; cwd: string }[] = [];

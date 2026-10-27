@@ -327,6 +327,7 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
           ctx.ticketId,
           wt.repo,
           wt.path,
+          { branch: wt.branch, baseRef: wt.baseRef },
         );
         if (landed) {
           base.status = 'already-merged';
