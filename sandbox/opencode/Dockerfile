@@ -18,12 +18,13 @@ FROM node:22-bookworm-slim
 ARG PW
 ARG OC1=1.19.0
 ARG OC2=2.0.27
+ARG AGY=1.4.6
 # `lsof` is not optional: the port-conflict / server-identity path uses it to
 # name the process LISTENING on a port (src/runtime/portConflict.ts), and
 # `procps` alone cannot answer that. Without it every reclaim refuses and the
 # repo's own server suites read "no listener".
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps lsof \
-    build-essential python3 fontconfig \
+    build-essential python3 fontconfig curl \
     && rm -rf /var/lib/apt/lists/*
 # A commit must work in ANY repository here, not only in the ticket clone (which
 # gets the host's identity from `git clone --config user.name=…`): a gate that
@@ -62,10 +63,31 @@ RUN mkdir -p /opt/karst && printf 'playwright %s\n' "${PW}" > /opt/karst/visual-
 RUN npm i -g --prefix /opt/oc1 "opencode-ai@${OC1}" && npm i -g --prefix /opt/oc2 "@opencode/cli@${OC2}" \
     && ln -s /opt/oc1/bin/opencode /usr/local/bin/opencode1 \
     && ln -s /opt/oc2/bin/opencode /usr/local/bin/opencode2
+# Pinned agy binary: verified against SHA-512 per architecture.
+RUN set -e; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+      arm64) \
+        CLI_FILE="linux-arm/cli_linux_arm64.tar.gz"; \
+        SHA512="0daa84244922bd648f940d44dfc33ace8c26217cd710ff116902eb8708829a0cfe70640f0d6b480243442881c9aeb4a905a9aa7887dd8a70159aa0f1a4f98a8f"; \
+        ;; \
+      amd64) \
+        CLI_FILE="linux-x64/cli_linux_x64.tar.gz"; \
+        SHA512="4e1244b8b8c1280552f59c1b24b76a9245db9c80032aec6db28fb86033d6088abc30a90dad432d2b246c28fdd87d82abb48727d5ff88ba1d5d4ec76b33348e7d"; \
+        ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    URL="https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.6-4884751325200384/${CLI_FILE}"; \
+    curl -fsSL "${URL}" -o /tmp/agy.tar.gz; \
+    echo "${SHA512}  /tmp/agy.tar.gz" | sha512sum -c -; \
+    tar -xzf /tmp/agy.tar.gz -C /tmp; \
+    mv /tmp/antigravity /usr/local/bin/agy; \
+    chmod +x /usr/local/bin/agy; \
+    rm /tmp/agy.tar.gz
 # Data dirs exist and belong to `node` before any mount lands on them: a single
 # file mounted into a missing dir creates root-owned parents (ST2B blocker 3).
 RUN mkdir -p /home/node/.local/share/opencode /home/node/.local/state /home/node/.config \
-    /home/node/.cache /work \
+    /home/node/.cache /home/node/.gemini/antigravity-cli /home/node/.gemini/config /work \
     && chown -R node:node /home/node /work
 USER node
 WORKDIR /work

@@ -35,7 +35,7 @@ describe('dockerPreflight', () => {
     await expect(dockerPreflight(proc, CTX)).resolves.toEqual({ ok: true });
     expect(lines(proc)[2]).toBe(
       `docker build --tag ${OPENCODE_IMAGE} --build-arg OC1=1.19.0 --build-arg OC2=2.0.27 ` +
-        `--build-arg PW=${PLAYWRIGHT_VERSION} ${CTX}`,
+        `--build-arg PW=${PLAYWRIGHT_VERSION} --build-arg AGY=1.4.6 ${CTX}`,
     );
   });
 

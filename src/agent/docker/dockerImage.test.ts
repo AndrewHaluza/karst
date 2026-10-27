@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  AGY_VERSION,
   containerBinary,
   imageBuildArgs,
   OPENCODE_IMAGE,
+  OPENCODE_IMAGE_REVISION,
   OPENCODE_V1_VERSION,
   OPENCODE_V2_VERSION,
   opencodeImageTag,
@@ -13,8 +15,10 @@ import {
 
 describe('dockerImage', () => {
   it('derives the tag from both pinned versions, the Playwright release and the revision', () => {
-    expect(opencodeImageTag('1.19.0', '2.0.27')).toBe('karst/opencode-sandbox:1.19.0-2.0.27-pw1.63.0-r3');
+    expect(opencodeImageTag('1.19.0', '2.0.27')).toBe('karst/opencode-sandbox:1.19.0-2.0.27-pw1.63.0-r4');
+    expect(OPENCODE_IMAGE_REVISION).toBe('r4');
     expect(OPENCODE_IMAGE).toBe(opencodeImageTag(OPENCODE_V1_VERSION, OPENCODE_V2_VERSION));
+    expect(AGY_VERSION).toBe('1.4.6');
   });
 
   it('pins the same Playwright release the repository tests with', () => {
@@ -88,6 +92,7 @@ describe('dockerImage', () => {
       '--build-arg', `OC1=${OPENCODE_V1_VERSION}`,
       '--build-arg', `OC2=${OPENCODE_V2_VERSION}`,
       '--build-arg', `PW=${PLAYWRIGHT_VERSION}`,
+      '--build-arg', `AGY=${AGY_VERSION}`,
       '/ext/dist/sandbox/opencode',
     ]);
   });
@@ -99,5 +104,21 @@ describe('dockerImage', () => {
   it('maps each core to its launcher inside the image', () => {
     expect(containerBinary('opencode')).toBe('opencode1');
     expect(containerBinary('opencode2')).toBe('opencode2');
+    expect(containerBinary('antigravity')).toBe('agy');
+    expect(containerBinary('agy')).toBe('agy');
+  });
+
+  it('Dockerfile downloads pinned agy, verifies sha512, and pre-creates node-owned gemini dirs', () => {
+    const dockerfile = readFileSync(
+      fileURLToPath(new URL('../../../sandbox/opencode/Dockerfile', import.meta.url)),
+      'utf8',
+    );
+    expect(dockerfile).toContain('ARG AGY=1.4.6');
+    expect(dockerfile).toContain('https://storage.googleapis.com/antigravity-public/antigravity-cli/');
+    expect(dockerfile).toContain('0daa84244922bd648f940d44dfc33ace8c26217cd710ff116902eb8708829a0cfe70640f0d6b480243442881c9aeb4a905a9aa7887dd8a70159aa0f1a4f98a8f');
+    expect(dockerfile).toContain('4e1244b8b8c1280552f59c1b24b76a9245db9c80032aec6db28fb86033d6088abc30a90dad432d2b246c28fdd87d82abb48727d5ff88ba1d5d4ec76b33348e7d');
+    expect(dockerfile).toContain('/usr/local/bin/agy');
+    expect(dockerfile).toContain('/home/node/.gemini/antigravity-cli');
+    expect(dockerfile).toContain('/home/node/.gemini/config');
   });
 });

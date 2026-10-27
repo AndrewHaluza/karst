@@ -7,8 +7,8 @@ import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { chownVolumes, ensureClone, ensureVolume, diffFromClone, fetchFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
-import { seedOpencode2Credentials } from './dockerCredentials.js';
-import type { DockerCore } from './dockerImage.js';
+import { seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
+import type { DockerCore, DockerRunnerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
@@ -27,7 +27,7 @@ import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidec
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
-  readonly core: DockerCore;
+  readonly core: DockerRunnerCore;
   readonly names: DockerNames;
   readonly user: LinuxUser | undefined;
   /** opencode v1 only: the host `auth.json`, mounted read-only. */
@@ -193,7 +193,7 @@ async function containerRunning(proc: DockerProcess, container: string): Promise
 
 export interface PrepareInput {
   readonly proc: DockerProcess;
-  readonly core: DockerCore;
+  readonly core: DockerRunnerCore;
   readonly names: DockerNames;
   readonly user: LinuxUser | undefined;
   readonly ticket: SandboxTicketRef;
@@ -201,6 +201,7 @@ export interface PrepareInput {
   readonly proxyScript: string;
   /** opencode2 only: how to read the host's karst-isolated credential store. */
   readonly opencode2Host?: { readonly command: string; readonly env: Readonly<Record<string, string>> };
+  readonly bridgeDir?: string;
   readonly temp?: TempDirs;
   readonly debug?: (message: string) => void;
   /** Baseline host ports the proxy lets the sandbox reach (arch:AC-32). */
@@ -253,6 +254,12 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
     return seedOpencode2Credentials({
       proc, names, user: input.user,
       hostCommand: input.opencode2Host.command, hostEnv: input.opencode2Host.env,
+      ...(input.debug ? { debug: input.debug } : {}),
+    });
+  }
+  if ((input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir) {
+    return seedAgyCredentials({
+      bridgeDir: input.bridgeDir,
       ...(input.debug ? { debug: input.debug } : {}),
     });
   }

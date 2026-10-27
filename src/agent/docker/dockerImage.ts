@@ -23,7 +23,10 @@ export const PLAYWRIGHT_VERSION = '1.63.0';
  * environment — so a host rebuilds instead of reusing the image it already
  * has (the preflight only builds a tag it cannot find).
  */
-export const OPENCODE_IMAGE_REVISION = 'r3';
+export const OPENCODE_IMAGE_REVISION = 'r4';
+
+/** Pinned Linux agy release installed in the Docker sandbox image. */
+export const AGY_VERSION = '1.4.6';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
@@ -31,6 +34,9 @@ import { DOCKER_CORES, type DockerCore } from '../sandboxCores.js';
 
 /** The cores the docker backend can host. agy is deferred (no spike). */
 export { DOCKER_CORES, type DockerCore };
+
+/** Cores accepted by the Docker runner (arch:AC-33). */
+export type DockerRunnerCore = DockerCore | 'antigravity' | 'agy';
 
 export function opencodeImageTag(v1: string, v2: string): string {
   if (!SEMVER.test(v1) || !SEMVER.test(v2)) {
@@ -48,6 +54,7 @@ export function imageBuildArgs(contextDir: string): string[] {
     '--build-arg', `OC1=${OPENCODE_V1_VERSION}`,
     '--build-arg', `OC2=${OPENCODE_V2_VERSION}`,
     '--build-arg', `PW=${PLAYWRIGHT_VERSION}`,
+    '--build-arg', `AGY=${AGY_VERSION}`,
     contextDir,
   ];
 }
@@ -56,7 +63,8 @@ export function imageBuildArgs(contextDir: string): string[] {
  * v1 and v2 both ship a launcher named `opencode`, so the image installs them
  * under distinct names (the same trap `opencode2Binary.ts` handles on the host).
  */
-export function containerBinary(core: DockerCore): string {
+export function containerBinary(core: DockerRunnerCore): string {
+  if (core === 'antigravity' || core === 'agy') return 'agy';
   return core === 'opencode' ? 'opencode1' : 'opencode2';
 }
 

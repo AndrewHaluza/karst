@@ -8,8 +8,18 @@ const SPEC = { proxy: 'k-proxy', network: 'k-net', scriptPath: '/ext dir/allowli
 const lines = (proc: ReturnType<typeof fakeDockerProcess>) => proc.calls.map((c) => [c.command, ...c.args].join(' '));
 
 describe('proxySidecar', () => {
-  it('allowlists the ST1 domains plus the opencode providers', () => {
-    expect(DOCKER_ALLOWLIST).toEqual([...SANDBOX_NETWORK_ALLOWLIST, 'opencode.ai', 'openrouter.ai', 'models.dev']);
+  it('allowlists the ST1 domains plus the opencode and antigravity providers', () => {
+    expect(DOCKER_ALLOWLIST).toEqual([
+      ...SANDBOX_NETWORK_ALLOWLIST,
+      'opencode.ai',
+      'openrouter.ai',
+      'models.dev',
+      'googleapis.com',
+      'accounts.google.com',
+      'antigravity.google',
+      'antigravity.google.com',
+      'antigravity-unleash.goog',
+    ]);
     expect(PROXY_URL).toBe('http://karst-proxy:3128');
   });
 

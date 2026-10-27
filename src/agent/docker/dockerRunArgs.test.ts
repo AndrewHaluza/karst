@@ -151,6 +151,19 @@ describe('interactiveRunArgs bridge mount', () => {
   it('omits the bridge mount without bridgeDir', () => {
     expect(interactiveRunArgs(base).join(' ')).not.toContain('karst-bridge');
   });
+  it('mounts <bridgeDir>/antigravity/gemini at /home/node/.gemini for antigravity core when bridgeDir is set', () => {
+    const withBridge = interactiveRunArgs({ ...base, core: 'antigravity', ticketId: 7, bridgeDir: '/g/events/7' });
+    expect(withBridge).toContain('type=bind,source=/g/events/7/antigravity/gemini,target=/home/node/.gemini');
+    expect(withBridge.join(' ')).not.toContain('readonly,target=/home/node/.gemini');
+  });
+  it('mounts <bridgeDir>/antigravity/gemini at /home/node/.gemini for agy core when bridgeDir is set', () => {
+    const withBridge = interactiveRunArgs({ ...base, core: 'agy', ticketId: 7, bridgeDir: '/g/events/7' });
+    expect(withBridge).toContain('type=bind,source=/g/events/7/antigravity/gemini,target=/home/node/.gemini');
+  });
+  it('does not mount /home/node/.gemini for opencode even when bridgeDir is set', () => {
+    const withBridge = interactiveRunArgs({ ...base, core: 'opencode', ticketId: 7, bridgeDir: '/g/events/7' });
+    expect(withBridge.join(' ')).not.toContain('/home/node/.gemini');
+  });
 });
 
 describe('memory flags', () => {

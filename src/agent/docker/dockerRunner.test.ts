@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { HeadlessSpawnResult } from '../headlessSpawn.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
@@ -195,6 +198,20 @@ describe('prepareDockerSandbox', () => {
     expect(v1.pipes).toHaveLength(0);
     const noHost = fakeDockerProcess(empty);
     await expect(prepareDockerSandbox({ ...base, core: 'opencode2', proc: noHost })).resolves.toEqual({ ok: true });
+  });
+
+  it('calls seedAgyCredentials for antigravity when bridgeDir is set', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    const bridgeDir = mkdtempSync(join(tmpdir(), 'karst-bridge-test-'));
+    const result = await prepareDockerSandbox({
+      ...base,
+      core: 'antigravity',
+      proc,
+      bridgeDir,
+    });
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli'))).toBe(true);
+    rmSync(bridgeDir, { recursive: true, force: true });
   });
 
   it('mounts the bridge dir and exposes runDir to the agent', () => {

@@ -66,5 +66,6 @@ export function autonomousLaunch(core: string, runner: Pick<SessionRunner, 'enfo
   if (core === 'claude') return { autonomous: true, args: ['--dangerously-skip-permissions'], env: PROMPTED.env };
   if (core === 'codex') return { autonomous: true, args: ['-c', 'approval_policy="never"', '-c', 'sandbox_mode="danger-full-access"'], env: PROMPTED.env };
   if (core === 'opencode' || core === 'opencode2') return { autonomous: true, args: [], env: opencodeAllowAll };
+  if (core === 'antigravity' || core === 'agy') return { autonomous: true, args: ['--dangerously-skip-permissions'], env: PROMPTED.env };
   return PROMPTED;
 }

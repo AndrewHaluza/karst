@@ -5,7 +5,7 @@ import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import { opencode2Command, opencode2Config, opencode2IsolationEnv } from '../opencode2Binary.js';
 import type { SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import type { StepResult } from './dockerClone.js';
-import { isDockerCore } from './dockerImage.js';
+import { isDockerCore, type DockerRunnerCore } from './dockerImage.js';
 import { queryDockerMemTotal, resolveDockerMemoryLimits, type SandboxMemoryConfig } from './dockerMemory.js';
 import { dockerNames, type DockerNames } from './dockerNames.js';
 import { dockerPreflight, type DockerPreflight } from './dockerPreflight.js';
@@ -40,6 +40,7 @@ export interface DockerResolveInput {
   readonly projectRoot: string;
   readonly ticketId: number;
   readonly worktree: SandboxTicketRef | undefined;
+  readonly bridgeDir?: string;
   readonly deps?: DockerResolveDeps;
 }
 
@@ -83,13 +84,18 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
     const prepared = await (deps.prepare ?? prepareDockerSandbox)({
       proc, core: input.core, names, user, ticket: input.worktree,
       proxyScript: join(assetsDir, 'allowlist-proxy.mjs'),
+      ...(input.bridgeDir !== undefined ? { bridgeDir: input.bridgeDir } : {}),
       ...(input.core === 'opencode2' ? { opencode2Host: (deps.opencode2Host ?? defaultOpencode2Host)() } : {}),
       ...(deps.debug ? { debug: deps.debug } : {}),
       ...(deps.hostPorts && deps.hostPorts.length > 0 ? { hostPorts: deps.hostPorts } : {}),
     });
     if (!prepared.ok) return prepared;
     const authFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)() : undefined;
-    const runner = createDockerSessionRunner({ proc, core: input.core, names, user, memory, ...(authFile ? { authFile } : {}) });
+    const runner = createDockerSessionRunner({
+      proc, core: input.core, names, user, memory,
+      ...(authFile ? { authFile } : {}),
+      ...(input.bridgeDir ? { evidenceDir: input.bridgeDir } : {}),
+    });
     return { ok: true, runner, names };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };

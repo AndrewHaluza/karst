@@ -5,7 +5,7 @@ import { autonomousLaunch, ALLOW_ALL_OPENCODE_PERMISSION } from './autonomousLau
 const enforcing = { enforcesSandbox: true };
 
 describe('autonomousLaunch (arch:AC-31 conformance)', () => {
-  it.each(['claude', 'codex', 'opencode', 'opencode2', 'agy'])('never relaxes %s on the host runner', (core) => {
+  it.each(['claude', 'codex', 'opencode', 'opencode2', 'agy', 'antigravity'])('never relaxes %s on the host runner', (core) => {
     const env = { OPENCODE_CONFIG_CONTENT: '{"model":"m"}', OPENCODE_PERMISSION: '{"bash":{}}' };
     const launch = autonomousLaunch(core, HOST_SESSION_RUNNER);
     expect(launch.autonomous).toBe(false);
@@ -19,10 +19,11 @@ describe('autonomousLaunch (arch:AC-31 conformance)', () => {
     expect(autonomousLaunch('claude', enforcing).env({ A: '1' })).toEqual({ A: '1' });
   });
 
-  it('agy stays prompted even on an enforcing runner', () => {
-    expect(autonomousLaunch('agy', enforcing).autonomous).toBe(false);
-    expect(autonomousLaunch('agy', enforcing).args).toEqual([]);
-    expect(autonomousLaunch('agy', enforcing).env({ A: '1' })).toEqual({ A: '1' });
+  it.each(['antigravity', 'agy'])('%s skips permissions on an enforcing runner and leaves env alone', (core) => {
+    const launch = autonomousLaunch(core, enforcing);
+    expect(launch.autonomous).toBe(true);
+    expect(launch.args).toEqual(['--dangerously-skip-permissions']);
+    expect(launch.env({ A: '1' })).toEqual({ A: '1' });
   });
 });
 
