@@ -736,27 +736,27 @@ git commit -m "test(visual): add dashboard attention variant with reduced-motion
 **Files:**
 - Verification only
 
-- [ ] **Step 1: Run unit test suite**
+- [x] **Step 1: Run unit test suite**
 
 Run: `npm run -s test:unit`
 Expected: PASS.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `npm run -s typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Run lint:react**
+- [x] **Step 3: Run lint:react**
 
 Run: `npm run -s lint:react`
 Expected: PASS.
 
-- [ ] **Step 4: Run dashboard render integration tests**
+- [x] **Step 4: Run dashboard render integration tests**
 
 Run: `npx vitest run --config vitest.integration.config.ts src/ui/dashboard/`
 Expected: PASS.
 
-- [ ] **Step 5: Run visual tests in docker**
+- [x] **Step 5: Run visual tests in docker**
 
 Run: `npm run -s test:visual:docker 2>&1 | tail -40`
 Expected: PASS (or advisory passes without failures in the new variant).
