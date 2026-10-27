@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { load } from 'js-yaml';
 import { loadManifestWithDiagnostics } from './load.js';
 import { detectInertKeys } from './inertKeys.js';
@@ -12,17 +13,39 @@ import { detectInertKeys } from './inertKeys.js';
 describe('karst.example.yml', () => {
   const path = join(process.cwd(), 'karst.example.yml');
 
-  it('loads and validates with no deprecation warnings', () => {
+  it('loads and validates with no deprecation warnings, declaring one live repo', () => {
     const { manifest, warnings } = loadManifestWithDiagnostics(path);
     expect(warnings).toEqual([]);
-    expect(Object.keys(manifest.repositories).sort()).toEqual([
-      'backend',
-      'db',
-      'frontend',
-      'tooling',
-    ]);
-    // The example documents all three shapes: a command service, a CONTAINER
-    // service, and a repository that runs nothing at all.
+    expect(Object.keys(manifest.repositories)).toEqual(['app']);
+    expect(manifest.repositories.app!.service).toBeUndefined();
+  });
+
+  it('references no repo or script it does not declare', () => {
+    const live = readFileSync(path, 'utf8')
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('#'))
+      .join('\n');
+    expect(live).not.toMatch(/verify-uat|playwright|repo: (frontend|backend|db|tooling)/);
+  });
+
+  /** The cookbook repos, uncommented and added to the live ones — proves the examples still load. */
+  function cookbookManifest() {
+    const lines = readFileSync(path, 'utf8').split('\n');
+    const begin = lines.indexOf('# COOKBOOK-REPOS-BEGIN');
+    const end = lines.indexOf('# COOKBOOK-REPOS-END');
+    expect(begin).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(begin);
+    const body = lines.slice(begin + 1, end).map((l) => l.replace(/^# ?/, ''));
+    const text = [...lines.slice(0, begin), ...body, ...lines.slice(end + 1)].join('\n');
+    const file = join(mkdtempSync(join(tmpdir(), 'example-')), 'karst.yml');
+    writeFileSync(file, text);
+    return loadManifestWithDiagnostics(file).manifest;
+  }
+
+  it('documents all three service shapes in the cookbook', () => {
+    const manifest = cookbookManifest();
+    expect(Object.keys(manifest.repositories).sort()).toEqual(['app', 'backend', 'db', 'frontend', 'tooling']);
+    // A command service, a CONTAINER service, and a repository that runs nothing.
     expect(manifest.repositories.db!.service!.docker).toEqual({
       image: 'postgres:16',
       containerPort: 5432,
@@ -31,22 +54,13 @@ describe('karst.example.yml', () => {
       args: [],
     });
     expect(manifest.repositories.db!.service!.start).toBe('');
-  });
-
-  it('documents a runnable repository', () => {
-    const { manifest } = loadManifestWithDiagnostics(path);
     const be = manifest.repositories.backend!;
     expect(be.service!.start).toBe('node server.mjs');
     expect(be.service!.ports[0]!.default).toBe(8000);
-  });
-
-  // The whole point of the shape: a repo that is edited but never run needs no
-  // placeholder command and no fake port.
-  it('documents a repository with no service', () => {
-    const { manifest } = loadManifestWithDiagnostics(path);
-    const tooling = manifest.repositories.tooling!;
-    expect(tooling.service).toBeUndefined();
-    expect(tooling.signals).toContain('tooling');
+    // The whole point of the shape: a repo that is edited but never run needs no
+    // placeholder command and no fake port.
+    expect(manifest.repositories.tooling!.service).toBeUndefined();
+    expect(manifest.repositories.tooling!.signals).toContain('tooling');
   });
 
   // The superpowers:writing-plans approach must DECLARE its workflow phases so

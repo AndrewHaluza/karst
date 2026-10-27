@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, parseManifestText, type Manifest } from '../manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS, DEFAULT_SUBTASK_LIMITS } from '../manifest/schema.js';
+import { stampScaffold } from '../manifest/scaffoldStamp.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
@@ -72,8 +73,7 @@ export async function scaffoldManifest(): Promise<void> {
   // the bundled template: every scaffolded project would then share one slug and
   // collapse into a single board. Generating per scaffold makes it unique, and
   // writing it explicitly means a later repo move keeps the same project.
-  const template = readFileSync(EXAMPLE_YML, 'utf8');
-  const withId = `id: ${generateProjectSlug(folder.uri.fsPath)}\n\n${template}`;
+  const withId = stampScaffold(readFileSync(EXAMPLE_YML, 'utf8'), generateProjectSlug(folder.uri.fsPath), folder.uri.fsPath);
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, withId);
   // The gates runbook lands beside the manifest the agent is about to fill in.

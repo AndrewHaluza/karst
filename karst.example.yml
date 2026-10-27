@@ -1,4 +1,6 @@
 # Karst manifest — copy to `karst.yml` and point repoPath at your real repos.
+# One live repository (`app`) is declared; backend/frontend/db/tooling and the
+# Playwright/verify-uat gates are a commented COOKBOOK below.
 # Resolved by the `karst.manifestPath` setting (default ./.karst/karst.yml),
 # relative to the workspace root.
 #
@@ -218,122 +220,131 @@ quota:
 #   gateReservation: 1536m
 
 repositories:
-  backend:
-    repoPath: /absolute/path/to/backend
-    # Optional; omit to inherit the top-level baselineBranch.
-    # baselineBranch: release
-    hasMigrations: false   # true → flagged "not first-class under shared-DB"
-    # Repo-classifier signal words: ticket title/description/tag tokens that
-    # point a ticket at this repo. Empty/absent = unclassified (the ticket-form
-    # prompts to author these before the first ticket). Repository-level: a repo
-    # with no service still has to be routable, or no ticket could reach it.
-    signals: [api, endpoint, backend, database, migration, service, model, query]
-    # Optional conventional-commit scope for `{scope}` in the templates below.
-    # Absent = this repository's manifest name (`backend`). Repository-level,
-    # like `signals`: it describes the source tree, not a running process.
-    scope: api
-    # Runnable. Everything under `service:` is meaningless without a process.
-    service:
-      start: node server.mjs
-      health: http://{host}:{port}/health
-      ports:
-        - name: port        # slot identity, referenced by dependsOn.port
-          env: PORT          # env var that sets this port on spawn
-          default: 8000      # baseline / default-mode value
-      # Optional per-service port window. When set, karst allocates THIS
-      # service's ticket-hot ports only from this inclusive [min, max] window,
-      # instead of the global `portRange` above. Absent = inherit the global.
-      # Overlapping windows across services are fine — no port is ever handed
-      # to two services at once.
-      portRange: [5000, 5100]
-      dependsOn: []
-
-  frontend:
-    repoPath: /absolute/path/to/frontend
+  # The folder karst opened. Replace `repoPath` with your real git repos (one entry
+  # per repo); declare `service:` only where a real start command + port exist.
+  app:
+    repoPath: /__WORKSPACE_ROOT__
     hasMigrations: false
-    signals: [ui, frontend, react, page, component, dashboard, modal, form]
-    service:
-      start: node server.mjs
-      health: http://{host}:{port}/health
-      ports:
-        - name: port
-          env: PORT
-          default: 3000
-      dependsOn:
-        # The target must be a repo that DECLARES a service — you cannot bind to
-        # a port that does not exist, and karst rejects such an edge at load.
-        - target: backend  # another repository
-          port: port       # a port slot on that repository's service
-          bind:
-            # env var the dependent gets, rendered from the target's (host, port)
-            - env: VITE_API_URL
-              template: http://{host}:{port}
 
-  # A repository whose service is a CONTAINER. `docker:` replaces `start:` — a
-  # service runs one process, so declaring both is rejected. karst runs the image
-  # attached (never `-d`), so its output is the service log and its client is a
-  # normal child in its own process group, and it removes the container by name
-  # on stop, on teardown, and on the activation sweep — a container that outlived
-  # its client is the leak this shape exists to prevent.
-  db:
-    repoPath: /absolute/path/to/db
-    hasMigrations: true
-    signals: [db, database, migration, schema]
-    service:
-      docker:
-        image: postgres:16
-        # The port INSIDE the container. karst publishes the ticket's ALLOCATED
-        # host port onto it, so two tickets run two containers without either
-        # image having to move off its own fixed port.
-        containerPort: 5432
-        # `-e` variables. These win over the ones karst resolves (dependency
-        # bind vars, the allocated port), which are passed in as well.
-        env:
-          POSTGRES_PASSWORD: dev   # quote values YAML would read as numbers
-        # `-v` mounts. A relative source resolves against the ticket's WORKTREE,
-        # so each ticket keeps its own data; an absolute one is shared as written.
-        volumes:
-          - ./.karst/pgdata:/var/lib/postgresql/data
-        # Optional command override, one argument per entry. Omit to use the
-        # image's own CMD.
-        args: []
-      health: http://{host}:{port}/
-      ports:
-        - name: port
-          env: PGPORT
-          default: 5432
-      dependsOn: []
+# COOKBOOK — shapes to copy into the repositories above (uncomment and adjust):
+# COOKBOOK-REPOS-BEGIN
+#   backend:
+#     repoPath: /absolute/path/to/backend
+#     # Optional; omit to inherit the top-level baselineBranch.
+#     # baselineBranch: release
+#     hasMigrations: false   # true → flagged "not first-class under shared-DB"
+#     # Repo-classifier signal words: ticket title/description/tag tokens that
+#     # point a ticket at this repo. Empty/absent = unclassified (the ticket-form
+#     # prompts to author these before the first ticket). Repository-level: a repo
+#     # with no service still has to be routable, or no ticket could reach it.
+#     signals: [api, endpoint, backend, database, migration, service, model, query]
+#     # Optional conventional-commit scope for `{scope}` in the templates below.
+#     # Absent = this repository's manifest name (`backend`). Repository-level,
+#     # like `signals`: it describes the source tree, not a running process.
+#     scope: api
+#     # Runnable. Everything under `service:` is meaningless without a process.
+#     service:
+#       start: node server.mjs
+#       health: http://{host}:{port}/health
+#       ports:
+#         - name: port        # slot identity, referenced by dependsOn.port
+#           env: PORT          # env var that sets this port on spawn
+#           default: 8000      # baseline / default-mode value
+#       # Optional per-service port window. When set, karst allocates THIS
+#       # service's ticket-hot ports only from this inclusive [min, max] window,
+#       # instead of the global `portRange` above. Absent = inherit the global.
+#       # Overlapping windows across services are fine — no port is ever handed
+#       # to two services at once.
+#       portRange: [5000, 5100]
+#       dependsOn: []
 
-  # A repository with NO service: karst's own tooling repo, a docs tree, a
-  # shared-config package. Scope it to a ticket and it gets a worktree like any
-  # other; nothing is ever started for it, and it owns no port.
-  tooling:
-    repoPath: /absolute/path/to/tooling
-    hasMigrations: false
-    signals: [tooling, script, ci, config, extension]
-    # Optional: paths ship's auto-commit must leave out. Each is a git pathspec
-    # (glob magic, e.g. `dist/**`); karst adds the `:(glob)` itself. This is for
-    # a file the repo TRACKS that must not ship — a locally rebuilt `dist/`, a
-    # lock file pinned to a stand-in. An untracked leftover belongs in the
-    # repo's `.gitignore` (ignore rules never apply to tracked files), and a
-    # path you have already COMMITTED still ships: exclude shapes only the sweep
-    # commit. A spec that also matches committed changes logs a warning.
-    # Optional: `regenerate` lists shell commands that rebuild this repo's
-    # checked-in generated files. "Rebase on base" (ship stage) runs each in the
-    # worktree after rebasing and commits what they change; a repo without any
-    # refuses the action when a generated file would need merging.
-    # ship:
-    #   exclude: [dist/**, "*.lock.json"]
-    #   regenerate: ["npm run -s docs:covers", "npm run -s docs:graph"]
+#   frontend:
+#     repoPath: /absolute/path/to/frontend
+#     hasMigrations: false
+#     signals: [ui, frontend, react, page, component, dashboard, modal, form]
+#     service:
+#       start: node server.mjs
+#       health: http://{host}:{port}/health
+#       ports:
+#         - name: port
+#           env: PORT
+#           default: 3000
+#       dependsOn:
+#         # The target must be a repo that DECLARES a service — you cannot bind to
+#         # a port that does not exist, and karst rejects such an edge at load.
+#         - target: backend  # another repository
+#           port: port       # a port slot on that repository's service
+#           bind:
+#             # env var the dependent gets, rendered from the target's (host, port)
+#             - env: VITE_API_URL
+#               template: http://{host}:{port}
 
-    # Dependencies for SANDBOXED tickets: run inside the sandbox clone before its
-    # gates (a clone has no main checkout to resolve node_modules from). Re-run
-    # automatically when the lockfile changes.
-    # sandbox:
-    #   setup: npm ci
-    #   # Hosts reachable ONLY while setup runs (port 443; default: registry.npmjs.org, github.com,
-    #   # objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org). Closed again afterwards.
-    #   setupHosts: [registry.npmjs.org, github.com, objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org]
+#   # A repository whose service is a CONTAINER. `docker:` replaces `start:` — a
+#   # service runs one process, so declaring both is rejected. karst runs the image
+#   # attached (never `-d`), so its output is the service log and its client is a
+#   # normal child in its own process group, and it removes the container by name
+#   # on stop, on teardown, and on the activation sweep — a container that outlived
+#   # its client is the leak this shape exists to prevent.
+#   db:
+#     repoPath: /absolute/path/to/db
+#     hasMigrations: true
+#     signals: [db, database, migration, schema]
+#     service:
+#       docker:
+#         image: postgres:16
+#         # The port INSIDE the container. karst publishes the ticket's ALLOCATED
+#         # host port onto it, so two tickets run two containers without either
+#         # image having to move off its own fixed port.
+#         containerPort: 5432
+#         # `-e` variables. These win over the ones karst resolves (dependency
+#         # bind vars, the allocated port), which are passed in as well.
+#         env:
+#           POSTGRES_PASSWORD: dev   # quote values YAML would read as numbers
+#         # `-v` mounts. A relative source resolves against the ticket's WORKTREE,
+#         # so each ticket keeps its own data; an absolute one is shared as written.
+#         volumes:
+#           - ./.karst/pgdata:/var/lib/postgresql/data
+#         # Optional command override, one argument per entry. Omit to use the
+#         # image's own CMD.
+#         args: []
+#       health: http://{host}:{port}/
+#       ports:
+#         - name: port
+#           env: PGPORT
+#           default: 5432
+#       dependsOn: []
+
+#   # A repository with NO service: karst's own tooling repo, a docs tree, a
+#   # shared-config package. Scope it to a ticket and it gets a worktree like any
+#   # other; nothing is ever started for it, and it owns no port.
+#   tooling:
+#     repoPath: /absolute/path/to/tooling
+#     hasMigrations: false
+#     signals: [tooling, script, ci, config, extension]
+#     # Optional: paths ship's auto-commit must leave out. Each is a git pathspec
+#     # (glob magic, e.g. `dist/**`); karst adds the `:(glob)` itself. This is for
+#     # a file the repo TRACKS that must not ship — a locally rebuilt `dist/`, a
+#     # lock file pinned to a stand-in. An untracked leftover belongs in the
+#     # repo's `.gitignore` (ignore rules never apply to tracked files), and a
+#     # path you have already COMMITTED still ships: exclude shapes only the sweep
+#     # commit. A spec that also matches committed changes logs a warning.
+#     # Optional: `regenerate` lists shell commands that rebuild this repo's
+#     # checked-in generated files. "Rebase on base" (ship stage) runs each in the
+#     # worktree after rebasing and commits what they change; a repo without any
+#     # refuses the action when a generated file would need merging.
+#     # ship:
+#     #   exclude: [dist/**, "*.lock.json"]
+#     #   regenerate: ["npm run -s docs:covers", "npm run -s docs:graph"]
+
+#     # Dependencies for SANDBOXED tickets: run inside the sandbox clone before its
+#     # gates (a clone has no main checkout to resolve node_modules from). Re-run
+#     # automatically when the lockfile changes.
+#     # sandbox:
+#     #   setup: npm ci
+#     #   # Hosts reachable ONLY while setup runs (port 443; default: registry.npmjs.org, github.com,
+#     #   # objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org). Closed again afterwards.
+#     #   setupHosts: [registry.npmjs.org, github.com, objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org]
+# COOKBOOK-REPOS-END
 
   # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP
   # instead of `service:`. Each entry is a full service (start/health/ports/
@@ -600,14 +611,16 @@ uat:
   # a shell — it is what keeps UAT usable from Go, Rust, Java and Python repos.
   gates:
     - { name: test, kind: script, script: test }
-    - { name: e2e, kind: command, command: npx, args: [playwright, test], repo: frontend }
+    # Cookbook (needs a declared repo `frontend`):
+    # - { name: e2e, kind: command, command: npx, args: [playwright, test], repo: frontend }
   # WIRED (Task 8). An optional deterministic verification command for the UAT
   # Tester's observations, run AFTER the required gates pass. Its COMPLETED exit
   # code is the sole Tester-specific verdict: 0 completes the Tester, a
   # completed nonzero exit fails UAT (one Fix round, attributed to the Tester
   # process), and a command that cannot run parks without spending a round.
   # Absent → the Tester's observations are advisory and the gates decide alone.
-  testerVerifier: { name: verify-uat, kind: command, command: ./scripts/verify-uat.sh }
+  # Cookbook (needs a real script):
+  # testerVerifier: { name: verify-uat, kind: command, command: ./scripts/verify-uat.sh }
   # WIRED. The ONE knob that turns the UAT Tester's OBSERVATIONS into a verdict.
   # The DEFAULT is `none` — omit this block (as every existing karst.yml does)
   # and observations stay purely ADVISORY: they are recorded as evidence, and
@@ -627,12 +640,13 @@ uat:
   # a ratchet ledger) whose change by a ticket counts only after YOU approve it in
   # the dashboard: UAT parks "Needs you" until then. Absent = off.
   # baselineReview: { paths: ['tests/visual/__baselines__/**'] }
-  repositories:
-    frontend:
-      # WIRED, and it REPLACES the global list for this repository — it is not
-      # additive. A repo listed here runs exactly these gates.
-      gates:
-        - { name: test, kind: script, script: test:unit }
+  # Cookbook (needs a declared repo `frontend`):
+  # repositories:
+  #   frontend:
+  #     # WIRED, and it REPLACES the global list for this repository — it is not
+  #     # additive. A repo listed here runs exactly these gates.
+  #     gates:
+  #       - { name: test, kind: script, script: test:unit }
 
   # ---- NOT YET ACTIVE -------------------------------------------------------
   # Everything below is validated at load and read by nothing. karst preserves
