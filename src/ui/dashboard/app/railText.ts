@@ -19,6 +19,12 @@ export const STAGE_TITLE: Readonly<Record<string, string>> = {
   done: 'Done',
 };
 
+/** The strip's headline for a block: shared by the blocked banner and the sub-task rows, so they never drift. */
+export function blockFaultTitle(kind: string, stageKey: string): string {
+  if (kind === 'usage-limit') return 'Provider out of quota';
+  return `${STAGE_TITLE[stageKey] ?? stageKey} is blocked`;
+}
+
 /**
  * Stage status to segment class. Needs-you is NOT here: it OUTRANKS the stage status and comes from the
  * segment's own `needsUser`, which the host derives once for every surface. `pending` is a real class: the
