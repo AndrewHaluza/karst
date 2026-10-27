@@ -108,4 +108,18 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     expect(calls).toBe(1);
     expect(root.getAttribute('data-karst-ready')).toBe('true');
   });
+
+  it('renders AttentionRing into document.body under the provider', () => {
+    const bridge = {
+      send: createSender({ postMessage: () => {} }),
+      getState: () => null,
+      setState: vi.fn(),
+      subscribe: () => () => {},
+    };
+
+    render(<App bridge={bridge} />);
+    const ring = document.body.querySelector('.attention-ring');
+    expect(ring).not.toBeNull();
+    expect(ring?.getAttribute('data-region')).toBe('attention');
+  });
 });

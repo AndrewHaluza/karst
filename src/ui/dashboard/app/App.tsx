@@ -11,6 +11,7 @@
 import type { DashboardHostBridge } from './hostBridge.js';
 import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
 import { ArtifactsShelf } from './ArtifactsShelf.js';
+import { AttentionRing } from './AttentionRing.js';
 import { BlockedBanner } from './BlockedBanner.js';
 import { Header } from './Header.js';
 import { Inside } from './Inside.js';
@@ -56,6 +57,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <RegionPortal region="worktrees">
         <WorktreesPanel />
       </RegionPortal>
+      <AttentionRing />
     </DashboardAppProvider>
   );
 }
