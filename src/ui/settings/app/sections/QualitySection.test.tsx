@@ -580,3 +580,34 @@ describe('QualitySection — no edit reaches the host', () => {
     expect(bridge.posted).toHaveLength(0);
   });
 });
+
+describe('QualitySection — per-gate enabled switch', () => {
+  const withGate = (block: Record<string, unknown>) =>
+    stateWith({ uat: partialUat({ ...INERT, gates: [{ name: 'unit', kind: 'script', script: 'test' }], ...block }) });
+
+  it('writes enabled:false when off and deletes the key when back on, keeping inert keys', () => {
+    const { probe } = mountQuality(withGate({}));
+    fireEvent.click(byLabel('Gate 1 enabled'));
+    expect((uatOf(probe).gates as Record<string, unknown>[])[0]).toMatchObject({ enabled: false });
+    expect(uatOf(probe).env).toEqual(INERT.env);
+    expect(document.querySelector('.gate-summary')?.textContent).toMatch(/^off — /);
+    expect(document.querySelector('.gate-count')?.textContent).toContain('1 gate · 1 off');
+    fireEvent.click(byLabel('Gate 1 enabled'));
+    expect('enabled' in (uatOf(probe).gates as Record<string, unknown>[])[0]!).toBe(false);
+  });
+
+  it('shows the probe checkbox only with gates, and the bypass note when all are off', () => {
+    mountQuality();
+    expect(document.querySelector('[name="uatProbeWhenAllDisabled"]')).toBeNull();
+    cleanup();
+    const { probe } = mountQuality(
+      withGate({ gates: [{ name: 'unit', kind: 'script', script: 'test', enabled: false }] }),
+    );
+    expect(document.body.textContent).toContain('this stage will be bypassed');
+    fireEvent.click(field('uatProbeWhenAllDisabled'));
+    expect(uatOf(probe).probeWhenAllDisabled).toBe(true);
+    expect(document.body.textContent).not.toContain('this stage will be bypassed');
+    fireEvent.click(field('uatProbeWhenAllDisabled'));
+    expect('probeWhenAllDisabled' in uatOf(probe)).toBe(false);
+  });
+});

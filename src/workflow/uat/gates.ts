@@ -39,6 +39,7 @@ export function declaredGatesFor(
 ): UatGateDef[] {
   const override =
     config !== undefined && repoName !== null ? config.repositories[repoName]?.gates : undefined;
+  // An override whose gates are all `enabled: false` is still an override.
   if (override !== undefined && override.length > 0) return override;
 
   return (config?.gates ?? []).filter(

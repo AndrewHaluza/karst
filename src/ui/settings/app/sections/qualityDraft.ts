@@ -184,3 +184,26 @@ export function removeRepoOverride(draft: Manifest, base: Base, repo: string): M
   delete repositories[repo];
   return update(draft, { repositories });
 }
+
+/**
+ * Switch one gate on or off. `enabled: false` is written only for off; turning
+ * a gate back on DELETES the key so the manifest stays clean.
+ */
+export function setGateEnabled(gate: GateDef, enabled: boolean): GateDef {
+  if (enabled) {
+    const { enabled: _off, ...rest } = gate;
+    void _off;
+    return rest;
+  }
+  return { ...gate, enabled: false };
+}
+
+/** The block's probe-when-all-off flag; written only when true, deleted otherwise. */
+export function setProbeWhenAllDisabled(draft: Manifest, base: Base, on: boolean): Manifest {
+  const update = base === 'uat' ? updateUat : updateReview;
+  const blocks = blocksOf(draft);
+  const next = { ...(blocks[base] ?? {}) } as { probeWhenAllDisabled?: boolean };
+  if (on) next.probeWhenAllDisabled = true;
+  else delete next.probeWhenAllDisabled;
+  return withBlocks(draft, { ...blocks, [base]: next });
+}

@@ -18,6 +18,12 @@ function hasReviewGates(review: NonNullable<Manifest['review']>): boolean {
   );
 }
 
+function hasEnabledReviewGate(review: NonNullable<Manifest['review']>): boolean {
+  return [review.gates ?? [], ...Object.values(review.repositories).map((r) => r.gates ?? [])].some(
+    (list) => list.some((g) => g.enabled !== false),
+  );
+}
+
 /**
  * Internal-reference checks the field-by-field validators cannot make: they see
  * one block at a time, so a gate or `uat.repositories` key naming a repository
@@ -53,6 +59,19 @@ export function assertReferencesResolve(manifest: Manifest, reviewGatesWrittenEm
     if (reviewGatesWrittenEmpty && review.requireIndependentSignal && !hasReviewGates(review)) {
       problems.push(
         'review.gates: empty while review.requireIndependentSignal is true — declare a review gate or set requireIndependentSignal: false',
+      );
+    }
+    if (
+      hasReviewGates(review) &&
+      !hasEnabledReviewGate(review) &&
+      review.requireIndependentSignal &&
+      review.probeWhenAllDisabled !== true
+    ) {
+      const off = [review.gates ?? [], ...Object.values(review.repositories).map((r) => r.gates ?? [])]
+        .flat()
+        .map((g) => g.name);
+      problems.push(
+        `review.gates: every gate is disabled (${off.join(', ')}) while review.requireIndependentSignal is true — enable a review gate, set review.probeWhenAllDisabled: true, or set requireIndependentSignal: false`,
       );
     }
   }

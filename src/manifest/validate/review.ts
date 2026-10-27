@@ -143,6 +143,10 @@ export function validateReview(
     openChanges = raw.openChanges;
   }
 
+  if (raw.probeWhenAllDisabled !== undefined && typeof raw.probeWhenAllDisabled !== 'boolean') {
+    throw new ManifestError('review.probeWhenAllDisabled must be a boolean');
+  }
+
   const config: ReviewConfig = {
     maxFixAttempts,
     stallTimeoutMinutes,
@@ -154,6 +158,7 @@ export function validateReview(
 
   const gates = validateGates(raw.gates, 'review.gates');
   if (gates !== undefined) config.gates = gates;
+  if (raw.probeWhenAllDisabled === true) config.probeWhenAllDisabled = true;
 
   return config;
 }

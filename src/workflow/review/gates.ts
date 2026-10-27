@@ -1,7 +1,7 @@
 import type { GateDef, ReviewConfig } from '../../manifest/types.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
-import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
+import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { REVIEW_PROBE_SCRIPTS } from '../gates/scripts.js';
 
 /**
@@ -24,6 +24,7 @@ export function declaredReviewGatesFor(
 ): GateDef[] {
   const override =
     config !== undefined && repoName !== null ? config.repositories[repoName]?.gates : undefined;
+  // An override whose gates are all `enabled: false` is still an override.
   if (override !== undefined && override.length > 0) return override;
 
   return (config?.gates ?? []).filter(
@@ -66,10 +67,13 @@ export function resolveReviewGates(
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
+  const cut = new Set(disabledNames);
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
 
   for (const name of keys) {
-    const resolved = resolveGates(probe, declaredReviewGatesFor(config, name), REVIEW_PROBE_SCRIPTS, debug);
+    const sw = applyConfigSwitch(declaredReviewGatesFor(config, name), config?.probeWhenAllDisabled);
+    for (const n of sw.disabledNames) cut.add(n);
+    const resolved = resolveGates(probe, sw.declared, REVIEW_PROBE_SCRIPTS, debug);
     if (resolved.kind === 'unavailable') {
       unavailable ??= resolved;
       continue;
@@ -84,7 +88,7 @@ export function resolveReviewGates(
     }
   }
 
-  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames, debug);
+  const { kept, skipped } = partitionDisabled([...byIdentity.values()], [...cut], debug);
   if (kept.length > 0 || skipped.length > 0) {
     debug?.(
       `[gate] review resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
