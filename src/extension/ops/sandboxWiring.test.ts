@@ -348,16 +348,19 @@ describe('makeSandboxWiring bridge lifetime after a session closes (T801)', () =
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const a = createTicket(store, { key: 'H-1', title: 'a', projectId }).id;
     setSessionId(store, a, 's', 'antigravity');
+    recordPlacement(store, a, { backend: 'host', core: 'antigravity', sandboxName: null, reason: null }, 'antigravity');
     const detach = vi.fn(async () => {});
     const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
     const { w } = wiring({
       backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
-      proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }),
+      proc, dockerProc,
       bridges: () => ({ dispose: vi.fn(async () => {}), detach, markerStatus: vi.fn(() => undefined) }),
     });
     await w.onSessionClosed(a);
     expect(detach).toHaveBeenCalledWith(a);
     expect(proc.calls).toEqual([]);
+    expect(dockerProc.calls).toEqual([]);
   });
   it('no backend detaches a host session; no bridge binding is a no-op', async () => {
     const detach = vi.fn(async () => {});
