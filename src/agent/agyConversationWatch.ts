@@ -148,8 +148,9 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
 
 const FILE_URI_PREFIX = 'file://';
 
-function blobNamesWorktree(blob: Buffer, worktreePath: string): boolean {
-  const candidates = [worktreePath, canonicalPath(worktreePath)];
+function blobNamesWorktree(blob: Buffer, worktreePath: string | readonly string[]): boolean {
+  const paths = typeof worktreePath === 'string' ? [worktreePath] : worktreePath;
+  const candidates = paths.flatMap((p) => [p, canonicalPath(p)]);
   for (const candidate of candidates) {
     if (candidate && blob.includes(Buffer.from(FILE_URI_PREFIX + candidate))) return true;
   }
@@ -169,7 +170,7 @@ function conversationIdOf(dbPath: string): string {
  */
 export function findConversationForWorktree(
   appDataDir: string,
-  worktreePath: string,
+  worktreePath: string | readonly string[],
   openDb: OpenAgyDb = openAgyConversationDb,
   listDbs: (dir: string) => string[] = (dir) => {
     if (!existsSync(dir)) return [];
@@ -187,7 +188,12 @@ export function findConversationForWorktree(
       continue; // a conversation being created concurrently must not fail the tick
     }
     try {
-      const blob = db.workspaceBlob();
+      let blob: Buffer | null;
+      try {
+        blob = db.workspaceBlob();
+      } catch {
+        continue; // transient SQLITE_BUSY: skip file
+      }
       if (blob === null || !blobNamesWorktree(blob, worktreePath)) continue;
       const mtimeMs = (() => {
         try {

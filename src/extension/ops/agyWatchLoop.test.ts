@@ -713,4 +713,59 @@ describe('createAgyWatchLoop', () => {
       expect.anything(),
     );
   });
+
+  it('reads conversation from sandboxAppDataDir when present, matches /work/repo, and keeps host worktree cwd in HookPayload', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Host appDataDir has NO conversation
+    // Sandbox bridge appDataDir:
+    const sandboxAppDataDir = join(dir, 'bridge', 'events', '1', 'antigravity', 'gemini', 'antigravity-cli');
+    const convDir = join(sandboxAppDataDir, 'conversations');
+    mkdirSync(convDir, { recursive: true });
+    const convId = '66666666-6666-4666-8666-666666666666';
+    const dbPath = join(convDir, `${convId}.db`);
+    const db = new Database(dbPath);
+    db.exec(
+      'CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);' +
+        'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB);',
+    );
+    db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run(
+      'main',
+      Buffer.concat([Buffer.from([1]), Buffer.from('file:///work/repo'), Buffer.from([2])]),
+    );
+    db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3)').run();
+    db.close();
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+      sandboxAppDataDir: (id: number) => (id === ticketId ? sandboxAppDataDir : undefined),
+    });
+
+    const loop = createAgyWatchLoop(deps);
+    withHome(dir, () => loop.run());
+
+    expect(dispatchHook).toHaveBeenCalledWith(
+      store,
+      expect.objectContaining({
+        hook_event_name: 'SessionStart',
+        cwd: worktreePath,
+        session_id: convId,
+      }),
+      deps.notifyHook,
+      deps.shouldApplyHookState,
+      deps.sessionProviderFor,
+      deps.hookChannelRecorder,
+      deps.debug,
+    );
+  });
 });

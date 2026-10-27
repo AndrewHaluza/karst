@@ -78,6 +78,30 @@ describe('agyConversationWatch', () => {
     expect(findConversationForWorktree(dir, '/Users/nd/other')).toBeNull();
   });
 
+  it('matches when an array of candidate worktrees is provided (host or container)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const expected = fixtureDb(dir, '33333333-3333-4333-8333-333333333333', '/work/repo', false);
+    const found = findConversationForWorktree(dir, ['/host/worktree/path', '/work/repo']);
+    expect(found).toEqual({
+      dbPath: expected,
+      conversationId: '33333333-3333-4333-8333-333333333333',
+    });
+  });
+
+  it('tolerates db.workspaceBlob() throwing (e.g. SQLITE_BUSY)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    fixtureDb(dir, '44444444-4444-4444-8444-444444444444', '/work/repo', false);
+    const throwingOpenDb = () => ({
+      workspaceBlob: () => {
+        throw new Error('SQLITE_BUSY: database is locked');
+      },
+      pendingApprovalCount: () => 0,
+      usage: () => null,
+      close: () => undefined,
+    });
+    expect(findConversationForWorktree(dir, ['/host/path', '/work/repo'], throwingOpenDb)).toBeNull();
+  });
+
   it('picks the NEWEST db when two conversations share the worktree', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
     const older = fixtureDb(dir, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '/wt/shared', false);

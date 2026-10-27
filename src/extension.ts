@@ -191,6 +191,7 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
+import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
@@ -5972,6 +5973,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore,
     listTerminals: () => vscode.window.terminals,
     identifyTerminal: (terminal) => terminalIdentity.identify(terminal as vscode.Terminal),
+    sandboxAppDataDir: (ticketId) => {
+      const dir = bridgeRoot ? bridgePaths(bridgeRoot, ticketId).dir : undefined;
+      return dir ? join(dir, 'antigravity', 'gemini', 'antigravity-cli') : undefined;
+    },
     agyWatchStates,
     agyUsageStates,
     notifyHook,
