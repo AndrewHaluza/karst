@@ -223,21 +223,18 @@ describe('React rail and banner — one post per click, one request per operatio
     expect(v.errors).toEqual([]);
   });
 
-  it('rail Ship and the header Confirm ship are one operation too, from either side', async () => {
+  it('rail Ship is one operation per request, and a fresh request is possible after the ship', async () => {
     const v = await open(shipConfirm());
     const before = v.posted.length;
     await click(v, '#rail .go[data-act="ship-ticket"]');
-    await click(v, '#confirmShip');
     await click(v, '#rail .go[data-act="ship-ticket"]');
     expect(types(v, before)).toEqual(['ship-ticket']);
-    expect(v.query('#confirmShip')!.textContent).toBe('Shipping…');
+    expect(v.query('#confirmShip')).toBeNull();
     await push(v, populatedStateFor('done'));
     expect(v.query('#toast')!.textContent).toBe('Shipped ✓');
     expect(v.query('#rail .go')).toBeNull();
-    // A fresh request after the ship is possible again from the header side.
     await push(v, shipConfirm());
     const mark = v.posted.length;
-    await click(v, '#confirmShip');
     await click(v, '#rail .go[data-act="ship-ticket"]');
     expect(types(v, mark)).toEqual(['ship-ticket']);
   });
@@ -250,7 +247,7 @@ describe('React rail and banner — one post per click, one request per operatio
     }
     await click(v, '#rail .go[data-act="merge-pr"]');
     await push(v, shipConfirm());
-    await click(v, '#confirmShip');
+    await click(v, '#rail .go[data-act="ship-ticket"]');
     expect(heard).toEqual([]);
   });
 

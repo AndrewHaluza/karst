@@ -870,6 +870,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 869ehda7y): the command copies repos/approach/agent/model from the parent
     // and opens the ticket form so the user can type the follow-up ask.
     createFollowUp: (id) => void vscode.commands.executeCommand('karst.createFollowUpTicket', id),
+    pauseTicket: (id) => void vscode.commands.executeCommand('karst.pauseTicket', id), unpauseTicket: (id) => void vscode.commands.executeCommand('karst.unpauseTicket', id),
+    closeTicket: (id) => void vscode.commands.executeCommand('karst.closeTicket', id), reopenTicket: (id) => void vscode.commands.executeCommand('karst.reopenTicket', id),
+    detachSubtask: (id) => void vscode.commands.executeCommand('karst.detachSubtask', id),
     // The expanded mini-dashboard's "Resolve conflicts" CTA. The store decides
     // whether the conflict still exists — `repo` arrived in a webview message
     // and a stale row can name one that has since gone. Same handoff as the

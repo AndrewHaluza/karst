@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { discoverWorkspace, type DiscoveryProbe } from '../setup/discover.js';
 import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } from '../setup/proposal.js';
+import { basename } from 'node:path';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
+import { readLedger, withdrawProposal } from '../setup/ledger.js';
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
@@ -134,7 +136,7 @@ function runProposeChange(deps: SetupCommandDeps): string {
   }
   const dir = resolveSetupOutboxDir(deps.outboxEnv);
   const out = writeSetupProposal(dir, checked.value as ChangeProposal, deps.uuid);
-  return JSON.stringify({ ok: true, kind: 'change', file: out });
+  return JSON.stringify({ ok: true, kind: 'change', id: basename(out, '.json'), file: out });
 }
 
 /**
@@ -151,12 +153,31 @@ export function toChangeProposalInput(value: Readonly<Record<string, unknown>>):
   return out;
 }
 
-export function runSetupCommand(argv: readonly string[], deps: SetupCommandDeps = {}): string {  const [cmd, sub, ...rest] = argv;
+function runStatus(rest: readonly string[], deps: SetupCommandDeps): string {
+  if (rest.length > 0) throw new Error('karst setup status takes no arguments');
+  const proposals = readLedger(resolveSetupOutboxDir(deps.outboxEnv));
+  return JSON.stringify({ ok: true, proposals }, null, 2);
+}
+
+function runWithdraw(rest: readonly string[], deps: SetupCommandDeps): string {
+  const [id, ...extra] = rest;
+  if (id === undefined || extra.length > 0) throw new Error('usage: karst setup withdraw <id>');
+  const result = withdrawProposal(resolveSetupOutboxDir(deps.outboxEnv), id);
+  if (!result.ok) throw new Error(`karst setup withdraw: ${result.error}`);
+  return JSON.stringify({ ok: true, id, status: 'withdrawn' });
+}
+
+export function runSetupCommand(argv: readonly string[], deps: SetupCommandDeps = {}): string {
+  const [cmd, sub, ...rest] = argv;
   if (cmd !== 'setup') throw new Error(`karst setup: unknown command '${cmd ?? ''}'`);
   if (sub === 'discover') return runDiscover(rest, deps);
   if (sub === 'propose-change') {
     if (rest.length > 0) throw new Error(`karst setup propose-change takes no arguments or flags (${PROPOSE_USAGE})`);
     return runProposeChange(deps);
   }
-  throw new Error(`karst setup: unknown subcommand '${sub ?? ''}' (want 'discover' or 'propose-change')`);
+  if (sub === 'status') return runStatus(rest, deps);
+  if (sub === 'withdraw') return runWithdraw(rest, deps);
+  throw new Error(
+    `karst setup: unknown subcommand '${sub ?? ''}' (want 'discover', 'propose-change', 'status' or 'withdraw')`,
+  );
 }

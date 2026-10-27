@@ -462,8 +462,8 @@ describe('dashboard render — ship preview (D142)', () => {
     expect(insideClock(h)).toBe(UAT_CLOCK);
     h.click('[data-stage="review"]');
     expect(insideClock(h)).toBe(REVIEW_CLOCK);
-    // Confirm ship lives in the header and never leaves the screen.
-    expect(h.query<HTMLElement>('#confirmShip')!.hidden).toBe(false);
+    // Ship lives only on the rail now; the header draws no Confirm ship button.
+    expect(h.query('#confirmShip')).toBeNull();
     // Preview stays in the Ship view, one click away.
     h.click('[data-stage="ship"]');
     expect(h.query('[data-region="ship-preview"]')).not.toBeNull();

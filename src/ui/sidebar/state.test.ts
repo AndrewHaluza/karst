@@ -355,6 +355,18 @@ describe('buildSidebarState', () => {
     expect(state.sections.recentlyDone).toEqual([]);
   });
 
+  it('rows carry host-derived action flags from the dashboard rules (paused, close, detach)', () => {
+    const parent = createTicket(store, { key: 'P-1', title: 'parent' });
+    const sub = createTicket(store, { key: 'P-2', title: 'sub' });
+    store.db.prepare('UPDATE tickets SET subtask_parent_id = ?, paused_at = ? WHERE id = ?').run(parent.id, '2026-10-27T00:00:00Z', sub.id);
+    const rows = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current;
+    const flat = rows.flatMap((r) => [r, ...((r as { children?: unknown[] }).children ?? [])]) as Array<{ ticketId: number; paused: boolean; canClose: boolean; canReopen: boolean; canDetach: boolean }>;
+    const p = flat.find((r) => r.ticketId === parent.id)!;
+    const c = flat.find((r) => r.ticketId === sub.id)!;
+    expect(p).toMatchObject({ paused: false, canClose: true, canReopen: false, canDetach: false });
+    expect(c).toMatchObject({ paused: true, canClose: true, canReopen: false, canDetach: true });
+  });
+
   // ── Expanded mini-dashboard (peek) ─────────────────────────────────────────
 
   it('a done ticket peek offers Create follow-up as its primary next action', () => {

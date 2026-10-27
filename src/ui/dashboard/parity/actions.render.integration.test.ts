@@ -274,18 +274,14 @@ export const COVERED: readonly ParityCase[] = [
   },
   { act: 'create-follow-up-ticket', state: () => st('done'), prep: headerMenu(act('create-follow-up-ticket')), sel: act('create-follow-up-ticket'), posts: [{ type: 'create-follow-up-ticket' }], rid: true },
   { act: 'create-subtask', state: () => st('impl', { canAddSubtask: true }), sel: act('create-subtask'), posts: [{ type: 'create-subtask' }], rid: true },
-  { act: 'detach-subtask', state: () => st('impl', { canDetachSubtask: true }), sel: act('detach-subtask'), posts: [{ type: 'detach-subtask' }], rid: true },
-  { act: 'close-ticket', state: () => st('impl', { canClose: true }), sel: act('close-ticket'), posts: [{ type: 'close-ticket' }], rid: true },
-  { act: 'reopen-ticket', state: () => st('impl', { canReopen: true }), sel: act('reopen-ticket'), posts: [{ type: 'reopen-ticket' }], rid: true },
+  { act: 'detach-subtask', state: () => st('impl', { canDetachSubtask: true }), prep: headerMenu(act('detach-subtask')), sel: act('detach-subtask'), posts: [{ type: 'detach-subtask' }], rid: true },
+  { act: 'close-ticket', state: () => st('impl', { canClose: true }), prep: headerMenu(act('close-ticket')), sel: act('close-ticket'), posts: [{ type: 'close-ticket' }], rid: true },
+  { act: 'reopen-ticket', state: () => st('impl', { canReopen: true }), prep: headerMenu(act('reopen-ticket')), sel: act('reopen-ticket'), posts: [{ type: 'reopen-ticket' }], rid: true },
   {
     act: 'open-dependency', state: () => st('impl', { blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] }),
     sel: act('open-dependency'), posts: [{ type: 'open-dependency', ticketId: 42 }], rid: true,
   },
   { act: 'preview-ticket-data', state: () => st('impl'), sel: act('preview-ticket-data'), posts: [], pendingSel: false },
-  {
-    act: 'ship-ticket', state: () => shipPreviewStateFor('ready'), sel: '#confirmShip' + act('ship-ticket'),
-    posts: [{ type: 'ship-ticket' }], rid: false,
-  },
   {
     act: 'refresh-ship-preview', state: () => shipPreviewStateFor('ready'), sel: act('refresh-ship-preview'),
     posts: [{ type: 'refresh-ship-preview' }], rid: false, pendingSel: act('refresh-ship-preview', '[aria-busy="true"]'),

@@ -6,8 +6,9 @@
  * enforcement of that contract: `applyManifestProposal` NEVER lets a proposal
  * change a protected field — identity (`id`), agent settings, presets,
  * processes, ticketing, gates and conventions are taken from the current
- * manifest, only `repositories` (and a brand-new manifest) come from the
- * proposal. That is why the user can approve a diff without fear that accepting
+ * manifest, only `repositories` come from the proposal — except on first setup
+ * (no manifest, or an unedited scaffold), where protected fields other than
+ * `id` come from the proposal too. That is why the user can approve a diff without fear that accepting
  * a discovered service resets their board or their model choices.
  *
  * `diffManifest` is pure and display-only: it lists what changed per repository
@@ -15,6 +16,7 @@
  * list the user approves before karst is allowed to spin anything.
  */
 
+import { isDeepStrictEqual } from 'node:util';
 import type { DockerDef, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 
 /** Top-level fields a setup proposal may never change. */
@@ -66,26 +68,60 @@ const SCAFFOLD_DEFAULTS = {
 } as const;
 
 /**
- * The manifest to actually write: the proposal's `repositories`, with every
- * protected field restored from `current`. With no current manifest (a
- * greenfield scaffold, or a file that failed to load), protected fields are
- * still stripped from the proposal and the required ones filled with the
- * scaffold defaults — the consent modal never showed them, so they can never
- * reach the written file.
+ * True when `current` is still the unedited scaffold: every protected field
+ * except `id` equals the bundled template's. Such a manifest has nothing worth
+ * protecting, so the first setup proposal may set the protected fields.
  */
-export function applyManifestProposal(current: Manifest | undefined, proposed: Manifest): Manifest {
+export function isScaffoldManifest(current: Manifest, template: Manifest | undefined): boolean {
+  if (template === undefined) return false;
+  const cur = current as unknown as Record<string, unknown>;
+  const tpl = template as unknown as Record<string, unknown>;
+  return PROTECTED_FIELDS.every((f) => f === 'id' || isDeepStrictEqual(cur[f], tpl[f]));
+}
+
+/**
+ * First setup = no manifest yet, or an unedited scaffold: protected fields come
+ * from the proposal (`id` still never does). Otherwise protected fields are
+ * restored from `current`. With no current manifest the required fields are
+ * filled with scaffold defaults when the proposal omits them.
+ */
+export function applyManifestProposal(
+  current: Manifest | undefined,
+  proposed: Manifest,
+  firstSetup = current === undefined,
+): Manifest {
   const next = { ...proposed } as unknown as Record<string, unknown>;
+  const cur = current as unknown as Record<string, unknown> | undefined;
   for (const field of PROTECTED_FIELDS) {
-    const value = current === undefined ? undefined : (current as unknown as Record<string, unknown>)[field];
+    if (firstSetup && field !== 'id') continue;
+    const value = cur?.[field];
     if (value === undefined) delete next[field];
     else next[field] = value;
   }
-  if (current === undefined) {
-    next.host = SCAFFOLD_DEFAULTS.host;
-    next.portRange = [...SCAFFOLD_DEFAULTS.portRange] as [number, number];
-    next.baselineBranch = SCAFFOLD_DEFAULTS.baselineBranch;
+  if (firstSetup) {
+    next.host ??= SCAFFOLD_DEFAULTS.host;
+    next.portRange ??= [...SCAFFOLD_DEFAULTS.portRange] as [number, number];
+    next.baselineBranch ??= SCAFFOLD_DEFAULTS.baselineBranch;
   }
   return next as unknown as Manifest;
+}
+
+/** Protected fields whose proposed value `applyManifestProposal` discards. */
+export function droppedProtectedFields(
+  current: Manifest | undefined,
+  proposed: Manifest,
+  firstSetup = current === undefined,
+): ProtectedField[] {
+  const applied = applyManifestProposal(current, proposed, firstSetup) as unknown as Record<string, unknown>;
+  const prop = proposed as unknown as Record<string, unknown>;
+  return PROTECTED_FIELDS.filter((f) => !isDeepStrictEqual(applied[f], prop[f]));
+}
+
+/** On first setup, the protected fields the proposal sets (shown before consent). */
+export function adoptedProtectedFields(proposed: Manifest, firstSetup: boolean): ProtectedField[] {
+  if (!firstSetup) return [];
+  const prop = proposed as unknown as Record<string, unknown>;
+  return PROTECTED_FIELDS.filter((f) => f !== 'id' && prop[f] !== undefined);
 }
 
 export interface ManifestDiffEntry {

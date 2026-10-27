@@ -28,6 +28,11 @@ export type SidebarWebviewMessage =
   | { type: 'unarchive'; ticketId: number }
   | { type: 'delete'; ticketId: number }
   | { type: 'create-follow-up'; ticketId: number }
+  | { type: 'pause-ticket'; ticketId: number }
+  | { type: 'unpause-ticket'; ticketId: number }
+  | { type: 'close-ticket'; ticketId: number }
+  | { type: 'reopen-ticket'; ticketId: number }
+  | { type: 'detach-subtask'; ticketId: number }
   | { type: 'resolve-conflicts'; ticketId: number; repo: string }
   | { type: 'send-ci-failure'; ticketId: number }
   // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
@@ -86,6 +91,11 @@ export interface SidebarActions {
   unarchive(ticketId: number): void | Promise<void>;
   delete(ticketId: number): void | Promise<void>;
   createFollowUp(ticketId: number): void | Promise<void>;
+  pauseTicket(ticketId: number): void | Promise<void>;
+  unpauseTicket(ticketId: number): void | Promise<void>;
+  closeTicket(ticketId: number): void | Promise<void>;
+  reopenTicket(ticketId: number): void | Promise<void>;
+  detachSubtask(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
   sendCiFailure(ticketId: number): void | Promise<void>;
   planCreate(): void | Promise<void>;
@@ -158,6 +168,11 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'unarchive':
     case 'delete':
     case 'create-follow-up':
+    case 'pause-ticket':
+    case 'unpause-ticket':
+    case 'close-ticket':
+    case 'reopen-ticket':
+    case 'detach-subtask':
     case 'send-ci-failure':
       return id ? ({ type: m.type, ticketId: m.ticketId as number } as SidebarWebviewMessage) : null;
     case 'resolve-conflicts':
@@ -213,6 +228,16 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.delete(msg.ticketId);
     case 'create-follow-up':
       return actions.createFollowUp(msg.ticketId);
+    case 'pause-ticket':
+      return actions.pauseTicket(msg.ticketId);
+    case 'unpause-ticket':
+      return actions.unpauseTicket(msg.ticketId);
+    case 'close-ticket':
+      return actions.closeTicket(msg.ticketId);
+    case 'reopen-ticket':
+      return actions.reopenTicket(msg.ticketId);
+    case 'detach-subtask':
+      return actions.detachSubtask(msg.ticketId);
     case 'send-ci-failure':
       return actions.sendCiFailure(msg.ticketId);
     case 'resolve-conflicts':

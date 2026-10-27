@@ -81,6 +81,15 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'create-follow-up', ticketId: '12' })).toBeNull();
   });
 
+  it.each(['pause-ticket', 'unpause-ticket', 'close-ticket', 'reopen-ticket', 'detach-subtask'] as const)(
+    'accepts %s with a numeric ticketId and rejects anything else',
+    (type) => {
+      expect(parseSidebarMessage({ type, ticketId: 12 })).toEqual({ type, ticketId: 12 });
+      expect(parseSidebarMessage({ type, ticketId: '12' })).toBeNull();
+      expect(parseSidebarMessage({ type })).toBeNull();
+    },
+  );
+
   it('accepts resolve-conflicts with a numeric ticketId and a string repo', () => {
     expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' })).toEqual({
       type: 'resolve-conflicts',
@@ -118,6 +127,11 @@ describe('routeSidebarAction', () => {
       unarchive: vi.fn(),
       delete: vi.fn(),
       createFollowUp: vi.fn(),
+      pauseTicket: vi.fn(),
+      unpauseTicket: vi.fn(),
+      closeTicket: vi.fn(),
+      reopenTicket: vi.fn(),
+      detachSubtask: vi.fn(),
       resolveConflicts: vi.fn(),
       sendCiFailure: vi.fn(),
       planCreate: vi.fn(),
@@ -141,6 +155,11 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'archive', ticketId: 8 }, a);
     routeSidebarAction({ type: 'create' }, a);
     routeSidebarAction({ type: 'create-follow-up', ticketId: 12 }, a);
+    routeSidebarAction({ type: 'pause-ticket', ticketId: 21 }, a);
+    routeSidebarAction({ type: 'unpause-ticket', ticketId: 22 }, a);
+    routeSidebarAction({ type: 'close-ticket', ticketId: 23 }, a);
+    routeSidebarAction({ type: 'reopen-ticket', ticketId: 24 }, a);
+    routeSidebarAction({ type: 'detach-subtask', ticketId: 25 }, a);
     routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
     routeSidebarAction({ type: 'send-ci-failure', ticketId: 13 }, a);
     routeSidebarAction({ type: 'open-resources' }, a);
@@ -153,6 +172,11 @@ describe('routeSidebarAction', () => {
     expect(a.archive).toHaveBeenCalledWith(8);
     expect(a.create).toHaveBeenCalledOnce();
     expect(a.createFollowUp).toHaveBeenCalledWith(12);
+    expect(a.pauseTicket).toHaveBeenCalledWith(21);
+    expect(a.unpauseTicket).toHaveBeenCalledWith(22);
+    expect(a.closeTicket).toHaveBeenCalledWith(23);
+    expect(a.reopenTicket).toHaveBeenCalledWith(24);
+    expect(a.detachSubtask).toHaveBeenCalledWith(25);
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
     expect(a.sendCiFailure).toHaveBeenCalledWith(13);
     expect(a.openResources).toHaveBeenCalledOnce();

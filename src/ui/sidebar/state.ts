@@ -1,7 +1,8 @@
 import { isFinishedStage } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
-import { listTickets, listArchivedTickets, getTicket, type TicketWithStages } from '../../store/tickets.js';
+import { listTickets, listArchivedTickets, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
+import { ticketActionFlags, type TicketActionFlags } from './ticketActions.js';
 import {
   listServersByTicket,
   listWorktreesByTicket,
@@ -76,7 +77,7 @@ export const RECENT_DONE_LIMIT = 3;
 export type { SidebarPr };
 
 /** One ticket row: the collapsed node fields plus its expanded-body detail. */
-export interface TicketRow extends TicketNode {
+export interface TicketRow extends TicketNode, TicketActionFlags {
   /** The ticket's current stage key (null when stageless) — a source fact, not a label. */
   stageCurrent: TicketWithStages['stageCurrent'];
   /**
@@ -336,6 +337,9 @@ export function buildSidebarState(
       return {
         ...node,
         stageCurrent: t.stageCurrent,
+        // Host-derived from the dashboard's own pure rules; the open-child count is a store read (never the
+        // facet-scoped `subtaskChildCount`) and only runs for sub-tasks, the only rows Detach can apply to.
+        ...ticketActionFlags(t, t.subtaskParentId !== null ? listOpenSubtasks(store, t.id).length : 0),
         conflicted: mergeGate?.kind === 'conflicted',
         ciFailing: ciFailingRepos.length > 0,
         isActive: node.ticketId === (opts.activeTicketId ?? null),

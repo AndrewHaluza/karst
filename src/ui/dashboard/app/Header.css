@@ -4,7 +4,7 @@
  * the Inside stage menu shares it.
  */
 /* Header (prototype v8): ticket identity + agent identity + ship action + … menu. */
-.dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+.dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:nowrap}
 .ticketIdentity{display:inline-flex;align-items:center;gap:var(--k-space-3);flex:none}
 .ticketIdentity .provicon{width:var(--k-space-7);height:var(--k-space-7)}
 .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
@@ -21,8 +21,11 @@
 .capabilityLabels{display:contents}
 .capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
 .capChip .capModel{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--k-font-mono)}
-.headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
+.headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:0 1 auto;min-width:0;margin-left:auto}
 .agentWrap,.menuWrap{position:relative}
+.agentWrap{min-width:0;display:flex}
+.agentButton{overflow:hidden}
+.menuWrap{flex:none}
 .agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
 .agentButton:hover:not(:disabled){background:var(--k-surface-hover);border-color:var(--k-border)}
 .agentButton:disabled{opacity:.72;cursor:default}
@@ -122,12 +125,8 @@
 .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
 .menuBlurb{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
-/* The header ship workflow-action slot (UI-R28b): Confirm ship / Shipping… is
-   the primary action; Waiting to merge is the parked-wait chip. The two never
-   render together — the host's ShipSlot union is mutually exclusive. The
-   min-width is `calc`-composed so the label swap (Confirm ship / Retry ship /
-   Shipping…) never shifts the neighbouring controls (UI-R18). */
-.shipAction{min-width:calc(var(--k-control-h-lg) * 3)}
+/* Waiting to merge is the header's parked-wait chip (UI-R28b); shipping itself lives on the stage rail. */
+.menuButton.danger,.menuButton.danger .k-icon{color:var(--k-danger)}
 .shipWait{display:inline-flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border-radius:var(--k-radius-sm);color:var(--k-attention);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);white-space:nowrap}
 .shipWait.hidden{display:none}
 .attentionMark{width:var(--k-space-4);height:var(--k-space-4);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-2xs);line-height:1}
@@ -135,3 +134,5 @@
 .toast.show{opacity:1}
 /* The Resume button inside the paused chip. */
 .shipWait > .k-btn{margin-left:var(--k-space-2)}
+/* Narrow tier: the picker keeps core + live dot; the model label (one click away in the popover) and the state word give their room to the title and the ⋯. */
+@media (max-width:560px){.agentButton .agentSep,.agentButton .agentMeta{display:none}.agentLive #agentLiveText{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}

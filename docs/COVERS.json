@@ -518,6 +518,12 @@
   "src/runtime/worktreeServers.ts#stopServersUnder": [
     "arch:WT-REMOVE"
   ],
+  "src/setup/ledger.ts#readLedger": [
+    "arch:CLI-19"
+  ],
+  "src/setup/ledger.ts#withdrawProposal": [
+    "arch:CLI-19"
+  ],
   "src/store/**": [
     "arch:ST-00"
   ],

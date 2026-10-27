@@ -303,10 +303,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -326,18 +334,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -355,6 +351,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.hidden.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -381,10 +386,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "(untitled)"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -404,18 +417,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -433,6 +434,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -459,10 +469,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -482,18 +500,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -511,6 +517,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -539,10 +554,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -562,18 +585,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -591,6 +602,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -617,10 +637,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -640,18 +668,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -669,6 +685,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -695,10 +720,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "(untitled)"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -718,18 +751,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -747,6 +768,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -773,10 +803,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -796,18 +834,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" type="button"> "Retry ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -825,6 +851,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -851,10 +886,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -874,18 +917,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -903,6 +934,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -929,10 +969,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
-  <button#detachSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="detach-subtask" title="Detach this sub-task from its parent and rebase it onto the root base" type="button"> "Detach from parent…"
-  <button#closeTicket.k-btn.k-btn--ghost.k-btn--sm data-act="close-ticket" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button"> "Close — done outside Karst…"
-  <button#reopenTicket.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="reopen-ticket" title="Bring this closed ticket back to implementation" type="button"> "Reopen"
   <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.agentWrap>
       <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
         <span#agentCore.k-agent-core>
@@ -952,18 +1000,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
           <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
         <div.popActions>
           <button#switchBtn.k-btn.k-btn--primary disabled type="button"> "Switch agent…"
-    <span#toast.toast aria-live="polite">
-    <button#confirmShip.k-btn.k-btn--primary.k-btn--sm.shipAction aria-busy="false" data-act="ship-ticket" hidden title="Ship this ticket — commit, push, and open pull requests" type="button"> "Confirm ship"
-    <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Waiting to merge"
-    <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span#subtaskWaitText> "Waiting on sub-tasks"
-    <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
-      <span> "Execution paused"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -981,6 +1017,15 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
         <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Create follow-up"
+        <button#detachSubtask.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent…"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close — done outside Karst…"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
