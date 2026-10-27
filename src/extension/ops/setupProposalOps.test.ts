@@ -471,6 +471,33 @@ describe('ledger details', () => {
   });
 });
 
+describe('consent-window races', () => {
+  const A = '/s/1/outbox/a.json';
+
+  it('refuses to apply when first-setup status flipped during consent', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    const established = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
+    let calls = 0;
+    const ops = createSetupProposalOps({
+      ...f.deps,
+      readCurrentManifest: () => (calls++ === 0 ? undefined : established),
+    });
+    await ops.scan();
+    expect(f.applyManifest).not.toHaveBeenCalled();
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'invalid' });
+    expect(f.fs.results.at(-1)!.reason).toMatch(/changed while awaiting consent/);
+  });
+
+  it('keeps superseded (not withdrawn) when the superseded file is gone after its modal', async () => {
+    const B = '/s/1/outbox/b.json';
+    const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(manifestProposal()) });
+    f.fs.mtime = (p) => (p === A ? 1 : 2);
+    await createSetupProposalOps(f.deps).scan();
+    const a = f.fs.results.filter((r) => r.id === 'a');
+    expect(a.map((r) => r.status)).toEqual(['superseded']);
+  });
+});
+
 describe('default fs ledger seam', () => {
   it('reads mtime (0 when missing) and writes a result file', () => {
     const root = mkdtempSync(join(tmpdir(), 'spo-'));

@@ -135,6 +135,9 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   const isFirstSetup = (current: Manifest | undefined): boolean =>
     current === undefined || (deps.isScaffold?.(current) ?? false);
 
+  /** Files superseded by a newer proposal; a modal still open on one must not record 'withdrawn'. */
+  const superseded = new Set<string>();
+
   async function handleManifest(file: string, scratch: string, proposal: ManifestProposal): Promise<void> {
     let proposed: Manifest;
     try {
@@ -157,6 +160,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     const approved = await deps.confirm(description);
     if (!fs.exists(file)) {
       debug(`manifest proposal ${file} was withdrawn while its consent was open`);
+      if (superseded.has(file)) return;
       record(scratch, file, 'manifest', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
       return;
     }
@@ -168,7 +172,12 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     try {
       const latest = deps.readCurrentManifest();
-      const sha256 = deps.applyManifest(applyManifestProposal(latest, proposed, isFirstSetup(latest)), scratch);
+      const latestFirst = isFirstSetup(latest);
+      const latestDropped = droppedProtectedFields(latest, proposed, latestFirst);
+      if (latestFirst !== firstSetup || latestDropped.join() !== dropped.join()) {
+        throw new Error('karst.yml changed while awaiting consent; protected fields differ from what was shown');
+      }
+      const sha256 = deps.applyManifest(applyManifestProposal(latest, proposed, latestFirst), scratch);
       debug(`applied manifest proposal ${file}`);
       record(scratch, file, 'manifest', 'applied', { dropped, sha256 });
     } catch (e) {
@@ -250,6 +259,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
         .sort((a, b) => a.mtime - b.mtime || a.file.localeCompare(b.file));
       const newest = manifests[manifests.length - 1];
       for (const old of manifests.slice(0, -1)) {
+        superseded.add(old.file);
         fs.remove(old.file);
         record(scratch, old.file, 'manifest', 'superseded', {
           reason: `superseded by ${basename(newest!.file, '.json')}`,
