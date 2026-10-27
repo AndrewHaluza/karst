@@ -470,20 +470,23 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: 'manifest',
-    summary: 'Setup session: validate or propose a draft karst.yml file.',
+    summary: 'Setup session: validate or propose a draft karst.yml file, or show the active manifest without comments.',
     input: obj(
       {
-        subcommand: { type: 'string', enum: ['validate', 'propose'] },
+        subcommand: { type: 'string', enum: ['validate', 'propose', 'show'] },
         file: str,
         summary: str,
       },
-      ['subcommand', 'file'],
+      ['subcommand'],
     ),
+    globals: { manifest: true },
     writes: true,
     // The encoder names `--file <path>` (a YAML path, not structured JSON), so
     // `main.ts` dispatches this verb BEFORE structured-input resolution.
     toArgv: (input) => {
-      const argv = ['manifest', requireString(input, 'subcommand'), '--file', requireString(input, 'file')];
+      const sub = requireString(input, 'subcommand');
+      if (sub === 'show') return ['manifest', 'show', '--active'];
+      const argv = ['manifest', sub, '--file', requireString(input, 'file')];
       pushFlag(argv, '--summary', input.summary);
       return argv;
     },

@@ -232,7 +232,7 @@ export function runCli(
   // `--file` names a YAML file to validate/propose, not a JSON structured-input
   // payload. It opens no store and reads only the file it is given.
   if (subcommand === 'manifest') {
-    return runManifestCommand(rest, { outboxEnv: env.KARST_SETUP_OUTBOX });
+    return runManifestCommand(rest, { outboxEnv: env.KARST_SETUP_OUTBOX, manifestPath });
   }
 
   // Structured input (registry): a command that declares a `toArgv` encoder may

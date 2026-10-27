@@ -108,3 +108,27 @@ describe('runManifestCommand propose', () => {
     );
   });
 });
+
+describe('manifest show --active', () => {
+  const yml = '# top comment\nid: p\n# why\nhost: 127.0.0.1\nrepositories:\n  web:\n    repoPath: /w/web # inline\n';
+
+  it('prints the active manifest without comments', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mshow-'));
+    const file = join(dir, 'karst.yml');
+    writeFileSync(file, yml);
+    const out = runManifestCommand(['manifest', 'show', '--active'], { manifestPath: file });
+    expect(out).not.toContain('#');
+    expect(out).toContain('id: p');
+    expect(out).toContain('repoPath: /w/web');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('needs --active', () => {
+    expect(() => runManifestCommand(['manifest', 'show'], { manifestPath: '/x' })).toThrow(/--active/);
+  });
+
+  it('says there is no active manifest when the file is missing or no path is given', () => {
+    expect(() => runManifestCommand(['manifest', 'show', '--active'], { manifestPath: '/nope/karst.yml' })).toThrow(/no active manifest/);
+    expect(() => runManifestCommand(['manifest', 'show', '--active'], {})).toThrow(/--manifest/);
+  });
+});
