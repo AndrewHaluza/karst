@@ -223,20 +223,24 @@ exports[`dashboard region parity (DOM contract) > blocked #blocked · no block (
 
 exports[`dashboard region parity (DOM contract) > blocked #blocked · resumable boot failure > blocked · resumable boot failure 1`] = `
 "<div#blocked.blocked.fault>
-  <div.ftitle> "UAT is blocked"
-  <div.freason> "api never became healthy"
+  <span.fdot aria-hidden="true">
+  <span.ftext>
+    <span.ftitle> "UAT is blocked"
+    <span.freason> "· api never became healthy"
   <div.facts>
-    <button.k-btn.k-btn--secondary.k-btn--sm data-act="stage-resume" data-stagekey="uat" title="Clear the block and let karst try this stage again" type="button"> "Resume""
+    <button.k-btn.k-btn--primary.k-btn--sm data-act="stage-resume" data-stagekey="uat" title="Clear the block and let karst try this stage again" type="button"> "Resume""
 `;
 
 exports[`dashboard region parity (DOM contract) > blocked #blocked · usage-limit park actions > blocked · usage-limit park actions 1`] = `
 "<div#blocked.blocked.fault>
-  <div.ftitle> "Provider out of quota"
-  <div.freason> "Claude quota exhausted until 5pm"
+  <span.fdot aria-hidden="true">
+  <span.ftext>
+    <span.ftitle> "Provider out of quota"
+    <span.freason> "· Claude quota exhausted until 5pm"
   <div.facts>
     <button.k-btn.k-btn--primary.k-btn--sm data-act="usage-limit-pick" data-stagekey="uat" type="button"> "Pick agent/model…"
     <button.k-btn.k-btn--secondary.k-btn--sm data-act="usage-limit-retry" data-stagekey="uat" type="button"> "Retry same"
-    <button.k-btn.k-btn--secondary.k-btn--sm data-act="usage-limit-dismiss" data-stagekey="uat" type="button"> "Dismiss""
+    <button.k-btn.k-btn--ghost.k-btn--secondary.k-btn--sm data-act="usage-limit-dismiss" data-stagekey="uat" type="button"> "Dismiss""
 `;
 
 exports[`dashboard region parity (DOM contract) > envView #envView · closed > envView · closed 1`] = `"<div#envView.envview.hidden tabindex="-1">"`;
@@ -1899,12 +1903,11 @@ exports[`dashboard region parity (DOM contract) > rail #rail · uat parked on a 
         <button.pick aria-label="Implementation: passed" aria-pressed="false" data-stage="impl" title="Implementation: passed" type="button">
         <span.g> "✓"
         <span.nm> "impl"
-      <div.cur.running.seg.sel.stg-uat>
-        <button.pick aria-label="UAT: running" aria-pressed="true" data-stage="uat" title="UAT: running" type="button">
-        <span.g>
-          <span.spin aria-hidden="true">
+      <div.cur.faulted.running.seg.sel.stg-uat>
+        <button.pick aria-label="UAT blocked" aria-pressed="true" data-stage="uat" title="UAT blocked" type="button">
+        <span.g> "⚠"
         <span.nm>
-          <span.full> "UAT"
+          <span.full> "UAT · BLOCKED"
           <span.abbr> "uat"
       <div.pending.seg.stg-review>
         <button.pick aria-label="Review: pending" aria-pressed="false" data-stage="review" title="Review: pending" type="button">
