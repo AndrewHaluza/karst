@@ -6,10 +6,12 @@
    subject. The selector is attribute-based: an id selector for the button would look like a colour literal to
    the stylesheet's hex audit. */
 .phead [data-act="create-subtask"]{margin-left:auto;display:inline-flex;align-items:center;gap:var(--k-space-3)}
+.phead .k-btn-label{white-space:nowrap}
 .phead .subtask-progress + [data-act="create-subtask"]{margin-left:var(--k-space-5)}
-/* 72px segmented progress bar: done / running / blocked / the rest, each segment grown by its sub-task count. */
+/* 72px segmented progress bar: done / running / blocked / the rest, one equal slice per sub-task. */
 .subtask-progress{display:flex;flex:none;width:72px;height:var(--k-space-3);margin-left:auto;overflow:hidden;
   border-radius:var(--k-radius-pill);background:var(--k-border)}
+.subtask-progress .seg{flex:1 1 0}
 .subtask-progress .seg--passed{background:var(--k-passed)}
 .subtask-progress .seg--running{background:var(--k-running)}
 .subtask-progress .seg--failed{background:var(--k-failed)}
@@ -44,7 +46,9 @@
 /* Line 2: dot width + row gap, a fixed indent that does not depend on the hidden T-id / key. */
 .subtask .subtask-fault{flex:0 0 100%;min-width:0;padding-left:calc(var(--k-space-4) + var(--k-space-5));overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-sm)}
-.subtask .ftitle{color:var(--k-failed);font-weight:var(--k-weight-semibold)}
+/* The fault ink leans toward the foreground: bare --k-failed on the row's own 7% tint falls just under AA in both
+   themes (@ui:CONTRAST-PER-THEME). */
+.subtask .ftitle{color:color-mix(in srgb, var(--k-failed) 70%, var(--k-text));font-weight:var(--k-weight-semibold)}
 .subtask .freason{font-family:var(--k-font-mono);color:var(--k-text-dim)}
 .subtask .stage{flex:0 0 auto}
 .subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}

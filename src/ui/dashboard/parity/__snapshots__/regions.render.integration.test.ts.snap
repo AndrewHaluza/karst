@@ -2374,7 +2374,9 @@ exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none
 "<div#subtaskPanel.hidden.panel.span>
   <div.phead> "Sub-tasks"
     <span#subtaskCount.count>
-    <button#addSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+    <button#addSubtask.hidden.k-btn.k-btn--ghost.k-btn--sm aria-label="Add sub-task" data-act="create-subtask" title="Create a sub-task under this ticket" type="button">
+      <svg.k-icon aria-hidden="true">
+      <span.k-btn-label> "Add sub-task"
   <div#subtasks.pbody>
     <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
 `;
@@ -2383,7 +2385,9 @@ exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none
 "<div#subtaskPanel.panel.span>
   <div.phead> "Sub-tasks"
     <span#subtaskCount.count>
-    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm aria-label="Add sub-task" data-act="create-subtask" title="Create a sub-task under this ticket" type="button">
+      <svg.k-icon aria-hidden="true">
+      <span.k-btn-label> "Add sub-task"
   <div#subtasks.pbody>
     <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
 `;
@@ -2392,26 +2396,49 @@ exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · popu
 "<div#subtaskPanel.panel.span>
   <div.phead> "Sub-tasks"
     <span#subtaskCount.count> "1/3 done"
-    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm data-act="create-subtask" title="Create a sub-task under this ticket" type="button"> "Add sub-task…"
+    <span.subtask-progress aria-hidden="true">
+      <span.seg.seg--passed>
+      <span.seg.seg--failed>
+      <span.seg.seg--rest>
+    <button#addSubtask.k-btn.k-btn--ghost.k-btn--sm aria-label="Add sub-task" data-act="create-subtask" title="Create a sub-task under this ticket" type="button">
+      <svg.k-icon aria-hidden="true">
+      <span.k-btn-label> "Add sub-task"
   <div#subtasks.pbody>
-    <div.subtask data-id="942018">
+    <div.subtask.subtask--done data-id="942018">
       <span.k-dot.k-dot--passed aria-label="done" role="img">
       <span.k-id> "T942018"
       <span.subtask-key> "FEAT-142-s1"
-      <span.subtask-title> "Extract the base-branch resolver"
+      <span.subtask-title aria-label="T942018 · FEAT-142-s1 — Extract the base-branch resolver" title="T942018 · FEAT-142-s1 — Extract the base-branch resolver"> "Extract the base-branch resolver"
+      <span.subtask-pr.subtask-pr--merged title="PR #418 merged"> "# 418"
+        <span.subtask-pr-state> "merged"
+      <span.subtask-age title="Done <dur>"> "<dur>"
       <span.stage.stg-done title="done"> "done"
-    <div.subtask data-id="942019">
-      <span.k-dot.k-dot--running aria-label="impl" role="img">
+    <div.subtask.subtask--blocked data-id="942019">
+      <span.k-dot.k-dot--running aria-label="blocked" role="img">
       <span.k-id> "T942019"
       <span.subtask-key> "FEAT-142-s2"
-      <span.subtask-title> "Add per-repo override to the picker"
-      <span.subtaskBlock title="Holds the parent before it leaves implement"> "Blocking"
+      <span.subtask-title aria-label="T942019 · FEAT-142-s2 — Add per-repo override to the picker" title="T942019 · FEAT-142-s2 — Add per-repo override to the picker"> "Add per-repo override to the picker"
+      <span.subtask-pr.subtask-pr--open title="PR #422 open"> "# 422 +1"
+        <span.subtask-pr-state> "open"
+      <span.subtask-lock aria-label="blocker" role="img" title="Blocker: FEAT-142 can’t leave impl until this sub-task is done">
+        <svg.k-icon aria-hidden="true">
+      <span.subtask-agent title="Claude · claude-sonnet-5-5">
+        <span.agenticon-island>
+          <span.agenticon aria-hidden="true">
+            <svg>
+        <span.subtask-agent-name> "Claude"
+        <span.subtask-agent-model> "· Sonnet 5.5"
+      <span.subtask-age title="Blocked for <dur>"> "<dur>"
       <span.stage.stg-impl title="impl"> "impl"
+      <div.subtask-fault aria-label="Provider out of quota · anthropic: monthly quota exceeded" title="Provider out of quota · anthropic: monthly quota exceeded"> "·"
+        <b.ftitle> "Provider out of quota"
+        <span.freason> "anthropic: monthly quota exceeded"
     <div.subtask data-id="942020">
       <span.k-dot aria-label="Queued" role="img">
       <span.k-id> "T942020"
       <span.subtask-key> "FEAT-142-s3"
-      <span.subtask-title> "Waiting for a free sub-task slot"
+      <span.subtask-title aria-label="T942020 · FEAT-142-s3 — Waiting for a free sub-task slot" title="T942020 · FEAT-142-s3 — Waiting for a free sub-task slot"> "Waiting for a free sub-task slot"
+      <span.subtask-age title="#2 in the autostart queue"> "#2"
       <span.stage.stg-scope title="Queued"> "Queued""
 `;
 

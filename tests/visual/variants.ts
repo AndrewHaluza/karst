@@ -129,6 +129,8 @@ const dashboardVariants = (): Variant[] => [
       blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
     },
   }))),
+  // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
+  variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'] }),
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
     ...s,
     sandbox: {

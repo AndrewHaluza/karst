@@ -170,7 +170,7 @@ button.k-chip{cursor:pointer}
    caption (Resources ticket groups) stays plain. Uppercase + tracking match the rail's stage label. */
 .stage[class*="stg-"]{
   font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-4);border-radius:var(--k-radius-lg);
-  flex:0 0 auto;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:.06em;
+  flex:0 0 auto;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:calc(var(--k-text-2xs) * .06);
   background:var(--stg-bg,color-mix(in srgb, currentColor 16%, transparent))}
 /* An unclassified stage reads as a dashed outline so "unknown" never masquerades as a real stage. */
 .stage.stg-unknown{border:var(--k-border-w) dashed currentColor}

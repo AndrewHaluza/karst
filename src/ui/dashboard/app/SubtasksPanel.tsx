@@ -40,15 +40,15 @@ const SEGMENTS: readonly Seg[] = ['passed', 'running', 'failed', 'rest'];
 const segOf = (s: SubtaskRowData): Seg =>
   s.done ? 'passed' : s.fault ? 'failed' : s.glyph === 'blue' || s.glyph === 'amber' ? 'running' : 'rest';
 
-/** The 72px segmented bar: done / running / blocked / the rest, proportional by sub-task count. Decoration only. */
+/** The 72px segmented bar: done / running / blocked / the rest, one equal slice per sub-task. Decoration only. */
 function Progress({ subtasks }: { readonly subtasks: readonly SubtaskRowData[] }) {
   if (!subtasks.length) return null;
-  const counts = new Map<Seg, number>();
-  for (const s of subtasks) counts.set(segOf(s), (counts.get(segOf(s)) ?? 0) + 1);
+  const order = (s: SubtaskRowData): number => SEGMENTS.indexOf(segOf(s));
+  const ordered = [...subtasks].sort((a, b) => order(a) - order(b));
   return (
     <span className="subtask-progress" aria-hidden="true">
-      {SEGMENTS.filter((k) => counts.has(k)).map((k) => (
-        <span key={k} className={`seg seg--${k}`} style={{ flexGrow: counts.get(k) }} />
+      {ordered.map((s) => (
+        <span key={s.id} className={`seg seg--${segOf(s)}`} />
       ))}
     </span>
   );

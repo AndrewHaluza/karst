@@ -288,12 +288,12 @@ describe('SubtasksPanel — header', () => {
     );
     const bar = document.querySelector('.subtask-progress')!;
     expect(bar.getAttribute('aria-hidden')).toBe('true');
-    const segs = [...bar.children].map((c) => [c.className, (c as HTMLElement).style.flexGrow]);
+    const segs = [...bar.children].map((c) => c.className);
     expect(segs).toEqual([
-      ['seg seg--passed', '1'],
-      ['seg seg--running', '1'],
-      ['seg seg--failed', '1'],
-      ['seg seg--rest', '1'],
+      'seg seg--passed',
+      'seg seg--running',
+      'seg seg--failed',
+      'seg seg--rest',
     ]);
   });
 
