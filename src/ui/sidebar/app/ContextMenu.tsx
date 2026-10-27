@@ -5,7 +5,7 @@
  * context menu. An outside click closes it; Escape closes it returning focus to
  * the trigger.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef } from 'react';
 import { ActButton } from './action.js';
 import { Icon } from './Icon.js';
 import { useSidebar } from './SidebarContext.js';
@@ -55,16 +55,18 @@ export function ContextMenu() {
   return (
     <div className={menu ? 'ctxmenu open' : 'ctxmenu'} id="ctxMenu" role="menu" ref={ref}>
       {menu?.items.map((item) => (
-        <ActButton
-          key={item.key}
-          spec={item.spec}
-          className={item.danger ? 'ctxitem danger' : 'ctxitem'}
-          role="menuitem"
-          title={item.title}
-          beforeFire={() => closeMenu(false)}
-        >
-          {item.icon ? <Icon name={item.icon} /> : null} {item.label}
-        </ActButton>
+        <Fragment key={item.key}>
+          {item.divider ? <div className="ctxdivider" role="separator" /> : null}
+          <ActButton
+            spec={item.spec}
+            className={item.danger ? 'ctxitem danger' : 'ctxitem'}
+            role="menuitem"
+            title={item.title}
+            beforeFire={() => closeMenu(false)}
+          >
+            {item.icon ? <Icon name={item.icon} /> : null} {item.label}
+          </ActButton>
+        </Fragment>
       ))}
     </div>
   );

@@ -9,16 +9,11 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { AgentPopover } from './AgentPopover.js';
-import { useDashboardSend } from './DashboardAppContext.js';
 import { HeaderMeta } from './HeaderMeta.js';
-import { HideableButton } from './HideableButton.js';
 import { RegionPortal } from './RegionPortal.js';
 import { ShipControls } from './ShipControls.js';
 import { TicketIdentity, TicketTitle } from './TicketIdentity.js';
 import { TicketMenu } from './TicketMenu.js';
-import { selectControls } from './headerSlices.js';
-import { usePendingAction } from './usePendingAction.js';
-import { useSlice } from './useSlice.js';
 import './Header.css';
 
 type Popover = 'agent' | 'menu' | null;
@@ -52,52 +47,6 @@ function usePopovers(): { readonly open: Popover; readonly toggle: (which: 'agen
   return { open, toggle, close };
 }
 
-/** Detach, Close and Reopen: host-gated, runtime-pending, payload-free. */
-const HeaderButtons = memo(function HeaderButtons() {
-  const send = useDashboardSend();
-  const controls = useSlice(selectControls);
-  const onDetach = usePendingAction((requestId) => send.detachSubtask(requestId));
-  const onClose = usePendingAction((requestId) => send.closeTicket(requestId));
-  const onReopen = usePendingAction((requestId) => send.reopenTicket(requestId));
-  return (
-    <>
-      {/* Detach (design NDL-70 5): offered only where the writer would allow it (host-derived `canDetachSubtask`). */}
-      <HideableButton
-        off={!controls?.canDetach}
-        id="detachSubtask"
-        className="k-btn k-btn--ghost k-btn--sm"
-        data-act="detach-subtask"
-        title="Detach this sub-task from its parent and rebase it onto the root base"
-        onClick={onDetach}
-      >
-        Detach from parent…
-      </HideableButton>
-      {/* Close / Reopen (@arch:STAGEMACH): a person records that the work was done outside karst. Host-gated
-          (`canClose` / `canReopen`); the click sends no payload and the host asks for the reason. */}
-      <HideableButton
-        off={!controls?.canClose}
-        id="closeTicket"
-        className="k-btn k-btn--ghost k-btn--sm"
-        data-act="close-ticket"
-        title="Mark closed: the work was done outside Karst. Nothing is verified"
-        onClick={onClose}
-      >
-        Close — done outside Karst…
-      </HideableButton>
-      <HideableButton
-        off={!controls?.canReopen}
-        id="reopenTicket"
-        className="k-btn k-btn--ghost k-btn--sm"
-        data-act="reopen-ticket"
-        title="Bring this closed ticket back to implementation"
-        onClick={onReopen}
-      >
-        Reopen
-      </HideableButton>
-    </>
-  );
-});
-
 export const Header = memo(function Header() {
   const { open, toggle, close } = usePopovers();
   const toggleAgent = useCallback(() => toggle('agent'), [toggle]);
@@ -107,10 +56,9 @@ export const Header = memo(function Header() {
       <RegionPortal byClass="dhead">
         <TicketIdentity />
         <TicketTitle />
-        <HeaderButtons />
         <div className="headerActions">
-          <AgentPopover open={open === 'agent'} onToggle={toggleAgent} close={close} />
           <ShipControls />
+          <AgentPopover open={open === 'agent'} onToggle={toggleAgent} close={close} />
           <TicketMenu open={open === 'menu'} onToggle={toggleMenu} />
         </div>
       </RegionPortal>
