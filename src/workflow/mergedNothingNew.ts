@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { ProjectScope } from '../store/tickets.js';
 import { listTickets } from '../store/tickets.js';
-import { listCurrentPrsByTicket } from '../store/prs.js';
+import { listCurrentPrsByTicket, recordShippedPr, updatePrStatus } from '../store/prs.js';
 import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage } from '../store/stages.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
@@ -17,6 +17,24 @@ import { headCommit, type GitRunner } from '../integrations/git.js';
  */
 export interface MergedNothingNew {
   number: number;
+  url: string | null;
+  /** 'github' = no store row; the caller that may write adopts it. */
+  source: 'store' | 'github';
+}
+
+/** Where to look on GitHub when the store has no PR row (a hand-opened PR). */
+export interface MergedPrHint {
+  branch: string | null | undefined;
+  baseRef: string | null | undefined;
+}
+
+interface GhMergedPr {
+  number: number;
+  url: string;
+  headRefOid: string;
+  baseRefName: string;
+  mergedAt: string;
+  headRepositoryOwner?: { login?: string } | null;
 }
 
 /**
@@ -42,20 +60,93 @@ export async function probeMergedNothingNew(
   ticketId: number,
   repo: string,
   cwd: string,
+  hint?: MergedPrHint,
 ): Promise<MergedNothingNew | null> {
-  const number = currentMergedPrNumber(deps.store, ticketId, repo);
-  if (number === null) return null;
-  const view = await deps.gh(
-    ['pr', 'view', String(number), '--json', 'headRefOid', '--jq', '.headRefOid'],
-    cwd,
-  );
-  const mergedHead = view.exitCode === 0 ? view.stdout.trim() : '';
-  if (mergedHead === '') return null;
+  const current = listCurrentPrsByTicket(deps.store, ticketId).find((p) => p.repo === repo);
+  let found: { number: number; url: string | null; mergedHead: string; source: 'store' | 'github' };
+  if (current) {
+    const number = currentMergedPrNumber(deps.store, ticketId, repo);
+    if (number === null) return null;
+    const view = await deps.gh(
+      ['pr', 'view', String(number), '--json', 'headRefOid', '--jq', '.headRefOid'],
+      cwd,
+    );
+    const mergedHead = view.exitCode === 0 ? view.stdout.trim() : '';
+    if (mergedHead === '') return null;
+    found = { number, url: current.url, mergedHead, source: 'store' };
+  } else {
+    const pr = hint ? await findHandMergedPr(deps, cwd, hint) : null;
+    if (!pr) return null;
+    found = { number: pr.number, url: pr.url, mergedHead: pr.headRefOid, source: 'github' };
+  }
   const head = await headCommit(deps.git, cwd);
   if (head === null) return null;
-  if (head === mergedHead) return { number };
-  const diff = await deps.git(['diff', '--quiet', mergedHead, 'HEAD'], cwd);
-  return diff.exitCode === 0 ? { number } : null;
+  const landed = { number: found.number, url: found.url, source: found.source };
+  if (head === found.mergedHead) return landed;
+  const diff = await deps.git(['diff', '--quiet', found.mergedHead, 'HEAD'], cwd);
+  return diff.exitCode === 0 ? landed : null;
+}
+
+const branchOf = (ref: string): string => ref.replace(/^(refs\/remotes\/)?origin\//, '');
+
+/** Owner login of the `origin` remote, or null when unreadable. */
+async function originOwner(git: GitRunner, cwd: string): Promise<string | null> {
+  const r = await git(['remote', 'get-url', 'origin'], cwd);
+  if (r.exitCode !== 0) return null;
+  return /[:/]([^/:]+)\/[^/]+?(?:\.git)?\s*$/.exec(r.stdout.trim())?.[1] ?? null;
+}
+
+/**
+ * The newest MERGED PR from this branch into the ticket's base, from origin
+ * itself (not a fork). Read-only; any failed read or bad JSON answers null.
+ */
+async function findHandMergedPr(
+  deps: { git: GitRunner; gh: GhRunner },
+  cwd: string,
+  hint: MergedPrHint,
+): Promise<GhMergedPr | null> {
+  if (!hint.branch || !hint.baseRef) return null;
+  const list = await deps.gh(
+    [
+      'pr', 'list', '--head', hint.branch, '--state', 'merged', '--json',
+      'number,url,headRefOid,baseRefName,mergedAt,headRepositoryOwner',
+    ],
+    cwd,
+  );
+  if (list.exitCode !== 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(list.stdout);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const owner = await originOwner(deps.git, cwd);
+  if (owner === null) return null;
+  const base = branchOf(hint.baseRef);
+  const matches = (parsed as GhMergedPr[]).filter(
+    (p) =>
+      typeof p?.number === 'number' &&
+      typeof p.url === 'string' &&
+      typeof p.headRefOid === 'string' &&
+      p.headRefOid !== '' &&
+      p.baseRefName === base &&
+      p.headRepositoryOwner?.login?.toLowerCase() === owner.toLowerCase(),
+  );
+  matches.sort((a, b) => String(b.mergedAt).localeCompare(String(a.mergedAt)));
+  return matches[0] ?? null;
+}
+
+/** Record a GitHub-found merged PR in the store (idempotent per ticket/repo/url). */
+export function adoptMergedPr(
+  store: Store,
+  ticketId: number,
+  repo: string,
+  landed: MergedNothingNew,
+): void {
+  if (landed.source !== 'github' || landed.url === null) return;
+  recordShippedPr(store, { ticketId, repo, number: landed.number, url: landed.url });
+  updatePrStatus(store, { ticketId, repo, url: landed.url, status: 'merged' });
 }
 
 /**
@@ -81,8 +172,13 @@ export async function settleMergedNothingNew(
       const worktrees = listWorktreesByTicket(store, ticket.id);
       if (worktrees.length === 0) continue;
       let allLanded = true;
+      const adoptions: [string, MergedNothingNew][] = [];
       for (const wt of worktrees) {
-        const landed = await probeMergedNothingNew(deps, ticket.id, wt.repo, wt.path);
+        const landed = await probeMergedNothingNew(deps, ticket.id, wt.repo, wt.path, {
+          branch: wt.branch,
+          baseRef: wt.baseRef,
+        });
+        if (landed) adoptions.push([wt.repo, landed]);
         const status = landed ? await git(['status', '--porcelain'], wt.path) : null;
         if (!landed || status?.exitCode !== 0 || status.stdout.trim() !== '') {
           allLanded = false;
@@ -90,6 +186,7 @@ export async function settleMergedNothingNew(
         }
       }
       if (!allLanded) continue;
+      for (const [repo, landed] of adoptions) adoptMergedPr(store, ticket.id, repo, landed);
       debug?.(`[merge] sweep: ticket ${ticket.id} waits at ship but every PR merged with nothing new — passing ship`);
       transition(store, ticket.id, 'ship', { kind: 'passed' }, () => {
         clearStageBlock(store, ticket.id, 'ship');

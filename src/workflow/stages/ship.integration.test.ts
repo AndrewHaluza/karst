@@ -51,7 +51,9 @@ function walkToShip(store: Store, id: number): void {
 function fakeGh(): { gh: GhRunner; calls: number } {
   let calls = 0;
   const gh: GhRunner = async (args) => {
+    if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
     if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+    if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
     calls++;
     return { stdout: `https://github.com/o/r/pull/${calls}`, exitCode: 0 };
   };
@@ -78,6 +80,7 @@ function ghWithExistingPr(
   const args: string[][] = [];
   const gh: GhRunner = async (a) => {
     args.push(a);
+    if (a[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
     if (a[1] === 'view') {
       const view = body === null ? { number: 18, url, state: 'OPEN' } : { number: 18, url, state: 'OPEN', body };
       return { stdout: JSON.stringify(view), exitCode: 0 };
@@ -299,6 +302,7 @@ setTimeout(() => {
     };
     const gh: GhRunner = async (args) => {
       order.push(`gh pr ${args[1]}`);
+      if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
       if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       return { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
     };
@@ -311,6 +315,7 @@ setTimeout(() => {
     // now exists — the ship stage renders it immediately, not a sweep later.
     expect(order).toEqual([
       'git status',
+      'gh pr list',
       'git push',
       'gh pr view',
       'gh pr create',
@@ -328,6 +333,7 @@ setTimeout(() => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);
+      if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
       if (args[1] === 'view') {
         return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       }
@@ -632,6 +638,7 @@ setTimeout(() => {
       };
       const gh: GhRunner = async (args) => {
         order.push(`gh pr ${args[1]}`);
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') {
           return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
         }
@@ -646,6 +653,7 @@ setTimeout(() => {
         'git fetch',
         'git fetch',
         'git diff',
+        'gh pr list',
         'git push',
         'gh pr view',
         // The description is written from the branch material — commits,
@@ -1281,6 +1289,7 @@ setTimeout(() => {
   it('each PR carries a deterministic description when the pr-description process is disabled', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const gh: GhRunner = async (args) => {
+      if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
       if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       // With no collected metadata the safe deterministic fallback is the title.
       const bodyIdx = args.indexOf('--body');
@@ -1301,6 +1310,7 @@ setTimeout(() => {
     function recordingGh(): { gh: GhRunner; creates: string[][] } {
       const creates: string[][] = [];
       const gh: GhRunner = async (args) => {
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') {
           return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
         }
@@ -1871,6 +1881,7 @@ setTimeout(() => {
     function recordingGh(): { gh: GhRunner; creates: string[][] } {
       const creates: string[][] = [];
       const gh: GhRunner = async (args) => {
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
         creates.push(args);
         return { stdout: 'https://github.com/o/r/pull/7', exitCode: 0 };
@@ -2016,6 +2027,7 @@ setTimeout(() => {
     function recordingCreateGh(): { gh: GhRunner; creates: string[][] } {
       const creates: string[][] = [];
       const gh: GhRunner = async (args) => {
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
         creates.push(args);
         return { stdout: 'https://github.com/o/r/pull/9', exitCode: 0 };
@@ -2310,6 +2322,7 @@ setTimeout(() => {
           }
           // Any probe BY ref still works: gh knows this PR, it just could not map
           // the branch to it.
+          if (a[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
           if (a[1] === 'view') {
             const view = body === null ? { state: 'OPEN' } : { state: 'OPEN', body };
             return { stdout: JSON.stringify(view), exitCode: 0 };
@@ -2397,6 +2410,7 @@ setTimeout(() => {
       it('still fails the ship for a refusal that names no PR', async () => {
         seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
         const gh: GhRunner = async (a) => {
+          if (a[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
           if (a[1] === 'view') return { stdout: '', stderr: 'blind', exitCode: 1 };
           return { stdout: '', stderr: 'GraphQL: Resource not accessible', exitCode: 1 };
         };
@@ -2578,6 +2592,7 @@ setTimeout(() => {
     seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
     let calls = 0;
     const gh: GhRunner = async (args) => {
+      if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
       if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
       calls++;
       return { stdout: `https://github.com/o/r/pull/${calls}`, exitCode: 0 };
@@ -2718,6 +2733,7 @@ setTimeout(() => {
       let created = 0;
       const gh: GhRunner = async (args) => {
         if (args.includes('headRefOid')) return { stdout: `${oid}\n`, stderr: '', exitCode: 0 };
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
         created++;
         return { stdout: `https://github.com/o/r/pull/${created}`, stderr: '', exitCode: 0 };
@@ -2750,6 +2766,39 @@ setTimeout(() => {
       expect(calls.some((c) => c[0] === 'push')).toBe(false);
       expect(res.prs).toEqual([]);
       expect(listPrsByTicket(store, id)).toHaveLength(1);
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    it('adopts a hand-opened merged PR found on GitHub when the store has no row', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      let created = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'list') {
+          const pr = {
+            number: 55,
+            url: 'https://github.com/o/r/pull/55',
+            headRefOid: MERGED_HEAD,
+            baseRefName: 'develop',
+            mergedAt: '2026-01-01T00:00:00Z',
+            headRepositoryOwner: { login: 'o' },
+          };
+          return { stdout: JSON.stringify([pr]), stderr: '', exitCode: 0 };
+        }
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        created++;
+        return { stdout: 'https://github.com/o/r/pull/99', stderr: '', exitCode: 0 };
+      };
+      const { git: base, calls } = gitAt(MERGED_HEAD, 1);
+      const git: GitRunner = async (args, cwd) =>
+        args[0] === 'remote'
+          ? { stdout: 'git@github.com:o/r.git\n', stderr: '', exitCode: 0 }
+          : base(args, cwd);
+
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      expect(created).toBe(0);
+      expect(calls.some((c) => c[0] === 'push')).toBe(false);
+      expect(listPrsByTicket(store, id).map((p) => [p.number, p.status])).toEqual([[55, 'merged']]);
       expect(getTicket(store, id).stageCurrent).toBe('done');
     });
 
@@ -3246,6 +3295,7 @@ setTimeout(() => {
       // PR for the BACKEND worktree only; the frontend (in scope) gets no PR so
       // it ships a fresh one.
       const gh: GhRunner = async (args, cwd) => {
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
         if (args[1] === 'view') {
           if (cwd === join(dir, 'be')) {
             return {

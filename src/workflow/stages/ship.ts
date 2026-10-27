@@ -42,7 +42,7 @@ import {
   type ShipProgress,
   type ShipStep,
 } from './shipStore.js';
-import { probeMergedNothingNew } from '../mergedNothingNew.js';
+import { adoptMergedPr, probeMergedNothingNew } from '../mergedNothingNew.js';
 import { backfillDescription, bodyHash, generateDescription, noteReusedPr } from './shipDescription.js';
 import {
   describeGitFailure,
@@ -1210,8 +1210,12 @@ export async function shipTicket(
         // would duplicate landed code. Real new work after a merge differs from
         // the merged head, so it falls through to a fresh PR as before.
         if (!prior) {
-          const landed = await probeMergedNothingNew({ store, git, gh }, opts.ticketId, wt.repo, wt.path);
+          const landed = await probeMergedNothingNew({ store, git, gh }, opts.ticketId, wt.repo, wt.path, {
+            branch: wt.branch,
+            baseRef: base,
+          });
           if (landed) {
+            adoptMergedPr(store, opts.ticketId, wt.repo, landed);
             onProgress({
               repo: wt.repo,
               step: 'pr',
@@ -1613,7 +1617,7 @@ export async function shipTicket(
               },
               prAt,
             );
-            const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+            const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base, head: wt.branch ?? undefined });
             if (created.adopted) {
               // The probe above answered null but a PR existed anyway — it is
               // branch-inferred, so bad auth or an ambiguous base repo looks exactly
