@@ -145,6 +145,7 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-dur-base': '180ms',
   '--k-dur-slow': '280ms',
   '--k-dur-spin': '900ms',
+  '--k-dur-flash-attention': '1000ms',
   '--k-dur-flash-copy': '1200ms',
   '--k-dur-flash-done': '2400ms',
   '--k-dur-progress': '1200ms',

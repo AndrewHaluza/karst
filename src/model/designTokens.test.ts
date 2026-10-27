@@ -139,6 +139,10 @@ describe('design tokens', () => {
       expect(css.split(`${name}:`).length - 1, `${name} declared twice`).toBe(1);
     }
   });
+
+  it('declares the attention pulse duration token', () => {
+    expect(DESIGN_TOKENS['--k-dur-flash-attention']).toBe('1000ms');
+  });
 });
 
 describe('content max tokens', () => {
