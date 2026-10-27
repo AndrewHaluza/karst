@@ -10,13 +10,64 @@ import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import { subtaskAutostartPhase } from '../../model/subtask.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
-import type { DashboardSubtaskRow } from './stateTypes.js';
+import { buildStepper } from '../../model/stepper.js';
+import { queuedPositions, SLOT_STAGES } from '../../store/autostart.js';
+import { listCurrentPrsByTicket } from '../../store/prs.js';
+import { buildAgentState } from './stateAgent.js';
+import { blockFaultTitle } from './app/railText.js';
+import type { AgentProvider } from '../../manifest/types.js';
+import type { DashboardAgentContext, DashboardSubtaskRow } from './stateTypes.js';
+
+/** What the per-child agent identity needs: the same inputs the header's resolver gets. */
+export interface SubtaskAgentInputs {
+  defaultProvider: AgentProvider | undefined;
+  agentContext: DashboardAgentContext;
+  recentByCore: Record<string, string[]>;
+}
+
+type Child = ReturnType<typeof getTicket>;
+
+/** The block a banner would render for the child's current stage (BlockedBanner's own filter), else null. */
+function childFault(child: Child, done: boolean): DashboardSubtaskRow['fault'] {
+  if (done) return null;
+  const blocked = buildStepper(child.stages).find((c) => c.stageKey === child.stageCurrent)?.blocked;
+  if (!blocked) return null;
+  const shown = blocked.resumable !== false || blocked.kind === 'baseline-review' || blocked.kind === 'usage-limit';
+  if (!shown) return null;
+  return {
+    kind: blocked.kind,
+    title: blockFaultTitle(blocked.kind, child.stageCurrent ?? ''),
+    reason: blocked.reason,
+    since: blocked.at,
+  };
+}
+
+function childPr(store: Store, id: number): DashboardSubtaskRow['pr'] {
+  const [first, ...rest] = listCurrentPrsByTicket(store, id).filter((p) => p.number !== null);
+  if (!first) return null;
+  const state = first.status === 'merged' || first.status === 'closed' ? first.status : 'open';
+  return { number: first.number!, state, more: rest.length };
+}
+
+function childAgent(child: Child, done: boolean, inputs: SubtaskAgentInputs): DashboardSubtaskRow['agent'] {
+  const inAgentStage = (SLOT_STAGES as readonly string[]).includes(child.stageCurrent ?? '');
+  if (done || !(child.sessionProvider || inAgentStage)) return null;
+  const { agentSession } = buildAgentState({ ticket: child, fixExecutionActive: false, ...inputs });
+  const generic = agentSession.modelLabel === 'Agent default';
+  return {
+    core: agentSession.provider,
+    coreLabel: agentSession.providerLabel,
+    model: agentSession.modelId,
+    modelShort: generic ? null : agentSession.modelLabel,
+  };
+}
+
 
 /**
  * The ticket's relations: follow-up parent, sub-task parent, direct sub-tasks
  * and open blockers, read in one fixed order for the dashboard snapshot.
  */
-export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>) {
+export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>, agentInputs: SubtaskAgentInputs) {
   const ticketId = ticket.id;
   // The parent relationship for the dashboard's secondary metadata line. A
   // follow-up's identity is relationship metadata, never part of its title. A
@@ -55,9 +106,11 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
     const id = b.targetTicketId === null ? null : formatId('ticket', b.targetTicketId);
     return { ticketId: b.targetTicketId, idLabel: id !== null && !b.label.startsWith(id) ? id : null, label: b.label };
   });
+  const queue = queuedPositions(store, ticketId);
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
     const child = getTicket(store, s.id);
     const badge = stageBadge(child);
+    const done = isFinishedStage(s.stageCurrent);
     return {
       id: s.id,
       idLabel: formatId('ticket', s.id),
@@ -67,8 +120,13 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
       glyph: badge.glyph,
       stageClass: stageColorClass(badge.stage),
       blocking: s.blocksParent,
-      done: isFinishedStage(s.stageCurrent),
+      done,
       autostart: subtaskAutostartPhase(child),
+      fault: childFault(child, done),
+      pr: childPr(store, s.id),
+      agent: childAgent(child, done, agentInputs),
+      stageSince: child.stages.find((st) => st.stageKey === child.stageCurrent)?.startedAt ?? null,
+      queuePos: queue.get(s.id) ?? null,
     };
   });
   return { parent, subtaskParent, subtaskList, blockers, subtasks };

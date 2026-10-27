@@ -252,18 +252,6 @@
      the two disclosures never look alike. Still a SEPARATE control (UI-R09:
      two independent disclosures are two buttons). */
   .subchev{margin-left:auto;flex:0 0 auto}
-  /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
-     so its text IS the stage color and its fill is that color washed out — the
-     same token the dashboard rail paints with. The fill prefers the stage's
-     approved background pair (--stg-bg, currently only Scope) and falls back
-     to the washed-out foreground for every other stage. Uppercase + tracking
-     so the chip text matches the rail's stage label letter-for-letter. */
-  .stage{font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-4);border-radius:var(--k-radius-lg);
-    flex:0 0 auto;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:.06em;
-    background:var(--stg-bg,color-mix(in srgb, currentColor 16%, transparent))}
-  /* An unclassified stage (newer schema, or none yet) reads as a dashed outline
-     rather than a solid chip, so "unknown" never masquerades as a real stage. */
-  .stage.stg-unknown{border:var(--k-border-w) dashed currentColor}
   /* Actions overlay the row's right edge on hover so showing them never reflows
       the row. The stage pill hides under them (same slot) to avoid overlap. The
       cluster backs itself with the SOLID --k-surface (not the translucent

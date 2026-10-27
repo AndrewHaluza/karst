@@ -26,7 +26,7 @@ import type { BaselineReviewRow } from '../baselineRows.js';
 import { BaselineReview, useBaselineDrafts, type BaselineDrafts } from './BaselineReview.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
-import { STAGE_TITLE } from './railText.js';
+import { blockFaultTitle } from './railText.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -120,7 +120,7 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
   if (kind === 'usage-limit') {
     return (
       <>
-        <Head title="Provider out of quota" reason={reason} />
+        <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
         <ParkActions ticketId={ticketId} stageKey={stageKey} />
       </>
     );
@@ -128,7 +128,7 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
   if (kind === 'baseline-review') return <BaselineReview entries={slice.baselines} reason={reason} drafts={drafts} />;
   return (
     <>
-      <Head title={`${STAGE_TITLE[stageKey] ?? stageKey} is blocked`} reason={reason} />
+      <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
       <Resume ticketId={ticketId} stageKey={stageKey} />
     </>
   );

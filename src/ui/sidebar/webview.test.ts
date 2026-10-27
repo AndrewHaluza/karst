@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
+const HERE = dirname(fileURLToPath(import.meta.url));
+const HTML = readFileSync(join(HERE, 'webview.html'), 'utf8');
+const DS_CSS = readFileSync(join(HERE, '..', '..', 'model', 'designComponents.webview.css'), 'utf8');
 
 function styleBlocks(): string[] {
   const blocks: string[] = [];
@@ -16,8 +18,9 @@ function styleBlocks(): string[] {
 
 describe('sidebar webview.html', () => {
   it('fills a stage chip with its approved background pair, falling back to the wash (869ej2cfz)', () => {
-    expect(HTML).toMatch(
-      /\.stage\{[\s\S]*?background:var\(--stg-bg,color-mix\(in srgb, currentColor 16%, transparent\)\)\}/,
+    // The chip rule moved to the shared design-system sheet, which every webview injects.
+    expect(DS_CSS).toMatch(
+      /\.stage\[class\*="stg-"\]\{[\s\S]*?background:var\(--stg-bg,color-mix\(in srgb, currentColor 16%, transparent\)\)\}/,
     );
   });
 

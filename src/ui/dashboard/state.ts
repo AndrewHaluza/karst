@@ -197,14 +197,19 @@ export function buildDashboardState(
   sharedServersFor: (ticketId: number) => SharedServerView[] = () => [],
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
-  const { parent, subtaskParent, subtaskList, blockers, subtasks } = readRelations(store, ticket);
+  const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
+  const { parent, subtaskParent, subtaskList, blockers, subtasks } = readRelations(store, ticket, {
+    defaultProvider,
+    agentContext,
+    recentByCore,
+  });
   const rounds = readRounds(store, ticketId);
   const { agentSession, agentSwitch } = buildAgentState({
     ticket,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
     defaultProvider,
     agentContext,
-    recentByCore: listRecentlyUsedModels(store, ticket.projectId, 5),
+    recentByCore,
   });
 
   const sessionCore = ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude';

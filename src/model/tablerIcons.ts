@@ -138,6 +138,9 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M9.5 14.5l-1.5 1.5"/><path d="M2.5 14.5l1.5 1.5"/>' +
     '<path d="M2.5 21.5l1.5 -1.5"/><path d="M8 20l1.5 1.5"/>' +
     '<path d="M13 16l8 -5l-13 -8v8"/>',
+  lock:
+    '<path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z"/>' +
+    '<path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0"/><path d="M8 11v-4a4 4 0 1 1 8 0v4"/>',
   'player-pause':
     '<path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/>' +
     '<path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/>',

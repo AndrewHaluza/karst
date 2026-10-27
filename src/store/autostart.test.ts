@@ -9,6 +9,7 @@ import { setStage } from './stages.js';
 import { addRelation } from './ticketRelations.js';
 import {
   claimAutostart,
+  queuedPositions,
   queueAutostart,
   releaseAutostart,
   requeueStaleClaims,
@@ -202,5 +203,22 @@ describe('blocked tickets', () => {
 
     expect(claimAutostart(store, id, CAPS)).toBe(false);
     expect(pending(store, id)).toBe(1);
+  });
+});
+
+describe('queuedPositions', () => {
+  it('numbers a parent’s queued children from 1, blockers first then oldest id', () => {
+    const a = child();
+    const b = child();
+    const c = createTicket(store, { key: 'C-b', title: 'c', projectId, subtaskParentId: parentId, autostartPending: true, blocksParent: true }).id;
+    expect(queuedPositions(store, parentId)).toEqual(new Map([[c, 1], [a, 2], [b, 3]]));
+  });
+
+  it('skips children that are not queued and other parents’ children', () => {
+    const a = child();
+    child(store, parentId, false);
+    const other = createTicket(store, { key: 'O-1', title: 'o', projectId }).id;
+    child(store, other);
+    expect(queuedPositions(store, parentId)).toEqual(new Map([[a, 1]]));
   });
 });

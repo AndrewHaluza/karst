@@ -62,10 +62,10 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     expect(stale).toEqual([]);
   });
 
-  it('runs layout geometry for every variant', () => {
+  it('runs layout geometry for every variant that does not opt out', () => {
     const settingsIds = new Set(settingsRoutes().map((r) => r.id));
     const targets = layoutTargets();
-    expect(targets).toHaveLength(allVariants.length);
+    expect(targets).toHaveLength(allVariants.filter((v) => !v.variant.skipLayout).length);
     for (const t of targets) {
       if (t.variant.layoutRouteId !== undefined) expect(settingsIds.has(t.id), t.id).toBe(true);
     }

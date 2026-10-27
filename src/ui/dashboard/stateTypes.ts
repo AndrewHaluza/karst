@@ -106,6 +106,16 @@ export interface DashboardSubtaskRow {
    * only renders it, never re-derives it.
    */
   autostart: SubtaskAutostartPhase | null;
+  /** The child's current-stage block (a banner-rendering kind), else null. `since` is the block's start. */
+  fault: { kind: string; title: string; reason: string; since: string } | null;
+  /** The child's current PR (first repo) with how many more repos have one; null without a PR. */
+  pr: { number: number; state: 'open' | 'merged' | 'closed'; more: number } | null;
+  /** The child's resolved agent identity, only while it has a session or is in an agent stage. */
+  agent: { core: string; coreLabel: string; model: string | null; modelShort: string | null } | null;
+  /** ISO start of the child's current stage; null before one. */
+  stageSince: string | null;
+  /** 1-based place in the parent's autostart queue (sweep order); null when not queued. */
+  queuePos: number | null;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
