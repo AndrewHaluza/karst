@@ -10,6 +10,7 @@ import {
 } from '../../setup/proposal.js';
 import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields } from '../../setup/manifestApply.js';
 import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
+import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
 import type { Notify } from './notify.js';
 
@@ -95,9 +96,11 @@ export interface SetupProposalOpsDeps {
   /** True when `current` is still the unedited scaffold (protected fields are then proposable). */
   isScaffold?: (current: Manifest) => boolean;
   /** Run an approved change command. */
-  runCommand: (repo: string, command: string) => Promise<void>;
+  runCommand: (cwd: string, command: string) => Promise<void>;
   /** Apply an approved change patch. */
-  applyPatch: (repo: string, patch: string) => Promise<void>;
+  applyPatch: (cwd: string, patch: string) => Promise<void>;
+  /** Where a change runs: the explicit `path`, else the repo's directory. `ok: false` marks the proposal invalid. */
+  resolveDir: (change: ChangeProposal) => ChangeDir;
   notify: Notify;
   fs?: SetupProposalFs;
   debug?: (message: string) => void;
@@ -189,7 +192,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   }
 
   async function handleChange(file: string, scratch: string, change: ChangeProposal): Promise<void> {
-    const approved = await deps.confirm(describeChangeProposal(change));
+    const target = deps.resolveDir(change);
+    if (!target.ok) {
+      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${target.reason}).`);
+      record(scratch, file, 'change', 'invalid', { reason: target.reason });
+      fs.remove(file);
+      return;
+    }
+    const approved = await deps.confirm(describeChangeProposal(change, target.dir));
     if (!fs.exists(file)) {
       record(scratch, file, 'change', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
       return;
@@ -201,8 +211,8 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       return;
     }
     try {
-      if (change.command !== undefined) await deps.runCommand(change.repo, change.command);
-      else if (change.patch !== undefined) await deps.applyPatch(change.repo, change.patch);
+      if (change.command !== undefined) await deps.runCommand(target.dir, change.command);
+      else if (change.patch !== undefined) await deps.applyPatch(target.dir, change.patch);
       debug(`applied change proposal ${file}`);
       record(scratch, file, 'change', 'applied');
     } catch (e) {

@@ -63,8 +63,8 @@ export function describeManifestProposal(
   };
 }
 
-export function describeChangeProposal(change: ChangeProposal): ProposalDescription {
-  const lines: string[] = [change.reason];
+export function describeChangeProposal(change: ChangeProposal, dir: string): ProposalDescription {
+  const lines: string[] = [`Directory: ${dir}`, change.reason];
   if (change.command !== undefined) {
     lines.push('', `Command: ${change.command}`);
   }

@@ -101,3 +101,20 @@ describe('validateSetupProposal', () => {
     ).toBe(false);
   });
 });
+
+describe('change proposal path', () => {
+  const base = { kind: 'change', repo: 'web', reason: 'init', command: 'git init' };
+
+  it('accepts an optional path and keeps it', () => {
+    expect(ok({ ...base, path: '.' })).toEqual({ ...base, path: '.' });
+  });
+
+  it.each([['', 'empty'], [42, 'not a string'], ['a\u0000b', 'control char'], ['x'.repeat(1025), 'too long']])(
+    'rejects path %j (%s)',
+    (path, _why) => {
+      const r = validateSetupProposal({ ...base, path });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toContain('path');
+    },
+  );
+});

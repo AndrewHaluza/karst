@@ -1,4 +1,4 @@
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * The directory a consented repo change runs in.
@@ -27,4 +27,29 @@ export function resolveChangeRepoDir(
     return isAbsolute(registeredRepoPath) ? registeredRepoPath : join(workspaceRoot, registeredRepoPath);
   }
   return join(workspaceRoot, repo);
+}
+
+export type ChangeDir = { ok: true; dir: string } | { ok: false; reason: string };
+
+/**
+ * The directory a change runs in. An explicit `path` (absolute, or relative to
+ * the workspace root) wins and must stay inside the root — `.` is the root
+ * itself. Without one, `resolveChangeRepoDir` keeps its repo-name resolution.
+ * Lexical containment only: a symlink inside the root is the user's own choice.
+ */
+export function resolveChangeDir(
+  change: { repo: string; path?: string },
+  workspaceRoot: string,
+  registeredRepoPath: string | undefined,
+): ChangeDir {
+  if (change.path === undefined) {
+    return { ok: true, dir: resolveChangeRepoDir(change.repo, workspaceRoot, registeredRepoPath) };
+  }
+  const root = resolve(workspaceRoot);
+  const dir = resolve(root, change.path);
+  const rel = relative(root, dir);
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    return { ok: false, reason: `path "${change.path}" is outside the workspace root ${root}` };
+  }
+  return { ok: true, dir };
 }

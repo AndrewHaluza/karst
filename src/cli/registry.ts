@@ -499,6 +499,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         defaultBranch: str,
         repos: csvArray,
         repo: str,
+        path: str,
         reason: str,
         command: str,
         patch: str,

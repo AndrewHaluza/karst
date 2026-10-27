@@ -147,7 +147,7 @@ function runProposeChange(deps: SetupCommandDeps): string {
  */
 export function toChangeProposalInput(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'change' };
-  for (const key of ['repo', 'reason', 'command', 'patch']) {
+  for (const key of ['repo', 'reason', 'command', 'patch', 'path']) {
     if (value[key] !== undefined) out[key] = value[key];
   }
   return out;
