@@ -27,6 +27,25 @@ export const SLOT_STAGES_SQL = `(${SLOT_STAGES.map((s) => `'${s}'`).join(', ')})
 /** SQL predicate (alias `s`) for "this sub-task row holds a slot". */
 export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR s.autostart_pending = ${AUTOSTART_STARTING})`;
 
+/** The order the autostart sweep claims queued sub-tasks in: blockers of the parent first, then oldest. Aliased `c`. */
+export const AUTOSTART_ORDER_SQL = 'COALESCE(c.blocks_parent, 0) DESC, c.id ASC';
+
+/**
+ * 1-based place in the autostart queue for each of a parent's queued children, in sweep order (`AUTOSTART_ORDER_SQL`).
+ * A place is "next in line", not "starts next": the sweep still holds a row back for open blockers and slot caps.
+ */
+export function queuedPositions(store: Store, parentId: number): Map<number, number> {
+  const rows = store.db
+    .prepare(
+      `SELECT c.id AS id FROM tickets c
+        WHERE c.subtask_parent_id = ? AND c.autostart_pending = ${AUTOSTART_QUEUED}
+          AND c.stage_current = 'scope' AND c.archived_at IS NULL
+        ORDER BY ${AUTOSTART_ORDER_SQL}`,
+    )
+    .all(parentId) as { id: number }[];
+  return new Map(rows.map((r, i) => [r.id, i + 1]));
+}
+
 export interface AutostartCaps {
   /** Max slots per parent's direct children; 0 = unlimited. */
   perParent: number;

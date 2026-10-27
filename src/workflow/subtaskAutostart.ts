@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { HOLDS_SLOT_SQL, SLOT_STAGES_SQL, type AutostartCaps } from '../store/autostart.js';
+import { AUTOSTART_ORDER_SQL, HOLDS_SLOT_SQL, SLOT_STAGES_SQL, type AutostartCaps } from '../store/autostart.js';
 import { isBlocked } from '../store/ticketRelations.js';
 
 export { SLOT_STAGES, type AutostartCaps } from '../store/autostart.js';
@@ -45,7 +45,7 @@ export function pickSubtasksToStart(store: Store, projectId: number, opts: PickO
         WHERE c.project_id = ? AND c.autostart_pending = 1 AND c.stage_current = 'scope'
           AND c.archived_at IS NULL AND p.archived_at IS NULL
           AND p.stage_current IN ${SLOT_STAGES_SQL}
-        ORDER BY COALESCE(c.blocks_parent, 0) DESC, c.id ASC`,
+        ORDER BY ${AUTOSTART_ORDER_SQL}`,
     )
     .all(projectId) as CandidateRow[];
   if (candidates.length === 0) return [];
