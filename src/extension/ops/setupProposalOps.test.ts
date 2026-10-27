@@ -329,7 +329,7 @@ describe('createSetupProposalOps branches', () => {
       ['a.json', 'b.json'],
     );
     await createSetupProposalOps(d).scan();
-    expect(d.runCommand).toHaveBeenCalledWith('web', 'npm ci');
+    expect(d.runCommand).toHaveBeenCalledWith('/w/web', 'npm ci');
     expect(d.applyPatch).toHaveBeenCalledWith('/w/api', '+++ b/.env\n');
   });
 
