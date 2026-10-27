@@ -200,7 +200,6 @@ export function setGateEnabled(gate: GateDef, enabled: boolean): GateDef {
 
 /** The block's probe-when-all-off flag; written only when true, deleted otherwise. */
 export function setProbeWhenAllDisabled(draft: Manifest, base: Base, on: boolean): Manifest {
-  const update = base === 'uat' ? updateUat : updateReview;
   const blocks = blocksOf(draft);
   const next = { ...(blocks[base] ?? {}) } as { probeWhenAllDisabled?: boolean };
   if (on) next.probeWhenAllDisabled = true;
