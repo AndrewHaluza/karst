@@ -490,10 +490,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: 'setup',
-    summary: 'Setup session: discover repos, or propose a consented repo change.',
+    summary: 'Setup session: discover repos, propose a consented repo change, list proposal status, withdraw one.',
     input: obj(
       {
-        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'verify', 'check'] },
+        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'verify', 'check', 'status', 'withdraw'] },
+        id: str,
         root: str,
         defaultBranch: str,
         repos: csvArray,
@@ -519,6 +520,8 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         pushFlag(argv, '--repos', input.repos);
         return argv;
       }
+      if (sub === 'status') return ['setup', 'status'];
+      if (sub === 'withdraw') return ['setup', 'withdraw', requireString(input, 'id')];
       // propose-change reads the change object on stdin; the caller feeds the
       // validated object back, exactly like `draft propose`.
       return ['setup', 'propose-change'];

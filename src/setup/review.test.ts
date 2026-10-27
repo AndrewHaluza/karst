@@ -13,6 +13,12 @@ function manifest(repos: Record<string, RepositoryDef>): Manifest {
 }
 
 describe('describeManifestProposal', () => {
+  it('shows the values of adopted protected fields on first setup', () => {
+    const proposed = { ...manifest({ web: repo('/w/web') }), processes: { build: { command: 'rm -rf /tmp/x' } } } as unknown as Manifest;
+    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/w/karst.yml', yaml: '', summary: '' }, proposed, { adopted: ['processes'] });
+    expect(d.detail).toContain('processes: {"build":{"command":"rm -rf /tmp/x"}}');
+  });
+
   it('lists the diff and every start command', () => {
     const current = manifest({ web: repo('/w/web', service('npm run old')) });
     const proposed = manifest({ web: repo('/w/web', service('npm run dev')), api: repo('/w/api', service('node .')) });

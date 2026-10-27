@@ -174,6 +174,16 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     \`.env\` creation and the like all need that consent; you must NOT edit a
     tracked file yourself. A repo whose change is refused or skipped gets no
     service and the gap is recorded in your report.
+ - \`setup status\` / \`setup withdraw <id>\` — ONLY inside a setup session.
+    \`manifest propose\` and \`setup propose-change\` print the proposal \`id\`.
+    \`status\` lists every proposal of the session with its status
+    (pending|applied|declined|invalid|superseded|withdrawn), a reason, the
+    protected fields the host dropped, and the sha256 of karst.yml after an
+    apply. A new manifest proposal supersedes an older pending one. Protected
+    fields (gates, conventions, processes, …) are taken from your proposal only
+    on first setup (no manifest, or an unedited scaffold); afterwards they are
+    kept and each dropped field is named in the result. \`withdraw\` removes a
+    pending proposal.
  - \`setup verify [--repos a,b]\` — ONLY inside a setup session, AFTER the user
     accepted the manifest. Starts the proposed manifest's baseline services with
     health gates (the ticketless baseline path, so no ticket is needed) and

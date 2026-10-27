@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { validateSetupProposal, type ManifestProposal } from '../setup/proposal.js';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
@@ -94,7 +94,7 @@ function runPropose(file: string, summary: string | undefined, deps: ManifestCom
 
   const dir = resolveSetupOutboxDir(deps.outboxEnv);
   const out = writeSetupProposal(dir, checked.value, deps.uuid);
-  return JSON.stringify({ ok: true, kind: 'manifest', file: out });
+  return JSON.stringify({ ok: true, kind: 'manifest', id: basename(out, '.json'), file: out });
 }
 
 export function runManifestCommand(argv: readonly string[], deps: ManifestCommandDeps = {}): string {
