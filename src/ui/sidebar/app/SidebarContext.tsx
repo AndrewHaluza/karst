@@ -25,6 +25,8 @@ export interface MenuItem {
   readonly label: string;
   readonly icon: string;
   readonly danger?: boolean;
+  /** Draw a separator line before this entry. */
+  readonly divider?: boolean;
   readonly title?: string;
 }
 

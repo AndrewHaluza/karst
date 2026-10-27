@@ -61,6 +61,31 @@ describe('Header — identity', () => {
 });
 
 describe('Header — Detach, Close and Reopen', () => {
+  it('lists them as menu items inside the ticket-controls menu, not inline in the header', () => {
+    mountHeader(headerState({ canDetachSubtask: true, canClose: true, canReopen: true }));
+    for (const id of ['#detachSubtask', '#closeTicket', '#reopenTicket']) {
+      expect($(id).closest('#menuPopover')).toBeTruthy();
+      expect($(id).getAttribute('role')).toBe('menuitem');
+      expect($(id).classList.contains('menuButton')).toBe(true);
+    }
+    expect(document.querySelector('.dhead > #closeTicket')).toBeNull();
+  });
+
+  it('keeps Close danger-styled with the "nothing is verified" title', () => {
+    mountHeader(headerState({ canClose: true }));
+    expect($('#closeTicket').getAttribute('title')).toBe('Mark closed: the work was done outside Karst. Nothing is verified');
+    expect($('#closeTicket').classList.contains('danger')).toBe(true);
+  });
+
+  it('places the ⋯ menu directly after the agent picker and draws no Confirm ship button', () => {
+    mountHeader(headerState());
+    const kids = Array.from(document.querySelector('.headerActions')!.children);
+    const agent = kids.findIndex((k) => k.querySelector('#agentButton'));
+    expect(agent).toBeGreaterThanOrEqual(0);
+    expect(kids[agent + 1]!.querySelector('#moreBtn')).toBeTruthy();
+    expect(document.getElementById('confirmShip')).toBeNull();
+  });
+
   it('follows the host flags without ever rewriting className', () => {
     const h = mountHeader(headerState());
     for (const id of ['#detachSubtask', '#closeTicket', '#reopenTicket']) expect(has(id, 'hidden')).toBe(true);

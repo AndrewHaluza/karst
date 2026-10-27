@@ -292,13 +292,38 @@ describe('context window', () => {
 
   it('opens at the "⋯" trigger with Edit / Create follow-up / Archive and hands focus to the first item', async () => {
     const { h, trigger } = await opened();
-    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'create-follow-up', 'archive']);
-    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Create follow-up', 'Archive']);
-    expect(items(h)[2]!.classList.contains('danger')).toBe(true);
+    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'pause-ticket', 'create-follow-up', 'archive']);
+    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Pause execution', 'Create follow-up', 'Archive']);
+    expect(items(h)[3]!.classList.contains('danger')).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
     expect(h.document.activeElement).toBe(items(h)[0]);
     expect(h.query<HTMLElement>('#ctxMenu')!.style.left).not.toBe('');
+  });
+
+  it('offers each flagged action in order, a divider before Archive, and Resume in place of Pause', async () => {
+    const h = await mount(stateWith({ current: [{ ...row(1), paused: true, canDetach: true, canClose: true, canReopen: true }] }));
+    await h.click(h.query<HTMLButtonElement>('[data-menu="910001"]')!);
+    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual([
+      'edit', 'unpause-ticket', 'create-follow-up', 'detach-subtask', 'close-ticket', 'reopen-ticket', 'archive',
+    ]);
+    expect(items(h)[4]!.classList.contains('danger')).toBe(true);
+    expect(items(h)[6]!.previousElementSibling!.getAttribute('role')).toBe('separator');
+    await h.click(items(h)[3]!);
+    expect(h.posted.at(-1)).toMatchObject({ type: 'detach-subtask', ticketId: 910001 });
+  });
+
+  it.each([
+    ['canDetach', 'detach-subtask'],
+    ['canClose', 'close-ticket'],
+    ['canReopen', 'reopen-ticket'],
+  ] as const)('hides %s item when the flag is false and shows it when true', async (flag, act) => {
+    const on = await mount(stateWith({ current: [{ ...row(1), [flag]: true }] }));
+    await on.click(on.query<HTMLButtonElement>('[data-menu="910001"]')!);
+    expect(items(on).map((i) => i.getAttribute('data-act'))).toContain(act);
+    const off = await mount(stateWith({ current: [{ ...row(1), [flag]: false }] }));
+    await off.click(off.query<HTMLButtonElement>('[data-menu="910001"]')!);
+    expect(items(off).map((i) => i.getAttribute('data-act'))).not.toContain(act);
   });
 
   it('closes on a second click of the trigger, returning focus to it', async () => {
@@ -324,7 +349,7 @@ describe('context window', () => {
     const { h } = await opened();
     await h.click('[data-menu="910002"]');
     expect(h.queryAll('#ctxMenu.open')).toHaveLength(1);
-    expect(items(h).map((i) => i.getAttribute('data-id'))).toEqual(['910002', '910002', '910002']);
+    expect(items(h).map((i) => i.getAttribute('data-id'))).toEqual(['910002', '910002', '910002', '910002']);
     expect(h.query('[data-menu="910001"]')!.getAttribute('aria-expanded')).toBe('false');
   });
 
