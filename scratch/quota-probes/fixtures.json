@@ -60,6 +60,79 @@
       "token_type": "Bearer",
       "scope": "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid"
     },
+    "antigravity_oauth_token": {
+      "auth_method": "consumer",
+      "token_type": "Bearer"
+    },
+    "cloudcode_retrieve_user_quota_summary": {
+      "error": {
+        "code": 403,
+        "message": "You do not have a valid license to use Gemini Code Assist.",
+        "status": "PERMISSION_DENIED",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "SUBSCRIPTION_REQUIRED",
+            "domain": "cloudaicompanion.googleapis.com",
+            "metadata": {
+              "error_number": "1001",
+              "uiMessage": "true"
+            }
+          }
+        ]
+      }
+    },
+    "cloudcode_load_code_assist": {
+      "allowedTiers": [
+        {
+          "id": "standard-tier",
+          "name": "Gemini Code Assist",
+          "description": "Unlimited coding assistant with the most powerful Gemini models",
+          "userDefinedCloudaicompanionProject": true,
+          "privacyNotice": {},
+          "isDefault": true,
+          "usesGcpTos": true
+        }
+      ],
+      "ineligibleTiers": [
+        {
+          "reasonCode": "UNSUPPORTED_CLIENT",
+          "reasonMessage": "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google",
+          "tierId": "free-tier",
+          "tierName": "Gemini Code Assist for individuals"
+        }
+      ]
+    },
+    "language_server_get_user_status": {
+      "userStatus": {
+        "planStatus": {
+          "planInfo": {
+            "teamsTier": "TEAMS_TIER_PRO",
+            "planName": "Pro",
+            "availablePromptCredits": 500,
+            "availableFlowCredits": 100
+          }
+        },
+        "cascadeModelConfigData": {
+          "clientModelConfigs": [
+            {
+              "label": "Gemini 4 Argon (Medium)",
+              "modelId": "gemini-4-argon-medium",
+              "quotaInfo": {
+                "resetTime": "2026-10-30T16:16:10Z"
+              }
+            },
+            {
+              "label": "Tab Flash Lite Preview",
+              "modelId": "tab_flash_lite_preview",
+              "quotaInfo": {
+                "remainingFraction": 1.0
+              }
+            }
+          ]
+        }
+      }
+    },
     "subscription_quota_source": null
   },
   "opencode": {
