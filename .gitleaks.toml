@@ -1,0 +1,17 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credentials used as test fixtures and doc examples; generated and vendored trees"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.stryker-tmp/''',
+  '''(^|/)\.karst/''',
+  '''(^|/)\.superpowers/''',
+  '''(^|/)reports/''',
+  '''(^|/)coverage/''',
+  '''^src/diagnostics/fixtures/''',
+  '''\.test\.tsx?$''',
+  '''^docs/superpowers/plans/''',
+]
