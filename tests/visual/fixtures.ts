@@ -48,6 +48,13 @@ async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
   await page.waitForLoadState('networkidle');
 }
 
+/**
+ * The dashboard reads `Date.now()` for its relative ages (Sub-tasks `14h ago`,
+ * PR `opened 2 days ago`) against fixed fixture stamps, so an unpinned clock
+ * drifts every dashboard baseline as the day moves. Pinned for dashboard pages.
+ */
+const DASHBOARD_NOW = new Date('2026-10-27T22:00:00.000Z');
+
 export const test = base.extend<KarstFixtures>({
   theme: async ({}, use, testInfo) => {
     // Theme is derived from the project name (e.g., 'dark', 'light', 'hc',
@@ -69,6 +76,7 @@ export const test = base.extend<KarstFixtures>({
 
   gotoView: async ({ page, theme }, use) => {
     const goto = async (view: ViewId, opts?: GotoOpts) => {
+      if (view === 'dashboard') await page.clock.setFixedTime(DASHBOARD_NOW);
       let filename = `${view}.html`;
       if (opts?.variant !== undefined) {
         filename = fixtureFile(view, opts.variant);
