@@ -70,6 +70,7 @@ const uatMenuState = (): DashboardState =>
   st('uat', {
     sendBack: { available: true, stage: 'uat' },
     rerunGate: { available: true, stage: 'uat' },
+    resetStage: { available: true, stage: 'uat' },
   });
 
 const blockedState = (kind: string, resumable: boolean): DashboardState => {
@@ -400,6 +401,10 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'rerun-gate', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('rerun-gate')),
     sel: act('rerun-gate'), posts: [{ type: 'rerun-gate', stage: 'uat' }], rid: false, pendingSel: false,
+  },
+  {
+    act: 'reset-stage', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('reset-stage')),
+    sel: act('reset-stage'), posts: [{ type: 'reset-stage' }], rid: false, pendingSel: false,
   },
   {
     act: 'deliver-to-pr', state: shipMenuState, sel: act('deliver-to-pr'),
