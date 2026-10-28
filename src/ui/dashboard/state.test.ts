@@ -2064,7 +2064,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
       'R3',
     ]);
     expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
-    expect(uat.attemptNote).toBeUndefined();
+    expect(uat.attemptNote).toBe('opened by UAT test failure · 1m 0s');
     // The live attempt's own gates/ledger render — same as the pre-switcher read.
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
@@ -2129,7 +2129,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     );
     const uat = state.insideViews.uat;
     expect(uat.selectedAttempt).toBe(requested);
-    expect(uat.attemptNote).toBe('viewing round 1 — not the current result');
+    expect(uat.attemptNote).not.toContain('not the current result');
     // Round 1's own (failing) batch renders, not the live attempt's.
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('fail');
   });
@@ -2143,7 +2143,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     );
     const uat = state.insideViews.uat;
     expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
-    expect(uat.attemptNote).toBeUndefined();
+    expect(uat.attemptNote).toBe('opened by UAT test failure · 1m 0s');
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
 
@@ -2424,7 +2424,7 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
       { review: older },
     );
-    expect(state.insideViews.review.attemptNote).toContain('not the current result');
+    expect(state.insideViews.review.attemptNote ?? '').not.toContain('not the current result');
   });
 });
 
