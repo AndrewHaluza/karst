@@ -91,7 +91,8 @@ import { join } from 'node:path';
 // the `registerCloseCommands` call with its vscode seams and the dashboard Close/Reopen actions; the
 // logic is in `ops/closeOps.ts` and `ops/closeCommands.ts`.
 // Raised by 5 (8769 -> 8774): sidebar menu actions (+3) merged from develop (#778) and agy sandbox appDataDir (+2) in createAgyWatchLoop (ENABLE-DOCKER-BACKEND-FOR-AGY).
-const MAX_EXTENSION_LINES = 8774;
+// Raised by 13 (8774 -> 8787): T831 — the `parkGateOnDriverFailure` import and call in the driver catch, and the dashboard `resetStage` binding; logic is `ops/parkOnDriverFailure.ts` and `ops/resetStageAction.ts`.
+const MAX_EXTENSION_LINES = 8787;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

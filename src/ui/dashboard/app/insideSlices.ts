@@ -20,6 +20,8 @@ export interface MenuFlags {
   readonly sendBack: boolean;
   /** The gate stage whose Retry the host offers, or null. */
   readonly retry: string | null;
+  /** The failed gate stage whose Reset the host offers, or null. */
+  readonly reset: string | null;
   readonly prFeedback: boolean;
   readonly ci: boolean;
   readonly rebase: boolean;
@@ -63,6 +65,7 @@ export const frameOf =
       menu: {
         sendBack: !!(sb && sb.available && key === sb.stage),
         retry: rg && rg.available && key === rg.stage ? rg.stage : null,
+        reset: state.resetStage && state.resetStage.available && key === state.resetStage.stage ? state.resetStage.stage : null,
         prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
         ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
         rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),

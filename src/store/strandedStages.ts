@@ -48,6 +48,9 @@ export function selectStrandedStages(store: Store, opts: SelectStrandedStagesOpt
           AND s.started_at IS NOT NULL AND s.started_at < ?
           AND t.project_id = ?
           AND t.paused_at IS NULL AND t.archived_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM recovery_rounds x
+                           WHERE x.ticket_id = s.ticket_id AND x.source_stage = s.stage_key
+                             AND x.status = 'exhausted')
           AND NOT EXISTS (SELECT 1 FROM stage_runs r
                            WHERE r.ticket_id = s.ticket_id AND r.stage_key = s.stage_key
                              AND r.attempt = s.attempt AND r.status = 'running')

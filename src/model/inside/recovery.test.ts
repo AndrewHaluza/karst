@@ -122,7 +122,7 @@ describe('recoveryProcess', () => {
     expect(revalidating.process.detail).toBe('Fix completed; UAT revalidation is running');
     const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
     expect(exhausted.process.detail).toBe(
-      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+      'Recovery exhausted after 2 rounds. Use Reset stage in the stage menu to start a fresh episode.',
     );
     // §3.8: the process row is silent until exhausted/failed — the running
     // and waiting copy must ride the collapsed row too.
@@ -133,7 +133,7 @@ describe('recoveryProcess', () => {
       'Fix completed; UAT revalidation is running',
     );
     expect(exhausted.process.detail).toBe(
-      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+      'Recovery exhausted after 2 rounds. Use Reset stage in the stage menu to start a fresh episode.',
     );
   });
 
@@ -218,7 +218,7 @@ describe('recoveryProcess', () => {
     );
     expect(view!.process.evidence).toBeUndefined();
     expect(view!.process.detail).toBe(
-      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+      'Recovery exhausted after 2 rounds. Use Reset stage in the stage menu to start a fresh episode.',
     );
   });
 

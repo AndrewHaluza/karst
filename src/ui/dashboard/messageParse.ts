@@ -85,6 +85,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // dropped, so the recovery can only ever move the ticket the panel owns.
     case 'send-back-to-implement':
       return { type: 'send-back-to-implement' };
+    case 'reset-stage':
+      return { type: 'reset-stage' };
     case 'address-pr-feedback':
       return { type: 'address-pr-feedback' };
     case 'send-ci-failure':

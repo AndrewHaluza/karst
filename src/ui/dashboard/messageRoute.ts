@@ -77,6 +77,8 @@ export function routeAction(
       return actions.resumeTicket();
     case 'send-back-to-implement':
       return actions.sendBackToImplement();
+    case 'reset-stage':
+      return actions.resetStage();
     case 'address-pr-feedback':
       return actions.addressPrFeedback();
     case 'send-ci-failure':

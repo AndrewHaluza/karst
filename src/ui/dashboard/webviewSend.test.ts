@@ -87,6 +87,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'create-follow-up-ticket' });
     sender.sendBackToImplement();
     expect(posted.at(-1)).toEqual({ type: 'send-back-to-implement' });
+    sender.resetStage();
+    expect(posted.at(-1)).toEqual({ type: 'reset-stage' });
     sender.addressPrFeedback();
     expect(posted.at(-1)).toEqual({ type: 'address-pr-feedback' });
     sender.sendCiFailure();
@@ -191,7 +193,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(63);
+    expect(posted).toHaveLength(64);
   });
 
   it('rejects a wrong argument type at compile time', () => {

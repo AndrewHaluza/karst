@@ -103,6 +103,7 @@ export function createSender(api: WebviewApi) {
     reopenTicket: (requestId?: string) => send({ type: 'reopen-ticket' }, requestId),
     sendBackToImplement: (requestId?: string) =>
       send({ type: 'send-back-to-implement' }, requestId),
+    resetStage: (requestId?: string) => send({ type: 'reset-stage' }, requestId),
     addressPrFeedback: (requestId?: string) =>
       send({ type: 'address-pr-feedback' }, requestId),
     sendCiFailure: (requestId?: string) => send({ type: 'send-ci-failure' }, requestId),

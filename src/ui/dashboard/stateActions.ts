@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
+import { resetStageState } from '../../workflow/resetStage.js';
 import { sendBackState } from '../../workflow/sendBack.js';
 import { retryGateState } from '../../workflow/retryGate.js';
 import { prFeedbackFixState } from '../../workflow/prFeedbackFix.js';
@@ -22,6 +23,7 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
   // host re-derives it before mutating anyway.
   const sendBack = sendBackState(store, ticketId);
   const rerunGate = retryGateState(store, ticketId);
+  const resetStage = resetStageState(store, ticketId);
   // ONE read of the PR-feedback action's availability, for the same reason: the
   // ship header's ⋯ menu and the host's confirm path must agree about whether
   // "Address pull request feedback" exists at all.
@@ -35,6 +37,7 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
     mergeGate,
     sendBack,
     rerunGate,
+    resetStage,
     prFeedbackFix,
     ciFailure,
     rebase,

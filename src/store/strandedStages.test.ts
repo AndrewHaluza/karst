@@ -4,6 +4,7 @@ import { createTicketFlow } from '../workflow/stages/create.js';
 import { setStage } from './stages.js';
 import { pauseTicket, archiveTicket } from './tickets.js';
 import { upsertProject } from './projects.js';
+import { openRecoveryRound } from './recoveryRounds.js';
 import { openProcessRun } from './processRuns.js';
 import { selectStrandedStages, STRANDED_STAGE_GRACE_MS } from './strandedStages.js';
 
@@ -28,6 +29,16 @@ describe('selectStrandedStages', () => {
 
   it('matches a running gate stage with no run behind it', () => {
     expect(select()).toEqual([{ ticketId: id, stageKey: 'uat', attempt: 0 }]);
+  });
+
+  it('ignores a gate whose recovery episode is exhausted (T831)', () => {
+    openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 1,
+      startedAt: T0,
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'exhausted'").run();
+    expect(select()).toEqual([]);
   });
 
   it('ignores a row within the grace period', () => {

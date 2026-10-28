@@ -7,7 +7,9 @@ import { recordFindings, type FindingInput } from '../../store/reviewFindings.js
 import { parkGateStage, clearStageBlock } from '../../store/stageBlocks.js';
 import { closeStageRun, type StageRunOutcome } from '../../store/stageRuns.js';
 import {
-  openRecoveryRound,
+  openRecoveryRoundWithinBudget,
+  FIX_PARKED_EXHAUSTED,
+  parkFixStage,
   completeRevalidation,
   type RecoverySourceProcessId,
   type RecoverySourceStage,
@@ -207,6 +209,10 @@ export function commitGateOutcome(
     return { kind: 'stopped' };
   }
 
+  // Set by the premutate when the episode's budget is spent: no round opens and
+  // the ticket is parked at fix for a human (Reset stage), in this transaction.
+  let budgetSpent = false;
+  const commit = store.db.transaction(() => {
   const next = transition(store, ticketId, stageKey, outcome.verdict, () => {
     setStage(store, ticketId, stageKey, { artifactPath });
     // A run that reached a verdict answers whatever blocked a previous one.
@@ -229,7 +235,7 @@ export function commitGateOutcome(
     // was attached when that run opened), and the new round describes the new
     // cause.
     if (input.recoveryTrigger !== undefined) {
-      openRecoveryRound(store, {
+      const opened = openRecoveryRoundWithinBudget(store, {
         ticketId,
         sourceStage: stageKey as RecoverySourceStage,
         sourceProcessId: input.recoveryTrigger.sourceProcessId,
@@ -240,6 +246,7 @@ export function commitGateOutcome(
         maxRounds: input.recoveryTrigger.maxRounds,
         startedAt: now(),
       });
+      budgetSpent = opened === null;
     } else if (outcome.verdict.kind === 'passed' && stageRunId !== undefined && stageRunId !== null) {
       // A passed revalidation completes the round whose run this is — for a
       // review-origin round only its own review outcome completes it.
@@ -252,5 +259,13 @@ export function commitGateOutcome(
     }
     closeRun('advanced');
   });
-  return { kind: 'advanced', next };
+  if (budgetSpent) {
+    parkFixStage(store, ticketId, FIX_PARKED_EXHAUSTED, nowIso());
+    input.debug?.(
+      `[gate] ${stageKey} ticket ${ticketId}: recovery budget spent — no round opened, parked at fix`,
+    );
+  }
+  return next;
+  });
+  return { kind: 'advanced', next: commit() };
 }
