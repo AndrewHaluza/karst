@@ -428,9 +428,12 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async installApproach(id: string): Promise<void> {
         const loaded = deps.loadState();
         const def = loaded.manifest.approaches?.find((a) => a.id === id);
+        // Every failure below posts `error` AND rethrows: the throw is what makes
+        // `reportAction` send an `ok:false` receipt, so the row can settle failed.
         if (!def) {
-          ctx.post({ type: 'error', message: `Unknown approach "${id}".` });
-          return;
+          const message = `Unknown approach "${id}".`;
+          ctx.post({ type: 'error', message });
+          throw new Error(message);
         }
         // An npm source shells out `source.command`; everything else only reads
         // files. Gate the shell-out on an explicit confirm — a decline is a
@@ -439,9 +442,11 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         const command = installCommandFor(def);
         if (command !== null && !(await deps.confirmInstallCommand(command))) return;
 
+        let failure: unknown;
         try {
           await deps.installApproach(def);
         } catch (e) {
+          failure = e;
           ctx.post({ type: 'error', message: errorMessage(e) });
         }
         // Runs on BOTH outcomes: a success makes the entry legally enable-able
@@ -452,8 +457,10 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           reconcileApproachEnabled(id);
           await pushStateWithInstalled();
         } catch (e) {
+          failure ??= e;
           ctx.post({ type: 'error', message: errorMessage(e) });
         }
+        if (failure !== undefined) throw failure;
       },
 
       /**
@@ -474,6 +481,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           await pushStateWithInstalled();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
+          throw e;
         }
       },
 
