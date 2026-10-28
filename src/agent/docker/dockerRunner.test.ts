@@ -15,6 +15,8 @@ const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
 const other = dockerNames({ projectRoot: '/p', ticketId: 8, core: 'opencode' });
 const WT = '/w/t7';
 const ticket = { hostWorktreePath: WT, branch: 'feat/x' };
+const SHA = 'a'.repeat(40);
+const HEAD_KEY = 'git -C /w/t7 rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}';
 const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
 const lines = (proc: ReturnType<typeof fakeDockerProcess>) => proc.calls.map((c) => [c.command, ...c.args].join(' '));
 const OK: HeadlessSpawnResult = { stdout: 'PONG', stderr: '', exitCode: 0 } as unknown as HeadlessSpawnResult;
@@ -43,17 +45,17 @@ describe('createDockerSessionRunner', () => {
   });
 
   it('syncs through the bundle transport', async () => {
-    const proc = fakeDockerProcess();
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA } });
     const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, temp });
     await expect(runner.sync!(ticket)).resolves.toMatchObject({ ok: true });
-    expect(lines(proc).at(-1)).toBe('git -C /w/t7 merge --ff-only FETCH_HEAD');
+    expect(lines(proc).at(-1)).toBe(`git -C /w/t7 merge --ff-only ${SHA}`);
   });
 
   it('diffs through the bundle transport without merging', async () => {
-    const proc = fakeDockerProcess({ 'git -C /w/t7 diff': { stdout: 'diff --git a/f b/f\n' } });
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA }, 'git -C /w/t7 diff': { stdout: 'diff --git a/f b/f\n' } });
     const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, temp });
-    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: 'FETCH_HEAD' });
-    expect(lines(proc).at(-1)).toBe(`git -C /w/t7 diff HEAD...FETCH_HEAD`);
+    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: SHA });
+    expect(lines(proc).at(-1)).toBe(`git -C /w/t7 diff HEAD...${SHA}`);
     expect(lines(proc).some((l) => l.includes('merge'))).toBe(false);
   });
 
