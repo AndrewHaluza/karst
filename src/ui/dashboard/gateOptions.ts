@@ -132,8 +132,8 @@ export function buildGateOptionsLoader(deps: {
       }
 
       return {
-        uat: optionsFrom(uatNames, disabled.uat, uatOff),
-        review: optionsFrom(reviewNames, disabled.review, reviewOff),
+        uat: optionsFrom(uatNames, disabled.uat, uatOff.filter((n) => !uatNames.includes(n))),
+        review: optionsFrom(reviewNames, disabled.review, reviewOff.filter((n) => !reviewNames.includes(n))),
       };
     } catch {
       // A broken git, an unreadable tree — the panel is an observer here and a

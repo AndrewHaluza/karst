@@ -67,12 +67,12 @@ export function resolveReviewGates(
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
-  const cut = new Set(disabledNames);
+  const configOff = new Map<string, ResolvedGate>();
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
 
   for (const name of keys) {
     const sw = applyConfigSwitch(declaredReviewGatesFor(config, name), config?.probeWhenAllDisabled);
-    for (const n of sw.disabledNames) cut.add(n);
+    const offNames = new Set(sw.disabledNames);
     const resolved = resolveGates(probe, sw.declared, REVIEW_PROBE_SCRIPTS, debug);
     if (resolved.kind === 'unavailable') {
       unavailable ??= resolved;
@@ -80,6 +80,12 @@ export function resolveReviewGates(
     }
     for (const gate of resolved.gates) {
       const key = identityKey(gate);
+      // Config-off is per entry: the same name enabled for another repository
+      // entry still runs there, so it is judged by identity after the union.
+      if (offNames.has(gate.name)) {
+        configOff.set(key, gate);
+        continue;
+      }
       const existing = byIdentity.get(key);
       if (existing === undefined) byIdentity.set(key, gate);
       else if (gate.required && !existing.required) {
@@ -88,7 +94,12 @@ export function resolveReviewGates(
     }
   }
 
-  const { kept, skipped } = partitionDisabled([...byIdentity.values()], [...cut], debug);
+  const ticketCut = partitionDisabled([...byIdentity.values()], disabledNames, debug);
+  const kept = ticketCut.kept;
+  const skipped = [
+    ...ticketCut.skipped,
+    ...[...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate),
+  ];
   if (kept.length > 0 || skipped.length > 0) {
     debug?.(
       `[gate] review resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +

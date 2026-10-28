@@ -67,6 +67,24 @@ describe('stage resolution with config-off gates', () => {
   });
 });
 
+describe('config-off is judged per repository entry', () => {
+  const cfg = uat({
+    gates: [
+      { ...g('test', false), repo: 'a' },
+      { ...g('test'), repo: 'b' },
+    ],
+  });
+  it('a gate off for one entry still runs for another in the same worktree', () => {
+    expect(resolveTargetGates(probe, cfg, ['a', 'b'])).toMatchObject({
+      gates: [{ name: 'test' }],
+      skipped: [],
+    });
+  });
+  it('off for the only entry stays skipped', () => {
+    expect(resolveTargetGates(probe, cfg, ['a'])).toMatchObject({ gates: [], skipped: [{ name: 'test' }] });
+  });
+});
+
 describe('manifest surface', () => {
   it('validateGate accepts a boolean enabled and rejects others', () => {
     expect(validateGate({ name: 'a', kind: 'script', script: 'a', enabled: false }, 0, 'uat.gates').enabled).toBe(false);
