@@ -33,24 +33,21 @@ try {
   process.exit(1);
 }
 
-// Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
-// and every request would 404 without this step.  Test for catalog.html (the
-// last file the writer emits), not "non-empty": a stray scratch file in .tmp/
-// would otherwise suppress generation and 404 every page.
-if (!existsSync(join(ROOT, 'catalog.html'))) {
-  console.log('Generating fixture pages...');
-  try {
-    execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
-      cwd: __dirname,
-      stdio: 'inherit',
-      // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
-      env: { ...process.env, TMPDIR: '/tmp' },
-      timeout: 60_000,
-    });
-  } catch (err) {
-    console.error('Failed to generate fixtures:', err);
-    process.exit(1);
-  }
+// Regenerate fixtures before serving. They are gitignored build products too;
+// reusing an existing catalog can make a sweep exercise stale markup after a
+// checkout changes the fixture writer or its injected bundles.
+console.log('Generating fixture pages...');
+try {
+  execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
+    cwd: __dirname,
+    stdio: 'inherit',
+    // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
+    env: { ...process.env, TMPDIR: '/tmp' },
+    timeout: 60_000,
+  });
+} catch (err) {
+  console.error('Failed to generate fixtures:', err);
+  process.exit(1);
 }
 
 const MIME = {
