@@ -2,7 +2,8 @@ import type { GateRun } from '../../store/gateRuns.js';
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { StageKey } from '../types.js';
-import { formatTime, type InsideStatus } from './types.js';
+import { triggerProse } from './recovery.js';
+import { formatDuration, formatTime, type InsideStatus } from './types.js';
 
 /**
  * The round switcher's pure selectors (Option B, T1). A gate stage that
@@ -55,8 +56,12 @@ const STATUS_LABELS: Readonly<Record<InsideStatus, string>> = {
 /** One tab in the round switcher — one recorded attempt at a gate stage. */
 export interface GateAttemptView {
   key: AttemptKey;
-  /** Host-authored tab copy: `R2`, `latest`, `live`, `attempt 3`. */
+  /** Host-authored tab copy: always `R<position>`. */
   label: string;
+  /** Host copy for the SELECTED tab only: `of 3 · latest`. The webview shows it verbatim (UI-R31). */
+  tail: string;
+  /** One caption line for the round row: why the attempt opened · duration · exhaustion. */
+  caption?: string;
   status: InsideStatus;
   /** Visible status word, so colour is never the only carrier. */
   statusLabel: string;
@@ -195,15 +200,6 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
   const views = groups.map((group, index): GateAttemptView => {
     const isLatest = index === lastIndex;
     const round = roundByKey.get(group.key);
-    // ONE naming series, and it is the attempt's own 1-based position in the
-    // stage's history — `attempt 2` is always the second attempt, whatever
-    // number the round it opened carries. A round number is NOT that position
-    // (only a FAILING attempt opens a round, so round 2 can sit at attempt 3),
-    // and labelling some tabs `R2` and their neighbours `attempt 3` invited
-    // exactly that misreading. The round rides along as a suffix, so the tab
-    // still says which recovery it caused, and the `round` field below stays
-    // the machine-readable fact the note is worded from.
-    const position = `attempt ${index + 1}`;
     // A `live`/`run` reading claims this group IS the current invocation. During
     // the re-entry window it never is — the current invocation is `null` (has
     // recorded nothing), and the newest RECORDED group here is the previous,
@@ -211,19 +207,29 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
     // group falls back to its own position and its own recorded status instead
     // of borrowing the stage's `running` flag.
     const isLiveNow = isLatest && input.running && !input.reentryPending;
-    const label =
-      round !== undefined
-        ? `${position} · R${round.round}`
-        : isLiveNow
-          ? 'live'
-          : isLatest && !input.reentryPending
-            ? 'latest'
-            : position;
+    const label = `R${index + 1}`;
+    const tail = `of ${groups.length}${isLiveNow ? ' · live' : isLatest && !input.reentryPending ? ' · latest' : ''}`;
+    const opener = index > 0 ? roundByKey.get(groups[index - 1]!.key) : undefined;
+    const starts = group.runs.flatMap((r) => (r.startedAt ? [r.startedAt] : []));
+    const ends = group.runs.flatMap((r) => (r.endedAt ? [r.endedAt] : []));
+    const took =
+      starts.length > 0 && ends.length === group.runs.length
+        ? formatDuration([...starts].sort()[0]!, [...ends].sort().at(-1)!)
+        : '';
+    const caption = [
+      opener ? `opened by ${triggerProse(opener)}` : '',
+      took,
+      round?.status === 'exhausted' ? 'no fix attempts left' : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
     const status = isLiveNow ? 'run' : attemptStatus(group.runs);
     const time = attemptEarliestStart(group.runs);
     return {
       key: group.key,
       label,
+      tail,
+      ...(caption ? { caption } : {}),
       status,
       statusLabel: STATUS_LABELS[status],
       ...(time ? { time: formatTime(time) } : {}),

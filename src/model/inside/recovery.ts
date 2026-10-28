@@ -68,7 +68,7 @@ function roundStatus(round: RecoveryRound): InsideStatus {
 }
 
 /** The cause of a round as prose — handoff §11's "UAT test failure" reading. */
-function triggerProse(round: RecoveryRound): string {
+export function triggerProse(round: RecoveryRound): string {
   switch (round.triggerKind) {
     case 'gate-failure':
       return `${STAGE_TITLES[round.sourceStage]} test failure`;

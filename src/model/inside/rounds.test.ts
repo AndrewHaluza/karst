@@ -157,7 +157,7 @@ describe('listGateAttempts', () => {
       stageKey: 'uat',
       running: false,
     });
-    expect(notRunning[notRunning.length - 1]!.label).toBe('latest');
+    expect(notRunning[notRunning.length - 1]!.tail).toBe('of 2 · latest');
     expect(notRunning[notRunning.length - 1]!.latest).toBe(true);
 
     const runningViews = listGateAttempts({
@@ -167,7 +167,7 @@ describe('listGateAttempts', () => {
       stageKey: 'uat',
       running: true,
     });
-    expect(runningViews[runningViews.length - 1]!.label).toBe('live');
+    expect(runningViews[runningViews.length - 1]!.tail).toBe('of 2 · live');
   });
 
   it('labels a non-latest, non-round attempt by ordinal', () => {
@@ -183,9 +183,9 @@ describe('listGateAttempts', () => {
       stageKey: 'uat',
       running: false,
     });
-    expect(views[0]!.label).toBe('attempt 1');
-    expect(views[1]!.label).toBe('attempt 2');
-    expect(views[2]!.label).toBe('latest');
+    expect(views.map((v) => v.label)).toEqual(['R1', 'R2', 'R3']);
+    expect(views[0]!.tail).toBe('of 3');
+    expect(views[2]!.tail).toBe('of 3 · latest');
   });
 
   it('labels the attempt that opened a round from sourceStageRunId', () => {
@@ -204,9 +204,37 @@ describe('listGateAttempts', () => {
     // One naming series: the attempt's own position, with the round it opened
     // as a suffix — a round number is not a position (only a failing attempt
     // opens one), so the two must never look like the same counter.
-    expect(views[0]!.label).toBe('attempt 1 · R1');
+    expect(views[0]!.label).toBe('R1');
     expect(views[0]!.round).toBe(1);
-    expect(views[1]!.label).toBe('latest');
+    expect(views[1]!.label).toBe('R2');
+  });
+
+  it('captions why each attempt opened, its duration and exhaustion', () => {
+    const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
+    const runs = [
+      gate('uat', 'lint', 1, { stageRunId: 1, runAt: at(0), startedAt: at(0), endedAt: at(0, 30) }),
+      gate('uat', 'lint', 1, { stageRunId: 2, runAt: at(5), startedAt: at(5), endedAt: at(5, 48) }),
+      gate('uat', 'lint', 1, { stageRunId: 3, runAt: at(10), startedAt: at(10), endedAt: at(10, 10) }),
+    ];
+    const rounds = [
+      round({ sourceStage: 'uat', sourceStageRunId: 1, round: 1 }),
+      round({ sourceStage: 'uat', sourceStageRunId: 2, round: 2 }),
+      round({ sourceStage: 'uat', sourceStageRunId: 3, round: 3, status: 'exhausted' }),
+    ];
+    const views = listGateAttempts({ gateRuns: runs, processRuns: [], rounds, stageKey: 'uat', running: false });
+    expect(views[0]!.caption).toBe('30.0s');
+    expect(views[1]!.caption).toBe('opened by UAT test failure · 48.0s');
+    expect(views[2]!.caption).toBe('opened by UAT test failure · 10.0s · no fix attempts left');
+  });
+
+  it('omits duration while live and caption when nothing to say', () => {
+    const runs = [
+      gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-07-20T12:00:00.000Z' }),
+      gate('uat', 'lint', 1, { stageRunId: 2, runAt: '2026-07-20T12:10:00.000Z' }),
+    ];
+    const views = listGateAttempts({ gateRuns: runs, processRuns: [], rounds: [], stageKey: 'uat', running: true });
+    expect(views[0]!.caption).toBeUndefined();
+    expect(views[1]!.caption).toBeUndefined();
   });
 
   it('derives fail/pass status per attempt from its own batch', () => {
@@ -403,7 +431,7 @@ describe('listGateAttempts: the live attempt with no recorded rows', () => {
     });
     expect(attempts).toHaveLength(2);
     expect(attempts[0]).toMatchObject({ key: 'sr:1', status: 'fail', latest: false });
-    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'live', status: 'run', latest: true });
+    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'R2', tail: 'of 2 · live', status: 'run', latest: true });
     expect(attempts[1]!.time).toBeUndefined();
   });
 
@@ -416,7 +444,7 @@ describe('listGateAttempts: the live attempt with no recorded rows', () => {
       running: false,
       currentAttempt: 'sr:2',
     });
-    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'latest', status: 'pending', statusLabel: 'pending' });
+    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'R2', tail: 'of 2 · latest', status: 'pending', statusLabel: 'pending' });
   });
 
   it('adds nothing when the current attempt already has recorded rows', () => {

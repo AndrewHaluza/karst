@@ -2059,9 +2059,9 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     const uat = buildDashboardState(store, ticketId).insideViews.uat;
     expect(uat.attempts).toHaveLength(3);
     expect(uat.attempts!.map((a) => a.label)).toEqual([
-      'attempt 1 · R1',
-      'attempt 2 · R2',
-      'live',
+      'R1',
+      'R2',
+      'R3',
     ]);
     expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
     expect(uat.attemptNote).toBeUndefined();
@@ -2257,7 +2257,7 @@ describe('inside: a re-entered gate stage shows the current invocation', () => {
     expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
     expect(gates.status).toBe('run');
     // Round 1 stays reachable, as the tab before the live one.
-    expect(uat.attempts?.map((a) => a.label)).toEqual(['attempt 1', 'live']);
+    expect(uat.attempts?.map((a) => a.label)).toEqual(['R1', 'R2']);
   });
 
   it('renders the recorded batch once the current invocation records one', () => {
@@ -2481,7 +2481,7 @@ describe('inside: the re-entry window with two or more recorded attempts (Findin
     expect(uat.attempts).toHaveLength(2);
     // Positional labels, own recorded status — never `live`/`latest`, never
     // a `run` status borrowed from the stage's re-entered `running` cell.
-    expect(uat.attempts!.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
+    expect(uat.attempts!.map((a) => a.label)).toEqual(['R1', 'R2']);
     expect(uat.attempts!.map((a) => a.status)).toEqual(['fail', 'fail']);
   });
 
