@@ -260,7 +260,7 @@ function implView(_n: RenderRepoCount): InsideStageView {
     stageKey: 'impl',
     title: 'Implementation',
     dot: 'run',
-    clock: 'started 09:12:33 · 4m 12s elapsed · attempt 1',
+    clock: 'started 09:12:33 · 4m 12s elapsed',
     processes: [
       {
         id: 'session',
@@ -417,7 +417,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
     stageKey: 'review',
     title: 'Review',
     dot: 'fail',
-    clock: '09:20:11 · 3m 02s · attempt 2',
+    clock: '09:20:11 · 3m 02s',
     console: true,
     processes: [
       {
@@ -527,7 +527,7 @@ function shipView(n: RenderRepoCount): InsideStageView {
     stageKey: 'ship',
     title: 'Ship',
     dot: 'wait',
-    clock: '09:40:02 · 1m 40s · attempt 1',
+    clock: '09:40:02 · 1m 40s',
     processes: [
       {
         id: 'commit',
@@ -729,7 +729,7 @@ function uatView(n: RenderRepoCount): InsideStageView {
     stageKey: 'uat',
     title: 'UAT',
     dot: 'fail',
-    clock: '10:03:55 · 41.2s · attempt 3',
+    clock: '10:03:55 · 41.2s',
     console: true,
     processes: [
       {

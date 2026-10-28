@@ -217,12 +217,6 @@
   color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
 #inside .session-foot .session-rule{margin-left:auto}
 
-/* Recovery: the bounded fail → Fix loop pill. */
-#inside .recovery-pill{display:inline-flex;align-items:center;justify-content:center;height:18px;
-  border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
-  color:var(--p-muted);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
-#inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
-
 /* Done: the compact delivery receipt */
 #inside .done-receipt{padding:0 0 var(--p-s2)}
 #inside .done-hero{display:flex;align-items:center;gap:var(--p-s2);min-height:38px;margin-bottom:var(--p-s1);

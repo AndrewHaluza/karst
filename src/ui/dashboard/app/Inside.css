@@ -106,7 +106,7 @@
    one process row. Absent entirely whenever the host omits `view.attempts`
    or ships fewer than 2 (UI-R31: the host states the fact — nothing here
    recomputes attempt count). */
-#inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s2);flex-wrap:wrap;
+#inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s1);flex-wrap:nowrap;overflow:hidden;min-height:var(--k-control-h-sm);
   padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border);
   background:var(--p-surface2)}
 /* A real <button role="tab">, not a styled <a> or <div> (UI-R09): it is
@@ -114,7 +114,7 @@
    below is the only thing standing in for the browser's own tab-panel
    wiring (there is no separate tabpanel — selecting an attempt re-renders
    the whole ledger, so `aria-controls` would name a moving target). */
-#inside .attempt-tab{display:inline-flex;align-items:center;gap:var(--p-s1);
+#inside .attempt-tab{flex:0 0 auto;display:inline-flex;align-items:center;gap:var(--p-s1);
   height:var(--k-control-h-sm);padding:0 var(--p-s2);border:var(--k-border-w) solid transparent;
   border-radius:var(--k-radius-sm);color:var(--p-muted);background:transparent;
   font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
@@ -123,7 +123,8 @@
    the visible status word beside the glyph carries the pass/fail meaning;
    this carries only "which tab is current". */
 #inside .attempt-tab[aria-selected="true"]{background:var(--p-surface);
-  border-color:var(--p-border);color:var(--p-strong);font-weight:var(--k-weight-semibold)}
+  border-color:var(--p-border);color:var(--p-strong);font-weight:var(--k-weight-semibold);
+  box-shadow:inset 0 -2px 0 var(--p-strong)}
 /* UI-R23: focus stays visibly identifiable, same ring token as every other
    control in this file. */
 #inside .attempt-tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
@@ -133,19 +134,14 @@
    `#inside .glyph.run:before{animation:none}` under reduced motion (line
    ~1196) already covers this instance — no separate override needed. */
 #inside .attempt-tab .glyph{width:12px;height:12px}
-#inside .attempt-tab-status{text-transform:lowercase}
-#inside .attempt-tab-status.pass{color:var(--p-passed)}
-#inside .attempt-tab-status.fail{color:var(--p-failed)}
-#inside .attempt-tab-status.run{color:var(--p-running)}
-#inside .attempt-tab-status.wait{color:var(--p-attention)}
-#inside .attempt-tab-status.skip{color:var(--p-skip)}
-#inside .attempt-tab-status.pending,#inside .attempt-tab-status.note{color:var(--p-muted2)}
+#inside .attempt-tabs-label{color:var(--p-muted2);font-size:var(--p-xs);margin-right:var(--p-s1)}
+#inside .attempt-conn{flex:0 0 var(--p-s3);height:1px;background:var(--p-border)}
+#inside .attempt-tab-tail{color:var(--p-muted);font-weight:normal}
 /* The attemptNote banner: host-authored prose only (UI-R31 — the webview
-   composes no copy of its own), shown above the ledger exactly while the
-   selected attempt is not the latest one. */
+   composes no copy of its own), the selected round's caption, one line under the tabs. */
 #inside .attempt-note{padding:var(--p-s2) var(--p-s4);color:var(--p-attention);
   font-size:var(--p-sm);border-bottom:var(--k-border-w) solid var(--p-border);
-  background:var(--p-tint-wait)}
+  background:var(--p-tint-wait);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Agent identity primitive */
 #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;

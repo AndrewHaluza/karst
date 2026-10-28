@@ -201,3 +201,16 @@ describe('Inside CSS — the container queries', () => {
     expect(CSS).not.toMatch(/glyph\.run[^{]*\{[^}]*display:none/);
   });
 });
+
+describe('the thin round row', () => {
+  const rule = (sel: string): string => new RegExp(`${escapeRegExp(sel)}\\s*\\{[^}]*\\}`).exec(CSS)?.[0] ?? '';
+  it('never wraps and underlines the selected tab', () => {
+    expect(rule('#inside .attempt-tabs')).toContain('flex-wrap:nowrap');
+    expect(rule('#inside .attempt-tab[aria-selected="true"]')).toMatch(/box-shadow|border-bottom/);
+  });
+  it('drops the label and tail in the narrow tier', () => {
+    const block = containerBlock('430px');
+    expect(block).toContain('#inside .attempt-tabs-label');
+    expect(block).toContain('#inside .attempt-tab-tail');
+  });
+});
