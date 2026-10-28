@@ -838,3 +838,96 @@ describe('installApproach — output scan stays pending', () => {
     expect(pkg?.pendingOutputs).toBeUndefined();
   });
 });
+
+describe('installApproach — GitHub auth', () => {
+  const TOKEN = 'ghp_secret123';
+  const def: ApproachDef = {
+    id: 'auth-approach',
+    label: 'Auth',
+    source: { type: 'git', repo: 'acme/prompts', ref: 'main', include: ['prompts'] },
+  };
+
+  function recordingFetch(seen: { url: string; auth: string | undefined }[]): FetchLike {
+    return (async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seen.push({ url: u, auth: headers.Authorization });
+      if (u.startsWith('https://api.github.com/')) {
+        return contentsResponse([
+          { name: 'a.md', type: 'file', download_url: 'https://raw.githubusercontent.com/acme/prompts/main/prompts/a.md' },
+        ]);
+      }
+      return new Response('# a');
+    }) as FetchLike;
+  }
+
+  it('sends Authorization only to api.github.com when a token exists', async () => {
+    const seen: { url: string; auth: string | undefined }[] = [];
+    await installApproach(def, {
+      fetchFn: recordingFetch(seen),
+      baseDir: makeBaseDir(),
+      runCommand: noopRunCommand,
+      githubToken: TOKEN,
+    });
+    const api = seen.filter((s) => s.url.startsWith('https://api.github.com/'));
+    const raw = seen.filter((s) => !s.url.startsWith('https://api.github.com/'));
+    expect(api.length).toBeGreaterThan(0);
+    expect(api.every((s) => s.auth === `Bearer ${TOKEN}`)).toBe(true);
+    expect(raw.length).toBeGreaterThan(0);
+    expect(raw.every((s) => s.auth === undefined)).toBe(true);
+  });
+
+  it('sends no Authorization without a token', async () => {
+    const seen: { url: string; auth: string | undefined }[] = [];
+    await installApproach(def, {
+      fetchFn: recordingFetch(seen),
+      baseDir: makeBaseDir(),
+      runCommand: noopRunCommand,
+    });
+    expect(seen.every((s) => s.auth === undefined)).toBe(true);
+  });
+
+  it('names the rate limit, reset time and fix on an exhausted 403, without the token', async () => {
+    const fetchFn = (async () =>
+      new Response('forbidden', {
+        status: 403,
+        headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000' },
+      })) as FetchLike;
+    const err = await installApproach(def, {
+      fetchFn,
+      baseDir: makeBaseDir(),
+      runCommand: noopRunCommand,
+      githubToken: TOKEN,
+    }).then(() => new Error('did not throw'), (e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(ApproachInstallError);
+    expect(err.message).toContain('rate limit');
+    expect(err.message).toContain('2027-01-15T08:00:00.000Z');
+    expect(err.message).toContain('gh auth login');
+    expect(err.message).not.toContain(TOKEN);
+  });
+
+  it('keeps the plain 403 message when quota remains', async () => {
+    const fetchFn = (async () =>
+      new Response('x', { status: 403, headers: { 'x-ratelimit-remaining': '5' } })) as FetchLike;
+    await expect(
+      installApproach(def, { fetchFn, baseDir: makeBaseDir(), runCommand: noopRunCommand }),
+    ).rejects.toThrow(/returned 403/);
+  });
+
+  it('hints private repo on a tokenless 404 only', async () => {
+    const fetchFn = (async () => new Response('nf', { status: 404 })) as FetchLike;
+    const noToken = await installApproach(def, {
+      fetchFn,
+      baseDir: makeBaseDir(),
+      runCommand: noopRunCommand,
+    }).then(() => new Error('did not throw'), (e: unknown) => e as Error);
+    expect(noToken.message).toContain('private repo');
+    const withToken = await installApproach(def, {
+      fetchFn,
+      baseDir: makeBaseDir(),
+      runCommand: noopRunCommand,
+      githubToken: TOKEN,
+    }).then(() => new Error('did not throw'), (e: unknown) => e as Error);
+    expect(withToken.message).not.toContain('private repo');
+  });
+});

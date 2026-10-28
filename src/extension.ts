@@ -138,6 +138,7 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
 import { probeBackends, dockerKillContext } from './agent/backendProbe.js';
+import { ghAuthToken, resolveGithubToken } from './approaches/githubAuth.js';
 import { installProbeRecorder, registerProbeCommand } from './uatHost/probe/vscodeProbe.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
@@ -1902,11 +1903,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // is resolved at call time, not here, so it reflects the current
   // workspace/setting and doesn't throw at activation when there's no folder.
   const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> => {
-    const install = installApproach(def, {
-      fetchFn: fetch,
-      baseDir: approachesDirOrThrow(),
-      runCommand: runNpmCommand,
-    });
+    const baseDir = approachesDirOrThrow();
+    const install = resolveGithubToken({
+      vscodeSession: async () => {
+        const session = await vscode.authentication.getSession('github', ['repo'], { silent: true });
+        return session?.accessToken;
+      },
+      ghCli: ghAuthToken,
+      env: process.env,
+    }).then((githubToken) =>
+      installApproach(def, {
+        fetchFn: fetch,
+        baseDir,
+        runCommand: runNpmCommand,
+        githubToken,
+      }),
+    );
     if (def.source?.type === 'npm') {
       pendingApproachInstalls.add(install);
       void install.then(
