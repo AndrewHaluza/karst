@@ -406,6 +406,7 @@ import {
 import {
   openProcessRun,
   finishProcessRun,
+  setProcessRunPromptTelemetry,
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -2109,6 +2110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
   context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage') }));
+  const turnTracker = new TurnTracker();
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
     store: localStore,
@@ -2137,6 +2139,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
     fixEligible: fixDelivery.eligible,
     claimFixPointed: fixDelivery.claimPointed,
+    nudgeEligible: (id) => turnTracker.nudge(id),
+    onNudged: (_id, c) => { if (c.processRunId !== null) setProcessRunPromptTelemetry(localStore, c.processRunId, { markerNudged: true }); },
   });
   const deliveryTimer = setInterval(() => mailbox.sweep.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({
@@ -3922,7 +3926,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket);
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
-  const turnTracker = new TurnTracker();
   const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
     switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });
   endpoint = await startHookEndpoint(

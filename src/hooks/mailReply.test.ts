@@ -220,3 +220,62 @@ describe('makeHookReply — fix delivery', () => {
     expect(makeHookReply(deps({ unread: () => 0 }))({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
   });
 });
+
+describe('makeHookReply marker nudge', () => {
+  const candidate = { stage: 'impl' as const, key: 7, processRunId: 3 };
+  const nudgeDeps = (over: Partial<MailReplyDeps> = {}): MailReplyDeps =>
+    deps({ unread: () => 0, nudgeEligible: () => candidate, nudgedAt: new Map(), ...over });
+  const stop = { ticketId: 42, event: 'Stop', launchId: 'L1' } as const;
+
+  it('nudges once per (launch, stage, key) with the channel form of the marker', () => {
+    const onNudged = vi.fn();
+    const reply = makeHookReply(nudgeDeps({ sessionChannel: () => 'mcp', onNudged }));
+    const first = reply(stop);
+    expect(first?.reason).toContain('The impl done marker is not fired.');
+    expect(first?.reason).toContain('{ stage: "impl" }');
+    expect(onNudged).toHaveBeenCalledWith(42, candidate);
+    expect(reply(stop)).toBeNull();
+    expect(onNudged).toHaveBeenCalledTimes(1);
+  });
+
+  it('nudges again for a new key', () => {
+    let key = 7;
+    const reply = makeHookReply(nudgeDeps({ nudgeEligible: () => ({ ...candidate, key }) }));
+    expect(reply(stop)).not.toBeNull();
+    key = 8;
+    expect(reply(stop)).not.toBeNull();
+  });
+
+  it('fix pointer and mail win over the nudge', () => {
+    const fixed = makeHookReply(
+      nudgeDeps({ fixEligible: () => 5, claimFixPointed: () => true, blockedAtFix: new Map() }),
+    )(stop);
+    expect(fixed?.reason).toContain('fix brief #5');
+    expect(makeHookReply(nudgeDeps({ unread: () => 2 }))(stop)?.reason).toContain('2 new message(s)');
+  });
+
+  it('falls to the nudge once the mail batch was already blocked', () => {
+    const reply = makeHookReply(nudgeDeps({ unread: () => 2 }));
+    expect(reply(stop)?.reason).toContain('new message');
+    expect(reply(stop)?.reason).toContain('done marker is not fired');
+  });
+
+  it('is silent without a snapshot and forgets the key', () => {
+    let snap: typeof candidate | null = candidate;
+    const reply = makeHookReply(nudgeDeps({ nudgeEligible: () => snap }));
+    expect(reply(stop)).not.toBeNull();
+    snap = null;
+    expect(reply(stop)).toBeNull();
+    snap = candidate;
+    expect(reply(stop)).not.toBeNull();
+  });
+
+  it('is silent on stop_hook_active, a stale generation and a non-reply route', () => {
+    const nudgedAt = new Map();
+    const reply = makeHookReply(nudgeDeps({ nudgedAt, isCurrent: (_id, l) => l === 'L1', shouldReply: (id) => id === 42 }));
+    expect(reply({ ...stop, stopHookActive: true })).toBeNull();
+    expect(reply({ ...stop, launchId: 'OLD' })).toBeNull();
+    expect(reply({ ...stop, ticketId: 9 })).toBeNull();
+    expect(nudgedAt.size).toBe(0);
+  });
+});

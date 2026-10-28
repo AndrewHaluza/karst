@@ -8,6 +8,7 @@ import {
   messagePointer,
   type MessageDelivery,
   type MessageRoute,
+  markerNudgeText,
 } from './messageDelivery.js';
 
 const CLI = (cmd: string): string => `run node "$KARST_CLI" ${cmd} --db "$KARST_DB" --ticket "$KARST_TICKET_ID"`;
@@ -129,5 +130,13 @@ describe('makeTerminalDelivery — notes kind', () => {
     });
     expect(d.deliver(5, notesPointer(2))).toBe('delivered');
     expect(nudge).toHaveBeenCalledWith(5, messagePointer(notesPointer(2), 'mcp'));
+  });
+});
+
+describe('markerNudgeText', () => {
+  it('names the done marker in the recipient channel form', () => {
+    expect(markerNudgeText('fix', 'mcp')).toContain('call the karst MCP tool "stage" with { stage: "fix" }');
+    expect(markerNudgeText('impl', 'cli-env')).toContain('stage impl pass');
+    expect(markerNudgeText('impl', 'mcp')).toContain('If you need the user, ask plainly and end your turn.');
   });
 });

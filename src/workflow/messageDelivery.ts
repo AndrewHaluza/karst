@@ -110,16 +110,29 @@ export function inboxRef(pointer: MessagePointer): string {
   return pointer.kind === 'fix' ? `fix-${pointer.deliveryId}` : pointer.kind;
 }
 
+/** The done-marker call for `stage` in the recipient's channel form (arch:AC-34 for the sandbox). */
+export function markerFireCommand(stage: 'impl' | 'fix', channel: DeliveryChannel): string {
+  if (isSandboxChannel(channel)) {
+    return `run ${sandboxMarkerCommand({ runDir: channel.runDir, core: channel.core, stage })}`;
+  }
+  if (channel === 'mcp') return `call the karst MCP tool "stage" with { stage: "${stage}" }`;
+  const refs = karstCliRefs();
+  return `run node ${refs.cli} stage ${stage} pass --db ${refs.db} --ticket ${envRef(KARST_TICKET_ID_ENV)}`;
+}
+
+/** The once-per-key Stop nudge for a turn that ended after work with the marker still pending. */
+export function markerNudgeText(stage: 'impl' | 'fix', channel: DeliveryChannel): string {
+  return printable(
+    `karst: The ${stage} done marker is not fired. If the work is committed and checks pass, fire it now (${markerFireCommand(stage, channel)}). ` +
+      'If it is refused, say why. If you need the user, ask plainly and end your turn.',
+  );
+}
+
 const FIX_MARKER_LEAD = '; when the fix is committed and checks pass, fire the done marker: ';
 
 /** The fix pointer's done-marker clause in the recipient's channel form (arch:AC-34 for the sandbox). */
 function fixMarkerFollow(channel: DeliveryChannel): string {
-  if (isSandboxChannel(channel)) {
-    return `${FIX_MARKER_LEAD}run ${sandboxMarkerCommand({ runDir: channel.runDir, core: channel.core, stage: 'fix' })}`;
-  }
-  if (channel === 'mcp') return `${FIX_MARKER_LEAD}call the karst MCP tool "stage" with { stage: "fix" }`;
-  const refs = karstCliRefs();
-  return `${FIX_MARKER_LEAD}run node ${refs.cli} stage fix pass --db ${refs.db} --ticket ${envRef(KARST_TICKET_ID_ENV)}`;
+  return `${FIX_MARKER_LEAD}${markerFireCommand('fix', channel)}`;
 }
 
 /**
