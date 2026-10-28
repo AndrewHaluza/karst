@@ -2015,7 +2015,7 @@ describe('DashboardManager', () => {
 
       const uat = lastState(panels[0]!).insideViews.uat;
       expect(uat.selectedAttempt).toBe(requested);
-      expect(uat.attemptNote).toBe('viewing round 1 — not the current result');
+      expect(uat.attemptNote).toBe('1m 0s');
     });
 
     it('survives a subsequent snapshot/re-render (e.g. the live tick)', () => {

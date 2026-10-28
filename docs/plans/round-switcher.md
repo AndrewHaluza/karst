@@ -155,7 +155,7 @@ tests to `messages.test.ts` covering accept + each reject.
   attempts?: readonly GateAttemptView[];
   selectedAttempt?: AttemptKey;
   /** Host-authored banner shown when a past attempt is selected. */
-  attemptNote?: string;   // e.g. "viewing round 2 — not the current result"
+  attemptNote?: string;   // SUPERSEDED by T825: now the selected round's caption, e.g. "opened by UAT test failure · 1m 0s"
   ```
 - The Fix row is untouched: `recoveryProcess` keeps reading every round.
 

@@ -38,7 +38,7 @@ export const proc = (id: string, over: Record<string, unknown> = {}): InsideProc
 
 /** One stage view; `processes` empty shows the blurb. */
 export const view = (stageKey: string, over: Record<string, unknown> = {}): InsideStageView =>
-  ({ stageKey, title: stageKey.toUpperCase(), dot: 'idle', clock: '10:00:00 · 1s · attempt 1', processes: [], blurb: `${stageKey} blurb`, ...over }) as unknown as InsideStageView;
+  ({ stageKey, title: stageKey.toUpperCase(), dot: 'idle', clock: '10:00:00 · 1s', processes: [], blurb: `${stageKey} blurb`, ...over }) as unknown as InsideStageView;
 
 export interface StateOpts {
   readonly stageCurrent?: string;

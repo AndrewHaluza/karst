@@ -77,15 +77,14 @@ describe('Inside CSS — the ledger grid and the evidence cells', () => {
     expect(CSS).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
   });
 
-  it('gives gate rows, evidence rows and recovery rounds a leading fixed track for the glyph', () => {
+  it('gives gate rows and evidence rows a leading fixed track for the glyph', () => {
     expect(CSS).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
     expect(CSS).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
     expect(CSS).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
-    expect(CSS).toMatch(/#inside \.recovery-round\{display:grid;grid-template-columns:18px 56px minmax\(0,1fr\) auto;/);
   });
 
   it('has a rule for every container the evidence bodies emit', () => {
-    for (const cls of ['gates', 'findings', 'session-segments', 'recovery-history', 'done-line', 'evidence-row', 'commit-grid', 'pr-branches', 'graph-nodes', 'graph-dag', 'receipt-grid', 'overflow-note']) {
+    for (const cls of ['gates', 'findings', 'session-segments', 'done-line', 'evidence-row', 'commit-grid', 'pr-branches', 'graph-nodes', 'graph-dag', 'receipt-grid', 'overflow-note']) {
       expect(CSS, `no rule for .${cls}`).toContain(`#inside .${cls}`);
     }
   });
@@ -200,5 +199,18 @@ describe('Inside CSS — the container queries', () => {
   it('stops the running glyph spinning under reduced motion without hiding it (UI-R30)', () => {
     expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)\{\s*#inside \.glyph\.run:before\{animation:none\}/);
     expect(CSS).not.toMatch(/glyph\.run[^{]*\{[^}]*display:none/);
+  });
+});
+
+describe('the thin round row', () => {
+  const rule = (sel: string): string => new RegExp(`${escapeRegExp(sel)}\\s*\\{[^}]*\\}`).exec(CSS)?.[0] ?? '';
+  it('never wraps and underlines the selected tab', () => {
+    expect(rule('#inside .attempt-tabs')).toContain('flex-wrap:nowrap');
+    expect(rule('#inside .attempt-tab[aria-selected="true"]')).toMatch(/box-shadow|border-bottom/);
+  });
+  it('drops the label and tail in the narrow tier', () => {
+    const block = containerBlock('430px');
+    expect(block).toContain('#inside .attempt-tabs-label');
+    expect(block).toContain('#inside .attempt-tab-tail');
   });
 });

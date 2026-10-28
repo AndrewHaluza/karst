@@ -17,6 +17,7 @@
   #inside .inside-meta{grid-column:2}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
+  #inside .attempt-tabs-label,#inside .attempt-tab-tail{display:none}
   #inside .duration,#inside .op-time{display:none}
   #inside .op-tail .agent-model{display:none}
   #inside .op-body{margin-left:20px}
@@ -51,8 +52,6 @@
   #inside .phase-time,#inside .timeline-tail{display:none}
   #inside .session-foot{flex-wrap:wrap}
   #inside .session-foot .session-rule{margin-left:0;width:100%}
-  #inside .recovery-round{grid-template-columns:18px 48px minmax(0,1fr)}
-  #inside .recovery-timing{display:none}
   /* The node list's control stays in its own `auto` track and the meta
      column (kind · status) drops rather than crushing the control's track
      toward zero width — the crushed-and-escaped control at narrow panel

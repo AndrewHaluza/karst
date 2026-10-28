@@ -30,18 +30,8 @@ export const attemptSwitcherFor = (
   const requestedMatch = requested !== undefined ? attempts.find((a) => a.key === requested) : undefined;
   const effective = requestedMatch ?? attempts.find((a) => a.latest);
   if (effective === undefined) return { selectedKey: null };
-  // Host-authored, worded from the reader's side: a settled historical
-  // attempt is announced so a viewer never mistakes it for the live
-  // picture (UI-R31 — the webview renders this verbatim and composes
-  // nothing). The newest attempt carries no note when it is genuinely the
-  // live one; during the re-entry window the `latest`-flagged tab is not,
-  // so it gets the same "not the current result" note as any historical tab.
-  const attemptNote =
-    effective.latest && !reentryPending
-      ? undefined
-      : effective.round !== undefined
-        ? `viewing round ${effective.round} — not the current result`
-        : `viewing ${effective.label} — not the current result`;
+  // Host-authored (UI-R31): the selected round's own caption, verbatim.
+  const attemptNote = effective.caption;
   // An EXPLICIT click on the re-entry window's `latest`-flagged tab must
   // still reach that attempt's own recorded rows — it is a settled attempt,
   // not the live one, and collapsing it to `null` here is exactly what made

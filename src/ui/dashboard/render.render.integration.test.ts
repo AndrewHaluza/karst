@@ -318,9 +318,9 @@ describe('dashboard render — ship preview (D142)', () => {
       shipPreview: shipPreviewFixture('ready')!,
     };
   };
-  const SHIP_CLOCK = '09:40:02 · 1m 40s · attempt 1';
-  const UAT_CLOCK = '10:03:55 · 41.2s · attempt 3';
-  const REVIEW_CLOCK = '09:20:11 · 3m 02s · attempt 2';
+  const SHIP_CLOCK = '09:40:02 · 1m 40s';
+  const UAT_CLOCK = '10:03:55 · 41.2s';
+  const REVIEW_CLOCK = '09:20:11 · 3m 02s';
   const insideClock = (h: Awaited<ReturnType<typeof renderWebviewReady>>) => h.query('#inside .inside-meta')?.textContent;
 
   it('is absent unless the ship slot waits for Confirm/Retry', async () => {

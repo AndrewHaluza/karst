@@ -217,22 +217,6 @@
   color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
 #inside .session-foot .session-rule{margin-left:auto}
 
-/* Recovery: a bounded fail → Fix loop, and the round history behind it. */
-#inside .recovery-pill{display:inline-flex;align-items:center;justify-content:center;height:18px;
-  border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-pill);padding:0 var(--p-s2);
-  color:var(--p-muted);font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
-#inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
-#inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
-  border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
-#inside .recovery-round{display:grid;grid-template-columns:18px 56px minmax(0,1fr) auto;gap:var(--p-s2);
-  align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
-#inside .recovery-round:last-child{border-bottom:0}
-#inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
-#inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  color:var(--p-text);font-size:var(--p-sm)}
-#inside .recovery-timing{display:flex;align-items:center;gap:var(--p-s2);color:var(--p-muted2);
-  font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-
 /* Done: the compact delivery receipt */
 #inside .done-receipt{padding:0 0 var(--p-s2)}
 #inside .done-hero{display:flex;align-items:center;gap:var(--p-s2);min-height:38px;margin-bottom:var(--p-s1);

@@ -170,7 +170,6 @@ function rowsOf(process: InsideProcessView): readonly EvidenceRow[] {
   if (evidence?.kind === 'rows') return evidence.rows;
   if (evidence?.kind === 'gates') return evidence.rows;
   if (evidence?.kind === 'findings') return evidence.rows;
-  if (evidence?.kind === 'recovery') return evidence.rows;
   throw new Error(`expected rows-bearing evidence, got ${process.evidence?.kind ?? 'none'}`);
 }
 
@@ -251,7 +250,7 @@ describe('uatProcesses', () => {
       }),
     );
     const gates = views[0]!;
-    expect(gates.detail).toBe('attempt 0 failed · /web / e2e');
+    expect(gates.detail).toBe('failed · /web / e2e');
     expect(gates.count).toBe('1/3');
     expect(gates.aggregate).toBeUndefined(); // the pill moved into the description
   });
@@ -423,7 +422,7 @@ describe('uatProcesses', () => {
         ],
       }),
     );
-    expect(views[0]!.detail).toBe('attempt 0 failed · web / lint');
+    expect(views[0]!.detail).toBe('failed · web / lint');
     expect(views[0]!.count).toBe('2/3');
   });
 
@@ -824,7 +823,7 @@ describe('uatProcesses', () => {
     expect(services.detail).toBe('api · web');
   });
 
-  it('renders one fix row for an exhausted series, with every round in its evidence', () => {
+  it('renders one fix row for an exhausted series, reporting only the newest round', () => {
     const views = uatProcesses(
       qualityInput({
         // An exhausted series parks the ticket at fix — the stage itself
@@ -838,19 +837,11 @@ describe('uatProcesses', () => {
     );
     const fix = views.filter((p) => p.id === 'fix');
     expect(fix).toHaveLength(1);
-    expect(rowsOf(fix[0]!).map((r) => r.label)).toEqual(['round 1', 'round 2']);
+    expect(fix[0]!.evidence).toBeUndefined();
     expect(fix[0]!.status).toBe('fail');
     expect(fix[0]!.detail).toBe(
       'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
     );
-  });
-
-  it('renders the round budget from the STORED max_rounds, never the live manifest', () => {
-    const views = uatProcesses(
-      qualityInput({ rounds: [round({ maxRounds: 3 })] }),
-    );
-    const fix = views.find((p) => p.id === 'fix')!;
-    expect(rowsOf(fix)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 3');
   });
 
   it('renders a crash without a round as no fix and a failed process row', () => {
@@ -1117,7 +1108,7 @@ describe('reviewProcesses', () => {
       }),
     );
     const gates = views[0]!;
-    expect(gates.detail).toBe('attempt 1 failed · web / test');
+    expect(gates.detail).toBe('failed · web / test');
     expect(gates.count).toBe('0/1');
     // The failing ROW keeps its terse factual detail (handoff §6 row template).
     const rows = (gates.evidence as { rows: readonly EvidenceRow[] }).rows;
@@ -1319,7 +1310,7 @@ describe('quality evidence names the SERVICE, never the repository path', () => 
         repoNameFor,
       }),
     );
-    expect(views[0]!.detail).toBe('attempt 2 failed · web / test');
+    expect(views[0]!.detail).toBe('failed · web / test');
     expect(views[0]!.detail).not.toContain('/wt/');
   });
 

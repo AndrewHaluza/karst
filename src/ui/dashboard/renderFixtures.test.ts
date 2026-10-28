@@ -310,12 +310,8 @@ describe('render fixtures', () => {
     // never at the bottom as an unrelated retry meter (handoff §5.5).
     const uat = fixtures.find((f) => f.scenario === 'exhausted' && f.repositoryCount === 2)!;
     expect(uat.view.processes.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);
-    const rounds = rowsOf(uat, 'fix').filter((r) => r.label !== 'more');
-    expect(rounds.map((r) => r.detail)).toEqual([
-      'gate test failed — max 3',
-      'gate test failed again — max 3',
-      'gate test failed again — max 3 — no fix attempts left',
-    ]);
+    expect(uat.view.processes[1]!.evidence).toBeUndefined();
+    expect(uat.view.processes[1]!.detail).toBe('no fix attempts left');
   });
 
   it('keeps Review Gates → Services → Review and Ship Commit → Push → PR → Merge (Task 5)', () => {

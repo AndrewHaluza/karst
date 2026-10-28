@@ -88,8 +88,13 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
         </div>
         {/* "Deliver to PR": the count line + action, ship only, hidden while nothing is undelivered. */}
         {deliver ? <DeliverRow notOnPr={deliver.notOnPr} inSandbox={deliver.inSandbox} /> : null}
-        <AttemptTabs stageKey={view.stageKey} attempts={view.attempts} selected={view.selectedAttempt} />
-        {view.attemptNote ? <div className="attempt-note">{view.attemptNote}</div> : null}
+        {/* ONE slot for the round row and its caption, so the ledger keeps its sibling position (layout ledger keys are nth-child paths). */}
+        {(view.attempts?.length ?? 0) >= 2 || view.attemptNote ? (
+          <div className="attempt-slot">
+            <AttemptTabs stageKey={view.stageKey} attempts={view.attempts} selected={view.selectedAttempt} />
+            {view.attemptNote ? <div className="attempt-note">{view.attemptNote}</div> : null}
+          </div>
+        ) : null}
         {/* The ship preview sits ABOVE the ledger (D142, UI-R40 reading order): the first thing read before the Confirm click. */}
         {frame.preview ? <ShipPreview preview={frame.preview.data} /> : null}
         {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} /> : <div className="blurb">{view.blurb}</div>}

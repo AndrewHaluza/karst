@@ -65,12 +65,6 @@ const base: readonly InsideProcessView[] = [
   process('tester'),
 ];
 
-function evidenceRows(recovery: RecoveryProcessView): readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[] {
-  const evidence = recovery.process.evidence;
-  if (evidence?.kind !== 'recovery') throw new Error('expected recovery evidence');
-  return evidence.rows as readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[];
-}
-
 describe('recoveryProcess', () => {
   it('returns null when the stage recorded no recovery round — a fix row needs evidence', () => {
     expect(recoveryProcess([], [], NOW)).toBeNull();
@@ -106,37 +100,34 @@ describe('recoveryProcess', () => {
     expect(view!.triggerProcessId).toBe('tester');
   });
 
-  it('renders one recovery row per round, oldest first, with handoff §11 copy', () => {
+  it('reports only the newest round: no evidence block, no round list', () => {
     const view = recoveryProcess(
       [
-        round({ id: 1, round: 1, triggerDetail: 'exit 1', status: 'pending' }),
+        round({ id: 1, round: 1, triggerDetail: 'exit 1', status: 'failed' }),
         round({ id: 2, round: 2, maxRounds: 3, status: 'fixing' }),
       ],
       [],
       NOW,
-    );
-    const rows = evidenceRows(view!);
-    expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
-    // handoff §11: "Fix started after UAT test failure · round 1 of 2" — the
-    // cause is the recorded trigger KIND, and the budget comes from the ROW
-    // (a knob edited after the failure cannot rewrite the committed budget).
-    expect(rows[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
-    expect(rows[1]!.detail).toBe('Fix started after UAT test failure · round 2 of 3');
+    )!;
+    expect(view.process.evidence).toBeUndefined();
+    expect(view.process.status).toBe('run');
+    // handoff §11: the cause is the recorded trigger KIND.
+    expect(view.process.detail).toBe('Fix started after UAT test failure');
   });
 
   it('states every recovery state in the handoff §11 copy (B9)', () => {
     const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
-    expect(evidenceRows(fixing)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    expect(fixing.process.detail).toBe('Fix started after UAT test failure');
     const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
-    expect(evidenceRows(revalidating)[0]!.detail).toBe('Fix completed; UAT revalidation is running');
+    expect(revalidating.process.detail).toBe('Fix completed; UAT revalidation is running');
     const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
-    expect(evidenceRows(exhausted)[0]!.detail).toBe(
+    expect(exhausted.process.detail).toBe(
       'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
     );
     // §3.8: the process row is silent until exhausted/failed — the running
     // and waiting copy must ride the collapsed row too.
     expect(recoveryProcess([round({ status: 'pending' })], [], NOW)!.process.detail).toBe(
-      'Fix started after UAT test failure · round 1 of 2',
+      'Fix started after UAT test failure',
     );
     expect(recoveryProcess([round({ status: 'revalidating' })], [], NOW)!.process.detail).toBe(
       'Fix completed; UAT revalidation is running',
@@ -159,11 +150,11 @@ describe('recoveryProcess', () => {
 
   it('names each trigger kind in prose (B9)', () => {
     const gate = recoveryProcess([round({ sourceStage: 'review', triggerKind: 'gate-failure' })], [], NOW)!;
-    expect(evidenceRows(gate)[0]!.detail).toBe('Fix started after Review test failure · round 1 of 2');
+    expect(gate.process.detail).toBe('Fix started after Review test failure');
     const verifier = recoveryProcess([round({ triggerKind: 'tester-verifier-failure' })], [], NOW)!;
-    expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure · round 1 of 2');
+    expect(verifier.process.detail).toBe('Fix started after UAT verifier failure');
     const findings = recoveryProcess([round({ triggerKind: 'blocking-review-findings' })], [], NOW)!;
-    expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings · round 1 of 2');
+    expect(findings.process.detail).toBe('Fix started after Review blocking findings');
     // The UAT twin of the review findings round (Task 3.2). Without its own
     // case it falls to the `default` and the Inside block renders the raw
     // machine string ("uat tester observations: 1 high") where its twin
@@ -178,8 +169,8 @@ describe('recoveryProcess', () => {
       [],
       NOW,
     )!;
-    expect(evidenceRows(observations)[0]!.detail).toBe(
-      'Fix started after UAT blocking observations · round 1 of 2',
+    expect(observations.process.detail).toBe(
+      'Fix started after UAT blocking observations',
     );
     // D159: a dismissed usage-limit park opens a recovery round whose trigger
     // names the dismissal in curated prose, not the raw machine detail.
@@ -193,8 +184,8 @@ describe('recoveryProcess', () => {
       [],
       NOW,
     )!;
-    expect(evidenceRows(dismissed)[0]!.detail).toBe(
-      'Fix started after Usage limit dismissed · round 1 of 2',
+    expect(dismissed.process.detail).toBe(
+      'Fix started after Usage limit dismissed',
     );
   });
 
@@ -225,11 +216,7 @@ describe('recoveryProcess', () => {
       [],
       NOW,
     );
-    const rows = evidenceRows(view!);
-    expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
-    expect(rows[1]!.detail).toBe(
-      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
-    );
+    expect(view!.process.evidence).toBeUndefined();
     expect(view!.process.detail).toBe(
       'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
     );
@@ -240,85 +227,6 @@ describe('recoveryProcess', () => {
     const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
     expect(view.process.duration).toBe('30.0s');
     expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
-  });
-
-  it('includes per-round time and duration on each evidence row', () => {
-    const view = recoveryProcess(
-      [
-        round({
-          id: 1,
-          round: 1,
-          status: 'passed',
-          startedAt: '2026-07-20T12:00:00.000Z',
-          endedAt: '2026-07-20T12:00:45.000Z',
-        }),
-        round({
-          id: 2,
-          round: 2,
-          maxRounds: 3,
-          status: 'fixing',
-          startedAt: '2026-07-20T12:05:00.000Z',
-          endedAt: null,
-        }),
-      ],
-      [],
-      '2026-07-20T12:05:31.900Z',
-    );
-    const rows = evidenceRows(view!);
-    expect(rows[0]!.time).toBeTruthy();
-    expect(rows[0]!.duration).toBe('45.0s');
-    expect(rows[0]!.durationExact).toBe('45.000s');
-    expect(rows[1]!.time).toBeTruthy();
-    expect(rows[1]!.duration).toBe('31.9s');
-    expect(rows[1]!.durationExact).toBe('31.900s');
-  });
-
-  it('omits timing fields when the round has no startedAt', () => {
-    const view = recoveryProcess(
-      [round({ id: 1, round: 1, status: 'pending', startedAt: undefined as unknown as string })],
-      [],
-      NOW,
-    );
-    const rows = evidenceRows(view!);
-    expect(rows[0]!.time).toBeUndefined();
-    expect(rows[0]!.duration).toBeUndefined();
-    expect(rows[0]!.durationExact).toBeUndefined();
-  });
-
-  it('shows elapsed time for a running round with no endedAt', () => {
-    const view = recoveryProcess(
-      [
-        round({
-          id: 1,
-          round: 1,
-          status: 'fixing',
-          startedAt: '2026-07-20T12:00:00.000Z',
-          endedAt: null,
-        }),
-      ],
-      [],
-      '2026-07-20T12:02:15.000Z',
-    );
-    const rows = evidenceRows(view!);
-    expect(rows[0]!.time).toBeTruthy();
-    expect(rows[0]!.duration).toBe('2m 15s');
-    expect(rows[0]!.durationExact).toBe('135.000s');
-  });
-
-  it('includes timing on all terminal recovery states', () => {
-    const startedAt = '2026-07-20T12:00:00.000Z';
-    const endedAt = '2026-07-20T12:00:10.000Z';
-    for (const status of ['passed', 'failed', 'exhausted', 'interrupted'] as const) {
-      const view = recoveryProcess(
-        [round({ id: 1, round: 1, status, startedAt, endedAt })],
-        [],
-        NOW,
-      );
-      const rows = evidenceRows(view!);
-      expect(rows[0]!.time).toBeTruthy();
-      expect(rows[0]!.duration).toBe('10.0s');
-      expect(rows[0]!.durationExact).toBe('10.000s');
-    }
   });
 
   it('shows the fix execution identity the round recorded', () => {
@@ -353,19 +261,6 @@ describe('recoveryProcess', () => {
     expect(view.process.configuredExecution).toBeUndefined();
   });
 
-  it('bounds the round history and names the remainder', () => {
-    const many = Array.from({ length: 10 }, (_, i) => round({ id: i + 1, round: i + 1 }));
-    const rows = evidenceRows(recoveryProcess(many, [], NOW)!);
-    expect(rows).toHaveLength(9);
-    expect(rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
-    expect(rows.at(-1)!.detail).toContain('2');
-  });
-
-  it('collapses a multi-line trigger detail before it reaches a row', () => {
-    const view = recoveryProcess([round({ triggerDetail: 'line one\nline two' })], [], NOW)!;
-    const rows = evidenceRows(view);
-    expect(rows[0]!.detail).not.toContain('\n');
-  });
 });
 
 describe('insertCausalFix', () => {
@@ -417,18 +312,13 @@ describe('recoveryProcess — stored fix brief receipt (@arch:V77)', () => {
     supersededAt: null,
   };
 
-  it('appends the receipt state to the round row', () => {
+  it('appends the receipt state to the Fix row', () => {
     const view = recoveryProcess([{ ...round(), fixDelivery: facts }], [], NOW)!;
-    const ev = view.process.evidence;
-    expect(ev?.kind).toBe('recovery');
-    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
-    expect(rows[0]!.detail).toMatch(/ · fix brief #12 pointed at, not read yet$/);
+    expect(view.process.detail).toMatch(/ · fix brief #12 pointed at, not read yet$/);
   });
 
   it('leaves a round without a delivery unchanged', () => {
     const view = recoveryProcess([round()], [], NOW)!;
-    const ev = view.process.evidence;
-    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
-    expect(rows[0]!.detail).not.toContain('fix brief');
+    expect(view.process.detail).not.toContain('fix brief');
   });
 });

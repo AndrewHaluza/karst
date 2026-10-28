@@ -12,7 +12,7 @@ import { TokenPill } from './InsideParts.js';
 import { liveDuration, pickDuration, pickTime, pickTokens, rowField, stageClock, timelineTokens } from './insideSlices.js';
 import { useSlice } from './useSlice.js';
 
-/** The header's `started 12:23:06 · 51.7s · attempt 1`. */
+/** The header's `started 12:23:06 · 51.7s`. */
 export function StageClock({ stage }: { readonly stage: string }) {
   const clock = useSlice(useMemo(() => stageClock(stage), [stage]));
   return <span className="inside-meta">{clock}</span>;

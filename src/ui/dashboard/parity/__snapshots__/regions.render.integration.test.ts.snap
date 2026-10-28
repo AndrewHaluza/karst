@@ -1072,7 +1072,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
     <div.inside-head title="Implementation">
       <span#inside-title.inside-title> "Inside impl"
       <span.inside-live>
-      <span.inside-meta> "started <clock> · <dur> <dur> elapsed · attempt 1"
+      <span.inside-meta> "started <clock> · <dur> <dur> elapsed"
     <div.ledger>
       <details.live.op.run data-proc-id="impl:session">
         <summary>
@@ -1263,7 +1263,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+      <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"
@@ -1407,7 +1407,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+      <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"
@@ -1549,7 +1549,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.inside-meta> "<clock> · <dur> <dur> · attempt 1"
+      <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"

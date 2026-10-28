@@ -116,25 +116,3 @@ export function EvidenceFindings({ ev, p, stageKey }: { readonly ev: Of<'finding
   );
 }
 
-/** A round with no recorded status still shows a glyph: `note` is the neutral outcome the history has always drawn for an unresolved round. */
-export function EvidenceRecovery({ ev }: { readonly ev: Of<'recovery'> }) {
-  return (
-    <div className="recovery-history">
-      {withKeys(ev.rows, rowKey).map(([key, r]) => (
-        <div className="recovery-round" key={key}>
-          <EvGlyph r={{ status: r.status || 'note' }} />
-          <span className="recovery-num">{r.label}</span>
-          <span className="recovery-cause">{r.detail || ''}</span>
-          <span className="recovery-timing">
-            {r.time ? <span title={`started ${r.time}`}>{r.time}</span> : null}
-            {r.duration ? (
-              <span className="ev-dur" title={r.durationExact || undefined}>
-                {r.duration}
-              </span>
-            ) : null}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}

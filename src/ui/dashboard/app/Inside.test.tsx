@@ -140,9 +140,9 @@ describe('Inside — the header’s live operation', () => {
 
 describe('Inside — the round switcher', () => {
   const attempts = [
-    { key: 'r1', label: 'R1', status: 'fail', statusLabel: 'failed', latest: false },
-    { key: 'r2', label: 'R2', status: 'pass', statusLabel: 'passed', latest: false },
-    { key: 'r3', label: 'R3', status: 'run', statusLabel: 'running', latest: true },
+    { key: 'r1', label: 'R1', status: 'fail', statusLabel: 'failed', tail: 'of 3', latest: false },
+    { key: 'r2', label: 'R2', status: 'pass', statusLabel: 'passed', tail: 'of 3', latest: false },
+    { key: 'r3', label: 'R3', status: 'run', statusLabel: 'running', tail: 'of 3 · live', latest: true },
   ];
   const state = (over: Record<string, unknown> = {}) =>
     insideState({ stageCurrent: 'review', views: { review: view('review', { attempts, selectedAttempt: 'r2', ...over }) } });
@@ -156,18 +156,27 @@ describe('Inside — the round switcher', () => {
     expect(q('.attempt-tabs')).toBeNull();
   });
 
-  it('draws a tablist with the selected tab in the tab order (roving tabindex), stage-scoped ids and the status as a word', () => {
+  it('draws a tablist with the selected tab in the tab order (roving tabindex) and stage-scoped ids', () => {
     mountInside(state());
     expect(must('.attempt-tabs').getAttribute('role')).toBe('tablist');
-    expect(must('.attempt-tabs').getAttribute('aria-label')).toBe('Attempts');
+    expect(must('.attempt-tabs').getAttribute('aria-label')).toBe('Rounds');
     expect(tabs().map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
     expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
     expect(tabs().map((t) => t.id)).toEqual(['attempt-tab-review-0', 'attempt-tab-review-1', 'attempt-tab-review-2']);
     expect(text(tabs()[0]!.querySelector('.attempt-tab-label'))).toBe('R1');
-    expect(text(tabs()[0]!.querySelector('.attempt-tab-status'))).toBe('failed');
+    expect(tabs()[0]!.querySelector('.attempt-tab-status')).toBeNull();
     expect(tabs()[0]!.querySelector('.glyph')!.getAttribute('aria-hidden')).toBe('true');
     expect(tabs()[1]!.dataset.keys).toBe('r1,r2,r3');
     expect(tabs()[1]!.dataset.index).toBe('1');
+  });
+
+  it('labels tabs R<n>, shows the tail only on the selected tab, and keeps the status word in the accessible name', () => {
+    mountInside(state());
+    expect(tabs().map((t) => text(t))).toEqual(['R1', 'R2of 3', 'R3']);
+    expect(tabs().map((t) => t.getAttribute('aria-label'))).toEqual(['R1, failed', 'R2 of 3, passed', 'R3, running']);
+    expect(text(must('.attempt-tabs-label'))).toBe('Rounds');
+    expect(all('.attempt-conn').length).toBe(2);
+    expect(must('.attempt-conn').getAttribute('aria-hidden')).toBe('true');
   });
 
   it('a click posts the selection and waits for the host’s snapshot to move aria-selected', () => {
@@ -194,7 +203,16 @@ describe('Inside — the round switcher', () => {
   });
 
   it('shows the host’s note above the ledger verbatim', () => {
-    mountInside(state({ attemptNote: 'viewing round 2 — not the current result' }));
-    expect(text(must('.attempt-note'))).toBe('viewing round 2 — not the current result');
+    mountInside(state({ attemptNote: 'opened by UAT test failure · 48s' }));
+    expect(text(must('.attempt-note'))).toBe('opened by UAT test failure · 48s');
+    expect(all('.attempt-note').length).toBe(1);
+  });
+
+  it('keeps the ledger at one sibling slot after the head whatever the round row and caption render', () => {
+    mountInside(state({ attemptNote: 'opened by UAT test failure · 48s' }));
+    const slot = must('.attempt-slot');
+    expect(slot.querySelector('.attempt-note')).not.toBeNull();
+    expect(slot.previousElementSibling?.classList.contains('inside-head')).toBe(true);
+    expect(slot.querySelectorAll('.attempt-note').length).toBe(1);
   });
 });
