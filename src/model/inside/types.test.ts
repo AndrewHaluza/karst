@@ -62,4 +62,12 @@ describe('formatClock', () => {
       formatClock(cell('impl', { status: 'running', startedAt: '2026-08-09T12:00:00.000Z' }), '2026-08-09T12:04:12.000Z'),
     ).toBe(`started ${formatTime('2026-08-09T12:00:00.000Z')} · 4m 12s elapsed`);
   });
+
+  it('never carries an attempt counter', () => {
+    const s = '2026-08-09T12:00:00.000Z';
+    for (const status of ['running', 'passed', 'failed'] as const) {
+      expect(formatClock(cell('uat', { status, startedAt: s, endedAt: NOW, attempt: 3 }), NOW)).not.toMatch(/attempt/);
+    }
+    expect(formatClock(cell('done', { startedAt: s, endedAt: s, attempt: 3 }), NOW)).not.toMatch(/attempt/);
+  });
 });

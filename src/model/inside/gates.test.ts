@@ -251,7 +251,7 @@ describe('uatProcesses', () => {
       }),
     );
     const gates = views[0]!;
-    expect(gates.detail).toBe('attempt 0 failed · /web / e2e');
+    expect(gates.detail).toBe('failed · /web / e2e');
     expect(gates.count).toBe('1/3');
     expect(gates.aggregate).toBeUndefined(); // the pill moved into the description
   });
@@ -423,7 +423,7 @@ describe('uatProcesses', () => {
         ],
       }),
     );
-    expect(views[0]!.detail).toBe('attempt 0 failed · web / lint');
+    expect(views[0]!.detail).toBe('failed · web / lint');
     expect(views[0]!.count).toBe('2/3');
   });
 
@@ -850,7 +850,7 @@ describe('uatProcesses', () => {
       qualityInput({ rounds: [round({ maxRounds: 3 })] }),
     );
     const fix = views.find((p) => p.id === 'fix')!;
-    expect(rowsOf(fix)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 3');
+    expect(rowsOf(fix)[0]!.detail).toBe('Fix started after UAT test failure');
   });
 
   it('renders a crash without a round as no fix and a failed process row', () => {
@@ -1117,7 +1117,7 @@ describe('reviewProcesses', () => {
       }),
     );
     const gates = views[0]!;
-    expect(gates.detail).toBe('attempt 1 failed · web / test');
+    expect(gates.detail).toBe('failed · web / test');
     expect(gates.count).toBe('0/1');
     // The failing ROW keeps its terse factual detail (handoff §6 row template).
     const rows = (gates.evidence as { rows: readonly EvidenceRow[] }).rows;
@@ -1319,7 +1319,7 @@ describe('quality evidence names the SERVICE, never the repository path', () => 
         repoNameFor,
       }),
     );
-    expect(views[0]!.detail).toBe('attempt 2 failed · web / test');
+    expect(views[0]!.detail).toBe('failed · web / test');
     expect(views[0]!.detail).not.toContain('/wt/');
   });
 

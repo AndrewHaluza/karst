@@ -135,24 +135,22 @@ export function formatShortTime(at: string | null | undefined): string {
  * state push, which is every driver progress tick.
  */
 export function formatClock(cell: StepperCell, now: string): string {
-  const attempt = cell.attempt && cell.attempt > 0 ? ` · attempt ${cell.attempt}` : '';
-
   if (!cell.startedAt) {
     return cell.status === 'pending' ? 'has not run yet' : '';
   }
   if (cell.status === 'running') {
     const elapsed = formatDuration(cell.startedAt, now);
-    return `started ${formatTime(cell.startedAt)}${elapsed ? ` · ${elapsed} elapsed` : ''}${attempt}`;
+    return `started ${formatTime(cell.startedAt)}${elapsed ? ` · ${elapsed} elapsed` : ''}`;
   }
   // The done stage is terminal — "nothing runs here, arriving is completing"
   // (STAGE_BLURBS.done) — so it is stamped at the instant of arrival and its
   // span reads 0.0s, noise beside the timestamp. The header names only the
   // completion time; the stage durations live in the receipt's Timing strip.
   if (cell.stageKey === 'done') {
-    return `${formatTime(cell.startedAt)}${attempt}`;
+    return `${formatTime(cell.startedAt)}`;
   }
   const took = formatDuration(cell.startedAt, cell.endedAt);
-  return `${formatTime(cell.startedAt)}${took ? ` · ${took}` : ''}${attempt}`;
+  return `${formatTime(cell.startedAt)}${took ? ` · ${took}` : ''}`;
 }
 
 /**

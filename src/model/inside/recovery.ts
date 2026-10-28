@@ -103,7 +103,7 @@ function roundBaseDetail(round: RecoveryRound): string {
   switch (round.status) {
     case 'pending':
     case 'fixing':
-      return `Fix started after ${triggerProse(round)} · round ${round.round} of ${round.maxRounds}`;
+      return `Fix started after ${triggerProse(round)}`;
     case 'revalidating':
       return `Fix completed; ${STAGE_TITLES[round.sourceStage]} revalidation is running`;
     case 'exhausted':
@@ -181,7 +181,7 @@ export function recoveryProcess(
             : latest.status === 'failed'
               ? 'the fix did not hold — the next round names the new cause'
               : latest.status === 'pending' || latest.status === 'fixing'
-                ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
+                ? `Fix started after ${triggerProse(latest)}`
                 : latest.status === 'interrupted'
                   ? 'the fix session ended before it was done — it can be resumed'
                   : undefined;

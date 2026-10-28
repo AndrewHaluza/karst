@@ -1,0 +1,434 @@
+import { describe, it, expect } from 'vitest';
+import type { ProcessRun } from '../../store/processRuns.js';
+import type { RecoveryRound } from '../../store/recoveryRounds.js';
+import type { InsideProcessView } from './types.js';
+import { insertCausalFix, recoveryProcess, type RecoveryProcessView } from './recovery.js';
+
+const NOW = '2026-07-20T12:30:00.000Z';
+
+let nextRound = 1;
+function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
+  return {
+    id: nextRound++,
+    ticketId: 1,
+    sourceStage: 'uat',
+    sourceProcessId: 'gates',
+    sourceStageRunId: 10,
+    sourceProcessRunId: null,
+    triggerKind: 'gate-failure',
+    triggerDetail: 'exit 1',
+    episode: 1,
+    round: 1,
+    maxRounds: 2,
+    fixProcessRunId: null,
+    uatRevalidationStageRunId: null,
+    reviewRevalidationStageRunId: null,
+    status: 'pending',
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: null,
+    interruptCount: 0,
+    ...extra,
+  };
+}
+
+let nextRun = 1;
+function fixRun(extra: Partial<ProcessRun> = {}): ProcessRun {
+  return {
+    id: nextRun++,
+    ticketId: 1,
+    stageKey: 'fix',
+    processId: 'fix',
+    attempt: 0,
+    stageRunId: null,
+    agentName: 'UAT Fix Agent',
+    provider: 'codex',
+    model: 'sol',
+    pid: null,
+    status: 'passed',
+    resultKind: null,
+    artifactPath: null,
+    failureDetail: null,
+    promptTelemetry: null,
+    startedAt: '2026-07-20T12:05:00.000Z',
+    endedAt: '2026-07-20T12:06:00.000Z',
+    ...extra,
+  };
+}
+
+function process(id: string): InsideProcessView {
+  return { id, kind: id, label: id, status: 'pending' };
+}
+
+const base: readonly InsideProcessView[] = [
+  process('gates'),
+  process('services'),
+  process('tester'),
+];
+
+function evidenceRows(recovery: RecoveryProcessView): readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[] {
+  const evidence = recovery.process.evidence;
+  if (evidence?.kind !== 'recovery') throw new Error('expected recovery evidence');
+  return evidence.rows as readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[];
+}
+
+describe('recoveryProcess', () => {
+  it('returns null when the stage recorded no recovery round — a fix row needs evidence', () => {
+    expect(recoveryProcess([], [], NOW)).toBeNull();
+  });
+
+  // A review-origin round can be left `failed` when its revalidation is
+  // interrupted by an UNRELATED uat failure: openRecoveryRound fails the old
+  // round and opens a new one attributed to uat, so the round series never
+  // revisits review even though the driver goes on to re-run and pass it —
+  // the exact ticket 380 sequence (round 79 `review`/failed, round 80
+  // `uat`/passed) that left "Inside Review" reading Fix as failed forever.
+  it('reads as passed once the owning stage itself currently reads passed, even with a terminal failed round', () => {
+    const failedRound = round({ id: 1, sourceStage: 'review', status: 'failed' });
+    const stillFailing = recoveryProcess([failedRound], [], NOW, undefined, false);
+    expect(stillFailing!.process.status).toBe('fail');
+
+    const view = recoveryProcess([failedRound], [], NOW, undefined, true);
+    expect(view!.process.status).toBe('pass');
+    expect(view!.process.detail).toBe(
+      "Review passed on a later attempt — this round's own failure is history",
+    );
+  });
+
+  it('names the LATEST round as the trigger process', () => {
+    const view = recoveryProcess(
+      [
+        round({ id: 1, sourceProcessId: 'gates', triggerKind: 'gate-failure' }),
+        round({ id: 2, sourceProcessId: 'tester', triggerKind: 'tester-verifier-failure' }),
+      ],
+      [],
+      NOW,
+    );
+    expect(view!.triggerProcessId).toBe('tester');
+  });
+
+  it('renders one recovery row per round, oldest first, with handoff §11 copy', () => {
+    const view = recoveryProcess(
+      [
+        round({ id: 1, round: 1, triggerDetail: 'exit 1', status: 'pending' }),
+        round({ id: 2, round: 2, maxRounds: 3, status: 'fixing' }),
+      ],
+      [],
+      NOW,
+    );
+    const rows = evidenceRows(view!);
+    expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
+    // handoff §11: "Fix started after UAT test failure · round 1 of 2" — the
+    // cause is the recorded trigger KIND, and the budget comes from the ROW
+    // (a knob edited after the failure cannot rewrite the committed budget).
+    expect(rows[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    expect(rows[1]!.detail).toBe('Fix started after UAT test failure · round 2 of 3');
+  });
+
+  it('states every recovery state in the handoff §11 copy (B9)', () => {
+    const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
+    expect(evidenceRows(fixing)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
+    expect(evidenceRows(revalidating)[0]!.detail).toBe('Fix completed; UAT revalidation is running');
+    const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
+    expect(evidenceRows(exhausted)[0]!.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+    // §3.8: the process row is silent until exhausted/failed — the running
+    // and waiting copy must ride the collapsed row too.
+    expect(recoveryProcess([round({ status: 'pending' })], [], NOW)!.process.detail).toBe(
+      'Fix started after UAT test failure · round 1 of 2',
+    );
+    expect(recoveryProcess([round({ status: 'revalidating' })], [], NOW)!.process.detail).toBe(
+      'Fix completed; UAT revalidation is running',
+    );
+    expect(exhausted.process.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+  });
+
+  it('names an interrupted round on the COLLAPSED fix row — never silent', () => {
+    // The fix session died without the marker (the interrupted status is a
+    // crash, not a verdict): the collapsed row must say so and name that the
+    // round can be resumed, never render silent.
+    const interrupted = recoveryProcess([round({ status: 'interrupted' })], [], NOW)!;
+    expect(interrupted.process.status).toBe('note');
+    expect(interrupted.process.detail).toBe(
+      'the fix session ended before it was done — it can be resumed',
+    );
+  });
+
+  it('names each trigger kind in prose (B9)', () => {
+    const gate = recoveryProcess([round({ sourceStage: 'review', triggerKind: 'gate-failure' })], [], NOW)!;
+    expect(evidenceRows(gate)[0]!.detail).toBe('Fix started after Review test failure · round 1 of 2');
+    const verifier = recoveryProcess([round({ triggerKind: 'tester-verifier-failure' })], [], NOW)!;
+    expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure · round 1 of 2');
+    const findings = recoveryProcess([round({ triggerKind: 'blocking-review-findings' })], [], NOW)!;
+    expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings · round 1 of 2');
+    // The UAT twin of the review findings round (Task 3.2). Without its own
+    // case it falls to the `default` and the Inside block renders the raw
+    // machine string ("uat tester observations: 1 high") where its twin
+    // renders curated prose.
+    const observations = recoveryProcess(
+      [
+        round({
+          triggerKind: 'blocking-tester-observations',
+          triggerDetail: 'uat tester observations: 1 high',
+        }),
+      ],
+      [],
+      NOW,
+    )!;
+    expect(evidenceRows(observations)[0]!.detail).toBe(
+      'Fix started after UAT blocking observations · round 1 of 2',
+    );
+    // D159: a dismissed usage-limit park opens a recovery round whose trigger
+    // names the dismissal in curated prose, not the raw machine detail.
+    const dismissed = recoveryProcess(
+      [
+        round({
+          triggerKind: 'usage-limit-dismissed',
+          triggerDetail: 'Monthly quota exceeded',
+        }),
+      ],
+      [],
+      NOW,
+    )!;
+    expect(evidenceRows(dismissed)[0]!.detail).toBe(
+      'Fix started after Usage limit dismissed · round 1 of 2',
+    );
+  });
+
+  it('maps round states onto the process status vocabulary', () => {
+    const pending = recoveryProcess([round({ status: 'pending' })], [], NOW)!;
+    expect(pending.process.status).toBe('run');
+    const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
+    expect(fixing.process.status).toBe('run');
+    // `revalidating` means the FIX itself finished — the ticket is back at the
+    // gate and the gate row reports that re-run. A spinner here claimed the fix
+    // was still working long after it had handed the ticket back, on the very
+    // attempt whose fix had already completed.
+    const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
+    expect(revalidating.process.status).toBe('pass');
+    const passed = recoveryProcess([round({ status: 'passed' })], [], NOW)!;
+    expect(passed.process.status).toBe('pass');
+    const failed = recoveryProcess([round({ status: 'failed' })], [], NOW)!;
+    expect(failed.process.status).toBe('fail');
+    const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
+    expect(exhausted.process.status).toBe('fail');
+    const interrupted = recoveryProcess([round({ status: 'interrupted' })], [], NOW)!;
+    expect(interrupted.process.status).toBe('note');
+  });
+
+  it('states exhaustion on the row and the process, once — never a second fix row', () => {
+    const view = recoveryProcess(
+      [round({ id: 1, round: 1, status: 'failed' }), round({ id: 2, round: 2, status: 'exhausted' })],
+      [],
+      NOW,
+    );
+    const rows = evidenceRows(view!);
+    expect(rows.map((r) => r.label)).toEqual(['round 1', 'round 2']);
+    expect(rows[1]!.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+    expect(view!.process.detail).toBe(
+      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+  });
+
+  it('carries the fix execution identity and duration when a fix run is attached', () => {
+    const run = fixRun({ id: 7, startedAt: '2026-07-20T12:05:00.000Z', endedAt: '2026-07-20T12:05:30.000Z' });
+    const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
+    expect(view.process.duration).toBe('30.0s');
+    expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
+  });
+
+  it('includes per-round time and duration on each evidence row', () => {
+    const view = recoveryProcess(
+      [
+        round({
+          id: 1,
+          round: 1,
+          status: 'passed',
+          startedAt: '2026-07-20T12:00:00.000Z',
+          endedAt: '2026-07-20T12:00:45.000Z',
+        }),
+        round({
+          id: 2,
+          round: 2,
+          maxRounds: 3,
+          status: 'fixing',
+          startedAt: '2026-07-20T12:05:00.000Z',
+          endedAt: null,
+        }),
+      ],
+      [],
+      '2026-07-20T12:05:31.900Z',
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeTruthy();
+    expect(rows[0]!.duration).toBe('45.0s');
+    expect(rows[0]!.durationExact).toBe('45.000s');
+    expect(rows[1]!.time).toBeTruthy();
+    expect(rows[1]!.duration).toBe('31.9s');
+    expect(rows[1]!.durationExact).toBe('31.900s');
+  });
+
+  it('omits timing fields when the round has no startedAt', () => {
+    const view = recoveryProcess(
+      [round({ id: 1, round: 1, status: 'pending', startedAt: undefined as unknown as string })],
+      [],
+      NOW,
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeUndefined();
+    expect(rows[0]!.duration).toBeUndefined();
+    expect(rows[0]!.durationExact).toBeUndefined();
+  });
+
+  it('shows elapsed time for a running round with no endedAt', () => {
+    const view = recoveryProcess(
+      [
+        round({
+          id: 1,
+          round: 1,
+          status: 'fixing',
+          startedAt: '2026-07-20T12:00:00.000Z',
+          endedAt: null,
+        }),
+      ],
+      [],
+      '2026-07-20T12:02:15.000Z',
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeTruthy();
+    expect(rows[0]!.duration).toBe('2m 15s');
+    expect(rows[0]!.durationExact).toBe('135.000s');
+  });
+
+  it('includes timing on all terminal recovery states', () => {
+    const startedAt = '2026-07-20T12:00:00.000Z';
+    const endedAt = '2026-07-20T12:00:10.000Z';
+    for (const status of ['passed', 'failed', 'exhausted', 'interrupted'] as const) {
+      const view = recoveryProcess(
+        [round({ id: 1, round: 1, status, startedAt, endedAt })],
+        [],
+        NOW,
+      );
+      const rows = evidenceRows(view!);
+      expect(rows[0]!.time).toBeTruthy();
+      expect(rows[0]!.duration).toBe('10.0s');
+      expect(rows[0]!.durationExact).toBe('10.000s');
+    }
+  });
+
+  it('shows the fix execution identity the round recorded', () => {
+    const run = fixRun({ id: 7 });
+    const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
+    expect(view.process.execution).toMatchObject({
+      provider: 'codex',
+      model: 'sol',
+      agentName: 'UAT Fix Agent',
+    });
+    expect(view.process.configuredExecution).toBeUndefined();
+    expect(view.process.identityNote).toBeUndefined();
+  });
+
+  it('falls back to the configured identity when no fix run was recorded', () => {
+    const view = recoveryProcess([round()], [], NOW, { provider: 'claude', model: 'opus' })!;
+    expect(view.process.configuredExecution).toMatchObject({ provider: 'claude', model: 'opus' });
+    expect(view.process.execution).toBeUndefined();
+    expect(view.process.identityNote).toBeUndefined();
+  });
+
+  it('states identity absence for a fix run that recorded no provider', () => {
+    const run = fixRun({ id: 7, provider: null, model: null, agentName: null });
+    const view = recoveryProcess(
+      [round({ fixProcessRunId: 7 })],
+      [run],
+      NOW,
+      { provider: 'claude', model: 'opus' },
+    )!;
+    expect(view.process.identityNote).toBe('No historical execution identity recorded');
+    expect(view.process.execution).toBeUndefined();
+    expect(view.process.configuredExecution).toBeUndefined();
+  });
+
+  it('bounds the round history and names the remainder', () => {
+    const many = Array.from({ length: 10 }, (_, i) => round({ id: i + 1, round: i + 1 }));
+    const rows = evidenceRows(recoveryProcess(many, [], NOW)!);
+    expect(rows).toHaveLength(9);
+    expect(rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
+    expect(rows.at(-1)!.detail).toContain('2');
+  });
+
+  it('collapses a multi-line trigger detail before it reaches a row', () => {
+    const view = recoveryProcess([round({ triggerDetail: 'line one\nline two' })], [], NOW)!;
+    const rows = evidenceRows(view);
+    expect(rows[0]!.detail).not.toContain('\n');
+  });
+});
+
+describe('insertCausalFix', () => {
+  it('returns the processes unchanged when recovery is null — no fix without evidence', () => {
+    expect(insertCausalFix(base, null)).toEqual(base);
+    expect(insertCausalFix(base, null)).not.toBe(base);
+  });
+
+  it('inserts the fix process immediately after its trigger process', () => {
+    const recovery = recoveryProcess([round()], [], NOW)!;
+    expect(insertCausalFix(base, recovery).map((p) => p.id)).toEqual([
+      'gates',
+      'fix',
+      'services',
+      'tester',
+    ]);
+  });
+
+  it('appends at the end when the trigger process is not among the processes', () => {
+    const recovery = recoveryProcess([round({ sourceProcessId: 'review' })], [], NOW)!;
+    expect(insertCausalFix(base, recovery).map((p) => p.id)).toEqual([
+      'gates',
+      'services',
+      'tester',
+      'fix',
+    ]);
+  });
+
+  it('keeps the trigger process row itself before the inserted fix', () => {
+    const processes: readonly InsideProcessView[] = [process('gates'), process('services'), process('review')];
+    const recovery = recoveryProcess([round({ sourceProcessId: 'review' })], [], NOW)!;
+    expect(insertCausalFix(processes, recovery).map((p) => p.id)).toEqual([
+      'gates',
+      'services',
+      'review',
+      'fix',
+    ]);
+  });
+});
+
+describe('recoveryProcess — stored fix brief receipt (@arch:V77)', () => {
+  const facts = {
+    id: 12,
+    pointedAt: 't',
+    repointedAt: null,
+    pointerFailedAt: null,
+    readAt: null,
+    deliveredVia: null,
+    supersededAt: null,
+  };
+
+  it('appends the receipt state to the round row', () => {
+    const view = recoveryProcess([{ ...round(), fixDelivery: facts }], [], NOW)!;
+    const ev = view.process.evidence;
+    expect(ev?.kind).toBe('recovery');
+    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
+    expect(rows[0]!.detail).toMatch(/ · fix brief #12 pointed at, not read yet$/);
+  });
+
+  it('leaves a round without a delivery unchanged', () => {
+    const view = recoveryProcess([round()], [], NOW)!;
+    const ev = view.process.evidence;
+    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
+    expect(rows[0]!.detail).not.toContain('fix brief');
+  });
+});

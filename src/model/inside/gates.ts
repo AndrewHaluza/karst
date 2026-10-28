@@ -529,7 +529,7 @@ function gatesProcess(
     detail = `${answered}/${batch.length} command gates passed`;
     count = answered === batch.length ? String(batch.length) : `${answered}/${batch.length}`;
   } else if (failed > 0 && firstFailed) {
-    detail = `attempt ${cell.attempt ?? 0} failed · ${where(firstFailed)}`;
+    detail = `failed · ${where(firstFailed)}`;
     count = `${passed}/${batch.length}`;
   } else if (running && !gatesDone && batch.length > 0) {
     // "so far" only while a gate is genuinely still in flight — a batch whose

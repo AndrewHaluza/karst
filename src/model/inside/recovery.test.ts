@@ -120,13 +120,13 @@ describe('recoveryProcess', () => {
     // handoff §11: "Fix started after UAT test failure · round 1 of 2" — the
     // cause is the recorded trigger KIND, and the budget comes from the ROW
     // (a knob edited after the failure cannot rewrite the committed budget).
-    expect(rows[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
-    expect(rows[1]!.detail).toBe('Fix started after UAT test failure · round 2 of 3');
+    expect(rows[0]!.detail).toBe('Fix started after UAT test failure');
+    expect(rows[1]!.detail).toBe('Fix started after UAT test failure');
   });
 
   it('states every recovery state in the handoff §11 copy (B9)', () => {
     const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
-    expect(evidenceRows(fixing)[0]!.detail).toBe('Fix started after UAT test failure · round 1 of 2');
+    expect(evidenceRows(fixing)[0]!.detail).toBe('Fix started after UAT test failure');
     const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
     expect(evidenceRows(revalidating)[0]!.detail).toBe('Fix completed; UAT revalidation is running');
     const exhausted = recoveryProcess([round({ status: 'exhausted' })], [], NOW)!;
@@ -136,7 +136,7 @@ describe('recoveryProcess', () => {
     // §3.8: the process row is silent until exhausted/failed — the running
     // and waiting copy must ride the collapsed row too.
     expect(recoveryProcess([round({ status: 'pending' })], [], NOW)!.process.detail).toBe(
-      'Fix started after UAT test failure · round 1 of 2',
+      'Fix started after UAT test failure',
     );
     expect(recoveryProcess([round({ status: 'revalidating' })], [], NOW)!.process.detail).toBe(
       'Fix completed; UAT revalidation is running',
@@ -159,11 +159,11 @@ describe('recoveryProcess', () => {
 
   it('names each trigger kind in prose (B9)', () => {
     const gate = recoveryProcess([round({ sourceStage: 'review', triggerKind: 'gate-failure' })], [], NOW)!;
-    expect(evidenceRows(gate)[0]!.detail).toBe('Fix started after Review test failure · round 1 of 2');
+    expect(evidenceRows(gate)[0]!.detail).toBe('Fix started after Review test failure');
     const verifier = recoveryProcess([round({ triggerKind: 'tester-verifier-failure' })], [], NOW)!;
-    expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure · round 1 of 2');
+    expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure');
     const findings = recoveryProcess([round({ triggerKind: 'blocking-review-findings' })], [], NOW)!;
-    expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings · round 1 of 2');
+    expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings');
     // The UAT twin of the review findings round (Task 3.2). Without its own
     // case it falls to the `default` and the Inside block renders the raw
     // machine string ("uat tester observations: 1 high") where its twin
@@ -179,7 +179,7 @@ describe('recoveryProcess', () => {
       NOW,
     )!;
     expect(evidenceRows(observations)[0]!.detail).toBe(
-      'Fix started after UAT blocking observations · round 1 of 2',
+      'Fix started after UAT blocking observations',
     );
     // D159: a dismissed usage-limit park opens a recovery round whose trigger
     // names the dismissal in curated prose, not the raw machine detail.
@@ -194,7 +194,7 @@ describe('recoveryProcess', () => {
       NOW,
     )!;
     expect(evidenceRows(dismissed)[0]!.detail).toBe(
-      'Fix started after Usage limit dismissed · round 1 of 2',
+      'Fix started after Usage limit dismissed',
     );
   });
 
