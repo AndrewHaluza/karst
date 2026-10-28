@@ -63,7 +63,8 @@ export async function callTool(
 
   let argv: string[];
   try {
-    argv = [...encodeToolArgv(spec, value), ...globalArgv(spec, config)];
+    const encoded = encodeToolArgv(spec, value);
+    argv = [...encoded, ...globalArgv(spec, config, encoded)];
   } catch (e) {
     return errorResult((e as Error).message);
   }

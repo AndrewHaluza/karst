@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { ackFixDeliveryRef } from './fixDeliveryOps.js';
+import { MARKER_REFUSED } from '../../agent/promptText.js';
 import { composeFixSnapshot, makeFixDeliveryWiring, type FixDeliveryWiringDeps } from './fixDeliveryWiring.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
@@ -68,6 +69,13 @@ describe('fixDeliveryWiring', () => {
       expect(body).toContain('lint');
       expect(body).toContain('"/ext/dist/cli.js" stage fix pass');
       expect(body).not.toContain('$KARST_');
+      expect(body).not.toContain('MCP tool');
+    });
+
+    it('mcp session: the marker paragraph uses the MCP stage tool, keeps the refusal wording', () => {
+      const { body } = composeFixSnapshot(store, ticketId, LITERAL, undefined, true);
+      expect(body).toContain('call the karst MCP tool `stage` with { stage: "fix" }');
+      expect(body).toContain(MARKER_REFUSED);
     });
 
     it('footer names the live brief command with literals', () => {
@@ -94,7 +102,7 @@ describe('fixDeliveryWiring', () => {
       const id = currentFixDelivery(store, ticketId)!.id;
       expect(nudge).toHaveBeenCalledTimes(1);
       expect(nudge.mock.calls[0]![1]).toBe(
-        `karst: fix brief #${id} ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"`,
+        `karst: fix brief #${id} ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"; when the fix is committed and checks pass, fire the done marker: run node "$KARST_CLI" stage fix pass --db "$KARST_DB" --ticket "$KARST_TICKET_ID"`,
       );
     });
 
@@ -103,7 +111,8 @@ describe('fixDeliveryWiring', () => {
       state.channel = 'mcp';
       expect(make().deliver(ticketId, null)).toBe(true);
       const id = currentFixDelivery(store, ticketId)!.id;
-      expect(nudge.mock.calls[0]![1]).toBe(`karst: fix brief #${id} ready - call the karst MCP tool "fix-brief" with ack: true`);
+      expect(nudge.mock.calls[0]![1]).toBe(`karst: fix brief #${id} ready - call the karst MCP tool "fix-brief" with ack: true; when the fix is committed and checks pass, fire the done marker: call the karst MCP tool "stage" with { stage: "fix" }`);
+      expect(currentFixDelivery(store, ticketId)!.body).toContain('call the karst MCP tool `stage`');
     });
 
     it('typed route, running agent: nothing typed now', () => {
@@ -257,7 +266,7 @@ describe('fixDeliveryWiring', () => {
       const row = currentFixDelivery(store, ticketId)!;
       expect(nudge).toHaveBeenCalledTimes(1);
       const line = nudge.mock.calls[0]![1];
-      expect(line).toBe(`karst: fix brief #${row.id} ready - read /karst-bridge/7/inbox/fix-${row.id}.md, then run node /karst-bridge/7/opencode2/emit-ack.cjs /karst-bridge/7/events.ndjson fix-${row.id}`);
+      expect(line).toBe(`karst: fix brief #${row.id} ready - read /karst-bridge/7/inbox/fix-${row.id}.md, then run node /karst-bridge/7/opencode2/emit-ack.cjs /karst-bridge/7/events.ndjson fix-${row.id}; when the fix is committed and checks pass, fire the done marker: run node /karst-bridge/7/opencode2/emit-marker.cjs /karst-bridge/7/events.ndjson fix`);
       expect(line).not.toMatch(/KARST_|--db|MCP/);
       expect(readFileSync(join(paths.inboxDir, `fix-${row.id}.md`), 'utf8')).toBe(row.body);
       nudge.mock.calls[0]![2]!.onTyped?.();

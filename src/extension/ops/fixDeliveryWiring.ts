@@ -46,6 +46,7 @@ export function composeFixSnapshot(
   ticketId: number,
   literal: CliTokens,
   sandbox?: SandboxChannel,
+  mcp = false,
 ): { body: string; footer: string } {
   const t = getTicket(store, ticketId);
   const label = formatTicketRef(ticketId, t.key);
@@ -59,6 +60,7 @@ export function composeFixSnapshot(
   const marker = renderDoneMarkerInstruction(
     composeStageCommand(literal.cli, literal.db, 'fix', literal.manifest),
     t.key || String(ticketId),
+    mcp ? 'fix' : undefined,
   );
   const live = composeFixBriefCommand(literal.cli, literal.db, literal.manifest);
   return {
@@ -158,11 +160,11 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
   return {
     sweep: makeFixDeliverySweep({ ...host, projectId: deps.projectId }),
     deliver: (ticketId, roundId) => {
-      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId));
+      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
       return deliverLiveFix(host, { ticketId, roundId, body, truncatedFooter: footer });
     },
     recordSeed: (ticketId, roundId, launchId) => {
-      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId));
+      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
       upsertFixDelivery(deps.store, {
         ticketId,
         recoveryRoundId: roundId,

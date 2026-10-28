@@ -128,7 +128,8 @@ describe('makeHookReply', () => {
 
 describe('makeHookReply — fix delivery', () => {
   const FIX_LINE =
-    'karst: fix brief #9 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"';
+    'karst: fix brief #9 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"; ' +
+    'when the fix is committed and checks pass, fire the done marker: run node "$KARST_CLI" stage fix pass --db "$KARST_DB" --ticket "$KARST_TICKET_ID"';
   function fixDeps(over: Partial<MailReplyDeps> = {}): MailReplyDeps & { claimed: number[] } {
     const claimed: number[] = [];
     return {

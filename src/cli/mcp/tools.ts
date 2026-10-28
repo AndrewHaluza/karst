@@ -86,14 +86,15 @@ export function encodeToolArgv(
 /**
  * The global `--db`/`--manifest`/`--ticket` tokens a command consumes, taken
  * from the server's resolved config. Only the flags the command DECLARES are
- * emitted (`draft` declares none, so it never sees a global it refuses).
+ * emitted (`draft` declares none, so it never sees a global it refuses). An
+ * explicit `--ticket` already in the encoded tool argv wins over the implicit one.
  */
-export function globalArgv(spec: CommandSpec, config: McpServerConfig): string[] {
+export function globalArgv(spec: CommandSpec, config: McpServerConfig, encoded: readonly string[] = []): string[] {
   const globals = spec.globals ?? {};
   const argv: string[] = [];
   if (globals.db && config.db) argv.push('--db', config.db);
   if (globals.manifest && config.manifest) argv.push('--manifest', config.manifest);
-  if (globals.ticket && config.ticket) argv.push('--ticket', config.ticket);
+  if (globals.ticket && config.ticket && !encoded.includes('--ticket')) argv.push('--ticket', config.ticket);
   return argv;
 }
 
