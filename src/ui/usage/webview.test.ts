@@ -41,6 +41,10 @@ describe('token-usage webview.html', () => {
     expect(script.trimStart().startsWith('/*KARST_DS_JS*/')).toBe(true);
   });
 
+  it('carries the palette marker so quota fills resolve their semantic colors', () => {
+    expect(HTML).toContain('/*KARST_PALETTE*/');
+  });
+
   it('declares no local :root block — tokens come from the injected design system (UI-R04, R05)', () => {
     const style = styleBlock();
     expect(style).not.toContain(':root');
