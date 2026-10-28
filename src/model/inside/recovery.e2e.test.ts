@@ -73,7 +73,7 @@ function seedRecoveryRound(
 }
 
 describe('recovery round timing e2e — DB → model → evidence rows', () => {
-  it('rounds stored with started_at/ended_at appear as timing on evidence rows', () => {
+  it('rounds stored with started_at/ended_at survive the store and drive the fix row', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-recovery-e2e-'));
     try {
       const { dbPath, ticketId } = seedTicket(dir);
@@ -107,21 +107,10 @@ describe('recovery round timing e2e — DB → model → evidence rows', () => {
         expect(rounds[1]!.startedAt).toBe('2026-08-13T23:46:15.000Z');
         expect(rounds[1]!.endedAt).toBeNull();
 
+        // The fix row reports the NEWEST round only; per-round timing lives in the round row, not here.
         const view = recoveryProcess(rounds, [], NOW);
-        expect(view).not.toBeNull();
-        const evidence = view!.process.evidence;
-        expect(evidence?.kind).toBe('recovery');
-        const rows = evidence!.rows;
-
-        // Round 1: completed — timing derived from started_at/ended_at
-        expect(rows[0]!.time).toBeTruthy();
-        expect(rows[0]!.duration).toBe('1m 15s');
-        expect(rows[0]!.durationExact).toBe('75.000s');
-
-        // Round 2: running — elapsed computed from now
-        expect(rows[1]!.time).toBeTruthy();
-        expect(rows[1]!.duration).toBe('10m 45s');
-        expect(rows[1]!.durationExact).toBe('645.000s');
+        expect(view?.process.kind).toBe('fix');
+        expect(view?.process.detail).toContain('Fix started after');
       } finally {
         store.close();
       }
@@ -130,7 +119,7 @@ describe('recovery round timing e2e — DB → model → evidence rows', () => {
     }
   });
 
-  it('rounds without timestamps carry no timing fields', () => {
+  it('a passed round stored with timestamps reads back and the fix row passes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-recovery-e2e-'));
     try {
       const { dbPath, ticketId } = seedTicket(dir);
@@ -153,10 +142,9 @@ describe('recovery round timing e2e — DB → model → evidence rows', () => {
         const rounds = listRecoveryRounds(store, ticketId);
         expect(rounds).toHaveLength(1);
 
-        const view = recoveryProcess(rounds, [], NOW);
-        const rows = view!.process.evidence!.rows;
-        expect(rows[0]!.time).toBeTruthy();
-        expect(rows[0]!.duration).toBe('10.0s');
+        expect(rounds[0]!.startedAt).toBe('2026-08-13T23:50:00.000Z');
+        expect(rounds[0]!.endedAt).toBe('2026-08-13T23:50:10.000Z');
+        expect(recoveryProcess(rounds, [], NOW)?.process.status).toBe('pass');
       } finally {
         store.close();
       }

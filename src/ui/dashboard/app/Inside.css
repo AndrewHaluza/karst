@@ -120,7 +120,7 @@
   font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
 #inside .attempt-tab:hover{background:var(--p-hover);color:var(--p-text)}
 /* Selected state is border + surface + weight, not colour alone (UI-R28) —
-   the visible status word beside the glyph carries the pass/fail meaning;
+   the glyph shape carries the pass/fail meaning;
    this carries only "which tab is current". */
 #inside .attempt-tab[aria-selected="true"]{background:var(--p-surface);
   border-color:var(--p-border);color:var(--p-strong);font-weight:var(--k-weight-semibold);

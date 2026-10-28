@@ -1,5 +1,5 @@
 /**
- * Round switcher (Option B, T6): the attempt tabs scoping ONE gate stage's whole process list (Gates + Tester /
+ * Round row: thin R<n> tabs (glyph + label; the selected tab adds `of N · latest|live`) scoping ONE gate stage's whole process list (Gates + Tester /
  * Review), so they render once in the stage header, never per process row. `view.attempts` is absent OR holds fewer
  * than 2 entries whenever the stage never looped, so this renders NOTHING (no wrapper, no empty tablist).
  *
@@ -57,7 +57,7 @@ export function AttemptTabs({
                 tabs.current[i] = el;
               }}
               type="button"
-              className={`attempt-tab ${a.status}`}
+              className="attempt-tab"
               aria-label={
                 isSelected
                   ? `${a.label}, ${a.statusLabel}, ${a.tail}`

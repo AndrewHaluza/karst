@@ -23,8 +23,8 @@ import {
  * with the failing verdict, so a manifest knob changed after the failure can
  * never rewrite what the round committed under.
  *
- * One fix row whatever the history holds — exhaustion is stated inside the
- * row's evidence, never as a second fix process.
+ * One fix row whatever the history holds — exhaustion is stated in the
+ * row's detail, never as a second fix process.
  */
 
 /** A round plus the receipt state of its stored fix brief (@arch:V77), when it has one. */
