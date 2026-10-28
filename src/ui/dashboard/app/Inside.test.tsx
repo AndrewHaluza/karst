@@ -207,4 +207,12 @@ describe('Inside — the round switcher', () => {
     expect(text(must('.attempt-note'))).toBe('opened by UAT test failure · 48s');
     expect(all('.attempt-note').length).toBe(1);
   });
+
+  it('keeps the ledger at one sibling slot after the head whatever the round row and caption render', () => {
+    mountInside(state({ attemptNote: 'opened by UAT test failure · 48s' }));
+    const slot = must('.attempt-slot');
+    expect(slot.querySelector('.attempt-note')).not.toBeNull();
+    expect(slot.previousElementSibling?.classList.contains('inside-head')).toBe(true);
+    expect(slot.querySelectorAll('.attempt-note').length).toBe(1);
+  });
 });
