@@ -10,7 +10,6 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_ROOT = join(__dirname, '..', '..');
 const PORT = 4317;
 const ROOT = join(__dirname, '.tmp');
 
@@ -21,42 +20,34 @@ const ROOT = join(__dirname, '.tmp');
 // fixture writer hydrates each webview.html through the real injector chain,
 // which readFileSync's those bundles, so a missing one kills fixture
 // generation and with it the whole webServer (ENOENT webviewSend.webview.js,
-// NDL-218).  Build whatever is missing before anything else runs.
-const missingBundles = WEBVIEW_BUNDLE_ENTRIES.filter(
-  (entry) => !existsSync(join(REPO_ROOT, entry.output)),
+// NDL-218). Rebuild before anything else runs: an existing bundle can belong
+// to an older checkout and silently make the visual sweep exercise stale
+// markup/styles.
+console.log(
+  `Building ${WEBVIEW_BUNDLE_ENTRIES.length} webview bundle(s) for the visual sweep`,
 );
-if (missingBundles.length > 0) {
-  console.log(
-    `Building ${missingBundles.length} missing webview bundle(s): ${missingBundles
-      .map((entry) => entry.output)
-      .join(', ')}`,
-  );
-  try {
-    await buildWebviewBundles();
-  } catch (err) {
-    console.error('Failed to build webview bundles:', err);
-    process.exit(1);
-  }
+try {
+  await buildWebviewBundles();
+} catch (err) {
+  console.error('Failed to build webview bundles:', err);
+  process.exit(1);
 }
 
-// Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
-// and every request would 404 without this step.  Test for catalog.html (the
-// last file the writer emits), not "non-empty": a stray scratch file in .tmp/
-// would otherwise suppress generation and 404 every page.
-if (!existsSync(join(ROOT, 'catalog.html'))) {
-  console.log('Generating fixture pages...');
-  try {
-    execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
-      cwd: __dirname,
-      stdio: 'inherit',
-      // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
-      env: { ...process.env, TMPDIR: '/tmp' },
-      timeout: 60_000,
-    });
-  } catch (err) {
-    console.error('Failed to generate fixtures:', err);
-    process.exit(1);
-  }
+// Regenerate fixtures before serving. They are gitignored build products too;
+// reusing an existing catalog can make a sweep exercise stale markup after a
+// checkout changes the fixture writer or its injected bundles.
+console.log('Generating fixture pages...');
+try {
+  execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
+    cwd: __dirname,
+    stdio: 'inherit',
+    // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
+    env: { ...process.env, TMPDIR: '/tmp' },
+    timeout: 60_000,
+  });
+} catch (err) {
+  console.error('Failed to generate fixtures:', err);
+  process.exit(1);
 }
 
 const MIME = {

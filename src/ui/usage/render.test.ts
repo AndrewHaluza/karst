@@ -139,6 +139,30 @@ describe('usage render', () => {
       } finally { h.close(); }
     });
 
+    it('renders each quota fill at the width shown by its percent label', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        const fills = h.queryAll('#qrows .qbar > i');
+        const expected = quotaFixture.state.quota.rows
+          .filter((row) => row.state === 'ok')
+          .flatMap((row) => row.windows.map((window) => `${window.width}%`));
+        expect(fills.map((fill) => (fill as HTMLElement).style.width)).toEqual(expected);
+      } finally { h.close(); }
+    });
+
+    it('provides the palette token used by quota fills in the rendered webview', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        const palette = h.cssRules().find((rule) =>
+          rule.selectorText === ':root' && rule.style.getPropertyValue('--k-running'),
+        );
+        expect(palette, 'usage webview palette rule').toBeDefined();
+        expect(palette!.style.getPropertyValue('--k-running')).toBeTruthy();
+      } finally { h.close(); }
+    });
+
     it('states an unknown core with its reason, never a 0% bar', () => {
       const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
       try {
