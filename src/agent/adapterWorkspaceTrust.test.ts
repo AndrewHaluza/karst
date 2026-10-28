@@ -16,6 +16,9 @@ describe('adapter workspace trust', () => {
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'karst-adapter-trust-'));
     vi.stubEnv('HOME', home);
+    // The runner env (e.g. a codex sandbox) may set these; they win over HOME.
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    vi.stubEnv('CODEX_HOME', '');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
