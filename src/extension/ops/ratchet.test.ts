@@ -40,7 +40,7 @@ import { join } from 'node:path';
 // Raised by 18 for the reviewer-conformance bindings (`makeReviewArtifactsBinding` arg,
 // the `onRevision` feed and the `makeAlignmentTrigger` call + disposal); logic is in
 // `src/extension/reviewArtifactsBinding.ts` and `src/extension/alignmentBinding.ts`.
-// Raised by 2 (8531 -> 8533): #583 (MCP-first delivery pointers) landed on develop one line over the cap.
+// Raised by 3 (8531 -> 8533): #583 (MCP-first delivery pointers) landed on develop one line over the cap.
 // Raised by 8 (8533 -> 8541): launch MCP channel binding for the seed (`launchHasMcp`); logic is in `agent/karstCommandText.ts`.
 // Raised by 39 (8541 -> 8580): opencode2 pre-launch auth warning. The check
 // itself lives in `ops/opencode2AuthWarning.ts` and the parser in
@@ -55,7 +55,7 @@ import { join } from 'node:path';
 // re-attach sweep, terminal-close detach, the `bridgeFor` launch spread and the
 // `karst.sandbox.dispose` registration; logic is in `ops/bridgeWiring.ts`,
 // `ops/bootSweeps.ts:runBridgeSweep`, `ops/sandboxSyncOps.ts` and `agent/bridge/bridgeRegistry.ts`.
-// Raised by 2 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
+// Raised by 3 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
 // Raised by 4 (8603 -> 8607): sandbox rollout UI (ST9) — the settings `probeBackends` dep and its
 // import, the Sandbox card's four dashboard actions, the `sandboxLife` module-level handle those
 // actions reach, and the `showDiff`/`warn`/`ticketOverride` seams; logic is in `ops/sandboxDiffOp.ts`,
@@ -92,7 +92,8 @@ import { join } from 'node:path';
 // logic is in `ops/closeOps.ts` and `ops/closeCommands.ts`.
 // Raised by 5 (8769 -> 8774): sidebar menu actions (+3) merged from develop (#778) and agy sandbox appDataDir (+2) in createAgyWatchLoop (ENABLE-DOCKER-BACKEND-FOR-AGY).
 // Raised by 13 (8774 -> 8787): T831 — the `parkGateOnDriverFailure` import and call in the driver catch, and the dashboard `resetStage` binding; logic is `ops/parkOnDriverFailure.ts` and `ops/resetStageAction.ts`.
-const MAX_EXTENSION_LINES = 8787;
+// Raised by 3 (8787 -> 8790): the Stop-nudge wiring (`nudgeEligible`, `onNudged` markerNudged telemetry) next to `fixEligible`; logic is in `hooks/mailReply.ts`.
+const MAX_EXTENSION_LINES = 8790;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
