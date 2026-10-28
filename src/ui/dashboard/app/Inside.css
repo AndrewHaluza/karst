@@ -220,8 +220,9 @@
    ellipsis — the label was clipped mid-word with no dots (869e-op-name). */
 #inside .op-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   min-width:0;flex:1 1 auto}
+/* The description WRAPS (UI-R28: a truncated reason hides what failed); only the name ellipsizes. */
 #inside .op-detail{min-width:0;min-height:18px;line-height:18px;color:var(--p-muted);font-size:var(--p-sm);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  white-space:normal;overflow-wrap:anywhere}
 #inside .op-detail.run{color:var(--p-running)}
 #inside .op-detail.wait{color:var(--p-attention)}
 #inside .op-detail.fail{color:var(--p-failed)}
@@ -231,8 +232,7 @@
    on its own span while the icon (flex:none, never shrunk or clipped) stays
    visible at the end of the description area. */
 #inside .op-detail.detail-console{display:inline-flex;align-items:center;gap:var(--p-s2);max-width:100%}
-#inside .op-detail.detail-console .op-detail-text{overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;min-width:0}
+#inside .op-detail.detail-console .op-detail-text{white-space:normal;overflow-wrap:anywhere;min-width:0}
 #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
   min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
 #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
@@ -247,5 +247,7 @@
   border-bottom:var(--k-border-w) solid currentColor;transform:rotate(-45deg);
   transition:transform var(--k-dur-fast) var(--k-ease-standard)}
 #inside .op[open] .chev:before{transform:rotate(45deg)}
+/* A closed <details> still lays its body out; hide it so it cannot extend past the summary-height parent. */
+#inside details.op:not([open]) > .op-body{display:none}
 #inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
   padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
