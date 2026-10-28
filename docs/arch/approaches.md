@@ -82,6 +82,8 @@ END_DOC_BLOCK: [@arch:APP-00]
 covers: src/approaches/classify.ts#classifyPath, src/approaches/fetch.ts#installApproach
 
 Install (`approaches/fetch.ts`) fetches STRUCTURE-PRESERVING into a neutral typed package: `classifyPath` (`approaches/classify.ts`) maps `.claude/agents`→`agents/`, `.claude/commands`→`commands/`, `skills/<name>`→`skills/<name>/` (a skill IS its folder), all recorded as `ApproachArtifact {kind,relPath}` in `approach.yml` (`approaches/pkg.ts`). Unclassified paths fall back to the legacy flat `prompts/` bucket (basenames). NO "plugin" concept lives in install/manifest. At launch, `AgentAdapter.materializeApproach` (optional) turns the neutral package into agent-specific launch `extraArgs` — `ClaudeAdapter` builds a `.claude-plugin` dir + returns `--plugin-dir` (the ONLY place the plugin format exists). Absent method → bare launch.
+
+Git installs may authenticate: `installApproach` takes an optional `githubToken` (resolved by `approaches/githubAuth.ts`: silent VS Code session → `gh auth token` → `GH_TOKEN` → `GITHUB_TOKEN`) and sends `Authorization: Bearer` ONLY to `api.github.com`, never to `download_url` hosts. The token is never logged, put in an error message, or written to `approach.yml`. An exhausted-quota 403/429 names the GitHub rate limit, its reset time and the sign-in fix; a tokenless 404 hints that a private repo needs auth.
 END_DOC_BLOCK: [@arch:APP-01]
 
 ## [@arch:APP-02] Approach `entrypoint` is a BARE name
