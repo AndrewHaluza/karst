@@ -19,6 +19,7 @@ import {
   type RenderScenario,
 } from '../../src/ui/dashboard/renderFixtures.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
+import { INSIDE_CASES } from '../../src/ui/dashboard/insideCases.js';
 import { sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
 import { usageRenderFixtures } from '../../src/ui/usage/renderFixtures.js';
 import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.js';
@@ -114,6 +115,12 @@ function dashboardScenario(
   };
 }
 
+/** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
+const insideCaseVariants = (): Variant[] =>
+  INSIDE_CASES.filter((c) => c.aliasOf === undefined).map((c) =>
+    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state())),
+  );
+
 const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
@@ -154,6 +161,7 @@ const dashboardVariants = (): Variant[] => [
     ...s,
     sharedServers: sharedServerFixtures(),
   }))),
+  ...insideCaseVariants(),
 ];
 
 // ----------------------------------------------------------------- settings
