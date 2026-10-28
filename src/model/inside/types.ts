@@ -166,6 +166,8 @@ export function dotFor(cell: StepperCell): InsideDot {
     case 'running':
       return 'run';
     case 'blocked':
+    // Paused (D303): nothing runs until the user unpauses — the same amber wait.
+    case 'paused':
       return 'wait';
     case 'failed':
       return 'fail';
@@ -716,6 +718,11 @@ export interface InsideProcessView {
    */
   footer?: readonly string[];
   detail?: string;
+  /**
+   * The ticket is paused and this process would otherwise read running: the
+   * row states it and the webview offers an inline Unpause (D303).
+   */
+  paused?: true;
   /**
    * The kind-specific aggregate copy for the process row — "4 passed · 1
    * failed", "2 blocking", "3 commits". Computed host-side by the reducer

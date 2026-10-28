@@ -191,6 +191,21 @@ describe('uatProcesses', () => {
     expect(running.find((p) => p.id === 'tester')?.console).toBe(true);
   });
 
+  it('a paused running stage reads Paused with an Unpause hint: no spinner, no clock, never "running the first gate" (D303)', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: { ...cell('uat', 'running', { startedAt: '2026-07-20T12:20:00.000Z' }), paused: true },
+        gateRuns: [],
+      }),
+    );
+    const gates = views.find((p) => p.id === 'gates')!;
+    expect(gates.status).toBe('wait');
+    expect(gates.detail).toBe('Paused — gates will start when you unpause');
+    expect(gates.paused).toBe(true);
+    expect(gates.duration).toBeUndefined();
+    expect(gates.time).toBeUndefined();
+  });
+
   it('inserts the fix process immediately after gates for a gate-triggered round', () => {
     const views = uatProcesses(qualityInput({ rounds: [round()] }));
     expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);

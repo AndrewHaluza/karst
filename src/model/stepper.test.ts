@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStepper, displayStatus, type StepperStageRow } from './stepper.js';
+import { buildStepper, displayStatus, markPausedCells, type StepperStageRow } from './stepper.js';
 import type { BlockerKind } from './types.js';
 import { MAX_DIAGNOSTIC_CHARS } from './diagnosticText.js';
 
@@ -194,5 +194,23 @@ describe('displayStatus', () => {
 
   it('leaves a pending stage with a block pending', () => {
     expect(displayStatus({ stageKey: 'uat', status: 'pending', blocked })).toBe('pending');
+  });
+});
+
+describe('markPausedCells', () => {
+  const cells = buildStepper([
+    { stageKey: 'uat', status: 'running' },
+    { stageKey: 'impl', status: 'running' },
+  ]);
+  it('a paused ticket\'s running stage with no open run reads paused (D303)', () => {
+    const out = markPausedCells(cells, true, () => false);
+    expect(displayStatus(out.find((c) => c.stageKey === 'uat')!)).toBe('paused');
+  });
+  it('a stage genuinely mid-run keeps reading running while paused', () => {
+    const out = markPausedCells(cells, true, (k) => k === 'impl');
+    expect(displayStatus(out.find((c) => c.stageKey === 'impl')!)).toBe('running');
+  });
+  it('an unpaused ticket is untouched', () => {
+    expect(displayStatus(markPausedCells(cells, false, () => false)[2]!)).toBe('running');
   });
 });

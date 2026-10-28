@@ -404,6 +404,8 @@ function sessionStatus(cell: StepperCell, agentWaiting: boolean): InsideStatus {
     case 'running':
       return 'run';
     case 'blocked':
+    // Paused (D303): nothing runs until the user unpauses — the same amber wait.
+    case 'paused':
       return 'wait';
     case 'skipped':
       return 'skip';

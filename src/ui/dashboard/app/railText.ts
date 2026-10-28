@@ -37,6 +37,7 @@ const SEG_CLASS: Readonly<Record<string, string>> = {
   pending: 'pending',
   skipped: 'skipped',
   blocked: 'blocked',
+  paused: 'blocked',
   bypassed: 'bypassed',
 };
 
@@ -47,6 +48,7 @@ const SEG_GLYPH: Readonly<Record<string, string>> = {
   pending: '·',
   skipped: '–',
   blocked: '❚❚',
+  paused: '❚❚',
   bypassed: '⊘',
 };
 

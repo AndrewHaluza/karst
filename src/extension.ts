@@ -391,6 +391,7 @@ import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { resetStageAction } from './extension/ops/resetStageAction.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
+import { askPausedModal } from './extension/pausedModal.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
@@ -8359,7 +8360,7 @@ function makeDashboardActions(
           )) === 'Address feedback',
       }),
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
-    sendCiFailure: () => void sendCiFailureAction(ciActionsInput()),
+    sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
@@ -8381,7 +8382,7 @@ function makeDashboardActions(
             { modal: true, detail: `Re-run the ${stageLabel} stage. Existing evidence will remain in history.` },
             'Retry',
           );
-          if (!choice) return;
+          if (!choice || (await askPausedModal(store, ticketId, `retry ${stageLabel}`, `Retry ${stageLabel}`, () => afterServerChange())) === 'cancel') return;
           const result = retryGateStage(store, ticketId, stage);
           if (!result.ok) {
             void vscode.window.showInformationMessage(`Could not retry: ${result.reason}`);
@@ -8532,14 +8533,14 @@ function makeDashboardActions(
     // left by a button click is a state nobody asked for.
     resolveConflicts: (repo) => {
       if (!guardCapability('sessions', ticketId)) return;
-      void resolveConflictClick({
+      void askPausedModal(store, ticketId, 'resolving conflicts', 'Resolve conflicts', () => afterServerChange()).then((r) => (r === 'proceed' ? resolveConflictClick({
         repo, label: formatId('ticket', ticketId),
         probeSandbox: () => sandboxB?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
         arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),
-      });
+      }) : undefined));
     },
     // Merge one repo's PR, from the ship stage.
     //
@@ -8766,9 +8767,8 @@ function makeDashboardActions(
     // untouched (the workflow itself never writes it on a refusal).
     changeBaseRef: async (repo, baseRef, rebase) => {
       const manifestNow = manifest();
-      if (!manifestNow) {
-        return { ok: false, message: 'No manifest is loaded — nothing to change.' };
-      }
+      if (!manifestNow) return { ok: false, message: 'No manifest is loaded — nothing to change.' };
+      if (rebase && (await askPausedModal(store, ticketId, 'the rebase', 'Rebase', () => afterServerChange())) === 'cancel') return { ok: false, message: 'Cancelled.' };
       const result = await changeBaseRefWorkflow({
         store,
         manifest: manifestNow,

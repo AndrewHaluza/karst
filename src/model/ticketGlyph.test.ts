@@ -45,10 +45,24 @@ describe('ticketGlyph', () => {
     expect(ticketGlyph(ticket({ agentState: 'not-started' }))).toBe('amber');
     expect(needsUser(ticket({ agentState: 'not-started' }))).toBe(true);
   });
-  it('a paused not-started ticket is gray, never needs-you', () => {
-    expect(ticketGlyph(ticket({ agentState: 'not-started', pausedAt: '2026-08-01T00:00:00.000Z' }))).toBe(
-      'gray',
-    );
+  it('a paused ticket is amber and needs-you: it runs nothing until the user unpauses (D303)', () => {
+    const paused = ticket({ agentState: 'not-started', pausedAt: '2026-08-01T00:00:00.000Z' });
+    expect(ticketGlyph(paused)).toBe('amber');
+    expect(needsUser(paused)).toBe(true);
+  });
+  it('a paused running-stage ticket is amber, not the running glyph (D303)', () => {
+    const t = ticket({
+      stageCurrent: 'uat',
+      stages: [{ stageKey: 'uat', status: 'running' } as never],
+      pausedAt: '2026-08-01T00:00:00.000Z',
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+  it('a paused CLOSED ticket stays gray: finished work waits on nobody (D303)', () => {
+    const t = ticket({ stageCurrent: 'closed', pausedAt: '2026-08-01T00:00:00.000Z' });
+    expect(needsUser(t)).toBe(false);
+    expect(ticketGlyph(t)).toBe('gray');
   });
   it('failed current stage → red', () => {
     expect(

@@ -451,6 +451,8 @@ function gatesProcess(
   const finished = settled || shown === 'passed' || shown === 'failed';
   const running = !settled && shown === 'running';
   const blocked = !settled && shown === 'blocked';
+  // Paused with nothing in flight: no spinner, no clock (D303, @arch:PAUSE).
+  const paused = !settled && shown === 'paused';
   // Every gate was deliberately disabled for this ticket: the stage advanced
   // `bypassed`, so its gates did NOT pass — the batch is all-skipped and there
   // is no gate outcome to count. Distinct from a parked stage and from green.
@@ -560,8 +562,9 @@ function gatesProcess(
     id: 'gates',
     kind: 'gates',
     label: 'Gates',
-    status:
-      batch.length === 0
+    status: paused
+      ? 'wait'
+      : batch.length === 0
         ? finished
           ? 'note'
           : blocked
@@ -590,7 +593,9 @@ function gatesProcess(
     // gates passed", "attempt 2 failed · web / test"). The verbose failure
     // sentence is retired with it — the failing gate's row keeps the terse
     // exit-code detail, and this compact line says which gate at which attempt.
-    ...(detail
+    ...(paused
+      ? { detail: 'Paused — gates will start when you unpause', paused: true as const }
+      : detail
       ? { detail }
       : batch.length === 0
         ? {
@@ -606,7 +611,7 @@ function gatesProcess(
           }
         : {}),
     ...(count ? { count } : {}),
-    ...(firstStart
+    ...(firstStart && !paused
       ? {
           duration: formatDuration(firstStart, lastEnd),
           durationExact: formatExactDuration(firstStart, lastEnd),

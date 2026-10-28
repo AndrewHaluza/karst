@@ -3,7 +3,8 @@ import { getTicket } from '../../store/tickets.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
-import { buildStepper, type StepperCell } from '../../model/stepper.js';
+import { buildStepper, markPausedCells, type StepperCell } from '../../model/stepper.js';
+import { listStageRuns } from '../../store/stageRuns.js';
 import { buildShipSlot } from '../../model/shipSlot.js';
 import { type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
@@ -215,7 +216,14 @@ export function buildDashboardState(
   const sessionCore = ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude';
   const capabilityIdentity = agentContext.capabilityIdentity ?? emptyCapabilityIdentity();
 
-  const stepper = buildStepper(ticket.stages);
+  const openRunStages = new Set(
+    listStageRuns(store, ticketId)
+      .filter((r) => r.status === 'running')
+      .map((r) => r.stageKey),
+  );
+  const stepper = markPausedCells(buildStepper(ticket.stages), ticket.pausedAt != null, (k) =>
+    openRunStages.has(k),
+  );
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
   // ONE clock read per push: the PR stamps, the merge rows and the stage strip
