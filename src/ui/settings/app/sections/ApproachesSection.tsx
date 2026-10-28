@@ -58,6 +58,7 @@ import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
 import { pageRoutes, type AgentPickerIdentity, type AgentPickerRoutes } from '../hostBridge.js';
 import { Field } from '../primitives/Field.js';
+import { ApproachInstallActions } from './ApproachInstallActions.js';
 import { PendingOutputs } from './PendingOutputs.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
@@ -596,14 +597,8 @@ function ApproachCard({
             <Button variant="secondary" size="sm" onClick={onEdit}>
               Edit
             </Button>
-            {installed ? (
-              <DestructiveButton action="uninstall-approach" size="sm">
-                Uninstall
-              </DestructiveButton>
-            ) : approach.source ? (
-              <Button variant="secondary" size="sm" className="approach-install">
-                Install
-              </Button>
+            {installed || approach.source ? (
+              <ApproachInstallActions id={approach.id} installed={installed} />
             ) : (
               <span className="approach-install builtin-tag">Built-in</span>
             )}
