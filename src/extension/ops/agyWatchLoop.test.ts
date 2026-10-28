@@ -533,6 +533,52 @@ describe('createAgyWatchLoop', () => {
     expect(deps.notifyHook).toHaveBeenCalledTimes(2);
   });
 
+  it('dispatches UserPromptSubmit on an idle→running edge and sets ticket agent_state to running', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const convId = '88888888-8888-4888-8888-888888888888';
+    fixtureDb(dir, convId, worktreePath, false);
+    summaryFixture(dir, convId, 'CASCADE_RUN_STATUS_IDLE');
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key, agent_state) VALUES ('T-1', 'waiting')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+    });
+    const loop = createAgyWatchLoop(deps);
+
+    // Initial sweep baselines the idle conversation (SessionStart dispatched).
+    withHome(dir, () => loop.run());
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(true);
+    // Simulate ticket entering 'waiting' after turn ended without done marker.
+    store.db.prepare("UPDATE tickets SET agent_state = 'waiting' WHERE id = ?").run(ticketId);
+
+    // agy starts a new turn: run status flips from idle to running.
+    setSummaryStatus(dir, convId, 'CASCADE_RUN_STATUS_RUNNING');
+    vi.mocked(deps.notifyHook).mockClear();
+    withHome(dir, () => loop.run());
+
+    expect(deps.notifyHook).toHaveBeenCalledWith(
+      ticketId,
+      expect.objectContaining({
+        hook_event_name: 'UserPromptSubmit',
+        cwd: worktreePath,
+        session_id: convId,
+      }),
+    );
+    const row = store.db.prepare('SELECT agent_state FROM tickets WHERE id = ?').get(ticketId) as {
+      agent_state: string;
+    };
+    expect(row.agent_state).toBe('running');
+  });
+
   it('does not drop the lifecycle tick when the summary DB cannot be read', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
     const worktreePath = join(dir, 'wt');
