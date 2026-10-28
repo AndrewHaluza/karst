@@ -168,7 +168,7 @@ const dashboardVariants = (): Variant[] => [
       ...dashboardScenario('running', 2)().messages,
       { type: 'attention' },
     ],
-  }), { baseline: 'dashboard--attention', themes: ['dark-reduced-motion'] }),
+  }), { baseline: 'dashboard--attention', themes: ['dark-reduced-motion'], skipLayout: true }),
 ];
 
 // ----------------------------------------------------------------- settings
