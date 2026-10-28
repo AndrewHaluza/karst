@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { StepperCell } from '../stepper.js';
-import { formatClock, formatExactDuration, formatTime, dotFor } from './types.js';
+import { EVIDENCE_KINDS, formatClock, formatExactDuration, formatTime, dotFor } from './types.js';
 
 const NOW = '2026-08-09T12:30:00.000Z';
 
@@ -69,5 +69,11 @@ describe('formatClock', () => {
       expect(formatClock(cell('uat', { status, startedAt: s, endedAt: NOW, attempt: 3 }), NOW)).not.toMatch(/attempt/);
     }
     expect(formatClock(cell('done', { startedAt: s, endedAt: s, attempt: 3 }), NOW)).not.toMatch(/attempt/);
+  });
+});
+
+describe('EVIDENCE_KINDS', () => {
+  it('has no round-list kind — Fix reports only the selected round', () => {
+    expect(EVIDENCE_KINDS).not.toContain('recovery');
   });
 });

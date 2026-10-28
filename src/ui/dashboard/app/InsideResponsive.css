@@ -51,8 +51,6 @@
   #inside .phase-time,#inside .timeline-tail{display:none}
   #inside .session-foot{flex-wrap:wrap}
   #inside .session-foot .session-rule{margin-left:0;width:100%}
-  #inside .recovery-round{grid-template-columns:18px 48px minmax(0,1fr)}
-  #inside .recovery-timing{display:none}
   /* The node list's control stays in its own `auto` track and the meta
      column (kind · status) drops rather than crushing the control's track
      toward zero width — the crushed-and-escaped control at narrow panel

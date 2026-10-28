@@ -757,21 +757,6 @@ function uatView(n: RenderRepoCount): InsideStageView {
         detail: 'no fix attempts left',
         duration: '2m 31s',
         execution: { ...CLAUDE_EXECUTION },
-        evidence: {
-          kind: 'recovery',
-          rows: [
-            { status: 'pass', label: 'round 1', detail: 'gate test failed — max 3', time: '11:44:12 PM', duration: '1m 15s', durationExact: '75.000s' },
-            { status: 'fail', label: 'round 2', detail: 'gate test failed again — max 3', time: '11:45:27 PM', duration: '48.2s', durationExact: '48.200s' },
-            {
-              status: 'fail',
-              label: 'round 3',
-              detail: 'gate test failed again — max 3 — no fix attempts left',
-              time: '11:46:15 PM',
-              duration: '31.9s',
-              durationExact: '31.900s',
-            },
-          ],
-        },
       },
       {
         id: 'services',

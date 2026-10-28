@@ -115,21 +115,6 @@ describe('Evidence — findings', () => {
   });
 });
 
-describe('Evidence — recovery', () => {
-  it('leads every round with its glyph (note when unresolved) and trails it with time and duration', () => {
-    withEvidence({ kind: 'recovery', rows: [{ label: 'round 1', detail: 'lint failed', status: 'fail', time: '10:00', duration: '4s', durationExact: '4.2s' }, { label: 'round 2', detail: 'open' }] });
-    const [a, b] = all('.recovery-round');
-    expect([...a!.children].map((c) => c.className.split(' ')[0])).toEqual(['ev-glyph', 'recovery-num', 'recovery-cause', 'recovery-timing']);
-    expect(a!.querySelector('.glyph')!.className).toBe('glyph fail');
-    expect(b!.querySelector('.glyph')!.className).toBe('glyph note');
-    expect(b!.querySelector('.glyph')!.getAttribute('aria-label')).toBe('note');
-    expect(a!.querySelector('.recovery-timing > span')!.getAttribute('title')).toBe('started 10:00');
-    expect(a!.querySelector('.recovery-timing .ev-dur')!.getAttribute('title')).toBe('4.2s');
-    expect(b!.querySelector('.recovery-timing')!.childElementCount).toBe(0);
-    expect(a!.textContent).not.toMatch(/failed\b.*failed\b/);
-  });
-});
-
 describe('Evidence — the commit blocks', () => {
   const repo = (over: Record<string, unknown> = {}) => ({
     repo: 'web', summary: '2 created · 1 before', origin: 'created by ship', originKind: 'ship', time: '10:01',

@@ -77,15 +77,14 @@ describe('Inside CSS — the ledger grid and the evidence cells', () => {
     expect(CSS).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
   });
 
-  it('gives gate rows, evidence rows and recovery rounds a leading fixed track for the glyph', () => {
+  it('gives gate rows and evidence rows a leading fixed track for the glyph', () => {
     expect(CSS).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
     expect(CSS).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
     expect(CSS).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
-    expect(CSS).toMatch(/#inside \.recovery-round\{display:grid;grid-template-columns:18px 56px minmax\(0,1fr\) auto;/);
   });
 
   it('has a rule for every container the evidence bodies emit', () => {
-    for (const cls of ['gates', 'findings', 'session-segments', 'recovery-history', 'done-line', 'evidence-row', 'commit-grid', 'pr-branches', 'graph-nodes', 'graph-dag', 'receipt-grid', 'overflow-note']) {
+    for (const cls of ['gates', 'findings', 'session-segments', 'done-line', 'evidence-row', 'commit-grid', 'pr-branches', 'graph-nodes', 'graph-dag', 'receipt-grid', 'overflow-note']) {
       expect(CSS, `no rule for .${cls}`).toContain(`#inside .${cls}`);
     }
   });

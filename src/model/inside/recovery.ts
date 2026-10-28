@@ -2,14 +2,12 @@ import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
 import { executionView, type SessionConfiguredInput } from './agent.js';
-import { bounded } from './bounds.js';
 import { fixDeliveryNote, type FixDeliveryFacts } from './fixDeliveryNote.js';
 import {
   formatDuration,
   formatExactDuration,
   formatTime,
   STAGE_TITLES,
-  type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
 } from './types.js';
@@ -31,9 +29,6 @@ import {
 
 /** A round plus the receipt state of its stored fix brief (@arch:V77), when it has one. */
 export type RoundWithDelivery = RecoveryRound & { fixDelivery?: FixDeliveryFacts };
-
-/** Cap on recovery rows before the remainder row takes over. */
-const RECOVERY_ROWS_LIMIT = 8;
 
 /** Cap on a round's trigger detail — untrusted gate/verifier prose. */
 const TRIGGER_DETAIL_MAX = 200;
@@ -89,33 +84,7 @@ export function triggerProse(round: RecoveryRound): string {
 }
 
 /**
- * One round's state as the handoff §11 copy. `passed`/`failed`/`interrupted`
- * keep the recorded trigger detail — §11 has no templates for those states,
- * and the failed row's factual cause ("what failed") must not vanish.
- */
-function roundDetail(round: RoundWithDelivery): string {
-  const note = fixDeliveryNote(round.fixDelivery);
-  const base = roundBaseDetail(round);
-  return note === undefined ? base : `${base} · ${note}`;
-}
-
-function roundBaseDetail(round: RecoveryRound): string {
-  switch (round.status) {
-    case 'pending':
-    case 'fixing':
-      return `Fix started after ${triggerProse(round)}`;
-    case 'revalidating':
-      return `Fix completed; ${STAGE_TITLES[round.sourceStage]} revalidation is running`;
-    case 'exhausted':
-      return `Recovery exhausted after ${round.maxRounds} ${round.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`;
-    default:
-      return `${collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX)} — max ${round.maxRounds}`;
-  }
-}
-
-/**
- * The fix row for one inside stage: every round the stage recorded, oldest
- * first, plus the identity/duration of the fix execution when the round has
+ * The fix row for one inside stage: the NEWEST round the stage recorded, plus the identity/duration of the fix execution when the round has
  * one attached. Null when the stage recorded NO round — a fix row without
  * recovery evidence would be a promise, not a fact.
  */
@@ -145,31 +114,9 @@ export function recoveryProcess(
   const fixRun = processRuns.find((r) => r.id === latest.fixProcessRunId);
   const status: InsideStatus = stagePassed === true ? 'pass' : roundStatus(latest);
 
-  const boundedRows = bounded(
-    rounds.map((round): EvidenceRow => {
-      return {
-        status: roundStatus(round),
-        label: `round ${round.round}`,
-        detail: roundDetail(round),
-        ...(round.startedAt
-          ? {
-              time: formatTime(round.startedAt),
-              duration: formatDuration(round.startedAt, round.endedAt ?? now),
-              durationExact: formatExactDuration(round.startedAt, round.endedAt ?? now),
-            }
-          : {}),
-      };
-    }),
-    RECOVERY_ROWS_LIMIT,
-  );
-  const rows = [...boundedRows.shown];
-  if (boundedRows.remaining > 0) {
-    rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
-  }
-
   // The COLLAPSED fix row is never silent (handoff §11 + §3.8): every state
   // names what is happening, the exhausted one states what to do.
-  const detail =
+  const stateDetail =
     // `revalidating` reads `pass` too, but it has its own copy — the stale-pass
     // wording below is for a round the STAGE overrode, not one that completed.
     latest.status === 'revalidating'
@@ -185,6 +132,9 @@ export function recoveryProcess(
                 : latest.status === 'interrupted'
                   ? 'the fix session ended before it was done — it can be resumed'
                   : undefined;
+  // @arch:V77: the stored fix brief's receipt state rides the row.
+  const note = fixDeliveryNote(latest.fixDelivery);
+  const detail = [stateDetail, note].filter((part) => part !== undefined && part !== '').join(' · ');
 
   return {
     triggerProcessId: latest.sourceProcessId,
@@ -219,7 +169,6 @@ export function recoveryProcess(
       ...(fixRun && !fixRun.provider
         ? { identityNote: 'No historical execution identity recorded' }
         : {}),
-      evidence: { kind: 'recovery', rows },
     },
   };
 }

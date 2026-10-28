@@ -4,7 +4,7 @@
  */
 import type { InsideProcessView, ProcessEvidenceView } from '../../../model/inside/types.js';
 import { EvidenceReceipt } from './EvidenceReceipt.js';
-import { EvidenceFindings, EvidenceGates, EvidenceRecovery, EvidenceRows } from './EvidenceRows.js';
+import { EvidenceFindings, EvidenceGates, EvidenceRows } from './EvidenceRows.js';
 import { EvidenceCommits, EvidencePrs } from './EvidenceShip.js';
 import { EvidenceTimeline } from './EvidenceTimeline.js';
 
@@ -20,8 +20,6 @@ export function EvidenceBody({ ev, p, stageKey }: { readonly ev: ProcessEvidence
       return <EvidenceCommits ev={ev} />;
     case 'prs':
       return <EvidencePrs ev={ev} />;
-    case 'recovery':
-      return <EvidenceRecovery ev={ev} />;
     case 'receipt':
       return <EvidenceReceipt ev={ev} />;
     default:

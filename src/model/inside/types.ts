@@ -596,7 +596,6 @@ export type ProcessEvidenceView =
       branches?: readonly PrBranchView[];
       overflow?: EvidenceRow;
     }
-  | { kind: 'recovery'; rows: readonly EvidenceRow[] }
   | {
       kind: 'receipt';
       rows: readonly EvidenceRow[];
@@ -621,7 +620,6 @@ export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [
   'timeline',
   'commits',
   'prs',
-  'recovery',
   'receipt',
 ] as const;
 
@@ -844,7 +842,8 @@ export interface InsideStageView {
   selectedAttempt?: AttemptKey;
   /**
    * Host-authored banner copy shown above the ledger when the selection is
-   * NOT the latest attempt — e.g. "viewing round 2 — not the current result".
+   * NOT the latest attempt — the selected round's caption (e.g. "R2 of 3
+   * · an earlier round").
    * The webview renders it verbatim (UI-R31) and never derives it from
    * `selectedAttempt` itself. Absent → no banner.
    */
