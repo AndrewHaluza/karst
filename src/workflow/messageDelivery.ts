@@ -1,4 +1,5 @@
 import { envRef, karstCliRefs, KARST_TICKET_ID_ENV } from '../agent/cliEnv.js';
+import { sandboxMarkerCommand } from '../agent/sandboxInstructions.js';
 
 /**
  * Mailbox delivery seam (vscode-free). The sweep decides WHEN a recipient is
@@ -109,30 +110,43 @@ export function inboxRef(pointer: MessagePointer): string {
   return pointer.kind === 'fix' ? `fix-${pointer.deliveryId}` : pointer.kind;
 }
 
+const FIX_MARKER_LEAD = '; when the fix is committed and checks pass, fire the done marker: ';
+
+/** The fix pointer's done-marker clause in the recipient's channel form (arch:AC-34 for the sandbox). */
+function fixMarkerFollow(channel: DeliveryChannel): string {
+  if (isSandboxChannel(channel)) {
+    return `${FIX_MARKER_LEAD}run ${sandboxMarkerCommand({ runDir: channel.runDir, core: channel.core, stage: 'fix' })}`;
+  }
+  if (channel === 'mcp') return `${FIX_MARKER_LEAD}call the karst MCP tool "stage" with { stage: "fix" }`;
+  const refs = karstCliRefs();
+  return `${FIX_MARKER_LEAD}run node ${refs.cli} stage fix pass --db ${refs.db} --ticket ${envRef(KARST_TICKET_ID_ENV)}`;
+}
+
 /**
  * Fixed wording, the CLI command and MCP tool (same name) per pointer kind.
  * `follow` is appended after the fetch instruction for a kind whose arrival
  * must not end the recipient's turn: a project note is informational, so the
- * notes pointer says so and tells the agent to continue its current task.
+ * notes pointer says so and tells the agent to continue its current task. A fix
+ * pointer's `follow` names the done marker in the recipient's channel form.
  */
 const POINTER_TEXT = {
   mail: {
     lead: (p: { unread: number }) => `${p.unread} new message(s)`,
     command: 'inbox',
     ack: false,
-    follow: '',
+    follow: () => '',
   },
   notes: {
     lead: (p: { unread: number }) => `${p.unread} new project note(s)`,
     command: 'notes',
     ack: false,
-    follow: '; informational, then continue your current task - a note never ends your turn',
+    follow: () => '; informational, then continue your current task - a note never ends your turn',
   },
   fix: {
     lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`,
     command: 'fix-brief',
     ack: true,
-    follow: '',
+    follow: fixMarkerFollow,
   },
 } as const;
 
@@ -158,7 +172,8 @@ function pointerLead(pointer: MessagePointer): string {
  * agent keeps working instead of ending its turn.
  */
 export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
-  const { command, ack, follow } = POINTER_TEXT[pointer.kind];
+  const { command, ack } = POINTER_TEXT[pointer.kind];
+  const follow = POINTER_TEXT[pointer.kind].follow(channel);
   const lead = pointerLead(pointer);
   if (isSandboxChannel(channel)) {
     const ref = inboxRef(pointer);

@@ -442,12 +442,14 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     summary:
       'Read a summary of the failing gate a fix session must address; ack=true reads the stored fix brief and marks it read.',
     input: obj({ key: str, ticket: str, ack: bool }),
-    globals: { db: true },
+    globals: { db: true, ticket: true },
     toArgv: (input) => {
       const argv = ['fix-brief'];
-      if (input.key !== undefined) argv.push(requireString(input, 'key'));
       pushFlag(argv, '--ack', input.ack);
+      // One ticket spelling only: the CLI refuses key + --ticket, and the MCP
+      // server appends the implicit --ticket after this argv unless one is here.
       if (input.ticket !== undefined) argv.push('--ticket', requireString(input, 'ticket'));
+      else if (input.key !== undefined) argv.push('--ticket', requireString(input, 'key'));
       return argv;
     },
   },

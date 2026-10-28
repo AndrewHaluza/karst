@@ -99,10 +99,21 @@ describe('globalArgv', () => {
       '--ticket',
       'K-1',
     ]);
-    // fix-brief declares db only.
-    expect(globalArgv(getCommandSpec('fix-brief')!, config)).toEqual(['--db', '/db']);
+    expect(globalArgv(getCommandSpec('fix-brief')!, config)).toEqual(['--db', '/db', '--ticket', 'K-1']);
     // draft declares none — it must never see a global it refuses.
     expect(globalArgv(getCommandSpec('draft')!, config)).toEqual([]);
+  });
+
+  it('an explicit --ticket in the encoded argv wins over the implicit one', () => {
+    const spec = getCommandSpec('fix-brief')!;
+    expect(globalArgv(spec, config, ['fix-brief', '--ticket', 'K-2'])).toEqual(['--db', '/db']);
+  });
+
+  it('fix-brief encodes key or ticket as a single --ticket (ticket wins)', () => {
+    const spec = getCommandSpec('fix-brief')!;
+    expect(encodeToolArgv(spec, { ack: true })).toEqual(['fix-brief', '--ack']);
+    expect(encodeToolArgv(spec, { key: 'K-2', ack: true })).toEqual(['fix-brief', '--ack', '--ticket', 'K-2']);
+    expect(encodeToolArgv(spec, { key: 'K-2', ticket: 'K-3' })).toEqual(['fix-brief', '--ticket', 'K-3']);
   });
 });
 

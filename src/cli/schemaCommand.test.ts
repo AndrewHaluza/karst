@@ -42,6 +42,10 @@ describe('karst schema — output', () => {
     expect(out.globals).toMatchObject({ db: true, ticket: true });
   });
 
+  it('fix-brief declares the ticket global so MCP can inject it', () => {
+    expect(JSON.parse(runSchemaCommand(['schema', 'fix-brief'])).globals).toMatchObject({ db: true, ticket: true });
+  });
+
   it('marks read-only verbs as non-writing', () => {
     const out = JSON.parse(runSchemaCommand(['schema', 'context']));
     expect(out.writes).toBe(false);
