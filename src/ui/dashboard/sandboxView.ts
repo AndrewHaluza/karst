@@ -1,5 +1,6 @@
 import type { AgentBackend } from '../../manifest/types.js';
 import { DOCKER_CORES, SBX_CORES } from '../../agent/sandboxCores.js';
+import type { TicketPlacement } from '../../store/placement.js';
 
 /** The dashboard's Sandbox card (arch:AC-32): where this ticket's session runs and what it may do about it. */
 export interface DashboardSandboxView {
@@ -19,13 +20,15 @@ export interface DashboardSandboxView {
 }
 
 export interface SandboxViewInput {
-  readonly project: AgentBackend | undefined;
+  readonly project?: AgentBackend | undefined;
   readonly ticketOverride: 'host' | null | undefined;
   readonly core: string;
   /** The last refused sync was a host rewrite (rebase/amend). */
   readonly rewritten?: boolean;
   /** The manifest's `agentSandbox` opt-in (AC-31). */
   readonly agentSandbox?: boolean;
+  /** The recorded placement (D245/T772). When present, backend and core come from it. */
+  readonly placement?: TicketPlacement | null;
 }
 
 /** Cores whose adapter declares `surfaces.sandboxInteractive` (claude seatbelt/bubblewrap, codex workspace-write). */
@@ -43,12 +46,30 @@ const NETWORK: Readonly<Record<AgentBackend, string>> = {
  * run still reports where it runs and whether the core's own OS sandbox guards it.
  */
 export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView {
-  const { project, core } = input;
+  const placement = input.placement;
+  const core = placement?.core ?? input.core;
   const hostProtection = input.agentSandbox === true && NATIVE_SANDBOX_CORES.includes(core) ? 'core-native' : 'prompted';
   const onHost = (actions: boolean, note?: string): DashboardSandboxView => ({
     backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, carry: false, hostProtection,
     ...(note === undefined ? {} : { note }),
   });
+
+  if (placement) {
+    if (placement.backend === 'host') {
+      if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
+      return onHost(false);
+    }
+    return {
+      backend: placement.backend,
+      core,
+      workspace: 'clone',
+      network: NETWORK[placement.backend],
+      actions: true,
+      carry: input.rewritten === true,
+    };
+  }
+
+  const { project } = input;
   if (project === undefined || project === 'host') return onHost(false);
   // An opted-out ticket may still hold a sandbox from before, so its actions stay.
   if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');

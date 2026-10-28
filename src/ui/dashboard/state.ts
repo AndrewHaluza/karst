@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
+import { getPlacement } from '../../store/placement.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
@@ -19,7 +20,7 @@ import type { InsideActionRegistry } from './insideActions.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
 import type { DashboardAgentContext, DashboardState, PathContext } from './stateTypes.js';
-import { buildAgentState, emptyCapabilityIdentity, buildSandbox } from './stateAgent.js';
+import { buildAgentState, emptyCapabilityIdentity, buildSandbox, resolveSessionCore } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
 import { readRelations, readRounds, originLabel } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
@@ -213,7 +214,12 @@ export function buildDashboardState(
     recentByCore,
   });
 
-  const sessionCore = ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude';
+  const placement = getPlacement(store, ticketId);
+  const sessionCore = resolveSessionCore({
+    capabilityIdentity: agentContext.capabilityIdentity,
+    ticket,
+    defaultProvider,
+  });
   const capabilityIdentity = agentContext.capabilityIdentity ?? emptyCapabilityIdentity();
 
   const openRunStages = new Set(
@@ -324,7 +330,7 @@ export function buildDashboardState(
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
     capabilityIdentity,
-    sandbox: buildSandbox(agentContext, ticket, sessionCore),
+    sandbox: buildSandbox(agentContext, ticket, sessionCore, placement),
     servers: serverRows,
     // The read-only half of the stack. Kept OUT of `servers` so no action that
     // already means "this ticket's services" silently widens to a shared one.

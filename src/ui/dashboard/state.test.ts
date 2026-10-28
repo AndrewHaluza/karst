@@ -22,11 +22,13 @@ import type {
   PrReviewThread,
 } from '../../model/prReview.js';
 import { recordFindings } from '../../store/reviewFindings.js';
+import { recordPlacement } from '../../store/placement.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
 import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
+import { emptyCapabilityIdentity } from './stateAgent.js';
 import { agentContextFor } from './resolvers.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
@@ -147,6 +149,79 @@ describe('buildDashboardState', () => {
       .toMatchObject({ backend: 'host', core: 'claude' });
     expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'opencode', { agentBackends }).sandbox)
       .toMatchObject({ backend: 'docker', core: 'opencode', workspace: 'clone' });
+  });
+
+  it('builds sandbox strip from recorded placement or resolved core (T824)', () => {
+    const t = createTicket(store, { key: 'T824', title: 'strip' });
+    const agentContext = {
+      agentBackends: { opencode2: 'docker' } as const,
+      capabilityIdentity: {
+        ...emptyCapabilityIdentity(),
+        implementation: { provider: 'claude' as const, model: 'claude-sonnet-5', effort: null },
+      },
+    };
+
+    // 1. With recorded host placement with core claude: host strip, core claude, no actions
+    recordPlacement(store, t.id, { backend: 'host', core: 'claude', sandboxName: null, reason: 'agentBackends.claude: host' }, null);
+    const hostState = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'opencode2', agentContext);
+    expect(hostState.sandbox).toEqual({
+      backend: 'host',
+      core: 'claude',
+      workspace: 'worktree',
+      network: 'none (host)',
+      actions: false,
+      carry: false,
+      hostProtection: 'prompted',
+    });
+    expect(hostState.agentSession.provider).toBe('claude');
+
+    // 2. Same without a placement: strip core is claude matching header
+    const tNoPlacement = createTicket(store, { key: 'T824-NP', title: 'strip-no-placement' });
+    const noPlacementState = buildDashboardState(store, tNoPlacement.id, undefined, undefined, undefined, undefined, 'opencode2', agentContext);
+    expect(noPlacementState.sandbox).toEqual({
+      backend: 'host',
+      core: 'claude',
+      workspace: 'worktree',
+      network: 'none (host)',
+      actions: false,
+      carry: false,
+      hostProtection: 'prompted',
+    });
+    expect(noPlacementState.agentSession.provider).toBe('claude');
+
+    // 3. A docker placement with core opencode2: docker strip, OpenCode v2
+    const tDocker = createTicket(store, { key: 'T824-DOC', title: 'strip-docker' });
+    recordPlacement(store, tDocker.id, { backend: 'docker', core: 'opencode2', sandboxName: 'karst-1', reason: null }, null);
+    const dockerState = buildDashboardState(store, tDocker.id, undefined, undefined, undefined, undefined, 'claude', {});
+    expect(dockerState.sandbox).toEqual({
+      backend: 'docker',
+      core: 'opencode2',
+      workspace: 'clone',
+      network: 'allowlist proxy on an internal network',
+      actions: true,
+      carry: false,
+    });
+
+    // 4. Recorded host placement with no core: shows host layout with core resolved as in no-placement case
+    const tHostNoCore = createTicket(store, { key: 'T824-HNC', title: 'strip-host-no-core' });
+    recordPlacement(store, tHostNoCore.id, { backend: 'host', core: null, sandboxName: null, reason: 'host' }, null);
+    const hostNoCoreState = buildDashboardState(store, tHostNoCore.id, undefined, undefined, undefined, undefined, 'opencode2', agentContext);
+    expect(hostNoCoreState.sandbox).toMatchObject({
+      backend: 'host',
+      core: 'claude',
+      workspace: 'worktree',
+      actions: false,
+    });
+
+    // 5. No recorded placement, no capability identity: resolves agentProvider, then sessionProvider, then defaultProvider, then claude
+    const tFallback = createTicket(store, { key: 'T824-FB', title: 'fallback' });
+    store.db.prepare("UPDATE tickets SET session_provider = 'codex' WHERE id = ?").run(tFallback.id);
+    const fallbackState = buildDashboardState(store, tFallback.id, undefined, undefined, undefined, undefined, 'opencode2', {});
+    expect(fallbackState.sandbox).toMatchObject({
+      backend: 'host',
+      core: 'codex',
+    });
+    expect(fallbackState.agentSession.provider).toBe('codex');
   });
 
   it('passes the manifest agentSandbox opt-in to the host strip', () => {

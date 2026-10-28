@@ -54,4 +54,62 @@ describe('buildSandboxView', () => {
     expect(buildSandboxView({ project: 'sbx', ticketOverride: 'host', core: 'claude', rewritten: true })).toMatchObject({ carry: false });
     expect(buildSandboxView({ project: 'sbx', ticketOverride: null, core: 'antigravity', rewritten: true })).toMatchObject({ carry: false });
   });
+
+  it('builds strip from recorded placement directly, ignoring project', () => {
+    // Host placement with core claude, project configured as docker
+    expect(buildSandboxView({
+      project: 'docker',
+      ticketOverride: null,
+      core: 'opencode2',
+      placement: { backend: 'host', core: 'claude', sandboxName: null, reason: 'agentBackends.claude: host' },
+    })).toEqual({
+      backend: 'host',
+      core: 'claude',
+      workspace: 'worktree',
+      network: 'none (host)',
+      actions: false,
+      carry: false,
+      hostProtection: 'prompted',
+    });
+
+    // Host placement with no core: falls back to input.core
+    expect(buildSandboxView({
+      project: 'docker',
+      ticketOverride: null,
+      core: 'claude',
+      placement: { backend: 'host', core: null, sandboxName: null, reason: 'host' },
+    })).toMatchObject({
+      backend: 'host',
+      core: 'claude',
+      workspace: 'worktree',
+      actions: false,
+    });
+
+    // Docker placement with core opencode2, project configured as host/undefined
+    expect(buildSandboxView({
+      project: 'host',
+      ticketOverride: null,
+      core: 'claude',
+      placement: { backend: 'docker', core: 'opencode2', sandboxName: 'karst-1', reason: null },
+    })).toEqual({
+      backend: 'docker',
+      core: 'opencode2',
+      workspace: 'clone',
+      network: 'allowlist proxy on an internal network',
+      actions: true,
+      carry: false,
+    });
+
+    // Host placement with ticket override 'host': keeps actions and opt-out note
+    expect(buildSandboxView({
+      project: 'host',
+      ticketOverride: 'host',
+      core: 'claude',
+      placement: { backend: 'host', core: 'claude', sandboxName: null, reason: 'opted out' },
+    })).toMatchObject({
+      backend: 'host',
+      actions: true,
+      note: 'ticket opted out of the sandbox backend',
+    });
+  });
 });
