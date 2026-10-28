@@ -1229,6 +1229,22 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     });
   });
 
+  it('snapshots the nudge candidate before the tracker resets (work + pending marker only)', () => {
+    const id = ticketAt();
+    runningImplRun(id);
+    const tracker = new TurnTracker();
+    const stop = () =>
+      dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, undefined, undefined, undefined, tracker);
+    stop(); // question turn: zero tools
+    expect(tracker.nudge(id)).toBeNull();
+    tracker.recordToolUse(id, 'Edit');
+    stop();
+    expect(tracker.nudge(id)).toEqual({ stage: 'impl', key: expect.any(Number), processRunId: listProcessRuns(store, id)[0]!.id });
+    expect(tracker.toolCount(id)).toBe(0); // reset happened AFTER the snapshot
+    stop(); // next turn, no tools: snapshot cleared
+    expect(tracker.nudge(id)).toBeNull();
+  });
+
   it('detects denied marker when Bash is the last tool before Stop with pending marker', () => {
     const id = ticketAt();
     runningImplRun(id);

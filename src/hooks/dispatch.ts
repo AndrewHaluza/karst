@@ -25,6 +25,7 @@ import type {
   HookDispatchOutcome,
 } from '../diagnostics/hookChannel.js';
 import { HOOK_EDIT_TOOLS } from '../artifacts/hookEdit.js';
+import type { MarkerNudgeCandidate } from './mailReply.js';
 import { setProcessRunPromptTelemetry } from '../store/processRuns.js';
 
 /**
@@ -188,6 +189,19 @@ const SHELL_TOOL_NAME: Record<AgentProvider, string | null> = {
  * agent is doing — so a turn ending against either one is a turn that ended
  * without the completion karst was told to wait for.
  */
+/** Which marker is pending and the id that keys a once-only nudge for it. */
+function pendingMarkerKey(
+  store: Store,
+  ticketId: number,
+): { stage: 'impl' | 'fix'; key: number } | null {
+  const run = currentImplementationRun(store, ticketId);
+  if (run?.status === 'running') return { stage: 'impl', key: run.id };
+  const round = store.db
+    .prepare("SELECT id FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' ORDER BY id DESC LIMIT 1")
+    .get(ticketId) as { id: number } | undefined;
+  return round === undefined ? null : { stage: 'fix', key: round.id };
+}
+
 function doneMarkerPending(store: Store, ticketId: number): boolean {
   if (currentImplementationRun(store, ticketId)?.status === 'running') return true;
   return hasFixingRound(store, ticketId);
@@ -226,6 +240,22 @@ const WAITING_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
 export class TurnTracker {
   private readonly toolCounts = new Map<number, number>();
   private readonly lastToolNames = new Map<number, string>();
+  private readonly nudges = new Map<number, MarkerNudgeCandidate>();
+
+  /**
+   * The marker-nudge snapshot for this ticket's latest turn end (null clears it).
+   * `dispatchHook` takes it BEFORE `reset`, so the reply builder reads it from
+   * memory and never queries the DB (@arch:EVENTLOOP).
+   */
+  setNudge(ticketId: number, candidate: MarkerNudgeCandidate | null): void {
+    if (candidate === null) this.nudges.delete(ticketId);
+    else this.nudges.set(ticketId, candidate);
+  }
+
+  /** The nudge snapshot, or null when the last turn end was not a no-marker-after-work one. */
+  nudge(ticketId: number): MarkerNudgeCandidate | null {
+    return this.nudges.get(ticketId) ?? null;
+  }
 
   /** A new turn begins — reset the counters for this ticket. */
   reset(ticketId: number): void {
@@ -260,6 +290,7 @@ export class TurnTracker {
   forget(ticketId: number): void {
     this.toolCounts.delete(ticketId);
     this.lastToolNames.delete(ticketId);
+    this.nudges.delete(ticketId);
   }
 }
 
@@ -596,6 +627,9 @@ export function dispatchHook(
           deniedMarker,
           toolActivityObserved,
         });
+        // Snapshot the nudge BEFORE the reset below: the reply builder reads it in memory.
+        const pending = toolCount > 0 ? pendingMarkerKey(store, ticketId) : null;
+        tracker.setNudge(ticketId, pending === null ? null : { ...pending, processRunId: runRow.id });
         debug?.(`[marker-miss] ticket ${ticketId}: case=${markerMissCase}, denied=${deniedMarker}, tools=${toolCount}, observed=${toolActivityObserved}, provider=${lifecycleProvider ?? 'unknown'}`);
       }
 
@@ -604,6 +638,8 @@ export function dispatchHook(
       // and only the very first Stop (before any tools ran) can yield
       // 'question-at-stop'.
       tracker.reset(ticketId);
+    } else if (payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') {
+      tracker.setNudge(ticketId, null);
     }
   }
 

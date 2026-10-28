@@ -1,4 +1,4 @@
-import { fixPointer, mailPointer, messagePointer, type DeliveryChannel } from '../workflow/messageDelivery.js';
+import { fixPointer, mailPointer, markerNudgeText, messagePointer, type DeliveryChannel } from '../workflow/messageDelivery.js';
 import type { HookReply, HookReplyFor } from './endpoint.js';
 import { formatId } from '../model/entityId.js';
 
@@ -37,6 +37,25 @@ export interface BlockedAtFix {
   deliveryId: number;
 }
 
+/** The fix delivery / round a Stop was already nudged for, per ticket (one nudge per key). */
+export interface NudgedAt {
+  launchId: string | undefined;
+  stage: 'impl' | 'fix';
+  key: number;
+}
+
+/**
+ * A turn that ended after tool work with the done marker still pending, as
+ * `dispatchHook` snapshotted it before resetting the turn tracker. `key` is the
+ * implementation run id (impl) or recovery round id (fix); `processRunId` is the
+ * run whose `prompt_telemetry` records `markerNudged`.
+ */
+export interface MarkerNudgeCandidate {
+  stage: 'impl' | 'fix';
+  key: number;
+  processRunId: number | null;
+}
+
 export interface MailReplyDeps {
   /** The in-memory unread count for a ticket. */
   unread: (ticketId: number) => number;
@@ -72,7 +91,33 @@ export interface MailReplyDeps {
   fixEligible?: (ticketId: number) => number | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
   blockedAtFix?: Map<number, BlockedAtFix>;
+  /**
+   * The marker nudge (last priority): the in-memory snapshot `dispatchHook` took
+   * at this turn end, or null. `nudgedAt` holds the key already nudged, so a
+   * refused marker can never loop; `onNudged` records `markerNudged` telemetry.
+   */
+  nudgeEligible?: (ticketId: number) => MarkerNudgeCandidate | null;
+  nudgedAt?: Map<number, NudgedAt>;
+  onNudged?: (ticketId: number, candidate: MarkerNudgeCandidate) => void;
   debug?: (message: string) => void;
+}
+
+/** The once-per-key marker nudge, or null (no snapshot, already nudged for this key). */
+function nudgeReply(deps: MailReplyDeps, ticketId: number, launchId: string | undefined): HookReply | null {
+  if (deps.nudgeEligible === undefined || deps.nudgedAt === undefined) return null;
+  const candidate = deps.nudgeEligible(ticketId);
+  if (candidate === null) {
+    deps.nudgedAt.delete(ticketId);
+    return null;
+  }
+  const prev = deps.nudgedAt.get(ticketId);
+  if (prev !== undefined && prev.launchId === launchId && prev.stage === candidate.stage && prev.key === candidate.key) {
+    return null;
+  }
+  deps.nudgedAt.set(ticketId, { launchId, stage: candidate.stage, key: candidate.key });
+  deps.onNudged?.(ticketId, candidate);
+  deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: marker nudge (${candidate.stage})`);
+  return { decision: 'block', reason: markerNudgeText(candidate.stage, deps.sessionChannel(ticketId)) };
 }
 
 /** A fix pointer for this turn end, or null (nothing eligible, already blocked, lost the claim). */
@@ -107,6 +152,7 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
       // map stays bounded by the tickets with unread mail.
       deps.blockedAt.delete(ticketId);
       deps.blockedAtFix?.delete(ticketId);
+      deps.nudgedAt?.delete(ticketId);
       return null;
     }
     if (deps.shouldReply !== undefined && !deps.shouldReply(ticketId)) return null;
@@ -118,11 +164,13 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
       // block again. This path is best-effort — a read with no intervening turn
       // end never reaches it — so the watermark below is the real guard.
       deps.blockedAt.delete(ticketId);
-      return null;
+      return nudgeReply(deps, ticketId, launchId);
     }
     const watermark = deps.unreadWatermark(ticketId);
     const prev = deps.blockedAt.get(ticketId);
-    if (prev !== undefined && prev.launchId === launchId && prev.watermark === watermark) return null;
+    if (prev !== undefined && prev.launchId === launchId && prev.watermark === watermark) {
+      return nudgeReply(deps, ticketId, launchId);
+    }
     const line = messagePointer(mailPointer(unread), deps.sessionChannel(ticketId));
     deps.blockedAt.set(ticketId, { launchId, watermark });
     deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: block (${unread} unread)`);

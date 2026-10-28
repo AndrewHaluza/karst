@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import type { HookReplyFor } from '../../hooks/endpoint.js';
 import { createUnreadCache } from '../../hooks/unreadCache.js';
-import { makeHookReply, type BlockedAt, type BlockedAtFix } from '../../hooks/mailReply.js';
+import { makeHookReply, type BlockedAt, type BlockedAtFix, type MarkerNudgeCandidate, type NudgedAt } from '../../hooks/mailReply.js';
 import {
   makeRoutedDelivery,
   makeTerminalDelivery,
@@ -68,6 +68,10 @@ export interface MailDeliveryWiringDeps {
    */
   fixEligible?: (ticketId: number) => number | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
+  /** The marker-nudge snapshot `dispatchHook` took at the last turn end (in memory). */
+  nudgeEligible?: (ticketId: number) => MarkerNudgeCandidate | null;
+  /** Records `markerNudged` on the run's prompt_telemetry. */
+  onNudged?: (ticketId: number, candidate: MarkerNudgeCandidate) => void;
 }
 
 export interface MailDeliveryWiring {
@@ -163,6 +167,7 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
   // delivery ack must not confirm a mail batch.
   const fixBlocked = new Set<number>();
   const blockedAtFix = new Map<number, BlockedAtFix>();
+  const nudgedAt = new Map<number, NudgedAt>();
   const replyInner = makeHookReply({
     unread: (ticketId) => unreadCache.get(ticketId),
     unreadWatermark: (ticketId) => unreadCache.watermark(ticketId),
@@ -180,6 +185,9 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
           },
           blockedAtFix,
         }
+      : {}),
+    ...(deps.nudgeEligible !== undefined
+      ? { nudgeEligible: deps.nudgeEligible, nudgedAt, ...(deps.onNudged !== undefined ? { onNudged: deps.onNudged } : {}) }
       : {}),
     debug: deps.debug,
   });
