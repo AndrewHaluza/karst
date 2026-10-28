@@ -10,7 +10,6 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_ROOT = join(__dirname, '..', '..');
 const PORT = 4317;
 const ROOT = join(__dirname, '.tmp');
 
@@ -21,22 +20,17 @@ const ROOT = join(__dirname, '.tmp');
 // fixture writer hydrates each webview.html through the real injector chain,
 // which readFileSync's those bundles, so a missing one kills fixture
 // generation and with it the whole webServer (ENOENT webviewSend.webview.js,
-// NDL-218).  Build whatever is missing before anything else runs.
-const missingBundles = WEBVIEW_BUNDLE_ENTRIES.filter(
-  (entry) => !existsSync(join(REPO_ROOT, entry.output)),
+// NDL-218). Rebuild before anything else runs: an existing bundle can belong
+// to an older checkout and silently make the visual sweep exercise stale
+// markup/styles.
+console.log(
+  `Building ${WEBVIEW_BUNDLE_ENTRIES.length} webview bundle(s) for the visual sweep`,
 );
-if (missingBundles.length > 0) {
-  console.log(
-    `Building ${missingBundles.length} missing webview bundle(s): ${missingBundles
-      .map((entry) => entry.output)
-      .join(', ')}`,
-  );
-  try {
-    await buildWebviewBundles();
-  } catch (err) {
-    console.error('Failed to build webview bundles:', err);
-    process.exit(1);
-  }
+try {
+  await buildWebviewBundles();
+} catch (err) {
+  console.error('Failed to build webview bundles:', err);
+  process.exit(1);
 }
 
 // Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
