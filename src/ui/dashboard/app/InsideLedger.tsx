@@ -10,7 +10,8 @@
  */
 import { memo, useCallback, type MouseEvent, type SyntheticEvent } from 'react';
 import type { InsideProcessView } from '../../../model/inside/types.js';
-import { useOverlays } from './DashboardAppContext.js';
+import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
+import { usePendingAction } from './usePendingAction.js';
 import { EvidenceBody } from './EvidenceBody.js';
 import { Icon } from './Icon.js';
 import { RowDuration, RowTime, RowTokens } from './InsideClocks.js';
@@ -61,6 +62,17 @@ function Footer({ footer }: { readonly footer: readonly string[] | undefined }) 
   );
 }
 
+/** Inline Unpause on a paused stage's row — the pause chip alone was missed (D303). */
+function UnpauseButton() {
+  const send = useDashboardSend();
+  const onClick = usePendingAction((requestId) => send.unpauseExecution(requestId));
+  return (
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" onClick={onClick}>
+      Unpause
+    </button>
+  );
+}
+
 const ProcessRow = memo(
   function ProcessRow({ p, stageKey, consoleStage, open }: RowProps) {
     const { memory } = useInsideScope();
@@ -80,6 +92,7 @@ const ProcessRow = memo(
       <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`}>
         {p.detail ? <span className="op-detail-text">{p.detail}</span> : null}
         {owner ? <ConsoleButton owner={owner} p={p} /> : null}
+        {p.paused ? <UnpauseButton /> : null}
       </span>
     );
     // No status WORD in the tail: the row carries its state on the glyph (which keeps the word as its accessible name).

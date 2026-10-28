@@ -51,7 +51,7 @@ export interface RailSegment {
    * the runner set, so a parked stage keeps reading `running`; the track must
    * not draw a spinner on it (the webview may not derive this itself, UI-R31).
    */
-  status: StageStatus | 'blocked';
+  status: StageStatus | 'blocked' | 'paused';
   /** This is the stage the ticket sits at. Exactly one, or none. */
   current: boolean;
   /** The ticket is blocked on the user, HERE. Only ever the current segment. */

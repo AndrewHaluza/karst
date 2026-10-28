@@ -45,10 +45,13 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
  * right.
  */
 export function needsUser(t: TicketWithStages): boolean {
-  if (t.pausedAt != null) return false;
   // A closed ticket is finished by an operator; a stale waiting agent or an old
   // block on an earlier stage must not keep asking for the user.
   if (t.stageCurrent === 'closed') return false;
+  // A paused ticket runs nothing (@arch:PAUSE) until the user unpauses it, so
+  // it waits on the user: it must never read as running. Checked after closed
+  // so a finished ticket stays gray.
+  if (t.pausedAt != null) return true;
 
   // A parent held by its own sub-tasks is NOT parked on the user: the wait is
   // on a machine or another ticket (design NDL-70 §5). This has to be checked
@@ -123,7 +126,7 @@ export function needsUser(t: TicketWithStages): boolean {
  * and so cannot know that a parked confirm stage is waiting on a human.
  */
 export function ticketGlyph(t: TicketWithStages): Glyph {
-  if (t.pausedAt != null || t.stageCurrent === 'closed') return 'gray';
+  if (t.stageCurrent === 'closed') return 'gray';
   if (needsUser(t)) return 'amber';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the

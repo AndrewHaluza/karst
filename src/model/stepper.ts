@@ -28,6 +28,12 @@ export interface StepperCell {
    * (never null) exactly like every other detail field here: a stage that has
    * never been blocked has nothing to say about it.
    */
+  /**
+   * Set when the ticket is paused and this stage reads `running` with no open
+   * stage run: nothing is executing, so it must read Paused, not running
+   * (D303, @arch:PAUSE). Absent (never false) otherwise.
+   */
+  paused?: true;
   blocked?: {
     kind: BlockerKind;
     reason: string;
@@ -129,8 +135,26 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
  * blocked. The stored status stays the record of what the runner was doing;
  * this is what every surface renders.
  */
-export function displayStatus(cell: StepperCell): StageStatus | 'blocked' {
+export function displayStatus(cell: StepperCell): StageStatus | 'blocked' | 'paused' {
+  if (cell.paused && cell.status === 'running') return 'paused';
   return cell.blocked && cell.status === 'running' ? 'blocked' : cell.status;
+}
+
+/**
+ * Mark the cells of a PAUSED ticket whose stored `running` is a leftover, not
+ * live work: a retry sets a stage `running` and the driver, correctly, runs
+ * nothing. A stage with an open stage run is genuinely mid-run (the pause only
+ * stops NEW work) and keeps showing its live run until it ends.
+ */
+export function markPausedCells(
+  stepper: readonly StepperCell[],
+  paused: boolean,
+  hasOpenRun: (stageKey: StageKey) => boolean,
+): StepperCell[] {
+  if (!paused) return [...stepper];
+  return stepper.map((c) =>
+    c.status === 'running' && !hasOpenRun(c.stageKey) ? { ...c, paused: true as const } : c,
+  );
 }
 
 /**
