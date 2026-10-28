@@ -41,6 +41,8 @@ export interface InstallDeps {
   fetchFn: FetchLike;
   baseDir: string;
   runCommand: RunCommand;
+  /** GitHub token; sent only to api.github.com. Never logged or persisted. */
+  githubToken?: string;
 }
 
 /** A typed error so callers never see a raw network/parse/HTTP-status throw. */
@@ -83,7 +85,69 @@ interface ContentsEntry {
 }
 
 const GITHUB_API_BASE = 'https://api.github.com/repos';
+const GITHUB_API_HOST = 'api.github.com';
 const REQUEST_HEADERS = { 'User-Agent': 'karst', Accept: 'application/vnd.github+json' };
+const AUTH_FIX = "sign in to GitHub in VS Code or run `gh auth login`, then Install again";
+
+/**
+ * Wrap `fetchFn` so `Authorization` is added only for api.github.com. The
+ * contents API's `download_url` for a private repo already carries its own
+ * short-lived token, so raw hosts (and any other host) never get ours.
+ */
+function withGithubAuth(fetchFn: FetchLike, token: string | undefined): FetchLike {
+  if (token === undefined) {
+    return fetchFn;
+  }
+  return (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    let host = '';
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      // unparsable URL: leave it unauthenticated
+    }
+    if (host !== GITHUB_API_HOST) {
+      return fetchFn(input, init);
+    }
+    return fetchFn(input, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
+    });
+  };
+}
+
+/** Actionable error for a failed contents-API response. */
+function contentsStatusError(
+  res: Response,
+  repo: string,
+  path: string,
+  ref: string,
+  hasToken: boolean,
+): ApproachInstallError {
+  const where = `${repo}/${path}`;
+  if (res.status === 403 || res.status === 429) {
+    if (res.headers.get('x-ratelimit-remaining') === '0') {
+      const reset = Number(res.headers.get('x-ratelimit-reset'));
+      const when = Number.isFinite(reset) && reset > 0
+        ? ` Limit resets at ${new Date(reset * 1000).toISOString()}.`
+        : '';
+      return new ApproachInstallError(
+        `GitHub rate limit exceeded for ${where}.${when} To fix: ${AUTH_FIX}.`,
+      );
+    }
+  }
+  if (res.status === 404 && !hasToken) {
+    return new ApproachInstallError(
+      `GitHub contents API returned 404 for ${where} (ref=${ref}). A private repo needs auth: ${AUTH_FIX}.`,
+    );
+  }
+  if (res.status === 403 || res.status === 404) {
+    return new ApproachInstallError(
+      `GitHub contents API returned ${res.status} for ${where} (ref=${ref})`,
+    );
+  }
+  return new ApproachInstallError(`GitHub contents API returned ${res.status} for ${where}`);
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -128,6 +192,7 @@ async function fetchContents(
   repo: string,
   path: string,
   ref: string,
+  hasToken: boolean,
 ): Promise<ContentsEntry[]> {
   const url = `${GITHUB_API_BASE}/${repo}/contents/${path}?ref=${ref}`;
   let res: Response;
@@ -139,14 +204,7 @@ async function fetchContents(
     );
   }
   if (!res.ok) {
-    if (res.status === 403 || res.status === 404) {
-      throw new ApproachInstallError(
-        `GitHub contents API returned ${res.status} for ${repo}/${path} (ref=${ref})`,
-      );
-    }
-    throw new ApproachInstallError(
-      `GitHub contents API returned ${res.status} for ${repo}/${path}`,
-    );
+    throw contentsStatusError(res, repo, path, ref, hasToken);
   }
   let json: unknown;
   try {
@@ -187,14 +245,15 @@ async function collectFromPath(
   repo: string,
   ref: string,
   path: string,
+  hasToken: boolean,
 ): Promise<CollectedPrompt[]> {
-  const entries = await fetchContents(fetchFn, repo, path, ref);
+  const entries = await fetchContents(fetchFn, repo, path, ref, hasToken);
   const collected: CollectedPrompt[] = [];
 
   for (const entry of entries) {
     const childPath = path.length > 0 ? `${path}/${entry.name}` : entry.name;
     if (entry.type === 'dir') {
-      const nested = await collectFromPath(fetchFn, repo, ref, childPath);
+      const nested = await collectFromPath(fetchFn, repo, ref, childPath, hasToken);
       collected.push(...nested);
       continue;
     }
@@ -223,14 +282,15 @@ async function collectSubtree(
   ref: string,
   path: string,
   rootPath: string,
+  hasToken: boolean,
 ): Promise<{ relFromRoot: string; body: string }[]> {
-  const entries = await fetchContents(fetchFn, repo, path, ref);
+  const entries = await fetchContents(fetchFn, repo, path, ref, hasToken);
   const collected: { relFromRoot: string; body: string }[] = [];
 
   for (const entry of entries) {
     const childPath = path.length > 0 ? `${path}/${entry.name}` : entry.name;
     if (entry.type === 'dir') {
-      collected.push(...(await collectSubtree(fetchFn, repo, ref, childPath, rootPath)));
+      collected.push(...(await collectSubtree(fetchFn, repo, ref, childPath, rootPath, hasToken)));
       continue;
     }
     if (entry.type === 'file' && entry.name.endsWith('.md')) {
@@ -258,14 +318,15 @@ async function collectGitInclude(
   repo: string,
   ref: string,
   includePath: string,
+  hasToken: boolean,
 ): Promise<CollectResult> {
   const mapping = classifyPath(includePath);
   if (mapping === null) {
-    const prompts = await collectFromPath(fetchFn, repo, ref, includePath);
+    const prompts = await collectFromPath(fetchFn, repo, ref, includePath, hasToken);
     return { files: [], prompts };
   }
 
-  const subtree = await collectSubtree(fetchFn, repo, ref, includePath, includePath);
+  const subtree = await collectSubtree(fetchFn, repo, ref, includePath, includePath, hasToken);
   const files: CollectedFile[] = subtree.map((f) => ({
     kind: mapping.kind,
     relPath: `${mapping.destDir}/${f.relFromRoot}`,
@@ -633,9 +694,10 @@ export async function installApproach(
 
   switch (source.type) {
     case 'git': {
+      const fetchFn = withGithubAuth(deps.fetchFn, deps.githubToken);
       const results = await Promise.all(
         source.include.map((path) =>
-          collectGitInclude(deps.fetchFn, source.repo, source.ref, path),
+          collectGitInclude(fetchFn, source.repo, source.ref, path, deps.githubToken !== undefined),
         ),
       );
       return assembleAndWrite(def, deps.baseDir, results);
