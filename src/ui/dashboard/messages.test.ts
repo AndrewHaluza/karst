@@ -42,6 +42,7 @@ function actions(): DashboardActions {
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
+    resetStage: vi.fn(),
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
     rebaseOnBase: vi.fn(),
@@ -308,6 +309,12 @@ describe('routeAction', () => {
     expect(a.stopDriver).toHaveBeenCalledTimes(1);
     expect(a.shipTicket).toHaveBeenCalledTimes(1);
     expect(a.resumeTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches reset-stage payload-free', () => {
+    const a = actions();
+    routeAction({ type: 'reset-stage', stage: 'review' }, a);
+    expect(a.resetStage).toHaveBeenCalledOnce();
   });
 
   it('dispatches send-back-to-implement and drops a forged companion stage', () => {

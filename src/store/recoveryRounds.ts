@@ -66,6 +66,7 @@ export {
   parkFixStage,
   type OpenRecoveryRoundInput,
   openRecoveryRound,
+  openRecoveryRoundWithinBudget,
   completeRevalidation,
   attachRevalidationStageRun,
   type BeginLiveFixExecutionInput,

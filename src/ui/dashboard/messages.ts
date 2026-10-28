@@ -86,6 +86,11 @@ export type WebviewMessage =
    */
   | { type: 'send-back-to-implement' }
   /**
+   * Reset the failed gate stage after its recovery budget is spent (T831).
+   * Payload-free like send-back: the host derives which stage from the store.
+   */
+  | { type: 'reset-stage' }
+  /**
    * Enter a PR-feedback recovery round at Fix for the panel's ticket. Payload-
    * free like send-back: availability is re-derived host-side inside the
    * mutation's transaction, so the webview's claim is never trusted.

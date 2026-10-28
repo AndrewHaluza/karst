@@ -88,6 +88,9 @@ export function StageMenu({ stageKey, menu }: { readonly stageKey: string; reado
             // Retry and Send back share one request: both put a confirmation modal in front of the user.
             <Item data-act="rerun-gate" data-stage={menu.retry} title="Re-run this stage from scratch" icon="refresh" label={`Retry ${menu.retry === 'uat' ? 'UAT' : 'Review'}`} onClick={start('sendBack', () => send.rerunGate(menu.retry as GateStage))} />
           ) : null}
+          {menu.reset ? (
+            <Item data-act="reset-stage" data-stage={menu.reset} title="Clear the failed stage and start a fresh recovery episode" icon="history" label={`Reset ${menu.reset === 'uat' ? 'UAT' : 'Review'}`} onClick={start('resetStage', () => send.resetStage())} />
+          ) : null}
           {menu.prFeedback ? (
             <Item data-act="address-pr-feedback" title="Address the review team's pull request feedback — UAT and Review will run again" icon="pencil" label="Address PR feedback" onClick={start('prFeedback', () => send.addressPrFeedback())} />
           ) : null}

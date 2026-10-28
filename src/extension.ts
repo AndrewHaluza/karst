@@ -1,4 +1,5 @@
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
+import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode';
 import { registerDoctorCommand } from './ui/doctor/host.js';
@@ -388,6 +389,7 @@ import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
+import { resetStageAction } from './extension/ops/resetStageAction.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
@@ -3721,6 +3723,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     } catch (e) {
       logError('stage driver failed', e);
+      parkGateOnDriverFailure(localStore, ticketId, e, logError);
     } finally {
       gateConsole.flushTicket(ticketId);
       driver.end(ticketId);
@@ -8330,6 +8333,16 @@ function makeDashboardActions(
         }
       })();
     },
+    // Reset the failed gate stage once its recovery budget is spent (T831).
+    resetStage: () =>
+      resetStageAction({
+        store, ticketId, afterServerChange, logError, debug,
+        drive: () => driveAfterResume(ticketId),
+        info: (m) => void vscode.window.showInformationMessage(m),
+        error: (m) => void vscode.window.showErrorMessage(m),
+        confirm: async (title, detail) =>
+          (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
+      }),
     // Move this ticket into a PR-feedback recovery round at Fix. The logic
     // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.
     addressPrFeedback: () =>

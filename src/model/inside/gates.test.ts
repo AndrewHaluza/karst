@@ -840,7 +840,7 @@ describe('uatProcesses', () => {
     expect(fix[0]!.evidence).toBeUndefined();
     expect(fix[0]!.status).toBe('fail');
     expect(fix[0]!.detail).toBe(
-      'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+      'Recovery exhausted after 2 rounds. Use Reset stage in the stage menu to start a fresh episode.',
     );
   });
 

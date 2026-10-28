@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
 import { getTicket } from '../../store/tickets.js';
+import { getStage } from '../../store/stages.js';
 import { transition } from '../machine.js';
 import { openGateRun } from './evidence.js';
 import { commitGateOutcome, type RunOutcome, type CommitGateOutcomeInput } from './commit.js';
@@ -94,6 +95,28 @@ describe('commitGateOutcome — recovery trigger', () => {
     });
     // The failing verdict itself committed: the ticket rests at fix.
     expect(getTicket(store, id).stageCurrent).toBe('fix');
+  });
+
+  it('an exhausted budget records the failed verdict, opens no round and parks fix (T831)', () => {
+    const fail = () =>
+      commit(
+        'uat',
+        { kind: 'verdict', verdict: { kind: 'failed', reason: 'gates failed: lint' } },
+        (runId) => trigger({ sourceStageRunId: runId, maxRounds: 1 }),
+      );
+    fail();
+    // Round 1 of 1 spent: the driver marks it exhausted, a human retries uat.
+    const [first] = listRecoveryRounds(store, id);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'exhausted' WHERE id = ?").run(first!.id);
+    transition(store, id, 'fix', { kind: 'passed' });
+    const { result } = fail();
+    expect(result).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(listRecoveryRounds(store, id)).toHaveLength(1);
+    expect(getStage(store, id, 'uat')?.status).toBe('failed');
+    expect(getStage(store, id, 'fix')).toMatchObject({
+      status: 'failed',
+      verdict: 'fix attempts exhausted',
+    });
   });
 
   it.each([

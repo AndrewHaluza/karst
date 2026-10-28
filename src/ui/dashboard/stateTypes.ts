@@ -17,6 +17,7 @@ import type { AgentSessionView } from '../../agent/sessionSwitch.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import type { TicketEnvOverrides } from '../../store/ticketEnvOverrides.js';
+import type { ResetStageState } from '../../workflow/resetStage.js';
 import type { SendBackState } from '../../workflow/sendBack.js';
 import type { RetryGateState } from '../../workflow/retryGate.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
@@ -369,6 +370,8 @@ export interface DashboardState {
    * The webview renders the retry option in the stage menu when available.
    */
   rerunGate: RetryGateState;
+  /** "Reset stage" availability (T831), host-derived (`workflow/resetStage.ts`) in the same snapshot. */
+  resetStage: ResetStageState;
   /**
    * The "Address pull request feedback" recovery action's availability for the
    * ship stage, host-derived (`workflow/prFeedbackFix.ts`) in the same snapshot

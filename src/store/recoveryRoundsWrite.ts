@@ -113,7 +113,31 @@ export interface OpenRecoveryRoundInput {
  * what the series exists to record.
  */
 export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): RecoveryRound {
-  let created: RecoveryRound | undefined;
+  const created = openRound(store, input, false);
+  if (created === null) throw new Error('recovery round insert did not land');
+  return created;
+}
+
+/**
+ * Like `openRecoveryRound`, but exhaustion is terminal for the episode: when the
+ * new round would exceed `input.maxRounds` NO round is inserted (the
+ * `round <= max_rounds` CHECK would throw), the episode's latest round is
+ * marked `exhausted` and null is returned. The caller parks the ticket for a
+ * human (Reset stage) instead of starting another fix.
+ */
+export function openRecoveryRoundWithinBudget(
+  store: Store,
+  input: OpenRecoveryRoundInput,
+): RecoveryRound | null {
+  return openRound(store, input, true);
+}
+
+function openRound(
+  store: Store,
+  input: OpenRecoveryRoundInput,
+  enforceBudget: boolean,
+): RecoveryRound | null {
+  let created: RecoveryRound | null = null;
   const apply = store.db.transaction(() => {
     const revalidating = activeRoundAnyStage(store, input.ticketId);
     if (revalidating !== null) {
@@ -158,6 +182,16 @@ export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): 
       )
       .get(input.ticketId, input.sourceStage, episode) as { max_round: number | null } | undefined;
     const roundNumber = (prev?.max_round ?? 0) + 1;
+    if (enforceBudget && roundNumber > input.maxRounds) {
+      store.db
+        .prepare(
+          `UPDATE recovery_rounds SET status = 'exhausted', ended_at = COALESCE(ended_at, ?)
+            WHERE ticket_id = ? AND source_stage = ? AND episode = ? AND round = ?
+              AND status IN ('pending','failed')`,
+        )
+        .run(input.startedAt, input.ticketId, input.sourceStage, episode, prev?.max_round ?? 0);
+      return;
+    }
 
     const info = store.db
       .prepare(
@@ -181,10 +215,9 @@ export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): 
         input.maxRounds,
         input.startedAt,
       );
-    created = roundById(store, Number(info.lastInsertRowid));
+    created = roundById(store, Number(info.lastInsertRowid)) ?? null;
   });
   apply();
-  if (created === undefined) throw new Error('recovery round insert did not land');
   return created;
 }
 

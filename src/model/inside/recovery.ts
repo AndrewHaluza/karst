@@ -124,7 +124,7 @@ export function recoveryProcess(
       : status === 'pass' && latest.status !== 'passed'
         ? `${STAGE_TITLES[latest.sourceStage]} passed on a later attempt — this round's own failure is history`
           : latest.status === 'exhausted'
-            ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
+            ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Use Reset stage in the stage menu to start a fresh episode.`
             : latest.status === 'failed'
               ? 'the fix did not hold — the next round names the new cause'
               : latest.status === 'pending' || latest.status === 'fixing'

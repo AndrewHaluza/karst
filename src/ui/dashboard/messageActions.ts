@@ -64,6 +64,8 @@ export interface DashboardActions {
   resumeTicket: () => void | Promise<void>;
   /** Move this ticket back to Implement — the unified recovery action (host-confirmed). */
   sendBackToImplement: () => void | Promise<void>;
+  /** Reset the failed gate stage and re-drive (host-confirmed). */
+  resetStage: () => void | Promise<void>;
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;

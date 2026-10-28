@@ -137,6 +137,19 @@ describe('Inside — the stage menu', () => {
     expect(settled).toEqual([['req-1', true, 'Sent back to Implement.']]);
   });
 
+  it('reset stage (T831): offered on the failed gate, posts the message and settles on the receipt', () => {
+    const state = (over: Record<string, unknown> = {}) =>
+      insideState({ stageCurrent: 'fix', presentedStage: 'uat', resetStage: { available: true, stage: 'uat' }, ...over });
+    const h = mountInside(state());
+    fireEvent.click(trigger());
+    expect(items().map((b) => b.dataset.act)).toEqual(['reset-stage']);
+    expect(text(items()[0]!.querySelector('span'))).toBe('Reset UAT');
+    fireEvent.click(must('.stageMenu [data-act="reset-stage"]'));
+    expect(h.send.resetStage).toHaveBeenCalledTimes(1);
+    h.emit({ type: 'state', state: state({ stageCurrent: 'uat', presentedStage: 'uat', resetStage: { available: false, reason: 'stage' } }) } as HostMessage);
+    expect(settled).toEqual([['req-1', true, 'Stage reset; re-running.']]);
+  });
+
   it('shares Send CI failure with the pull request panel: started there, it is already in flight here', () => {
     const h = mountInside(menuState());
     act(() => h.ops().beginAction('ci', 'panel-1'));

@@ -63,7 +63,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
   const scope = useMemo(() => ({ memory, stageKey: stage, ticketId: frame?.ticketId ?? 0 }), [memory, stage, frame?.ticketId]);
   if (!frame) return null;
   const { view, menu, deliver, back } = frame;
-  const anyMenu = menu.sendBack || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null;
+  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null;
   const lstatus = frame.live ? frame.live.status || 'run' : '';
   return (
     <InsideScopeContext.Provider value={scope}>
@@ -78,7 +78,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
             </span>
           </div>
         ) : null}
-        <div className={`inside-head${menu.sendBack || menu.prFeedback || menu.ci || menu.rebase ? ' has-actions' : ''}`} title={view.title || undefined}>
+        <div className={`inside-head${menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase ? ' has-actions' : ''}`} title={view.title || undefined}>
           <span className="inside-title" id="inside-title">{`Inside ${view.stageKey}`}</span>
           <span className={`inside-live ${lstatus}`}>
             <LiveLine stage={stage} live={frame.live} />
