@@ -147,7 +147,7 @@ export function formatClock(cell: StepperCell, now: string): string {
   // span reads 0.0s, noise beside the timestamp. The header names only the
   // completion time; the stage durations live in the receipt's Timing strip.
   if (cell.stageKey === 'done') {
-    return `${formatTime(cell.startedAt)}`;
+    return formatTime(cell.startedAt);
   }
   const took = formatDuration(cell.startedAt, cell.endedAt);
   return `${formatTime(cell.startedAt)}${took ? ` · ${took}` : ''}`;
