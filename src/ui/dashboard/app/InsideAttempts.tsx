@@ -8,11 +8,11 @@
  * host-authoritative state). Roving tabindex (WAI-ARIA tabs): only the selected tab sits in the Tab order; Left /
  * Right move both focus and the host selection between siblings, without wrapping.
  */
-import { Fragment, useCallback, useRef, type KeyboardEvent } from "react";
-import type { GateAttemptView } from "../../../model/inside/rounds.js";
-import type { GateStage } from "../../../store/ticketGates.js";
-import { useDashboardSend } from "./DashboardAppContext.js";
-import { withKeys } from "./insideText.js";
+import { Fragment, useCallback, useRef, type KeyboardEvent } from 'react';
+import type { GateAttemptView } from '../../../model/inside/rounds.js';
+import type { GateStage } from '../../../store/ticketGates.js';
+import { useDashboardSend } from './DashboardAppContext.js';
+import { withKeys } from './insideText.js';
 
 export function AttemptTabs({
   stageKey,
@@ -27,8 +27,8 @@ export function AttemptTabs({
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      const next = attempts?.[e.key === "ArrowRight" ? index + 1 : index - 1];
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const next = attempts?.[e.key === 'ArrowRight' ? index + 1 : index - 1];
       if (!next) return;
       e.preventDefault();
       send.selectGateAttempt(stageKey as GateStage, next.key);
@@ -38,7 +38,7 @@ export function AttemptTabs({
     [attempts, send, stageKey],
   );
   if (!attempts || attempts.length < 2) return null;
-  const keys = attempts.map((a) => a.key).join(",");
+  const keys = attempts.map((a) => a.key).join(',');
   return (
     <div className="attempt-tabs" role="tablist" aria-label="Rounds">
       <span className="attempt-tabs-label" aria-hidden="true">
@@ -60,12 +60,12 @@ export function AttemptTabs({
               className="attempt-tab"
               aria-label={
                 isSelected
-                  ? `${a.label}, ${a.statusLabel}, ${a.tail}`
+                  ? `${a.label} ${a.tail}, ${a.statusLabel}`
                   : `${a.label}, ${a.statusLabel}`
               }
               role="tab"
               id={`attempt-tab-${stageKey}-${i}`}
-              aria-selected={isSelected ? "true" : "false"}
+              aria-selected={isSelected ? 'true' : 'false'}
               tabIndex={isSelected ? 0 : -1}
               data-act="select-gate-attempt"
               data-stage={stageKey}

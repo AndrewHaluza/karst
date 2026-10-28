@@ -841,9 +841,9 @@ export interface InsideStageView {
    */
   selectedAttempt?: AttemptKey;
   /**
-   * Host-authored banner copy shown above the ledger when the selection is
-   * NOT the latest attempt — the selected round's caption (e.g. "R2 of 3
-   * · an earlier round").
+   * Host-authored caption shown above the ledger for any selection that
+   * has one (the latest round included): `opened by … · <duration> · no fix
+   * attempts left`, each part present only when it applies.
    * The webview renders it verbatim (UI-R31) and never derives it from
    * `selectedAttempt` itself. Absent → no banner.
    */

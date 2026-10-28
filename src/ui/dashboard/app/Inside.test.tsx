@@ -173,7 +173,7 @@ describe('Inside — the round switcher', () => {
   it('labels tabs R<n>, shows the tail only on the selected tab, and keeps the status word in the accessible name', () => {
     mountInside(state());
     expect(tabs().map((t) => text(t))).toEqual(['R1', 'R2of 3', 'R3']);
-    expect(tabs().map((t) => t.getAttribute('aria-label'))).toEqual(['R1, failed', 'R2, passed, of 3', 'R3, running']);
+    expect(tabs().map((t) => t.getAttribute('aria-label'))).toEqual(['R1, failed', 'R2 of 3, passed', 'R3, running']);
     expect(text(must('.attempt-tabs-label'))).toBe('Rounds');
     expect(all('.attempt-conn').length).toBe(2);
     expect(must('.attempt-conn').getAttribute('aria-hidden')).toBe('true');

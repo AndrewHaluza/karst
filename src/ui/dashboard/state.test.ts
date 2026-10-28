@@ -2129,7 +2129,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     );
     const uat = state.insideViews.uat;
     expect(uat.selectedAttempt).toBe(requested);
-    expect(uat.attemptNote).not.toContain('not the current result');
+    expect(uat.attemptNote).toBe('1m 0s');
     // Round 1's own (failing) batch renders, not the live attempt's.
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('fail');
   });
@@ -2424,7 +2424,7 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
       { review: older },
     );
-    expect(state.insideViews.review.attemptNote ?? '').not.toContain('not the current result');
+    expect(state.insideViews.review.attemptNote).toBe('30.0s');
   });
 });
 
