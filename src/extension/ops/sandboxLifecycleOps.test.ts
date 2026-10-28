@@ -329,7 +329,7 @@ describe('lifecycle edge cases', () => {
   it('a failed listing does not prove absence: sync is still attempted', async () => {
     const { d, lines } = deps({ inv: [], answers: { 'sbx ls': { code: 1, stderr: 'down' } } });
     await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
-    expect(lines().some((l) => l.endsWith('-C /wt merge --ff-only FETCH_HEAD'))).toBe(true);
+    expect(lines().some((l) => l.endsWith('-C /wt merge --ff-only ' + 'f'.repeat(40)))).toBe(true);
   });
 
   it('removes the ticket\'s sandbox of ANOTHER core and backend too, not only the current core', async () => {

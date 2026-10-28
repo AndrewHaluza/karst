@@ -39,9 +39,9 @@ async function countRange(deps: CountDeps, cwd: string, range: string): Promise<
 /** Counts for one PR's repo. A failed read counts as 0: this line is advisory, the action re-derives. */
 export async function countUndelivered(deps: CountDeps, pr: DeliverPr): Promise<UndeliveredCounts> {
   const ref = await deps.sandboxRef(pr.cwd);
-  // Right after the fetch: FETCH_HEAD is what the sandbox read left behind.
+  // `ref` is the sandbox head the runner's diff resolved (a sha), so the fetch below cannot disturb it.
   const sandboxAhead = ref === null ? 0 : await countRange(deps, pr.cwd, `HEAD..${ref}`);
-  // `--no-write-fetch-head` keeps the sandbox's FETCH_HEAD (the divergence classifier reads it).
+  // `--no-write-fetch-head`: this advisory fetch must not truncate FETCH_HEAD for other readers.
   await deps.git(pr.cwd, ['fetch', '--no-write-fetch-head', 'origin', pr.branch]);
   const hostAhead = await countRange(deps, pr.cwd, `origin/${pr.branch}..HEAD`);
   return { hostAhead, sandboxAhead };

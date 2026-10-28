@@ -313,7 +313,7 @@ async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget, known?
       return { ok: true };
     }
     const diverged = /not a fast-forward/i.test(result.reason);
-    // The failed sync left the clone's branch in FETCH_HEAD, which the classifier reads.
+    // The failed sync left the clone's branch in the private sandbox ref, which the classifier reads.
     const rewritten = diverged && (await isRewritten(deps, { path: target.worktree.path, branch: target.worktree.branch, ticketId: target.ticketId }));
     if (diverged) deps.onRewritten?.(target.ticketId, rewritten);
     return { ok: false, reason: result.reason, diverged, ...(rewritten ? { rewritten } : {}) };
@@ -348,7 +348,7 @@ export async function recordSyncedHead(deps: SandboxSyncDeps, target: SandboxSyn
   await recordHostHead(hostHeadFileFor(dir), target.worktree.path, sha).catch(() => undefined);
 }
 
-/** Is the refused sync a host rewrite? Needs the clone's branch in FETCH_HEAD of the host worktree. */
+/** Is the refused sync a host rewrite? Needs the clone's branch in the private sandbox ref of the host worktree. */
 export async function isRewritten(deps: SandboxSyncDeps, wt: { path: string; branch: string; ticketId: number }): Promise<boolean> {
   const dir = deps.evidenceDirOf?.(wt.ticketId);
   const recorded = dir ? await readHostHead(hostHeadFileFor(dir), wt.path) : undefined;

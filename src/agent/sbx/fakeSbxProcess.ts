@@ -27,7 +27,9 @@ export function fakeSbxProcess(
         .sort((a, b) => b.length - a.length)[0];
       // `sbx exec … karst-bundle <branch>` (sync bundle-out) answers a tiny base64 bundle unless a test says otherwise.
       const bundleOut = command === 'sbx' && args.includes('karst-bundle') ? ({ stdout: 'YnVuZGxl' } as Partial<ProcessResult>) : ({} as Partial<ProcessResult>);
-      const hit = key === undefined ? bundleOut : answers[key]!;
+      // `rev-parse … refs/karst/sandbox/<b>^{commit}` (sync resolves the fetched private ref) answers a sha unless a test says otherwise.
+      const sandboxHead = command === 'git' && args.some((x) => x.startsWith('refs/karst/sandbox/')) ? ({ stdout: `${'f'.repeat(40)}\n` } as Partial<ProcessResult>) : bundleOut;
+      const hit = key === undefined ? sandboxHead : answers[key]!;
       const res = { code: hit.code ?? 0, stdout: hit.stdout ?? '', stderr: hit.stderr ?? '' };
       if (opts.keepListing) return Promise.resolve(res);
       if (args[0] === 'rm' && (res.code === 0 || /no such/i.test(res.stderr))) for (const n of args.slice(1)) if (!n.startsWith('-')) gone.add(n);

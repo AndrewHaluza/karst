@@ -1,3 +1,4 @@
+import { sandboxHeadRef } from '../../agent/cloneSyncClass.js';
 import type { ProcessResult, SbxProcess } from '../../agent/sbx/sbxProcess.js';
 
 /** Runs host git in `cwd`; a non-zero code is a result, never a throw. */
@@ -31,12 +32,12 @@ async function reflogHeads(run: GitRun, input: ClassifyInput): Promise<string[]>
 
 /**
  * Why a sync was refused as not-a-fast-forward, once the clone's branch sits in
- * FETCH_HEAD of the host worktree. 'rewritten' only when the old host head is
+ * the private `refs/karst/sandbox/<branch>` of the host worktree. 'rewritten' only when the old host head is
  * provably in the clone and no longer in the host branch (a rebase/amend);
  * anything else is true divergence and stays refused (arch:AC-33).
  */
 export async function classifyDivergence(run: GitRun, input: ClassifyInput): Promise<Divergence> {
-  const cloneHead = await revParse(run, input.worktree, 'FETCH_HEAD');
+  const cloneHead = await revParse(run, input.worktree, sandboxHeadRef(input.branch));
   const hostHead = await revParse(run, input.worktree, 'HEAD');
   if (!cloneHead || !hostHead) return { kind: 'diverged' };
   const candidates = input.recorded ? [input.recorded] : await reflogHeads(run, input);

@@ -336,9 +336,9 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     const answers = (refused: boolean) => ({
       'git -C /wt/a rev-parse HEAD': { stdout: `${HOST}\n` },
       'git -C /wt/a rev-parse --verify --quiet HEAD': { stdout: `${HOST}\n` },
-      'git -C /wt/a rev-parse --verify --quiet FETCH_HEAD': { stdout: `${CLONE}\n` },
-      'git -C /wt/a merge-base --is-ancestor HEAD FETCH_HEAD': { code: refused ? 1 : 0 },
-      'git -C /wt/a merge-base --is-ancestor FETCH_HEAD HEAD': { code: refused ? 1 : 0 }, // refused = diverged: neither is an ancestor
+      'git -C /wt/a rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}': { stdout: `${CLONE}\n` },
+      [`git -C /wt/a merge-base --is-ancestor HEAD ${CLONE}`]: { code: refused ? 1 : 0 },
+      [`git -C /wt/a merge-base --is-ancestor ${CLONE} HEAD`]: { code: refused ? 1 : 0 }, // refused = diverged: neither is an ancestor
       [`git -C /wt/a merge-base --is-ancestor ${OLD} ${CLONE}`]: { code: 0 },
       [`git -C /wt/a merge-base --is-ancestor ${OLD} ${HOST}`]: { code: 1 },
     });
@@ -599,7 +599,8 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
       expect(await ensureSandboxInSync(dep(bundled({}, { code: 4 })), target)).toMatchObject({ ok: false, diverged: true });
       expect(await ensureSandboxInSync(dep(bundled({}, { code: 3, stdout: ' M a' })), target)).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('uncommitted work') });
     });
-    const BEHIND = { 'git -C /wt/a merge-base --is-ancestor HEAD FETCH_HEAD': { code: 1 }, 'git -C /wt/a merge-base --is-ancestor FETCH_HEAD HEAD': { code: 0 } };
+    const FAKE_SHA = 'f'.repeat(40); // fakeSbxProcess's default sandbox head
+    const BEHIND = { [`git -C /wt/a merge-base --is-ancestor HEAD ${FAKE_SHA}`]: { code: 1 }, [`git -C /wt/a merge-base --is-ancestor ${FAKE_SHA} HEAD`]: { code: 0 } };
     it('a clone BEHIND the host is not a divergence: no merge, one refresh, ok (D216)', async () => {
       const proc = bundled(BEHIND, { code: 0 });
       await expect(ensureSandboxInSync(dep(proc), target)).resolves.toEqual({ ok: true });
