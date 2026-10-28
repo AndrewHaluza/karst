@@ -238,11 +238,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   { stage: 'uat', id: 'exhausted', state: fromFacts('uat', exhaustedFacts('uat')) },
   {
     stage: 'uat',
-    id: 'exhausted-older-round',
-    state: fromFacts('uat', { ...exhaustedFacts('uat'), attemptSelection: { uat: 'sr:1' } }),
-  },
-  {
-    stage: 'uat',
     id: 'boot-failed',
     state: fromFacts(
       'uat',
@@ -315,11 +310,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     state: fromFacts('review', loopFacts('review', 'passed', { attemptSelection: { review: 'sr:1' } })),
   },
   { stage: 'review', id: 'exhausted', state: fromFacts('review', exhaustedFacts('review')) },
-  {
-    stage: 'review',
-    id: 'exhausted-older-round',
-    state: fromFacts('review', { ...exhaustedFacts('review'), attemptSelection: { review: 'sr:1' } }),
-  },
   {
     stage: 'review',
     id: 'usage-limit',

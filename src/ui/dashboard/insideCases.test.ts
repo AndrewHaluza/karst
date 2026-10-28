@@ -18,7 +18,7 @@ describe('inside case registry (ui:VISUAL-VARIANTS)', () => {
   });
 
   it.each(['uat', 'review'] as const)('%s has looped cases with 2+ attempts and a selected attempt', (stage) => {
-    for (const id of ['fix-running', 'passed-round-2', 'older-round', 'exhausted', 'exhausted-older-round']) {
+    for (const id of ['fix-running', 'passed-round-2', 'older-round', 'exhausted']) {
       const c = INSIDE_CASES.find((x) => x.stage === stage && x.id === id);
       expect(c, `${stage}-${id}`).toBeDefined();
       const view = c!.state().insideViews[stage];
@@ -30,14 +30,6 @@ describe('inside case registry (ui:VISUAL-VARIANTS)', () => {
   it('older-round selects a non-latest attempt', () => {
     for (const stage of ['uat', 'review'] as const) {
       const v = INSIDE_CASES.find((x) => x.stage === stage && x.id === 'older-round')!.state().insideViews[stage];
-      expect(v.attempts!.find((a) => a.key === v.selectedAttempt)?.latest).toBeFalsy();
-    }
-  });
-
-  it('exhausted-older-round has 3+ rounds with a non-latest round selected', () => {
-    for (const stage of ['uat', 'review'] as const) {
-      const v = INSIDE_CASES.find((x) => x.stage === stage && x.id === 'exhausted-older-round')!.state().insideViews[stage];
-      expect(v.attempts!.length).toBeGreaterThanOrEqual(3);
       expect(v.attempts!.find((a) => a.key === v.selectedAttempt)?.latest).toBeFalsy();
     }
   });
