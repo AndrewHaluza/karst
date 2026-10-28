@@ -16,10 +16,29 @@ import { useSlice } from './useSlice.js';
 type GateStage = 'uat' | 'review';
 
 /** One toggle row for one resolved gate: a real switch whose runtime-pending state is set on click (UI-R11). */
-function GateRow({ stage, name, disabled }: { readonly stage: GateStage; readonly name: string; readonly disabled: boolean }) {
+function GateRow({
+  stage,
+  name,
+  disabled,
+  configOff = false,
+}: {
+  readonly stage: GateStage;
+  readonly name: string;
+  readonly disabled: boolean;
+  readonly configOff?: boolean;
+}) {
   const send = useDashboardSend();
   const label = `${disabled ? 'Enable' : 'Disable'} ${name} for this ticket`;
   const onClick = usePendingAction((requestId) => send.setDisabledGates(stage, name, !disabled, requestId));
+  if (configOff) {
+    // Off project-wide in Settings: a ticket cannot switch it back on, so no switch is offered.
+    return (
+      <div className="gateRow off">
+        <span className="gateName">{name}</span>
+        <span className="menuBlurb">off in Settings</span>
+      </div>
+    );
+  }
   return (
     <div className={disabled ? 'gateRow off' : 'gateRow'}>
       <span className="gateName">{name}</span>
@@ -64,7 +83,7 @@ function Gates() {
           <div key={stage} className="gateGroup">
             <div className="gateHead">{title}</div>
             {opts.map((o) => (
-              <GateRow key={o.name} stage={stage} name={o.name} disabled={!!o.disabled} />
+              <GateRow key={o.name} stage={stage} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
             ))}
           </div>
         ) : null,

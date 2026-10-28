@@ -547,6 +547,8 @@ export interface GateDef {
   repo?: string; // manifest repository name; absent = every target
   /** Where a sandboxed ticket runs this gate; absent = `inside` (arch:AC-36). `host` runs it on the host after a verified sync. */
   sandbox?: 'host' | 'inside';
+  /** `false` keeps the definition but skips the gate project-wide; absent = on. */
+  enabled?: boolean;
 }
 
 /** UAT's gate shape: `GateDef` plus a repo-relative report path, inert in Phase 1. */
@@ -621,6 +623,8 @@ export interface UatConfig {
    */
   stallTimeoutMinutes: number;
   gates?: UatGateDef[];
+  /** Every gate off: false/absent = run nothing (stage bypassed); true = probe package.json scripts. */
+  probeWhenAllDisabled?: boolean;
   /**
    * Task 8: an optional deterministic verification command for the UAT
    * Tester's work — a host-authored `GateDef` (script/command) run through the
@@ -745,6 +749,8 @@ export interface ReviewConfig {
    */
   openChanges: boolean;
   gates?: GateDef[];
+  /** Every gate off: false/absent = run nothing (stage bypassed); true = probe package.json scripts. */
+  probeWhenAllDisabled?: boolean;
   findings: ReviewFindingsConfig;
   repositories: Record<string, { gates?: GateDef[] }>;
 }

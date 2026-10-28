@@ -122,6 +122,12 @@ export function validateGate(raw: unknown, index: number, where: string): UatGat
     }
     gate.sandbox = raw.sandbox;
   }
+  if (raw.enabled !== undefined) {
+    if (typeof raw.enabled !== 'boolean') {
+      throw new ManifestError(`${where} "${name}".enabled must be a boolean`);
+    }
+    gate.enabled = raw.enabled;
+  }
   if (raw.report !== undefined) {
     if (typeof raw.report !== 'string') {
       throw new ManifestError(`${where} "${name}".report must be a string`);
@@ -318,6 +324,10 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   }
   const gates = validateGates(raw.gates, 'uat.gates');
   if (gates !== undefined) config.gates = gates;
+  if (raw.probeWhenAllDisabled !== undefined && typeof raw.probeWhenAllDisabled !== 'boolean') {
+    throw new ManifestError('uat.probeWhenAllDisabled must be a boolean');
+  }
+  if (raw.probeWhenAllDisabled === true) config.probeWhenAllDisabled = true;
   // Task 8: a single optional deterministic verifier gate for the UAT Tester.
   // Host-authored command/script definition — never AI output — parsed through
   // the SAME argv-safe `validateGate` path as `uat.gates` entries so a forged

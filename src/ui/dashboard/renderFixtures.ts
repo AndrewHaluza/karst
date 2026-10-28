@@ -1281,7 +1281,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         fault: null,
         pr: { number: 418, state: 'merged', more: 0 },
         agent: null,
-        stageSince: '2026-10-27T08:00:00.000Z',
+        stageSince: hoursAgo(5.5),
         queuePos: null,
       },
       {
@@ -1295,10 +1295,10 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         blocking: true,
         done: false,
         autostart: null,
-        fault: { kind: 'usage-limit', title: 'Provider out of quota', reason: 'anthropic: monthly quota exceeded', since: '2026-10-27T09:00:00.000Z' },
+        fault: { kind: 'usage-limit', title: 'Provider out of quota', reason: 'anthropic: monthly quota exceeded', since: hoursAgo(3.5) },
         pr: { number: 422, state: 'open', more: 1 },
         agent: { core: 'claude', coreLabel: 'Claude', model: 'claude-sonnet-5-5', modelShort: 'Sonnet 5.5' },
-        stageSince: '2026-10-27T08:30:00.000Z',
+        stageSince: hoursAgo(4.5),
         queuePos: null,
       },
       {
@@ -1322,4 +1322,9 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
     subtaskProgress: { done: 1, total: 3 },
     canAddSubtask: true,
   };
+}
+
+/** Fixed offset from the render clock (mid-hour, so the `Xh` text is stable): an absolute date aged the visual baselines run by run. */
+function hoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 3_600_000).toISOString();
 }

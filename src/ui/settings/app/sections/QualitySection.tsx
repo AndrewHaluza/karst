@@ -59,6 +59,8 @@ import {
   addRepoOverride,
   parseGateBlock,
   removeRepoOverride,
+  setGateEnabled,
+  setProbeWhenAllDisabled,
   updateFindings,
   updateReview,
   updateUat,
@@ -275,7 +277,7 @@ export function QualitySection() {
         </div>
       </div>
 
-      <div className="section-block">
+      <div className="section-block" data-region="gates">
         <div className="section-head">
           <div>
             <div className="section-title">Gates</div>
@@ -308,12 +310,17 @@ function GateBlock({
   const overrides = Object.keys(cfg?.repositories ?? {});
 
   const gates = cfg?.gates ?? [];
+  const offCount = gates.filter((g) => g.enabled === false).length;
+  const allOff = gates.length > 0 && offCount === gates.length;
+  const probe = (cfg as { probeWhenAllDisabled?: boolean } | undefined)?.probeWhenAllDisabled === true;
+  const { edit } = useSettingsApp();
   return (
     <div className="quality-panel gate-block">
       <div className="gate-block-head">
         <div className="section-title">{BLOCK_TITLES[base]}</div>
         <span className="gate-count">
           {gates.length === 1 ? '1 gate' : `${gates.length} gates`}
+          {offCount > 0 ? ` · ${offCount} off` : ''}
         </span>
       </div>
       <GateList
@@ -322,6 +329,23 @@ function GateBlock({
         repositories={repositories}
         emptyCopy="No gates declared — karst probes the repository's package.json scripts instead. Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script."
       />
+      {gates.length === 0 ? null : (
+        <div className="gate-probe">
+          <Field
+            label="When every gate is off, probe package.json scripts"
+            help="Off (default): nothing runs and the stage is bypassed. On: karst probes package.json scripts as it does for an empty list."
+            control={{
+              kind: 'checkbox',
+              name: `${base}ProbeWhenAllDisabled`,
+              checked: probe,
+              onChange: (checked) => edit((current) => setProbeWhenAllDisabled(current, base, checked)),
+            }}
+          />
+          {allOff && !probe ? (
+            <div className="gate-bypass-note">Every gate is off — this stage will be bypassed.</div>
+          ) : null}
+        </div>
+      )}
       {repositories.length === 0 ? null : (
         <OverrideSection base={base} repositories={repositories} overrides={overrides} />
       )}
@@ -376,6 +400,7 @@ function GateList({
         <div className="gate-empty">{emptyCopy}</div>
       ) : (
         <div className="gate-head" aria-hidden="true">
+          <span>On</span>
           <span>Name</span>
           <span>Kind</span>
           <span>Runs</span>
@@ -387,7 +412,20 @@ function GateList({
         const n = index + 1;
         const problem = validateGateDraft(gate);
         return (
-          <div className="gate-row" key={rowIds[index]}>
+          <div className={gate.enabled === false ? 'gate-row gate-off' : 'gate-row'} key={rowIds[index]}>
+            <Field
+              label={`Gate ${n} enabled`}
+              hideLabel
+              control={{
+                kind: 'checkbox',
+                name: undefined,
+                checked: gate.enabled !== false,
+                onChange: (checked) =>
+                  change((current) =>
+                    current.map((g, i) => (i === index ? setGateEnabled(g, checked) : g)),
+                  ),
+              }}
+            />
             <GateTextField
               label={`Gate ${n} name`}
               value={gate.name ?? ''}
@@ -458,7 +496,7 @@ function GateList({
               <TablerIcon name="trash" />
             </IconButton>
             <div className="gate-meta">
-              <span className="gate-summary">{gateSummary(gate)}</span>
+              <span className="gate-summary">{gate.enabled === false ? 'off — ' : ''}{gateSummary(gate)}</span>
               {problem ? (
                 <span className="gate-problem" role="alert">
                   {problem}

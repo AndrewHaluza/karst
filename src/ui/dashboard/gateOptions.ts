@@ -20,6 +20,8 @@ import { resolveReviewGates } from '../../workflow/review/gates.js';
 export interface GateOption {
   name: string;
   disabled: boolean;
+  /** Off in Settings (`enabled: false`): project-wide, so a ticket cannot switch it back on. */
+  configDisabled?: boolean;
 }
 
 export interface GateOptions {
@@ -30,13 +32,23 @@ export interface GateOptions {
 export type GateOptionsLoader = (ticketId: number, signal: AbortSignal) => Promise<GateOptions>;
 
 /** Names in resolution order, deduplicated — one toggle per name, not per repo. */
-function optionsFrom(names: readonly string[], disabled: readonly string[]): GateOption[] {
+function optionsFrom(
+  names: readonly string[],
+  disabled: readonly string[],
+  configOff: readonly string[] = [],
+): GateOption[] {
   const seen = new Set<string>();
   const out: GateOption[] = [];
   for (const name of names) {
     if (seen.has(name)) continue;
     seen.add(name);
-    out.push({ name, disabled: disabled.includes(name) });
+    const off = configOff.includes(name);
+    out.push({ name, disabled: off || disabled.includes(name), ...(off ? { configDisabled: true } : {}) });
+  }
+  for (const name of configOff) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, disabled: true, configDisabled: true });
   }
   // A gate the user disabled is REMOVED from the resolved list by construction,
   // so it would otherwise vanish from the very panel that has to offer the way
@@ -98,11 +110,14 @@ export function buildGateOptionsLoader(deps: {
       if (signal.aborted) return empty;
 
       const uatNames: string[] = [];
+      const uatOff: string[] = [];
+      const reviewOff: string[] = [];
       if (uatPlan.kind === 'targets') {
         for (const target of uatPlan.targets) {
           const resolution = resolveTargetGates(probe(target.path), manifest.uat, target.names);
           if (resolution.kind !== 'gates') continue;
           uatNames.push(...resolution.gates.map((g) => g.name));
+          uatOff.push(...resolution.skipped.map((g) => g.name));
         }
       }
 
@@ -112,12 +127,13 @@ export function buildGateOptionsLoader(deps: {
           const resolution = resolveReviewGates(probe(target.path), manifest.review, target.names);
           if (resolution.kind !== 'gates') continue;
           reviewNames.push(...resolution.gates.map((g) => g.name));
+          reviewOff.push(...resolution.skipped.map((g) => g.name));
         }
       }
 
       return {
-        uat: optionsFrom(uatNames, disabled.uat),
-        review: optionsFrom(reviewNames, disabled.review),
+        uat: optionsFrom(uatNames, disabled.uat, uatOff.filter((n) => !uatNames.includes(n))),
+        review: optionsFrom(reviewNames, disabled.review, reviewOff.filter((n) => !reviewNames.includes(n))),
       };
     } catch {
       // A broken git, an unreadable tree — the panel is an observer here and a

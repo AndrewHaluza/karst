@@ -64,3 +64,25 @@ export function partitionDisabled(
 export type StageGateResolution =
   | { kind: 'gates'; gates: ResolvedGate[]; skipped: ResolvedGate[] }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
+
+/**
+ * Apply the manifest's per-gate `enabled: false` switch to one declared list.
+ *
+ * Returns the list `resolveGates` should see plus the names to cut AFTER it
+ * (merged with the ticket's own disables, so the skip evidence row is recorded
+ * as for any disabled gate). When EVERY declared gate is off, the default is to
+ * run nothing (the stage bypasses); `probeWhenAllDisabled` opts into the probe
+ * instead, by resolving as if the list were empty. Not done inside
+ * `resolveGates` itself: that answers "what did the config declare".
+ */
+export function applyConfigSwitch<T extends { name: string; enabled?: boolean }>(
+  declared: readonly T[],
+  probeWhenAllDisabled: boolean | undefined,
+): { declared: readonly T[]; disabledNames: string[] } {
+  const off = declared.filter((g) => g.enabled === false);
+  if (off.length === 0) return { declared, disabledNames: [] };
+  if (off.length === declared.length && probeWhenAllDisabled === true) {
+    return { declared: [], disabledNames: [] };
+  }
+  return { declared, disabledNames: off.map((g) => g.name) };
+}

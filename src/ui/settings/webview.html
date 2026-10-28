@@ -378,7 +378,7 @@
   .gate-count{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .gate-head,.gate-row{
     display:grid;
-    grid-template-columns:minmax(0,1.2fr) calc(var(--k-space-8) * 5) minmax(0,2fr) minmax(0,1.2fr) auto;
+    grid-template-columns:auto minmax(0,1.2fr) calc(var(--k-space-8) * 5) minmax(0,2fr) minmax(0,1.2fr) auto;
     column-gap:var(--k-space-3);align-items:center;
   }
   .gate-head{
@@ -394,6 +394,9 @@
   .gate-meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5)}
   .gate-summary{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .gate-problem{font-size:var(--k-text-xs);color:var(--k-danger)}
+  .gate-row.gate-off{background:var(--k-surface-hover)}
+  .gate-bypass-note{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
+  .gate-probe{margin-top:var(--k-space-4)}
   .gate-actions{margin-top:var(--k-space-4)}
 
   /* ---- quality tab: per-repository gate overrides ---- */
