@@ -154,8 +154,8 @@ describe('E2E: round-2 Inside ledger stays live, never stale', () => {
     expect(pendingGates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
     expect(pendingGates.status).toBe('run');
     expect(uatPending.attempts?.map((a) => ({ label: a.label, latest: a.latest }))).toEqual([
-      { label: 'attempt 1 · R1', latest: false },
-      { label: 'live', latest: true },
+      { label: 'R1', latest: false },
+      { label: 'R2', latest: true },
     ]);
 
     // Step 6: round 2 records a passing batch — the ledger reads passed.
