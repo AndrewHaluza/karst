@@ -174,7 +174,7 @@ describe('syncFromClone', () => {
   });
 
   it('reports a failed merge', async () => {
-    const proc = fakeDockerProcess({ 'git -C /w t merge --ff-only': { code: 1, stderr: 'dirty tree' } });
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA }, 'git -C /w t merge --ff-only': { code: 1, stderr: 'dirty tree' } });
     await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: 'git merge --ff-only failed: dirty tree' });
   });
 });
