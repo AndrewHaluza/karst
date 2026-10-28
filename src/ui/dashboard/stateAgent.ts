@@ -1,10 +1,10 @@
 import type { AgentProvider } from '../../manifest/types.js';
-import { resolveProvider } from '../../agent/registry.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
 import { resolveEffortForProvider } from '../../agent/models.js';
 import { buildAgentSessionView, agentSwitchCoreChoices, agentSwitchModelChoices } from '../../agent/sessionSwitch.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import { backendForCore } from '../../agent/backendChoices.js';
+import type { TicketPlacement } from '../../store/placement.js';
 import { buildSandboxView } from './sandboxView.js';
 import type { DashboardAgentContext, DashboardState } from './stateTypes.js';
 
@@ -17,6 +17,7 @@ export interface AgentStateInput {
   ticket: {
     agentPreset: string | null;
     agentProvider: AgentProvider | null;
+    sessionProvider?: AgentProvider | null;
     model: string | null;
     effort: string | null;
     stageCurrent: string | null;
@@ -35,6 +36,31 @@ export interface AgentStateInput {
 export interface AgentStateView {
   agentSession: DashboardState['agentSession'];
   agentSwitch: DashboardState['agentSwitch'];
+}
+
+export interface SessionCoreInput {
+  capabilityIdentity?: DashboardAgentContext['capabilityIdentity'];
+  ticket?: {
+    agentProvider?: AgentProvider | null;
+    sessionProvider?: AgentProvider | null;
+  };
+  defaultProvider?: AgentProvider;
+}
+
+/**
+ * Resolve the effective session core for a ticket (D294):
+ * capability identity provider, then agent provider, then session provider,
+ * then default provider, then 'claude'.
+ * Shared by the header and the sandbox strip so they cannot disagree.
+ */
+export function resolveSessionCore(input: SessionCoreInput): AgentProvider {
+  return (
+    input.capabilityIdentity?.implementation?.provider ??
+    input.ticket?.agentProvider ??
+    input.ticket?.sessionProvider ??
+    input.defaultProvider ??
+    'claude'
+  );
 }
 
 /**
@@ -61,7 +87,11 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
         model: agentContext.defaultModel ?? undefined,
         effort: agentContext.defaultEffort ?? undefined,
       };
-  const resolvedProvider = resolveProvider(ticket.agentProvider, defaults.provider);
+  const resolvedProvider = resolveSessionCore({
+    capabilityIdentity: agentContext.capabilityIdentity,
+    ticket,
+    defaultProvider,
+  });
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
     ticketModel: ticket.model,
@@ -145,12 +175,14 @@ export function buildSandbox(
   agentContext: DashboardAgentContext,
   ticket: { id: number; agentBackend?: Parameters<typeof buildSandboxView>[0]['ticketOverride'] },
   sessionCore: AgentProvider,
+  placement?: TicketPlacement | null,
 ): DashboardState['sandbox'] {
   return buildSandboxView({
-    project: backendForCore(agentContext.agentBackends, sessionCore),
+    project: placement ? placement.backend : backendForCore(agentContext.agentBackends, sessionCore),
     ticketOverride: ticket.agentBackend,
     core: sessionCore,
     rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
     agentSandbox: agentContext.agentSandbox,
+    placement,
   });
 }
