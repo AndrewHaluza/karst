@@ -1,4 +1,5 @@
 import { isFinishedStage } from '../../model/types.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
@@ -339,7 +340,11 @@ export function buildSidebarState(
         stageCurrent: t.stageCurrent,
         // Host-derived from the dashboard's own pure rules; the open-child count is a store read (never the
         // facet-scoped `subtaskChildCount`) and only runs for sub-tasks, the only rows Detach can apply to.
-        ...ticketActionFlags(t, t.subtaskParentId !== null ? listOpenSubtasks(store, t.id).length : 0),
+        ...ticketActionFlags(
+          t,
+          t.subtaskParentId !== null ? listOpenSubtasks(store, t.id).length : 0,
+          stageBlock(store, t.id, 'fix')?.kind === 'review-stalled',
+        ),
         conflicted: mergeGate?.kind === 'conflicted',
         ciFailing: ciFailingRepos.length > 0,
         isActive: node.ticketId === (opts.activeTicketId ?? null),

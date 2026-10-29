@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { Store } from '../store/db.js';
+import { ticketIdArg } from './ops/args.js';
 import { redesignHintAction, continueAnywayAction } from './ops/reviewStallActions.js';
 
 export interface ReviewStallBindingDeps {
@@ -33,4 +34,26 @@ export function reviewStallBinding(deps: ReviewStallBindingDeps) {
     reviewStallContinue: () => continueAnywayAction(actionDeps()),
     reviewStallRescope: editTicket,
   };
+}
+
+export interface ReviewStallCommandsDeps extends Omit<ReviewStallBindingDeps, 'ticketId' | 'editTicket' | 'drive'> {
+  drive: (ticketId: number) => void;
+}
+
+/** `karst.reviewStall*` — the sidebar ⋯ menu's route to the same three answers. */
+export function registerReviewStallCommands(deps: ReviewStallCommandsDeps): vscode.Disposable[] {
+  const { drive, ...rest } = deps;
+  const answer = (pick: 'reviewStallHint' | 'reviewStallContinue' | 'reviewStallRescope') => (arg: unknown) => {
+    const ticketId = ticketIdArg(arg);
+    if (ticketId === undefined) return;
+    reviewStallBinding({
+      ...rest, ticketId, drive: () => drive(ticketId),
+      editTicket: () => void vscode.commands.executeCommand('karst.editTicket', ticketId),
+    })[pick]();
+  };
+  return [
+    vscode.commands.registerCommand('karst.reviewStallHint', answer('reviewStallHint')),
+    vscode.commands.registerCommand('karst.reviewStallContinue', answer('reviewStallContinue')),
+    vscode.commands.registerCommand('karst.reviewStallRescope', answer('reviewStallRescope')),
+  ];
 }

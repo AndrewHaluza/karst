@@ -81,7 +81,7 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'create-follow-up', ticketId: '12' })).toBeNull();
   });
 
-  it.each(['pause-ticket', 'unpause-ticket', 'close-ticket', 'reopen-ticket', 'detach-subtask'] as const)(
+  it.each(['pause-ticket', 'unpause-ticket', 'close-ticket', 'reopen-ticket', 'detach-subtask', 'review-stall-hint', 'review-stall-continue', 'review-stall-rescope'] as const)(
     'accepts %s with a numeric ticketId and rejects anything else',
     (type) => {
       expect(parseSidebarMessage({ type, ticketId: 12 })).toEqual({ type, ticketId: 12 });
@@ -132,6 +132,9 @@ describe('routeSidebarAction', () => {
       closeTicket: vi.fn(),
       reopenTicket: vi.fn(),
       detachSubtask: vi.fn(),
+      reviewStallHint: vi.fn(),
+      reviewStallContinue: vi.fn(),
+      reviewStallRescope: vi.fn(),
       resolveConflicts: vi.fn(),
       sendCiFailure: vi.fn(),
       planCreate: vi.fn(),
@@ -160,6 +163,9 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'close-ticket', ticketId: 23 }, a);
     routeSidebarAction({ type: 'reopen-ticket', ticketId: 24 }, a);
     routeSidebarAction({ type: 'detach-subtask', ticketId: 25 }, a);
+    routeSidebarAction({ type: 'review-stall-hint', ticketId: 26 }, a);
+    routeSidebarAction({ type: 'review-stall-continue', ticketId: 27 }, a);
+    routeSidebarAction({ type: 'review-stall-rescope', ticketId: 28 }, a);
     routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
     routeSidebarAction({ type: 'send-ci-failure', ticketId: 13 }, a);
     routeSidebarAction({ type: 'open-resources' }, a);
@@ -177,6 +183,9 @@ describe('routeSidebarAction', () => {
     expect(a.closeTicket).toHaveBeenCalledWith(23);
     expect(a.reopenTicket).toHaveBeenCalledWith(24);
     expect(a.detachSubtask).toHaveBeenCalledWith(25);
+    expect(a.reviewStallHint).toHaveBeenCalledWith(26);
+    expect(a.reviewStallContinue).toHaveBeenCalledWith(27);
+    expect(a.reviewStallRescope).toHaveBeenCalledWith(28);
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
     expect(a.sendCiFailure).toHaveBeenCalledWith(13);
     expect(a.openResources).toHaveBeenCalledOnce();
