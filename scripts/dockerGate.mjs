@@ -177,8 +177,10 @@ export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_
 }
 
 /** Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full. */
-function narrowSweep(script) {
+export function narrowSweep(script) {
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return;
+  // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
+  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return;
   const paths = changedPaths();
   const selection = paths === null ? { all: true, views: [] } : selectViews(paths);
   let grep = null;

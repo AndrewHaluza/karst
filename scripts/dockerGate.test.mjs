@@ -9,6 +9,7 @@ import {
   gatePlan,
   hasDocker,
   isBaselineEnvironment,
+  narrowSweep,
   missingDockerMessage,
   readLocalCommand,
 } from './dockerGate.mjs';
@@ -240,5 +241,19 @@ describe('gatePlan local path', () => {
   it('is unaffected by container naming', () => {
     const plan = gatePlan({ docker: false, baseline: true, local: { command: 'x', rest: ['-e', 'A=1'] } });
     expect(plan).toEqual({ kind: 'local', command: 'x', env: { A: '1' } });
+  });
+});
+
+describe('narrowSweep', () => {
+  it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE'])('leaves the sweep full when %s is set', (intent) => {
+    const saved = { ...process.env };
+    delete process.env.KARST_UI_GREP;
+    process.env[intent] = '1';
+    try {
+      narrowSweep('test:layout:docker');
+      expect(process.env.KARST_UI_GREP).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
   });
 });
