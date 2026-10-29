@@ -8,6 +8,7 @@ import {
   calculateGrowth,
   resolveBaseRef,
   resolveMergeBase,
+  readBaseFileContent,
   checkExtensionRatchet,
   assertExtensionRatchet,
   extensionGrowthErrorMessage,
@@ -38,10 +39,10 @@ describe('extension.ts ratchet arithmetic and base resolution', () => {
 
   it('resolves base ref: falls back to develop when remote ref does not exist', async () => {
     const fakeGit: GitRunner = async (args) => {
-      if (args[0] === 'rev-parse' && args[2] === 'origin/develop') {
+      if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'origin/develop') {
         return { stdout: '', stderr: 'unknown revision', exitCode: 128 };
       }
-      if (args[0] === 'rev-parse' && args[2] === 'develop') {
+      if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'develop') {
         return { stdout: 'sha-local\n', stderr: '', exitCode: 0 };
       }
       return { stdout: '', stderr: 'not found', exitCode: 1 };
@@ -50,10 +51,54 @@ describe('extension.ts ratchet arithmetic and base resolution', () => {
     expect(ref).toBe('develop');
   });
 
+  it('handles git throws gracefully', async () => {
+    const throwingGit: GitRunner = async () => {
+      throw new Error('git crashed');
+    };
+    expect(await resolveBaseRef(throwingGit, '/repo')).toBeNull();
+    expect(await resolveMergeBase(throwingGit, '/repo')).toBeNull();
+    expect(await readBaseFileContent(throwingGit, '/repo', 'sha', 'file')).toBeNull();
+  });
+
+  it('resolves merge base returns null when git exits non-zero or stdout is empty', async () => {
+    const emptyGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: '   \n', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    expect(await resolveMergeBase(emptyGit, '/repo')).toBeNull();
+
+    const nonZeroGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'sha-mb\n', stderr: 'err', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    expect(await resolveMergeBase(nonZeroGit, '/repo')).toBeNull();
+  });
+
+  it('readBaseFileContent returns null when show exits non-zero', async () => {
+    const failGit: GitRunner = async () => ({ stdout: '', stderr: 'missing', exitCode: 1 });
+    expect(await readBaseFileContent(failGit, '/repo', 'mb', 'path')).toBeNull();
+  });
+
   it('resolves base ref: returns null when neither exists or git fails', async () => {
     const fakeGit: GitRunner = async () => ({ stdout: '', stderr: 'not found', exitCode: 128 });
     const ref = await resolveBaseRef(fakeGit, '/repo');
     expect(ref).toBeNull();
+  });
+
+  it('supports custom baseBranch', async () => {
+    const fakeGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse' && args[2] === 'origin/main') {
+        return { stdout: 'sha-origin\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base' && args[1] === 'origin/main') {
+        return { stdout: 'mb-main\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'error', exitCode: 1 };
+    };
+    const mb = await resolveMergeBase(fakeGit, '/repo', 'main');
+    expect(mb).toBe('mb-main');
   });
 
   it('resolves merge base with origin/develop when available', async () => {
@@ -126,6 +171,68 @@ describe('extension.ts ratchet growth check', () => {
       return { stdout: '', stderr: 'not found', exitCode: 1 };
     };
   }
+
+  it('falls back to ceiling when mergeBase is found but base file does not exist', async () => {
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'mb\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show') return { stdout: '', stderr: 'does not exist', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: 'line1\nline2',
+      ceiling: 10,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBeUndefined();
+  });
+
+  it('supports custom readFile callback', async () => {
+    let readCalled = false;
+    const res = await checkExtensionRatchet({
+      readFile: async (p) => {
+        readCalled = true;
+        return 'custom\nlines';
+      },
+      ceiling: 10,
+    });
+    expect(readCalled).toBe(true);
+    expect(res.currentLines).toBe(2);
+    expect(res.ceiling).toBe(10);
+  });
+
+  it('normalizes backslashes in relative path', async () => {
+    let requestedRelPath = '';
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'mb\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show' && args[1]) {
+        requestedRelPath = args[1];
+        return { stdout: 'line', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    await checkExtensionRatchet({
+      git,
+      relPath: 'src\\extension.ts',
+      currentSource: 'line',
+    });
+    expect(requestedRelPath).toBe('mb:src/extension.ts');
+  });
+
+  it('handles git throws inside checkExtensionRatchet', async () => {
+    const git: GitRunner = async () => {
+      throw new Error('fail');
+    };
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: 'line',
+      ceiling: 10,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.mergeBase).toBeUndefined();
+  });
 
   it('passes when change leaves the file the same size', async () => {
     const git = makeGit();
