@@ -9,13 +9,23 @@ import type { QuotaKnown, QuotaReader, QuotaSnapshot, QuotaWindow } from './type
  * Antigravity quota reader — Language Server Connect RPC endpoint (`arch:AC-29`).
  *
  * Antigravity exposes a loopback Connect RPC service during active CLI sessions.
- * Karst queries `POST /exa.language_server_pb.LanguageServerService/GetUserStatus`
- * with `Connect-Protocol-Version: 1` and `x-codeium-csrf-token`. Zero model request spend.
+ * Karst queries:
+ * 1. `POST /exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`
+ *    for 5h / weekly multi-group rate-limit buckets.
+ * 2. `POST /exa.language_server_pb.LanguageServerService/GetUserStatus`
+ *    for user subscription tier and monthly plan credits.
+ * Both endpoints use `Connect-Protocol-Version: 1` and `x-codeium-csrf-token`. Zero model request spend.
+ *
+ * Tier-aware filtering:
+ * - Free Tier: Shows only active Gemini rate limits (Gemini 5h & Gemini Weekly). Suppresses paid-only pools.
+ * - Paid Tiers (Pro/Ultra): Shows Gemini 5h/Weekly, separated Claude/GPT Weekly, Argon Weekly, and Monthly Plan Credits.
+ * - Suppresses any bucket with `disabled: true`.
+ * - Surfaces detected tier name in header source: "Antigravity Language Server (Google AI Pro)" / "(Free Tier)".
  *
  * Offline resilience:
  * Live snapshots are cached to `<appDataDir>/cache/quota.json` via atomic write
  * (temp file + renameSync). Fresh reads within 24h TTL return the cached QuotaSnapshot
- * with preserved `readAt`.
+ * with preserved `readAt` and `source`.
  *
  * In accordance with arch:AC-29, the CSRF token is held in-memory only and never
  * written to cache, logs, or store.
@@ -48,73 +58,223 @@ export function findNumber(sources: (Record<string, unknown> | null | undefined)
   return null;
 }
 
-/**
- * Parse GetUserStatus response into Prompt Credits, Flow Credits, and model windows.
- */
-export function parseAntigravityWindows(raw: unknown): QuotaWindow[] {
-  const root = asRecord(raw);
-  if (!root) return [];
+export interface DetectedTier {
+  tier: 'free' | 'pro' | 'ultra' | 'unknown';
+  tierName: string | null;
+  isPaid: boolean;
+}
 
-  const windows: QuotaWindow[] = [];
+/**
+ * Detect user tier from GetUserStatus response via userTier.id or planInfo.teamsTier.
+ */
+export function detectAntigravityTier(raw: unknown): DetectedTier {
+  const root = asRecord(raw);
+  if (!root) {
+    return { tier: 'unknown', tierName: null, isPaid: true };
+  }
 
   const userStatus = asRecord(root.userStatus);
   const planStatus = asRecord(userStatus?.planStatus ?? root.planStatus);
   const planInfo = asRecord(planStatus?.planInfo ?? userStatus?.planInfo ?? root.planInfo);
-  const creditSources = [planInfo, planStatus, userStatus, root];
+  const userTier = asRecord(userStatus?.userTier ?? root.userTier);
 
-  // 1. Prompt Credits
-  const monthlyPrompt = findNumber(creditSources, 'monthlyPromptCredits');
-  const availPrompt = findNumber(creditSources, 'availablePromptCredits');
-  if (monthlyPrompt !== null && availPrompt !== null && monthlyPrompt > 0) {
-    const usedPct = Math.round(((monthlyPrompt - availPrompt) / monthlyPrompt) * 100);
-    windows.push({
-      label: 'Prompt Credits',
-      usedPct,
-      resetsAt: null,
-    });
+  const tierId = typeof userTier?.id === 'string' ? userTier.id.toLowerCase() : '';
+  const teamsTier = typeof planInfo?.teamsTier === 'string' ? planInfo.teamsTier.toUpperCase() : '';
+
+  if (tierId.includes('ultra') || teamsTier.includes('ULTRA')) {
+    return { tier: 'ultra', tierName: 'Google AI Ultra', isPaid: true };
+  }
+  if (tierId.includes('pro') || teamsTier.includes('PRO')) {
+    return { tier: 'pro', tierName: 'Google AI Pro', isPaid: true };
+  }
+  if (tierId.includes('free') || teamsTier.includes('FREE')) {
+    return { tier: 'free', tierName: 'Free Tier', isPaid: false };
   }
 
-  // 2. Flow Credits
-  const monthlyFlow = findNumber(creditSources, 'monthlyFlowCredits');
-  const availFlow = findNumber(creditSources, 'availableFlowCredits');
-  if (monthlyFlow !== null && availFlow !== null && monthlyFlow > 0) {
-    const usedPct = Math.round(((monthlyFlow - availFlow) / monthlyFlow) * 100);
-    windows.push({
-      label: 'Flow Credits',
-      usedPct,
-      resetsAt: null,
-    });
+  return { tier: 'unknown', tierName: null, isPaid: true };
+}
+
+export function antigravitySourceWithTier(tierName: string | null): string {
+  if (typeof tierName === 'string' && tierName.length > 0) {
+    return `${ANTIGRAVITY_QUOTA_SOURCE} (${tierName})`;
+  }
+  return ANTIGRAVITY_QUOTA_SOURCE;
+}
+
+export function resolveBucketLabel(
+  bucket: Record<string, unknown>,
+  group?: Record<string, unknown> | null,
+): string {
+  const bucketId = typeof bucket.bucketId === 'string' ? bucket.bucketId.toLowerCase() : '';
+  const window = typeof bucket.window === 'string' ? bucket.window.toLowerCase() : '';
+  const groupName = typeof group?.displayName === 'string'
+    ? group.displayName.toLowerCase()
+    : typeof group?.name === 'string'
+      ? group.name.toLowerCase()
+      : '';
+  const explicitLabel = typeof bucket.label === 'string' && bucket.label.length > 0
+    ? bucket.label
+    : typeof bucket.displayName === 'string' && bucket.displayName.length > 0
+      ? bucket.displayName
+      : '';
+  const lowerLabel = explicitLabel.toLowerCase();
+
+  const isArgon = groupName.includes('argon') || bucketId.includes('argon');
+  const isGemini = (groupName.includes('gemini') || bucketId.includes('gemini')) && !isArgon;
+  const is3p = groupName.includes('claude') || groupName.includes('gpt') || groupName.includes('3p') ||
+               bucketId.includes('claude') || bucketId.includes('gpt') || bucketId.includes('3p');
+
+  const is5h = window === '5h' || bucketId.includes('5h') || lowerLabel.includes('5h');
+  const isWeekly = window === 'weekly' || bucketId.includes('weekly') || lowerLabel.includes('weekly');
+
+  if (isGemini) {
+    if (is5h) return 'Gemini 5h';
+    if (isWeekly) return 'Gemini Weekly';
   }
 
-  // 3. Model Quota
-  const cascadeData = asRecord(userStatus?.cascadeModelConfigData ?? root.cascadeModelConfigData);
-  const modelConfigs =
-    cascadeData?.clientModelConfigs ??
-    userStatus?.clientModelConfigs ??
-    root.clientModelConfigs;
+  if (isArgon) {
+    if (isWeekly) return 'Argon Weekly';
+    if (is5h) return 'Argon 5h';
+  }
 
-  if (Array.isArray(modelConfigs)) {
-    for (const item of modelConfigs) {
-      const cfg = asRecord(item);
-      if (!cfg) continue;
-      const quotaInfo = asRecord(cfg.quotaInfo);
-      if (!quotaInfo) continue;
-      const remainingFraction = num(quotaInfo.remainingFraction);
-      if (remainingFraction === null) continue;
+  if (is3p) {
+    if (isWeekly) return 'Claude/GPT Weekly';
+    if (is5h) return 'Claude/GPT 5h';
+  }
 
-      const usedPct = Math.round((1 - remainingFraction) * 100);
-      const resetsAt =
-        typeof quotaInfo.resetTime === 'string' && quotaInfo.resetTime.length > 0
-          ? quotaInfo.resetTime
+  if (explicitLabel.length > 0) return explicitLabel;
+  if (bucketId.length > 0) return typeof bucket.bucketId === 'string' ? bucket.bucketId : bucketId;
+  return 'Model';
+}
+
+/**
+ * Parse RetrieveUserQuotaSummary and GetUserStatus responses into quota windows.
+ */
+export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown): QuotaWindow[] {
+  const summaryRoot = asRecord(summaryRaw);
+  const statusRoot = asRecord(statusRaw ?? summaryRaw);
+  if (!summaryRoot && !statusRoot) return [];
+
+  const tierContext = detectAntigravityTier(statusRaw ?? summaryRaw);
+  const isPaid = tierContext.isPaid;
+  const windows: QuotaWindow[] = [];
+
+  // 1. Multi-group rate-limit buckets from RetrieveUserQuotaSummary
+  const summaryData = asRecord(summaryRoot?.response ?? summaryRoot?.userQuotaSummary ?? summaryRoot);
+  const groups = Array.isArray(summaryData?.groups) ? summaryData.groups : null;
+
+  if (groups !== null) {
+    for (const groupItem of groups) {
+      const group = asRecord(groupItem);
+      if (!group) continue;
+      const buckets = Array.isArray(group.buckets) ? group.buckets : [];
+      for (const bucketItem of buckets) {
+        const bucket = asRecord(bucketItem);
+        if (!bucket) continue;
+        if (bucket.disabled === true) continue;
+
+        const remainingFraction = num(bucket.remainingFraction);
+        if (remainingFraction === null) continue;
+
+        const usedPct = Math.round((1 - remainingFraction) * 100);
+        const resetsAt = typeof bucket.resetTime === 'string' && bucket.resetTime.length > 0
+          ? bucket.resetTime
           : null;
-      const label =
-        typeof cfg.label === 'string' && cfg.label.length > 0
-          ? cfg.label
-          : typeof cfg.modelId === 'string' && cfg.modelId.length > 0
-            ? cfg.modelId
-            : 'Model';
+        const label = resolveBucketLabel(bucket, group);
 
-      windows.push({ label, usedPct, resetsAt });
+        if (!isPaid) {
+          if (label === 'Gemini 5h' || label === 'Gemini Weekly') {
+            windows.push({ label, usedPct, resetsAt });
+          }
+        } else {
+          windows.push({ label, usedPct, resetsAt });
+        }
+      }
+    }
+  }
+
+  // 2. Monthly credits from GetUserStatus (Paid tiers only)
+  if (isPaid && statusRoot) {
+    const userStatus = asRecord(statusRoot.userStatus);
+    const planStatus = asRecord(userStatus?.planStatus ?? statusRoot.planStatus);
+    const planInfo = asRecord(planStatus?.planInfo ?? userStatus?.planInfo ?? statusRoot.planInfo);
+    const creditSources = [planInfo, planStatus, userStatus, statusRoot];
+
+    // Prompt Credits
+    const monthlyPrompt = findNumber(creditSources, 'monthlyPromptCredits');
+    const availPrompt = findNumber(creditSources, 'availablePromptCredits');
+    if (monthlyPrompt !== null && availPrompt !== null && monthlyPrompt > 0) {
+      const usedPct = Math.round(((monthlyPrompt - availPrompt) / monthlyPrompt) * 100);
+      windows.push({
+        label: 'Prompt Credits',
+        usedPct,
+        resetsAt: null,
+      });
+    }
+
+    // Flow Credits
+    const monthlyFlow = findNumber(creditSources, 'monthlyFlowCredits');
+    const availFlow = findNumber(creditSources, 'availableFlowCredits');
+    if (monthlyFlow !== null && availFlow !== null && monthlyFlow > 0) {
+      const usedPct = Math.round(((monthlyFlow - availFlow) / monthlyFlow) * 100);
+      windows.push({
+        label: 'Flow Credits',
+        usedPct,
+        resetsAt: null,
+      });
+    }
+
+    // Monthly Plan Credits
+    const monthlyPlan = findNumber(creditSources, 'monthlyPlanCredits');
+    const availPlan = findNumber(creditSources, 'availablePlanCredits');
+    if (monthlyPlan !== null && availPlan !== null && monthlyPlan > 0) {
+      const usedPct = Math.round(((monthlyPlan - availPlan) / monthlyPlan) * 100);
+      windows.push({
+        label: 'Monthly Plan Credits',
+        usedPct,
+        resetsAt: null,
+      });
+    }
+  }
+
+  // 3. Fallback for legacy single-call GetUserStatus payloads without groups
+  if (groups === null && statusRoot) {
+    const userStatus = asRecord(statusRoot.userStatus);
+    const cascadeData = asRecord(userStatus?.cascadeModelConfigData ?? statusRoot.cascadeModelConfigData);
+    const modelConfigs =
+      cascadeData?.clientModelConfigs ??
+      userStatus?.clientModelConfigs ??
+      statusRoot.clientModelConfigs;
+
+    if (Array.isArray(modelConfigs)) {
+      for (const item of modelConfigs) {
+        const cfg = asRecord(item);
+        if (!cfg) continue;
+        const quotaInfo = asRecord(cfg.quotaInfo);
+        if (!quotaInfo) continue;
+        const remainingFraction = num(quotaInfo.remainingFraction);
+        if (remainingFraction === null) continue;
+
+        const usedPct = Math.round((1 - remainingFraction) * 100);
+        const resetsAt =
+          typeof quotaInfo.resetTime === 'string' && quotaInfo.resetTime.length > 0
+            ? quotaInfo.resetTime
+            : null;
+        const label =
+          typeof cfg.label === 'string' && cfg.label.length > 0
+            ? cfg.label
+            : typeof cfg.modelId === 'string' && cfg.modelId.length > 0
+              ? cfg.modelId
+              : 'Model';
+
+        if (!isPaid) {
+          if (label === 'Gemini 5h' || label === 'Gemini Weekly') {
+            windows.push({ label, usedPct, resetsAt });
+          }
+        } else {
+          windows.push({ label, usedPct, resetsAt });
+        }
+      }
     }
   }
 
@@ -162,13 +322,19 @@ export async function readCache(
   }
 }
 
-async function fetchLiveQuota(
+export interface LiveQuotaPayload {
+  windows: QuotaWindow[];
+  source: string;
+}
+
+async function callConnectRpc(
   address: string,
+  methodName: string,
   csrfToken: string,
   fetchFn: typeof fetch,
   timeoutMs: number,
-): Promise<QuotaWindow[]> {
-  const url = `http://${address}/exa.language_server_pb.LanguageServerService/GetUserStatus`;
+): Promise<unknown> {
+  const url = `http://${address}/exa.language_server_pb.LanguageServerService/${methodName}`;
   const res = await fetchFn(url, {
     method: 'POST',
     headers: {
@@ -182,12 +348,29 @@ async function fetchLiveQuota(
   if (!res.ok) {
     throw new Error(`Language server HTTP ${res.status}`);
   }
-  const body = (await res.json()) as unknown;
-  const windows = parseAntigravityWindows(body);
+  return res.json();
+}
+
+async function fetchLiveQuota(
+  address: string,
+  csrfToken: string,
+  fetchFn: typeof fetch,
+  timeoutMs: number,
+): Promise<LiveQuotaPayload> {
+  const [summaryBody, statusBody] = await Promise.all([
+    callConnectRpc(address, 'RetrieveUserQuotaSummary', csrfToken, fetchFn, timeoutMs),
+    callConnectRpc(address, 'GetUserStatus', csrfToken, fetchFn, timeoutMs),
+  ]);
+
+  const detectedTier = detectAntigravityTier(statusBody);
+  const source = antigravitySourceWithTier(detectedTier.tierName);
+  const windows = parseAntigravityWindows(summaryBody, statusBody);
+
   if (windows.length === 0) {
     throw new Error('No quota windows in language server response');
   }
-  return windows;
+
+  return { windows, source };
 }
 
 export interface AntigravityQuotaReaderDeps {
@@ -219,12 +402,12 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
       let liveError: string | null = null;
       if (address && csrf) {
         try {
-          const windows = await fetchLiveQuota(address, csrf, fetchFn, timeoutMs);
+          const { windows, source } = await fetchLiveQuota(address, csrf, fetchFn, timeoutMs);
           const snapshot: QuotaKnown = {
             core: 'antigravity',
             state: 'ok',
             windows,
-            source: ANTIGRAVITY_QUOTA_SOURCE,
+            source,
             readAt: nowFn().toISOString(),
           };
           writeCache(cachePath, snapshot);
