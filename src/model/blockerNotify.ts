@@ -20,6 +20,7 @@ export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'approach-graph-failed': true,
   'subtask-integration-conflict': true,
   'baseline-review': true,
+  'review-stalled': true,
   'usage-limit': true,
   'stranded-stage': true,
   'sandbox-sync': true,

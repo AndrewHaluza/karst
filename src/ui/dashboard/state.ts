@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement } from '../../store/placement.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
-import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
+import type { AgentProvider, ReviewStallDetection, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, markPausedCells, type StepperCell } from '../../model/stepper.js';
 import { listStageRuns } from '../../store/stageRuns.js';
@@ -188,6 +188,8 @@ export function buildDashboardState(
   displayBlocking?: {
     review?: Severity | 'none';
     tester?: Severity | 'none';
+    /** `review.stallDetection`, for the Inside review view's stall summary. */
+    reviewStall?: ReviewStallDetection;
   },
   /**
    * The shared services this ticket consumes (`store/sharedServers.ts`). Built

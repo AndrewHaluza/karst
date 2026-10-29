@@ -57,6 +57,7 @@ export {
 export {
   FIX_PARKED_INTERRUPTED,
   FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_REVIEW_STALLED,
   FIX_PARKED_NO_RESUMABLE_ROUND,
   FIX_PARKED_NO_FAILED_GATE,
   FIX_PARKED_PROCESS_UNAVAILABLE,
@@ -67,6 +68,7 @@ export {
   type OpenRecoveryRoundInput,
   openRecoveryRound,
   openRecoveryRoundWithinBudget,
+  failRevalidationForStall,
   completeRevalidation,
   attachRevalidationStageRun,
   type BeginLiveFixExecutionInput,

@@ -5,7 +5,7 @@ const base = { stageCurrent: 'impl', archivedAt: null, pausedAt: null, subtaskPa
 
 describe('ticketActionFlags', () => {
   it('open ticket: closable, not reopenable, not detachable, not paused', () => {
-    expect(ticketActionFlags(base, 0)).toEqual({ paused: false, canClose: true, canReopen: false, canDetach: false });
+    expect(ticketActionFlags(base, 0)).toEqual({ paused: false, canClose: true, canReopen: false, canDetach: false, reviewStalled: false });
   });
   it('reports paused from pausedAt', () => {
     expect(ticketActionFlags({ ...base, pausedAt: '2026-10-27T00:00:00Z' }, 0).paused).toBe(true);

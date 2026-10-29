@@ -79,6 +79,12 @@ export function routeAction(
       return actions.sendBackToImplement();
     case 'reset-stage':
       return actions.resetStage();
+    case 'review-stall-hint':
+      return actions.reviewStallHint();
+    case 'review-stall-continue':
+      return actions.reviewStallContinue();
+    case 'review-stall-rescope':
+      return actions.reviewStallRescope();
     case 'address-pr-feedback':
       return actions.addressPrFeedback();
     case 'send-ci-failure':

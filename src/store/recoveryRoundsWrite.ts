@@ -30,6 +30,7 @@ import {
  */
 export const FIX_PARKED_INTERRUPTED = 'fix session ended without the done marker';
 export const FIX_PARKED_EXHAUSTED = 'fix attempts exhausted';
+export const FIX_PARKED_REVIEW_STALLED = 'review stalled on the same files — parked for a human';
 export const FIX_PARKED_NO_RESUMABLE_ROUND = 'fix parked — no resumable recovery round';
 export const FIX_PARKED_NO_FAILED_GATE = 'fix parked — no failed gate to resume';
 export const FIX_PARKED_PROCESS_UNAVAILABLE = 'fix process not available — parked for a human';
@@ -113,7 +114,7 @@ export interface OpenRecoveryRoundInput {
  * what the series exists to record.
  */
 export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): RecoveryRound {
-  const created = openRound(store, input, false);
+  const created = openRound(store, input, 'open');
   if (created === null) throw new Error('recovery round insert did not land');
   return created;
 }
@@ -129,13 +130,23 @@ export function openRecoveryRoundWithinBudget(
   store: Store,
   input: OpenRecoveryRoundInput,
 ): RecoveryRound | null {
-  return openRound(store, input, true);
+  return openRound(store, input, 'budget');
+}
+
+/**
+ * A review stall (`review.stallDetection`) ends the series like a spent budget
+ * does, without spending it: a revalidating round that this failure fails is
+ * marked `failed`, NO new round opens, and the episode stays open (a human
+ * action — Redesign hint / Continue anyway — ends it with a `reset`).
+ */
+export function failRevalidationForStall(store: Store, input: OpenRecoveryRoundInput): void {
+  openRound(store, input, 'stall');
 }
 
 function openRound(
   store: Store,
   input: OpenRecoveryRoundInput,
-  enforceBudget: boolean,
+  mode: 'open' | 'budget' | 'stall',
 ): RecoveryRound | null {
   let created: RecoveryRound | null = null;
   const apply = store.db.transaction(() => {
@@ -182,7 +193,7 @@ function openRound(
       )
       .get(input.ticketId, input.sourceStage, episode) as { max_round: number | null } | undefined;
     const roundNumber = (prev?.max_round ?? 0) + 1;
-    if (enforceBudget && roundNumber > input.maxRounds) {
+    if (mode === 'stall' || (mode === 'budget' && roundNumber > input.maxRounds)) {
       store.db
         .prepare(
           `UPDATE recovery_rounds SET status = 'exhausted', ended_at = COALESCE(ended_at, ?)

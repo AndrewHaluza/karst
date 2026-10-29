@@ -153,6 +153,7 @@ export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
     requireIndependentSignal: true,
     openChanges: false,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+    stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: null },
     repositories: {},
     ...over,
   };

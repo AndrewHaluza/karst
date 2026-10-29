@@ -391,6 +391,7 @@ import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { resetStageAction } from './extension/ops/resetStageAction.js';
+import { reviewStallBinding, registerReviewStallCommands } from './extension/reviewStallBinding.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { askPausedModal } from './extension/pausedModal.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
@@ -879,6 +880,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     pauseTicket: (id) => void vscode.commands.executeCommand('karst.pauseTicket', id), unpauseTicket: (id) => void vscode.commands.executeCommand('karst.unpauseTicket', id),
     closeTicket: (id) => void vscode.commands.executeCommand('karst.closeTicket', id), reopenTicket: (id) => void vscode.commands.executeCommand('karst.reopenTicket', id),
     detachSubtask: (id) => void vscode.commands.executeCommand('karst.detachSubtask', id),
+    reviewStallHint: (id) => void vscode.commands.executeCommand('karst.reviewStallHint', id), reviewStallContinue: (id) => void vscode.commands.executeCommand('karst.reviewStallContinue', id), reviewStallRescope: (id) => void vscode.commands.executeCommand('karst.reviewStallRescope', id),
     // The expanded mini-dashboard's "Resolve conflicts" CTA. The store decides
     // whether the conflict still exists — `repo` arrived in a webview message
     // and a stale row can name one that has since gone. Same handoff as the
@@ -6916,6 +6918,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    // Review-stall answers from the sidebar ⋯ menu (T845): ops/reviewStallActions.
+    ...registerReviewStallCommands({ store: localStore, afterServerChange: () => provider.refresh(), logError, debug: (m) => logger.debug(m), drive: (id) => maybeDrive(id, 'stage-resume') }),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
@@ -8347,6 +8351,11 @@ function makeDashboardActions(
         confirm: async (title, detail) =>
           (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
       }),
+    // Answers to a review stall (T845); logic in ops/reviewStallActions.
+    ...reviewStallBinding({
+      store, ticketId, afterServerChange, logError, debug,
+      drive: () => driveAfterResume(ticketId), editTicket,
+    }),
     // Move this ticket into a PR-feedback recovery round at Fix. The logic
     // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.
     addressPrFeedback: () =>

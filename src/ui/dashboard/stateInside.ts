@@ -1,4 +1,4 @@
-import type { Severity } from '../../manifest/types.js';
+import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import { displayStatus, type StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
 import type { GateStage } from '../../store/ticketGates.js';
@@ -102,6 +102,7 @@ export interface InsideViewsInput {
   findingsBlockingSeverity: Severity | 'none';
   reviewBlockingSeverity?: Severity | 'none';
   testerBlockingSeverity?: Severity | 'none';
+  reviewStallDetection?: ReviewStallDetection;
   stepper: readonly StepperCell[];
   recordedTotal: NonNullable<DoneReceiptInput['tokens']>;
   roleTokens: DoneReceiptInput['roles'];
@@ -162,6 +163,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     findingsBlockingSeverity,
     reviewBlockingSeverity,
     testerBlockingSeverity,
+    reviewStallDetection,
     stepper,
     recordedTotal,
     roleTokens,
@@ -257,6 +259,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         currentAttempt: reviewCurrent,
         findingsRepo: findingsRepoSelection?.review ?? null,
         reviewBlockingSeverity,
+        reviewStallDetection,
       }),
       now,
       consoleFor('review', cellOf),

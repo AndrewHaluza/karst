@@ -100,6 +100,7 @@ export function EvidenceFindings({ ev, p, stageKey }: { readonly ev: Of<'finding
   return (
     <>
       {filter && filter.repos && filter.repos.length >= 2 ? <Scope filter={filter} stageKey={stageKey} /> : null}
+      {ev.stall ? <StallSummary stall={ev.stall} /> : null}
       <div className="findings">
         {withKeys(ev.rows, (r) => `${r.label}/${r.detail ?? ''}/${r.location ?? ''}`).map(([key, r]) => (
           <div className="finding" key={key}>
@@ -116,3 +117,20 @@ export function EvidenceFindings({ ev, p, stageKey }: { readonly ev: Of<'finding
   );
 }
 
+
+/** Review only: which files keep drawing blocking findings, and how many findings recur, round over round. */
+function StallSummary({ stall }: { readonly stall: NonNullable<Of<'findings'>['stall']> }) {
+  return (
+    <div className="findings-stall" role="note">
+      <strong>{stall.stalled ? 'Review stalled' : 'Findings repeating'}</strong>
+      {stall.files.map((f) => (
+        <span className="findings-stall-file" key={f.file}>
+          {f.file}: {f.roundsHit} rounds
+        </span>
+      ))}
+      {stall.repeatedIdentities > 0 ? (
+        <span className="findings-stall-repeat">{stall.repeatedIdentities} repeated</span>
+      ) : null}
+    </div>
+  );
+}

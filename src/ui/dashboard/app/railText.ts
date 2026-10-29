@@ -22,6 +22,7 @@ export const STAGE_TITLE: Readonly<Record<string, string>> = {
 /** The strip's headline for a block: shared by the blocked banner and the sub-task rows, so they never drift. */
 export function blockFaultTitle(kind: string, stageKey: string): string {
   if (kind === 'usage-limit') return 'Provider out of quota';
+  if (kind === 'review-stalled') return 'Review is stalled';
   return `${STAGE_TITLE[stageKey] ?? stageKey} is blocked`;
 }
 

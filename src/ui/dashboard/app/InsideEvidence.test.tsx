@@ -94,6 +94,14 @@ describe('Evidence — findings', () => {
     expect(text(a!.querySelector('.finding-time'))).toBe('10:00');
   });
 
+  it('summarises a stall: files by rounds hit and the repeated count', () => {
+    withEvidence({ ...findings, stall: { stalled: true, rounds: 3, files: [{ file: 'src/a.ts', roundsHit: 3 }], repeatedIdentities: 2 } });
+    const n = must('.findings-stall');
+    expect(text(n)).toContain('Review stalled');
+    expect(text(n)).toContain('src/a.ts: 3 rounds');
+    expect(text(n)).toContain('2 repeated');
+  });
+
   it('posts the location link’s action once, pending', () => {
     const h = withEvidence(findings);
     const a = must('.finding-loc a');

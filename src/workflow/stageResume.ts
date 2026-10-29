@@ -59,6 +59,10 @@ export function resumeBlockedStage(
   // Same reasoning: the question was asked and the answer is the user's. A
   // generic Resume would re-run UAT straight back into the same park.
   if (block.kind === 'baseline-review') return { kind: 'refused' };
+  // Same shape: the stall question was asked and only the user's choice
+  // (hint / continue / re-scope) answers it — a generic Resume would re-open
+  // the very fix loop that was stopped.
+  if (block.kind === 'review-stalled') return { kind: 'refused' };
   // A quota exhaustion (K11) is user-resolved, like awaiting-merge: a generic
   // Resume would re-run the model that is out of allowance and spend nothing
   // but fail again, bypassing the agent/model pick that actually clears it. The

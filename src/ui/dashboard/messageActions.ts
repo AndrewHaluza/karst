@@ -66,6 +66,12 @@ export interface DashboardActions {
   sendBackToImplement: () => void | Promise<void>;
   /** Reset the failed gate stage and re-drive (host-confirmed). */
   resetStage: () => void | Promise<void>;
+  /** Review stall (T845): 'Redesign hint…' — note to the fix agent, counter reset, rounds resume. */
+  reviewStallHint: () => void | Promise<void>;
+  /** Review stall: 'Continue anyway' — counter reset, rounds resume. */
+  reviewStallContinue: () => void | Promise<void>;
+  /** Review stall: 'Re-scope' — open the ticket brief for edit. */
+  reviewStallRescope: () => void | Promise<void>;
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;

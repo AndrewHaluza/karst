@@ -23,6 +23,13 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
     ...(row.canDetach
       ? [{ key: 'detach', spec: { act: 'detach-subtask', id }, label: 'Detach from parent…', icon: 'unlink', title: 'Detach this sub-task from its parent and rebase it onto the root base' }]
       : []),
+    ...(row.reviewStalled
+      ? [
+          { key: 'stall-hint', spec: { act: 'review-stall-hint', id }, label: 'Redesign hint…', icon: 'lightbulb', title: 'Review is stalled on the same files: send the fix agent a design hint and resume' },
+          { key: 'stall-continue', spec: { act: 'review-stall-continue', id }, label: 'Continue anyway', icon: 'player-play', title: 'Review is stalled on the same files: reset the counter and keep fixing' },
+          { key: 'stall-rescope', spec: { act: 'review-stall-rescope', id }, label: 'Re-scope', icon: 'pencil', title: 'Review is stalled on the same files: edit the ticket brief' },
+        ]
+      : []),
     ...(row.canClose
       ? [{ key: 'close', spec: { act: 'close-ticket', id }, label: 'Close — done outside Karst…', icon: 'circle-x', danger: true, title: 'Mark closed: the work was done outside Karst. Nothing is verified' }]
       : []),

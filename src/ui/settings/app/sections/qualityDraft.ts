@@ -19,8 +19,18 @@
  *   the current draft, so a partially specified `review.findings` — or an absent
  *   one — cannot lose a sibling key to an edit of just one findings field.
  */
-import type { GateDef, Manifest, ReviewConfig, UatConfig } from '../../../../manifest/types.js';
-import { REVIEW_FINDINGS_DEFAULTS } from '../../../../manifest/qualityDefaults.js';
+import type {
+  GateDef,
+  Manifest,
+  ReviewConfig,
+  ReviewStallDetection,
+  UatConfig,
+} from '../../../../manifest/types.js';
+import {
+  REVIEW_FINDINGS_DEFAULTS,
+  REVIEW_MAX_FIX_ATTEMPTS,
+  REVIEW_STALL_DETECTION_DEFAULTS,
+} from '../../../../manifest/qualityDefaults.js';
 
 /**
  * The draft's view of the two blocks.
@@ -98,6 +108,40 @@ export function updateFindings(
       ...patch,
     },
   });
+}
+
+/** `review.stallDetection` as the validator would default it (sameFileRounds capped at maxFixAttempts). */
+export function readStallDetection(draft: Manifest): ReviewStallDetection {
+  const review = blocksOf(draft).review;
+  const max = review?.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS;
+  const base = { ...REVIEW_STALL_DETECTION_DEFAULTS, ...(review?.stallDetection ?? {}) };
+  return review?.stallDetection?.sameFileRounds === undefined
+    ? { ...base, sameFileRounds: Math.min(base.sameFileRounds, max) }
+    : base;
+}
+
+/** Write one `review.stallDetection` field, merged over what the validator would default. */
+export function updateStallDetection(draft: Manifest, patch: Partial<ReviewStallDetection>): Manifest {
+  return updateReview(draft, { stallDetection: { ...readStallDetection(draft), ...patch } });
+}
+
+export interface StallErrors {
+  sameFileRounds?: string;
+  repeatedFindingRounds?: string;
+}
+
+/** Mirrors `validate/review.ts`: positive whole numbers no greater than `maxFixAttempts`; none while disabled. */
+export function stallErrors(stall: ReviewStallDetection, maxFixAttempts: number): StallErrors {
+  if (!stall.enabled) return {};
+  const ok = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= maxFixAttempts;
+  const errors: StallErrors = {};
+  if (!ok(stall.sameFileRounds)) {
+    errors.sameFileRounds = `Enter a whole number from 1 to ${maxFixAttempts}.`;
+  }
+  if (stall.repeatedFindingRounds !== null && !ok(stall.repeatedFindingRounds)) {
+    errors.repeatedFindingRounds = `Enter a whole number from 1 to ${maxFixAttempts}, or leave blank.`;
+  }
+  return errors;
 }
 
 /** One block's per-repository overrides, as the tab edits them. */

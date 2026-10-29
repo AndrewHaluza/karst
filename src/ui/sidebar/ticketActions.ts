@@ -11,6 +11,8 @@ export interface TicketActionFlags {
   readonly canClose: boolean;
   readonly canReopen: boolean;
   readonly canDetach: boolean;
+  /** Fix is parked on a review stall (T845): the menu offers Redesign hint / Continue anyway / Re-scope. */
+  readonly reviewStalled: boolean;
 }
 
 export function ticketActionFlags(
@@ -23,11 +25,13 @@ export function ticketActionFlags(
     agentState: string | null;
   },
   openChildren: number,
+  reviewStalled = false,
 ): TicketActionFlags {
   return {
     paused: ticket.pausedAt !== null,
     canClose: canCloseTicket(ticket),
     canReopen: canReopenTicket(ticket),
     canDetach: canDetachSubtask(ticket, openChildren),
+    reviewStalled,
   };
 }

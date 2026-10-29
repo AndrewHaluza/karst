@@ -5,6 +5,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
 import { renderFixBrief } from '../../agent/fixBrief.js';
+import { reviewStallHint } from '../../store/reviewStallHint.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
 /**
@@ -22,11 +23,15 @@ import { formatTicketRef } from '../../model/entityId.js';
 export function fixBriefForTicket(store: Store, ticketId: number, label?: string): string | null {
   const t = getTicket(store, ticketId);
   const shipRound = activeRecoverySeries(store, ticketId, 'ship');
-  return renderFixBrief(
+  const brief = renderFixBrief(
     label ?? formatTicketRef(ticketId, t.key),
     t.stages,
     latestFindingBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
   );
+  // A "Redesign hint…" answers a review stall: the user's direction rides the
+  // brief (D99 path) so the fix agent rethinks instead of patching again.
+  const hint = brief === null ? null : reviewStallHint(store, ticketId);
+  return hint === null ? brief : `${brief}\n\n## Redesign hint from the user\n\n${hint}\n`;
 }

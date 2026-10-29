@@ -122,6 +122,12 @@ export type BlockerKind =
   // retry cannot decide for the user, so Resume is refused and only a recorded
   // decision (approve-all → re-drive, reject → failed verdict) clears it.
   | 'baseline-review'
+  // Review keeps finding new blocking problems in the same file(s) round after
+  // round (`review.stallDetection`) — a likely design problem, not a bug. Karst
+  // stops opening fix rounds and asks the human; the question WAS asked, so a
+  // generic Resume is refused and only Redesign hint / Continue anyway /
+  // Re-scope clear it (@arch:BLOCKED). Parked at `fix`, never a verdict.
+  | 'review-stalled'
   // A worktree whose `repo` matched no `repositories:` entry in karst.yml.
   // Also not "karst could not ask": the question was asked of the manifest and
   // answered "this repository is not mapped" — a retry cannot change that

@@ -26,6 +26,18 @@ describe('review findings evidence', () => {
     ...overrides,
   });
 
+  it('writes an identity that survives a moved line', () => {
+    const t = createTicket(store, { key: 'ID', title: 'id' });
+    const batch = (attempt: number, line: number) => ({
+      ticketId: t.id, attempt, runAt: `2026-01-0${attempt}T00:00:00Z`, findings: [finding({ line })],
+    });
+    recordFindings(store, batch(1, 10));
+    recordFindings(store, batch(2, 99));
+    const [a, b] = listFindings(store, t.id);
+    expect(a!.identity).toMatch(/^[0-9a-f]{40}$/);
+    expect(b!.identity).toBe(a!.identity);
+  });
+
   it('appends one row per finding, preserving the order they were given', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     recordFindings(store, {

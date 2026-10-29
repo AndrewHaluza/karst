@@ -90,6 +90,9 @@ export type WebviewMessage =
    * Payload-free like send-back: the host derives which stage from the store.
    */
   | { type: 'reset-stage' }
+  | { type: 'review-stall-hint' }
+  | { type: 'review-stall-continue' }
+  | { type: 'review-stall-rescope' }
   /**
    * Enter a PR-feedback recovery round at Fix for the panel's ticket. Payload-
    * free like send-back: availability is re-derived host-side inside the

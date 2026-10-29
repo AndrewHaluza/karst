@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { listServersByTicket } from '../../store/dashboard.js';
 import { summarizeRecordedTokenUsage, summarizeRecordedTokenUsageByRole } from '../../store/tokenUsage.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
-import type { Severity } from '../../manifest/types.js';
+import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
@@ -33,7 +33,11 @@ export interface InsideSectionInput {
   graphInside?: GraphInsideInput | null;
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   findingsBlockingSeverity: Severity | 'none';
-  displayBlocking?: { review?: Severity | 'none'; tester?: Severity | 'none' };
+  displayBlocking?: {
+    review?: Severity | 'none';
+    tester?: Severity | 'none';
+    reviewStall?: ReviewStallDetection;
+  };
 }
 
 /**
@@ -127,6 +131,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     findingsBlockingSeverity,
     reviewBlockingSeverity: displayBlocking?.review,
     testerBlockingSeverity: displayBlocking?.tester,
+    reviewStallDetection: displayBlocking?.reviewStall,
     stepper,
     recordedTotal,
     roleTokens,

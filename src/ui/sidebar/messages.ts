@@ -33,6 +33,9 @@ export type SidebarWebviewMessage =
   | { type: 'close-ticket'; ticketId: number }
   | { type: 'reopen-ticket'; ticketId: number }
   | { type: 'detach-subtask'; ticketId: number }
+  | { type: 'review-stall-hint'; ticketId: number }
+  | { type: 'review-stall-continue'; ticketId: number }
+  | { type: 'review-stall-rescope'; ticketId: number }
   | { type: 'resolve-conflicts'; ticketId: number; repo: string }
   | { type: 'send-ci-failure'; ticketId: number }
   // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
@@ -96,6 +99,9 @@ export interface SidebarActions {
   closeTicket(ticketId: number): void | Promise<void>;
   reopenTicket(ticketId: number): void | Promise<void>;
   detachSubtask(ticketId: number): void | Promise<void>;
+  reviewStallHint(ticketId: number): void | Promise<void>;
+  reviewStallContinue(ticketId: number): void | Promise<void>;
+  reviewStallRescope(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
   sendCiFailure(ticketId: number): void | Promise<void>;
   planCreate(): void | Promise<void>;
@@ -173,6 +179,9 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'close-ticket':
     case 'reopen-ticket':
     case 'detach-subtask':
+    case 'review-stall-hint':
+    case 'review-stall-continue':
+    case 'review-stall-rescope':
     case 'send-ci-failure':
       return id ? ({ type: m.type, ticketId: m.ticketId as number } as SidebarWebviewMessage) : null;
     case 'resolve-conflicts':
@@ -238,6 +247,12 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.reopenTicket(msg.ticketId);
     case 'detach-subtask':
       return actions.detachSubtask(msg.ticketId);
+    case 'review-stall-hint':
+      return actions.reviewStallHint(msg.ticketId);
+    case 'review-stall-continue':
+      return actions.reviewStallContinue(msg.ticketId);
+    case 'review-stall-rescope':
+      return actions.reviewStallRescope(msg.ticketId);
     case 'send-ci-failure':
       return actions.sendCiFailure(msg.ticketId);
     case 'resolve-conflicts':

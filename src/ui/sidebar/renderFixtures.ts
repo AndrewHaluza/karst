@@ -70,6 +70,7 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     canClose: false,
     canReopen: false,
     canDetach: false,
+    reviewStalled: false,
     subtaskParentId: null,
     subtaskParentKey: null,
     subtaskDepth: 0,

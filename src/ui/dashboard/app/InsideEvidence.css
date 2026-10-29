@@ -357,3 +357,5 @@
    the 48px reservation opened a gap wider than the note's own first word. */
 #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) var(--p-s3);
   color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
+
+#inside .findings-stall { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px; margin-bottom: 6px; border-left: 2px solid var(--vscode-editorWarning-foreground); }

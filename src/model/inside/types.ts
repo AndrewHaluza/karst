@@ -1,6 +1,7 @@
 import type { StageKey } from '../types.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { AttemptKey, GateAttemptView } from './rounds.js';
+import type { InsideStallView } from './stall.js';
 
 /**
  * How an operation row reads.
@@ -581,7 +582,13 @@ export type ProcessEvidenceView =
       failed: number;
       skipped: number;
     }
-  | { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number }
+  | {
+      kind: 'findings';
+      rows: readonly EvidenceRow[];
+      blocking: number;
+      /** Review only: files hit by blocking findings in consecutive rounds (see `stall.ts`). */
+      stall?: InsideStallView;
+    }
   | { kind: 'timeline'; rows: readonly EvidenceRow[] }
   | {
       kind: 'commits';

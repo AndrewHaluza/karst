@@ -12,6 +12,7 @@
  *  - `usage-limit` (K11, D159): non-resumable, since a retry would re-run the model that is out of allowance,
  *    but the user's to resolve, so the banner carries the reason and the three park actions (the vanilla
  *    page's recorded exception, re-homed here per A5): Pick agent/model…, Retry same, Dismiss.
+ *  - `review-stalled` (T845): non-resumable; the strip carries Redesign hint…, Continue anyway and Re-scope.
  *  - `baseline-review`: non-resumable, only the user's decision clears it (`BaselineReview.tsx`).
  *
  * `awaiting-merge` renders NOTHING: it is a normal wait, already surfaced by the header's chip and the Inside
@@ -48,7 +49,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
   const blocked = cell?.blocked;
   if (!s || !cell || !blocked) return null;
   const review = blocked.kind === 'baseline-review';
-  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit')) return null;
+  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled')) return null;
   return {
     ticketId: s.ticketId,
     stageKey: cell.stageKey,
@@ -95,6 +96,26 @@ function ParkActions({ ticketId, stageKey }: ActionProps) {
   );
 }
 
+function StallActions({ ticketId, stageKey }: ActionProps) {
+  const send = useDashboardSend();
+  const onHint = usePendingAction(useCallback((requestId: string) => send.reviewStallHint(requestId), [send]));
+  const onContinue = usePendingAction(useCallback((requestId: string) => send.reviewStallContinue(requestId), [send]));
+  const onRescope = usePendingAction(useCallback((requestId: string) => send.reviewStallRescope(requestId), [send]));
+  return (
+    <div className="facts" data-ticket={ticketId}>
+      <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="review-stall-hint" data-stagekey={stageKey} onClick={onHint}>
+        Redesign hint…
+      </button>
+      <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="review-stall-continue" data-stagekey={stageKey} onClick={onContinue}>
+        Continue anyway
+      </button>
+      <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="review-stall-rescope" data-stagekey={stageKey} onClick={onRescope}>
+        Re-scope
+      </button>
+    </div>
+  );
+}
+
 function Resume({ ticketId, stageKey }: ActionProps) {
   const send = useDashboardSend();
   const key = stageKey as Parameters<typeof send.stageResume>[1];
@@ -122,6 +143,14 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
       <>
         <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
         <ParkActions ticketId={ticketId} stageKey={stageKey} />
+      </>
+    );
+  }
+  if (kind === 'review-stalled') {
+    return (
+      <>
+        <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
+        <StallActions ticketId={ticketId} stageKey={stageKey} />
       </>
     );
   }
