@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import type { Severity } from '../manifest/types.js';
+import { findingIdentity } from './findingIdentity.js';
 
 /**
  * Who reported a finding. Only `'agent'` is produced today (the review
@@ -39,6 +40,8 @@ export interface Finding {
   detail: string;
   source: FindingSource;
   createdAt: string;
+  /** Cross-attempt hash (v53); null for a pre-identity row. */
+  identity?: string | null;
 }
 
 /** One finding as reported, before it has an id, a batch stamp or an attempt. */
@@ -85,6 +88,7 @@ interface FindingRow {
   detail: string;
   source: string;
   created_at: string;
+  identity: string | null;
 }
 
 const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
@@ -131,6 +135,7 @@ function rowToFinding(r: FindingRow): Finding {
     detail: r.detail,
     source: parseSource(r.source),
     createdAt: r.created_at,
+    identity: r.identity ?? null,
   };
 }
 
@@ -157,8 +162,8 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
   if (batch.findings.length === 0) return;
   const insert = store.db.prepare(
     `INSERT INTO review_findings
-       (ticket_id, attempt, run_at, severity, repo, file, line, title, detail, source, created_at, process_run_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (ticket_id, attempt, run_at, severity, repo, file, line, title, detail, source, created_at, process_run_id, identity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertBatch = store.db.transaction((items: readonly FindingInput[]) => {
     for (const f of items) {
@@ -175,6 +180,7 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
         f.source,
         batch.runAt,
         batch.processRunId ?? null,
+        findingIdentity(f),
       );
     }
   });
@@ -190,7 +196,7 @@ export function recordFindings(store: Store, batch: FindingBatch): void {
 export function listFindings(store: Store, ticketId: number): Finding[] {
   return store.db
     .prepare(
-      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at
+      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at, identity
          FROM review_findings
         WHERE ticket_id = ?
         ORDER BY id`,
@@ -243,7 +249,7 @@ export function findingsForAttempt(store: Store, ticketId: number, attempt: numb
 export function getFindingById(store: Store, id: number): Finding | undefined {
   const row = store.db
     .prepare(
-      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at
+      `SELECT id, ticket_id, attempt, run_at, process_run_id, severity, repo, file, line, title, detail, source, created_at, identity
          FROM review_findings
         WHERE id = ?`,
     )
