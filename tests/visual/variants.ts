@@ -195,6 +195,18 @@ function settingsRouteVariants(): Variant[] {
   });
 }
 
+/** Quality route with `review.stallDetection` in one non-default state (UI-R57). */
+function qualityStallVariant(id: string, stallDetection: Record<string, unknown>): Variant {
+  const manifest = { ...REALISTIC_SETTINGS.manifest, review: { ...REALISTIC_SETTINGS.manifest.review, stallDetection } };
+  return {
+    ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest } as never), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+    }),
+    route: { section: 'quality' },
+  };
+}
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -211,6 +223,8 @@ const settingsVariants = (): Variant[] => [
     layoutRouteId: `agents${formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE })}`,
   },
   ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile'),
+  qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
+  qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 9, repeatedFindingRounds: 0 }),
 ];
 
 // ----------------------------------------------------------------- others
