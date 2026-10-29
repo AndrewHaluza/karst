@@ -19,18 +19,22 @@ function fake(script: (cmd: string) => { exitCode: number; output?: string; stdo
 const spec = { repo: 'extention', commands: ['gen-a', 'gen-b'] };
 
 describe('regenerate before gates', () => {
-  it('runs generators in order, commits only on change, then the gates', async () => {
+  it('runs generators in order, commits only generator-changed, non-excluded paths, then the gates', async () => {
     let statuses = 0;
-    const f = fake((l) =>
-      l === 'git status --porcelain -z'
-        ? { exitCode: 0, stdout: statuses++ === 0 ? ' M agent.ts\0' : ' M agent.ts\0 M docs/x.md\0' }
-        : { exitCode: 0 });
+    const f = fake((l) => {
+      if (l === 'git status --porcelain -z') {
+        return { exitCode: 0, stdout: statuses++ === 0 ? ' M agent.ts\0 M docs/y.md\0' : ' M agent.ts\0 M docs/y.md\0 M docs/x.md\0 M gen/z\0' };
+      }
+      // docs/y.md was already dirty and is rewritten by a generator; agent.ts is untouched.
+      if (l.startsWith('git hash-object')) return { exitCode: 0, output: l.endsWith('docs/y.md') ? `h${statuses}\n` : 'h\n' };
+      if (l === 'git diff --cached --name-only -z') return { exitCode: 0, stdout: 'docs/x.md\0docs/y.md\0staged-by-agent.ts\0' };
+      return { exitCode: 0 };
+    });
     const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: { ...spec, exclude: ['gen/**'] } });
-    expect(f.calls).toEqual([
-      'git status --porcelain -z', 'sh -c gen-a', 'sh -c gen-b', 'git status --porcelain -z',
-      'git add -A -- docs/x.md :(exclude)gen/**',
-      'git commit -m chore: regenerate generated files --only -- docs/x.md', 'npm run x',
-    ]);
+    expect(f.calls).toContain('git add -A -- docs/y.md docs/x.md gen/z :(exclude)gen/**');
+    expect(f.calls).toContain('git commit -m chore: regenerate generated files --only -- docs/x.md docs/y.md');
+    expect(f.calls.indexOf('sh -c gen-a')).toBeLessThan(f.calls.indexOf('git add -A -- docs/y.md docs/x.md gen/z :(exclude)gen/**'));
+    expect(f.calls.at(-1)).toBe('npm run x');
     expect(r.results.map((x) => x.name)).toEqual(['docs-graph']);
   });
 

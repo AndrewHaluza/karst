@@ -80,27 +80,37 @@ export async function runRegenerate(
     const detail = outcome.output.trim() === '' ? `exited ${exitCode} with no output` : outcome.output;
     return fail(exitCode, `regenerate command "${command}" failed (exit ${exitCode})\n${detail}`);
   }
-  return commitChanges(name, cwd, run, opts, fail, before ?? new Set(), spec.exclude ?? []);
+  return commitChanges(name, cwd, run, opts, fail, before ?? new Map(), spec.exclude ?? []);
 }
 
-/** Dirty paths from `git status --porcelain -z`; null when git could not answer. */
+/**
+ * Dirty paths from `git status --porcelain -z`, each with a content fingerprint, so a file
+ * that was already dirty but is rewritten by a generator still counts as changed. Null when
+ * git could not answer.
+ */
 async function dirtyPaths(
   runner: GateProcessRunner,
   cwd: string,
   opts: RunProcessOptions,
-): Promise<ReadonlySet<string> | null | 'stopped'> {
+): Promise<ReadonlyMap<string, string> | null | 'stopped'> {
   const status = await runner('git', ['status', '--porcelain', '-z'], cwd, opts);
   if (status.kind === 'aborted') return 'stopped';
   if (status.kind !== 'completed' || status.exitCode !== 0) return null;
-  const paths = new Set<string>();
+  const paths: string[] = [];
   const fields = (status.stdout ?? status.output).split('\0');
   for (let i = 0; i < fields.length; i++) {
     const entry = fields[i]!;
     if (entry.length < 4) continue;
-    paths.add(entry.slice(3));
+    paths.push(entry.slice(3));
     if (entry[0] === 'R' || entry[0] === 'C') i++; // the origin path follows as its own field
   }
-  return paths;
+  const prints = new Map<string, string>();
+  for (const path of paths) {
+    const hash = await runner('git', ['hash-object', '--', path], cwd, opts);
+    if (hash.kind === 'aborted') return 'stopped';
+    prints.set(path, hash.kind === 'completed' && hash.exitCode === 0 ? hash.output.trim() : '');
+  }
+  return prints;
 }
 
 async function commitChanges(
@@ -109,26 +119,29 @@ async function commitChanges(
   run: RegenerateRun,
   opts: RunProcessOptions,
   fail: (exitCode: number, output: string) => RegenerateOutcome,
-  before: ReadonlySet<string>,
+  before: ReadonlyMap<string, string>,
   exclude: readonly string[],
 ): Promise<RegenerateOutcome> {
-  const git = async (args: string[]) => run.sandbox('git', args, cwd, opts);
+  const git = (args: string[]) => run.sandbox('git', args, cwd, opts);
   const after = await dirtyPaths(run.sandbox, cwd, opts);
   if (after === 'stopped') return { kind: 'stopped' };
   if (after === null) return fail(1, `${name}: git status failed`);
-  const changed = [...after].filter((p) => !before.has(p));
+  const changed = [...after].filter(([p, print]) => before.get(p) !== print).map(([p]) => p);
   if (changed.length === 0) return { kind: 'ok' };
-  const steps = [
-    ['add', '-A', '--', ...changed, ...exclude.map((e) => `:(exclude)${e}`)],
-    ['commit', '-m', REGENERATE_COMMIT_MESSAGE, '--only', '--', ...changed],
-  ];
-  for (const args of steps) {
-    const step = await git(args);
-    if (step.kind === 'aborted') return { kind: 'stopped' };
-    if (step.kind !== 'completed' || step.exitCode !== 0) {
-      return fail(1, `${name}: git ${args[0]} failed: ${step.output.trim()}`);
-    }
-  }
+  const add = await git(['add', '-A', '--', ...changed, ...exclude.map((e) => `:(exclude)${e}`)]);
+  if (add.kind === 'aborted') return { kind: 'stopped' };
+  if (add.kind !== 'completed' || add.exitCode !== 0) return fail(1, `${name}: git add failed: ${add.output.trim()}`);
+  // `commit --only` re-stages whatever it is given, so name only what `add` actually staged
+  // (excluded paths stay out; files the agent staged earlier are not in `changed`).
+  const cached = await git(['diff', '--cached', '--name-only', '-z']);
+  if (cached.kind === 'aborted') return { kind: 'stopped' };
+  if (cached.kind !== 'completed' || cached.exitCode !== 0) return fail(1, `${name}: git diff failed: ${cached.output.trim()}`);
+  const wanted = new Set(changed);
+  const staged = (cached.stdout ?? cached.output).split('\0').filter((p) => wanted.has(p));
+  if (staged.length === 0) return { kind: 'ok' };
+  const commit = await git(['commit', '-m', REGENERATE_COMMIT_MESSAGE, '--only', '--', ...staged]);
+  if (commit.kind === 'aborted') return { kind: 'stopped' };
+  if (commit.kind !== 'completed' || commit.exitCode !== 0) return fail(1, `${name}: git commit failed: ${commit.output.trim()}`);
   run.onDebug?.(`[gate] ${name}: committed regenerated files`);
   return { kind: 'ok' };
 }
