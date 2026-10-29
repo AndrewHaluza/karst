@@ -7,9 +7,10 @@ import { IMPLEMENTED_PROVIDERS } from './provider.js';
 import { codexProjectHeader, trustKeyFor } from './workspaceTrust.js';
 
 /**
- * The per-core translation of the launch-time trust hook (T661): claude and
- * codex write their own user config; the cores with no folder-trust prompt are
- * explicit no-ops. The adapter is the ONLY place the per-core format exists.
+ * The per-core translation of the launch-time trust hook (T661): claude, codex
+ * and antigravity write their own user config; the cores with no folder-trust prompt
+ * (opencode, opencode2) are explicit no-ops. The adapter is the ONLY place the per-core
+ * format exists.
  */
 describe('adapter workspace trust', () => {
   let home: string;
@@ -19,6 +20,7 @@ describe('adapter workspace trust', () => {
     // The runner env (e.g. a codex sandbox) may set these; they win over HOME.
     vi.stubEnv('CLAUDE_CONFIG_DIR', '');
     vi.stubEnv('CODEX_HOME', '');
+    vi.stubEnv('ANTIGRAVITY_EXECUTABLE_DATA_DIR', '');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -39,12 +41,22 @@ describe('adapter workspace trust', () => {
     expect(text).toContain(`${codexProjectHeader('/karst/graph-node')}\ntrust_level = "trusted"`);
   });
 
-  it.each(['opencode', 'opencode2', 'antigravity'] as const)(
+  it('antigravity records trustedWorkspaces in ~/.gemini/antigravity-cli/settings.json', () => {
+    resolveAdapter('antigravity').ensureWorkspaceTrusted?.('/karst/graph-node');
+    const settingsPath = join(home, '.gemini', 'antigravity-cli', 'settings.json');
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      trustedWorkspaces?: string[];
+    };
+    expect(parsed.trustedWorkspaces).toContain(trustKeyFor('/karst/graph-node'));
+  });
+
+  it.each(['opencode', 'opencode2'] as const)(
     '%s writes nothing (it has no folder-trust prompt)',
     (provider) => {
       resolveAdapter(provider).ensureWorkspaceTrusted?.('/karst/graph-node', { debug: () => {} });
       expect(existsSync(join(home, '.claude.json'))).toBe(false);
       expect(existsSync(join(home, '.codex'))).toBe(false);
+      expect(existsSync(join(home, '.gemini'))).toBe(false);
     },
   );
 

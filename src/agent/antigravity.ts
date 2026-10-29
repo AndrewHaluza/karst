@@ -56,6 +56,7 @@ import {
 } from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 import { isFileChannel, writeBridgeScripts } from './hookBridgeFiles.js';
+import { ensureAntigravityWorkspaceTrusted } from './workspaceTrust.js';
 
 const AGY_BIN = 'agy';
 
@@ -315,11 +316,16 @@ export class AntigravityAdapter implements AgentAdapter {
   }
 
   /**
-   * Explicit no-op: antigravity (agy) has no per-directory folder-trust prompt —
-   * it groups sessions by PROJECT and never opens a trust dialog that can exit a
-   * launch — so this writes nothing. AC-08: every adapter answers, none silent.
+   * Antigravity CLI prompts "Do you trust the contents of this project?" on
+   * first launch in an untrusted directory. Pre-register the workspace in
+   * `~/.gemini/antigravity-cli/settings.json` under `trustedWorkspaces`.
    */
-  ensureWorkspaceTrusted(): void {}
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureAntigravityWorkspaceTrusted(cwd, opts);
+  }
 
   materializeApproach(opts: MaterializeOpts): Materialized {
     const artifacts = opts.pkg.artifacts ?? [];

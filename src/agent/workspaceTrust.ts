@@ -166,6 +166,18 @@ function codexConfigPath(opts: TrustOptions): string {
 }
 
 /**
+ * Antigravity's config: `$ANTIGRAVITY_EXECUTABLE_DATA_DIR/settings.json` or
+ * `~/.gemini/antigravity-cli/settings.json`. `opts.home` (tests) wins outright.
+ */
+function antigravityConfigPath(opts: TrustOptions): string {
+  const dir = opts.home
+    ? join(opts.home, '.gemini', 'antigravity-cli')
+    : (envDir(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) ??
+       join(defaultHome(), '.gemini', 'antigravity-cli'));
+  return join(dir, 'settings.json');
+}
+
+/**
  * The repository root a CLI records folder trust under, or `undefined` when
  * `dir` is not inside a git repository. Claude Code 2.1.296 keys
  * `projects[<root>]` on the repository's COMMON git dir parent, NOT the launch
@@ -242,8 +254,9 @@ export function trustKeyFor(cwd: string): string {
 /**
  * Every key a core may record trust under for `cwd`: the realpath cwd, plus the
  * git repository root when the cwd is inside one. Claude keys on the repository
- * root (a linked worktree resolves to the MAIN worktree root); codex keys on the
- * cwd. Writing both covers either, and a non-repo cwd yields just its own key.
+ * root (a linked worktree resolves to the MAIN worktree root); codex and
+ * antigravity key on the cwd / trusted workspaces. Writing both covers each,
+ * and a non-repo cwd yields just its own key.
  */
 export function trustKeysFor(cwd: string): string[] {
   const absolute = resolve(cwd);
@@ -284,6 +297,37 @@ export function mergeClaudeTrust(existing: unknown, cwd: string): TrustMerge {
   }
   if (!changed) return { changed: false, next: existing };
   return { changed: true, next: { ...existing, projects: next } };
+}
+
+/**
+ * Merge `trustedWorkspaces: string[]` into a parsed `~/.gemini/antigravity-cli/settings.json`
+ * for every key `trustKeysFor(cwd)` names (the cwd and, inside a repo, the repository
+ * root). Preserves every top-level key and existing trustedWorkspaces entries.
+ * `undefined` (a missing or empty file) starts a fresh minimal document.
+ * A top-level shape karst cannot merge (an array, a scalar, `null`) is left
+ * alone (`changed: false`).
+ */
+export function mergeAntigravityTrust(existing: unknown, cwd: string): TrustMerge {
+  const keys = trustKeysFor(cwd);
+  if (existing === undefined) {
+    return { changed: true, next: { trustedWorkspaces: keys } };
+  }
+  if (!isPlainObject(existing)) return { changed: false, next: existing };
+  const rawList = Array.isArray(existing['trustedWorkspaces'])
+    ? existing['trustedWorkspaces']
+    : [];
+  const existingSet = new Set(
+    rawList.filter((item): item is string => typeof item === 'string'),
+  );
+  const toAdd = keys.filter((key) => !existingSet.has(key));
+  if (toAdd.length === 0) return { changed: false, next: existing };
+  return {
+    changed: true,
+    next: {
+      ...existing,
+      trustedWorkspaces: [...rawList, ...toAdd],
+    },
+  };
 }
 
 /** The `[projects."<key>"]` TOML table header codex writes for a directory. */
@@ -491,24 +535,28 @@ function mergeCodexTrustForKey(existing: string, key: string): { changed: boolea
 }
 
 /**
- * Read and parse `~/.claude.json`. `ok: true, value: undefined` is a missing or
+ * Read and parse a JSON config file. `ok: true, value: undefined` is a missing or
  * empty file (safe to create); `ok: false` is a file karst must not touch (a
  * read fault or invalid JSON) — the reason is logged.
  */
-function readClaudeJson(path: string, debug: (message: string) => void): JsonRead {
+function readJsonConfig(
+  path: string,
+  core: string,
+  debug: (message: string) => void,
+): JsonRead {
   if (!existsSync(path)) return { ok: true, value: undefined };
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
   } catch (error) {
-    debug(`[trust] claude: cannot read ${path} (${describeError(error)}) — launch continues`);
+    debug(`[trust] ${core}: cannot read ${path} (${describeError(error)}) — launch continues`);
     return { ok: false };
   }
   if (text.trim() === '') return { ok: true, value: undefined };
   try {
     return { ok: true, value: JSON.parse(text) as unknown };
   } catch {
-    debug(`[trust] claude: refusing to overwrite ${path} — the existing file is not valid JSON`);
+    debug(`[trust] ${core}: refusing to overwrite ${path} — the existing file is not valid JSON`);
     return { ok: false };
   }
 }
@@ -760,7 +808,7 @@ function mergeAndWriteClaude(
   lockPath: string,
   cwd: string,
   debug: (message: string) => void): boolean {
-  const read = readClaudeJson(path, debug);
+  const read = readJsonConfig(path, 'claude', debug);
   if (!read.ok) return true;
   const merged = mergeClaudeTrust(read.value, cwd);
   if (!merged.changed) return true;
@@ -772,6 +820,31 @@ function mergeAndWriteClaude(
     debug(`[trust] claude: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
   } catch (error) {
     debug(`[trust] claude: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
+  }
+  return true;
+}
+
+/** The locked antigravity read-merge-write (the caller holds the lock). */
+function mergeAndWriteAntigravity(
+  path: string,
+  lockPath: string,
+  cwd: string,
+  debug: (message: string) => void,
+): boolean {
+  const read = readJsonConfig(path, 'antigravity', debug);
+  if (!read.ok) return true;
+  const merged = mergeAntigravityTrust(read.value, cwd);
+  if (!merged.changed) return true;
+  try {
+    const wrote = writeFileAtomic(path, `${JSON.stringify(merged.next, null, 2)}\n`, () =>
+      ownsTrustLock(lockPath),
+    );
+    if (!wrote) return false;
+    debug(`[trust] antigravity: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
+  } catch (error) {
+    debug(
+      `[trust] antigravity: could not record folder trust in ${path} (${describeError(error)}) — launch continues`,
+    );
   }
   return true;
 }
@@ -856,11 +929,32 @@ function recordClaudeTrust(
   const debug = opts.debug ?? (() => {});
   const path = claudeConfigPath(opts);
 
-  const first = readClaudeJson(path, debug);
+  const first = readJsonConfig(path, 'claude', debug);
   if (!first.ok) return;
   if (!mergeClaudeTrust(first.value, cwd).changed) return;
 
   return runLocked('claude', path, opts, debug, (lockPath) => mergeAndWriteClaude(path, lockPath, cwd, debug));
+}
+
+/**
+ * Ensure antigravity accepts `cwd`: merge `trustedWorkspaces` into
+ * `~/.gemini/antigravity-cli/settings.json`. Best-effort — any fault is logged
+ * and the launch continues. Same opportunistic lock as claude/codex.
+ */
+function recordAntigravityTrust(
+  cwd: string,
+  opts: TrustOptions,
+): void | Promise<void> {
+  const debug = opts.debug ?? (() => {});
+  const path = antigravityConfigPath(opts);
+
+  const first = readJsonConfig(path, 'antigravity', debug);
+  if (!first.ok) return;
+  if (!mergeAntigravityTrust(first.value, cwd).changed) return;
+
+  return runLocked('antigravity', path, opts, debug, (lockPath) =>
+    mergeAndWriteAntigravity(path, lockPath, cwd, debug),
+  );
 }
 
 /**
@@ -895,6 +989,13 @@ export function ensureCodexWorkspaceTrusted(
   opts: TrustOptions = {},
 ): void | Promise<void> {
   return neverThrow('codex', opts, () => recordCodexTrust(cwd, opts));
+}
+
+export function ensureAntigravityWorkspaceTrusted(
+  cwd: string,
+  opts: TrustOptions = {},
+): void | Promise<void> {
+  return neverThrow('antigravity', opts, () => recordAntigravityTrust(cwd, opts));
 }
 
 /**

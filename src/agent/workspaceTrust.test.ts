@@ -19,8 +19,10 @@ import {
   acquireTrustLock,
   codexProjectHeader,
   codexProjectHeaderForKey,
+  ensureAntigravityWorkspaceTrusted,
   ensureClaudeWorkspaceTrusted,
   ensureCodexWorkspaceTrusted,
+  mergeAntigravityTrust,
   mergeClaudeTrust,
   mergeCodexTrustToml,
   releaseTrustLock,
@@ -191,6 +193,135 @@ describe('mergeClaudeTrust', () => {
       },
     };
     expect(mergeClaudeTrust(existing, sub)).toEqual({ changed: false, next: existing });
+  });
+});
+
+describe('mergeAntigravityTrust', () => {
+  it('creates a minimal document for a missing file', () => {
+    const cwd = tempDir();
+    const merged = mergeAntigravityTrust(undefined, cwd);
+    expect(merged.changed).toBe(true);
+    expect(merged.next).toEqual({
+      trustedWorkspaces: [trustKeyFor(cwd)],
+    });
+  });
+
+  it('preserves other top-level keys and appends new trusted workspace', () => {
+    const cwd = tempDir();
+    const existing = {
+      security: { auth: { selectedType: 'oauth' } },
+      trustedWorkspaces: ['/other/path'],
+    };
+    const merged = mergeAntigravityTrust(existing, cwd);
+    expect(merged.changed).toBe(true);
+    expect(merged.next).toEqual({
+      security: { auth: { selectedType: 'oauth' } },
+      trustedWorkspaces: ['/other/path', trustKeyFor(cwd)],
+    });
+  });
+
+  it('is idempotent when the directory is already trusted', () => {
+    const cwd = tempDir();
+    const existing = {
+      trustedWorkspaces: [trustKeyFor(cwd)],
+    };
+    expect(mergeAntigravityTrust(existing, cwd)).toEqual({ changed: false, next: existing });
+  });
+
+  it('leaves a top-level shape it cannot merge alone', () => {
+    expect(mergeAntigravityTrust(null, '/karst/wt')).toEqual({ changed: false, next: null });
+    expect(mergeAntigravityTrust(['not-an-object'], '/karst/wt')).toEqual({
+      changed: false,
+      next: ['not-an-object'],
+    });
+  });
+
+  it('records trust for both the cwd and the repository root', () => {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'packages', 'app');
+    mkdirSync(sub, { recursive: true });
+    const merged = mergeAntigravityTrust(undefined, sub);
+    expect(merged.changed).toBe(true);
+    expect(merged.next).toEqual({
+      trustedWorkspaces: [trustKeyFor(sub), trustKeyFor(repo)],
+    });
+  });
+});
+
+describe('ensureAntigravityWorkspaceTrusted', () => {
+  it('creates ~/.gemini/antigravity-cli/settings.json when it does not exist', () => {
+    const home = tempDir();
+    ensureAntigravityWorkspaceTrusted('/karst/wt', { home });
+    const settingsPath = join(home, '.gemini', 'antigravity-cli', 'settings.json');
+    expect(existsSync(settingsPath)).toBe(true);
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      trustedWorkspaces: string[];
+    };
+    expect(parsed.trustedWorkspaces).toContain(trustKeyFor('/karst/wt'));
+  });
+
+  it('merges into a real config without dropping existing keys', () => {
+    const home = tempDir();
+    const dir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(dir, { recursive: true });
+    const settingsPath = join(dir, 'settings.json');
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ general: { preferredEditor: 'vscode' }, trustedWorkspaces: ['/existing'] }),
+    );
+    ensureAntigravityWorkspaceTrusted('/karst/wt', { home });
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      general: { preferredEditor: string };
+      trustedWorkspaces: string[];
+    };
+    expect(parsed.general.preferredEditor).toBe('vscode');
+    expect(parsed.trustedWorkspaces).toEqual(['/existing', trustKeyFor('/karst/wt')]);
+  });
+
+  it('refuses to overwrite invalid JSON and continues the launch', () => {
+    const home = tempDir();
+    const dir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(dir, { recursive: true });
+    const settingsPath = join(dir, 'settings.json');
+    writeFileSync(settingsPath, '{ invalid json');
+    const logs: string[] = [];
+    expect(() =>
+      ensureAntigravityWorkspaceTrusted('/karst/wt', { home, debug: (m) => logs.push(m) }),
+    ).not.toThrow();
+    expect(readFileSync(settingsPath, 'utf8')).toBe('{ invalid json');
+    expect(logs.join('\n')).toMatch(/not valid JSON/);
+  });
+
+  it('skips the write when already trusted', () => {
+    const home = tempDir();
+    const dir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(dir, { recursive: true });
+    const settingsPath = join(dir, 'settings.json');
+    const body = `{"trustedWorkspaces":["${trustKeyFor('/karst/wt')}"]}`;
+    writeFileSync(settingsPath, body);
+    ensureAntigravityWorkspaceTrusted('/karst/wt', { home });
+    expect(readFileSync(settingsPath, 'utf8')).toBe(body);
+  });
+
+  it('writes through a symlinked config instead of replacing the link', () => {
+    const home = tempDir();
+    const realDir = tempDir();
+    const realSettings = join(realDir, 'settings.json');
+    writeFileSync(realSettings, JSON.stringify({ version: 1 }));
+    const agyDir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(agyDir, { recursive: true });
+    const symlinkSettings = join(agyDir, 'settings.json');
+    symlinkSync(realSettings, symlinkSettings);
+
+    ensureAntigravityWorkspaceTrusted('/karst/wt', { home });
+    expect(lstatSync(symlinkSettings).isSymbolicLink()).toBe(true);
+    const parsed = JSON.parse(readFileSync(realSettings, 'utf8')) as {
+      version: number;
+      trustedWorkspaces: string[];
+    };
+    expect(parsed.version).toBe(1);
+    expect(parsed.trustedWorkspaces).toContain(trustKeyFor('/karst/wt'));
   });
 });
 
@@ -560,6 +691,16 @@ describe('config dir overrides', () => {
     expect(existsSync(join(home, '.codex'))).toBe(false);
   });
 
+  it('writes antigravity trust under $ANTIGRAVITY_EXECUTABLE_DATA_DIR', () => {
+    const home = tempDir();
+    const dir = tempDir();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('ANTIGRAVITY_EXECUTABLE_DATA_DIR', dir);
+    ensureAntigravityWorkspaceTrusted('/karst/wt', {});
+    expect(existsSync(join(dir, 'settings.json'))).toBe(true);
+    expect(existsSync(join(home, '.gemini'))).toBe(false);
+  });
+
   it('ignores an empty override and uses the home default', () => {
     const home = tempDir();
     vi.stubEnv('HOME', home);
@@ -590,6 +731,14 @@ describe('config file permissions', () => {
     ensureCodexWorkspaceTrusted('/karst/wt', { home });
     expect(statSync(join(home, '.codex', 'config.toml')).mode & 0o777).toBe(0o600);
   });
+
+  it('creates a new antigravity config 0600', () => {
+    const home = tempDir();
+    ensureAntigravityWorkspaceTrusted('/karst/wt', { home });
+    expect(
+      statSync(join(home, '.gemini', 'antigravity-cli', 'settings.json')).mode & 0o777,
+    ).toBe(0o600);
+  });
 });
 
 describe('trust hook never throws', () => {
@@ -614,6 +763,15 @@ describe('trust hook never throws', () => {
     const logs: string[] = [];
     expect(() =>
       ensureCodexWorkspaceTrusted(loopingRepo(), { home, debug: (m) => logs.push(m) }),
+    ).not.toThrow();
+    expect(logs.join('\n')).toContain('launch continues');
+  });
+
+  it('antigravity: a faulting .git logs and returns instead of throwing', () => {
+    const home = tempDir();
+    const logs: string[] = [];
+    expect(() =>
+      ensureAntigravityWorkspaceTrusted(loopingRepo(), { home, debug: (m) => logs.push(m) }),
     ).not.toThrow();
     expect(logs.join('\n')).toContain('launch continues');
   });
