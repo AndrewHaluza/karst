@@ -14,7 +14,7 @@ describe('sbx runner: gates, ports, baseline allow (arch:AC-32)', () => {
     const signal = new AbortController().signal;
     await expect(runner.runGate!('npm', ['test'], '/wt', { signal })).resolves.toBe(outcome);
     expect(gateProcess).toHaveBeenCalledWith(
-      'sbx', ['exec', '--env', 'KARST_EVIDENCE_DIR=/ev/7', NAME, '--', 'npm', 'test'], '/wt', { signal },
+      'sbx', ['exec', '--env', 'KARST_SANDBOX=1', '--env', 'KARST_EVIDENCE_DIR=/ev/7', NAME, '--', 'npm', 'test'], '/wt', { signal },
     );
   });
 
@@ -22,7 +22,7 @@ describe('sbx runner: gates, ports, baseline allow (arch:AC-32)', () => {
     const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' } as ProcessOutcome));
     const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [], gateProcess });
     await runner.runGate!('npm', ['test'], '/wt');
-    expect(gateProcess.mock.calls[0]![1]).toEqual(['exec', NAME, '--', 'npm', 'test']);
+    expect(gateProcess.mock.calls[0]![1]).toEqual(['exec', '--env', 'KARST_SANDBOX=1', NAME, '--', 'npm', 'test']);
   });
 
   it('publishes on 127.0.0.1 and reports a busy port as portTaken', async () => {

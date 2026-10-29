@@ -17,7 +17,7 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     const runner = createDockerSessionRunner({ ...base, proc, gateProcess, evidenceDir: '/karst-bridge/7' });
     await expect(runner.runGate!('npm', ['test', '/w/t7/a.ts'], '/w/t7')).resolves.toBe(outcome);
     const argv = gateProcess.mock.calls[0]![1];
-    expect(argv.slice(0, 7)).toEqual(['exec', '--interactive', '--env', 'KARST_EVIDENCE_DIR=/karst-bridge/7', '--workdir', '/work/repo', names.container]);
+    expect(argv.slice(0, 9)).toEqual(['exec', '--interactive', '--env', 'KARST_SANDBOX=1', '--env', 'KARST_EVIDENCE_DIR=/karst-bridge/7', '--workdir', '/work/repo', names.container]);
     expect(argv.slice(-3)).toEqual(['npm', 'test', '/work/repo/a.ts']);
     expect(proc.calls.map((c) => c.args.slice(0, 2).join(' '))).toEqual(['container inspect', `exec ${names.container}`]);
   });
@@ -60,7 +60,7 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     const argv = gateProcess.mock.calls[0]![1];
     const gateName = `${names.container}-gate-r1`;
     expect(argv.slice(0, 7)).toEqual(['run', '--rm', '--init', '--name', gateName, '--network', names.network]);
-    expect(argv).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'KARST_EVIDENCE_DIR=/karst-bridge/7', '--workdir', '/work/repo']));
+    expect(argv).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'KARST_SANDBOX=1', 'KARST_EVIDENCE_DIR=/karst-bridge/7', '--workdir', '/work/repo']));
     expect(argv.slice(-2)).toEqual(['npm', 'test']);
     expect(argv.join(' ')).not.toMatch(/--privileged|docker\.sock|--publish/);
     expect(proc.calls.at(-1)!.args).toEqual(['rm', '--force', gateName]);

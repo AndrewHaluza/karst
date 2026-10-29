@@ -67,6 +67,9 @@ export const MAX_BUNDLE_STDOUT_BYTES = 128 * 1024 * 1024;
 /** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
 export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 
+/** Env marker every in-sandbox gate exec carries, so scripts print sandbox-specific hints. */
+export const SANDBOX_ENV = 'KARST_SANDBOX';
+
 /** The host remote clone mode leaves for a sandbox. */
 export function sandboxRemote(name: string): string {
   return `sandbox-${name}`;
@@ -90,7 +93,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     return { state: ls.entries.some((e) => e.name === opts.name) ? 'present' : 'absent' };
   };
   const listed = async (): Promise<boolean> => (await probe()).state === 'present';
-  const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
+  const evidenceEnv = ['--env', `${SANDBOX_ENV}=1`, ...(opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [])];
   /**
    * Bring the sandbox's branch into the host worktree as FETCH_HEAD. The bundle
    * is made INSIDE the sandbox (`sbx exec`) and streamed back as base64, so the

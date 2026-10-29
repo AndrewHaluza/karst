@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { runProcess } from '../../workflow/gates/run.js';
 import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxProbe, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
-import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
+import { EVIDENCE_DIR_ENV, SANDBOX_ENV } from '../sbx/sbxRunner.js';
 import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
@@ -55,7 +55,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
   const newRunId = opts.newRunId ?? (() => randomBytes(8).toString('hex'));
   const ctx: CloneContext = { proc: opts.proc, names: opts.names, user: opts.user, temp: opts.temp ?? OS_TEMP_DIRS };
   const gateProcess = opts.gateProcess ?? runProcess;
-  const gateEnv: Record<string, string> = opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {};
+  const gateEnv: Record<string, string> = { [SANDBOX_ENV]: '1', ...(opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {}) };
   /** Runs `body` with a recorded in-container pid, killed on abort and when the run ends. */
   const execTracked = async <T>(signal: AbortSignal | undefined, body: (runId: string) => Promise<T>): Promise<T> => {
     const runId = newRunId();

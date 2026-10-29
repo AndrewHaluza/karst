@@ -79,6 +79,6 @@ describe.each([
 
   it('gates run through `sbx exec` with the bridge dir as the evidence dir', async () => {
     await runner.runGate!('npm', ['test'], '/wt/t7');
-    expect(gate).toHaveBeenLastCalledWith('sbx', ['exec', '--env', `KARST_EVIDENCE_DIR=${paths.dir}`, name, '--', 'npm', 'test'], '/wt/t7', undefined);
+    expect(gate).toHaveBeenLastCalledWith('sbx', ['exec', '--env', 'KARST_SANDBOX=1', '--env', `KARST_EVIDENCE_DIR=${paths.dir}`, name, '--', 'npm', 'test'], '/wt/t7', undefined);
   });
 });

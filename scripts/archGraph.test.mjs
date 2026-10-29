@@ -65,6 +65,15 @@ describe('resolveDepcruiseBin', () => {
   });
 });
 
+describe('resolveDepcruiseBin sandbox hint', () => {
+  it('says dependencies are missing in this sandbox when KARST_SANDBOX is set', () => {
+    expect(() => resolveDepcruiseBin('/clone/scripts', () => false, { KARST_SANDBOX: '1' })).toThrow(/sandbox.*sandbox\.setup/s);
+  });
+  it('keeps the npm install hint outside a sandbox', () => {
+    expect(() => resolveDepcruiseBin('/main/scripts', () => false, {})).toThrow(/run npm install/);
+  });
+});
+
 describe('validateLayers', () => {
   it('fails every unassigned top-level src entry', () => {
     const errors = validateLayers({ core: ['model'] }, { dirs: ['model', 'ui'], files: ['extension.ts'] });
