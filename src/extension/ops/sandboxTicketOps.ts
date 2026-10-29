@@ -29,7 +29,7 @@ import { isServing } from '../../runtime/health.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement, type TicketPlacement } from '../../store/placement.js';
-import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, provisionTicketSandbox, ticketCloneReady } from './sandboxSetupOp.js';
+import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, onceByMessage, provisionTicketSandbox, ticketCloneReady, warnMissingSetup } from './sandboxSetupOp.js';
 import type { Notify } from './notify.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
@@ -72,6 +72,8 @@ export interface TicketSandboxDeps {
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
   readonly debug?: (message: string) => void;
+  /** Non-blocking user warning (bound from `notify.warn`, deduped): a lockfile repo with no `sandbox.setup` (arch:AC-40). */
+  readonly warn?: (message: string) => void;
 }
 
 export interface TicketSandbox {
@@ -195,6 +197,8 @@ export async function reattachTicketSandbox(
   if (!ctx) return null;
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
   if (!allow.ok) deps.debug?.(`[runtime] ticket ${ticketId}: baseline allow failed: ${allow.reason}`);
+  const runGate = ctx.runner.runGate;
+  await warnMissingSetup(deps, { manifest: () => manifest, worktrees: (id) => listWorktreesByTicket(store, id), gateProcess: () => runGate }, ticketId);
   const result = await reverifySandboxServices(store, ticketId, ctx.runner, isHealthy);
   if (result) {
     deps.debug?.(`[runtime] ticket ${ticketId}: sandbox re-verify republished [${result.republished.join(', ')}], dropped [${result.dropped.join(', ')}]`);
@@ -263,6 +267,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   let memProbe: Promise<void> | undefined;
   const deps: TicketSandboxDeps = {
     ...input,
+    ...(input.notify ? { warn: onceByMessage((m) => input.notify!.warn(m)) } : {}),
     // The listing's answer wins over the (possibly null) session provider for every sync reader too.
     coreOf: (ticketId) => cores.get(ticketId) ?? input.coreOf(ticketId),
     placementOf: input.placementOf ?? ((ticketId) => getPlacement(input.store, ticketId)),

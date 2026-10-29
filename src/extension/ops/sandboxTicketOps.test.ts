@@ -13,6 +13,7 @@ import { createTicket } from '../../store/tickets.js';
 import {
   reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
+import { onceByMessage } from './sandboxSetupOp.js';
 
 vi.mock('../../workflow/gates/run.js', async (orig) => ({
   ...(await orig<typeof import('../../workflow/gates/run.js')>()),
@@ -204,6 +205,23 @@ describe('reattachTicketSandbox', () => {
     expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: baseline allow failed: sbx policy allow failed: nope');
   });
 
+  it('warns once (deduped) when a sandboxed repo has a lockfile and no sandbox.setup; never without a sandbox', async () => {
+    const store = openStore(':memory:');
+    createTicket(store, { key: 'T-1', title: 't' });
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (1, 'db', '/wt/db', 'b', 'main', 'none')").run();
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${sbxName({ projectRoot: '/p', ticketId: 1, core: 'claude' })}\n` }, 'sbx exec': { code: 0 } });
+    const warn = vi.fn();
+    const once = onceByMessage(warn);
+    await reattachTicketSandbox(deps({ proc, warn: once }), store, manifest, 1, () => Promise.resolve(true));
+    await reattachTicketSandbox(deps({ proc, warn: once }), store, manifest, 1, () => Promise.resolve(true));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('sandbox repo db has a lockfile');
+    expect(warn.mock.calls[0]![0]).toContain('`sandbox.setup: npm ci`');
+    const host = vi.fn();
+    await reattachTicketSandbox(deps({ proc: fakeSbxProcess(), warn: host }), store, manifest, 1, () => Promise.resolve(true));
+    expect(host).not.toHaveBeenCalled();
+  });
+
   it('logs nothing about re-verify when the sandbox cannot list', async () => {
     const store = openStore(':memory:');
     store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, sandbox) VALUES (7, 'api', '127.0.0.1', 4100, 'running', ?)").run(`sbx:${SBX}:4100`);
@@ -278,6 +296,18 @@ describe('scheduleSandboxReattach / withSandboxSpin / createTicketSandboxBinding
     const none = createTicketSandboxBindings({ ...deps(), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
     expect(none.hostPorts(7)).toEqual([]);
     expect(none.reattach(7)).toBe(false);
+  });
+
+  it('bindings: warn is notify.warn deduped by message, absent without notify', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const warn = vi.fn();
+    const notify = { info: vi.fn(), warn, error: vi.fn(() => Promise.resolve()) };
+    const b = createTicketSandboxBindings({ ...deps(), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined, notify });
+    b.deps.warn!('m'); b.deps.warn!('m');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('m');
+    expect(createTicketSandboxBindings({ ...deps(), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined }).deps.warn).toBeUndefined();
   });
 });
 

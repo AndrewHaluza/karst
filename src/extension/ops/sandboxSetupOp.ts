@@ -64,6 +64,45 @@ export async function ticketCloneReady(deps: Pick<TicketSetupDeps, 'manifest' | 
   return true;
 }
 
+export const MISSING_SETUP_HINT = 'sandbox.setup: npm ci';
+
+/** Repos in the sandbox that carry a lockfile but declare no `sandbox.setup`: their clone has no dependencies (arch:AC-40). Host ticket = none. */
+export async function reposMissingSetup(deps: Pick<TicketSetupDeps, 'manifest' | 'worktrees' | 'gateProcess'>, ticketId: number): Promise<string[]> {
+  const manifest = deps.manifest();
+  const runGate = deps.gateProcess(ticketId);
+  if (!manifest || !runGate) return [];
+  const missing: string[] = [];
+  for (const wt of deps.worktrees(ticketId)) {
+    const [name, def] = Object.entries(manifest.repositories).find(([key, r]) => key === wt.repo || r.repoPath === wt.repo) ?? [];
+    if (name && def && !def.sandbox?.setup && (await probeOk(runGate, LOCKFILES_SH, wt.path))) missing.push(name);
+  }
+  return missing;
+}
+
+/** Non-blocking launch/reattach warning for `reposMissingSetup`; a failed probe only reaches `debug`. No `warn` seam = no probe. */
+export async function warnMissingSetup(
+  seam: { readonly warn?: (message: string) => void; readonly debug?: (message: string) => void },
+  deps: Pick<TicketSetupDeps, 'manifest' | 'worktrees' | 'gateProcess'>, ticketId: number,
+): Promise<void> {
+  if (!seam.warn) return;
+  try {
+    const missing = await reposMissingSetup(deps, ticketId);
+    if (missing.length > 0) seam.warn(`Karst: sandbox repo ${missing.join(', ')} has a lockfile but no sandbox.setup, so its clone has no dependencies. Add \`${MISSING_SETUP_HINT}\` to its manifest entry.`);
+  } catch (err) {
+    seam.debug?.(`[sandbox] ticket ${ticketId}: missing-setup probe failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Reattach runs after every launch: show each distinct warning once per extension-host session. */
+export function onceByMessage(warn: (message: string) => void): (message: string) => void {
+  const seen = new Set<string>();
+  return (message) => {
+    if (seen.has(message)) return;
+    seen.add(message);
+    warn(message);
+  };
+}
+
 /**
  * Run each declared `sandbox.setup` of the ticket's repositories inside its sandbox
  * (arch:AC-36), in order; the first failure stops. A host ticket, or one whose repos declare
