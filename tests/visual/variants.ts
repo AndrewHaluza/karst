@@ -57,7 +57,7 @@ export interface Variant {
   readonly themes: readonly string[];
   readonly corpus: () => ViewCorpus;
   /** Settings only: the nav section / hash to open before the shot. */
-  readonly route?: { readonly section: SettingsSection; readonly hash?: string };
+  readonly route?: { readonly section: SettingsSection; readonly hash?: string; readonly scrollTo?: string };
   /** Settings only: id of the settingsRoutes() entry that runs this variant's layout geometry. */
   readonly layoutRouteId?: string;
   /**
@@ -230,7 +230,7 @@ function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant 
       themes: DARK_ONLY,
       skipLayout: true,
     }),
-    route: { section: 'quality' },
+    route: { section: 'quality', scrollTo: '.gate-block' },
   };
 }
 
