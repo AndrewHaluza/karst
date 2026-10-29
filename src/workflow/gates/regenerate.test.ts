@@ -20,11 +20,16 @@ const spec = { repo: 'extention', commands: ['gen-a', 'gen-b'] };
 
 describe('regenerate before gates', () => {
   it('runs generators in order, commits only on change, then the gates', async () => {
-    const f = fake((l) => (l === 'git status --porcelain' ? { exitCode: 0, stdout: ' M docs/x.md\n' } : { exitCode: 0 }));
-    const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: spec });
+    let statuses = 0;
+    const f = fake((l) =>
+      l === 'git status --porcelain -z'
+        ? { exitCode: 0, stdout: statuses++ === 0 ? ' M agent.ts\0' : ' M agent.ts\0 M docs/x.md\0' }
+        : { exitCode: 0 });
+    const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: { ...spec, exclude: ['gen/**'] } });
     expect(f.calls).toEqual([
-      'sh -c gen-a', 'sh -c gen-b', 'git status --porcelain', 'git add -A',
-      'git commit -m chore: regenerate generated files', 'npm run x',
+      'git status --porcelain -z', 'sh -c gen-a', 'sh -c gen-b', 'git status --porcelain -z',
+      'git add -A -- docs/x.md :(exclude)gen/**',
+      'git commit -m chore: regenerate generated files --only -- docs/x.md', 'npm run x',
     ]);
     expect(r.results.map((x) => x.name)).toEqual(['docs-graph']);
   });
@@ -38,7 +43,7 @@ describe('regenerate before gates', () => {
   it('a failing generator is the result and no gate runs', async () => {
     const f = fake((l) => (l === 'sh -c gen-a' ? { exitCode: 2, output: 'boom' } : { exitCode: 0 }));
     const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: spec });
-    expect(f.calls).toEqual(['sh -c gen-a']);
+    expect(f.calls.filter((c) => !c.startsWith('git'))).toEqual(['sh -c gen-a']);
     expect(r).toMatchObject({ kind: 'ran', regenerateFailed: true });
     expect(r.results).toHaveLength(1);
     expect(r.results[0]).toMatchObject({ name: 'regenerate (extention)', exitCode: 2 });
@@ -57,7 +62,7 @@ describe('regenerate before gates', () => {
 
   it('a missing module in the sandbox is also a capability gap', async () => {
     const f = fake(() => ({ exitCode: 1, output: "Error: Cannot find module 'dependency-cruiser'" }));
-    const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: spec });
+    const r = await runGateList([gate], '/w', { runProcess: f.runner, sandboxed: true, regenerate: spec });
     expect(r.results[0]!.exitCode).toBe(127);
   });
 
@@ -69,7 +74,7 @@ describe('regenerate before gates', () => {
       regenerate: { repo: 'r', commands: ['a', { run: 'b', sandbox: 'host' }] },
     });
     expect(host.calls).toEqual(['sh -c b']);
-    expect(sb.calls[0]).toBe('sh -c a');
+    expect(sb.calls).toContain('sh -c a');
   });
 
   it('no regenerate configured → gates only', async () => {

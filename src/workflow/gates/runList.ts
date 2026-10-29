@@ -88,6 +88,8 @@ export interface RunGatesOptions {
    * list. A generator that fails ends the pass with that one result and runs no gate.
    */
   regenerate?: RegenerateSpec;
+  /** True when `runProcess` is a sandbox runner (a missing module then means the sandbox lacks the tool). */
+  sandboxed?: boolean;
 }
 
 export async function runGateList(
@@ -114,7 +116,7 @@ export async function runGateList(
         onDebug,
         ...(opts.onGateOutput ? { onOutput: (chunk: GateOutputChunk) => opts.onGateOutput?.(regenName, chunk) } : {}),
       },
-      opts.runProcess !== undefined,
+      opts.sandboxed === true,
       now,
     );
     if (regen.kind === 'stopped') return { kind: 'stopped', results };
