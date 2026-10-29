@@ -404,11 +404,18 @@ function validateShip(raw: unknown, repo: string): ShipDef | undefined {
   };
 }
 
-function validateRegenerate(raw: unknown, where: string): string[] {
+function validateRegenerate(raw: unknown, where: string): (string | { run: string; sandbox?: 'host' })[] {
   if (!Array.isArray(raw)) {
     throw new ManifestError(`${where}.regenerate must be an array of shell command strings`);
   }
-  return raw.map((c, i) => requireString(c, `${where}.regenerate[${i}]`));
+  return raw.map((c, i) => {
+    const at = `${where}.regenerate[${i}]`;
+    if (!isObject(c)) return requireString(c, at);
+    const run = requireString(c.run, `${at}.run`);
+    if (c.sandbox === undefined) return { run };
+    if (c.sandbox !== 'host') throw new ManifestError(`${at}.sandbox must be "host"`);
+    return { run, sandbox: 'host' as const };
+  });
 }
 
 function validateExclude(raw: unknown, where: string): string[] {
