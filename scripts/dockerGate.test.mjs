@@ -257,3 +257,15 @@ describe('narrowSweep', () => {
     }
   });
 });
+
+describe('baseRunArgv', () => {
+  it('mounts the base worktree and re-runs only the failing screenshots in the same image', async () => {
+    const { baseRunArgv } = await import('./dockerGate.mjs');
+    const raw = ['run', '--rm', '-v', '{repo}:/work', '-v', 'nm:/work/node_modules', '-w', '/work', 'mcr.microsoft.com/playwright:v1.63.0-noble', 'npm', 'run', 'test:visual:ci'];
+    const argv = baseRunArgv(raw, '/tmp/base', [{ project: 'dark', title: "it's", baseline: 'b' }], 'karst-pw-x-1-base');
+    expect(argv.slice(0, 3)).toEqual(['run', '--name', 'karst-pw-x-1-base']);
+    expect(argv).toContain('/tmp/base:/work');
+    expect(argv).not.toContain('npm');
+    expect(argv.at(-1)).toContain("'--project=dark' '--grep' 'it'\\''s'");
+  });
+});

@@ -21,8 +21,10 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { baseRerunArgv, classifyFailures, failingScreenshots, planBaseCheck, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
 import { gateGrep, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
 import {
@@ -162,18 +164,24 @@ const SELECTING_SCRIPTS = new Set(['test:visual:docker', 'test:layout:docker']);
 
 const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main'];
 
+/** The sha the ticket branched from, or null when no base ref resolves. */
+export function mergeBaseSha(cwd = process.cwd(), base = process.env.KARST_BASE_REF) {
+  for (const ref of base ? [base] : BASE_CANDIDATES) {
+    const mb = spawnSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8' });
+    if (mb.status === 0) return mb.stdout.trim();
+  }
+  return null;
+}
+
 /** Paths the ticket changed vs its base (committed, staged, unstaged, untracked), or null when unreadable. */
 export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_REF) {
   const git = (args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
-  for (const ref of base ? [base] : BASE_CANDIDATES) {
-    const mb = git(['merge-base', ref, 'HEAD']);
-    if (mb.status !== 0) continue;
-    const tracked = git(['diff', '--name-only', '-z', mb.stdout.trim()]);
-    const untracked = git(['ls-files', '-o', '--exclude-standard', '-z']);
-    if (tracked.status !== 0 || untracked.status !== 0) return null;
-    return `${tracked.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean);
-  }
-  return null;
+  const sha = mergeBaseSha(cwd, base);
+  if (sha === null) return null;
+  const tracked = git(['diff', '--name-only', '-z', sha]);
+  const untracked = git(['ls-files', '-o', '--exclude-standard', '-z']);
+  if (tracked.status !== 0 || untracked.status !== 0) return null;
+  return `${tracked.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean);
 }
 
 /** `playwright test --list` totals with and without the grep, or null (best effort: the line just omits counts). */
@@ -206,6 +214,23 @@ export function narrowSweep(script) {
     selectionLine(script, grep === null ? { all: true, views: [] } : selection, countTests(script, grep)),
   );
 }
+
+/**
+ * The docker argv for the base re-run: the same image, flags and node_modules
+ * volume, the base worktree mounted for the ticket's checkout, and playwright
+ * run on just the failing screenshots in place of the gate's command.
+ */
+export function baseRunArgv(rawArgv, baseDir, screenshots, name, volume = null) {
+  const image = rawArgv.findIndex((arg) => arg.includes('/playwright:'));
+  const head = image === -1 ? rawArgv : rawArgv.slice(0, image + 1);
+  const mounted = dockerArgv(head, baseDir);
+  return withContainerName(
+    [...(volume ? withNamedNodeModules(mounted, volume) : mounted), '/bin/sh', '-c', `(test -e node_modules/.package-lock.json || npm ci) && ${baseRerunArgv(screenshots).map(shellQuote).join(' ')}`],
+    name,
+  );
+}
+
+const shellQuote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
 
 function main(argv) {
   const script = process.env.npm_lifecycle_event ?? 'this gate';
@@ -288,18 +313,90 @@ async function runContainer(rawArgv) {
     onWait: () => console.error(`waiting for visual slot (ticket ${ticket ?? basename(process.cwd())})`),
   });
   if (!holding) process.exit(130);
+  const results = join(process.cwd(), RESULTS_REL);
+  rmSync(results, { force: true });
   // Async spawn: spawnSync would block the signal handlers above until docker exits.
-  const child = spawn('docker', args, { stdio: 'inherit' });
-  child.on('error', (error) => {
-    cleanup();
-    console.error(`docker could not start: ${error.message}`);
-    process.exit(EXIT_COMMAND_NOT_FOUND);
-  });
-  child.on('close', (status) => {
-    cleanup();
-    if (status === 0) collectVolumes(process.cwd());
-    process.exit(status ?? 1);
-  });
+  const run = (dockerArgs, env = process.env) =>
+    new Promise((resolve) => {
+      const child = spawn('docker', dockerArgs, { stdio: 'inherit', env });
+      child.on('error', (error) => {
+        cleanup();
+        console.error(`docker could not start: ${error.message}`);
+        process.exit(EXIT_COMMAND_NOT_FOUND);
+      });
+      child.on('close', (status) => resolve(status ?? 1));
+    });
+  let status = await run(args);
+  if (status !== 0) status = await judgeAgainstBase({ status, rawArgv, name, volume, run, results });
+  cleanup();
+  if (status === 0) collectVolumes(process.cwd());
+  process.exit(status);
+}
+
+const RESULTS_REL = join('tests', 'visual', '.results.json');
+const BASELINES_REL = 'tests/visual/__baselines__';
+
+const readReport = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+/** Baselines the ticket added or changed vs its merge base (never drift: they keep the approval flow). */
+function ownBaselines(cwd, sha) {
+  const git = (args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const tracked = git(['diff', '--name-only', sha, '--', BASELINES_REL]);
+  const untracked = git(['ls-files', '-o', '--exclude-standard', '--', BASELINES_REL]);
+  return new Set(`${tracked.stdout ?? ''}\n${untracked.stdout ?? ''}`.split('\n').filter(Boolean));
+}
+
+/**
+ * A failed sweep, re-judged: re-run only the failing screenshots in a detached
+ * worktree of the merge base, inside the slot this process already holds. Ones
+ * that fail there too are develop's drift (reported, not failed). Returns the
+ * exit status: 0 when only drift remains, else the original one. The worktree
+ * is always removed.
+ */
+async function judgeAgainstBase({ status, rawArgv, name, volume, run, results }) {
+  const cwd = process.cwd();
+  const report = readReport(results);
+  if (report === null) return status;
+  const failing = failingScreenshots(report, cwd);
+  const sha = mergeBaseSha(cwd);
+  if (sha === null) return status;
+  const plan = planBaseCheck(failing, ownBaselines(cwd, sha));
+  if (plan.kind === 'skip') return status;
+  if (plan.kind === 'fail') {
+    console.error(`base check skipped: ${plan.reason}`);
+    return status;
+  }
+  const baseDir = mkdtempSync(join(tmpdir(), 'karst-base-'));
+  try {
+    const add = spawnSync('git', ['worktree', 'add', '--detach', baseDir, sha], { cwd, encoding: 'utf8' });
+    if (add.status !== 0) {
+      console.error(`base check skipped: cannot create the base worktree: ${add.stderr?.trim()}`);
+      return status;
+    }
+    console.error(`re-running ${failing.screenshots.length} failing screenshot(s) at the merge base ${sha.slice(0, 12)}`);
+    const baseStatus = await run(baseRunArgv(rawArgv, baseDir, failing.screenshots, `${name}-base`, volume), {
+      ...process.env,
+      KARST_UI_GREP: '',
+    });
+    const baseReport = readReport(join(baseDir, RESULTS_REL));
+    if (baseReport === null) {
+      console.error(`base check skipped: the base run left no report (exit ${baseStatus})`);
+      return status;
+    }
+    const verdict = classifyFailures(failing.screenshots, baseReport);
+    for (const line of reportLines(verdict)) console.error(line);
+    return verdict.breaks.length === 0 ? 0 : status;
+  } finally {
+    spawnSync('git', ['worktree', 'remove', '--force', baseDir], { cwd, stdio: 'ignore' });
+    rmSync(baseDir, { recursive: true, force: true });
+    spawnSync('git', ['worktree', 'prune'], { cwd, stdio: 'ignore' });
+  }
 }
 
 if (process.argv[1] && process.argv[1].endsWith('dockerGate.mjs')) {
