@@ -14,6 +14,7 @@ function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandb
   const errors: string[] = [];
   const ran: string[][] = [];
   const runGate: GateProcessRunner = async (_c, args) => {
+    if (args[1]?.includes('-w node_modules')) return { kind: 'completed', exitCode: 0, output: '', stdout: '' };
     ran.push([...args]);
     const fp = args[1]?.includes('command -v node');
     return { kind: 'completed', exitCode: fp ? 0 : (opts.exit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' };

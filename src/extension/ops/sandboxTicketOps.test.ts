@@ -508,6 +508,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
       const joined = args.join(' ');
       if (joined.includes('ls package-lock.json')) return Promise.resolve({ kind: 'completed', exitCode: opts.noLockfile ? 2 : 0, output: '', stdout: '' }) as never;
       if (joined.includes('git rev-parse')) return Promise.resolve({ kind: 'completed', exitCode: opts.emptyClone ? 1 : 0, output: '', stdout: '' }) as never;
+      if (joined.includes('-w node_modules')) return Promise.resolve({ kind: 'completed', exitCode: 0, output: '', stdout: '' }) as never;
       const fp = joined.includes('command -v node');
       ran.push(joined);
       return Promise.resolve({ kind: 'completed', exitCode: fp ? 0 : (opts.setupExit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' }) as never;
