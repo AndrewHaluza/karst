@@ -59,8 +59,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { pidAlive } from '../runtime/pidAlive.js';
 
 /** Shared options for the per-core ensure functions. */
@@ -90,6 +91,8 @@ export interface TrustLockDeps {
 interface TrustLockRecord {
   pid: number;
   startedAt: number;
+  /** Distinguishes two holds by one pid (re-entry, ownership checks). */
+  nonce: string;
 }
 
 /**
@@ -102,6 +105,10 @@ const TRUST_LOCK_TTL_MS = 30_000;
 /** Upper bound on waiting for a busy lock. The wait is async, so it never blocks. */
 const TRUST_LOCK_WAIT_MS = 2_000;
 const TRUST_LOCK_POLL_MS = 5;
+/** A present but unparseable lock may be a writer mid-create elsewhere; give it this long. */
+const TRUST_LOCK_CORRUPT_GRACE_MS = 1_000;
+/** Re-acquisitions after a lost lock before the write is skipped. */
+const TRUST_LOCK_MAX_ATTEMPTS = 3;
 
 /** `MergeResult` for the claude JSON merge. */
 export interface TrustMerge {
@@ -527,7 +534,13 @@ function configTarget(path: string): string {
   try {
     return realpathSync(path);
   } catch {
-    return path;
+    // Not created yet: resolve the parent so the answer (and the lock path
+    // derived from it) is the same before and after the file appears.
+    try {
+      return join(realpathSync(dirname(path)), basename(path));
+    } catch {
+      return path;
+    }
   }
 }
 
@@ -537,7 +550,7 @@ function configTarget(path: string): string {
  * codex's config can hold MCP env values), and a brand-new file is created 0600
  * because `~/.claude.json` carries account state.
  */
-function writeFileAtomic(path: string, body: string): void {
+function writeFileAtomic(path: string, body: string, stillOwns: () => boolean): boolean {
   const target = configTarget(path);
   mkdirSync(dirname(target), { recursive: true });
   const mode = statSync(target, { throwIfNoEntry: false })?.mode ?? 0o600;
@@ -546,7 +559,14 @@ function writeFileAtomic(path: string, body: string): void {
   // chmod AFTER the write: `open`'s mode is masked by the umask, so only an
   // explicit chmod preserves the exact original bits.
   chmodSync(temporary, mode & 0o777);
+  // The lock may have been taken from us (a displaced takeover): rename only
+  // while we still own it, else the caller re-acquires and re-merges.
+  if (!stillOwns()) {
+    rmSync(temporary, { force: true });
+    return false;
+  }
   renameSync(temporary, target);
+  return true;
 }
 
 /** The lock file beside a core's config (on the config's real target). */
@@ -554,30 +574,70 @@ export function trustLockPath(configPath: string): string {
   return `${configTarget(configPath)}.karst-trust.lock`;
 }
 
-function readTrustLock(path: string): TrustLockRecord | null {
+/**
+ * What a read of the lock file found. A MISSING file is its own state, never
+ * "stale": the holder just released, and treating that as takeover-worthy is
+ * what let a waiter move a fresh lock a racer had linked in the same instant.
+ */
+type TrustLockRead =
+  | { state: 'missing' }
+  | { state: 'corrupt'; ageMs: number }
+  | { state: 'held'; record: TrustLockRecord };
+
+/** Nonces of the locks THIS process currently holds, by lock path. */
+const heldNonces = new Map<string, string>();
+
+function readTrustLock(path: string): TrustLockRead {
+  let text: string;
   try {
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<TrustLockRecord>;
-    return typeof raw.pid === 'number' && typeof raw.startedAt === 'number'
-      ? { pid: raw.pid, startedAt: raw.startedAt }
-      : null;
-  } catch {
-    // Missing or corrupt → no usable lock; the acquirer removes and replaces it.
-    return null;
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing' };
+    return { state: 'corrupt', ageMs: Number.POSITIVE_INFINITY };
   }
+  try {
+    const raw = JSON.parse(text) as Partial<TrustLockRecord>;
+    if (
+      typeof raw.pid === 'number' &&
+      typeof raw.startedAt === 'number' &&
+      typeof raw.nonce === 'string'
+    ) {
+      return { state: 'held', record: { pid: raw.pid, startedAt: raw.startedAt, nonce: raw.nonce } };
+    }
+  } catch {
+    // Falls through: unparseable counts as corrupt.
+  }
+  const mtime = statSync(path, { throwIfNoEntry: false })?.mtimeMs;
+  return { state: 'corrupt', ageMs: mtime === undefined ? Number.POSITIVE_INFINITY : Date.now() - mtime };
 }
 
-/** A lock we may take over: unreadable, ours from a crash, dead, or too old. */
+/**
+ * A lock we may take over: a corrupt one past the grace, ours from a crash (our
+ * pid but not a nonce this process holds), dead, or too old. A missing lock is
+ * never stale — the caller just retries the link.
+ */
 function lockIsStale(
-  record: TrustLockRecord | null,
+  path: string,
+  read: TrustLockRead,
   alive: (pid: number) => boolean,
   now: () => number,
 ): boolean {
+  if (read.state === 'missing') return false;
+  if (read.state === 'corrupt') return read.ageMs > TRUST_LOCK_CORRUPT_GRACE_MS;
+  const { record } = read;
   return (
-    record === null ||
-    record.pid === process.pid ||
+    (record.pid === process.pid && heldNonces.get(path) !== record.nonce) ||
     !alive(record.pid) ||
     now() - record.startedAt > TRUST_LOCK_TTL_MS
   );
+}
+
+/** Same lock instance: identical pid+nonce, or both unreadable. */
+function sameLock(a: TrustLockRead, b: TrustLockRead): boolean {
+  if (a.state === 'held' && b.state === 'held') {
+    return a.record.pid === b.record.pid && a.record.nonce === b.record.nonce;
+  }
+  return a.state === 'corrupt' && b.state === 'corrupt';
 }
 
 /**
@@ -588,10 +648,12 @@ function lockIsStale(
  */
 function tryLinkTrustLock(path: string, now: () => number): boolean {
   mkdirSync(dirname(path), { recursive: true });
-  const staging = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  writeFileSync(staging, JSON.stringify({ pid: process.pid, startedAt: now() }));
+  const nonce = randomBytes(8).toString('hex');
+  const staging = `${path}.${process.pid}.${nonce}.tmp`;
+  writeFileSync(staging, JSON.stringify({ pid: process.pid, startedAt: now(), nonce }));
   try {
     linkSync(staging, path);
+    heldNonces.set(path, nonce);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -602,32 +664,39 @@ function tryLinkTrustLock(path: string, now: () => number): boolean {
 }
 
 /**
- * Remove a stale lock without deleting a FRESH one a racer just wrote. The file
- * is atomically MOVED aside first (rename), then we check what we actually
- * moved: if a racer re-created a live lock between our read and our move, we put
- * it back. A plain `rm` then `link` would let two waiters both delete a third's
- * fresh lock (T661 review, low).
+ * Remove the stale lock `judged` without deleting a LIVE one. The file is
+ * atomically MOVED aside, then compared with what we judged: if a racer
+ * re-created a lock in between, the moved file is that live lock and is put
+ * back with `rename` — never `link` + `rm`, which dropped it whenever a third
+ * writer had linked meanwhile. A displaced holder finds out at its ownership
+ * check (`ownsTrustLock`) before it renames the config.
  */
-function clearStaleTrustLock(
-  path: string,
-  alive: (pid: number) => boolean,
-  now: () => number,
-): void {
-  const claim = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.stale`;
+function clearStaleTrustLock(path: string, judged: TrustLockRead): void {
+  const claim = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.stale`;
   try {
     renameSync(path, claim);
   } catch {
     return; // another process removed it first
   }
-  if (!lockIsStale(readTrustLock(claim), alive, now)) {
-    // We moved a live lock a racer had just written — restore it.
+  if (!sameLock(readTrustLock(claim), judged)) {
     try {
-      linkSync(claim, path);
+      renameSync(claim, path);
+      return;
     } catch {
-      // The path was re-taken meanwhile; dropping our claim is safe.
+      // Lost the restore; the displaced holder's ownership check notices.
     }
   }
   rmSync(claim, { force: true });
+}
+
+/** Does this process still hold the lock at `path` (record pid+nonce is ours)? */
+function ownsTrustLock(path: string): boolean {
+  const read = readTrustLock(path);
+  return (
+    read.state === 'held' &&
+    read.record.pid === process.pid &&
+    read.record.nonce === heldNonces.get(path)
+  );
 }
 
 /**
@@ -662,10 +731,12 @@ export async function acquireTrustLock(
   const deadline = now() + TRUST_LOCK_WAIT_MS;
   for (;;) {
     if (tryLinkTrustLock(path, now)) return true;
-    if (lockIsStale(readTrustLock(path), alive, now)) {
-      clearStaleTrustLock(path, alive, now);
+    const read = readTrustLock(path);
+    if (lockIsStale(path, read, alive, now)) {
+      clearStaleTrustLock(path, read);
       continue;
     }
+    if (read.state === 'missing' && now() < deadline) continue; // released: retry the link
     const remaining = deadline - now();
     if (remaining <= 0) return false;
     await sleep(Math.min(TRUST_LOCK_POLL_MS, remaining));
@@ -674,37 +745,99 @@ export async function acquireTrustLock(
 
 /** Release the lock, but only while WE still own it — never another's. */
 export function releaseTrustLock(configPath: string): void {
-  const path = trustLockPath(configPath);
-  if (readTrustLock(path)?.pid !== process.pid) return;
-  rmSync(path, { force: true });
+  releaseTrustLockAt(trustLockPath(configPath));
+}
+
+function releaseTrustLockAt(path: string): void {
+  const owned = ownsTrustLock(path);
+  heldNonces.delete(path);
+  if (owned) rmSync(path, { force: true });
 }
 
 /** The locked claude read-merge-write (the caller holds the lock). */
-function mergeAndWriteClaude(path: string, cwd: string, debug: (message: string) => void): void {
+function mergeAndWriteClaude(
+  path: string,
+  lockPath: string,
+  cwd: string,
+  debug: (message: string) => void): boolean {
   const read = readClaudeJson(path, debug);
-  if (!read.ok) return;
+  if (!read.ok) return true;
   const merged = mergeClaudeTrust(read.value, cwd);
-  if (!merged.changed) return;
+  if (!merged.changed) return true;
   try {
-    writeFileAtomic(path, `${JSON.stringify(merged.next, null, 2)}\n`);
+    const wrote = writeFileAtomic(path, `${JSON.stringify(merged.next, null, 2)}\n`, () =>
+      ownsTrustLock(lockPath),
+    );
+    if (!wrote) return false;
     debug(`[trust] claude: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
   } catch (error) {
     debug(`[trust] claude: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
   }
+  return true;
 }
 
 /** The locked codex read-merge-write (the caller holds the lock). */
-function mergeAndWriteCodex(path: string, cwd: string, debug: (message: string) => void): void {
+function mergeAndWriteCodex(
+  path: string,
+  lockPath: string,
+  cwd: string,
+  debug: (message: string) => void): boolean {
   const read = readTextFile(path, debug);
-  if (read === null) return;
+  if (read === null) return true;
   const merged = mergeCodexTrustToml(read, cwd);
-  if (!merged.changed) return;
+  if (!merged.changed) return true;
   try {
-    writeFileAtomic(path, merged.text);
+    const wrote = writeFileAtomic(path, merged.text, () => ownsTrustLock(lockPath));
+    if (!wrote) return false;
     debug(`[trust] codex: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
   } catch (error) {
     debug(`[trust] codex: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
   }
+  return true;
+}
+
+/**
+ * Run `write` (a locked read-merge-write) under the trust lock. `write` returns
+ * false when it lost the lock before committing; the whole read-merge-write
+ * then re-runs under a fresh acquisition, up to a bound.
+ */
+function runLocked(
+  core: string,
+  path: string,
+  opts: TrustOptions,
+  debug: (message: string) => void,
+  write: (lockPath: string) => boolean,
+): void | Promise<void> {
+  const lockPath = trustLockPath(path);
+  const held = (): boolean => {
+    try {
+      return write(lockPath);
+    } finally {
+      releaseTrustLockAt(lockPath);
+    }
+  };
+  const now = opts.lock?.now ?? Date.now;
+  let claimed: boolean;
+  try {
+    claimed = tryLinkTrustLock(lockPath, now);
+  } catch (error) {
+    debug(
+      `[trust] ${core}: cannot take the trust lock for ${path} (${describeError(error)}) — launch continues`,
+    );
+    return;
+  }
+  if (claimed && held()) return;
+  // Contended (or displaced): serialise through the async lock, never blocking the loop.
+  return (async () => {
+    for (let attempt = 0; attempt < TRUST_LOCK_MAX_ATTEMPTS; attempt++) {
+      if (!(await acquireTrustLock(path, opts.lock))) {
+        debug(`[trust] ${core}: trust lock busy for ${path} — leaving the config untouched`);
+        return;
+      }
+      if (held()) return;
+    }
+    debug(`[trust] ${core}: trust lock kept changing hands for ${path} — leaving the config untouched`);
+  })();
 }
 
 /**
@@ -727,36 +860,7 @@ function recordClaudeTrust(
   if (!first.ok) return;
   if (!mergeClaudeTrust(first.value, cwd).changed) return;
 
-  const now = opts.lock?.now ?? Date.now;
-  let claimed: boolean;
-  try {
-    claimed = tryLinkTrustLock(trustLockPath(path), now);
-  } catch (error) {
-    debug(
-      `[trust] claude: cannot take the trust lock for ${path} (${describeError(error)}) — launch continues`,
-    );
-    return;
-  }
-  if (claimed) {
-    try {
-      mergeAndWriteClaude(path, cwd, debug);
-    } finally {
-      releaseTrustLock(path);
-    }
-    return;
-  }
-  // Contended: serialise through the async lock, never blocking the loop.
-  return acquireTrustLock(path, opts.lock).then((locked) => {
-    if (!locked) {
-      debug(`[trust] claude: trust lock busy for ${path} — leaving the config untouched`);
-      return;
-    }
-    try {
-      mergeAndWriteClaude(path, cwd, debug);
-    } finally {
-      releaseTrustLock(path);
-    }
-  });
+  return runLocked('claude', path, opts, debug, (lockPath) => mergeAndWriteClaude(path, lockPath, cwd, debug));
 }
 
 /**
@@ -776,35 +880,7 @@ function recordCodexTrust(
   if (first === null) return;
   if (!mergeCodexTrustToml(first, cwd).changed) return;
 
-  const now = opts.lock?.now ?? Date.now;
-  let claimed: boolean;
-  try {
-    claimed = tryLinkTrustLock(trustLockPath(path), now);
-  } catch (error) {
-    debug(
-      `[trust] codex: cannot take the trust lock for ${path} (${describeError(error)}) — launch continues`,
-    );
-    return;
-  }
-  if (claimed) {
-    try {
-      mergeAndWriteCodex(path, cwd, debug);
-    } finally {
-      releaseTrustLock(path);
-    }
-    return;
-  }
-  return acquireTrustLock(path, opts.lock).then((locked) => {
-    if (!locked) {
-      debug(`[trust] codex: trust lock busy for ${path} — leaving the config untouched`);
-      return;
-    }
-    try {
-      mergeAndWriteCodex(path, cwd, debug);
-    } finally {
-      releaseTrustLock(path);
-    }
-  });
+  return runLocked('codex', path, opts, debug, (lockPath) => mergeAndWriteCodex(path, lockPath, cwd, debug));
 }
 
 export function ensureClaudeWorkspaceTrusted(

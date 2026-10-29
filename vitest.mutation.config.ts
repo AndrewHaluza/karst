@@ -15,7 +15,7 @@ import { defineConfig } from 'vitest/config';
 // nothing there.
 export default defineConfig({
   test: {
-    include: ['src/extension/**/*.test.ts'],
+    include: ['src/extension/**/*.test.ts', 'src/agent/quota/**/*.test.ts'],
     environment: 'node',
     // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
     setupFiles: ['./scripts/vitest-setup-env.mjs'],
