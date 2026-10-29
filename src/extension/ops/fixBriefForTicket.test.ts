@@ -5,6 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../../store/prFeedback.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import type { PrReviewThread } from '../../model/prReview.js';
+import { recordReviewStallHint } from '../../store/reviewStallHint.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -80,5 +81,21 @@ describe('fixBriefForTicket', () => {
   it('returns null when no gate failed', () => {
     const ticket = createTicket(store, { key: 'PROJ-3', title: 't' });
     expect(fixBriefForTicket(store, ticket.id)).toBeNull();
+  });
+
+  it('appends the redesign hint answering a review stall', () => {
+    const ticket = createTicket(store, { key: 'PROJ-2', title: 't' });
+    setStage(store, ticket.id, 'review', {
+      status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0,
+    });
+    recordReviewStallHint(store, ticket.id, 1, T0, 'split the module');
+    expect(fixBriefForTicket(store, ticket.id)).toContain('## Redesign hint from the user\n\nsplit the module');
+  });
+  it('has no hint block without a hint', () => {
+    const ticket = createTicket(store, { key: 'PROJ-3', title: 't' });
+    setStage(store, ticket.id, 'review', {
+      status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0,
+    });
+    expect(fixBriefForTicket(store, ticket.id)).not.toContain('Redesign hint');
   });
 });

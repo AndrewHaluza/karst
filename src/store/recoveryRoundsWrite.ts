@@ -193,8 +193,7 @@ function openRound(
       )
       .get(input.ticketId, input.sourceStage, episode) as { max_round: number | null } | undefined;
     const roundNumber = (prev?.max_round ?? 0) + 1;
-    if (mode === 'stall') return;
-    if (mode === 'budget' && roundNumber > input.maxRounds) {
+    if (mode === 'stall' || (mode === 'budget' && roundNumber > input.maxRounds)) {
       store.db
         .prepare(
           `UPDATE recovery_rounds SET status = 'exhausted', ended_at = COALESCE(ended_at, ?)

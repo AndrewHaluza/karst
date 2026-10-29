@@ -6,6 +6,7 @@ import { getTicket } from '../../store/tickets.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { reviewStallHint } from '../../store/reviewStallHint.js';
+import { reviewStallAttempts } from '../../workflow/reviewStallRead.js';
 import { setStage } from '../../store/stages.js';
 import { redesignHintAction, continueAnywayAction, type ReviewStallActionDeps } from './reviewStallActions.js';
 
@@ -41,6 +42,7 @@ describe('review stall actions', () => {
     expect(getTicket(store, id).stageCurrent).toBe('review');
     expect(deps.drive).toHaveBeenCalled();
     expect(deps.afterServerChange).toHaveBeenCalled();
+    expect(reviewStallAttempts(store, id, 'high')).toEqual([]);
   });
   it('continue anyway does nothing when not confirmed', async () => {
     deps.confirm = vi.fn(async () => false);

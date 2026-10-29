@@ -158,6 +158,8 @@ describe('commitGateOutcome — recovery trigger', () => {
       expect(block?.kind).toBe('review-stalled');
       expect(block?.reason).toContain('src/hot.ts (2 rounds)');
       expect(getStage(store, id, 'fix')?.status).toBe('failed');
+      // Exhausted, so a human reset (hint / continue) can end the episode.
+      expect(listRecoveryRounds(store, id)[0]?.status).toBe('exhausted');
     });
     it('never parks when findings move to different files', () => {
       failReview(1, 'a.ts', stallCfg);
