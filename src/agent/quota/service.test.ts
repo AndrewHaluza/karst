@@ -90,11 +90,53 @@ describe('defaultQuotaReaders', () => {
     ]);
   });
 
-  it('marks the remaining unsupported core unknown with a reason', async () => {
-    const readers = defaultQuotaReaders({ homeDir: '/nope', now: () => new Date(0) });
+  it('reports antigravity unknown when language server is unreachable and no cache exists', async () => {
+    const readers = defaultQuotaReaders({ homeDir: '/nope', env: {}, now: () => new Date(0) });
     const snap = await readers.find((r) => r.core === 'antigravity')!.read();
     expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });
     expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+  });
+
+  it('reads antigravity live quota through injected fetch and env', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-quota-antigravity-'));
+    try {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              userStatus: {
+                planStatus: {
+                  planInfo: {
+                    monthlyPromptCredits: 1000,
+                    availablePromptCredits: 800,
+                  },
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof fetch;
+      const readers = defaultQuotaReaders({
+        homeDir: '/nope',
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'token-123',
+        },
+        now: () => new Date(0),
+        fetchImpl,
+        antigravityAppDataDir: dir,
+      });
+      const snap = await readers.find((r) => r.core === 'antigravity')!.read();
+      expect(snap).toMatchObject({
+        core: 'antigravity',
+        state: 'ok',
+        source: 'Antigravity Language Server',
+        windows: [{ label: 'Prompt Credits', usedPct: 20, resetsAt: null }],
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('reads both OpenCode cores through their injected auth paths and fetch', async () => {

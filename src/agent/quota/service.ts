@@ -3,7 +3,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
 import { opencodeAuthPath, opencodeQuotaReader } from './opencode.js';
-import { unsupportedQuotaReader } from './unsupported.js';
+import { antigravityQuotaReader } from './antigravity.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
 /**
@@ -119,6 +119,8 @@ export interface DefaultQuotaReadersDeps {
   opencode2AuthPath?: string;
   /** Injected for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** Injected antigravity appDataDir override for tests. */
+  antigravityAppDataDir?: string;
 }
 
 /** The production reader set — one reader per core (D162/D201). */
@@ -147,7 +149,13 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       },
     }),
     codexQuotaReader({ homeDir, env, now }),
-    unsupportedQuotaReader('antigravity'),
+    antigravityQuotaReader({
+      homeDir,
+      env,
+      now,
+      fetchImpl: deps.fetchImpl,
+      ...(deps.antigravityAppDataDir !== undefined ? { appDataDir: deps.antigravityAppDataDir } : {}),
+    }),
     opencodeQuotaReader({
       core: 'opencode',
       authPath: opencodeAuth,
