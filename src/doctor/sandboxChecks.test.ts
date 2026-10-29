@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SANDBOX_DISK_WARN_BYTES, checkSandboxBackends, parseDockerSize } from './sandboxChecks.js';
+import { SANDBOX_DISK_WARN_BYTES, checkSandboxBackends, checkSandboxSetupDeclared, parseDockerSize, type SetupRepoFact } from './sandboxChecks.js';
 
 const OK = { ok: true } as const;
 const base = { selected: ['sbx'], sbx: OK, docker: OK, sandboxCount: 0, diskBytes: undefined } as const;
@@ -70,5 +70,22 @@ describe('parseDockerSize', () => {
   it('no memory check without docker selected or an unknown size', () => {
     expect(checkSandboxBackends({ ...base, dockerMemBytes: 1 * 2 ** 30 }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
     expect(checkSandboxBackends({ ...base, selected: ['docker'] }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
+  });
+});
+
+describe('checkSandboxSetupDeclared', () => {
+  const repo = (o: Partial<SetupRepoFact> = {}): SetupRepoFact => ({ name: 'app', hasLockfile: true, hasSetup: false, ...o });
+  it('warns naming the repo and the suggested setup', () => {
+    const [c] = checkSandboxSetupDeclared(['sbx'], [repo()]);
+    expect(c).toMatchObject({ id: 'manifest.sandbox-setup.app', area: 'manifest', status: 'warn' });
+    expect(c!.detail).toContain('app');
+    expect(c!.fix).toMatchObject({ tier: 'report' });
+    expect(c!.fix!.nextStep).toContain('sandbox.setup: npm ci');
+  });
+  it.each([[{ hasSetup: true }], [{ hasLockfile: false }]])('is silent for %o', (o) => {
+    expect(checkSandboxSetupDeclared(['docker'], [repo(o)])).toEqual([]);
+  });
+  it('is silent without a sandbox backend', () => {
+    expect(checkSandboxSetupDeclared([], [repo()])).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -206,5 +206,31 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     const probe: SandboxProbe = { backends: vi.fn(ready.backends), dockerDisk: vi.fn(ready.dockerDisk) };
     await doctorWith('agentBackend: host\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), probe, 'tools');
     expect(probe.backends).not.toHaveBeenCalled();
+  });
+});
+
+describe('karst doctor sandbox setup (manifest area)', () => {
+  async function manifestChecks(backend: string, lockfile: boolean): Promise<{ id: string; status: string }[]> {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-setup-'));
+    const repoDir = join(dir, 'app');
+    mkdirSync(repoDir);
+    if (lockfile) writeFileSync(join(repoDir, 'package-lock.json'), '{}');
+    const path = join(dir, 'karst.yml');
+    writeFileSync(path, `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  app:\n    repoPath: ${repoDir}\n${backend}`);
+    try {
+      await runDoctorCommand(seed(), ':memory:', path, ['doctor', '--json', '--area', 'manifest'], {});
+    } catch (e) {
+      return JSON.parse((e as DoctorExit).output).checks;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    throw new Error('expected DoctorExit');
+  }
+  it('warns for a lockfile repo without sandbox.setup when sbx is selected', async () => {
+    expect(await manifestChecks('agentBackend: sbx\n', true)).toContainEqual(expect.objectContaining({ id: 'manifest.sandbox-setup.app', status: 'warn' }));
+  });
+  it('is silent without a lockfile or without a sandbox backend', async () => {
+    expect((await manifestChecks('agentBackend: sbx\n', false)).some((c) => c.id.startsWith('manifest.sandbox-setup.'))).toBe(false);
+    expect((await manifestChecks('', true)).some((c) => c.id.startsWith('manifest.sandbox-setup.'))).toBe(false);
   });
 });

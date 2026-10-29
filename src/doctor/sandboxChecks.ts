@@ -86,3 +86,27 @@ export function parseDockerSize(cell: string): number | undefined {
   const unit = UNITS[m[2]!];
   return unit === undefined ? undefined : Number(m[1]) * unit;
 }
+
+export interface SetupRepoFact {
+  readonly name: string;
+  readonly hasLockfile: boolean;
+  readonly hasSetup: boolean;
+}
+
+/** A sandboxed run starts from a fresh clone: a lockfile repo with no `sandbox.setup` has no deps (report-only). */
+export function checkSandboxSetupDeclared(selected: readonly ('sbx' | 'docker')[], repos: readonly SetupRepoFact[]): DoctorCheck[] {
+  if (selected.length === 0) return [];
+  return repos
+    .filter((r) => r.hasLockfile && !r.hasSetup)
+    .map((r) => ({
+      id: `manifest.sandbox-setup.${r.name}`,
+      area: 'manifest' as const,
+      status: 'warn' as const,
+      detail: `repository "${r.name}" has a lockfile but no sandbox.setup; sandboxed runs start without installed dependencies`,
+      fix: {
+        tier: 'report' as const,
+        summary: `repository "${r.name}" declares no sandbox.setup`,
+        nextStep: "add `sandbox.setup: npm ci` (or your package manager's frozen install) under the repository in karst.yml",
+      },
+    }));
+}
