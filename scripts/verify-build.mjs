@@ -56,7 +56,11 @@ const REQUIRED_ARTIFACTS = [
 // Raised 370 → 372 KB for the `archivePlanningAfterDays` field in General settings
 // (~0.3 KB of genuine app code; the 370 KB cap had under 0.1 KB left): bundle is
 // 379204 bytes (~1.7 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 372 * 1024;
+// Raised 372 → 374 KB for the wired Approaches Install/Uninstall row actions (T828:
+// ApproachInstallActions, two useHostMutation receipt settles, inline uninstall
+// confirm, per-row failure message; ~2.7 KB of genuine app code): bundle is
+// 381970 bytes (~1 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 374 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
