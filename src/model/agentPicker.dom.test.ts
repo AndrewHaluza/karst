@@ -246,3 +246,142 @@ describe('a host re-mount keeps the open menu usable', () => {
     expect(activeId(a)).toBe('opencode-go/deepseek-v4.1-flash');
   });
 });
+
+describe('presetMode (opt-in Preset | Core + model)', () => {
+  type Payload = Record<string, unknown>;
+  const catalog = {
+    claude: [
+      { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'high'] },
+      { id: 'claude-haiku-5', label: 'Haiku 5' },
+    ],
+  };
+  const presetMode = (selected: string | null) => ({
+    names: ['fast', 'deep'],
+    selected,
+    inheritLabel: 'Inherit (active preset)',
+  });
+
+  function mountPreset(over: Record<string, unknown> = {}) {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const { mountAgentPicker } = new Function(
+      `${agentIdentityJs()}\n${js}\nreturn { mountAgentPicker };`,
+    )() as { mountAgentPicker: Mount };
+    const root = document.createElement('div');
+    document.body.append(root);
+    const seen: Payload[] = [];
+    const opts = {
+      cores: [{ id: 'claude', label: 'Claude' }],
+      catalog,
+      value: { core: 'claude', model: 'claude-sonnet-5', effort: 'high' },
+      presetMode: presetMode(null),
+      onChange: (v: Payload) => seen.push(v),
+      ...over,
+    };
+    const inst = mountAgentPicker(root, opts) as { setMode: (m: string) => void };
+    return { root, seen, inst, mount: mountAgentPicker, opts };
+  }
+  const radios = (r: HTMLElement) => [...r.querySelectorAll<HTMLElement>('[role="radio"]')];
+  const fieldOf = (r: HTMLElement, sel: string) => r.querySelector(sel)!.closest('.ap-field') as HTMLElement;
+  const presetSelect = (r: HTMLElement) => r.querySelector('[data-ap-preset]') as HTMLSelectElement;
+
+  it('off by default: no segmented control and the payload keeps its three keys', () => {
+    const { root, seen } = mountPreset({ presetMode: undefined });
+    expect(root.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(root.querySelector('[data-ap-preset]')).toBeNull();
+    click(root.querySelector('[data-ap-trigger="core"]')!);
+    click(root.querySelector('[data-ap-core="claude"]')!);
+    // same core re-pick emits; payload shape is unchanged
+    expect(seen.at(-1)).toEqual({ core: 'claude', model: 'claude-sonnet-5', effort: 'high' });
+  });
+
+  it('renders a radiogroup with Preset | Core + model and aria-checked', () => {
+    const { root } = mountPreset();
+    const group = root.querySelector('[role="radiogroup"]')!;
+    expect(group).not.toBeNull();
+    const rs = radios(root);
+    expect(rs.map((b) => b.textContent?.trim())).toEqual(['Preset', 'Core + model']);
+    expect(rs.map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+  });
+
+  it('starts in core mode with no preset, in preset mode with one', () => {
+    expect(radios(mountPreset().root)[1]!.getAttribute('aria-checked')).toBe('true');
+    const { root } = mountPreset({ presetMode: presetMode('fast') });
+    expect(radios(root)[0]!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('preset mode hides (not disables) core, model and effort; core mode hides the preset', () => {
+    const { root } = mountPreset({ presetMode: presetMode('fast') });
+    for (const sel of ['[data-ap-shell="core"]', '[data-ap-shell="model"]', '[data-ap-effort]']) {
+      expect(fieldOf(root, sel).hidden, sel).toBe(true);
+    }
+    expect((root.querySelector('[data-ap-trigger="core"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(fieldOf(root, '[data-ap-preset]').hidden).toBe(false);
+    click(radios(root)[1]!);
+    expect(fieldOf(root, '[data-ap-preset]').hidden).toBe(true);
+    expect(fieldOf(root, '[data-ap-shell="core"]').hidden).toBe(false);
+    expect(fieldOf(root, '[data-ap-shell="model"]').hidden).toBe(false);
+  });
+
+  it('preset select offers the inherit label then the names', () => {
+    const { root } = mountPreset({ presetMode: presetMode('fast') });
+    const opts = [...presetSelect(root).options].map((o) => [o.value, o.textContent]);
+    expect(opts).toEqual([['', 'Inherit (active preset)'], ['fast', 'fast'], ['deep', 'deep']]);
+    expect(presetSelect(root).value).toBe('fast');
+  });
+
+  it('picking a preset emits mode preset with core, model and effort cleared', () => {
+    const { root, seen } = mountPreset({ presetMode: presetMode('fast') });
+    presetSelect(root).value = 'deep';
+    presetSelect(root).dispatchEvent(new Event('change', { bubbles: true }));
+    expect(seen.at(-1)).toEqual({ mode: 'preset', preset: 'deep', core: '', model: '', effort: '' });
+  });
+
+  it('switching to Core + model emits mode core with the preset cleared', () => {
+    const { root, seen } = mountPreset({ presetMode: presetMode('fast') });
+    click(radios(root)[1]!);
+    expect(seen.at(-1)).toEqual({
+      mode: 'core', preset: '', core: 'claude', model: 'claude-sonnet-5', effort: 'high',
+    });
+    expect(radios(root).map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+  });
+
+  it('setMode switches without relying on a click (usage-limit pick lands in core mode)', () => {
+    const { root, inst } = mountPreset({ presetMode: presetMode('fast') });
+    inst.setMode('core');
+    expect(fieldOf(root, '[data-ap-shell="core"]').hidden).toBe(false);
+  });
+
+  it('a saved preset missing from names warns, keeps the value and does not switch or emit', () => {
+    const { root, seen } = mountPreset({ presetMode: presetMode('gone') });
+    const warn = root.querySelector('[data-ap-preset-warn]') as HTMLElement;
+    expect(warn.hidden).toBe(false);
+    expect(warn.textContent).toBe('Preset gone not found');
+    expect(presetSelect(root).value).toBe('gone');
+    expect(radios(root)[0]!.getAttribute('aria-checked')).toBe('true');
+    expect(seen).toEqual([]);
+    presetSelect(root).value = 'fast';
+    presetSelect(root).dispatchEvent(new Event('change', { bubbles: true }));
+    expect((root.querySelector('[data-ap-preset-warn]') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('effort stays visible rules in core mode: hidden without efforts, kept when it left the catalog', () => {
+    const { root, mount, opts } = mountPreset({
+      value: { core: 'claude', model: 'claude-haiku-5', effort: '' },
+    });
+    expect(fieldOf(root, '[data-ap-effort]').hidden).toBe(true);
+    mount(root, { ...opts, value: { core: 'claude', model: 'claude-sonnet-5', effort: 'ultra' } });
+    expect(fieldOf(root, '[data-ap-effort]').hidden).toBe(false);
+    expect((root.querySelector('[data-ap-effort]') as HTMLSelectElement).value).toBe('ultra');
+    click(radios(root)[0]!);
+    expect(fieldOf(root, '[data-ap-effort]').hidden).toBe(true);
+  });
+
+  it('a re-mount keeps a user-picked mode while the host selected preset is unchanged', () => {
+    const { root, mount, opts } = mountPreset();
+    click(radios(root)[0]!);
+    mount(root, opts);
+    expect(radios(root)[0]!.getAttribute('aria-checked')).toBe('true');
+    mount(root, { ...opts, presetMode: presetMode('fast') });
+    expect(presetSelect(root).value).toBe('fast');
+  });
+});

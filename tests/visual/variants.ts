@@ -398,6 +398,36 @@ const ticketFormVariants = (): Variant[] => {
         }),
       { themes: ALL_THEMES },
     ),
+    // T839: the picker's opt-in Preset | Core + model switch. `agent-preset` is
+    // the preset tab (core/model/effort hidden); `agent-core-model` is the
+    // core tab with all three controls, the effort showing because the
+    // model advertises efforts.
+    variant('ticketForm', 'agent-preset', () =>
+      withState({
+        ...edit,
+        agentProviders: ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'],
+        agentPresetNames: ['fast', 'deep'],
+        selectedAgentPreset: 'fast',
+        modelCatalog: ROUTED_MODEL_CATALOG,
+        recentModels: {},
+        sessionOpen: false,
+      }),
+    ),
+    variant('ticketForm', 'agent-core-model', () =>
+      withState({
+        ...edit,
+        agentProviders: ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'],
+        agentPresetNames: ['fast', 'deep'],
+        selectedAgentPreset: null,
+        selectedAgentProvider: 'claude',
+        defaultAgentProvider: 'claude',
+        selectedModel: 'claude-sonnet-5',
+        selectedEffort: 'high',
+        modelCatalog: ROUTED_MODEL_CATALOG,
+        recentModels: {},
+        sessionOpen: false,
+      }),
+    ),
     variant('ticketForm', 'attachments', () =>
       withState({
         ...edit,

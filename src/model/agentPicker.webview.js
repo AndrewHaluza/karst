@@ -515,6 +515,34 @@ function apInheritLabels(inherit, inheritCore, core) {
   };
 }
 
+/** presetMode opening tab: the preset tab when a preset is selected, else core + model. */
+function apInitialMode(pm) {
+  return pm && pm.selected ? 'preset' : 'core';
+}
+
+/** Segmented Preset | Core + model control (ui:UI-R26 radiogroup, aria-checked). */
+function apModeBarHtml(mode) {
+  function btn(id, label) {
+    return '<button type="button" role="radio" class="k-btn k-btn--secondary k-btn--sm ap-seg-btn" data-ap-mode="'
+      + id + '" aria-checked="' + (mode === id ? 'true' : 'false') + '">' + label + '</button>';
+  }
+  return '<div class="ap-seg" role="radiogroup" aria-label="Agent source">'
+    + btn('preset', 'Preset') + btn('core', 'Core + model') + '</div>';
+}
+
+/** Preset select options: the inherit row, every name, and a saved name that left `names`. */
+function apPresetOptionsHtml(pm, sel) {
+  var names = (pm && pm.names) || [];
+  var out = ['<option value=""' + (sel ? '' : ' selected') + '>' + apEsc(pm && pm.inheritLabel) + '</option>'];
+  for (var i = 0; i < names.length; i++) {
+    out.push('<option value="' + apEsc(names[i]) + '"' + (names[i] === sel ? ' selected' : '') + '>' + apEsc(names[i]) + '</option>');
+  }
+  if (sel && names.indexOf(sel) < 0) {
+    out.push('<option value="' + apEsc(sel) + '" selected>' + apEsc(sel) + '</option>');
+  }
+  return out.join('');
+}
+
 /** Render the whole picker into the given root. Returns the live value object. */
 function mountAgentPicker(root, opts) {
   if (!root) return null;
@@ -550,11 +578,23 @@ function mountAgentPicker(root, opts) {
     model: value.model || '',
     effort: value.effort || '',
   };
+  // presetMode (opt-in): a Preset | Core + model switch. Absent = the markup
+  // and the onChange payload stay exactly as before.
+  var pm = o.presetMode || null;
+  var mode = apInitialMode(pm);
+  var preset = pm && pm.selected ? pm.selected : '';
+  var presetSeen = preset;
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
   var apId = 'ap-' + (++AP_SEQ);
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
+    + (pm
+      ? apModeBarHtml(mode)
+        + '<div class="ap-field" data-ap-preset-field><label class="ap-label">Preset</label>'
+        + '<select class="ap-effort" data-ap-preset aria-label="Preset"></select>'
+        + '<div class="ap-warn" data-ap-preset-warn role="alert" hidden></div></div>'
+      : '')
     + '<div class="ap-field">'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
@@ -583,6 +623,35 @@ function mountAgentPicker(root, opts) {
     var coreMenu = $('[data-ap-menu="core"]');
     coreMenu.innerHTML = apCoreOptionsHtml(cores, state.core, labels().core);
     renderModel();
+    renderMode();
+  }
+
+  /** presetMode only: tab state, which fields show, the preset select + missing warning. */
+  function renderMode() {
+    if (!pm) return;
+    var bars = root.querySelectorAll('[data-ap-mode]');
+    for (var i = 0; i < bars.length; i++) {
+      bars[i].setAttribute('aria-checked', bars[i].getAttribute('data-ap-mode') === mode ? 'true' : 'false');
+    }
+    var inPreset = mode === 'preset';
+    $('[data-ap-preset-field]').hidden = !inPreset;
+    $('[data-ap-shell="core"]').parentNode.hidden = inPreset;
+    $('[data-ap-shell="model"]').parentNode.hidden = inPreset;
+    var sel = $('[data-ap-preset]');
+    sel.innerHTML = apPresetOptionsHtml(pm, preset);
+    sel.disabled = disabled;
+    var missing = !!preset && (pm.names || []).indexOf(preset) < 0;
+    var warn = $('[data-ap-preset-warn]');
+    warn.hidden = !missing;
+    warn.textContent = missing ? 'Preset ' + preset + ' not found' : '';
+    renderEffort();
+  }
+
+  function setMode(next, quiet) {
+    if (!pm || (next !== 'preset' && next !== 'core') || next === mode) return;
+    mode = next;
+    renderMode();
+    if (!quiet) emit();
   }
 
   function modelLabel() {
@@ -649,10 +718,10 @@ function mountAgentPicker(root, opts) {
   function renderEffort() {
     var field = $('[data-ap-effort-field]');
     var sel = $('[data-ap-effort]');
-    if (!showEffort) { field.hidden = true; return; }
+    if (!showEffort || (pm && mode === 'preset')) { field.hidden = true; return; }
     var efforts = apEfforts(catalog, state.core, state.model);
-    var mode = apEffortMode(efforts, state.effort, compact);
-    if (mode === 'placeholder') {
+    var effortMode = apEffortMode(efforts, state.effort, compact);
+    if (effortMode === 'placeholder') {
       // Compact only: the model advertises no efforts and none is saved. Keep the
       // field in the grid with a disabled, dashed "—" so Core/Model/Effort stay aligned.
       field.hidden = false;
@@ -665,7 +734,7 @@ function mountAgentPicker(root, opts) {
     }
     sel.classList.remove('ap-effort--na');
     sel.disabled = disabled;
-    if (mode === 'hidden') {
+    if (effortMode === 'hidden') {
       field.hidden = true;
       state.effort = '';
       return;
@@ -676,7 +745,15 @@ function mountAgentPicker(root, opts) {
     sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
   }
 
-  function emit() { if (typeof onChange === 'function') onChange({ core: state.core, model: state.model, effort: state.effort }); }
+  function emit() {
+    if (typeof onChange !== 'function') return;
+    if (!pm) { onChange({ core: state.core, model: state.model, effort: state.effort }); return; }
+    // presetMode: one source at a time — a preset clears the identity trio, the
+    // core tab clears the preset.
+    onChange(mode === 'preset'
+      ? { mode: mode, preset: preset, core: '', model: '', effort: '' }
+      : { mode: mode, preset: '', core: state.core, model: state.model, effort: state.effort });
+  }
 
   /** Point the footer at the keyboard-active row's full id (UI-R44). */
   function syncMenuFoot(shell) {
@@ -712,6 +789,12 @@ function mountAgentPicker(root, opts) {
     for (var i = 0; i < triggers.length; i++) triggers[i].disabled = disabled;
     var effort = $('[data-ap-effort]');
     if (effort) effort.disabled = disabled || effort.classList.contains('ap-effort--na');
+    if (pm) {
+      var presetSel = $('[data-ap-preset]');
+      if (presetSel) presetSel.disabled = disabled;
+      var segs = root.querySelectorAll('[data-ap-mode]');
+      for (var s = 0; s < segs.length; s++) segs[s].disabled = disabled;
+    }
   }
 
   function openMenu(kind) {
@@ -761,6 +844,11 @@ function mountAgentPicker(root, opts) {
 
   root.addEventListener('click', function (e) {
     var t = e.target;
+    var modeBtn = t.closest ? t.closest('[data-ap-mode]') : null;
+    if (modeBtn) {
+      if (!disabled) setMode(modeBtn.getAttribute('data-ap-mode'));
+      return;
+    }
     var coreOpt = t.closest ? t.closest('[data-ap-core]') : null;
     if (coreOpt) {
       var nextCore = coreOpt.getAttribute('data-ap-core') || '';
@@ -792,6 +880,12 @@ function mountAgentPicker(root, opts) {
   });
 
   root.addEventListener('change', function (e) {
+    if (e.target && e.target.getAttribute && e.target.getAttribute('data-ap-preset') !== null) {
+      preset = e.target.value || '';
+      renderMode();
+      emit();
+      return;
+    }
     var effort = e.target && e.target.getAttribute && e.target.getAttribute('data-ap-effort');
     if (effort !== null) {
       state.effort = e.target.value || '';
@@ -878,6 +972,7 @@ function mountAgentPicker(root, opts) {
       render();
     },
     setDisabled: setDisabled,
+    setMode: setMode,
     // Reconfigure the option source + callbacks without rebuilding the DOM —
     // the re-mount path on a state push.
     _configure: function (next) {
@@ -890,6 +985,17 @@ function mountAgentPicker(root, opts) {
       showEffort = next ? next.showEffort !== false : true;
       disabled = !!(next && next.disabled);
       onChange = next && next.onChange;
+      if (pm && next && next.presetMode) {
+        // The host's selected preset drives the tab only when IT changed; a tab
+        // the user flipped by hand survives a same-value state push.
+        pm = next.presetMode;
+        var nextSel = pm.selected || '';
+        if (nextSel !== presetSeen) {
+          presetSeen = nextSel;
+          preset = nextSel;
+          mode = apInitialMode(pm);
+        }
+      }
       setDisabled(disabled);
     },
   };
