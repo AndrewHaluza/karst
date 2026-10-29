@@ -25,6 +25,12 @@ export interface GateResult {
    */
   staleBranch?: string;
   /**
+   * Set when the gate was SIGKILLed (exit 137) with no failing test, and the
+   * `onResourceKill` policy gave up on it: the park reason. An environment
+   * fault, so the stage parks `resource-killed` and consumes no recovery round.
+   */
+  resourceKilled?: string;
+  /**
    * When the gate's process started and ended. Both absent for a gate that never
    * ran — it has no duration, and stamping one would read as a zero-length run
    * rather than as "karst had no question to ask".

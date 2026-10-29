@@ -1,6 +1,7 @@
 import type { BlockerKind } from '../../model/types.js';
 import { deriveNpmScript } from './npmScript.js';
 import type { ScriptProbe } from './probe.js';
+import type { ResourceKillPolicy } from './resourceKill.js';
 
 export type GateKind = 'script' | 'command';
 
@@ -25,6 +26,7 @@ export interface DeclaredGate {
   command?: string; // kind: 'command' — the binary, spawned without a shell
   args?: string[]; // kind: 'command'
   sandbox?: 'host' | 'inside';
+  onResourceKill?: ResourceKillPolicy;
 }
 
 export interface ResolvedGate {
@@ -43,6 +45,8 @@ export interface ResolvedGate {
   required: boolean;
   /** Set only for a gate declared `sandbox: host`: a sandboxed ticket runs it on the host after a verified sync. */
   sandbox?: 'host';
+  /** What to do when the gate is OOM-killed with no failing test; absent = `retry-then-park`. */
+  onResourceKill?: ResourceKillPolicy;
 }
 
 export type GateResolution =
@@ -75,8 +79,11 @@ function resolveDeclared(gate: DeclaredGate): ResolvedGate {
   };
 }
 
-function hostMark(gate: DeclaredGate): { sandbox?: 'host' } {
-  return gate.sandbox === 'host' ? { sandbox: 'host' } : {};
+function hostMark(gate: DeclaredGate): { sandbox?: 'host'; onResourceKill?: ResourceKillPolicy } {
+  return {
+    ...(gate.sandbox === 'host' ? { sandbox: 'host' as const } : {}),
+    ...(gate.onResourceKill !== undefined ? { onResourceKill: gate.onResourceKill } : {}),
+  };
 }
 
 /**

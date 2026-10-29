@@ -154,6 +154,7 @@ describe('sub-task events from the stage writer', () => {
     expect(BLOCKS_NOTIFY_PARENT).toEqual({
       'nothing-to-run': true,
       'capability-missing': true,
+      'resource-killed': true,
       'no-independent-signal': true,
       'boot-failed': true,
       'lease-lost': true,

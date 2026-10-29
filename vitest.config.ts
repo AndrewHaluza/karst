@@ -52,7 +52,7 @@ export default defineConfig({
     // one, so the cap bounds the multi-fork excess but cannot rescue a VM
     // starved below a single fork's own peak (the 4.8 GB Docker VM is shared
     // with every other ticket sandbox); that case needs host-side capacity.
-    maxWorkers: 3,
+    maxWorkers: Number(process.env.KARST_GATE_MAX_WORKERS) || 3,
     // Hide console output of passing tests; a failing test still prints its own.
     silent: 'passed-only',
     testTimeout: 30_000,

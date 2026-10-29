@@ -134,6 +134,8 @@ describe('dashboard webviewSend', () => {
 
     sender.stageResume(42, 'review');
     expect(posted.at(-1)).toEqual({ type: 'stage-resume', ticketId: 42, stageKey: 'review' });
+    sender.runGateOnHost(42, 'uat', 'r_host');
+    expect(posted.at(-1)).toEqual({ type: 'run-gate-on-host', ticketId: 42, stageKey: 'uat', requestId: 'r_host' });
     sender.usageLimitPick(42, 'review', 'r_pick');
     expect(posted.at(-1)).toEqual({ type: 'usage-limit-pick', ticketId: 42, stageKey: 'review', requestId: 'r_pick' });
     sender.usageLimitRetry(42, 'uat', 'r_retry');
@@ -199,7 +201,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(67);
+    expect(posted).toHaveLength(68);
   });
 
   it('rejects a wrong argument type at compile time', () => {

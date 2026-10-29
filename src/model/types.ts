@@ -98,6 +98,10 @@ export function isFinishedStage(stage: string | null | undefined): boolean {
  */
 export type BlockerKind =
   | 'nothing-to-run'        // Phase 1: every gate returned null
+  // A gate was SIGKILLed (exit 137) with no failing test, even after the lighter
+  // one-worker retry: memory pressure, an environment fault. Needs the user (run
+  // the gate on the host / raise Docker memory / retry); never a recovery round.
+  | 'resource-killed'
   | 'capability-missing'    // Phase 1: permission/IO error; Phase 2: Playwright, auth digest
   | 'no-independent-signal' // Phase 2 only — a warning in Phase 1
   // UAT could not bring the ticket's services up before the Tester (D155): a

@@ -551,6 +551,8 @@ export interface GateDef {
   repo?: string; // manifest repository name; absent = every target
   /** Where a sandboxed ticket runs this gate; absent = `inside` (arch:AC-36). `host` runs it on the host after a verified sync. */
   sandbox?: 'host' | 'inside';
+  /** A gate killed by the OOM killer (exit 137, no failing test): `retry-then-park` (default) | `park` | `host`. */
+  onResourceKill?: 'retry-then-park' | 'park' | 'host';
   /** `false` keeps the definition but skips the gate project-wide; absent = on. */
   enabled?: boolean;
 }

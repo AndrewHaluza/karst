@@ -279,3 +279,25 @@ describe('aggregateUat — stale branch', () => {
     expect(out).toMatchObject({ kind: 'verdict', verdict: { kind: 'failed' } });
   });
 });
+
+describe('aggregateUat — resource kill', () => {
+  const reason = 'gate "unit" was killed (exit 137, SIGKILL) in the sandbox with no failing test';
+  it('parks resource-killed instead of failing, consuming no round', () => {
+    const out = aggregateUat(
+      [{ result: { name: 'unit', exitCode: 137, output: '', resourceKilled: reason }, identity: npmE2e }],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'blocked', blocker: 'resource-killed', reason });
+  });
+
+  it('does not swallow an ordinary failure in the same run', () => {
+    const out = aggregateUat(
+      [
+        { result: { name: 'unit', exitCode: 137, output: '', resourceKilled: reason }, identity: npmE2e },
+        entry('lint', 1, npmTest),
+      ],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'verdict', verdict: { kind: 'failed' } });
+  });
+});

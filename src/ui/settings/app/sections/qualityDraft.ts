@@ -242,6 +242,16 @@ export function setGateEnabled(gate: GateDef, enabled: boolean): GateDef {
   return { ...gate, enabled: false };
 }
 
+/** Set a gate's out-of-memory policy; the default (`retry-then-park`) deletes the key. */
+export function setGateOnResourceKill(gate: GateDef, policy: NonNullable<GateDef['onResourceKill']>): GateDef {
+  if (policy === 'retry-then-park') {
+    const { onResourceKill: _default, ...rest } = gate;
+    void _default;
+    return rest;
+  }
+  return { ...gate, onResourceKill: policy };
+}
+
 /** The block's probe-when-all-off flag; written only when true, deleted otherwise. */
 export function setProbeWhenAllDisabled(draft: Manifest, base: Base, on: boolean): Manifest {
   const blocks = blocksOf(draft);

@@ -596,6 +596,19 @@ describe('QualitySection — per-gate enabled switch', () => {
     expect('enabled' in (uatOf(probe).gates as Record<string, unknown>[])[0]!).toBe(false);
   });
 
+  it('writes onResourceKill for a non-default policy, deletes it for the default, disables with the gate', () => {
+    const { probe } = mountQuality(withGate({}));
+    const select = () => byLabel('On out-of-memory kill') as unknown as HTMLSelectElement;
+    expect(select().value).toBe('retry-then-park');
+    fireEvent.change(select(), { target: { value: 'host' } });
+    expect((uatOf(probe).gates as Record<string, unknown>[])[0]).toMatchObject({ onResourceKill: 'host' });
+    fireEvent.change(select(), { target: { value: 'retry-then-park' } });
+    expect('onResourceKill' in (uatOf(probe).gates as Record<string, unknown>[])[0]!).toBe(false);
+    expect(select().disabled).toBe(false);
+    fireEvent.click(byLabel('Gate 1 enabled'));
+    expect(select().disabled).toBe(true);
+  });
+
   it('shows the probe checkbox only with gates, and the bypass note when all are off', () => {
     mountQuality();
     expect(document.querySelector('[name="uatProbeWhenAllDisabled"]')).toBeNull();

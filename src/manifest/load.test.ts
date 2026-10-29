@@ -3869,3 +3869,28 @@ repositories:
     expect(m.repositories.mono!.services!.api!.dependsOn).toHaveLength(1);
   });
 });
+
+describe('gate onResourceKill', () => {
+  const gate = (v: string) => `${VALID}
+uat:
+  gates:
+    - name: unit
+      kind: script
+      script: test
+      onResourceKill: ${v}
+`;
+  it('parses a valid policy and rejects an unknown one', () => {
+    const good = fixture(gate('host'));
+    try {
+      expect(loadManifest(good.path).uat?.gates?.[0]?.onResourceKill).toBe('host');
+    } finally {
+      good.cleanup();
+    }
+    const bad = fixture(gate('never'));
+    try {
+      expect(() => loadManifest(bad.path)).toThrow(/onResourceKill must be one of/);
+    } finally {
+      bad.cleanup();
+    }
+  });
+});

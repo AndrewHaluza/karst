@@ -444,6 +444,10 @@ export const COVERED: readonly ParityCase[] = [
     act: 'stage-resume', state: () => blockedState('boot-failed', true), sel: act('stage-resume', '[data-stagekey="uat"]'),
     posts: [{ type: 'stage-resume', ticketId: 942017, stageKey: 'uat' }], rid: true,
   },
+  {
+    act: 'run-gate-on-host', state: () => blockedState('resource-killed', true), sel: act('run-gate-on-host', '[data-stagekey="uat"]'),
+    posts: [{ type: 'run-gate-on-host', ticketId: 942017, stageKey: 'uat' }], rid: true,
+  },
   ...(['pick', 'retry', 'dismiss'] as const).map((k): ParityCase => ({
     act: `usage-limit-${k}`, state: () => blockedState('usage-limit', false), sel: act(`usage-limit-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `usage-limit-${k}`, ticketId: 942017, stageKey: 'uat' }], rid: true,

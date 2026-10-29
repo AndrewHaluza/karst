@@ -68,6 +68,7 @@ import {
   updateStallDetection,
   updateUat,
   updateGates,
+  setGateOnResourceKill,
   type Base,
 } from './qualityDraft.js';
 
@@ -554,6 +555,24 @@ function GateList({
               <TablerIcon name="trash" />
             </IconButton>
             <div className="gate-meta">
+              <GateSelect
+                hideLabel={false}
+                label="On out-of-memory kill"
+                value={gate.onResourceKill ?? 'retry-then-park'}
+                disabled={gate.enabled === false}
+                options={[
+                  { value: 'retry-then-park', label: 'Retry then ask' },
+                  { value: 'park', label: 'Ask' },
+                  { value: 'host', label: 'Run on host' },
+                ]}
+                onChange={(value) =>
+                  change((current) =>
+                    current.map((g, i) =>
+                      i === index ? setGateOnResourceKill(g, value as NonNullable<GateDef['onResourceKill']>) : g,
+                    ),
+                  )
+                }
+              />
               <span className="gate-summary">{gate.enabled === false ? 'off — ' : ''}{gateSummary(gate)}</span>
               {problem ? (
                 <span className="gate-problem" role="alert">
@@ -619,8 +638,10 @@ function GateSelect({
   options,
   onChange,
   hideLabel = true,
+  disabled = false,
 }: {
   readonly hideLabel?: boolean;
+  readonly disabled?: boolean;
   readonly label: string;
   readonly value: string;
   readonly options: readonly SelectOption[];
@@ -630,7 +651,7 @@ function GateSelect({
     <Field
       label={label}
       hideLabel={hideLabel}
-      control={{ kind: 'select', name: undefined, value, options, onChange }}
+      control={{ kind: 'select', name: undefined, value, options, onChange, disabled }}
     />
   );
 }

@@ -116,6 +116,37 @@ function StallActions({ ticketId, stageKey }: ActionProps) {
   );
 }
 
+function ResourceKilledActions({ ticketId, stageKey }: ActionProps) {
+  const send = useDashboardSend();
+  const key = stageKey as Parameters<typeof send.stageResume>[1];
+  const onHost = usePendingAction(useCallback((requestId: string) => send.runGateOnHost(ticketId, key, requestId), [send, ticketId, key]));
+  const onRetry = usePendingAction(useCallback((requestId: string) => send.stageResume(ticketId, key, requestId), [send, ticketId, key]));
+  return (
+    <div className="facts">
+      <button
+        type="button"
+        className="k-btn k-btn--primary k-btn--sm"
+        data-act="run-gate-on-host"
+        data-stagekey={stageKey}
+        title="Rerun the killed gate on the host (verified sync) instead of in the sandbox"
+        onClick={onHost}
+      >
+        Run gate on host
+      </button>
+      <button
+        type="button"
+        className="k-btn k-btn--secondary k-btn--sm"
+        data-act="stage-resume"
+        data-stagekey={stageKey}
+        title="Clear the block and run the gate again, here"
+        onClick={onRetry}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 function Resume({ ticketId, stageKey }: ActionProps) {
   const send = useDashboardSend();
   const key = stageKey as Parameters<typeof send.stageResume>[1];
@@ -151,6 +182,14 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
       <>
         <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
         <StallActions ticketId={ticketId} stageKey={stageKey} />
+      </>
+    );
+  }
+  if (kind === 'resource-killed') {
+    return (
+      <>
+        <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
+        <ResourceKilledActions ticketId={ticketId} stageKey={stageKey} />
       </>
     );
   }

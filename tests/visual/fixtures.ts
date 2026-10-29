@@ -16,6 +16,8 @@ import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sect
 export interface SettingsRoute {
   section: SettingsSection;
   hash?: string;
+  /** A selector scrolled into view before the shot (the pane scrolls inside a fixed viewport). */
+  scrollTo?: string;
 }
 
 interface GotoOpts {
@@ -43,6 +45,9 @@ async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
     await page.evaluate((hash) => {
       window.location.hash = hash;
     }, route.hash);
+  }
+  if (route.scrollTo !== undefined) {
+    await page.locator(route.scrollTo).first().scrollIntoViewIfNeeded();
   }
   await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
   await page.waitForLoadState('networkidle');

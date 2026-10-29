@@ -69,6 +69,7 @@ function actions(): DashboardActions {
     resumeStage: vi.fn(),
     usageLimitPick: vi.fn(),
     usageLimitRetry: vi.fn(),
+    runGateOnHost: vi.fn(),
     usageLimitDismiss: vi.fn(),
     setDisabledGate: vi.fn(),
     insideAction: vi.fn(),
@@ -586,6 +587,15 @@ describe('routeAction', () => {
     });
     routeAction({ type: 'usage-limit-pick', ticketId: 7, stageKey: 'review' }, a);
     expect(a.usageLimitPick).toHaveBeenCalledWith(7, 'review');
+
+    expect(parseWebviewMessage({ type: 'run-gate-on-host', ticketId: 7, stageKey: 'uat' })).toEqual({
+      type: 'run-gate-on-host',
+      ticketId: 7,
+      stageKey: 'uat',
+    });
+    expect(parseWebviewMessage({ type: 'run-gate-on-host', ticketId: 'x', stageKey: 'uat' })).toBeNull();
+    routeAction({ type: 'run-gate-on-host', ticketId: 7, stageKey: 'uat' }, a);
+    expect(a.runGateOnHost).toHaveBeenCalledWith(7, 'uat');
 
     expect(parseWebviewMessage({ type: 'usage-limit-retry', ticketId: 7, stageKey: 'uat' })).toEqual({
       type: 'usage-limit-retry',

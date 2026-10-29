@@ -144,6 +144,26 @@ describe('BlockedBanner — usage-limit park actions (D159, re-homed from the va
   });
 });
 
+describe('BlockedBanner — resource kill (T853)', () => {
+  const killed = () => blockedState(block('resource-killed', { resumable: true, reason: 'Gate "unit" was killed (exit 137) in the sandbox.' }));
+
+  it('names the fault and offers Run gate on host then Retry', () => {
+    mountRail(killed());
+    expect(text('.ftitle')).toBe('Gate ran out of memory');
+    const buttons = all<HTMLButtonElement>('#blocked .facts button');
+    expect(buttons.map((b) => b.dataset.act)).toEqual(['run-gate-on-host', 'stage-resume']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['Run gate on host', 'Retry']);
+  });
+
+  it('each button posts once with the ticket and stage', () => {
+    const h = mountRail(killed());
+    fireEvent.click(btn('run-gate-on-host'));
+    fireEvent.click(btn('stage-resume'));
+    expect(h.send.runGateOnHost).toHaveBeenCalledWith(TICKET, 'uat', 'req-1');
+    expect(h.send.stageResume).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('BlockedBanner — review stall (T845)', () => {
   const stalled = () => blockedState(block('review-stalled', { resumable: false, reason: 'Review keeps finding new problems in a.ts (3 rounds) — likely a design problem, not a bug.' }));
 

@@ -122,6 +122,12 @@ export function validateGate(raw: unknown, index: number, where: string): UatGat
     }
     gate.sandbox = raw.sandbox;
   }
+  if (raw.onResourceKill !== undefined) {
+    if (raw.onResourceKill !== 'retry-then-park' && raw.onResourceKill !== 'park' && raw.onResourceKill !== 'host') {
+      throw new ManifestError(`${where} "${name}".onResourceKill must be one of: retry-then-park, park, host`);
+    }
+    gate.onResourceKill = raw.onResourceKill;
+  }
   if (raw.enabled !== undefined) {
     if (typeof raw.enabled !== 'boolean') {
       throw new ManifestError(`${where} "${name}".enabled must be a boolean`);

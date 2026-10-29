@@ -2,6 +2,7 @@ import { nowIso } from '../../model/time.js';
 import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
 import { runRegenerate, type RegenerateSpec } from './regenerate.js';
+import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { runProcess, type GateOutputChunk, type GateProcessRunner } from './run.js';
 
 /**
@@ -166,11 +167,29 @@ export async function runGateList(
       continue;
     }
 
-    const outcome = await (gate.sandbox === 'host' && opts.hostProcess ? opts.hostProcess : (opts.runProcess ?? runProcess))(gate.command, gate.args, cwd, {
+    const runOpts = {
       signal: opts.signal,
       onDebug,
-      onOutput: opts.onGateOutput ? (chunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
-    });
+      onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
+    };
+    const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
+    let outcome = await (onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess))(gate.command, gate.args, cwd, runOpts);
+    let resourceKilled: string | undefined;
+    if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
+      // SIGKILL with no failing test: memory pressure, an environment fault (arch:GATE-CAPABILITY).
+      const policy = gate.onResourceKill ?? 'retry-then-park';
+      const sandboxed = opts.sandboxed === true && !onHost;
+      onDebug?.(`[gate] ${gate.name}: killed (exit 137, no failing test) — onResourceKill=${policy}`);
+      if (policy === 'host' && opts.hostProcess && !onHost) {
+        outcome = await opts.hostProcess(gate.command, gate.args, cwd, runOpts);
+      } else if (policy !== 'park') {
+        const run = onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess);
+        outcome = await run('env', [`${GATE_MAX_WORKERS_ENV}=1`, gate.command, ...gate.args], cwd, runOpts);
+      }
+      if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
+        resourceKilled = resourceKillReason(gate.name, sandboxed);
+      }
+    }
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };
     if (outcome.kind === 'spawnFailed' && !gate.required && gate.script !== null) {
@@ -209,6 +228,7 @@ export async function runGateList(
       output,
       startedAt,
       endedAt,
+      ...(resourceKilled !== undefined ? { resourceKilled } : {}),
     });
     opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output);
   }

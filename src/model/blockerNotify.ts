@@ -13,6 +13,7 @@ import type { BlockerKind } from './types.js';
 export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'nothing-to-run': true,
   'capability-missing': true,
+  'resource-killed': true,
   'no-independent-signal': true,
   'boot-failed': true,
   'lease-lost': true,

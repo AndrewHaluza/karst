@@ -57,7 +57,7 @@ export interface Variant {
   readonly themes: readonly string[];
   readonly corpus: () => ViewCorpus;
   /** Settings only: the nav section / hash to open before the shot. */
-  readonly route?: { readonly section: SettingsSection; readonly hash?: string };
+  readonly route?: { readonly section: SettingsSection; readonly hash?: string; readonly scrollTo?: string };
   /** Settings only: id of the settingsRoutes() entry that runs this variant's layout geometry. */
   readonly layoutRouteId?: string;
   /**
@@ -142,6 +142,20 @@ const dashboardVariants = (): Variant[] => [
       blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
     },
   }))),
+  // T853: out-of-memory kill park; the strip carries Run gate on host + Retry.
+  variant('dashboard', 'resource-killed-blocked', dashboardScenario('running', 2, (s) => ({
+    ...s,
+    currentStage: {
+      stageKey: 'uat',
+      status: 'running',
+      blocked: {
+        kind: 'resource-killed',
+        reason: 'Gate "unit" was killed (exit 137) in the sandbox, twice, with no failing test. Raise the Docker Desktop memory.',
+        at: '2026-01-01T00:00:00.000Z',
+        resumable: true,
+      },
+    },
+  })), { skipLayout: true }),
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
   variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
@@ -207,6 +221,19 @@ function qualityStallVariant(id: string, stallDetection: Record<string, unknown>
   };
 }
 
+/** Quality route with UAT gates in one OOM-kill state: default, host-selected, or gate disabled (T853). */
+function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant {
+  const manifest = { ...REALISTIC_SETTINGS.manifest, uat: { ...REALISTIC_SETTINGS.manifest.uat, gates: [{ name: 'unit', command: 'npm', args: ['test'], ...gate }] } };
+  return {
+    ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest } as never), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      skipLayout: true,
+    }),
+    route: { section: 'quality', scrollTo: '.gate-block' },
+  };
+}
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -224,6 +251,9 @@ const settingsVariants = (): Variant[] => [
   },
   ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile'),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
+  qualityKillVariant('quality-oom-default', {}),
+  qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
+  qualityKillVariant('quality-oom-disabled', { enabled: false }),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 9, repeatedFindingRounds: 0 }),
 ];
 

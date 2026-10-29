@@ -2760,5 +2760,12 @@ function migrateLocked(db: Database): void {
     db.exec(CLOUD_SESSION_LINKS_DDL);
   }
 
+  if (current < 91) {
+    // v91: `tickets.host_gates` — gate names this ticket reruns on the host after a
+    // resource kill (`Run gate on host`). Additive; NULL = none, nothing to backfill.
+    const cols91 = ticketColumns(db);
+    if (cols91.size > 0 && !cols91.has('host_gates')) db.exec('ALTER TABLE tickets ADD COLUMN host_gates TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
