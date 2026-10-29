@@ -264,6 +264,7 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'planning-deps', s('planning-deps')),
     variant('sidebar', 'subtasks', s('subtasks')),
     variant('sidebar', 'filtered', s('filtered')),
+    variant('sidebar', 'cloud-sessions', s('cloud-sessions')),
   ];
 };
 

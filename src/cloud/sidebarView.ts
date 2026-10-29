@@ -8,6 +8,7 @@ export interface CloudSessionChip {
   label: string;
   url: string;
   linkSource: CloudLinkSource;
+  firstSeen: string;
 }
 
 export interface CloudSessionsForSidebar {
@@ -34,7 +35,11 @@ export function cloudSessionsForSidebar(store: Store, projectId: number): CloudS
       label,
       url: r.url,
       linkSource: r.linkSource ?? 'manual',
+      firstSeen: r.firstSeen,
     });
+  }
+  for (const list of Object.values(out.byTicketId)) {
+    list.sort((a, b) => b.firstSeen.localeCompare(a.firstSeen));
   }
   return out;
 }

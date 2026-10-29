@@ -23,10 +23,11 @@ export type SidebarScenario =
   | 'filtered'
   | 'subtasks'
   | 'planning-deps'
-  | 'hostile';
+  | 'hostile'
+  | 'cloud-sessions';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'hostile',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'hostile', 'cloud-sessions',
 ];
 
 export interface SidebarRenderFixture {
@@ -339,6 +340,43 @@ function planningDepsState(): SidebarState {
   };
 }
 
+/** A ticket with several cloud sessions (D325 / D241). */
+function cloudSessionsState(): SidebarState {
+  return {
+    ...emptyState(),
+    facets: ['all'],
+    filter: '',
+    counts: fixtureCounts({ all: 1, running: 1 }),
+    sections: {
+      current: [
+        fixtureRow(0, {
+          label: 'FEAT-multiple-cloud',
+          glyph: 'blue',
+          cloudSessions: [
+            {
+              provider: 'claude',
+              label: 'Claude Code on the web',
+              url: 'fixture:cloud/session-2',
+              linkSource: 'branch',
+              firstSeen: '2026-10-29T10:05:00.000Z',
+            },
+            {
+              provider: 'claude',
+              label: 'Claude Code on the web',
+              url: 'fixture:cloud/session-1',
+              linkSource: 'pr',
+              firstSeen: '2026-10-29T10:00:00.000Z',
+            },
+          ],
+        }),
+      ],
+      awaitingReview: [],
+      recentlyDone: [],
+      olderDone: [],
+    },
+  };
+}
+
 const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   empty: emptyState,
   'all-sections': allSectionsState,
@@ -349,6 +387,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   subtasks: subtasksState,
   'planning-deps': planningDepsState,
   hostile: hostileState,
+  'cloud-sessions': cloudSessionsState,
 };
 
 export function sidebarRenderFixtures(): SidebarRenderFixture[] {

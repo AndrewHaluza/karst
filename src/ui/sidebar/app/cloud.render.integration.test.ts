@@ -15,8 +15,17 @@ const fixture = (scenario: string): SidebarState => sidebarRenderFixtures().find
 const base = fixture('all-sections');
 const URL_A = 'https://claude.ai/code/session_a';
 const URL_B = 'https://claude.ai/code/session_b';
-const chip = (url: string, linkSource: CloudSessionChip['linkSource'] = 'pr'): CloudSessionChip => ({
-  provider: 'claude', label: 'Claude Code on the web', url, linkSource,
+const chip = (
+  url: string,
+  linkSource: CloudSessionChip['linkSource'] = 'pr',
+  over: Partial<CloudSessionChip> = {},
+): CloudSessionChip => ({
+  provider: 'claude',
+  label: 'Claude Code on the web',
+  url,
+  linkSource,
+  firstSeen: '2026-10-29T10:00:00.000Z',
+  ...over,
 });
 const unlinked = (id: number, url: string, over: Partial<UnlinkedCloudSession> = {}): UnlinkedCloudSession => ({
   id, provider: 'claude', label: 'Claude Code on the web', url, proposalId: null, ...over,
@@ -37,16 +46,66 @@ async function mount(state: SidebarState) {
 }
 
 describe('cloud session icon on a ticket row', () => {
-  it('renders one labelled cloud button per session, outside the row open button, posting cloud-session-open', async () => {
-    const h = await mount(stateWith([row(1, { cloudSessions: [chip(URL_A), chip(URL_B)] })]));
+  it('renders one direct link for a single session, posting cloud-session-open', async () => {
+    const h = await mount(stateWith([row(1, { cloudSessions: [chip(URL_A)] })]));
     const btns = h.queryAll<HTMLButtonElement>('.ticket .cloudlinks button');
-    expect(btns).toHaveLength(2);
+    expect(btns).toHaveLength(1);
     expect(btns[0]!.getAttribute('aria-label')).toBe('Open in Claude Code on the web');
     expect(btns[0]!.getAttribute('title')).toBe('Open in Claude Code on the web');
+    expect(btns[0]!.getAttribute('aria-haspopup')).toBeNull();
     expect(btns[0]!.querySelector('svg')).not.toBeNull();
     expect(btns[0]!.closest('.rowopen')).toBeNull();
-    await h.click(btns[1]!);
+    await h.click(btns[0]!);
+    expect(h.posted.at(-1)).toMatchObject({ type: 'cloud-session-open', url: URL_A });
+  });
+
+  it('renders one icon for multiple sessions of the same provider with a menu posting each URL', async () => {
+    const now = Date.now();
+    const h = await mount(
+      stateWith([
+        row(1, {
+          cloudSessions: [
+            chip(URL_B, 'branch', { firstSeen: new Date(now - 5 * 60_000).toISOString() }),
+            chip(URL_A, 'pr', { firstSeen: new Date(now - 60 * 60_000).toISOString() }),
+          ],
+        }),
+      ]),
+    );
+    const btns = h.queryAll<HTMLButtonElement>('.ticket .cloudlinks button');
+    expect(btns).toHaveLength(1);
+    expect(btns[0]!.getAttribute('aria-label')).toBe('Open in Claude Code on the web · 2 sessions');
+    expect(btns[0]!.getAttribute('title')).toBe('Open in Claude Code on the web · 2 sessions');
+    expect(btns[0]!.getAttribute('aria-haspopup')).toBe('menu');
+    expect(h.query<HTMLElement>('.ticket .row')!.style.getPropertyValue('--cloud-n')).toBe('1');
+
+    await h.click(btns[0]!);
+    const items = h.queryAll<HTMLButtonElement>('#ctxMenu .ctxitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent?.trim()).toBe('5m ago (branch)');
+    expect(items[1]!.textContent?.trim()).toBe('1h ago (pr)');
+
+    await h.click(items[0]!);
     expect(h.posted.at(-1)).toMatchObject({ type: 'cloud-session-open', url: URL_B });
+
+    await h.click(btns[0]!);
+    await h.click(h.queryAll<HTMLButtonElement>('#ctxMenu .ctxitem')[1]!);
+    expect(h.posted.at(-1)).toMatchObject({ type: 'cloud-session-open', url: URL_A });
+  });
+
+  it('renders two icons for two different providers', async () => {
+    const h = await mount(
+      stateWith([
+        row(1, {
+          cloudSessions: [
+            chip(URL_A, 'pr'),
+            chip('https://chatgpt.com/session_1', 'pr', { provider: 'chatgpt', label: 'ChatGPT' }),
+          ],
+        }),
+      ]),
+    );
+    const btns = h.queryAll<HTMLButtonElement>('.ticket .cloudlinks button');
+    expect(btns).toHaveLength(2);
+    expect(h.query<HTMLElement>('.ticket .row')!.style.getPropertyValue('--cloud-n')).toBe('2');
   });
 
   it('renders nothing for a ticket without sessions', async () => {

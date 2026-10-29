@@ -24,7 +24,7 @@ describe('buildSidebarState cloud sessions', () => {
     const rows = buildSidebarState(store, { facets: ['all'], filter: '', projectId }).sections.current;
     const [withIt, without] = [rows.find((r) => r.ticketId === a.id)!, rows.find((r) => r.ticketId !== a.id)!];
     expect(withIt.cloudSessions).toEqual([
-      { provider: 'claude', label: 'Claude Code on the web', url: url('x'), linkSource: 'pr' },
+      { provider: 'claude', label: 'Claude Code on the web', url: url('x'), linkSource: 'pr', firstSeen: expect.any(String) },
     ]);
     expect('cloudSessions' in without).toBe(false);
   });

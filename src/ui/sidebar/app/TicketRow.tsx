@@ -134,9 +134,10 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
 
   const nest = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, MAX_SUBTASK_INDENT)}` : '';
   const cls = `ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${older ? ' older' : ''}${nest}`;
+  const cloudCount = new Set(row.cloudSessions?.map((c) => c.provider)).size;
   return (
     <div className={cls} data-id={row.ticketId}>
-      <div className="row" style={row.cloudSessions?.length ? ({ '--cloud-n': row.cloudSessions.length } as CSSProperties) : undefined}>
+      <div className="row" style={cloudCount ? ({ '--cloud-n': cloudCount } as CSSProperties) : undefined}>
         <Guides row={row} />
         <button
           type="button"
@@ -158,7 +159,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
           </ActButton>
         )}
         <SubtreeToggle row={row} />
-        {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} /> : null}
+        {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} ticketId={row.ticketId} /> : null}
         {/* Only rendered while COLLAPSED — expanding moves the same quick actions into the body's tools. */}
         {isOpen ? null : <HoverStrip row={row} sessVerb={sessVerb} />}
       </div>

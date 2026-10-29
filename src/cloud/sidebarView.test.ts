@@ -15,16 +15,19 @@ describe('cloudSessionsForSidebar', () => {
     const r = (n: string) => ({ projectId: 1, provider: 'claude', url: url(n) });
     upsertCloudSessionLink(store, r('a'), { ticketId: 10, source: 'pr' });
     upsertCloudSessionLink(store, r('b'), { ticketId: 10, source: 'key' });
+    store.db.prepare("UPDATE cloud_session_links SET first_seen = '2026-10-20 10:00:00' WHERE url = ?").run(url('a'));
+    store.db.prepare("UPDATE cloud_session_links SET first_seen = '2026-10-21 10:00:00' WHERE url = ?").run(url('b'));
     setManualLink(store, r('c'), { proposalId: 5 });
+    store.db.prepare("UPDATE cloud_session_links SET first_seen = '2026-10-22 10:00:00' WHERE url = ?").run(url('c'));
     upsertCloudSessionLink(store, r('d'), null);
     const v = cloudSessionsForSidebar(store, 1);
     const label = 'Claude Code on the web';
     expect(v.byTicketId).toEqual({
       10: [
-        { provider: 'claude', label, url: url('a'), linkSource: 'pr' },
-        { provider: 'claude', label, url: url('b'), linkSource: 'key' },
+        { provider: 'claude', label, url: url('b'), linkSource: 'key', firstSeen: '2026-10-21 10:00:00' },
+        { provider: 'claude', label, url: url('a'), linkSource: 'pr', firstSeen: '2026-10-20 10:00:00' },
       ],
-      11: [{ provider: 'claude', label, url: url('c'), linkSource: 'manual' }],
+      11: [{ provider: 'claude', label, url: url('c'), linkSource: 'manual', firstSeen: '2026-10-22 10:00:00' }],
     });
     expect(v.unlinked).toEqual([
       { id: expect.any(Number), provider: 'claude', label, url: url('d'), proposalId: null },
