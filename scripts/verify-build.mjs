@@ -60,7 +60,10 @@ const REQUIRED_ARTIFACTS = [
 // ApproachInstallActions, two useHostMutation receipt settles, inline uninstall
 // confirm, per-row failure message; ~2.7 KB of genuine app code): bundle is
 // 381970 bytes (~1 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 374 * 1024;
+// Raised 374 → 376 KB for the Quality `review.stallDetection` row (enabled toggle,
+// two number inputs, draft validation; ~1.8 KB of genuine app code): bundle is
+// 383760 bytes (~1.2 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 376 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
