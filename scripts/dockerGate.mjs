@@ -21,8 +21,19 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { hasBinary } from './onPath.mjs';
+import { gateGrep, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
+import {
+  VOLUME_PREFIX,
+  acquireSlot,
+  nodeModulesVolumeName,
+  release,
+  slotPath,
+  volumesToRemove,
+  withNamedNodeModules,
+} from './playwrightSlot.mjs';
 
 /** POSIX's "command not found" exit code. */
 export const EXIT_COMMAND_NOT_FOUND = 127;
@@ -146,8 +157,59 @@ export function gatePlan({ docker, baseline, local }) {
   return { kind: 'missing' };
 }
 
+/** Gate scripts whose sweep narrows to the views the ticket diff can reach. */
+const SELECTING_SCRIPTS = new Set(['test:visual:docker', 'test:layout:docker']);
+
+const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main'];
+
+/** Paths the ticket changed vs its base (committed, staged, unstaged, untracked), or null when unreadable. */
+export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_REF) {
+  const git = (args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  for (const ref of base ? [base] : BASE_CANDIDATES) {
+    const mb = git(['merge-base', ref, 'HEAD']);
+    if (mb.status !== 0) continue;
+    const tracked = git(['diff', '--name-only', '-z', mb.stdout.trim()]);
+    const untracked = git(['ls-files', '-o', '--exclude-standard', '-z']);
+    if (tracked.status !== 0 || untracked.status !== 0) return null;
+    return `${tracked.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean);
+  }
+  return null;
+}
+
+/** `playwright test --list` totals with and without the grep, or null (best effort: the line just omits counts). */
+function countTests(script, grep) {
+  const project = script === 'test:layout:docker' ? ['--project=layout'] : [];
+  const total = (env) => {
+    const run = spawnSync('npx', ['playwright', 'test', '--list', ...project], { encoding: 'utf8', env });
+    return run.status === 0 ? parseListTotal(run.stdout) : null;
+  };
+  const all = total({ ...process.env, KARST_UI_GREP: '' });
+  const selected = grep === null ? all : total({ ...process.env, KARST_UI_GREP: grep });
+  return all === null || selected === null ? null : { selected, total: all };
+}
+
+/** Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full. */
+export function narrowSweep(script) {
+  if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return;
+  // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
+  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return;
+  const paths = changedPaths();
+  const selection = paths === null ? { all: true, views: [] } : selectViews(paths);
+  let grep = null;
+  try {
+    grep = gateGrep(selection, readSettingsSections());
+  } catch {
+    // Unreadable section list: run the full sweep.
+  }
+  if (grep !== null) process.env.KARST_UI_GREP = grep;
+  console.error(
+    selectionLine(script, grep === null ? { all: true, views: [] } : selection, countTests(script, grep)),
+  );
+}
+
 function main(argv) {
   const script = process.env.npm_lifecycle_event ?? 'this gate';
+  narrowSweep(script);
   const local = readLocalCommand(argv);
   const plan = gatePlan({
     docker: hasDocker(),
@@ -170,22 +232,74 @@ function main(argv) {
     });
     process.exit(result.status ?? 1);
   }
-  const name = gateContainerName({ event: process.env.npm_lifecycle_event, ticket: process.env.KARST_TICKET });
-  const args = withContainerName(dockerArgv(local ? local.rest : argv), name);
+  runContainer(local ? local.rest : argv);
+}
+
+/** The lockfile hash of a directory, or null when it has none. */
+function lockVolume(dir) {
+  try {
+    return nodeModulesVolumeName(readFileSync(join(dir, 'package-lock.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Remove karst-pw-nm volumes no worktree references (the newest 2 stay). Best effort. */
+function collectVolumes(cwd) {
+  const list = spawnSync('docker', ['volume', 'ls', '-q', '--filter', `name=${VOLUME_PREFIX}`], { encoding: 'utf8' });
+  if (list.status !== 0) return;
+  const names = list.stdout.split('\n').filter(Boolean);
+  const trees = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd, encoding: 'utf8' }).stdout ?? '';
+  const referenced = new Set(
+    trees.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => lockVolume(l.slice(9))).filter(Boolean),
+  );
+  const volumes = names.map((name) => {
+    const info = spawnSync('docker', ['volume', 'inspect', '--format', '{{.CreatedAt}}', name], { encoding: 'utf8' });
+    return { name, createdAt: info.stdout.trim() };
+  });
+  for (const name of volumesToRemove(volumes, referenced)) spawnSync('docker', ['volume', 'rm', name], { stdio: 'ignore' });
+}
+
+async function runContainer(rawArgv) {
+  const ticket = process.env.KARST_TICKET;
+  const name = gateContainerName({ event: process.env.npm_lifecycle_event, ticket });
+  const volume = lockVolume(process.cwd());
+  const dockerArgs = dockerArgv(rawArgv);
+  const args = withContainerName(volume ? withNamedNodeModules(dockerArgs, volume) : dockerArgs, name);
+  const slot = slotPath();
+  const abort = new AbortController();
+  let holding = false;
   const forceRemove = () => spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  const cleanup = () => {
+    if (holding) release(slot);
+    holding = false;
+  };
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
+      abort.abort();
       forceRemove();
+      cleanup();
       process.exit(130);
     });
   }
+  // Timers only: the wait never blocks, so signals keep working while queued.
+  holding = await acquireSlot(slot, {
+    signal: abort.signal,
+    onWait: () => console.error(`waiting for visual slot (ticket ${ticket ?? basename(process.cwd())})`),
+  });
+  if (!holding) process.exit(130);
   // Async spawn: spawnSync would block the signal handlers above until docker exits.
   const child = spawn('docker', args, { stdio: 'inherit' });
   child.on('error', (error) => {
+    cleanup();
     console.error(`docker could not start: ${error.message}`);
     process.exit(EXIT_COMMAND_NOT_FOUND);
   });
-  child.on('close', (status) => process.exit(status ?? 1));
+  child.on('close', (status) => {
+    cleanup();
+    if (status === 0) collectVolumes(process.cwd());
+    process.exit(status ?? 1);
+  });
 }
 
 if (process.argv[1] && process.argv[1].endsWith('dockerGate.mjs')) {

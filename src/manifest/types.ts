@@ -129,8 +129,12 @@ export interface ShipDef {
    * (e.g. `npm run -s docs:covers`). "Rebase on base" runs each in the worktree
    * after the rebase and commits what they change — the only way generated
    * output is touched, so a conflict in a generated file is never hand-merged.
+   * The UAT/review gate passes run them too, before the gates, where the gates run
+   * (sandbox for a sandboxed ticket), committing what changed. An entry may be
+   * `{ run, sandbox: 'host' }` to run on the host; a command the sandbox cannot run
+   * parks capability-missing, and one that fails is the pass's reported failure.
    */
-  regenerate?: string[];
+  regenerate?: (string | { run: string; sandbox?: 'host' })[];
 }
 
 /**

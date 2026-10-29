@@ -22,11 +22,14 @@ import { listGateRuns, type GateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, setProcessRunResultKind } from '../../store/processRuns.js';
 import { baseDefinesScript } from '../gates/npmScript.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
+import { cutGatesWithoutUiChange } from '../gates/uiDiff.js';
+import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
+import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
@@ -568,7 +571,7 @@ export async function runUat(
   for (const target of skipGates || rerun ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
-    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
+    let resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
 
     if (resolution.kind === 'unavailable') {
       // The zero-gate verdict is decided ACROSS every target, so "this
@@ -603,6 +606,21 @@ export async function runUat(
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
+    // A branch with no UI path in its diff has nothing for the container-pinned
+    // visual/layout gates to say: they record `skipped` (evidence, not a pass).
+    // No manifest means no real base ref (HEAD would diff as empty): keep every gate.
+    const uiCut = opts.manifest
+      ? await cutGatesWithoutUiChange(
+          resolution.gates,
+          git,
+          target.path,
+          resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest),
+          opts.debug,
+        )
+      : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
+    resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
+    const uiSkipped = new Set(uiCut.skipped);
+
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
     // `skipped` is what states the difference from a missing script.
@@ -621,7 +639,9 @@ export async function runUat(
         skipped: true,
       }]);
       skippedNames.push(gate.name);
-      sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
+      sections.push(
+        `# ${gate.name} (${label}, skipped)\n${uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : 'disabled for this ticket'}`,
+      );
     }
 
     // A malformed package.json resolves to zero gates and IS a failure about the
@@ -681,6 +701,7 @@ export async function runUat(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
+      ...regenerateOption(opts.manifest, target.repo),
       // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
       ...(opts.manifest
         ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }
@@ -717,10 +738,12 @@ export async function runUat(
     });
 
     const produced: AggregateEntry[] = [];
+    const regenFailed = 'regenerateFailed' in run;
     for (const [index, result] of run.results.entries()) {
-      const gate = resolution.gates[index];
+      // A failed regenerate is the pass's only result; it is not one of the resolved gates.
+      const gate = regenFailed ? undefined : resolution.gates[index];
       produced.push({
-        result: { ...result, name: `${result.name} (${label})` },
+        result: regenFailed ? result : { ...result, name: `${result.name} (${label})` },
         identity: {
           repo: target.repo,
           command: gate?.command ?? result.name,

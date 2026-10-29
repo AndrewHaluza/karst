@@ -133,7 +133,7 @@ describe('defaultQuotaReaders', () => {
         source: 'Antigravity Language Server',
         windows: [{ label: 'Prompt Credits', usedPct: 20, resetsAt: null }],
       });
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

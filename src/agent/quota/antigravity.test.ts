@@ -8,6 +8,9 @@ import {
   asRecord,
   num,
   findNumber,
+  detectAntigravityTier,
+  antigravitySourceWithTier,
+  resolveBucketLabel,
   writeCache,
   readCache,
   parseAntigravityWindows,
@@ -54,6 +57,8 @@ describe('asRecord and num helpers', () => {
     expect(num(Infinity)).toBeNull();
     expect(num(-Infinity)).toBeNull();
     expect(num({})).toBeNull();
+    expect(num(true)).toBeNull();
+    expect(num(false)).toBeNull();
   });
 
   it('findNumber scans source hierarchy and skips null sources', () => {
@@ -61,6 +66,210 @@ describe('asRecord and num helpers', () => {
     expect(findNumber([{ a: 'not-num' }, { a: 20 }], 'a')).toBe(20);
     expect(findNumber([null, { b: 5 }], 'a')).toBeNull();
     expect(findNumber([], 'a')).toBeNull();
+  });
+});
+
+describe('detectAntigravityTier', () => {
+  it('returns unknown tier and isPaid=true when raw input is null, empty, or unparseable', () => {
+    expect(detectAntigravityTier(null)).toEqual({ tier: 'unknown', tierName: null, isPaid: true });
+    expect(detectAntigravityTier(undefined)).toEqual({ tier: 'unknown', tierName: null, isPaid: true });
+    expect(detectAntigravityTier({})).toEqual({ tier: 'unknown', tierName: null, isPaid: true });
+    expect(detectAntigravityTier('not-an-object')).toEqual({ tier: 'unknown', tierName: null, isPaid: true });
+    expect(detectAntigravityTier({ userTier: { id: 123 } })).toEqual({
+      tier: 'unknown',
+      tierName: null,
+      isPaid: true,
+    });
+  });
+
+  it('detects Free tier via userTier.id or planInfo.teamsTier', () => {
+    expect(detectAntigravityTier({ userTier: { id: 'free' } })).toEqual({
+      tier: 'free',
+      tierName: 'Free Tier',
+      isPaid: false,
+    });
+    expect(detectAntigravityTier({ userTier: { id: 'free-tier' } })).toEqual({
+      tier: 'free',
+      tierName: 'Free Tier',
+      isPaid: false,
+    });
+    expect(detectAntigravityTier({ planInfo: { teamsTier: 'TEAMS_TIER_FREE' } })).toEqual({
+      tier: 'free',
+      tierName: 'Free Tier',
+      isPaid: false,
+    });
+    expect(
+      detectAntigravityTier({
+        userStatus: { planStatus: { planInfo: { teamsTier: 'TEAMS_TIER_FREE' } } },
+      }),
+    ).toEqual({
+      tier: 'free',
+      tierName: 'Free Tier',
+      isPaid: false,
+    });
+  });
+
+  it('detects Pro tier via userTier.id or planInfo.teamsTier', () => {
+    expect(detectAntigravityTier({ userTier: { id: 'pro' } })).toEqual({
+      tier: 'pro',
+      tierName: 'Google AI Pro',
+      isPaid: true,
+    });
+    expect(detectAntigravityTier({ userTier: { id: 'pro-tier' } })).toEqual({
+      tier: 'pro',
+      tierName: 'Google AI Pro',
+      isPaid: true,
+    });
+    expect(detectAntigravityTier({ planInfo: { teamsTier: 'TEAMS_TIER_PRO' } })).toEqual({
+      tier: 'pro',
+      tierName: 'Google AI Pro',
+      isPaid: true,
+    });
+  });
+
+  it('detects Ultra tier via userTier.id or planInfo.teamsTier', () => {
+    expect(detectAntigravityTier({ userTier: { id: 'ultra' } })).toEqual({
+      tier: 'ultra',
+      tierName: 'Google AI Ultra',
+      isPaid: true,
+    });
+    expect(detectAntigravityTier({ userTier: { id: 'ultra-tier' } })).toEqual({
+      tier: 'ultra',
+      tierName: 'Google AI Ultra',
+      isPaid: true,
+    });
+    expect(detectAntigravityTier({ planInfo: { teamsTier: 'TEAMS_TIER_ULTRA' } })).toEqual({
+      tier: 'ultra',
+      tierName: 'Google AI Ultra',
+      isPaid: true,
+    });
+  });
+
+  it('prefers Ultra over Pro and Free when both match', () => {
+    expect(
+      detectAntigravityTier({
+        userTier: { id: 'ultra-pro' },
+      }),
+    ).toEqual({
+      tier: 'ultra',
+      tierName: 'Google AI Ultra',
+      isPaid: true,
+    });
+  });
+});
+
+describe('antigravitySourceWithTier', () => {
+  it('surfaces detected tier name in header source', () => {
+    expect(antigravitySourceWithTier('Google AI Pro')).toBe(
+      'Antigravity Language Server (Google AI Pro)',
+    );
+    expect(antigravitySourceWithTier('Free Tier')).toBe(
+      'Antigravity Language Server (Free Tier)',
+    );
+    expect(antigravitySourceWithTier('Google AI Ultra')).toBe(
+      'Antigravity Language Server (Google AI Ultra)',
+    );
+  });
+
+  it('falls back to default ANTIGRAVITY_QUOTA_SOURCE when tierName is null or empty', () => {
+    expect(antigravitySourceWithTier(null)).toBe('Antigravity Language Server');
+    expect(antigravitySourceWithTier('')).toBe('Antigravity Language Server');
+  });
+});
+
+describe('resolveBucketLabel', () => {
+  it('resolves Gemini rate-limit labels correctly', () => {
+    expect(resolveBucketLabel({ bucketId: 'gemini-5h' })).toBe('Gemini 5h');
+    expect(resolveBucketLabel({ bucketId: 'gemini-weekly' })).toBe('Gemini Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h', displayName: '5h limit' },
+        { displayName: 'Gemini Models' },
+      ),
+    ).toBe('Gemini 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly', displayName: 'Weekly limit' },
+        { displayName: 'Gemini Models' },
+      ),
+    ).toBe('Gemini Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h' },
+        { name: 'gemini_service' },
+      ),
+    ).toBe('Gemini 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly' },
+        { name: 'gemini_service' },
+      ),
+    ).toBe('Gemini Weekly');
+  });
+
+  it('resolves Claude and GPT 3P rate-limit labels correctly', () => {
+    expect(resolveBucketLabel({ bucketId: '3p-5h' })).toBe('Claude/GPT 5h');
+    expect(resolveBucketLabel({ bucketId: '3p-weekly' })).toBe('Claude/GPT Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h', displayName: '5h Limit' },
+        { displayName: 'Claude and GPT models' },
+      ),
+    ).toBe('Claude/GPT 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly', displayName: 'Weekly Limit' },
+        { displayName: 'Claude and GPT models' },
+      ),
+    ).toBe('Claude/GPT Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h' },
+        { name: '3p_service' },
+      ),
+    ).toBe('Claude/GPT 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly' },
+        { name: '3p_service' },
+      ),
+    ).toBe('Claude/GPT Weekly');
+  });
+
+  it('resolves Argon rate-limit labels correctly and distinguishes from generic Gemini', () => {
+    expect(resolveBucketLabel({ bucketId: 'argon-weekly' })).toBe('Argon Weekly');
+    expect(resolveBucketLabel({ bucketId: 'argon-5h' })).toBe('Argon 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly', displayName: 'Weekly Limit' },
+        { displayName: 'Gemini 4 Argon' },
+      ),
+    ).toBe('Argon Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h', displayName: '5h Limit' },
+        { displayName: 'Gemini 4 Argon' },
+      ),
+    ).toBe('Argon 5h');
+    expect(
+      resolveBucketLabel(
+        { window: 'weekly' },
+        { name: 'argon_service' },
+      ),
+    ).toBe('Argon Weekly');
+    expect(
+      resolveBucketLabel(
+        { window: '5h' },
+        { name: 'argon_service' },
+      ),
+    ).toBe('Argon 5h');
+  });
+
+  it('falls back to explicit label, bucketId, or "Model"', () => {
+    expect(resolveBucketLabel({ label: 'Custom Window' })).toBe('Custom Window');
+    expect(resolveBucketLabel({ displayName: 'Custom Display' })).toBe('Custom Display');
+    expect(resolveBucketLabel({ bucketId: 'custom-pool' })).toBe('custom-pool');
+    expect(resolveBucketLabel({})).toBe('Model');
   });
 });
 
@@ -102,7 +311,6 @@ describe('parseAntigravityWindows', () => {
         availablePromptCredits: 1,
       },
     };
-    // ((3 - 1) / 3) * 100 = 66.666... -> Math.round -> 67
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
       {
@@ -206,7 +414,6 @@ describe('parseAntigravityWindows', () => {
       monthlyFlowCredits: 200,
       availableFlowCredits: 65,
     };
-    // ((200 - 65) / 200) * 100 = 67.5 -> Math.round -> 68
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
       {
@@ -286,6 +493,36 @@ describe('parseAntigravityWindows', () => {
     ).toEqual([]);
   });
 
+  it('parses Monthly Plan Credits when present in planInfo', () => {
+    const raw = {
+      planInfo: {
+        monthlyPlanCredits: 500,
+        availablePlanCredits: 100,
+      },
+    };
+    const windows = parseAntigravityWindows(raw);
+    expect(windows).toEqual([
+      {
+        label: 'Monthly Plan Credits',
+        usedPct: 80,
+        resetsAt: null,
+      },
+    ]);
+  });
+
+  it('omits Monthly Plan Credits when invalid or non-positive', () => {
+    expect(
+      parseAntigravityWindows({
+        planInfo: { monthlyPlanCredits: 0, availablePlanCredits: 0 },
+      }),
+    ).toEqual([]);
+    expect(
+      parseAntigravityWindows({
+        planInfo: { monthlyPlanCredits: -10, availablePlanCredits: 5 },
+      }),
+    ).toEqual([]);
+  });
+
   it('parses Model Quota with label and resetTime', () => {
     const raw = {
       userStatus: {
@@ -325,7 +562,6 @@ describe('parseAntigravityWindows', () => {
         },
       ],
     };
-    // (1 - 0.333) * 100 = 66.7 -> Math.round -> 67
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
       {
@@ -419,6 +655,25 @@ describe('parseAntigravityWindows', () => {
     expect(parseAntigravityWindows(raw)).toEqual([]);
   });
 
+  it('parses legacy clientModelConfigs in Free Tier keeping only Gemini rate limits', () => {
+    const raw = {
+      planInfo: { teamsTier: 'TEAMS_TIER_FREE' },
+      clientModelConfigs: [
+        {
+          label: 'Gemini 5h',
+          quotaInfo: { remainingFraction: 0.8 },
+        },
+        {
+          label: 'Claude/GPT Weekly',
+          quotaInfo: { remainingFraction: 0.5 },
+        },
+      ],
+    };
+    expect(parseAntigravityWindows(raw)).toEqual([
+      { label: 'Gemini 5h', usedPct: 20, resetsAt: null },
+    ]);
+  });
+
   it('parses the real language_server_get_user_status fixture', () => {
     const fixture = {
       userStatus: {
@@ -459,6 +714,286 @@ describe('parseAntigravityWindows', () => {
       },
     ]);
   });
+
+  it('Free Tier fixture: shows only active Gemini 5h & Gemini Weekly, suppressing Claude/GPT, Argon, and Monthly Credits', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              remainingFraction: 0.8,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: false,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              remainingFraction: 0.45,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-5h',
+              window: '5h',
+              remainingFraction: 0.0,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: true,
+            },
+            {
+              bucketId: '3p-weekly',
+              window: 'weekly',
+              remainingFraction: 0.5,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'argon-weekly',
+              window: 'weekly',
+              remainingFraction: 0.6,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    const status = {
+      userStatus: {
+        userTier: {
+          id: 'free',
+          name: 'Free Tier',
+        },
+        planStatus: {
+          planInfo: {
+            teamsTier: 'TEAMS_TIER_FREE',
+            monthlyPromptCredits: 1000,
+            availablePromptCredits: 500,
+          },
+        },
+      },
+    };
+
+    const windows = parseAntigravityWindows(summary, status);
+    expect(windows).toEqual([
+      {
+        label: 'Gemini 5h',
+        usedPct: 20,
+        resetsAt: '2026-10-30T14:00:00Z',
+      },
+      {
+        label: 'Gemini Weekly',
+        usedPct: 55,
+        resetsAt: '2026-11-06T12:00:00Z',
+      },
+    ]);
+  });
+
+  it('Free Tier suppresses Gemini bucket when disabled: true', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              remainingFraction: 0.0,
+              disabled: true,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              remainingFraction: 0.3,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
+    };
+    const status = {
+      planInfo: { teamsTier: 'TEAMS_TIER_FREE' },
+    };
+    const windows = parseAntigravityWindows(summary, status);
+    expect(windows).toEqual([
+      {
+        label: 'Gemini Weekly',
+        usedPct: 70,
+        resetsAt: '2026-11-06T12:00:00Z',
+      },
+    ]);
+  });
+
+  it('Pro Tier fixture: shows Gemini 5h/Weekly, separated Claude/GPT Weekly, Argon Weekly, and Monthly Credits; suppresses disabled: true (e.g. 3p-5h)', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              remainingFraction: 0.75,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: false,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              remainingFraction: 0.5,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-5h',
+              window: '5h',
+              remainingFraction: 0.0,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: true, // weekly limit reached -> disabled: true
+            },
+            {
+              bucketId: '3p-weekly',
+              window: 'weekly',
+              remainingFraction: 0.3,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'argon-weekly',
+              window: 'weekly',
+              remainingFraction: 0.4,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    const status = {
+      userStatus: {
+        userTier: {
+          id: 'pro',
+          name: 'Google AI Pro',
+        },
+        planStatus: {
+          planInfo: {
+            teamsTier: 'TEAMS_TIER_PRO',
+            monthlyPromptCredits: 1000,
+            availablePromptCredits: 400,
+            monthlyFlowCredits: 500,
+            availableFlowCredits: 250,
+          },
+        },
+      },
+    };
+
+    const windows = parseAntigravityWindows(summary, status);
+    expect(windows).toEqual([
+      {
+        label: 'Gemini 5h',
+        usedPct: 25,
+        resetsAt: '2026-10-30T14:00:00Z',
+      },
+      {
+        label: 'Gemini Weekly',
+        usedPct: 50,
+        resetsAt: '2026-11-06T12:00:00Z',
+      },
+      {
+        label: 'Claude/GPT Weekly',
+        usedPct: 70,
+        resetsAt: '2026-11-06T12:00:00Z',
+      },
+      {
+        label: 'Argon Weekly',
+        usedPct: 60,
+        resetsAt: '2026-11-06T12:00:00Z',
+      },
+      {
+        label: 'Prompt Credits',
+        usedPct: 60,
+        resetsAt: null,
+      },
+      {
+        label: 'Flow Credits',
+        usedPct: 50,
+        resetsAt: null,
+      },
+    ]);
+  });
+
+  it('Pro Tier includes Claude/GPT 5h when disabled is false', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-5h',
+              window: '5h',
+              remainingFraction: 0.9,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
+    };
+    const status = {
+      planInfo: { teamsTier: 'TEAMS_TIER_PRO' },
+    };
+    const windows = parseAntigravityWindows(summary, status);
+    expect(windows).toEqual([
+      {
+        label: 'Claude/GPT 5h',
+        usedPct: 10,
+        resetsAt: '2026-10-30T14:00:00Z',
+      },
+    ]);
+  });
+
+  it('skips buckets without valid finite remainingFraction', () => {
+    const summary = {
+      groups: [
+        {
+          buckets: [
+            { bucketId: 'gemini-5h', remainingFraction: 'invalid' },
+            { bucketId: 'gemini-5h', remainingFraction: NaN },
+            { bucketId: 'gemini-5h', remainingFraction: Infinity },
+            null,
+            'not-object',
+          ],
+        },
+        null,
+      ],
+    };
+    expect(parseAntigravityWindows(summary, {})).toEqual([]);
+  });
 });
 
 describe('writeCache and readCache helpers', () => {
@@ -486,14 +1021,15 @@ describe('writeCache and readCache helpers', () => {
   });
 
   it('writeCache catches errors silently and does not throw', () => {
-    // Write to illegal path
-    expect(() => writeCache('/dev/null/impossible/quota.json', {
-      core: 'antigravity',
-      state: 'ok',
-      source: 'test',
-      readAt: '2026-01-01T00:00:00.000Z',
-      windows: [],
-    })).not.toThrow();
+    expect(() =>
+      writeCache('/dev/null/impossible/quota.json', {
+        core: 'antigravity',
+        state: 'ok',
+        source: 'test',
+        readAt: '2026-01-01T00:00:00.000Z',
+        windows: [],
+      }),
+    ).not.toThrow();
   });
 
   it('readCache returns null for missing or invalid files', async () => {
@@ -526,26 +1062,21 @@ describe('writeCache and readCache helpers', () => {
     try {
       const testPath = join(baseDir, 'test.json');
 
-      // Wrong core
-      writeFileSync(testPath, JSON.stringify({ core: 'codex', state: 'ok', windows: [] }));
+      writeFileSync(testPath, JSON.stringify({ core: 'codex', state: 'ok', windows: [], readAt: '2026-10-29T10:00:00.000Z' }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
 
-      // Wrong state
-      writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'unknown', windows: [] }));
+      writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'unknown', windows: [], readAt: '2026-10-29T10:00:00.000Z' }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
 
-      // Windows not array
-      writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'ok', windows: 'none' }));
+      writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'ok', windows: 'none', readAt: '2026-10-29T10:00:00.000Z' }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
 
-      // readAt missing or not string
       writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'ok', windows: [] }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
 
       writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'ok', windows: [], readAt: 123 }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
 
-      // readAt invalid date
       writeFileSync(testPath, JSON.stringify({ core: 'antigravity', state: 'ok', windows: [], readAt: 'invalid' }));
       expect(await readCache(testPath, 0, 1000)).toBeNull();
     } finally {
@@ -561,7 +1092,6 @@ describe('writeCache and readCache helpers', () => {
       const readAtMs = new Date(readAt).getTime();
       const ttlMs = 10_000;
 
-      // Age === 0 (nowMs === readAtMs)
       writeFileSync(
         cachePath,
         JSON.stringify({
@@ -576,31 +1106,27 @@ describe('writeCache and readCache helpers', () => {
       expect(res0?.source).toBe(ANTIGRAVITY_QUOTA_SOURCE);
       expect(res0?.readAt).toBe(readAt);
 
-      // Exact TTL boundary (ageMs === ttlMs)
       const resBoundary = await readCache(cachePath, readAtMs + ttlMs, ttlMs);
       expect(resBoundary).not.toBeNull();
 
-      // Expired by 1ms (ageMs === ttlMs + 1)
       const resExpired = await readCache(cachePath, readAtMs + ttlMs + 1, ttlMs);
       expect(resExpired).toBeNull();
 
-      // Future stamp (ageMs < 0)
       const resFuture = await readCache(cachePath, readAtMs - 1000, ttlMs);
       expect(resFuture).toBeNull();
 
-      // Preserves custom source if string
       writeFileSync(
         cachePath,
         JSON.stringify({
           core: 'antigravity',
           state: 'ok',
           windows: [{ label: 'W', usedPct: 5, resetsAt: null }],
-          source: 'Custom Gateway',
+          source: 'Antigravity Language Server (Google AI Pro)',
           readAt,
         }),
       );
       const resCustom = await readCache(cachePath, readAtMs, ttlMs);
-      expect(resCustom?.source).toBe('Custom Gateway');
+      expect(resCustom?.source).toBe('Antigravity Language Server (Google AI Pro)');
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }
@@ -612,41 +1138,99 @@ describe('antigravityQuotaReader', () => {
     return mkdtempSync(join(tmpdir(), 'karst-test-antigravity-'));
   }
 
-  it('makes live POST request to GetUserStatus with required headers and writes atomic cache', async () => {
+  it('makes live POST requests to RetrieveUserQuotaSummary and GetUserStatus with required headers and writes atomic cache (Pro Tier)', async () => {
     const appDataDir = createTempDir();
     try {
-      let capturedUrl = '';
-      let capturedOptions: RequestInit | undefined;
+      const capturedCalls: { url: string; options: RequestInit | undefined }[] = [];
 
       const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        capturedUrl = String(url);
-        capturedOptions = init;
-        return new Response(
-          JSON.stringify({
-            userStatus: {
-              planStatus: {
-                planInfo: {
-                  monthlyPromptCredits: 1000,
-                  availablePromptCredits: 400,
-                  monthlyFlowCredits: 500,
-                  availableFlowCredits: 250,
+        const urlStr = String(url);
+        capturedCalls.push({ url: urlStr, options: init });
+
+        if (urlStr.endsWith('RetrieveUserQuotaSummary')) {
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-5h',
+                      window: '5h',
+                      remainingFraction: 0.8,
+                      resetTime: '2026-10-30T14:00:00Z',
+                      disabled: false,
+                    },
+                    {
+                      bucketId: 'gemini-weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.5,
+                      resetTime: '2026-11-06T12:00:00Z',
+                      disabled: false,
+                    },
+                  ],
+                },
+                {
+                  displayName: 'Claude and GPT models',
+                  buckets: [
+                    {
+                      bucketId: '3p-5h',
+                      window: '5h',
+                      remainingFraction: 0.0,
+                      resetTime: '2026-10-30T14:00:00Z',
+                      disabled: true,
+                    },
+                    {
+                      bucketId: '3p-weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.2,
+                      resetTime: '2026-11-06T12:00:00Z',
+                      disabled: false,
+                    },
+                  ],
+                },
+                {
+                  displayName: 'Gemini 4 Argon',
+                  buckets: [
+                    {
+                      bucketId: 'argon-weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.4,
+                      resetTime: '2026-11-06T12:00:00Z',
+                      disabled: false,
+                    },
+                  ],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (urlStr.endsWith('GetUserStatus')) {
+          return new Response(
+            JSON.stringify({
+              userStatus: {
+                userTier: {
+                  id: 'pro',
+                  name: 'Google AI Pro',
+                },
+                planStatus: {
+                  planInfo: {
+                    teamsTier: 'TEAMS_TIER_PRO',
+                    monthlyPromptCredits: 1000,
+                    availablePromptCredits: 400,
+                    monthlyFlowCredits: 500,
+                    availableFlowCredits: 250,
+                  },
                 },
               },
-              cascadeModelConfigData: {
-                clientModelConfigs: [
-                  {
-                    label: 'Gemini 3 Pro',
-                    quotaInfo: {
-                      remainingFraction: 0.2,
-                      resetTime: '2026-10-30T18:00:00Z',
-                    },
-                  },
-                ],
-              },
-            },
-          }),
-          { status: 200 },
-        );
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response('Not found', { status: 404 });
       }) as unknown as typeof fetch;
 
       const reader = antigravityQuotaReader({
@@ -661,32 +1245,42 @@ describe('antigravityQuotaReader', () => {
 
       const snapshot = await reader.read();
 
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
-      expect(capturedUrl).toBe(
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+      const urls = capturedCalls.map((c) => c.url);
+      expect(urls).toContain(
+        'http://127.0.0.1:45123/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
+      );
+      expect(urls).toContain(
         'http://127.0.0.1:45123/exa.language_server_pb.LanguageServerService/GetUserStatus',
       );
-      expect(capturedOptions?.method).toBe('POST');
-      expect(capturedOptions?.body).toBe('{}');
-      expect(capturedOptions?.headers).toEqual({
-        'Connect-Protocol-Version': '1',
-        'Content-Type': 'application/json',
-        'x-codeium-csrf-token': 'secret-csrf-token-xyz',
-      });
-      expect(capturedOptions?.signal).toBeDefined();
+
+      for (const call of capturedCalls) {
+        expect(call.options?.method).toBe('POST');
+        expect(call.options?.body).toBe('{}');
+        expect(call.options?.headers).toEqual({
+          'Connect-Protocol-Version': '1',
+          'Content-Type': 'application/json',
+          'x-codeium-csrf-token': 'secret-csrf-token-xyz',
+        });
+        expect(call.options?.signal).toBeDefined();
+      }
 
       expect(snapshot).toEqual({
         core: 'antigravity',
         state: 'ok',
-        source: 'Antigravity Language Server',
+        source: 'Antigravity Language Server (Google AI Pro)',
         readAt: '2026-10-29T10:00:00.000Z',
         windows: [
+          { label: 'Gemini 5h', usedPct: 20, resetsAt: '2026-10-30T14:00:00Z' },
+          { label: 'Gemini Weekly', usedPct: 50, resetsAt: '2026-11-06T12:00:00Z' },
+          { label: 'Claude/GPT Weekly', usedPct: 80, resetsAt: '2026-11-06T12:00:00Z' },
+          { label: 'Argon Weekly', usedPct: 60, resetsAt: '2026-11-06T12:00:00Z' },
           { label: 'Prompt Credits', usedPct: 60, resetsAt: null },
           { label: 'Flow Credits', usedPct: 50, resetsAt: null },
-          { label: 'Gemini 3 Pro', usedPct: 80, resetsAt: '2026-10-30T18:00:00Z' },
         ],
       });
 
-      // Verify atomic cache write to <appDataDir>/cache/quota.json
       const cachePath = join(appDataDir, 'cache', 'quota.json');
       expect(existsSync(cachePath)).toBe(true);
 
@@ -694,7 +1288,6 @@ describe('antigravityQuotaReader', () => {
       const cached = JSON.parse(cachedRaw);
       expect(cached).toEqual(snapshot);
 
-      // Verify CSRF token is NEVER in cache file
       expect(cachedRaw).not.toContain('secret-csrf-token-xyz');
       expect(cachedRaw).not.toContain('ANTIGRAVITY_CSRF_TOKEN');
     } finally {
@@ -702,7 +1295,155 @@ describe('antigravityQuotaReader', () => {
     }
   });
 
-  it('falls back to cache within 24h TTL and preserves readAt when live call fails', async () => {
+  it('makes live POST requests and formats Free Tier source and active Gemini windows', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr.endsWith('RetrieveUserQuotaSummary')) {
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-5h',
+                      window: '5h',
+                      remainingFraction: 0.9,
+                      resetTime: '2026-10-30T14:00:00Z',
+                      disabled: false,
+                    },
+                    {
+                      bucketId: 'gemini-weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.7,
+                      resetTime: '2026-11-06T12:00:00Z',
+                      disabled: false,
+                    },
+                  ],
+                },
+                {
+                  displayName: 'Claude and GPT models',
+                  buckets: [
+                    {
+                      bucketId: '3p-weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.5,
+                      disabled: false,
+                    },
+                  ],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (urlStr.endsWith('GetUserStatus')) {
+          return new Response(
+            JSON.stringify({
+              userStatus: {
+                userTier: {
+                  id: 'free',
+                  name: 'Free Tier',
+                },
+                planStatus: {
+                  planInfo: {
+                    teamsTier: 'TEAMS_TIER_FREE',
+                    monthlyPromptCredits: 100,
+                    availablePromptCredits: 50,
+                  },
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response('Not found', { status: 404 });
+      }) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'free-token',
+        },
+        now: () => new Date('2026-10-29T10:00:00.000Z'),
+        fetchImpl,
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot).toEqual({
+        core: 'antigravity',
+        state: 'ok',
+        source: 'Antigravity Language Server (Free Tier)',
+        readAt: '2026-10-29T10:00:00.000Z',
+        windows: [
+          { label: 'Gemini 5h', usedPct: 10, resetsAt: '2026-10-30T14:00:00Z' },
+          { label: 'Gemini Weekly', usedPct: 30, resetsAt: '2026-11-06T12:00:00Z' },
+        ],
+      });
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('makes live POST requests and formats Ultra Tier source', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr.endsWith('RetrieveUserQuotaSummary')) {
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-5h',
+                      remainingFraction: 0.9,
+                    },
+                  ],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            userStatus: {
+              userTier: { id: 'ultra' },
+            },
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'ultra-token',
+        },
+        now: () => new Date('2026-10-29T10:00:00.000Z'),
+        fetchImpl,
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot.state).toBe('ok');
+      if (snapshot.state === 'ok') {
+        expect(snapshot.source).toBe('Antigravity Language Server (Google AI Ultra)');
+      }
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to cache within 24h TTL and preserves readAt and source when live call fails', async () => {
     const appDataDir = createTempDir();
     try {
       const cachePath = join(appDataDir, 'cache', 'quota.json');
@@ -711,7 +1452,7 @@ describe('antigravityQuotaReader', () => {
       const cachedSnapshot: QuotaKnown = {
         core: 'antigravity',
         state: 'ok',
-        source: 'Antigravity Language Server',
+        source: 'Antigravity Language Server (Google AI Pro)',
         readAt: '2026-10-28T12:00:00.000Z',
         windows: [{ label: 'Prompt Credits', usedPct: 40, resetsAt: null }],
       };
@@ -721,11 +1462,11 @@ describe('antigravityQuotaReader', () => {
         throw new Error('connect ECONNREFUSED 127.0.0.1:45123');
       }) as unknown as typeof fetch;
 
-      // 10 hours later (within 24h TTL)
       const now = () => new Date('2026-10-28T22:00:00.000Z');
 
       const reader = antigravityQuotaReader({
         appDataDir,
+        cacheTtlMs: 86_400_000,
         env: {
           ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
           ANTIGRAVITY_CSRF_TOKEN: 'token',
@@ -735,12 +1476,12 @@ describe('antigravityQuotaReader', () => {
       });
 
       const snapshot = await reader.read();
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
-      // Returns cached snapshot with preserved readAt
+      expect(fetchImpl).toHaveBeenCalled();
       expect(snapshot).toEqual(cachedSnapshot);
       expect(snapshot.state).toBe('ok');
       if (snapshot.state === 'ok') {
         expect(snapshot.readAt).toBe('2026-10-28T12:00:00.000Z');
+        expect(snapshot.source).toBe('Antigravity Language Server (Google AI Pro)');
       }
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
@@ -943,7 +1684,6 @@ describe('antigravityQuotaReader', () => {
       expect(snap1.core).toBe('antigravity');
       expect(snap1.state).toBe('unknown');
 
-      // Test with no homeDir provided (uses homedir())
       const readerDefaultHome = antigravityQuotaReader({
         env: {},
         now: () => new Date(0),

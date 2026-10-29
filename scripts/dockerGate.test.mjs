@@ -9,6 +9,7 @@ import {
   gatePlan,
   hasDocker,
   isBaselineEnvironment,
+  narrowSweep,
   missingDockerMessage,
   readLocalCommand,
 } from './dockerGate.mjs';
@@ -148,16 +149,16 @@ describe('the gate scripts', () => {
 
   it('runs the same sweep locally as the container runs', () => {
     // The local run is what stands in for the container when the sandbox has
-    // no docker, so it must cover the same steps. `npm ci` is the one it may
-    // skip: the tree is already installed.
+    // no docker, so it must cover the same steps. The install (`npm ci`, now run
+    // only when node_modules is empty) is the one it may skip: the tree is already installed.
     expect(steps(localOf('test:visual:docker'))).toEqual(
-      steps(pkg.scripts['test:visual:ci']).filter((step) => step !== 'npm ci'),
+      steps(pkg.scripts['test:visual:ci']).filter((step) => !step.includes('npm ci')),
     );
   });
 
   it('runs the same layout sweep locally as the container runs', () => {
     expect(steps(localOf('test:layout:docker'))).toEqual(
-      steps(pkg.scripts['test:layout:ci']).filter((step) => step !== 'npm ci'),
+      steps(pkg.scripts['test:layout:ci']).filter((step) => !step.includes('npm ci')),
     );
   });
 
@@ -240,5 +241,19 @@ describe('gatePlan local path', () => {
   it('is unaffected by container naming', () => {
     const plan = gatePlan({ docker: false, baseline: true, local: { command: 'x', rest: ['-e', 'A=1'] } });
     expect(plan).toEqual({ kind: 'local', command: 'x', env: { A: '1' } });
+  });
+});
+
+describe('narrowSweep', () => {
+  it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE'])('leaves the sweep full when %s is set', (intent) => {
+    const saved = { ...process.env };
+    delete process.env.KARST_UI_GREP;
+    process.env[intent] = '1';
+    try {
+      narrowSweep('test:layout:docker');
+      expect(process.env.KARST_UI_GREP).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
   });
 });
