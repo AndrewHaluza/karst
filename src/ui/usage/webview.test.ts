@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { USAGE_RANGES, USAGE_SORTS } from '../../store/tokenUsageQuery.js';
+import { USAGE_SORTS } from '../../store/tokenUsageQuery.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 

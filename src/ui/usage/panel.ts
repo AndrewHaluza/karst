@@ -11,7 +11,6 @@ import {
 } from './messages.js';
 import {
   DEFAULT_USAGE_LIMIT,
-  DEFAULT_USAGE_RANGE,
   type UsageSort,
 } from '../../store/tokenUsageQuery.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
@@ -59,7 +58,6 @@ export interface UsagePanelDeps {
 export class UsagePanelManager {
   private panel: UsagePanel | undefined;
   private tab: UsageTab = 'spend';
-  private rangeId: string = DEFAULT_USAGE_RANGE;
   private sort: UsageSort = 'total';
   private offset = 0;
 
@@ -106,7 +104,6 @@ export class UsagePanelManager {
     return buildUsageState(this.store, {
       projectId: this.deps.projectId?.() ?? null,
       tab: this.tab,
-      rangeId: this.rangeId,
       sort: this.sort,
       offset: this.offset,
       limit: DEFAULT_USAGE_LIMIT,
@@ -121,13 +118,6 @@ export class UsagePanelManager {
       requestState: () => this.push(),
       setTab: (tab) => {
         this.tab = tab;
-        this.push();
-      },
-      setRange: (range) => {
-        this.rangeId = range;
-        // A new range has a different number of ticket groups, so the old page
-        // offset can point past the end. Start over rather than show a blank page.
-        this.offset = 0;
         this.push();
       },
       setSort: (sort) => {

@@ -8,10 +8,7 @@ import {
 } from '../../store/tokenUsage.js';
 import {
   DEFAULT_USAGE_LIMIT,
-  DEFAULT_USAGE_RANGE,
   parseUsageQuery,
-  resolveUsageRange,
-  USAGE_RANGES,
   USAGE_SORTS,
   type UsageSort,
 } from '../../store/tokenUsageQuery.js';
@@ -109,20 +106,18 @@ export interface UsageState {
   /** The active tab. `spend` is the token-usage view; `quota` is per-core. */
   tab: UsageTab;
   tabs: { id: UsageTab; label: string }[];
-  /** Nothing recorded in range. The view shows its empty state, not zeroes. */
+  /** Nothing recorded. The view shows its empty state, not zeroes. */
   empty: boolean;
-  rangeId: string;
-  ranges: { id: string; label: string }[];
   sort: UsageSort;
   sorts: { id: UsageSort; label: string }[];
   totals: UsageTotalsView;
   byStage: UsageBreakdownRow[];
   byModel: UsageBreakdownRow[];
-  /** Graph spend rolled up per profile (Slice-6 T2); empty when none in range. */
+  /** Graph spend rolled up per profile (Slice-6 T2); empty when none. */
   byProfile: UsageProfileRowView[];
   tickets: UsageTicketRowView[];
   page: { offset: number; limit: number; groups: number; hasPrev: boolean; hasNext: boolean };
-  /** Per-core subscription quota, independent of the spend range. */
+  /** Per-core subscription quota, independent of the spend query. */
   quota: QuotaView;
   /** A rejected query, stated. Null when the query was well-formed. */
   error: string | null;
@@ -139,7 +134,6 @@ export const USAGE_TABS: { id: UsageTab; label: string }[] = [
 export interface UsageStateInput {
   /** The window's bound project. Absent = the all-projects recovery view. */
   projectId?: number | null;
-  rangeId?: string;
   sort?: UsageSort;
   offset?: number;
   limit?: number;
@@ -261,11 +255,10 @@ function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileR
   });
 }
 
-/** The shell every state shares — also what an error or empty range renders. */
+/** The shell every state shares — also what an error or empty state renders. */
 function base(
   tab: UsageTab,
   quota: QuotaView,
-  rangeId: string,
   sort: UsageSort,
   offset: number,
   limit: number,
@@ -274,8 +267,6 @@ function base(
     tab,
     tabs: USAGE_TABS.map((t) => ({ id: t.id, label: t.label })),
     empty: true,
-    rangeId,
-    ranges: USAGE_RANGES.map((r) => ({ id: r.id, label: r.label })),
     sort,
     sorts: USAGE_SORTS.map((id) => ({ id, label: SORT_LABELS[id] })),
     totals: EMPTY_TOTALS,
@@ -291,30 +282,28 @@ function base(
 
 /**
  * Build the whole view from the store. Validates its own inputs through
- * `parseUsageQuery` — the range and sort arrive from the webview, which is a
- * trust boundary, and the SAME validator guards them here as would guard an
+ * `parseUsageQuery` — the sort arrives from the webview, which is a
+ * trust boundary, and the SAME validator guards it here as would guard an
  * external API call.
  */
 export function buildUsageState(store: Store, input: UsageStateInput = {}): UsageState {
-  const rangeId = input.rangeId ?? DEFAULT_USAGE_RANGE;
   const sort = input.sort ?? 'total';
   const offset = input.offset ?? 0;
   const limit = input.limit ?? DEFAULT_USAGE_LIMIT;
   const tab = input.tab ?? 'spend';
   const now = input.now?.() ?? new Date();
-  const { from, to } = resolveUsageRange(rangeId, now);
   const thresholdPct = input.quotaThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   const quota = buildQuotaView(input.quota ?? [], thresholdPct, now);
 
   const parsed = parseUsageQuery({
     ...(input.projectId != null ? { projectId: input.projectId } : {}),
-    from,
-    to,
+    from: null,
+    to: null,
     sort,
     offset,
     limit,
   });
-  if (!parsed.ok) return { ...base(tab, quota, rangeId, sort, offset, limit), error: parsed.error };
+  if (!parsed.ok) return { ...base(tab, quota, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
   // The share denominator is FRESH spend, matching the headline (`totalsView`),
@@ -323,7 +312,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   const total = stats.totals.freshTokens;
 
   return {
-    ...base(tab, quota, rangeId, sort, offset, limit),
+    ...base(tab, quota, sort, offset, limit),
     empty: stats.totals.calls === 0,
     totals: totalsView(stats),
     byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),

@@ -18,6 +18,13 @@ describe('selectViews', () => {
     });
   });
 
+  it('maps baseline changes to their owning view and ignores layout-known-failures.json', () => {
+    expect(selectViews(['tests/visual/__baselines__/dark/usage.png', 'tests/visual/layout-known-failures.json'])).toEqual({
+      all: false,
+      views: ['usage'],
+    });
+  });
+
   it('unions the views of several directories', () => {
     expect(selectViews(['src/ui/sidebar/items.ts', 'src/ui/usage/state.ts']).views).toEqual(['sidebar', 'usage']);
   });

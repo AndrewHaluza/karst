@@ -61,9 +61,6 @@ describe('buildUsageState', () => {
     expect(state.byStage).toEqual([]);
     expect(state.byModel).toEqual([]);
     expect(state.tickets).toEqual([]);
-    // The filters are part of the empty state — the user must be able to widen
-    // the range without first having data in the one they landed on.
-    expect(state.ranges.map((r) => r.id)).toEqual(['24h', '7d', '30d', 'all']);
     expect(state.sorts.length).toBeGreaterThan(0);
   });
 
@@ -129,14 +126,11 @@ describe('buildUsageState', () => {
     ).toEqual([1, 2]);
   });
 
-  it('cuts on the selected time range', () => {
+  it('queries all-time consumption by default across historical dates', () => {
     ticket(1, 'K-1', 'One');
     seed({ at: '2026-08-01T06:00:00.000Z', input: 3, output: 0 });
     seed({ at: '2026-06-01T00:00:00.000Z', input: 900, output: 0 });
-    expect(buildUsageState(store, { projectId: 1, rangeId: '24h', now: NOW }).totals.totalExact).toBe(
-      '3',
-    );
-    expect(buildUsageState(store, { projectId: 1, rangeId: 'all', now: NOW }).totals.totalExact).toBe(
+    expect(buildUsageState(store, { projectId: 1, now: NOW }).totals.totalExact).toBe(
       '903',
     );
   });

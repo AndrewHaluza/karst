@@ -31,6 +31,7 @@ const UI_PATH = [/^src\/ui\//, /^tests\/visual\//, /^playwright\.config\.ts$/, /
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 
 const VIEW_DIR_PATH = /^src\/ui\/([^/]+)\/(.+)$/;
+const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+)(?:--.*)?\.png$/;
 
 /**
  * `{ all: true }` or `{ all: false, views }` (views sorted, possibly empty when
@@ -40,11 +41,13 @@ export function selectViews(changedPaths) {
   const views = new Set();
   let sawUi = false;
   for (const path of changedPaths) {
+    if (path === 'tests/visual/layout-known-failures.json') continue;
     if (!UI_PATH.some((p) => p.test(path))) continue;
     if (TEST_FILE.test(path)) continue;
     sawUi = true;
-    const match = VIEW_DIR_PATH.exec(path);
-    const owned = match ? VIEW_DIRS[match[1]] : undefined;
+    const match = VIEW_DIR_PATH.exec(path) ?? BASELINE_PATH.exec(path);
+    const viewName = match ? match[1] : undefined;
+    const owned = viewName ? (VIEW_DIRS[viewName] ?? (ALL_VIEWS.includes(viewName) ? [viewName] : undefined)) : undefined;
     if (owned === undefined) return { all: true, views: ALL_VIEWS };
     for (const view of owned) views.add(view);
   }
