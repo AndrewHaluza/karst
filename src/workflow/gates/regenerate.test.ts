@@ -22,7 +22,7 @@ describe('regenerate before gates', () => {
   it('runs generators in order, commits only generator-changed, non-excluded paths, then the gates', async () => {
     let statuses = 0;
     const f = fake((l) => {
-      if (l === 'git status --porcelain -z') {
+      if (l === 'git status --porcelain -z --untracked-files=all') {
         return { exitCode: 0, stdout: statuses++ === 0 ? ' M agent.ts\0 M docs/y.md\0' : ' M agent.ts\0 M docs/y.md\0 M docs/x.md\0 M gen/z\0' };
       }
       // docs/y.md was already dirty and is rewritten by a generator; agent.ts is untouched.
@@ -35,6 +35,20 @@ describe('regenerate before gates', () => {
     expect(f.calls).toContain('git commit -m chore: regenerate generated files --only -- docs/x.md docs/y.md');
     expect(f.calls.indexOf('sh -c gen-a')).toBeLessThan(f.calls.indexOf('git add -A -- docs/y.md docs/x.md gen/z :(exclude)gen/**'));
     expect(f.calls.at(-1)).toBe('npm run x');
+    expect(r.results.map((x) => x.name)).toEqual(['docs-graph']);
+  });
+
+  it('commits nothing when the baseline git status fails', async () => {
+    const f = fake((l) => (l.startsWith('git status') ? { exitCode: 128, output: 'fatal' } : { exitCode: 0 }));
+    const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: spec });
+    expect(f.calls.some((c) => c.startsWith('git add') || c.startsWith('git commit'))).toBe(false);
+    expect(r.results.map((x) => x.name)).toEqual(['docs-graph']);
+  });
+
+  it('commits nothing when the baseline git status fails', async () => {
+    const f = fake((l) => (l.startsWith('git status') ? { exitCode: 128, output: 'fatal' } : { exitCode: 0 }));
+    const r = await runGateList([gate], '/w', { runProcess: f.runner, regenerate: spec });
+    expect(f.calls.some((c) => c.startsWith('git add') || c.startsWith('git commit'))).toBe(false);
     expect(r.results.map((x) => x.name)).toEqual(['docs-graph']);
   });
 

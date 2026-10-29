@@ -18,6 +18,15 @@ describe('sandboxGateDeps (arch:AC-32)', () => {
     await deps.runGates!([], '/wt', { onDebug: () => undefined });
   });
 
+  it('runs a host-only regenerate entry on the host runner even when no gate is sandbox:host', async () => {
+    const calls: string[] = [];
+    const done = (tag: string) => (cmd: string, args: readonly string[]) => { calls.push(`${tag}:${[cmd, ...args].join(' ')}`); return Promise.resolve<ProcessOutcome>({ kind: 'completed', exitCode: 0, output: '' }); };
+    const deps = sandboxGateDeps(done('in'), () => done('host'));
+    await deps.runGates!([], '/wt', { regenerate: { repo: 'r', commands: [{ run: 'gen', sandbox: 'host' }] } });
+    expect(calls).toContain('host:sh -c gen');
+    expect(calls).not.toContain('in:sh -c gen');
+  });
+
   it('runs a sandbox:host gate on the host runner in declared order, inside gates in the sandbox (arch:AC-36)', async () => {
     const calls: string[] = [];
     const done = (tag: string) => (cmd: string) => { calls.push(`${tag}:${cmd}`); return Promise.resolve<ProcessOutcome>({ kind: 'completed', exitCode: 0, output: tag }); };

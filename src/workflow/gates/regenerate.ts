@@ -19,6 +19,9 @@ const MISSING_MODULE = /Cannot find (module|package)|MODULE_NOT_FOUND|command no
 
 export const regenerateGateName = (repo: string): string => `regenerate (${repo})`;
 
+export const hasHostOnlyEntry = (spec: RegenerateSpec | undefined): boolean =>
+  spec?.commands.some((e) => typeof e !== 'string' && e.sandbox === 'host') ?? false;
+
 export const regenerateCommand = (entry: RegenerateEntry): string => (typeof entry === 'string' ? entry : entry.run);
 
 interface RegenerateRun {
@@ -80,7 +83,12 @@ export async function runRegenerate(
     const detail = outcome.output.trim() === '' ? `exited ${exitCode} with no output` : outcome.output;
     return fail(exitCode, `regenerate command "${command}" failed (exit ${exitCode})\n${detail}`);
   }
-  return commitChanges(name, cwd, run, opts, fail, before ?? new Map(), spec.exclude ?? []);
+  if (before === null) {
+    // No baseline, so generator output cannot be told from the agent's own dirty work: commit nothing.
+    run.onDebug?.(`[gate] ${name}: git status unavailable before the generators — not committing`);
+    return { kind: 'ok' };
+  }
+  return commitChanges(name, cwd, run, opts, fail, before, spec.exclude ?? []);
 }
 
 /**
@@ -93,7 +101,7 @@ async function dirtyPaths(
   cwd: string,
   opts: RunProcessOptions,
 ): Promise<ReadonlyMap<string, string> | null | 'stopped'> {
-  const status = await runner('git', ['status', '--porcelain', '-z'], cwd, opts);
+  const status = await runner('git', ['status', '--porcelain', '-z', '--untracked-files=all'], cwd, opts);
   if (status.kind === 'aborted') return 'stopped';
   if (status.kind !== 'completed' || status.exitCode !== 0) return null;
   const paths: string[] = [];
