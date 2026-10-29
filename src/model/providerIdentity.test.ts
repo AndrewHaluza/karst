@@ -34,6 +34,13 @@ describe('providerIdentityJs', () => {
     expect(js).toContain(JSON.stringify(CLICKUP_SVG));
   });
 
+  it('defines providerLabelText with the title-case fallback', () => {
+    const providerLabelText = new Function(`${js}\nreturn providerLabelText;`)();
+    expect(providerLabelText('clickup')).toBe('ClickUp');
+    expect(providerLabelText(undefined)).toBe('Manual');
+    expect(providerLabelText('linear')).toBe('Linear');
+  });
+
   it('defines providerBadgeHtml', () => {
     expect(js).toContain('function providerBadgeHtml(provider)');
   });

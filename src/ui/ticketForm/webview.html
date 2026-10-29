@@ -518,19 +518,19 @@
   </div>
   <div class="row2">
     <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
-    <!-- "Create in ClickUp" — ONE location for both modes. Create mode: a
+    <!-- "Create in <provider>" — ONE location for both modes. Create mode: a
          switch (persisting also mints + binds the provider task). Edit mode, a
          ticket with no provider ref yet: a button. Both hidden once sourceRef
          is set — a bound ticket never offers a second creation. -->
     <span class="createin hidden" id="createInRow">
       <button type="button" class="k-switch" id="createIn" role="switch" aria-checked="false"
-              title="Create the matching task in ClickUp and link this ticket to it">
-        <span class="k-switch-track" aria-hidden="true"></span>Also create in ClickUp
+              title="Create the matching task and link this ticket to it">
+        <span class="k-switch-track" aria-hidden="true"></span>Also create in <span id="createInName"></span>
       </button>
       <span class="err hidden" id="createInErr" role="alert"></span>
     </span>
     <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="createInBtn"
-            title="Create the matching task in ClickUp and link this ticket to it">Create in ClickUp</button>
+            title="Create the matching task and link this ticket to it">Create in <span id="createInBtnName"></span></button>
     <span class="err hidden" id="createInBtnErr" role="alert"></span>
     <a href="#" class="k-link hidden" id="ticketLink"></a>
   </div>
@@ -734,7 +734,7 @@
   // attempt re-seeds the page in edit mode, and the error must still be there
   // explaining what went wrong and offering the retry.
   let createInError = '';
-  // The create-mode "Also create in ClickUp" checkbox state. Reset on failure so
+  // The create-mode "Also create in <provider>" checkbox state. Reset on failure so
   // a broken provider never traps the ticket at submit — the edit-mode button
   // is the explicit retry, and starting the ticket as-is stays possible.
   let createInOn = false;
@@ -747,6 +747,16 @@
     const creatable = state.canCreateProviderTicket === true;
     const showCheck = creatable && state.mode === 'create';
     const showBtn = creatable && state.mode === 'edit' && !(state.sourceRef || '').trim();
+    // Name + mark come from the injected provider identity, never a literal
+    // (UI-R31): a new provider needs no edit here. Titles are plain text, so
+    // they take the label alone.
+    const name = providerLabelText(state.provider);
+    const title = 'Create the matching task in ' + name + ' and link this ticket to it';
+    const badge = creatable ? providerBadgeHtml(state.provider) : '';
+    el('createInName').innerHTML = badge;
+    el('createInBtnName').innerHTML = badge;
+    el('createIn').setAttribute('title', title);
+    el('createInBtn').setAttribute('title', title);
     el('createInRow').classList.toggle('hidden', !showCheck);
     el('createInBtn').classList.toggle('hidden', !showBtn);
     el('createInErr').textContent = createInError;
@@ -2056,14 +2066,14 @@
   // Enter/Space activation natively — no custom keydown handler needed.
   el('autoImprove').addEventListener('click', () => setAutoImprove(!autoImproveOn));
 
-  // The create-mode "Also create in ClickUp" switch (default off). Same native
+  // The create-mode "Also create in <provider>" switch (default off). Same native
   // button activation as Auto-improve; the value rides submit/save.
   el('createIn').addEventListener('click', () => {
     createInOn = !createInOn;
     el('createIn').setAttribute('aria-checked', String(createInOn));
   });
 
-  // The edit-mode "Create in ClickUp" button. Pending is entered LOCALLY, on
+  // The edit-mode "Create in <provider>" button. Pending is entered LOCALLY, on
   // click (UI-R11) — the host's busy/provider-ticket-* replies settle it. A
   // failure posts provider-ticket-error and the button re-enables: retryable.
   el('createInBtn').addEventListener('click', () => {
