@@ -234,6 +234,18 @@
         "icon": "$(debug-start)"
       },
       {
+        "command": "karst.reviewStallHint",
+        "title": "Karst: Review Stalled — Redesign Hint…"
+      },
+      {
+        "command": "karst.reviewStallContinue",
+        "title": "Karst: Review Stalled — Continue Anyway"
+      },
+      {
+        "command": "karst.reviewStallRescope",
+        "title": "Karst: Review Stalled — Re-scope"
+      },
+      {
         "command": "karst.deleteTicket",
         "title": "Karst: Delete Ticket",
         "icon": "$(trash)"

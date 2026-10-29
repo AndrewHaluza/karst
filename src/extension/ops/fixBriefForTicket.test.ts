@@ -91,6 +91,11 @@ describe('fixBriefForTicket', () => {
     recordReviewStallHint(store, ticket.id, 1, T0, 'split the module');
     expect(fixBriefForTicket(store, ticket.id)).toContain('## Redesign hint from the user\n\nsplit the module');
   });
+  it('stays null when no gate failed even if a hint exists', () => {
+    const ticket = createTicket(store, { key: 'PROJ-4', title: 't' });
+    recordReviewStallHint(store, ticket.id, 1, T0, 'split the module');
+    expect(fixBriefForTicket(store, ticket.id)).toBeNull();
+  });
   it('has no hint block without a hint', () => {
     const ticket = createTicket(store, { key: 'PROJ-3', title: 't' });
     setStage(store, ticket.id, 'review', {

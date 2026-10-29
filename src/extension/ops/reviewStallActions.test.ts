@@ -5,9 +5,10 @@ import { transition } from '../../workflow/machine.js';
 import { getTicket } from '../../store/tickets.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
+import { listFindings } from '../../store/reviewFindings.js';
 import { reviewStallHint } from '../../store/reviewStallHint.js';
 import { reviewStallAttempts } from '../../workflow/reviewStallRead.js';
-import { setStage } from '../../store/stages.js';
+import { setStage, stageAttempt } from '../../store/stages.js';
 import { redesignHintAction, continueAnywayAction, type ReviewStallActionDeps } from './reviewStallActions.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -72,5 +73,63 @@ describe('review stall actions', () => {
     await flush();
     expect(deps.info).toHaveBeenCalled();
     expect(deps.drive).not.toHaveBeenCalled();
+  });
+  it('names the ticket when it is not stalled', async () => {
+    setStage(store, id, 'fix', { blockedKind: null, blockedReason: null, blockedAt: null });
+    redesignHintAction(deps);
+    await flush();
+    expect(deps.info).toHaveBeenCalledWith(expect.stringMatching(/^Ticket .+ is not parked on a review stall\.$/));
+    expect(deps.promptHint).not.toHaveBeenCalled();
+    expect(deps.afterServerChange).toHaveBeenCalled();
+  });
+  it('trims the hint and records it under the review attempt at the given time', async () => {
+    deps.promptHint = vi.fn(async () => '  split it  ');
+    const attemptBefore = stageAttempt(store, id, 'review');
+    redesignHintAction(deps);
+    await flush();
+    const hint = listFindings(store, id).find((f) => f.title === 'Redesign hint');
+    expect(hint).toMatchObject({ detail: 'split it', source: 'human', severity: 'info', runAt: '2026-01-01T00:00:00.000Z' });
+    expect(hint!.attempt).toBe(attemptBefore);
+  });
+  it('a blank hint changes nothing', async () => {
+    deps.promptHint = vi.fn(async () => '   ');
+    redesignHintAction(deps);
+    await flush();
+    expect(deps.promptHint).toHaveBeenCalled();
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(deps.drive).not.toHaveBeenCalled();
+  });
+  it('continue anyway asks with its title and detail and records no hint', async () => {
+    continueAnywayAction(deps);
+    await flush();
+    expect(deps.confirm).toHaveBeenCalledWith(
+      'Continue anyway?',
+      expect.stringContaining('Resets the stall counter'),
+    );
+    expect(listFindings(store, id).some((f) => f.title === 'Redesign hint')).toBe(false);
+  });
+  it('passes debug through to the reset', async () => {
+    continueAnywayAction(deps);
+    await flush();
+    expect(deps.debug).toHaveBeenCalled();
+  });
+  it('uses the real clock when none is injected', async () => {
+    deps.now = undefined;
+    redesignHintAction(deps);
+    await flush();
+    const hint = listFindings(store, id).find((f) => f.title === 'Redesign hint');
+    expect(hint!.runAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(hint!.runAt).not.toBe('2026-01-01T00:00:00.000Z');
+  });
+  it.each([
+    ['an Error', new Error('boom'), 'boom'],
+    ['a string', 'plain', 'plain'],
+  ])('reports %s thrown while resuming, and still refreshes', async (_n, thrown, text) => {
+    deps.drive = vi.fn(() => { throw thrown; });
+    continueAnywayAction(deps);
+    await flush();
+    expect(deps.logError).toHaveBeenCalledWith('review stall action failed', thrown);
+    expect(deps.error).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^Could not resume ticket .+: ${text}$`)));
+    expect(deps.afterServerChange).toHaveBeenCalled();
   });
 });
