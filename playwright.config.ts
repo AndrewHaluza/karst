@@ -31,6 +31,9 @@ export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
 
+  // Local gates narrow the sweep to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
+  ...(process.env['KARST_UI_GREP'] ? { grep: new RegExp(process.env['KARST_UI_GREP']) } : {}),
+
   snapshotPathTemplate:
     'tests/visual/__baselines__/{projectName}/{arg}{ext}',
 

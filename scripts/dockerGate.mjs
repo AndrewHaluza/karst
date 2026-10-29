@@ -24,6 +24,7 @@ import { basename } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hasBinary } from './onPath.mjs';
+import { gateGrep, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -156,8 +157,43 @@ export function gatePlan({ docker, baseline, local }) {
   return { kind: 'missing' };
 }
 
+/** Gate scripts whose sweep narrows to the views the ticket diff can reach. */
+const SELECTING_SCRIPTS = new Set(['test:visual:docker', 'test:layout:docker']);
+
+const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main'];
+
+/** Paths the ticket changed vs its base (committed, staged, unstaged, untracked), or null when unreadable. */
+export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_REF) {
+  const git = (args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  for (const ref of base ? [base] : BASE_CANDIDATES) {
+    const mb = git(['merge-base', ref, 'HEAD']);
+    if (mb.status !== 0) continue;
+    const tracked = git(['diff', '--name-only', '-z', mb.stdout.trim()]);
+    const untracked = git(['ls-files', '-o', '--exclude-standard', '-z']);
+    if (tracked.status !== 0 || untracked.status !== 0) return null;
+    return `${tracked.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean);
+  }
+  return null;
+}
+
+/** Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full. */
+function narrowSweep(script) {
+  if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return;
+  const paths = changedPaths();
+  const selection = paths === null ? { all: true, views: [] } : selectViews(paths);
+  let grep = null;
+  try {
+    grep = gateGrep(selection, readSettingsSections());
+  } catch {
+    // Unreadable section list: run the full sweep.
+  }
+  if (grep !== null) process.env.KARST_UI_GREP = grep;
+  console.error(selectionLine(script, grep === null ? { all: true, views: [] } : selection));
+}
+
 function main(argv) {
   const script = process.env.npm_lifecycle_event ?? 'this gate';
+  narrowSweep(script);
   const local = readLocalCommand(argv);
   const plan = gatePlan({
     docker: hasDocker(),
