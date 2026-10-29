@@ -111,6 +111,9 @@ export function needsUser(t: TicketWithStages): boolean {
     // Approve/Reject (@arch:BASELINE-REVIEW): the question was asked, the
     // answer is the user's alone.
     current?.blockedKind === 'baseline-review' ||
+    // Review stalled on the same files (`review.stallDetection`): the user picks
+    // Redesign hint / Continue anyway / Re-scope.
+    current?.blockedKind === 'review-stalled' ||
     // A sub-task's landed work could not be merged into the parent's branch
     // automatically (design NDL-70 §6). Unlike `awaiting-subtask` — whose wait
     // is on a machine or another ticket — this one needs a human to resolve the

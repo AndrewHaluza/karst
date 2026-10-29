@@ -42,7 +42,7 @@ describe('reviewStallAttempts', () => {
     store.db
       .prepare(
         `INSERT INTO recovery_rounds (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail, episode, round, max_rounds, status, started_at, ended_at)
-         VALUES (?, 'review', 'review', 'blocking-review-findings', 'x', 1, 1, 3, 'reset', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')`,
+         VALUES (?, 'review', 'review', 'blocking-review-findings', 'x', 1, 1, 3, 'reset', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
       )
       .run(ticketId);
     expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);

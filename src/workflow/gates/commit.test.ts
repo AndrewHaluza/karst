@@ -119,6 +119,69 @@ describe('commitGateOutcome — recovery trigger', () => {
     });
   });
 
+  describe('review stall detection', () => {
+    const stallCfg = { enabled: true, sameFileRounds: 2, repeatedFindingRounds: null };
+    const finding = (file: string, title: string) => ({
+      severity: 'high' as const, repo: '/r', file, title, detail: 'd', source: 'agent' as const,
+    });
+    const failReview = (n: number, file: string, stall: typeof stallCfg | undefined) => {
+      const runAt = `2026-07-30T10:00:0${n}.000Z`;
+      const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
+      return commitGateOutcome(store, {
+        ticketId: id, stageKey: 'review', runAt, artifactPath: join(artifactDir, 'r.log'),
+        gates: [], stageRunId: evidence.runId, now,
+        findings: [finding(file, `problem ${n}`)],
+        outcome: { kind: 'verdict', verdict: { kind: 'failed', reason: 'review findings' } },
+        recoveryTrigger: trigger({
+          sourceProcessId: 'review', sourceStageRunId: evidence.runId,
+          triggerKind: 'blocking-review-findings', maxRounds: 5,
+          ...(stall ? { stall: { config: stall, blockingSeverity: 'high' as const } } : {}),
+        }),
+      });
+    };
+    const backToReview = () => {
+      transition(store, id, 'fix', { kind: 'passed' }); // -> uat
+      transition(store, id, 'uat', { kind: 'passed' }); // -> review
+    };
+    beforeEach(() => {
+      transition(store, id, 'uat', { kind: 'passed' }); // -> review
+    });
+
+    it('parks at fix as review-stalled instead of opening the next round', () => {
+      failReview(1, 'src/hot.ts', stallCfg);
+      expect(listRecoveryRounds(store, id)).toHaveLength(1);
+      backToReview();
+      failReview(2, 'src/hot.ts', stallCfg);
+      expect(listRecoveryRounds(store, id)).toHaveLength(1);
+      expect(getTicket(store, id).stageCurrent).toBe('fix');
+      const block = stageBlock(store, id, 'fix');
+      expect(block?.kind).toBe('review-stalled');
+      expect(block?.reason).toContain('src/hot.ts (2 rounds)');
+      expect(getStage(store, id, 'fix')?.status).toBe('failed');
+    });
+    it('never parks when findings move to different files', () => {
+      failReview(1, 'a.ts', stallCfg);
+      backToReview();
+      failReview(2, 'b.ts', stallCfg);
+      expect(listRecoveryRounds(store, id)).toHaveLength(2);
+      expect(stageBlock(store, id, 'fix')).toBeNull();
+    });
+    it('without a stall config behaves as today', () => {
+      failReview(1, 'a.ts', undefined);
+      backToReview();
+      failReview(2, 'a.ts', undefined);
+      expect(listRecoveryRounds(store, id)).toHaveLength(2);
+      expect(stageBlock(store, id, 'fix')).toBeNull();
+    });
+    it('enabled:false changes nothing', () => {
+      const off = { ...stallCfg, enabled: false };
+      failReview(1, 'a.ts', off);
+      backToReview();
+      failReview(2, 'a.ts', off);
+      expect(listRecoveryRounds(store, id)).toHaveLength(2);
+    });
+  });
+
   it.each([
     ['gate-failure', 'gates'],
     ['tester-verifier-failure', 'tester'],

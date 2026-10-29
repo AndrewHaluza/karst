@@ -9,6 +9,8 @@ import { closeStageRun, type StageRunOutcome } from '../../store/stageRuns.js';
 import {
   openRecoveryRoundWithinBudget,
   FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_REVIEW_STALLED,
+  failRevalidationForStall,
   parkFixStage,
   completeRevalidation,
   type RecoverySourceProcessId,
@@ -16,6 +18,9 @@ import {
   type RecoveryTriggerKind,
 } from '../../store/recoveryRounds.js';
 import { transition } from '../machine.js';
+import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
+import { evaluateReviewStall } from '../reviewStall.js';
+import { reviewStallAttempts } from '../reviewStallRead.js';
 import { nowIso } from '../../model/time.js';
 
 /** What a gate run decided, before any of it is written down. */
@@ -44,6 +49,12 @@ export type RecoveryTriggerInput = {
   triggerKind: RecoveryTriggerKind;
   triggerDetail: string;
   maxRounds: number;
+  /**
+   * `review.stallDetection` + `review.findings.blockingSeverity`, supplied only
+   * for a review-origin findings failure whose detection is ENABLED. Absent =
+   * today's behavior exactly.
+   */
+  stall?: { config: ReviewStallDetection; blockingSeverity: Severity | 'none' };
 };
 
 export interface CommitGateOutcomeInput {
@@ -212,6 +223,9 @@ export function commitGateOutcome(
   // Set by the premutate when the episode's budget is spent: no round opens and
   // the ticket is parked at fix for a human (Reset stage), in this transaction.
   let budgetSpent = false;
+  // Set when review's blocking findings stalled on the same file(s): the
+  // reason text for the `review-stalled` block; no round opens.
+  let stallReason: string | null = null;
   const commit = store.db.transaction(() => {
   const next = transition(store, ticketId, stageKey, outcome.verdict, () => {
     setStage(store, ticketId, stageKey, { artifactPath });
@@ -234,7 +248,27 @@ export function commitGateOutcome(
     // run that fails fails the active round here too (the round it revalidates
     // was attached when that run opened), and the new round describes the new
     // cause.
-    if (input.recoveryTrigger !== undefined) {
+    const stall =
+      input.recoveryTrigger?.stall === undefined
+        ? null
+        : evaluateReviewStall(
+            reviewStallAttempts(store, ticketId, input.recoveryTrigger.stall.blockingSeverity),
+            input.recoveryTrigger.stall.config,
+          );
+    if (input.recoveryTrigger !== undefined && stall !== null) {
+      stallReason = stall.reason;
+      failRevalidationForStall(store, {
+        ticketId,
+        sourceStage: stageKey as RecoverySourceStage,
+        sourceProcessId: input.recoveryTrigger.sourceProcessId,
+        sourceStageRunId: input.recoveryTrigger.sourceStageRunId,
+        sourceProcessRunId: input.recoveryTrigger.sourceProcessRunId,
+        triggerKind: input.recoveryTrigger.triggerKind,
+        triggerDetail: input.recoveryTrigger.triggerDetail,
+        maxRounds: input.recoveryTrigger.maxRounds,
+        startedAt: now(),
+      });
+    } else if (input.recoveryTrigger !== undefined) {
       const opened = openRecoveryRoundWithinBudget(store, {
         ticketId,
         sourceStage: stageKey as RecoverySourceStage,
@@ -264,6 +298,15 @@ export function commitGateOutcome(
     input.debug?.(
       `[gate] ${stageKey} ticket ${ticketId}: recovery budget spent — no round opened, parked at fix`,
     );
+  }
+  if (stallReason !== null) {
+    parkFixStage(store, ticketId, FIX_PARKED_REVIEW_STALLED, nowIso());
+    setStage(store, ticketId, 'fix', {
+      blockedKind: 'review-stalled',
+      blockedReason: stallReason,
+      blockedAt: runAt,
+    });
+    input.debug?.(`[gate] ${stageKey} ticket ${ticketId}: review stalled — no round opened, parked at fix`);
   }
   return next;
   });

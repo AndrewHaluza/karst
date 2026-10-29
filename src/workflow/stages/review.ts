@@ -271,6 +271,16 @@ export async function runReview(
       triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
       triggerDetail,
       maxRounds: capForGate('review', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
+      // Stall detection applies to blocking-findings failures only, and only
+      // when enabled — otherwise today's behavior, exactly.
+      ...(fromFindings && opts.manifest?.review?.stallDetection?.enabled
+        ? {
+            stall: {
+              config: opts.manifest.review.stallDetection,
+              blockingSeverity: opts.manifest.review.findings.blockingSeverity,
+            },
+          }
+        : {}),
     };
   };
 
