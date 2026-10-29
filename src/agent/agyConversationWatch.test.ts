@@ -215,15 +215,65 @@ describe('agyConversationWatch', () => {
     expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([]);
   });
 
-  it('clears idle when the conversation is busy again', () => {
+  it('emits running on an idle→running (true→false) edge and clears idle', () => {
     const state: AgyWatchState = {
       dbPath: '/data/conversations/c1.db',
       started: true,
       awaiting: false,
       idle: true,
     };
-    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: false }))).toEqual([]);
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: false }))).toEqual([
+      { kind: 'running' },
+    ]);
     expect(state.idle).toBe(false);
+  });
+
+  it('emits nothing on null→false and false→null edges', () => {
+    const unknownState: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: null,
+    };
+    expect(agyWatchTick(unknownState, snapshot({ conversationId: 'c1', idle: false }))).toEqual([]);
+    expect(unknownState.idle).toBe(false);
+
+    const runningState: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    expect(agyWatchTick(runningState, snapshot({ conversationId: 'c1', idle: null }))).toEqual([]);
+    expect(runningState.idle).toBeNull();
+  });
+
+  it('suppresses running and emits only permission.asked when a pending approval accompanies true→false', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: true,
+    };
+    expect(
+      agyWatchTick(state, snapshot({ conversationId: 'c1', pendingApproval: true, idle: false })),
+    ).toEqual([{ kind: 'permission.asked' }]);
+    expect(state.idle).toBe(false);
+    expect(state.awaiting).toBe(true);
+  });
+
+  it('suppresses running when an approval is already pending during a true→false edge', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: true,
+      idle: true,
+    };
+    expect(
+      agyWatchTick(state, snapshot({ conversationId: 'c1', pendingApproval: true, idle: false })),
+    ).toEqual([]);
+    expect(state.idle).toBe(false);
+    expect(state.awaiting).toBe(true);
   });
 
   it('baselines an UNKNOWN status without claiming a turn ended', () => {

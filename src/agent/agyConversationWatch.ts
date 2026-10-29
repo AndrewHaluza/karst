@@ -261,15 +261,18 @@ export type AgyWatchEvent =
   | { kind: 'SessionStart'; sessionId: string }
   | { kind: 'permission.asked' }
   | { kind: 'UserPromptSubmit' }
+  /** A new turn started (an idle→running edge), suppressed while an ask is pending. */
+  | { kind: 'running' }
   /** The turn ended and the agent is back at its prompt (a running→idle edge). */
   | { kind: 'idle' };
 
 /**
  * Diff one sweep tick against the last for ONE ticket. Emits only
  * transitions: a session start (once per conversation), the ask becoming
- * pending, the ask resolving, and the turn ending (running→idle). `null`
- * snapshot (no conversation yet) is silent — the session may not have started,
- * and its end is the terminal's close, not a watcher concern.
+ * pending, the ask resolving, the turn ending (running→idle), and a new turn
+ * starting (idle→running, suppressed while an ask is pending). `null` snapshot
+ * (no conversation yet) is silent — the session may not have started, and its
+ * end is the terminal's close, not a watcher concern.
  *
  * The FIRST observation baselines `idle` from the snapshot without emitting a
  * transition: a freshly launched session that is briefly idle must not read as
@@ -300,6 +303,9 @@ export function agyWatchTick(
   }
   if (snapshot.idle === true && state.idle === false) {
     events.push({ kind: 'idle' });
+  }
+  if (state.idle === true && snapshot.idle === false && !state.awaiting) {
+    events.push({ kind: 'running' });
   }
   // Track the latest status verbatim: `false` (running) gates the typed route,
   // `true` is idle, and `null` (unknown) does NOT gate — an unreadable summary
