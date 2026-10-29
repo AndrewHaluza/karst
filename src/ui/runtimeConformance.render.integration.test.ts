@@ -246,8 +246,6 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
             { id: 'quota', label: 'Quota' },
           ],
           empty: false,
-          rangeId: 'current',
-          ranges: [{ id: 'current', label: 'Current' }],
           sort: 'total',
           sorts: [],
           totals: { calls: 1, totalDisplay: '100', totalExact: '100', inputDisplay: '50', outputDisplay: '50', reasoningDisplay: '0', cacheReadDisplay: '0', erroredCalls: 0, estimatedCalls: 0 },

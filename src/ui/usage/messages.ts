@@ -1,15 +1,15 @@
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { UsageState, UsageTab } from './state.js';
-import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
+import { USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
 
 /**
  * Message protocol for the token-usage webview.
  *
  * The webview is a trust boundary, so every inbound message is narrowed here
- * before it reaches an action: a range must be a known preset id, a sort a known
- * key, a page offset a non-negative integer, a ticket id a finite number. The
- * range and sort go on to build a SQL query, which is exactly why they are
- * checked against the closed sets rather than passed through as strings.
+ * before it reaches an action: a sort must be a known key, a page offset a
+ * non-negative integer, a ticket id a finite number. The sort goes on to
+ * build a SQL query, which is exactly why it is checked against the closed
+ * set rather than passed through as a string.
  *
  * `open-dashboard` carries a ticket id and nothing else — the host resolves the
  * ticket itself, so a crafted message cannot name a path, a URL, or a project.
@@ -18,14 +18,13 @@ import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsag
 export type UsageWebviewMessage =
   | { type: 'request-state' }
   | { type: 'set-tab'; tab: UsageTab }
-  | { type: 'set-range'; range: string }
   | { type: 'set-sort'; sort: UsageSort }
   | { type: 'set-page'; offset: number }
   | { type: 'open-dashboard'; ticketId: number };
 
 /**
  * Every action now reports through the single `action-result` seam (UI-R13),
- * which is what lets the four filter/navigation controls show pending and a
+ * which is what lets the filter/navigation controls show pending and a
  * terminal outcome instead of firing at the host with no acknowledgment.
  */
 export type UsageHostMessage = { type: 'state'; state: UsageState } | ActionResultMessage;
@@ -40,13 +39,11 @@ export type UsageHostMessage = { type: 'state'; state: UsageState } | ActionResu
 export interface UsageActions {
   requestState(): void | Promise<void>;
   setTab(tab: UsageTab): void | Promise<void>;
-  setRange(range: string): void | Promise<void>;
   setSort(sort: UsageSort): void | Promise<void>;
   setPage(offset: number): void | Promise<void>;
   openDashboard(ticketId: number): void | Promise<void>;
 }
 
-const RANGE_IDS = new Set<string>(USAGE_RANGES.map((r) => r.id));
 const SORT_IDS = new Set<string>(USAGE_SORTS);
 const TAB_IDS = new Set<string>(['spend', 'quota']);
 
@@ -60,10 +57,6 @@ export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
     case 'set-tab':
       return typeof m.tab === 'string' && TAB_IDS.has(m.tab)
         ? { type: 'set-tab', tab: m.tab as UsageTab }
-        : null;
-    case 'set-range':
-      return typeof m.range === 'string' && RANGE_IDS.has(m.range)
-        ? { type: 'set-range', range: m.range }
         : null;
     case 'set-sort':
       return typeof m.sort === 'string' && SORT_IDS.has(m.sort)
@@ -96,8 +89,6 @@ export function routeUsageAction(msg: UsageWebviewMessage, actions: UsageActions
       return actions.requestState();
     case 'set-tab':
       return actions.setTab(msg.tab);
-    case 'set-range':
-      return actions.setRange(msg.range);
     case 'set-sort':
       return actions.setSort(msg.sort);
     case 'set-page':

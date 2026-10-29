@@ -7,7 +7,7 @@ import type {
 } from './state.js';
 import { USAGE_TABS } from './state.js';
 import type { QuotaRowView, QuotaView, QuotaWindowView } from './quotaState.js';
-import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
+import { USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
 
 /**
  * The checked-in render fixture corpus for the usage webview.
@@ -44,8 +44,6 @@ export interface UsageRenderFixture {
   scenario: UsageScenario;
   state: UsageState;
 }
-
-const RANGES = USAGE_RANGES.map((r) => ({ id: r.id, label: r.label }));
 
 const SORT_LABELS: Record<UsageSort, string> = {
   total: 'Total tokens',
@@ -201,8 +199,6 @@ function emptyState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: true,
-    rangeId: RANGES[0]!.id,
-    ranges: RANGES,
     sort: 'total',
     sorts: SORTS,
     totals: fixtureTotals(),
@@ -221,8 +217,6 @@ function singlePageState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: false,
-    rangeId: RANGES[0]!.id,
-    ranges: RANGES,
     sort: 'total',
     sorts: SORTS,
     totals: fixtureTotals({ calls: 42, totalDisplay: '12.5k', totalExact: '12500' }),
@@ -241,8 +235,6 @@ function pagedMiddleState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: false,
-    rangeId: RANGES[1]!.id,
-    ranges: RANGES,
     sort: 'calls',
     sorts: SORTS,
     totals: fixtureTotals({ calls: 100, totalDisplay: '50k', totalExact: '50000' }),
@@ -261,8 +253,6 @@ function errorState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: true,
-    rangeId: RANGES[0]!.id,
-    ranges: RANGES,
     sort: 'total',
     sorts: SORTS,
     totals: fixtureTotals(),
@@ -281,8 +271,6 @@ function allSortsState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: false,
-    rangeId: RANGES[0]!.id,
-    ranges: RANGES,
     sort: 'recent',
     sorts: SORTS,
     totals: fixtureTotals({ calls: 25, totalDisplay: '8k', totalExact: '8000' }),
@@ -305,8 +293,6 @@ function hostileState(): UsageState {
     tabs: USAGE_TABS,
     quota: fixtureQuota(),
     empty: false,
-    rangeId: RANGES[0]!.id,
-    ranges: RANGES,
     sort: 'total',
     sorts: SORTS,
     totals: fixtureTotals({ calls: 3, totalDisplay: '1k', totalExact: '1000' }),

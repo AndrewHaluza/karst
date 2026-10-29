@@ -115,18 +115,14 @@ describe('UsagePanelManager', () => {
     mgr.open();
     const panel = host.panels[0]!;
 
-    panel.emit({ type: 'set-range', range: '24h' });
-    expect(lastState(panel).rangeId).toBe('24h');
-    expect(lastState(panel).totals.totalExact).toBe('10');
-
-    panel.emit({ type: 'set-range', range: 'all' });
     expect(lastState(panel).totals.totalExact).toBe('910');
+    expect(lastState(panel).sort).toBe('total');
 
     panel.emit({ type: 'set-sort', sort: 'calls' });
     expect(lastState(panel).sort).toBe('calls');
   });
 
-  it('resets the page when the range or sort changes — the old offset can be past the end', () => {
+  it('resets the page when the sort changes — the old offset can be past the end', () => {
     for (let i = 1; i <= 4; i++) {
       store.db
         .prepare('INSERT INTO tickets (id, key, title, project_id) VALUES (?, ?, ?, 1)')
@@ -139,7 +135,7 @@ describe('UsagePanelManager', () => {
     const panel = host.panels[0]!;
     panel.emit({ type: 'set-page', offset: 2 });
     expect(lastState(panel).page.offset).toBe(2);
-    panel.emit({ type: 'set-range', range: '7d' });
+    panel.emit({ type: 'set-sort', sort: 'calls' });
     expect(lastState(panel).page.offset).toBe(0);
   });
 
@@ -148,8 +144,8 @@ describe('UsagePanelManager', () => {
     const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
     mgr.open();
     const panel = host.panels[0]!;
-    panel.emit({ type: 'set-range', range: "'; DROP TABLE token_usage; --" });
-    expect(lastState(panel).rangeId).toBe('30d');
+    panel.emit({ type: 'set-sort', sort: "'; DROP TABLE token_usage; --" });
+    expect(lastState(panel).sort).toBe('total');
     expect(store.db.prepare("SELECT name FROM sqlite_master WHERE name='token_usage'").get())
       .toBeDefined();
   });
@@ -186,7 +182,7 @@ describe('UsagePanelManager', () => {
     const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
     mgr.open();
     const panel = host.panels[0]!;
-    panel.emit({ type: 'set-range', range: '24h', requestId: 'r1' });
+    panel.emit({ type: 'set-sort', sort: 'calls', requestId: 'r1' });
     const results = panel.posted.filter((m) => m.type === 'action-result');
     expect(results).toEqual([{ type: 'action-result', requestId: 'r1', ok: true }]);
   });
@@ -196,7 +192,7 @@ describe('UsagePanelManager', () => {
     const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
     mgr.open();
     const panel = host.panels[0]!;
-    panel.emit({ type: 'set-range', range: '24h' });
+    panel.emit({ type: 'set-sort', sort: 'calls' });
     expect(panel.posted.some((m) => m.type === 'action-result')).toBe(false);
   });
 

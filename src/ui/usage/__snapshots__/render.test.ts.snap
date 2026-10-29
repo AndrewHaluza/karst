@@ -3,8 +3,7 @@
 exports[`usage render > all-sorts > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 24 hours</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="true">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="false">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -42,7 +41,7 @@ exports[`usage render > all-sorts > snapshot (was: full document render) 1`] = `
 
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 24 hours. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -338,18 +337,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -492,9 +479,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -502,7 +486,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -516,14 +500,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -555,8 +536,7 @@ function karstIconInto(el, name, size, cls) {
 exports[`usage render > empty > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 24 hours</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="true">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="false">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -594,7 +574,7 @@ exports[`usage render > empty > snapshot (was: full document render) 1`] = `
 
 <div class="k-empty" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 24 hours. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -890,18 +870,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -1044,9 +1012,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -1054,7 +1019,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -1068,14 +1033,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -1107,8 +1069,7 @@ function karstIconInto(el, name, size, cls) {
 exports[`usage render > error > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 24 hours</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="true">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="false">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -1146,7 +1107,7 @@ exports[`usage render > error > snapshot (was: full document render) 1`] = `
 
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 24 hours. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -1442,18 +1403,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -1596,9 +1545,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -1606,7 +1552,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -1620,14 +1566,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -1659,8 +1602,7 @@ function karstIconInto(el, name, size, cls) {
 exports[`usage render > hostile > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 24 hours</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="true">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="false">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -1698,7 +1640,7 @@ exports[`usage render > hostile > snapshot (was: full document render) 1`] = `
 
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 24 hours. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -1994,18 +1936,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -2148,9 +2078,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -2158,7 +2085,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -2172,14 +2099,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -2211,8 +2135,7 @@ function karstIconInto(el, name, size, cls) {
 exports[`usage render > paged-middle > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 7 days</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="false">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="true">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -2250,7 +2173,7 @@ exports[`usage render > paged-middle > snapshot (was: full document render) 1`] 
 
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 7 days. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -2546,18 +2469,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -2700,9 +2611,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -2710,7 +2618,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -2724,14 +2632,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -2764,7 +2669,6 @@ exports[`usage render > quota > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
   <span class="sub" id="sub">warn at 80% of the tightest window</span>
-  <div class="ranges hidden" id="ranges"></div>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="false">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="true">Quota</button></div>
@@ -3098,18 +3002,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -3252,9 +3144,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -3262,7 +3151,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -3276,14 +3165,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 
@@ -3315,8 +3201,7 @@ function karstIconInto(el, name, size, cls) {
 exports[`usage render > single-page > snapshot (was: full document render) 1`] = `
 "<div class="uhead">
   <h1>Token usage</h1>
-  <span class="sub" id="sub">Last 24 hours</span>
-  <div class="ranges" id="ranges"><button type="button" class="k-chip" data-range="24h" aria-pressed="true">Last 24 hours</button><button type="button" class="k-chip" data-range="7d" aria-pressed="false">Last 7 days</button><button type="button" class="k-chip" data-range="30d" aria-pressed="false">Last 30 days</button><button type="button" class="k-chip" data-range="all" aria-pressed="false">All time</button></div>
+  <span class="sub" id="sub"></span>
 </div>
 
 <div class="utabs" id="tabs"><button type="button" class="k-chip" data-tab="spend" aria-pressed="true">Spend</button><button type="button" class="k-chip" data-tab="quota" aria-pressed="false">Quota</button></div>
@@ -3354,7 +3239,7 @@ exports[`usage render > single-page > snapshot (was: full document render) 1`] =
 
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint">Nothing was recorded for last 24 hours. Try a wider range, or run an AI-backed action (ticket analysis, PR description).</div>
+  <div class="k-empty-hint" id="emptyHint">Run an AI-backed action (ticket analysis, PR description).</div>
 </div>
 </div>
 
@@ -3650,18 +3535,6 @@ function karstIconInto(el, name, size, cls) {
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  // Range presets — a real selectable chip (UI-R08, UI-R09), not a bespoke
-  // bordered-button toggle: the same primitive \`sidebar\`'s facet pills use.
-  const renderRanges = (state) => {
-    const wrap = el('ranges');
-    wrap.innerHTML = state.ranges.map((r) =>
-      \`<button type="button" class="k-chip" data-range="\${esc(r.id)}" aria-pressed="\${r.id === state.rangeId}">\${esc(r.label)}</button>\`,
-    ).join('');
-    for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
-    }
-  };
-
   // The two tabs, built from state.tabs — never a hardcoded list. The active
   // tab posts \`set-tab\`; the host owns which tab is showing, like every other
   // selection in this view.
@@ -3804,9 +3677,6 @@ function karstIconInto(el, name, size, cls) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
-    // The range only means anything for the spend numbers; on the quota tab it
-    // would sit over a table it does not filter, so it is hidden with the sub.
-    el('ranges').classList.toggle('hidden', quotaTab);
 
     if (quotaTab) {
       el('sub').textContent = \`warn at \${state.quota.thresholdPct}% of the tightest window\`;
@@ -3814,7 +3684,7 @@ function karstIconInto(el, name, size, cls) {
       return;
     }
 
-    renderRanges(state);
+    el('sub').textContent = '';
 
     el('err').textContent = state.error || '';
     el('err').classList.toggle('hidden', !state.error);
@@ -3828,14 +3698,11 @@ function karstIconInto(el, name, size, cls) {
       lastErrorShown = null;
     }
 
-    const rangeLabel = (state.ranges.find((r) => r.id === state.rangeId) || {}).label || '';
-    el('sub').textContent = rangeLabel;
-
-    // An error is not an empty range: showing the empty state under a rejected
+    // An error is not an empty state: showing the empty state under a rejected
     // query would claim nothing was spent when nothing was asked.
     const showEmpty = state.empty && !state.error;
     el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = \`Nothing was recorded for \${rangeLabel.toLowerCase()}. Try a wider range, or run an AI-backed action (ticket analysis, PR description).\`;
+    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
     el('body').classList.toggle('hidden', state.empty || !!state.error);
     if (state.empty || state.error) return;
 

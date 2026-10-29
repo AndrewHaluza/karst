@@ -14,9 +14,6 @@ function actions(): UsageActions & { calls: string[] } {
     setTab: (t) => {
       calls.push(`setTab:${t}`);
     },
-    setRange: (r) => {
-      calls.push(`setRange:${r}`);
-    },
     setSort: (s) => {
       calls.push(`setSort:${s}`);
     },
@@ -36,10 +33,6 @@ describe('parseUsageMessage', () => {
       type: 'set-tab',
       tab: 'quota',
     });
-    expect(parseUsageMessage({ type: 'set-range', range: '7d' })).toEqual({
-      type: 'set-range',
-      range: '7d',
-    });
     expect(parseUsageMessage({ type: 'set-sort', sort: 'calls' })).toEqual({
       type: 'set-sort',
       sort: 'calls',
@@ -54,9 +47,7 @@ describe('parseUsageMessage', () => {
     });
   });
 
-  it('rejects a range or sort outside the closed set — both reach a SQL query', () => {
-    expect(parseUsageMessage({ type: 'set-range', range: '90d' })).toBeNull();
-    expect(parseUsageMessage({ type: 'set-range', range: "all'; DROP" })).toBeNull();
+  it('rejects a sort outside the closed set — it reaches a SQL query', () => {
     expect(parseUsageMessage({ type: 'set-sort', sort: 'total_tokens; DROP TABLE' })).toBeNull();
     expect(parseUsageMessage({ type: 'set-sort', sort: 7 })).toBeNull();
     expect(parseUsageMessage({ type: 'set-tab', tab: 'nope' })).toBeNull();
@@ -73,7 +64,7 @@ describe('parseUsageMessage', () => {
 
   it('rejects a non-message', () => {
     expect(parseUsageMessage(null)).toBeNull();
-    expect(parseUsageMessage('set-range')).toBeNull();
+    expect(parseUsageMessage('set-sort')).toBeNull();
     expect(parseUsageMessage({ type: 'delete-everything' })).toBeNull();
   });
 });
@@ -83,14 +74,12 @@ describe('routeUsageAction', () => {
     const a = actions();
     routeUsageAction({ type: 'request-state' }, a);
     routeUsageAction({ type: 'set-tab', tab: 'quota' }, a);
-    routeUsageAction({ type: 'set-range', range: '24h' }, a);
     routeUsageAction({ type: 'set-sort', sort: 'output' }, a);
     routeUsageAction({ type: 'set-page', offset: 20 }, a);
     routeUsageAction({ type: 'open-dashboard', ticketId: 9 }, a);
     expect(a.calls).toEqual([
       'requestState',
       'setTab:quota',
-      'setRange:24h',
       'setSort:output',
       'setPage:20',
       'openDashboard:9',
@@ -105,12 +94,11 @@ describe('routeUsageAction', () => {
     const a: UsageActions = {
       requestState: vi.fn(),
       setTab: vi.fn(),
-      setRange: vi.fn(() => pending),
-      setSort: vi.fn(),
+      setSort: vi.fn(() => pending),
       setPage: vi.fn(),
       openDashboard: vi.fn(),
     };
-    expect(routeUsageAction({ type: 'set-range', range: '24h' }, a)).toBe(pending);
+    expect(routeUsageAction({ type: 'set-sort', sort: 'calls' }, a)).toBe(pending);
     await pending;
   });
 });

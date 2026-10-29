@@ -25,19 +25,6 @@ describe('usage render', () => {
         } finally { h.close(); }
       });
 
-      it('renders range chips from state (was: renders the range chips from state, never from a hardcoded list)', () => {
-        const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
-        try {
-          h.receive({ type: 'state', state: fixture.state });
-          if (fixture.state.tab !== 'spend') return;
-          const chips = h.queryAll('.ranges .k-chip');
-          expect(chips).toHaveLength(fixture.state.ranges.length);
-          for (let i = 0; i < chips.length; i++) {
-            expect(chips[i]!.textContent).toBe(fixture.state.ranges[i]!.label);
-          }
-        } finally { h.close(); }
-      });
-
       it('shows the empty state when empty and no error (was: shows the empty state instead of a grid of zeroes)', () => {
         const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
         try {
@@ -71,20 +58,6 @@ describe('usage render', () => {
             expect(stageRows).toHaveLength(fixture.state.byStage.length);
             const modelRows = h.queryAll('#models .brow');
             expect(modelRows).toHaveLength(fixture.state.byModel.length);
-          }
-        } finally { h.close(); }
-      });
-
-      it('clicking a range chip posts set-range (was: range chips post set-range)', () => {
-        const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
-        try {
-          h.receive({ type: 'state', state: fixture.state });
-          const chip = h.query('.ranges .k-chip');
-          if (chip) {
-            const before = h.posted.length;
-            (chip as HTMLElement).click();
-            expect(h.posted.length).toBe(before + 1);
-            expect(h.posted[before]).toMatchObject({ type: 'set-range' });
           }
         } finally { h.close(); }
       });
