@@ -55,7 +55,7 @@
 .ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-sm);text-align:center}
 .ap-effort-field[hidden],.ap-field[hidden]{display:none}
 .ap-seg{display:flex;gap:var(--k-space-2)}
-.ap-seg-btn[aria-checked="true"]{border-color:var(--k-focus);color:var(--k-text)}
+.ap-seg-btn[aria-checked="true"]{border-color:var(--k-focus);font-weight:600}
 .ap-warn{font-size:var(--k-text-xs);color:var(--k-warning,var(--k-text-dim))}
 .ap-warn[hidden]{display:none}
 .ap-effort{width:100%;min-height:var(--k-control-h-lg);

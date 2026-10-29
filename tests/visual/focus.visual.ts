@@ -105,6 +105,12 @@ const FOCUS_CAP = 12;
  * the agent identity. The row is `hidden` unless the ticket is in edit mode under
  * an sbx or docker project, but the sweep's selector still counts it.
  *
+ * Updated by T839 (shared picker presetMode): `ticketForm` 28 → 30 — the standalone
+ * `#agentPresetSelect` moved INTO the picker (net 0), and the picker gains the
+ * `Preset` | `Core + model` radio pair. Both radios are tab stops (they are plain
+ * buttons, not a roving-tabindex group), and they pick the agent source, which no
+ * other control does.
+ *
  * Updated a thirteenth time by the Servers & resources page: `resources` 17 → 19 —
  * the page is now two tabs (Servers, Resources), and the two tab buttons are
  * net-new interactive controls that fold into nothing: they switch which pane is
@@ -134,7 +140,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
   settings: 195,
-  ticketForm: 28,
+  ticketForm: 30,
   gettingStarted: 6,
 };
 
