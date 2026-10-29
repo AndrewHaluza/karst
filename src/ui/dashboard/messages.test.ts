@@ -43,6 +43,9 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
     resetStage: vi.fn(),
+    reviewStallHint: vi.fn(),
+    reviewStallContinue: vi.fn(),
+    reviewStallRescope: vi.fn(),
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
     rebaseOnBase: vi.fn(),
@@ -315,6 +318,16 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'reset-stage', stage: 'review' }, a);
     expect(a.resetStage).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches the three review-stall answers payload-free', () => {
+    const a = actions();
+    routeAction({ type: 'review-stall-hint', ticketId: 9 }, a);
+    routeAction({ type: 'review-stall-continue' }, a);
+    routeAction({ type: 'review-stall-rescope' }, a);
+    expect(a.reviewStallHint).toHaveBeenCalledOnce();
+    expect(a.reviewStallContinue).toHaveBeenCalledOnce();
+    expect(a.reviewStallRescope).toHaveBeenCalledOnce();
   });
 
   it('dispatches send-back-to-implement and drops a forged companion stage', () => {

@@ -391,6 +391,7 @@ import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { resetStageAction } from './extension/ops/resetStageAction.js';
+import { reviewStallBinding } from './extension/reviewStallBinding.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { askPausedModal } from './extension/pausedModal.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
@@ -8347,6 +8348,11 @@ function makeDashboardActions(
         confirm: async (title, detail) =>
           (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
       }),
+    // Answers to a review stall (T845); logic in ops/reviewStallActions.
+    ...reviewStallBinding({
+      store, ticketId, afterServerChange, logError, debug,
+      drive: () => driveAfterResume(ticketId), editTicket,
+    }),
     // Move this ticket into a PR-feedback recovery round at Fix. The logic
     // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.
     addressPrFeedback: () =>

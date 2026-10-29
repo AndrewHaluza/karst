@@ -144,6 +144,32 @@ describe('BlockedBanner — usage-limit park actions (D159, re-homed from the va
   });
 });
 
+describe('BlockedBanner — review stall (T845)', () => {
+  const stalled = () => blockedState(block('review-stalled', { resumable: false, reason: 'Review keeps finding new problems in a.ts (3 rounds) — likely a design problem, not a bug.' }));
+
+  it('names the stall, carries no Resume and offers the three answers in order', () => {
+    mountRail(stalled());
+    expect(text('.ftitle')).toBe('Review is stalled');
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+    const buttons = all<HTMLButtonElement>('#blocked .facts button');
+    expect(buttons.map((b) => b.dataset.act)).toEqual(['review-stall-hint', 'review-stall-continue', 'review-stall-rescope']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['Redesign hint…', 'Continue anyway', 'Re-scope']);
+  });
+
+  it.each([
+    ['review-stall-hint', 'reviewStallHint'],
+    ['review-stall-continue', 'reviewStallContinue'],
+    ['review-stall-rescope', 'reviewStallRescope'],
+  ] as const)('%s posts once with a request id', (act, sender) => {
+    const h = mountRail(stalled());
+    const b = btn(act);
+    fireEvent.click(b);
+    fireEvent.click(b);
+    expect(h.send[sender]).toHaveBeenCalledTimes(1);
+    expect(h.send[sender]).toHaveBeenCalledWith('req-1');
+  });
+});
+
 describe('BlockedBanner — baseline review (@arch:BASELINE-REVIEW)', () => {
   const ROWS = [
     { index: 0, path: 'tests/visual/a/settings.png', label: 'a/settings.png', status: 'modified', oldSrc: 'vscode-webview://x/old.png', newSrc: 'vscode-webview://x/new.png', decision: 'pending', reason: null },

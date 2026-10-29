@@ -87,6 +87,14 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'send-back-to-implement' };
     case 'reset-stage':
       return { type: 'reset-stage' };
+    // Review-stall answers (T845): payload-free like reset-stage — the host
+    // derives the ticket and re-checks the stall itself.
+    case 'review-stall-hint':
+      return { type: 'review-stall-hint' };
+    case 'review-stall-continue':
+      return { type: 'review-stall-continue' };
+    case 'review-stall-rescope':
+      return { type: 'review-stall-rescope' };
     case 'address-pr-feedback':
       return { type: 'address-pr-feedback' };
     case 'send-ci-failure':

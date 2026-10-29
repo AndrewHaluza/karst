@@ -123,7 +123,10 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
         // generic Resume would re-run the exhausted model, so `stageResume.ts`
         // refuses it and the dashboard must offer no Resume button — the
         // recovery is picking another agent/model (D159).
-        row.blockedKind !== 'usage-limit',
+        row.blockedKind !== 'usage-limit' &&
+        // A review stall (T845) is answered by Redesign hint / Continue anyway /
+        // Re-scope; a generic Resume would re-open the fix loop that was stopped.
+        row.blockedKind !== 'review-stalled',
     },
   };
 }
