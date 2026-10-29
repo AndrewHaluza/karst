@@ -87,7 +87,8 @@ export async function warnMissingSetup(
   if (!seam.warn) return;
   try {
     const missing = await reposMissingSetup(deps, ticketId);
-    if (missing.length > 0) seam.warn(`Karst: sandbox repo ${missing.join(', ')} has a lockfile but no sandbox.setup, so its clone has no dependencies. Add \`${MISSING_SETUP_HINT}\` to its manifest entry.`);
+    if (missing.length === 1) seam.warn(`Karst: sandbox repo ${missing[0]} has a lockfile but no sandbox.setup, so its clone has no dependencies. Add \`${MISSING_SETUP_HINT}\` to its manifest entry.`);
+    else if (missing.length > 1) seam.warn(`Karst: sandbox repos ${missing.join(', ')} have a lockfile but no sandbox.setup, so their clones have no dependencies. Add \`${MISSING_SETUP_HINT}\` to each manifest entry.`);
   } catch (err) {
     seam.debug?.(`[sandbox] ticket ${ticketId}: missing-setup probe failed: ${err instanceof Error ? err.message : String(err)}`);
   }

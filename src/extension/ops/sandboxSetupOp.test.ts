@@ -280,6 +280,10 @@ describe('reposMissingSetup', () => {
     expect(await reposMissingSetup(rig({ lockfile: true, sandboxed: false }).deps, 7)).toEqual([]);
     expect(await reposMissingSetup({ ...rig({ lockfile: true }).deps, manifest: () => undefined }, 7)).toEqual([]);
   });
+  it('matches a worktree to its manifest entry by repoPath', async () => {
+    const r = rig({ lockfile: true });
+    expect(await reposMissingSetup({ ...r.deps, worktrees: () => [{ repo: '/repo', path: '/wt' }] }, 7)).toEqual(['app']);
+  });
   it('skips a worktree whose repo is not in the manifest', async () => {
     const r = rig({ lockfile: true });
     expect(await reposMissingSetup({ ...r.deps, worktrees: () => [{ repo: 'ghost', path: '/g' }] }, 7)).toEqual([]);
@@ -295,6 +299,13 @@ describe('warnMissingSetup', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith('Karst: sandbox repo app has a lockfile but no sandbox.setup, so its clone has no dependencies. Add `sandbox.setup: npm ci` to its manifest entry.');
   });
+  it('uses plural wording for several repos', async () => {
+    const warn = vi.fn();
+    const r = rig({ lockfile: true });
+    const manifest = buildManifest({ a: repo({ repoPath: '/a' }), b: repo({ repoPath: '/b' }) });
+    await warnMissingSetup({ warn }, { ...r.deps, manifest: () => manifest, worktrees: () => [{ repo: 'a', path: '/wa' }, { repo: 'b', path: '/wb' }] }, 7);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Karst: sandbox repos a, b have a lockfile but no sandbox.setup, so their clones have no dependencies. Add `sandbox.setup: npm ci` to each manifest entry.');
+  });
   it('does not warn (or probe) when nothing is missing or there is no warn seam', async () => {
     const warn = vi.fn();
     await warnMissingSetup({ warn }, rig({ lockfile: false }).deps, 7);
@@ -302,6 +313,12 @@ describe('warnMissingSetup', () => {
     await warnMissingSetup({}, r.deps, 7);
     expect(warn).not.toHaveBeenCalled();
     expect(r.ran).toEqual([]);
+  });
+  it('swallows a failed probe when no debug seam is given', async () => {
+    const warn = vi.fn();
+    const deps = { ...rig().deps, gateProcess: () => (async () => { throw new Error('gone'); }) as GateProcessRunner };
+    await expect(warnMissingSetup({ warn }, deps, 7)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
   });
   it('logs a failed probe to debug and never throws', async () => {
     const warn = vi.fn();

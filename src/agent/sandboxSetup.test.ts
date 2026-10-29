@@ -80,6 +80,18 @@ describe('ensureSandboxSetup', () => {
     expect(JSON.parse(readFileSync(r.deps.stateFile, 'utf8')).status).toBe('failed');
   });
 
+  it('names the owner as unknown when the probe prints nothing', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => done('', 1));
+    const res = await ensureSandboxSetup(r.deps, req);
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('(owner unknown)') });
+  });
+
+  it('runs setup when the probe exits 0 explicitly', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => done('root', 0));
+    expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+    expect(r.setups()).toHaveLength(1);
+  });
+
   it('runs setup when the writability probe passes or cannot complete', async () => {
     const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => ({ kind: 'aborted', output: '' }) as ProcessOutcome);
     expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
