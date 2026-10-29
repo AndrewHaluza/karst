@@ -536,7 +536,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const ran: string[] = [];
     vi.mocked(runProcess).mockImplementation((_c, args) => {
       const joined = args.join(' ');
-      if (joined.includes('ls package-lock.json')) return Promise.resolve({ kind: 'completed', exitCode: opts.noLockfile ? 2 : 0, output: '', stdout: '' }) as never;
+      if (joined.includes('[ -e package-lock.json ] || [ -e pnpm-lock.yaml ]')) return Promise.resolve({ kind: 'completed', exitCode: opts.noLockfile ? 2 : 0, output: '', stdout: '' }) as never;
       if (joined.includes('git rev-parse')) return Promise.resolve({ kind: 'completed', exitCode: opts.emptyClone ? 1 : 0, output: '', stdout: '' }) as never;
       if (joined.includes('-w node_modules')) return Promise.resolve({ kind: 'completed', exitCode: 0, output: '', stdout: '' }) as never;
       const fp = joined.includes('command -v node');

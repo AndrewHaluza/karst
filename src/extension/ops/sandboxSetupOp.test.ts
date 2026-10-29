@@ -6,7 +6,7 @@ import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { resetSetupLocks } from '../../agent/sandboxSetup.js';
 import { manifest as buildManifest, repo } from '../../manifest/fixtures.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
-import { clearSetupState, MISSING_SETUP_HINT, onceByMessage, provisionTicketSandbox, reposMissingSetup, warnMissingSetup, type TicketSetupDeps } from './sandboxSetupOp.js';
+import { clearSetupState, LOCKFILES_SH, MISSING_SETUP_HINT, onceByMessage, provisionTicketSandbox, reposMissingSetup, warnMissingSetup, type TicketSetupDeps } from './sandboxSetupOp.js';
 
 const HASH = 'c'.repeat(64);
 
@@ -16,7 +16,7 @@ function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandb
   const runGate: GateProcessRunner = async (_c, args) => {
     if (args[1]?.includes('-w node_modules')) return { kind: 'completed', exitCode: 0, output: '', stdout: '' };
     ran.push([...args]);
-    if (args[1]?.startsWith('ls package-lock.json')) return { kind: 'completed', exitCode: opts.lockfile === false ? 1 : 0, output: '', stdout: '' };
+    if (args[1] === LOCKFILES_SH) return { kind: 'completed', exitCode: opts.lockfile === false ? 1 : 0, output: '', stdout: '' };
     const fp = args[1]?.includes('command -v node');
     return { kind: 'completed', exitCode: fp ? 0 : (opts.exit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' };
   };
@@ -266,7 +266,7 @@ describe('reposMissingSetup', () => {
   it('names a repo with a lockfile and no sandbox.setup, probing at its worktree', async () => {
     const r = rig({ lockfile: true });
     expect(await reposMissingSetup(r.deps, 7)).toEqual(['app']);
-    expect(r.ran).toEqual([['-c', 'ls package-lock.json pnpm-lock.yaml yarn.lock >/dev/null 2>&1']]);
+    expect(r.ran).toEqual([['-c', '[ -e package-lock.json ] || [ -e pnpm-lock.yaml ] || [ -e yarn.lock ]']]);
   });
   it('is empty when the repo declares setup', async () => {
     const r = rig({ setup: 'npm ci', lockfile: true });

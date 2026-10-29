@@ -43,7 +43,8 @@ export interface TicketSetupDeps {
 }
 
 const CLONE_READY_SH = 'git rev-parse --verify HEAD >/dev/null 2>&1 && [ -n "$(git ls-tree --name-only HEAD | head -n 1)" ]';
-const LOCKFILES_SH = 'ls package-lock.json pnpm-lock.yaml yarn.lock >/dev/null 2>&1';
+/** Any ONE lockfile is enough (an npm-only repo has no yarn.lock). */
+export const LOCKFILES_SH = '[ -e package-lock.json ] || [ -e pnpm-lock.yaml ] || [ -e yarn.lock ]';
 /** A lockfile-strict install: with no lockfile it fails for a reason that says nothing about the setup. */
 const CI_STYLE = /\b(npm\s+ci|(pnpm|yarn)\s+install\s+[^&|;]*--frozen-lockfile|pnpm\s+i\s+[^&|;]*--frozen-lockfile)/;
 
