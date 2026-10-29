@@ -487,29 +487,52 @@ function gatesProcess(
   // either: nothing is about to run.
   const forecast =
     batch.length === 0 && !finished && !running && !blocked && resolved.length > 0;
-  const boundedRows = bounded(
-    forecast
-      ? resolved.map((g): EvidenceRow => ({
-          status: g.disabled ? 'skip' : 'pending',
-          label: g.name,
-          detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
-        }))
-      : batch.map((r): EvidenceRow => {
-          const op = gateOp(r);
-          return {
-            status: op.status,
-            label: op.name,
-            detail: op.detail,
-            duration: op.duration,
-            ...(op.repo ? { repo: repoLabel(op.repo) } : {}),
-            ...(op.durationExact ? { durationExact: op.durationExact } : {}),
-            // Each recorded gate row dates from its own start — the
-            // timestamp on every expanded row.
-            ...(r.startedAt ? { time: formatTime(r.startedAt) } : {}),
-          };
-        }),
-    GATES_EVIDENCE_LIMIT,
-  );
+  const recordedRows = batch.map((r): EvidenceRow => {
+    const op = gateOp(r);
+    return {
+      status: op.status,
+      label: op.name,
+      detail: op.detail,
+      duration: op.duration,
+      ...(op.repo ? { repo: repoLabel(op.repo) } : {}),
+      ...(op.durationExact ? { durationExact: op.durationExact } : {}),
+      // Each recorded gate row dates from its own start — the
+      // timestamp on every expanded row.
+      ...(r.startedAt ? { time: formatTime(r.startedAt) } : {}),
+    };
+  });
+  // While the gates are in flight, the resolved gates with no recorded row yet
+  // are listed after the recorded ones. Gates run sequentially, so the first
+  // unrecorded enabled gate is the one running now; the rest are queued.
+  const liveGates = running && !gatesDone;
+  const recordedNames = new Set(batch.map((r) => stripRepoDecoration(r.gateName)));
+  let runAssigned = false;
+  const waitingRows = liveGates
+    ? resolved
+        .filter((g) => !recordedNames.has(g.name))
+        .map((g): EvidenceRow => {
+          if (g.disabled) return { status: 'skip', label: g.name, detail: 'disabled for this ticket' };
+          if (runAssigned) return { status: 'pending', label: g.name, detail: 'queued' };
+          runAssigned = true;
+          return { status: 'run', label: g.name, detail: 'running…' };
+        })
+    : [];
+  const allRows = forecast
+    ? resolved.map((g): EvidenceRow => ({
+        status: g.disabled ? 'skip' : 'pending',
+        label: g.name,
+        detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
+      }))
+    : [...recordedRows, ...waitingRows];
+  const runIndex = allRows.findIndex((r) => r.status === 'run' && r.detail === 'running…');
+  // The running row must never be the one cut off: keep it as the last shown row.
+  const boundedRows =
+    runIndex >= GATES_EVIDENCE_LIMIT
+      ? {
+          shown: [...allRows.slice(0, GATES_EVIDENCE_LIMIT - 1), allRows[runIndex]!],
+          remaining: allRows.length - GATES_EVIDENCE_LIMIT,
+        }
+      : bounded(allRows, GATES_EVIDENCE_LIMIT);
   const rows = [...boundedRows.shown];
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
@@ -525,6 +548,7 @@ function gatesProcess(
     r.repo
       ? `${repoLabel(r.repo)} / ${stripRepoDecoration(r.gateName)}`
       : stripRepoDecoration(r.gateName);
+  const enabledResolved = resolved.filter((g) => !g.disabled).length;
   let detail: string | undefined;
   let count: string | undefined;
   if (batch.length > 0 && failed === 0 && answered > 0) {
@@ -539,6 +563,8 @@ function gatesProcess(
     // run rather than as a promise of more gates.
     detail = `${answered}/${batch.length} command gates passed so far`;
     count = `${answered}/${batch.length}`;
+  } else if (liveGates && batch.length === 0 && enabledResolved > 0) {
+    detail = `0/${enabledResolved} command gates passed so far`;
   } else if (bypassed && batch.length > 0) {
     // A bypassed stage is never green: every gate was withdrawn by the user, so
     // the row states the skip plainly instead of the generic nothing-to-run.
