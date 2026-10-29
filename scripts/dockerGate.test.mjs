@@ -148,16 +148,16 @@ describe('the gate scripts', () => {
 
   it('runs the same sweep locally as the container runs', () => {
     // The local run is what stands in for the container when the sandbox has
-    // no docker, so it must cover the same steps. `npm ci` is the one it may
-    // skip: the tree is already installed.
+    // no docker, so it must cover the same steps. The install (`npm ci`, now run
+    // only when node_modules is empty) is the one it may skip: the tree is already installed.
     expect(steps(localOf('test:visual:docker'))).toEqual(
-      steps(pkg.scripts['test:visual:ci']).filter((step) => step !== 'npm ci'),
+      steps(pkg.scripts['test:visual:ci']).filter((step) => !step.includes('npm ci')),
     );
   });
 
   it('runs the same layout sweep locally as the container runs', () => {
     expect(steps(localOf('test:layout:docker'))).toEqual(
-      steps(pkg.scripts['test:layout:ci']).filter((step) => step !== 'npm ci'),
+      steps(pkg.scripts['test:layout:ci']).filter((step) => !step.includes('npm ci')),
     );
   });
 

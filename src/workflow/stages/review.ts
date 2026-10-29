@@ -18,6 +18,8 @@ import { summarizeGateFailure } from '../../model/gateSummary.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { baseDefinesScript } from '../gates/npmScript.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
+import { cutGatesWithoutUiChange } from '../gates/uiDiff.js';
+import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
@@ -413,7 +415,7 @@ export async function runReview(
   for (const target of rerun ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
-    const resolution = resolveReviewGates(
+    let resolution = resolveReviewGates(
       scriptProbe,
       opts.manifest?.review,
       target.names,
@@ -453,6 +455,18 @@ export async function runReview(
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
+    // A branch with no UI path in its diff has nothing for the container-pinned
+    // visual/layout gates to say: they record `skipped` (evidence, not a pass).
+    const uiCut = await cutGatesWithoutUiChange(
+      resolution.gates,
+      git,
+      target.path,
+      opts.manifest ? resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest) : 'HEAD',
+      opts.debug,
+    );
+    resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
+    const uiSkipped = new Set(uiCut.skipped);
+
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
     // `skipped` is what states the difference from a missing script.
@@ -472,7 +486,9 @@ export async function runReview(
       // script". It is evidence, not a question that was asked.
       evidence.append([skippedRow]);
       skippedNames.push(gate.name);
-      sections.push(`# ${gate.name} (${label}, skipped)\ndisabled for this ticket`);
+      sections.push(
+        `# ${gate.name} (${label}, skipped)\n${uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : 'disabled for this ticket'}`,
+      );
     }
 
     // R4 — a malformed package.json resolves to zero gates and IS a failure
