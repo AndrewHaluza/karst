@@ -180,15 +180,14 @@ describe('ticket form — edit header, callout, empty states', () => {
 });
 
 describe('ticket form — agent section layout (group 3)', () => {
-  it('places the preset select directly after the identity picker, labelled as an alternative', () => {
+  it('mounts the Preset | Core + model switch in the identity picker, no standalone preset select', () => {
     const v = open(baseState());
     const picker = v.query<HTMLElement>('#agentIdentityPicker')!;
-    const preset = v.query<HTMLElement>('#agentPresetPicker')!;
-    expect(preset.previousElementSibling === picker || preset.previousElementSibling?.id === 'providerLockHint').toBe(true);
-    expect(picker.parentElement).toBe(preset.parentElement);
-    expect(v.query('label[for="agentPresetSelect"]')!.textContent).toContain('or use a preset');
-    expect(preset.querySelector('#agentPresetSelect')).toBeTruthy();
-    expect(preset.querySelector('.sub')!.textContent).toContain('Overrides');
+    expect(v.query('#agentPresetPicker')).toBeNull();
+    expect(v.query('#agentPresetSelect')).toBeNull();
+    const radios = [...picker.querySelectorAll('[role="radiogroup"] [role="radio"]')];
+    expect(radios.map((r) => r.textContent?.trim())).toEqual(['Preset', 'Core + model']);
+    expect(picker.querySelector('[data-ap-preset]')).toBeTruthy();
   });
 });
 
