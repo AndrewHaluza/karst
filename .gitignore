@@ -114,6 +114,7 @@ tests/visual/.tmp/
 # JSON outcome counts the CI gate (scripts/visual-sweep-gate.mjs) reads to
 # tell an advisory diff failure apart from a sweep that never ran.
 tests/visual/.results.json
+tests/visual/visual-red-develop.json
 tests/visual/.layout-report.json
 tests/visual/.layout-shards/
 test-results/

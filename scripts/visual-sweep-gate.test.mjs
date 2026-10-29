@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   baselineProblems,
   changedBaselines,
+  classifyFailures,
+  failingScreenshots,
+  summaryMarkdown,
   gitArgs,
   layoutGateProblems,
+  neverRanCount,
   prChangedBaselines,
   repoRelative,
   BASELINES_DIR,
@@ -197,5 +201,95 @@ describe('layoutGateProblems', () => {
       ),
     );
     expect(problems).toContain('layout: "geometry" failed (see the grouped layout output above)');
+  });
+});
+
+/** A failing screenshot carrying Playwright's pixel-diff message. */
+function failing(title, project = 'dark', message = 'Screenshot comparison failed:\n\n  1200 pixels (ratio 0.02 of all image pixels) are different.') {
+  const t = testEntry({ title, project });
+  t.results[0].error = { message };
+  return t;
+}
+
+describe('failingScreenshots', () => {
+  it('lists failures with project and diff size, skipping passes and layout projects', () => {
+    const rep = report(
+      failing('dash: full-page screenshot'),
+      testEntry({ status: 'expected', title: 'ok' }),
+      failing('geometry', 'layout'),
+      failing('size', 'light', 'Expected an image 100px by 200px, received 100px by 250px.'),
+    );
+    const out = failingScreenshots(rep);
+    expect(out.map((f) => [f.project, f.diff])).toEqual([
+      ['dark', '1200 pixels (ratio 0.02 of all image pixels) are different'],
+      ['light', 'Expected an image 100px by 200px, received 100px by 250px.'],
+    ]);
+    expect(out[0].id).toContain('dash: full-page screenshot');
+  });
+
+  it('includes flaky specs only when asked', () => {
+    const rep = report(failing('f'), { ...failing('g'), status: 'flaky' });
+    expect(failingScreenshots(rep)).toHaveLength(1);
+    expect(failingScreenshots(rep, ['unexpected', 'flaky'])).toHaveLength(2);
+  });
+
+  it('strips ANSI and falls back when no diff line exists', () => {
+    const out = failingScreenshots(report(failing('x', 'dark', '\u001b[31mboom\u001b[39m')));
+    expect(out[0].diff).toBe('diff size unavailable');
+  });
+});
+
+describe('classifyFailures', () => {
+  const a = { id: '::a', project: 'dark', diff: 'd' };
+  const b = { id: '::b', project: 'dark', diff: 'd' };
+
+  it('new break: red here, not red on develop', () => {
+    const r = classifyFailures([a, b], [{ id: '::a', project: 'dark' }]);
+    expect(r.newBreaks).toEqual([b]);
+    expect(r.preExisting).toEqual([a]);
+    expect(r.developKnown).toBe(true);
+  });
+
+  it('same id in another project is a new break', () => {
+    const r = classifyFailures([{ ...a, project: 'light' }], [{ id: '::a', project: 'dark' }]);
+    expect(r.newBreaks).toHaveLength(1);
+  });
+
+  it('no develop artifact: nothing blocks', () => {
+    const r = classifyFailures([a], null);
+    expect(r).toEqual({ newBreaks: [], preExisting: [], developKnown: false });
+  });
+
+  it('own-baseline failures stay a separate rule', () => {
+    const changed = new Set([`${BASELINES_DIR}/dark/own.png`]);
+    const rep = report(testEntry({ title: 'own', expected: { name: 'own', path: '/repo/tests/visual/__baselines__/dark' } }));
+    expect(baselineProblems(rep, changed, '/repo')).toHaveLength(1);
+  });
+
+  it('zero-run is still caught by layout gate (no layout tests)', () => {
+    expect(layoutGateProblems({ suites: [] })).toContain('project `layout` ran zero tests');
+  });
+});
+
+describe('summaryMarkdown', () => {
+  const f = { id: '::a', project: 'dark', diff: '5 pixels (ratio 0.1 of all image pixels) are different' };
+  it('names new breaks with diff size and lists pre-existing', () => {
+    const md = summaryMarkdown({ newBreaks: [f], preExisting: [{ ...f, id: '::p' }], developKnown: true, owned: [] });
+    expect(md).toContain('New breaks');
+    expect(md).toContain('5 pixels');
+    expect(md).toContain('Pre-existing on develop');
+  });
+  it('says so when develop red set is missing', () => {
+    const md = summaryMarkdown({ newBreaks: [], preExisting: [], developKnown: false, owned: ['x'] });
+    expect(md).toContain('No develop red set available');
+    expect(md).toContain('Own baselines failing');
+  });
+});
+
+describe('neverRanCount', () => {
+  it('counts skipped tests with no result, not intentional skips', () => {
+    const never = { ...testEntry({ status: 'skipped', title: 'never' }), results: [] };
+    const intentional = testEntry({ status: 'skipped', title: 'skip()' });
+    expect(neverRanCount(report(never, intentional, testEntry({ status: 'expected' })))).toBe(1);
   });
 });

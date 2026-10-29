@@ -251,10 +251,14 @@ jobs:
           retention-days: 14
 
   visual:
-    name: Visual regression (advisory)
+    name: Visual regression (blocks new breaks)
     # Scheduled runs only carry branch-drift; skip the visual sweep on a timer.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    # github-script lists develop's runs to find the red-set artifact.
+    permissions:
+      contents: read
+      actions: read
     # The baselines under tests/visual/__baselines__/ carry no {platform} token
     # (see playwright.config.ts's snapshotPathTemplate), so they are valid for
     # exactly ONE rendering environment. This image is that environment, and its
@@ -266,7 +270,9 @@ jobs:
       # Depth 2, not the default 1: on a pull_request the checkout is the merge
       # commit, and scripts/visual-sweep-gate.mjs diffs HEAD^1..HEAD (the base
       # tip against the merge) to learn which baselines THIS PR added or
-      # changed. Their failures are blocking; everyone else's stay advisory.
+      # changed. Their failures are blocking, as is any screenshot that is red here
+      # but not in develop's red set; screenshots already red on develop stay
+      # advisory.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
@@ -303,18 +309,60 @@ jobs:
       - name: Typecheck the visual sweep
         run: npm run typecheck:visual
 
-      # Advisory while the suite settles: a fresh screenshot suite surfaces
-      # environmental noise unrelated to the PR under review, and a blocking
-      # check that cries wolf gets ignored. The uploaded report makes every
-      # diff inspectable in the meantime.
-      #
-      # Advisory covers PRE-EXISTING TEST FAILURES only — hence no
-      # `continue-on-error` here. scripts/visual-sweep-gate.mjs fails the job
-      # for two things a settling suite must never excuse: a run that produced
-      # zero executed tests (a webServer/startup crash; NDL-218), and, on a
-      # pull request, a baseline the PR itself added or changed that does not
-      # match its own screenshot (#769 — how 9 sandbox-recorded baselines
-      # landed on develop and stayed red).
+      # On a PR: fetch develop's red set (visual-red-develop.json, uploaded by
+      # every develop push run) so the gate can tell new breaks from inherited
+      # drift. Use the run for the PR's base sha, else the closest completed develop run
+      # NEWER than the base (never an older one: it would blame the PR for
+      # breaks already on develop; a red unrelated job must not switch the gate off). Any failure here leaves the set absent and the
+      # gate falls back to the own-baseline rule; a missing artifact never fails.
+      - name: Find develop's red set
+        id: develop-red
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const base = context.payload.pull_request.base.sha;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'ci.yml', branch: 'develop',
+              event: 'push', status: 'completed', per_page: 30,
+            });
+            // Newest first. Only the run for the base sha or a DESCENDANT of it
+            // is usable: an older run predates breaks already on develop and
+            // would blame this PR for them. Of the descendants take the oldest
+            // (closest to base). Once a run is older than base, all later are.
+            let nearest;
+            for (const run of data.workflow_runs) {
+              const { data: arts } = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: run.id, name: 'visual-red-develop',
+              });
+              if (arts.artifacts.length === 0 || arts.artifacts[0].expired) continue;
+              if (run.head_sha === base) { nearest = run.id; break; }
+              const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+                ...context.repo, basehead: `${base}...${run.head_sha}`,
+              });
+              if (cmp.status !== 'ahead') break;
+              nearest = run.id;
+            }
+            if (nearest) core.setOutput('run-id', nearest);
+
+      - name: Download develop's red set
+        id: develop-red-download
+        if: github.event_name == 'pull_request' && steps.develop-red.outputs.run-id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-red-develop
+          path: develop-red
+          run-id: ${{ steps.develop-red.outputs.run-id }}
+          github-token: ${{ github.token }}
+
+      # Blocking rules live in scripts/visual-sweep-gate.mjs, hence no
+      # `continue-on-error` here: it fails the job for a run that executed zero
+      # tests (NDL-218), a baseline the PR itself added or changed that does not
+      # match its own screenshot (#769), and on a PR a screenshot that fails
+      # here but is not red on develop. Screenshots red on develop stay
+      # advisory, and so does everything when no develop red set was fetched.
       - name: Run the visual sweep
         id: visual
         run: |
@@ -324,6 +372,9 @@ jobs:
           code=$?
           set -e
           echo "playwright-exit-code=${code}" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.develop-red-download.outcome }}" = "success" ]; then
+            export VISUAL_RED_DEVELOP="$PWD/develop-red/visual-red-develop.json"
+          fi
           node scripts/visual-sweep-gate.mjs
 
       - name: Publish the outcome to the run summary
@@ -333,7 +384,7 @@ jobs:
             echo '## Visual regression'
             echo
             echo "Sweep step outcome: \`${{ steps.visual.outcome }}\`"
-            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (pre-existing screenshot diffs are advisory; the gate fails the job when zero tests ran or when this PR's own added/changed baseline fails)"
+            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (screenshots already red on develop are advisory; the gate fails the job when zero tests ran, this PR's own added/changed baseline fails, or a screenshot is red here but not on develop)"
             echo
             if [ -f tests/visual/.results.json ]; then
               executed="$(node -e "const s = require('./tests/visual/.results.json').stats || {}; console.log((s.expected || 0) + (s.unexpected || 0) + (s.flaky || 0))" 2>/dev/null || echo 0)"
@@ -363,6 +414,17 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14
+
+      # Develop's red set (failed + flaky screenshots), consumed by PR runs (see "Find develop's red set").
+      # The gate writes it on every run; only develop pushes publish it.
+      - name: Upload develop's red set
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-red-develop
+          path: tests/visual/visual-red-develop.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   # Branch policy guard (NDL-52 phase 4.4): `main` is the release branch, so it
   # must only advance by promoting `develop` or by a `hotfix/*` branch. Any
