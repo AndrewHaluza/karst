@@ -3,7 +3,7 @@ import type { Severity } from '../manifest/types.js';
 import { SEVERITIES } from '../manifest/qualityDefaults.js';
 import { listFindings } from '../store/reviewFindings.js';
 import { findingIdentity } from '../store/findingIdentity.js';
-import type { StallAttempt } from './reviewStall.js';
+import type { StallAttempt } from '../model/reviewStall.js';
 
 /**
  * A ticket's blocking review findings grouped per review attempt, oldest first,

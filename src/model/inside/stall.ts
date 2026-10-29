@@ -1,7 +1,7 @@
 import type { Severity } from '../../manifest/types.js';
 import type { ReviewStallDetection } from '../../manifest/types.js';
 import type { Finding } from '../../store/reviewFindings.js';
-import { evaluateReviewStall, type StallAttempt } from '../../workflow/reviewStall.js';
+import { evaluateReviewStall, type StallAttempt } from '../reviewStall.js';
 import { isBlockingSeverity } from '../severityOrder.js';
 
 /** What the Inside review view shows about repeated blocking findings. */

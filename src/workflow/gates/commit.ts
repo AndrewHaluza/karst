@@ -19,7 +19,7 @@ import {
 } from '../../store/recoveryRounds.js';
 import { transition } from '../machine.js';
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
-import { evaluateReviewStall } from '../reviewStall.js';
+import { evaluateReviewStall } from '../../model/reviewStall.js';
 import { reviewStallAttempts } from '../reviewStallRead.js';
 import { nowIso } from '../../model/time.js';
 
