@@ -125,6 +125,7 @@ function* projectSpecs(node, project) {
         status: t.status,
         title: spec.title,
         file: spec.file,
+        resultCount: (t.results ?? []).length,
         errors: (t.results ?? []).map((result) => result.error?.message ?? ''),
         attachments: (t.results ?? []).flatMap((result) => result.attachments ?? []),
       };
@@ -188,6 +189,15 @@ export function failingScreenshots(rep, statuses = ['unexpected']) {
     });
   }
   return failing;
+}
+
+/**
+ * Tests Playwright never started (no result at all, e.g. the run was cut short
+ * by maxFailures or an interrupt). An intentional `testInfo.skip()` still
+ * leaves a result, so it does not count.
+ */
+export function neverRanCount(rep) {
+  return [...projectSpecs(rep, undefined)].filter((s) => s.status === 'skipped' && s.resultCount === 0).length;
 }
 
 const redKey = (f) => `${f.project}|${f.id}`;
@@ -285,8 +295,15 @@ function main() {
   // Every run records its red set; the workflow uploads it from develop pushes.
   // Flaky screenshots (failed, then passed on retry) are unstable, not a clean
   // baseline: record them as red so a flake on develop never blames a PR.
+  // A partial sweep (tests that never started) would leave those tests out of
+  // the red set and blame the next PR for them, so it publishes nothing.
   const unstable = failingScreenshots(report, ['unexpected', 'flaky']);
-  writeFileSync(RED_PATH, JSON.stringify(unstable.map(({ id, project }) => ({ id, project }))));
+  const notStarted = neverRanCount(report);
+  if (notStarted === 0) {
+    writeFileSync(RED_PATH, JSON.stringify(unstable.map(({ id, project }) => ({ id, project }))));
+  } else {
+    console.warn(`visual-sweep-gate: ${notStarted} test(s) never started; not publishing a red set.`);
+  }
 
   const isPr = process.env.GITHUB_EVENT_NAME === 'pull_request';
   const { newBreaks, preExisting, developKnown } = classifyFailures(failing, isPr ? readDevelopRed() : null);

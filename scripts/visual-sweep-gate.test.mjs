@@ -7,6 +7,7 @@ import {
   summaryMarkdown,
   gitArgs,
   layoutGateProblems,
+  neverRanCount,
   prChangedBaselines,
   repoRelative,
   BASELINES_DIR,
@@ -282,5 +283,13 @@ describe('summaryMarkdown', () => {
     const md = summaryMarkdown({ newBreaks: [], preExisting: [], developKnown: false, owned: ['x'] });
     expect(md).toContain('No develop red set available');
     expect(md).toContain('Own baselines failing');
+  });
+});
+
+describe('neverRanCount', () => {
+  it('counts skipped tests with no result, not intentional skips', () => {
+    const never = { ...testEntry({ status: 'skipped', title: 'never' }), results: [] };
+    const intentional = testEntry({ status: 'skipped', title: 'skip()' });
+    expect(neverRanCount(report(never, intentional, testEntry({ status: 'expected' })))).toBe(1);
   });
 });

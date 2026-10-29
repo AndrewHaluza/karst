@@ -311,8 +311,9 @@ jobs:
 
       # On a PR: fetch develop's red set (visual-red-develop.json, uploaded by
       # every develop push run) so the gate can tell new breaks from inherited
-      # drift. Prefer the run for the PR's base sha, else the newest completed develop run
-      # that has the artifact (a red unrelated job must not switch the gate off). Any failure here leaves the set absent and the
+      # drift. Use the run for the PR's base sha, else the closest completed develop run
+      # NEWER than the base (never an older one: it would blame the PR for
+      # breaks already on develop; a red unrelated job must not switch the gate off). Any failure here leaves the set absent and the
       # gate falls back to the own-baseline rule; a missing artifact never fails.
       - name: Find develop's red set
         id: develop-red
@@ -326,16 +327,24 @@ jobs:
               ...context.repo, workflow_id: 'ci.yml', branch: 'develop',
               event: 'push', status: 'completed', per_page: 30,
             });
-            let newest;
+            // Newest first. Only the run for the base sha or a DESCENDANT of it
+            // is usable: an older run predates breaks already on develop and
+            // would blame this PR for them. Of the descendants take the oldest
+            // (closest to base). Once a run is older than base, all later are.
+            let nearest;
             for (const run of data.workflow_runs) {
               const { data: arts } = await github.rest.actions.listWorkflowRunArtifacts({
                 ...context.repo, run_id: run.id, name: 'visual-red-develop',
               });
               if (arts.artifacts.length === 0 || arts.artifacts[0].expired) continue;
-              if (run.head_sha === base) { core.setOutput('run-id', run.id); return; }
-              newest ??= run.id;
+              if (run.head_sha === base) { nearest = run.id; break; }
+              const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+                ...context.repo, basehead: `${base}...${run.head_sha}`,
+              });
+              if (cmp.status !== 'ahead') break;
+              nearest = run.id;
             }
-            if (newest) core.setOutput('run-id', newest);
+            if (nearest) core.setOutput('run-id', nearest);
 
       - name: Download develop's red set
         id: develop-red-download
