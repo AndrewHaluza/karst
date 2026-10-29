@@ -24,7 +24,7 @@ import { basename } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hasBinary } from './onPath.mjs';
-import { gateGrep, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
+import { gateGrep, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -176,6 +176,18 @@ export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_
   return null;
 }
 
+/** `playwright test --list` totals with and without the grep, or null (best effort: the line just omits counts). */
+function countTests(script, grep) {
+  const project = script === 'test:layout:docker' ? ['--project=layout'] : [];
+  const total = (env) => {
+    const run = spawnSync('npx', ['playwright', 'test', '--list', ...project], { encoding: 'utf8', env });
+    return run.status === 0 ? parseListTotal(run.stdout) : null;
+  };
+  const all = total({ ...process.env, KARST_UI_GREP: '' });
+  const selected = grep === null ? all : total({ ...process.env, KARST_UI_GREP: grep });
+  return all === null || selected === null ? null : { selected, total: all };
+}
+
 /** Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full. */
 export function narrowSweep(script) {
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return;
@@ -190,7 +202,9 @@ export function narrowSweep(script) {
     // Unreadable section list: run the full sweep.
   }
   if (grep !== null) process.env.KARST_UI_GREP = grep;
-  console.error(selectionLine(script, grep === null ? { all: true, views: [] } : selection));
+  console.error(
+    selectionLine(script, grep === null ? { all: true, views: [] } : selection, countTests(script, grep)),
+  );
 }
 
 function main(argv) {

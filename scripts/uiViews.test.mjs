@@ -6,6 +6,7 @@ import {
   gateGrep,
   readSettingsSections,
   selectViews,
+  parseListTotal,
   selectionLine,
 } from './uiViews.mjs';
 
@@ -99,6 +100,17 @@ describe('selectionLine', () => {
       'visual: running dashboard, status; full sweep runs in CI',
     );
     expect(selectionLine('test:layout:docker', { all: true, views: [] })).toContain('every view');
+  });
+
+  it('adds the test counts when known', () => {
+    expect(selectionLine('test:visual:docker', { all: false, views: ['dashboard'] }, { selected: 212, total: 1850 })).toBe(
+      'visual: running dashboard — 212 of 1,850 tests; full sweep runs in CI',
+    );
+  });
+
+  it('reads the total from a playwright listing', () => {
+    expect(parseListTotal('a\nTotal: 691 tests in 11 files\n')).toBe(691);
+    expect(parseListTotal('boom')).toBeNull();
   });
 });
 

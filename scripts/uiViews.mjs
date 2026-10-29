@@ -83,8 +83,15 @@ export function gateGrep(selection, settingsSections) {
 }
 
 /** The line printed at the top of the gate output. */
-export function selectionLine(script, selection) {
+export function selectionLine(script, selection, counts = null) {
   const name = script.replace(/^test:/, '').replace(/:docker$/, '');
-  if (selection.all) return `${name}: running every view; full sweep also runs in CI`;
-  return `${name}: running ${selection.views.join(', ')}; full sweep runs in CI`;
+  const tests = counts ? ` — ${counts.selected.toLocaleString('en-US')} of ${counts.total.toLocaleString('en-US')} tests` : '';
+  if (selection.all) return `${name}: running every view${tests}; full sweep also runs in CI`;
+  return `${name}: running ${selection.views.join(', ')}${tests}; full sweep runs in CI`;
+}
+
+/** The N in playwright's `Total: N tests in M files`, or null when the listing is unreadable. */
+export function parseListTotal(output) {
+  const match = /Total: (\d+) tests?/.exec(output);
+  return match ? Number(match[1]) : null;
 }
