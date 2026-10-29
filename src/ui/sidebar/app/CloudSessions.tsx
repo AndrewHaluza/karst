@@ -6,22 +6,83 @@
  */
 import type { CloudSessionChip, TicketRow, UnlinkedCloudSession } from '../state.js';
 import { ActButton } from './action.js';
-import { allRows } from './format.js';
+import { allRows, relTime } from './format.js';
 import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
 
 const openSpec = (url: string) => ({ act: 'cloud-session-open', url });
 
-/** One icon link per session, in the row's right-edge slot (outside the row's open button, UI-R09). */
-export function CloudLinks({ sessions }: { readonly sessions: readonly CloudSessionChip[] }) {
+function groupByProvider(sessions: readonly CloudSessionChip[]): Map<string, CloudSessionChip[]> {
+  const groups = new Map<string, CloudSessionChip[]>();
+  for (const s of sessions) {
+    const list = groups.get(s.provider);
+    if (list) list.push(s);
+    else groups.set(s.provider, [s]);
+  }
+  return groups;
+}
+
+export function sessionMenuItems(sessions: readonly CloudSessionChip[]): MenuItem[] {
+  return sessions.map((c) => {
+    const time = relTime(c.firstSeen);
+    const label = time ? `${time} (${c.linkSource})` : c.linkSource;
+    return {
+      key: `cloud:${c.url}`,
+      spec: openSpec(c.url),
+      label,
+      icon: 'cloud',
+      title: `Open in ${c.label}`,
+    };
+  });
+}
+
+/** One icon link per provider; opens the session directly when 1, or a menu when several. */
+export function CloudLinks({
+  sessions,
+  ticketId,
+}: {
+  readonly sessions: readonly CloudSessionChip[];
+  readonly ticketId?: number;
+}) {
+  const { menu, openMenu, closeMenu } = useSidebar();
+  const groups = groupByProvider(sessions);
+
   return (
     <span className="cloudlinks">
-      {sessions.map((c) => (
-        <IconAct key={c.url} spec={openSpec(c.url)} label={`Open in ${c.label}`} data-cloud="1">
-          <Icon name="cloud" />
-        </IconAct>
-      ))}
+      {[...groups.entries()].map(([provider, providerSessions]) => {
+        if (providerSessions.length === 1) {
+          const c = providerSessions[0]!;
+          return (
+            <IconAct key={provider} spec={openSpec(c.url)} label={`Open in ${c.label}`} data-cloud="1">
+              <Icon name="cloud" />
+            </IconAct>
+          );
+        }
+        const first = providerSessions[0]!;
+        const owner = `cloud:${ticketId ?? ''}:${provider}`;
+        const menuOpen = menu?.owner === owner;
+        const label = `Open in ${first.label} · ${providerSessions.length} sessions`;
+        return (
+          <button
+            key={provider}
+            type="button"
+            className="k-iconbtn"
+            data-cloud="1"
+            data-menu={owner}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label={label}
+            title={label}
+            onClick={(e) => {
+              if (menuOpen) closeMenu(true);
+              else openMenu(e.currentTarget, owner, sessionMenuItems(providerSessions));
+            }}
+          >
+            <Icon name="cloud" />
+          </button>
+        );
+      })}
     </span>
   );
 }

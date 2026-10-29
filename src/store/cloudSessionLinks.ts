@@ -43,6 +43,7 @@ export interface CloudSessionLinkRow {
   /** Set only while the session hangs on a live draft that has no ticket yet. */
   proposalId: number | null;
   linkSource: CloudLinkSource | null;
+  firstSeen: string;
 }
 
 /**
@@ -104,6 +105,7 @@ export function listCloudSessionLinks(
     .prepare(
       `SELECT l.id, l.provider, l.url, l.link_source AS linkSource,
               l.ticket_id AS ownTicket, l.proposal_id AS proposalId,
+              l.first_seen AS firstSeen,
               p.status AS pStatus, p.ticket_id AS pTicket
          FROM cloud_session_links l
          LEFT JOIN planning_proposals p ON p.id = l.proposal_id
@@ -117,6 +119,7 @@ export function listCloudSessionLinks(
     linkSource: CloudLinkSource | null;
     ownTicket: number | null;
     proposalId: number | null;
+    firstSeen: string;
     pStatus: string | null;
     pTicket: number | null;
   }[];
@@ -130,6 +133,7 @@ export function listCloudSessionLinks(
       ticketId,
       proposalId: ticketId === null && live ? r.proposalId : null,
       linkSource: r.linkSource,
+      firstSeen: r.firstSeen,
     };
   });
 }
