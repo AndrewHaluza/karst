@@ -190,12 +190,6 @@ function fixtureQuota(overrides: Partial<QuotaView> = {}): QuotaView {
           }),
         ],
       }),
-      fixtureQuotaRow({
-        core: 'opencode2',
-        label: 'OpenCode v2',
-        state: 'unknown',
-        reason: 'no OpenCode Go key in /karst/opencode2/data/opencode/auth.json',
-      }),
     ],
     ...overrides,
   };

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { buildUsageState } from './state.js';
+import type { QuotaSnapshot } from '../../agent/quota/types.js';
 
 let store: Store;
 
@@ -320,5 +321,19 @@ describe('usage totals — fresh spend and reasoning', () => {
     expect(totals.totalExact).toBe('260,528');
     expect(totals.cacheReadDisplay).toBe('3.7M');
     expect(totals.reasoningDisplay).toBe('40.5k');
+  });
+});
+
+describe('usage state quota rows', () => {
+  it('maps quota snapshots for probed cores without an opencode2 row', () => {
+    const snapshots: QuotaSnapshot[] = [
+      { core: 'claude', state: 'unknown', reason: 'no source' },
+      { core: 'codex', state: 'unknown', reason: 'no source' },
+      { core: 'antigravity', state: 'unknown', reason: 'no source' },
+      { core: 'opencode', state: 'unknown', reason: 'no source' },
+    ];
+    const state = buildUsageState(store, { projectId: 1, quota: snapshots, now: NOW });
+    expect(state.quota.rows.map((r) => r.core)).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(state.quota.rows.find((r) => r.core === 'opencode2')).toBeUndefined();
   });
 });
