@@ -448,6 +448,10 @@ export const COVERED: readonly ParityCase[] = [
     act: `usage-limit-${k}`, state: () => blockedState('usage-limit', false), sel: act(`usage-limit-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `usage-limit-${k}`, ticketId: 942017, stageKey: 'uat' }], rid: true,
   })),
+  ...(['hint', 'continue', 'rescope'] as const).map((k): ParityCase => ({
+    act: `review-stall-${k}`, state: () => blockedState('review-stalled', false), sel: act(`review-stall-${k}`, '[data-stagekey="uat"]'),
+    posts: [{ type: `review-stall-${k}` }], rid: true,
+  })),
   {
     act: 'baseline-approve', variant: 'one row', state: baselineState, sel: act('baseline-approve', '[data-indices="1"]'),
     posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [1] }], rid: true,
