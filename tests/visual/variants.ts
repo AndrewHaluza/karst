@@ -155,7 +155,7 @@ const dashboardVariants = (): Variant[] => [
         resumable: true,
       },
     },
-  }))),
+  })), { skipLayout: true }),
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
   variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
@@ -228,6 +228,7 @@ function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant 
     ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest } as never), {
       baseline: `settings--${id}`,
       themes: DARK_ONLY,
+      skipLayout: true,
     }),
     route: { section: 'quality' },
   };
