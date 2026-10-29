@@ -591,9 +591,9 @@ describe('settings actions — save carries installedIds', () => {
 });
 
 describe('settings actions — installApproach', () => {
-  it('unknown id: posts error, does NOT call installer', () => {
+  it('unknown id: posts error, does NOT call installer, rejects for the receipt', async () => {
     const { actions, posted, order } = harness();
-    actions.installApproach('nope');
+    await expect(actions.installApproach('nope')).rejects.toThrow('Unknown approach "nope".');
     expect(order).not.toContain('install');
     const e = posted.find((m) => m.type === 'error');
     expect((e as any).message).toMatch(/Unknown approach "nope"/);
@@ -612,13 +612,14 @@ describe('settings actions — installApproach', () => {
     expect((s as any).state.installedIds).toEqual(['a']);
   });
 
-  it('installer rejects: posts error', async () => {
+  it('installer rejects: posts error, still re-pushes state, then rejects for the receipt', async () => {
     const { actions, posted } = harness({
       installApproach: async () => { throw new Error('boom'); },
     });
-    await actions.installApproach('a');
+    await expect(actions.installApproach('a')).rejects.toThrow('boom');
     const e = posted.find((m) => m.type === 'error');
     expect((e as any).message).toBe('boom');
+    expect(posted.some((m) => m.type === 'state')).toBe(true);
   });
 });
 
@@ -732,7 +733,7 @@ describe('settings actions — installApproach npm-source confirm', () => {
       installApproach: async () => { throw new Error('collected nothing installable'); },
       listInstalledIds: () => [],
     });
-    await actions.installApproach('rpi');
+    await expect(actions.installApproach('rpi')).rejects.toThrow('collected nothing installable');
     expect((posted.find((m) => m.type === 'error') as any).message).toBe(
       'collected nothing installable',
     );
@@ -753,7 +754,7 @@ describe('settings actions — installApproach npm-source confirm', () => {
       installApproach: async () => { throw new Error('fetch failed'); },
       listInstalledIds: () => ['rpi'],
     });
-    await actions.installApproach('rpi');
+    await expect(actions.installApproach('rpi')).rejects.toThrow('fetch failed');
     expect(order).not.toContain('write');
   });
 });
@@ -843,11 +844,11 @@ describe('settings actions — uninstallApproach', () => {
     expect(order).not.toContain('write');
   });
 
-  it('uninstaller throws: posts error', async () => {
+  it('uninstaller throws: posts error and rejects for the receipt', async () => {
     const { actions, posted } = harness({
       uninstallApproach: () => { throw new Error('cannot remove'); },
     });
-    await actions.uninstallApproach('a');
+    await expect(actions.uninstallApproach('a')).rejects.toThrow('cannot remove');
     const e = posted.find((m) => m.type === 'error');
     expect((e as any).message).toBe('cannot remove');
   });

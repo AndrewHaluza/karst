@@ -36,7 +36,7 @@
  */
 // @vitest-environment jsdom
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within as rtlWithin } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ApproachDef, Manifest } from '../../../../manifest/types.js';
 import {
@@ -702,5 +702,100 @@ describe('ApproachesSection — graph limit writes', () => {
     // Typing the value back re-creates it through the same spread write.
     setField('gf-limit-maxAgentWallSeconds', '7200');
     expect(graphApproach().graph!.limits.maxAgentWallSeconds).toBe(7200);
+  });
+});
+
+describe('roster Install / Uninstall actions (UI-R11 receipt pattern)', () => {
+  const SECOND: Manifest = {
+    ...BASE,
+    approaches: [
+      ...(BASE.approaches ?? []),
+      {
+        id: 'other',
+        label: 'Other',
+        source: { type: 'git', repo: 'https://example.test/b', include: ['**'] },
+      } as unknown as ApproachDef,
+    ],
+  };
+
+  const btn = (id: string, name: string): HTMLButtonElement =>
+    rtlWithin(card(id)).getByRole('button', { name }) as HTMLButtonElement;
+  const settle = (bridge: TestBridge, type: 'install-approach' | 'uninstall-approach', ok: boolean, message?: string) =>
+    act(() =>
+      bridge.push({
+        type: 'action-result',
+        requestId: bridge.last(type)?.requestId as string,
+        ok,
+        ...(message ? { message } : {}),
+      }),
+    );
+
+  it('Install posts install-approach for that row, goes busy, ignores a repeat click', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('remote', 'Install'));
+    fireEvent.click(btn('remote', 'Install'));
+    expect(bridge.all('install-approach')).toHaveLength(1);
+    expect(bridge.last('install-approach')).toMatchObject({ id: 'remote' });
+    expect(bridge.last('install-approach')?.requestId).toBeTruthy();
+    expect(btn('remote', 'Install').getAttribute('aria-busy')).toBe('true');
+    // Only this row is busy.
+    expect(btn('other', 'Install').getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('Install failure shows the message on that row only and re-enables Install', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('remote', 'Install'));
+    settle(bridge, 'install-approach', false, 'GitHub returned 403');
+    expect(rtlWithin(card('remote')).getByRole('alert').textContent).toContain('GitHub returned 403');
+    expect(rtlWithin(card('other')).queryByRole('alert')).toBeNull();
+    expect(btn('remote', 'Install').disabled).toBe(false);
+    expect(btn('remote', 'Install').getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('Install success leaves busy and, after the state push, offers Uninstall', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('remote', 'Install'));
+    settle(bridge, 'install-approach', true);
+    act(() => bridge.push({ type: 'state', state: stateFor(SECOND, ['tdd', 'remote']) }));
+    expect(btn('remote', 'Uninstall')).toBeTruthy();
+    expect(rtlWithin(card('remote')).queryByRole('button', { name: 'Install' })).toBeNull();
+  });
+
+  it('Uninstall asks first: no request until confirmed; Cancel sends nothing', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('tdd', 'Uninstall'));
+    expect(bridge.all('uninstall-approach')).toHaveLength(0);
+    fireEvent.click(rtlWithin(card('tdd')).getByRole('button', { name: 'Cancel' }));
+    expect(bridge.all('uninstall-approach')).toHaveLength(0);
+    expect(btn('tdd', 'Uninstall')).toBeTruthy();
+  });
+
+  it('Uninstall confirm posts uninstall-approach, goes busy, ignores repeats', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('tdd', 'Uninstall'));
+    const confirm = rtlWithin(card('tdd')).getByRole('button', { name: 'Confirm uninstall' });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(bridge.all('uninstall-approach')).toHaveLength(1);
+    expect(bridge.last('uninstall-approach')).toMatchObject({ id: 'tdd' });
+    expect(rtlWithin(card('tdd')).getByRole('button', { name: /Uninstall/ }).getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('Uninstall failure shows the message on the row', () => {
+    const { bridge } = mount(SECOND);
+    fireEvent.click(btn('tdd', 'Uninstall'));
+    fireEvent.click(rtlWithin(card('tdd')).getByRole('button', { name: 'Confirm uninstall' }));
+    settle(bridge, 'uninstall-approach', false, 'cannot remove');
+    expect(rtlWithin(card('tdd')).getByRole('alert').textContent).toContain('cannot remove');
+    expect(btn('tdd', 'Uninstall').disabled).toBe(false);
+  });
+
+  it('Uninstall success then state push shows Install', () => {
+    const { bridge } = mount(SECOND, ['remote']);
+    fireEvent.click(btn('remote', 'Uninstall'));
+    fireEvent.click(rtlWithin(card('remote')).getByRole('button', { name: 'Confirm uninstall' }));
+    settle(bridge, 'uninstall-approach', true);
+    act(() => bridge.push({ type: 'state', state: stateFor(SECOND, []) }));
+    expect(btn('remote', 'Install')).toBeTruthy();
   });
 });
