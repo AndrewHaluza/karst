@@ -36,7 +36,7 @@ function scenario(root: string) {
   git(host, 'checkout', '-q', 'feat');
   git(host, 'rebase', '-q', 'main');
   // What the runner's fetch leaves behind.
-  git(host, 'fetch', '-q', clone, 'refs/heads/feat');
+  git(host, 'fetch', '-q', '--no-write-fetch-head', clone, '+refs/heads/feat:refs/karst/sandbox/feat');
   return { host, clone, recorded, cloneHead: git(clone, 'rev-parse', 'HEAD') };
 }
 
@@ -51,6 +51,13 @@ describe('rewrite classification and carry (real git)', () => {
 
   it('rewritten: the recorded head is in the clone and not in the rebased host branch', async () => {
     const s = scenario(root);
+    const out = await classifyDivergence(run, { worktree: s.host, branch: 'feat', recorded: s.recorded });
+    expect(out).toEqual({ kind: 'rewritten', recorded: s.recorded, cloneHead: s.cloneHead });
+  });
+
+  it('an unrelated fetch that truncates FETCH_HEAD does not change the verdict', async () => {
+    const s = scenario(root);
+    git(s.host, 'fetch', '-q', s.clone, 'refs/heads/feat'); // rewrites the shared FETCH_HEAD
     const out = await classifyDivergence(run, { worktree: s.host, branch: 'feat', recorded: s.recorded });
     expect(out).toEqual({ kind: 'rewritten', recorded: s.recorded, cloneHead: s.cloneHead });
   });
@@ -107,7 +114,7 @@ describe('rewrite classification and carry (real git)', () => {
   it('carry op: recreates the clone without the pre-remove sync, then the next sync fast-forwards', async () => {
     const s = scenario(root);
     let clone = s.clone;
-    const runner = { fetchClone: async () => { git(s.host, 'fetch', '-q', clone, 'refs/heads/feat'); return { ok: true as const }; } } as unknown as SessionRunner;
+    const runner = { fetchClone: async () => { git(s.host, 'fetch', '-q', '--no-write-fetch-head', clone, '+refs/heads/feat:refs/karst/sandbox/feat'); return { ok: true as const }; } } as unknown as SessionRunner;
     const errors: string[] = [];
     const reopen = vi.fn(async () => {
       // The recreated clone starts from the carried host branch.
@@ -126,8 +133,8 @@ describe('rewrite classification and carry (real git)', () => {
     expect(reopen).toHaveBeenCalledWith(7);
     writeFileSync(join(clone, 'later.txt'), 'later\n');
     git(clone, 'add', '.'); git(clone, 'commit', '-qm', 'agent three');
-    git(s.host, 'fetch', '-q', clone, 'refs/heads/feat');
-    git(s.host, 'merge', '--ff-only', 'FETCH_HEAD');
+    git(s.host, 'fetch', '-q', '--no-write-fetch-head', clone, '+refs/heads/feat:refs/karst/sandbox/feat');
+    git(s.host, 'merge', '--ff-only', 'refs/karst/sandbox/feat');
     expect(git(s.host, 'log', '--format=%s', '-1')).toBe('agent three');
   });
 
@@ -136,7 +143,7 @@ describe('rewrite classification and carry (real git)', () => {
     let n = 0;
     const runner = { fetchClone: async () => {
       if (n++ === 1) { writeFileSync(join(s.clone, 'late.txt'), 'late\n'); git(s.clone, 'add', '.'); git(s.clone, 'commit', '-qm', 'late'); }
-      git(s.host, 'fetch', '-q', s.clone, 'refs/heads/feat');
+      git(s.host, 'fetch', '-q', '--no-write-fetch-head', s.clone, '+refs/heads/feat:refs/karst/sandbox/feat');
       return { ok: true as const };
     } } as unknown as SessionRunner;
     const errors: string[] = [];

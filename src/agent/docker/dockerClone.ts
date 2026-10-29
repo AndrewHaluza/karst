@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
-import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
+import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead } from '../cloneSyncClass.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -119,7 +119,7 @@ export async function syncFromClone(ctx: CloneContext, input: CloneInput): Promi
   }
 }
 
-/** Bundle the clone's branch out of the volume and fetch it into the host worktree (leaves FETCH_HEAD). */
+/** Bundle the clone's branch out of the volume and fetch it into the private `refs/karst/sandbox/<branch>` of the host worktree (FETCH_HEAD is never written). */
 async function fetchCloneBundle(ctx: CloneContext, input: CloneInput, dir: string): Promise<StepResult> {
   const bundled = await ctx.proc.run(DOCKER_BIN, helper(
     ctx,
@@ -127,7 +127,7 @@ async function fetchCloneBundle(ctx: CloneContext, input: CloneInput, dir: strin
     ['git', '-c', 'safe.directory=*', '-C', CONTAINER_REPO, 'bundle', 'create', `${BUNDLE_DIR}/out.bundle`, input.branch],
   ));
   if (bundled.code !== 0) return { ok: false, reason: `no sandbox clone to sync from: ${detail(bundled)}` };
-  const fetched = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'fetch', join(dir, 'out.bundle'), `refs/heads/${input.branch}`]);
+  const fetched = await ctx.proc.run('git', ['-C', input.hostWorktreePath, ...fetchSandboxBundleArgs(join(dir, 'out.bundle'), input.branch)]);
   if (fetched.code !== 0) return { ok: false, reason: `git fetch of the sandbox bundle failed: ${detail(fetched)}` };
   return { ok: true };
 }
@@ -137,18 +137,20 @@ async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<
   return withTemp(ctx.temp, async (dir) => {
     const fetched = await fetchCloneBundle(ctx, input, dir);
     if (!fetched.ok) return fetched;
-    const relation = await classifyCloneRelation(async (older, newer) => (await git(['merge-base', '--is-ancestor', older, newer])).code === 0);
+    const head = await resolveSandboxHead(git, input.branch);
+    if (!head.ok) return head;
+    const relation = await classifyCloneRelation(head.sha, async (older, newer) => (await git(['merge-base', '--is-ancestor', older, newer])).code === 0);
     if (relation === 'behind') return { ok: true, summary: BEHIND_SUMMARY };
     if (relation === 'diverged') {
       return { ok: false, reason: `refused: the sandbox's ${input.branch} is not a fast-forward of the host branch (never forced)` };
     }
-    const merged = await git(['merge', '--ff-only', 'FETCH_HEAD']);
+    const merged = await git(['merge', '--ff-only', head.sha]);
     if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only failed: ${detail(merged)}` };
     return { ok: true, summary: `fast-forwarded ${input.branch} to the docker sandbox's commits` };
   });
 }
 
-/** Fetch the clone's branch into the host worktree's FETCH_HEAD and stop; nothing is merged. */
+/** Fetch the clone's branch into the host worktree's private sandbox ref and stop; nothing is merged. */
 export async function fetchFromClone(ctx: CloneContext, input: CloneInput): Promise<StepResult> {
   try {
     return await withTemp(ctx.temp, (dir) => fetchCloneBundle(ctx, input, dir));
@@ -163,9 +165,11 @@ export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promi
     return await withTemp(ctx.temp, async (dir) => {
       const fetched = await fetchCloneBundle(ctx, input, dir);
       if (!fetched.ok) return fetched;
-      const diff = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'diff', 'HEAD...FETCH_HEAD']);
+      const head = await resolveSandboxHead((args) => ctx.proc.run('git', ['-C', input.hostWorktreePath, ...args]), input.branch);
+      if (!head.ok) return head;
+      const diff = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'diff', `HEAD...${head.sha}`]);
       if (diff.code !== 0) return { ok: false as const, reason: `git diff failed: ${detail(diff)}` };
-      return { ok: true as const, diff: diff.stdout, ref: 'FETCH_HEAD' };
+      return { ok: true as const, diff: diff.stdout, ref: head.sha };
     });
   } catch (err) {
     return { ok: false, reason: `docker diff failed: ${err instanceof Error ? err.message : String(err)}` };

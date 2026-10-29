@@ -17,7 +17,7 @@ import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
-import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
+import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
 import { listSbx } from './sbxList.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -92,7 +92,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const listed = async (): Promise<boolean> => (await probe()).state === 'present';
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
   /**
-   * Bring the sandbox's branch into the host worktree as FETCH_HEAD. The bundle
+   * Bring the sandbox's branch into the host worktree as the private `refs/karst/sandbox/<branch>` (never FETCH_HEAD). The bundle
    * is made INSIDE the sandbox (`sbx exec`) and streamed back as base64, so the
    * host never runs git with cwd in the agent-written clone nor reads its config
    * (hooks, fsmonitor, `ext::` remotes: arch:AC-31/AC-34). The host fetches only
@@ -108,7 +108,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (bytes.length === 0) return { ok: false as const, reason: 'sandbox returned an empty bundle' };
       const path = await xfer.write('out.bundle', bytes);
       await xfer.verified('out.bundle');
-      const fetched = await opts.proc.run('git', [...HARDENED_GIT, '-C', wt, 'fetch', path, `refs/heads/${branch}`], { env: HARDENED_ENV });
+      const fetched = await opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...fetchSandboxBundleArgs(path, branch)], { env: HARDENED_ENV });
       return fetched.code === 0 ? { ok: true as const } : { ok: false as const, reason: `git fetch of the sandbox bundle failed: ${fetched.stderr.trim()}` };
     }).catch((err: unknown) => ({ ok: false as const, reason: `sbx sync failed: ${err instanceof Error ? err.message : String(err)}` }));
   const runner: SessionRunner = {
@@ -180,14 +180,15 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const wt = ticket.hostWorktreePath;
       const fetched = await fetchSandbox(wt, ticket.branch);
       if (!fetched.ok) return fetched;
-      const ref = 'FETCH_HEAD';
-      const relation = await classifyCloneRelation(async (older, newer) => (await git(wt, ['merge-base', '--is-ancestor', older, newer])).code === 0);
+      const head = await resolveSandboxHead((args) => git(wt, args), ticket.branch);
+      if (!head.ok) return head;
+      const relation = await classifyCloneRelation(head.sha, async (older, newer) => (await git(wt, ['merge-base', '--is-ancestor', older, newer])).code === 0);
       if (relation === 'behind') return { ok: true, summary: BEHIND_SUMMARY };
       if (relation === 'diverged') {
         return { ok: false, reason: `refused: the sandbox's ${ticket.branch} is not a fast-forward of the host branch (never forced)` };
       }
-      const merged = await git(wt, ['merge', '--ff-only', ref]);
-      if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${ref} failed: ${merged.stderr.trim()}` };
+      const merged = await git(wt, ['merge', '--ff-only', head.sha]);
+      if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${head.sha} failed: ${merged.stderr.trim()}` };
       return { ok: true, summary: `fast-forwarded ${ticket.branch} to the sbx sandbox's commits` };
     },
     // Host → sandbox (F8): the host writes its bundle into the bridge's xfer/ and the
@@ -219,10 +220,11 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const wt = ticket.hostWorktreePath;
       const fetched = await fetchSandbox(wt, ticket.branch);
       if (!fetched.ok) return fetched;
-      const ref = 'FETCH_HEAD';
-      const diff = await git(wt, ['diff', `HEAD...${ref}`]);
+      const head = await resolveSandboxHead((args) => git(wt, args), ticket.branch);
+      if (!head.ok) return head;
+      const diff = await git(wt, ['diff', `HEAD...${head.sha}`]);
       if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
-      return { ok: true, diff: diff.stdout, ref };
+      return { ok: true, diff: diff.stdout, ref: head.sha };
     },
     // Stopped, not removed: `sbx run --name` restarts it on the next open.
     stop: async (): Promise<void> => {

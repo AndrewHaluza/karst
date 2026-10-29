@@ -7,6 +7,8 @@ import { fakeDockerProcess } from './fakeDockerProcess.js';
 const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
 const WT = '/w t';
 const input = { hostWorktreePath: WT, branch: 'feat/x' };
+const SHA = 'a'.repeat(40);
+const HEAD_KEY = `git -C ${WT} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`;
 
 function fakeTemp(): TempDirs & { removed: string[] } {
   const removed: string[] = [];
@@ -114,21 +116,22 @@ describe('syncFromClone', () => {
 
   it('bundles out of the read-only clone, fetches and fast-forwards', async () => {
     const temp = fakeTemp();
-    const proc = fakeDockerProcess();
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA } });
     await expect(syncFromClone(ctx(proc, temp), input)).resolves.toEqual({
       ok: true, summary: "fast-forwarded feat/x to the docker sandbox's commits",
     });
     expect(lines(proc)).toEqual([
       `docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${RO} --mount type=bind,source=/tmp/k1,target=/bundle ${OPENCODE_IMAGE} git -c safe.directory=* -C /work/repo bundle create /bundle/out.bundle feat/x`,
-      'git -C /w t fetch /tmp/k1/out.bundle refs/heads/feat/x',
-      'git -C /w t merge-base --is-ancestor HEAD FETCH_HEAD',
-      'git -C /w t merge --ff-only FETCH_HEAD',
+      'git -C /w t fetch --no-write-fetch-head /tmp/k1/out.bundle +refs/heads/feat/x:refs/karst/sandbox/feat/x',
+      'git -C /w t rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}',
+      `git -C /w t merge-base --is-ancestor HEAD ${SHA}`,
+      `git -C /w t merge --ff-only ${SHA}`,
     ]);
     expect(temp.removed).toEqual(['/tmp/k1']);
   });
 
   it('refuses a non-fast-forward and never merges', async () => {
-    const proc = fakeDockerProcess({ 'git -C /w t merge-base': { code: 1 } });
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA }, 'git -C /w t merge-base': { code: 1 } });
     const result = await syncFromClone(ctx(proc), input);
     expect(result).toEqual({ ok: false, reason: "refused: the sandbox's feat/x is not a fast-forward of the host branch (never forced)" });
     expect(lines(proc).some((l) => l.includes('merge --ff-only'))).toBe(false);
@@ -136,11 +139,28 @@ describe('syncFromClone', () => {
 
   it('a clone BEHIND the host is a no-op ok and never merges', async () => {
     const proc = fakeDockerProcess({
-      'git -C /w t merge-base --is-ancestor HEAD FETCH_HEAD': { code: 1 },
-      'git -C /w t merge-base --is-ancestor FETCH_HEAD HEAD': { code: 0 },
+      [HEAD_KEY]: { stdout: SHA },
+      [`git -C /w t merge-base --is-ancestor HEAD ${SHA}`]: { code: 1 },
+      [`git -C /w t merge-base --is-ancestor ${SHA} HEAD`]: { code: 0 },
     });
     await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: true, summary: 'host ahead, nothing to bring' });
     expect(lines(proc).some((l) => l.includes('merge --ff-only'))).toBe(false);
+  });
+
+  it('never reads FETCH_HEAD: a fetch elsewhere in the worktree cannot break the sync', async () => {
+    const proc = fakeDockerProcess({
+      [HEAD_KEY]: { stdout: SHA },
+      'git -C /w t merge-base --is-ancestor HEAD FETCH_HEAD': { code: 1 },
+      'git -C /w t merge --ff-only FETCH_HEAD': { code: 1, stderr: 'FETCH_HEAD empty' },
+    });
+    await expect(syncFromClone(ctx(proc), input)).resolves.toMatchObject({ ok: true });
+    expect(lines(proc).some((l) => l.includes('FETCH_HEAD'))).toBe(false);
+  });
+
+  it('an unreadable sandbox head is an error, not a divergence, and never merges', async () => {
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { code: 1 } });
+    await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: 'cannot read the sandbox head' });
+    expect(lines(proc).some((l) => l.includes('merge'))).toBe(false);
   });
 
   it('reports a missing clone', async () => {
@@ -154,7 +174,7 @@ describe('syncFromClone', () => {
   });
 
   it('reports a failed merge', async () => {
-    const proc = fakeDockerProcess({ 'git -C /w t merge --ff-only': { code: 1, stderr: 'dirty tree' } });
+    const proc = fakeDockerProcess({ [HEAD_KEY]: { stdout: SHA }, 'git -C /w t merge --ff-only': { code: 1, stderr: 'dirty tree' } });
     await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: 'git merge --ff-only failed: dirty tree' });
   });
 });

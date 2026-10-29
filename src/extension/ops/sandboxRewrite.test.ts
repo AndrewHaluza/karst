@@ -11,7 +11,7 @@ function git(w: World) {
     const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' });
     const no = () => ({ code: 1, stdout: '', stderr: '' });
     if (args[0] === 'rev-parse') {
-      const v = args[3] === 'FETCH_HEAD^{commit}' ? w.clone : args[3] === 'HEAD^{commit}' ? w.host : undefined;
+      const v = args[3] === 'refs/karst/sandbox/feat^{commit}' ? w.clone : args[3] === 'HEAD^{commit}' ? w.host : undefined;
       return v ? ok(`${v}\n`) : no();
     }
     if (args[0] === 'reflog') return w.reflogCode ? no() : ok((w.reflog ?? []).join('\n') + '\n\n');
@@ -39,7 +39,7 @@ describe('classifyDivergence (scripted git)', () => {
     expect(await classifyDivergence(git(world({ inClone: [] })).run, { ...base, recorded: OLD })).toEqual({ kind: 'diverged' });
   });
 
-  it('diverged when FETCH_HEAD or HEAD cannot be resolved', async () => {
+  it('diverged when the sandbox ref or HEAD cannot be resolved', async () => {
     expect(await classifyDivergence(git(world({ clone: undefined })).run, { ...base, recorded: OLD })).toEqual({ kind: 'diverged' });
     expect(await classifyDivergence(git(world({ host: undefined })).run, { ...base, recorded: OLD })).toEqual({ kind: 'diverged' });
   });

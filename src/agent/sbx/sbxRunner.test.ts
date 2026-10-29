@@ -67,6 +67,8 @@ describe('createSbxSessionRunner.runHeadless', () => {
 const G = 'git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never -c protocol.file.allow=always -C /wt/a';
 const BUNDLE_B64 = Buffer.from('bundle').toString('base64');
 const EXEC = `sbx exec ${NAME} --`;
+const SHA = 'a'.repeat(40);
+const HEAD_KEY = `${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`;
 const text = (c: { command: string; args: readonly string[] }) => [c.command, ...c.args].join(' ');
 
 const HOST_SHA = 'a'.repeat(40);
@@ -96,7 +98,7 @@ describe('createSbxSessionRunner.sync thin bundle', () => {
 
 describe('createSbxSessionRunner.sync', () => {
   it('bundles inside the sandbox, fetches that bundle, then fast-forwards (no git in the clone)', async () => {
-    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 } });
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { stdout: SHA } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/p/clone' });
     await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: "fast-forwarded feat/x to the sbx sandbox's commits" });
     const [head, ...rest] = proc.calls.map(text);
@@ -104,14 +106,14 @@ describe('createSbxSessionRunner.sync', () => {
     const lines = rest;
     expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x $`));
     expect(proc.calls[1]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
-    expect(lines[1]).toMatch(new RegExp(`^${G} fetch \\S+/out\\.bundle refs/heads/feat/x$`));
-    expect(lines.slice(2)).toEqual([`${G} merge-base --is-ancestor HEAD FETCH_HEAD`, `${G} merge --ff-only FETCH_HEAD`]);
+    expect(lines[1]).toMatch(new RegExp(`^${G} fetch --no-write-fetch-head \\S+/out\\.bundle \\+refs/heads/feat/x:refs/karst/sandbox/feat/x$`));
+    expect(lines.slice(2)).toEqual([`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`, `${G} merge-base --is-ancestor HEAD ${SHA}`, `${G} merge --ff-only ${SHA}`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
     expect(lines.some((l) => l.includes('/p/clone') && l.startsWith('git'))).toBe(false);
   });
 
   it('refuses a non-fast-forward and never merges', async () => {
-    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} merge-base`]: { code: 1 } });
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { stdout: SHA }, [`${G} merge-base`]: { code: 1 } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
     const out = await runner.sync!(ticket);
     expect(out).toEqual({ ok: false, reason: expect.stringMatching(/not a fast-forward.*never forced/) });
@@ -121,8 +123,9 @@ describe('createSbxSessionRunner.sync', () => {
   it('a clone BEHIND the host is a no-op ok: nothing merged, the refresh catches it up', async () => {
     const proc = fakeSbxProcess({
       [EXEC]: { stdout: BUNDLE_B64 },
-      [`${G} merge-base --is-ancestor HEAD FETCH_HEAD`]: { code: 1 },
-      [`${G} merge-base --is-ancestor FETCH_HEAD HEAD`]: { code: 0 },
+      [HEAD_KEY]: { stdout: SHA },
+      [`${G} merge-base --is-ancestor HEAD ${SHA}`]: { code: 1 },
+      [`${G} merge-base --is-ancestor ${SHA} HEAD`]: { code: 0 },
     });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
     await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: 'host ahead, nothing to bring' });
@@ -136,16 +139,37 @@ describe('createSbxSessionRunner.sync', () => {
     await expect(make({ [EXEC]: { stdout: '' } })).resolves.toEqual({ ok: false, reason: 'sandbox returned an empty bundle' });
     await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} fetch`]: { code: 1, stderr: 'bad\n' } }))
       .resolves.toEqual({ ok: false, reason: 'git fetch of the sandbox bundle failed: bad' });
-    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} merge --ff-only`]: { code: 1, stderr: 'dirty\n' } }))
-      .resolves.toEqual({ ok: false, reason: 'git merge --ff-only FETCH_HEAD failed: dirty' });
+    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { stdout: SHA }, [`${G} merge --ff-only`]: { code: 1, stderr: 'dirty\n' } }))
+      .resolves.toEqual({ ok: false, reason: `git merge --ff-only ${SHA} failed: dirty` });
+  });
+});
+
+describe('createSbxSessionRunner.sync (shared FETCH_HEAD)', () => {
+  it('never reads FETCH_HEAD: a fetch elsewhere in the worktree cannot break the sync', async () => {
+    const proc = fakeSbxProcess({
+      [EXEC]: { stdout: BUNDLE_B64 },
+      [HEAD_KEY]: { stdout: SHA },
+      [`${G} merge-base --is-ancestor HEAD FETCH_HEAD`]: { code: 1 },
+      [`${G} merge --ff-only FETCH_HEAD`]: { code: 1, stderr: 'FETCH_HEAD empty' },
+    });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.sync!(ticket)).resolves.toMatchObject({ ok: true });
+    expect(proc.calls.every((c) => !c.args.includes('FETCH_HEAD'))).toBe(true);
+  });
+
+  it('an unreadable sandbox head is an error, not a divergence, and never merges', async () => {
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { code: 1 } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: false, reason: 'cannot read the sandbox head' });
+    expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 });
 
 describe('createSbxSessionRunner.diff', () => {
   it('fetches the sandbox bundle and diffs the host branch against it, never merging', async () => {
-    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} diff HEAD...FETCH_HEAD`]: { stdout: 'diff --git a/f b/f\n' } });
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { stdout: SHA }, [`${G} diff HEAD...${SHA}`]: { stdout: 'diff --git a/f b/f\n' } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
-    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: 'FETCH_HEAD' });
+    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: SHA });
     expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 
@@ -153,7 +177,7 @@ describe('createSbxSessionRunner.diff', () => {
     const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>) =>
       createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] }).diff!(ticket);
     await expect(make({ [EXEC]: { code: 2, stderr: 'gone\n' } })).resolves.toEqual({ ok: false, reason: 'no sandbox clone to sync from: gone' });
-    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} diff`]: { code: 128, stderr: 'bad rev\n' } }))
+    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [HEAD_KEY]: { stdout: SHA }, [`${G} diff`]: { code: 128, stderr: 'bad rev\n' } }))
       .resolves.toEqual({ ok: false, reason: 'git diff failed: bad rev' });
   });
 });
