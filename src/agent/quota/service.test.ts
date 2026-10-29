@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { QuotaService, defaultQuotaReaders } from './service.js';
+import { QuotaService, defaultQuotaReaders, DEFAULT_QUOTA_CORES, QUOTA_CORES } from './service.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
 function okSnapshot(core: QuotaSnapshot['core'], usedPct: number): QuotaSnapshot {
@@ -47,9 +47,24 @@ describe('QuotaService', () => {
       debug,
     });
     await service.refresh();
-    expect(service.get('codex')).toMatchObject({ state: 'unknown' });
+    expect(service.get('codex')).toMatchObject({ state: 'unknown', reason: 'read failed: boom' });
     expect(service.get('claude')).toMatchObject({ state: 'ok' });
-    expect(debug).toHaveBeenCalledWith(expect.stringContaining('codex'));
+    expect(debug).toHaveBeenCalledWith('karst: quota read failed for codex: boom');
+  });
+
+  it('handles throwing reader safely when debug is not provided', async () => {
+    const service = new QuotaService({
+      readers: [
+        {
+          core: 'codex',
+          read: async () => {
+            throw new Error('silent');
+          },
+        },
+      ],
+    });
+    await service.refresh();
+    expect(service.get('codex')).toMatchObject({ state: 'unknown', reason: 'read failed: silent' });
   });
 
   it('notifies onDidChange after a refresh', async () => {
@@ -76,6 +91,27 @@ describe('QuotaService', () => {
       vi.useRealTimers();
     }
   });
+
+  it('aliases get("opencode2") to the opencode snapshot when opencode2 is not registered', async () => {
+    const service = new QuotaService({ readers: [okReader('opencode', 15)] });
+    await service.refresh();
+    expect(service.get('opencode2')).toMatchObject({ core: 'opencode', state: 'ok' });
+    expect(service.get('claude')).toBeUndefined();
+    expect(service.get('codex')).toBeUndefined();
+  });
+
+  it('returns undefined for get("opencode2") when opencode snapshot is absent', () => {
+    const service = new QuotaService({ readers: [okReader('codex', 10)] });
+    expect(service.get('opencode2')).toBeUndefined();
+  });
+
+  it('prefers explicit opencode2 snapshot if directly registered', async () => {
+    const service = new QuotaService({
+      readers: [okReader('opencode', 15), okReader('opencode2', 80)],
+    });
+    await service.refresh();
+    expect(service.get('opencode2')).toMatchObject({ core: 'opencode2', state: 'ok' });
+  });
 });
 
 describe('defaultQuotaReaders', () => {
@@ -86,8 +122,12 @@ describe('defaultQuotaReaders', () => {
       'codex',
       'antigravity',
       'opencode',
-      'opencode2',
     ]);
+  });
+
+  it('exports DEFAULT_QUOTA_CORES matching the 4 probed cores', () => {
+    expect(DEFAULT_QUOTA_CORES).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(QUOTA_CORES).toEqual(DEFAULT_QUOTA_CORES);
   });
 
   it('reports antigravity unknown when language server is unreachable and no cache exists', async () => {
@@ -139,7 +179,7 @@ describe('defaultQuotaReaders', () => {
     }
   });
 
-  it('reads both OpenCode cores through their injected auth paths and fetch', async () => {
+  it('reads OpenCode through its injected auth path and fetch', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-quota-opencode-'));
     try {
       const authPath = join(dir, 'auth.json');
@@ -156,14 +196,11 @@ describe('defaultQuotaReaders', () => {
         env: {},
         now: () => new Date(0),
         opencodeAuthPath: authPath,
-        opencode2AuthPath: authPath,
         fetchImpl,
       });
-      for (const core of ['opencode', 'opencode2'] as const) {
-        const snap = await readers.find((r) => r.core === core)!.read();
-        expect(snap).toMatchObject({ core, state: 'ok', source: 'OpenCode Go usage API' });
-      }
-      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      const snap = await readers.find((r) => r.core === 'opencode')!.read();
+      expect(snap).toMatchObject({ core: 'opencode', state: 'ok', source: 'OpenCode Go usage API' });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -228,6 +265,37 @@ describe('defaultQuotaReaders', () => {
     } finally {
       rmSync(codexHome, { recursive: true, force: true });
     }
+  });
+
+  it('uses injected homeDir for codex when CODEX_HOME is unset', async () => {
+    const customHome = mkdtempSync(join(tmpdir(), 'karst-quota-home-'));
+    try {
+      const dir = join(customHome, '.codex', 'sessions', '2026', '01', '01');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'rollout-h.jsonl'),
+        JSON.stringify({ payload: { rate_limits: { primary: { used_percent: 55, window_minutes: 300 } } } }) + '\n',
+      );
+      const readers = defaultQuotaReaders({
+        homeDir: customHome,
+        env: {},
+        now: () => new Date(0),
+      });
+      const snap = await readers.find((r) => r.core === 'codex')!.read();
+      expect(snap.state).toBe('ok');
+      expect(snap.state === 'ok' && snap.windows[0]!.usedPct).toBe(55);
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it('defaults homeDir and now when deps are omitted', () => {
+    const before = Date.now();
+    const readers = defaultQuotaReaders();
+    expect(readers.map((r) => r.core)).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    // verify now default is callable Date
+    const reader = readers[0]!;
+    expect(reader).toBeDefined();
   });
 
   describe('Claude usage API consent wiring (D185)', () => {

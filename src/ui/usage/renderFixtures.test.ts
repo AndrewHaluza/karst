@@ -78,7 +78,7 @@ describe('usage render fixtures', () => {
     expect(allText.length).toBeGreaterThan(300);
   });
 
-  it('quota carries one known OpenCode Go row (three windows) and one unknown OpenCode v2 row', () => {
+  it('quota carries one known OpenCode Go row (three windows) and no opencode2 row', () => {
     const quota = fixtures.find((f) => f.scenario === 'quota')!;
     const opencode = quota.state.quota.rows.find((r) => r.core === 'opencode')!;
     expect(opencode).toMatchObject({
@@ -90,10 +90,13 @@ describe('usage render fixtures', () => {
       ['Weekly', 9],
       ['Monthly', 82],
     ]);
-    expect(quota.state.quota.rows.find((r) => r.core === 'opencode2')).toMatchObject({
-      state: 'unknown',
-      windows: [],
-    });
+    expect(quota.state.quota.rows.find((r) => r.core === 'opencode2')).toBeUndefined();
+    expect(quota.state.quota.rows.map((r) => r.core)).toEqual([
+      'claude',
+      'codex',
+      'antigravity',
+      'opencode',
+    ]);
   });
 
   it('calling the factory twice returns structurally equal but non-identical arrays', () => {

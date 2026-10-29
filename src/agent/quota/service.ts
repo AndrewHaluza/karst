@@ -49,7 +49,7 @@ export class QuotaService {
 
   /** One core's cached snapshot, or undefined before the first refresh. */
   get(core: AgentProvider): QuotaSnapshot | undefined {
-    return this.byCore.get(core);
+    return this.byCore.get(core) ?? (core === 'opencode2' ? this.byCore.get('opencode') : undefined);
   }
 
   /**
@@ -93,13 +93,14 @@ export class QuotaService {
  * The core set karst reads quota for, in display order: the cores with a reader
  * first, then the unsupported ones so every core still gets a row.
  */
-export const QUOTA_CORES: readonly AgentProvider[] = [
+export const DEFAULT_QUOTA_CORES: readonly AgentProvider[] = [
   'claude',
   'codex',
   'antigravity',
   'opencode',
-  'opencode2',
 ];
+
+export const QUOTA_CORES = DEFAULT_QUOTA_CORES;
 
 export interface DefaultQuotaReadersDeps {
   homeDir?: string;
@@ -114,9 +115,8 @@ export interface DefaultQuotaReadersDeps {
   /** Test seams for the API fallback (production uses the platform defaults). */
   fetchFn?: typeof fetch;
   platform?: NodeJS.Platform;
-  /** Both default to `${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json`. */
+  /** Defaults to `${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json`. */
   opencodeAuthPath?: string;
-  opencode2AuthPath?: string;
   /** Injected for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
   /** Injected antigravity appDataDir override for tests. */
@@ -133,10 +133,6 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
   const env = deps.env ?? process.env;
   const now = deps.now ?? (() => new Date());
   const opencodeAuth = deps.opencodeAuthPath ?? opencodeAuthPath(env, homeDir);
-  // opencode2's real path is karst's isolated store, which only the host can
-  // resolve (`<globalStorage>/opencode2/data/opencode/auth.json`, AC-27); the
-  // default here keeps the reader usable without a host binding.
-  const opencode2Auth = deps.opencode2AuthPath ?? opencodeAuthPath(env, homeDir);
   return [
     claudeQuotaReader({
       homeDir,
@@ -144,8 +140,8 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       now,
       usageApi: {
         enabled: () => deps.claudeOauthUsageApi?.() === true,
-        ...(deps.fetchFn !== undefined ? { fetchFn: deps.fetchFn } : {}),
-        ...(deps.platform !== undefined ? { platform: deps.platform } : {}),
+        fetchFn: deps.fetchFn,
+        platform: deps.platform,
       },
     }),
     codexQuotaReader({ homeDir, env, now }),
@@ -154,18 +150,11 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       env,
       now,
       fetchImpl: deps.fetchImpl,
-      ...(deps.antigravityAppDataDir !== undefined ? { appDataDir: deps.antigravityAppDataDir } : {}),
+      appDataDir: deps.antigravityAppDataDir,
     }),
     opencodeQuotaReader({
       core: 'opencode',
       authPath: opencodeAuth,
-      fetchImpl: deps.fetchImpl,
-      now,
-      env,
-    }),
-    opencodeQuotaReader({
-      core: 'opencode2',
-      authPath: opencode2Auth,
       fetchImpl: deps.fetchImpl,
       now,
       env,
