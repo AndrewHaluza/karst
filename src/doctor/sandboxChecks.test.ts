@@ -80,7 +80,7 @@ describe('checkSandboxSetupDeclared', () => {
     expect(c).toMatchObject({ id: 'manifest.sandbox-setup.app', area: 'manifest', status: 'warn' });
     expect(c!.detail).toContain('app');
     expect(c!.fix).toMatchObject({ tier: 'report' });
-    expect(c!.fix!.nextStep).toContain('sandbox.setup: npm ci');
+    expect(c!.fix).toMatchObject({ nextStep: expect.stringContaining('sandbox.setup: npm ci') });
   });
   it.each([[{ hasSetup: true }], [{ hasLockfile: false }]])('is silent for %o', (o) => {
     expect(checkSandboxSetupDeclared(['docker'], [repo(o)])).toEqual([]);
