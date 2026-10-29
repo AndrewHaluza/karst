@@ -96,6 +96,7 @@ export const test = base.extend<KarstFixtures>({
         if (ready > 0) break;
         await page.waitForTimeout(100);
       }
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
       if (opts?.route !== undefined) await openRoute(page, opts.route);
       return page;
     };

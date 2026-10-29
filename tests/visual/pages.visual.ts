@@ -32,6 +32,12 @@ karstTest.describe('full-page screenshots', () => {
           return;
         }
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
+        if (v.id === 'attention') {
+          await page.locator('.attention-ring').evaluate((el) => {
+            el.classList.add('pulsing');
+            el.classList.remove = () => {};
+          });
+        }
         await expect(page).toHaveScreenshot(`${v.baseline}.png`, {
           fullPage: true,
           mask: [page.locator(TIME_MASKS)],
