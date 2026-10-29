@@ -1,6 +1,12 @@
 import { ManifestError } from '../error.js';
 import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from '../types.js';
-import type { GateDef, ReviewConfig, ReviewFindingsConfig, Severity } from '../types.js';
+import type {
+  GateDef,
+  ReviewConfig,
+  ReviewFindingsConfig,
+  ReviewStallDetection,
+  Severity,
+} from '../types.js';
 import { isObject } from './primitives.js';
 import { validateGates } from './uat.js';
 
@@ -13,6 +19,7 @@ import {
   REVIEW_MAX_FIX_ATTEMPTS,
   REVIEW_OPEN_CHANGES,
   REVIEW_REQUIRE_INDEPENDENT_SIGNAL,
+  REVIEW_STALL_DETECTION_DEFAULTS,
   SEVERITIES,
 } from '../qualityDefaults.js';
 
@@ -54,6 +61,32 @@ function validateFindings(raw: unknown): ReviewFindingsConfig {
     findings.maxFindings = raw.maxFindings;
   }
   return findings;
+}
+
+function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewStallDetection {
+  const out: ReviewStallDetection = { ...REVIEW_STALL_DETECTION_DEFAULTS };
+  if (raw === undefined) return out;
+  if (!isObject(raw)) throw new ManifestError('review.stallDetection must be a mapping');
+  if (raw.enabled !== undefined) {
+    if (typeof raw.enabled !== 'boolean') {
+      throw new ManifestError('review.stallDetection.enabled must be a boolean');
+    }
+    out.enabled = raw.enabled;
+  }
+  const rounds = (key: 'sameFileRounds' | 'repeatedFindingRounds', value: unknown): number => {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > maxFixAttempts) {
+      throw new ManifestError(
+        `review.stallDetection.${key} must be a positive integer no greater than review.maxFixAttempts (${maxFixAttempts})`,
+      );
+    }
+    return value;
+  };
+  if (raw.sameFileRounds !== undefined) out.sameFileRounds = rounds('sameFileRounds', raw.sameFileRounds);
+  else if (out.sameFileRounds > maxFixAttempts) out.sameFileRounds = maxFixAttempts;
+  if (raw.repeatedFindingRounds !== undefined && raw.repeatedFindingRounds !== null) {
+    out.repeatedFindingRounds = rounds('repeatedFindingRounds', raw.repeatedFindingRounds);
+  }
+  return out;
 }
 
 /**
@@ -153,6 +186,7 @@ export function validateReview(
     requireIndependentSignal,
     openChanges,
     findings: validateFindings(raw.findings),
+    stallDetection: validateStallDetection(raw.stallDetection, maxFixAttempts),
     repositories: validateReviewRepositories(raw.repositories, repoNames),
   };
 

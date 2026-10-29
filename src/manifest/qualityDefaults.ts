@@ -64,3 +64,10 @@ export const REVIEW_REQUIRE_INDEPENDENT_SIGNAL = true;
 
 /** `review.openChanges` when the manifest declares none. */
 export const REVIEW_OPEN_CHANGES = false;
+
+/** `review.stallDetection` when the manifest declares none: on, 3 same-file rounds, no repeat rule. */
+export const REVIEW_STALL_DETECTION_DEFAULTS: Readonly<{
+  enabled: boolean;
+  sameFileRounds: number;
+  repeatedFindingRounds: number | null;
+}> = { enabled: true, sameFileRounds: 3, repeatedFindingRounds: null };

@@ -724,6 +724,20 @@ export interface ReviewFindingsConfig {
  * design spec's §6.3 lists `approval: auto | human`), so the only value the
  * key could carry — `'human'` — does not exist. Do not add one speculatively.
  */
+/**
+ * `review.stallDetection` — park a ticket as needs-you (`review-stalled`) when
+ * blocking review findings keep hitting the same file(s) round after round.
+ * `enabled: false` is exactly the pre-feature behavior. Both counts are
+ * positive integers no greater than `review.maxFixAttempts`.
+ */
+export interface ReviewStallDetection {
+  enabled: boolean;
+  /** Consecutive review attempts whose blocking findings share a file. */
+  sameFileRounds: number;
+  /** Consecutive attempts the same finding identity recurs in; null = rule off. */
+  repeatedFindingRounds: number | null;
+}
+
 export interface ReviewConfig {
   maxFixAttempts: number;
   /**
@@ -752,6 +766,7 @@ export interface ReviewConfig {
   /** Every gate off: false/absent = run nothing (stage bypassed); true = probe package.json scripts. */
   probeWhenAllDisabled?: boolean;
   findings: ReviewFindingsConfig;
+  stallDetection: ReviewStallDetection;
   repositories: Record<string, { gates?: GateDef[] }>;
 }
 

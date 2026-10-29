@@ -13,7 +13,37 @@ describe('validateReview', () => {
       requireIndependentSignal: true,
       openChanges: false,
       findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: null },
       repositories: {},
+    });
+  });
+
+  describe('stallDetection', () => {
+    const v = (stallDetection: unknown, maxFixAttempts = 5) =>
+      validateReview({ maxFixAttempts, stallDetection }, [])?.stallDetection;
+
+    it('parses explicit values', () => {
+      expect(v({ enabled: false, sameFileRounds: 2, repeatedFindingRounds: 4 })).toEqual({
+        enabled: false,
+        sameFileRounds: 2,
+        repeatedFindingRounds: 4,
+      });
+    });
+    it('clamps the default sameFileRounds to a small maxFixAttempts', () => {
+      expect(v({}, 2)?.sameFileRounds).toBe(2);
+    });
+    it('accepts an explicit null repeatedFindingRounds', () => {
+      expect(v({ repeatedFindingRounds: null })?.repeatedFindingRounds).toBeNull();
+    });
+    it.each([
+      ['not a mapping', 'x', /must be a mapping/],
+      ['non-boolean enabled', { enabled: 'yes' }, /enabled must be a boolean/],
+      ['zero', { sameFileRounds: 0 }, /sameFileRounds must be a positive integer/],
+      ['fraction', { sameFileRounds: 1.5 }, /sameFileRounds/],
+      ['over maxFixAttempts', { sameFileRounds: 6 }, /no greater than review.maxFixAttempts \(5\)/],
+      ['repeated over max', { repeatedFindingRounds: 6 }, /repeatedFindingRounds/],
+    ])('rejects %s', (_n, raw, msg) => {
+      expect(() => v(raw)).toThrow(msg);
     });
   });
 

@@ -143,6 +143,7 @@ describe('writeManifest', () => {
           openChanges: true,
           gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
+          stallDetection: { enabled: false, sameFileRounds: 2, repeatedFindingRounds: 2 },
           repositories: {},
         },
       };
@@ -168,6 +169,7 @@ describe('writeManifest', () => {
           requireIndependentSignal: false,
           openChanges: true,
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
+          stallDetection: { enabled: false, sameFileRounds: 2, repeatedFindingRounds: 2 },
           repositories: {},
         },
       });
@@ -362,6 +364,7 @@ describe('writeManifest', () => {
             { name: 'clippy', kind: 'command', command: 'cargo', args: ['clippy', '--', '-D', 'warnings'] },
           ],
           findings: { enabled: false, blockingSeverity: 'critical', maxFindings: 25 },
+          stallDetection: { enabled: false, sameFileRounds: 2, repeatedFindingRounds: 2 },
           repositories: { backend: { gates: [{ name: 'lint', kind: 'script', script: 'lint:ci' }] } },
         },
         agentProvider: 'codex',
