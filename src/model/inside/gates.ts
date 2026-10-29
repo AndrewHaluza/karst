@@ -6,7 +6,8 @@ import type { UatFinding } from '../../store/uatFindings.js';
 import { scopeReviewFindings } from '../findingScope.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
 import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../manifest/qualityDefaults.js';
-import type { Severity } from '../../manifest/types.js';
+import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
+import { stallView } from './stall.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
 import { isCoverageRecord } from '../coverageRecord.js';
 
@@ -224,6 +225,8 @@ export interface QualityProcessesInput {
    * default. Display only: the stage verdict is decided in `workflow/`.
    */
   reviewBlockingSeverity?: Severity | 'none';
+  /** `review.stallDetection`; absent → no stall summary on the findings evidence. */
+  reviewStallDetection?: ReviewStallDetection;
   /**
    * The manifest's `uat.testerObservations.blockingSeverity`; absent → `'none'`
    * (observations advisory), the same default the uat stage applies.
@@ -868,6 +871,9 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   // visible rows — computed from the UNFILTERED, UNBOUNDED batch.
   const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
   const blocking = batch.filter((f) => isBlockingFinding(f, threshold)).length;
+  const stall = input.reviewStallDetection
+    ? stallView(input.findings, threshold, input.reviewStallDetection)
+    : undefined;
   const scoped = scopeFindings(batch, input.findingsRepo);
   const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
@@ -934,7 +940,12 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
       : eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
         : {}),
-    evidence: { kind: 'findings', rows, blocking },
+    evidence: {
+      kind: 'findings',
+      rows,
+      blocking,
+      ...(stall ? { stall } : {}),
+    },
     ...(scoped.filter ? { repoFilter: scoped.filter } : {}),
   };
 }

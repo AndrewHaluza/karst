@@ -133,6 +133,7 @@ export function buildSnapshotState(
       return {
         review: manifest?.review?.findings?.blockingSeverity,
         tester: manifest?.uat?.testerObservations?.blockingSeverity,
+        reviewStall: manifest?.review?.stallDetection,
       };
     })(),
     // The shared half of the Servers panel (D203): manifest + store, so it
