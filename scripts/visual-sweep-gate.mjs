@@ -1,19 +1,23 @@
 /**
- * CI gate for the advisory visual sweep (.github/workflows/ci.yml).
+ * CI gate for the visual sweep (.github/workflows/ci.yml).
  *
- * The sweep step is advisory for screenshot DIFFS: the suite is still
- * settling, so a red baseline must not block a PR.  Two things are NOT
- * advisory:
+ * A red screenshot blocks a PR only when the PR is to blame. Blocking:
  *
  * - A run that executed zero tests. Before NDL-218 the webServer died on
  *   startup (ENOENT webviewSend.webview.js) and `continue-on-error: true` still
  *   recorded conclusion=success, so PRs showed a green job that had never run
  *   a single test.
  * - On a pull request, a baseline the PR ITSELF added or changed, failing its
- *   own screenshot (#769). That is the PR telling us its new pixels are not
- *   the ones CI renders; letting it land is how 9 sandbox-recorded baselines
- *   from #722 arrived on develop and stayed red. Pre-existing failures, whose
- *   baseline this PR does not touch, stay advisory.
+ *   own screenshot (#769): its new pixels are not the ones CI renders.
+ * - On a pull request, a NEW break: a screenshot that fails here but is not in
+ *   develop's red set (`visual-red-develop.json`, published by every develop
+ *   push run). A PR that shifts shared UI without re-recording the screens it
+ *   affected used to land green and let develop drift.
+ *
+ * Advisory: screenshots already red on develop ("pre-existing on develop"),
+ * so a PR is never blamed for inherited drift. When no develop red set is
+ * available the rule falls back to the own-baseline rule only, and the summary
+ * says so; a missing artifact never fails the job.
  *
  * Reads the `json` reporter's output (tests/visual/.results.json, written by
  * playwright.config.ts) and the baselines changed against the PR's base
@@ -25,7 +29,7 @@
  * computeTestCaseOutcome), so a crash between report-begin and the first
  * executed test would otherwise look like a full run of skipped tests.
  */
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +42,9 @@ const root = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
 
 /** The JSON reporter's output (playwright.config.ts). */
 export const RESULTS_PATH = join(root, 'tests', 'visual', '.results.json');
+
+/** This run's red set; develop push runs upload it as `visual-red-develop.json`. */
+export const RED_PATH = join(root, 'tests', 'visual', 'visual-red-develop.json');
 
 /** The one directory baselines live in (playwright.config.ts `snapshotPathTemplate`). */
 export const BASELINES_DIR = 'tests/visual/__baselines__';
@@ -117,6 +124,8 @@ function* projectSpecs(node, project) {
         project: t.projectName ?? project,
         status: t.status,
         title: spec.title,
+        file: spec.file,
+        errors: (t.results ?? []).map((result) => result.error?.message ?? ''),
         attachments: (t.results ?? []).flatMap((result) => result.attachments ?? []),
       };
     }
@@ -160,6 +169,72 @@ export function baselineProblems(rep, changed, rootDir = root) {
     }
   }
   return problems;
+}
+
+const ANSI = /\u001b\[[0-9;]*m/g;
+const DIFF_LINE = /(\d+ pixels? \(ratio [\d.]+[^)]*\) are different|Expected an image [^\n]+)/;
+
+/** Every failing screenshot of a report: its id, project and diff size. */
+export function failingScreenshots(rep) {
+  const failing = [];
+  for (const spec of projectSpecs(rep, undefined)) {
+    if (spec.status !== 'unexpected') continue;
+    if (spec.project === 'layout' || spec.project === 'layout-teardown') continue;
+    const message = spec.errors.join('\n').replace(ANSI, '');
+    failing.push({
+      id: `${spec.file ?? ''}::${spec.title}`,
+      project: spec.project ?? '',
+      diff: DIFF_LINE.exec(message)?.[1] ?? 'diff size unavailable',
+    });
+  }
+  return failing;
+}
+
+const redKey = (f) => `${f.project}|${f.id}`;
+
+/**
+ * Split failures into new breaks and pre-existing ones.
+ *
+ * `developRed` is develop's `visual-red-develop.json` (array of {id, project})
+ * or null when no artifact was available: then nothing is a new break.
+ */
+export function classifyFailures(failing, developRed) {
+  if (!developRed) return { newBreaks: [], preExisting: [], developKnown: false };
+  const red = new Set(developRed.map(redKey));
+  return {
+    newBreaks: failing.filter((f) => !red.has(redKey(f))),
+    preExisting: failing.filter((f) => red.has(redKey(f))),
+    developKnown: true,
+  };
+}
+
+/** Markdown for the run summary. */
+export function summaryMarkdown({ newBreaks, preExisting, developKnown, owned }) {
+  const lines = ['## Visual gate', ''];
+  if (!developKnown) {
+    lines.push('No develop red set available: only the zero-run and own-baseline rules applied. Other diffs are advisory.', '');
+  }
+  if (owned.length > 0) lines.push('**Own baselines failing:**', ...owned.map((o) => `- ${o}`), '');
+  if (newBreaks.length > 0) {
+    lines.push('**New breaks caused by this PR (green on develop):**');
+    lines.push(...newBreaks.map((f) => `- \`${f.project}\` ${f.id}: ${f.diff}`), '');
+  }
+  if (preExisting.length > 0) {
+    lines.push('**Pre-existing on develop (advisory):**');
+    lines.push(...preExisting.map((f) => `- \`${f.project}\` ${f.id}: ${f.diff}`), '');
+  }
+  return lines.join('\n');
+}
+
+function readDevelopRed() {
+  const path = process.env.VISUAL_RED_DEVELOP;
+  if (!path || !existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function fail(message) {
@@ -206,10 +281,27 @@ function main() {
   }
 
   const owned = baselineProblems(report, changed);
+  const failing = failingScreenshots(report);
+  // Every run records its red set; the workflow uploads it from develop pushes.
+  writeFileSync(RED_PATH, JSON.stringify(failing.map(({ id, project }) => ({ id, project }))));
+
+  const isPr = process.env.GITHUB_EVENT_NAME === 'pull_request';
+  const { newBreaks, preExisting, developKnown } = classifyFailures(failing, isPr ? readDevelopRed() : null);
+  const summary = summaryMarkdown({ newBreaks, preExisting, developKnown, owned });
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+
   if (owned.length > 0) {
     fail(
       'visual-sweep-gate: this pull request added or changed a baseline that does not match its own ' +
         `screenshot (record baselines in the pinned image: npm run -s test:visual:docker:update):\n- ${owned.join('\n- ')}`,
+    );
+  }
+  if (newBreaks.length > 0) {
+    fail(
+      'visual-sweep-gate: this pull request breaks screenshots that are green on develop ' +
+        `(re-record them with npm run -s test:visual:docker:update, or fix the regression):\n- ${newBreaks
+          .map((f) => `${f.project} ${f.id}: ${f.diff}`)
+          .join('\n- ')}`,
     );
   }
 
@@ -217,7 +309,8 @@ function main() {
     `visual-sweep-gate: ${ran} test(s) executed ` +
       `(expected=${stats.expected ?? 0}, unexpected=${stats.unexpected ?? 0}, ` +
       `flaky=${stats.flaky ?? 0}, skipped=${stats.skipped ?? 0}). ` +
-      `PR-owned baseline failures: ${owned.length}. Other diffs stay advisory.`,
+      `Own-baseline failures: ${owned.length}; new breaks: ${newBreaks.length}; ` +
+      `pre-existing on develop: ${preExisting.length}${developKnown ? '' : ' (no develop red set; advisory)'}.`,
   );
 }
 
