@@ -367,6 +367,10 @@ const ticketFormVariants = (): Variant[] => {
       withState({ ...edit, key: 'FEAT-'.concat('9'.repeat(40)), title: LONG_TITLE, description: `${LONG_TITLE}. `.repeat(40) }),
     ),
     variant('ticketForm', 'edit', () => withState(edit)),
+    // T838 (ui:UI-R57): the provider-derived "Also create in <badge>" switch.
+    variant('ticketForm', 'clickup-create-in', () =>
+      withState({ provider: 'clickup', canCreateProviderTicket: true }),
+    ),
     // T777: the shared picker's routed-model stack — the route mark, the model
     // name over its gateway vendor, and the `free` tag. Seeded in the TICKET
     // FORM because its full-page baseline is the only picker host whose picker

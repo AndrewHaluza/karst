@@ -58,7 +58,7 @@ export function providerIdentityCss(): string {
 }
 
 /**
- * The JS blob defining `PROVIDER_LABELS`, `CLICKUP_SVG`, `providerBadgeHtml`,
+ * The JS blob defining `PROVIDER_LABELS`, `CLICKUP_SVG`, `providerLabelText`, `providerBadgeHtml`,
  * `providerIconHtml` and `providerBadgeInto` in the webview's global script scope. Emitted as plain statements (no wrapping
  * `<script>` tag) so it can be injected as the first lines of an existing block.
  */
@@ -68,10 +68,14 @@ export function providerIdentityJs(): string {
     `const CLICKUP_SVG = ${JSON.stringify(CLICKUP_SVG)};\n` +
     // Falls back to the raw id (title-cased) for a provider with no known icon/label,
     // so a future provider degrades gracefully instead of rendering blank.
-    'function providerBadgeHtml(provider) {\n' +
+    'function providerLabelText(provider) {\n' +
     '  const p = provider || "manual";\n' +
     '  const known = Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, p);\n' +
-    '  const label = known ? PROVIDER_LABELS[p] : (p.charAt(0).toUpperCase() + p.slice(1));\n' +
+    '  return known ? PROVIDER_LABELS[p] : (p.charAt(0).toUpperCase() + p.slice(1));\n' +
+    '}\n' +
+    'function providerBadgeHtml(provider) {\n' +
+    '  const p = provider || "manual";\n' +
+    '  const label = providerLabelText(p);\n' +
     '  const icon = p === "clickup" ? CLICKUP_SVG : "";\n' +
     '  const cls = p === "manual" ? "provbadge manual" : "provbadge";\n' +
     '  const iconHtml = icon ? \'<span class="provicon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
