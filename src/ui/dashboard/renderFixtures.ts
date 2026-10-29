@@ -822,6 +822,47 @@ export function renderFixtures(): readonly InsideRenderFixture[] {
 }
 
 /**
+ * The uat stage mid-gates: two recorded, one running (blue spinner), the rest
+ * queued — the Gates list shows every resolved gate from the start.
+ */
+export function gatesRunningMidListFixture(): InsideRenderFixture {
+  return {
+    repositoryCount: 2,
+    scenario: 'running',
+    stage: 'uat',
+    view: {
+      stageKey: 'uat',
+      title: 'UAT',
+      blurb: STAGE_BLURBS.uat,
+      dot: 'run',
+      clock: '10:03:55 · 12.0s',
+      processes: [
+        {
+          id: 'gates',
+          kind: 'gates',
+          label: 'Gates',
+          status: 'run',
+          detail: '2/2 command gates passed so far',
+          count: '2/2',
+          evidence: {
+            kind: 'gates',
+            rows: [
+              { status: 'pass', label: 'lint', detail: 'exit 0' },
+              { status: 'pass', label: 'typecheck', detail: 'exit 0' },
+              { status: 'run', label: 'test', detail: 'running…' },
+              { status: 'pending', label: 'build', detail: 'queued' },
+            ],
+            passed: 2,
+            failed: 0,
+            skipped: 0,
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
  * The approved Implementation example, locked as a production-render contract
  * (prototype-fidelity Task 1). A COMPLETED session: one session process with
  * two provider segments (Claude Code/Opus → Codex/Sol → Claude Code/Sonnet),

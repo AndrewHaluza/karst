@@ -1899,3 +1899,73 @@ describe('the current attempt (round 2 staleness)', () => {
     expect(gates.evidence).toMatchObject({ failed: 1 });
   });
 });
+
+describe('gates process lists resolved gates while the stage runs', () => {
+  const resolvedGates = [
+    { name: 'lint', disabled: false },
+    { name: 'test', disabled: false },
+    { name: 'e2e', disabled: true },
+    { name: 'build', disabled: false },
+  ];
+  const gatesOf = (extra: Partial<QualityProcessesInput>) =>
+    rowsOf(uatProcesses(qualityInput({ resolvedGates, ...extra }))[0]!);
+
+  it('0 recorded: first enabled gate runs, the rest queue, disabled skips', () => {
+    const input = qualityInput({ cell: cell('uat', 'running'), resolvedGates });
+    const view = uatProcesses(input)[0]!;
+    expect(rowsOf(view).map((r) => [r.label, r.status])).toEqual([
+      ['lint', 'run'], ['test', 'pending'], ['e2e', 'skip'], ['build', 'pending'],
+    ]);
+    expect(rowsOf(view)[0]!.detail).toBe('running…');
+    expect(view.detail).toBe('0/3 command gates passed so far');
+  });
+
+  it('mid-list: recorded rows win, next unrecorded gate runs, counts stay recorded-only', () => {
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        resolvedGates,
+        gateRuns: [run('uat', 'lint', 0, { runAt: NOW }), run('uat', 'test (web)', 1, { runAt: NOW })],
+      }),
+    )[0]!;
+    const rows = rowsOf(view);
+    expect(rows.map((r) => r.status)).toEqual(['pass', 'fail', 'skip', 'run']);
+    expect(rows[3]!.label).toBe('build');
+    expect(view.evidence).toMatchObject({ passed: 1, failed: 1 });
+  });
+
+  it('AI process begun: no run row remains', () => {
+    const rows = gatesOf({
+      cell: cell('uat', 'running'),
+      gateRuns: [
+        run('uat', 'lint', 0, { runAt: NOW, stageRunId: 5 }),
+        run('uat', 'test', 0, { runAt: NOW, stageRunId: 5 }),
+        run('uat', 'build', 0, { runAt: NOW, stageRunId: 5 }),
+      ],
+      processRuns: [processRun({ status: 'running', stageRunId: 5, endedAt: null, resultKind: null })],
+    });
+    expect(rows.some((r) => r.status === 'run' || r.status === 'pending')).toBe(false);
+  });
+
+  it('paused and blocked list no run row', () => {
+    const paused = gatesOf({ cell: { ...cell('uat', 'running'), paused: true } });
+    expect(paused.some((r) => r.status === 'run')).toBe(false);
+    const blocked = gatesOf({ cell: cell('uat', 'running', { blocked: { kind: 'nothing-to-run', reason: 'x', at: NOW, resumable: true } }) });
+    expect(blocked.some((r) => r.status === 'run')).toBe(false);
+  });
+
+  it('bounding keeps the running row visible', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ name: `g${i}`, disabled: false }));
+    const rows = rowsOf(
+      uatProcesses(
+        qualityInput({
+          cell: cell('uat', 'running'),
+          resolvedGates: many,
+          gateRuns: many.slice(0, 10).map((g) => run('uat', g.name, 0, { runAt: NOW })),
+        }),
+      )[0]!,
+    );
+    expect(rows.some((r) => r.status === 'run' && r.label === 'g10')).toBe(true);
+    expect(rows.length).toBeLessThanOrEqual(9);
+  });
+});

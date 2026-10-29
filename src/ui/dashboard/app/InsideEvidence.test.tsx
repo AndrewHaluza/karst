@@ -62,6 +62,13 @@ describe('Evidence — gates', () => {
   });
 });
 
+describe('Evidence — gates running mid-list', () => {
+  it('draws the spinner row only for the running gate, queued gates stay inert', () => {
+    withEvidence({ kind: 'gates', rows: [{ status: 'pass', label: 'lint', detail: 'exit 0' }, { status: 'run', label: 'test', detail: 'running…' }, { status: 'pending', label: 'build', detail: 'queued' }], passed: 1, failed: 0, skipped: 0 });
+    expect(all('.gate-row').map((r) => r.classList.contains('active'))).toEqual([false, true, false]);
+  });
+});
+
 describe('Evidence — findings', () => {
   const rows = [
     { label: 'high', detail: 'sql injection', severity: 'high', location: 'src/db/query.ts:41', action: link('f:1'), time: '10:00' },
