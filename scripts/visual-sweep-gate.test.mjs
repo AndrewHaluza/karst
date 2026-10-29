@@ -226,6 +226,12 @@ describe('failingScreenshots', () => {
     expect(out[0].id).toContain('dash: full-page screenshot');
   });
 
+  it('includes flaky specs only when asked', () => {
+    const rep = report(failing('f'), { ...failing('g'), status: 'flaky' });
+    expect(failingScreenshots(rep)).toHaveLength(1);
+    expect(failingScreenshots(rep, ['unexpected', 'flaky'])).toHaveLength(2);
+  });
+
   it('strips ANSI and falls back when no diff line exists', () => {
     const out = failingScreenshots(report(failing('x', 'dark', '\u001b[31mboom\u001b[39m')));
     expect(out[0].diff).toBe('diff size unavailable');

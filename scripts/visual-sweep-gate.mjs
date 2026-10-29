@@ -174,11 +174,11 @@ export function baselineProblems(rep, changed, rootDir = root) {
 const ANSI = /\u001b\[[0-9;]*m/g;
 const DIFF_LINE = /(\d+ pixels? \(ratio [\d.]+[^)]*\) are different|Expected an image [^\n]+)/;
 
-/** Every failing screenshot of a report: its id, project and diff size. */
-export function failingScreenshots(rep) {
+/** Every failing screenshot of a report (`unexpected` by default): its id, project and diff size. */
+export function failingScreenshots(rep, statuses = ['unexpected']) {
   const failing = [];
   for (const spec of projectSpecs(rep, undefined)) {
-    if (spec.status !== 'unexpected') continue;
+    if (!statuses.includes(spec.status)) continue;
     if (spec.project === 'layout' || spec.project === 'layout-teardown') continue;
     const message = spec.errors.join('\n').replace(ANSI, '');
     failing.push({
@@ -283,7 +283,10 @@ function main() {
   const owned = baselineProblems(report, changed);
   const failing = failingScreenshots(report);
   // Every run records its red set; the workflow uploads it from develop pushes.
-  writeFileSync(RED_PATH, JSON.stringify(failing.map(({ id, project }) => ({ id, project }))));
+  // Flaky screenshots (failed, then passed on retry) are unstable, not a clean
+  // baseline: record them as red so a flake on develop never blames a PR.
+  const unstable = failingScreenshots(report, ['unexpected', 'flaky']);
+  writeFileSync(RED_PATH, JSON.stringify(unstable.map(({ id, project }) => ({ id, project }))));
 
   const isPr = process.env.GITHUB_EVENT_NAME === 'pull_request';
   const { newBreaks, preExisting, developKnown } = classifyFailures(failing, isPr ? readDevelopRed() : null);

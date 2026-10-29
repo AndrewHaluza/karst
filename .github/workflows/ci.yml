@@ -311,8 +311,8 @@ jobs:
 
       # On a PR: fetch develop's red set (visual-red-develop.json, uploaded by
       # every develop push run) so the gate can tell new breaks from inherited
-      # drift. Prefer the run for the PR's base sha, else the newest develop run
-      # that has the artifact. Any failure here leaves the set absent and the
+      # drift. Prefer the run for the PR's base sha, else the newest completed develop run
+      # that has the artifact (a red unrelated job must not switch the gate off). Any failure here leaves the set absent and the
       # gate falls back to the own-baseline rule; a missing artifact never fails.
       - name: Find develop's red set
         id: develop-red
@@ -324,7 +324,7 @@ jobs:
             const base = context.payload.pull_request.base.sha;
             const { data } = await github.rest.actions.listWorkflowRuns({
               ...context.repo, workflow_id: 'ci.yml', branch: 'develop',
-              event: 'push', status: 'success', per_page: 30,
+              event: 'push', status: 'completed', per_page: 30,
             });
             let newest;
             for (const run of data.workflow_runs) {
@@ -406,7 +406,7 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
-      # Develop's red set, consumed by PR runs (see "Find develop's red set").
+      # Develop's red set (failed + flaky screenshots), consumed by PR runs (see "Find develop's red set").
       # The gate writes it on every run; only develop pushes publish it.
       - name: Upload develop's red set
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
