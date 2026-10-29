@@ -7,7 +7,9 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import { listGateRuns, type GateRun, type GateRunInput } from '../../store/gateRuns.js';
-import { findingsForAttempt, type Finding } from '../../store/reviewFindings.js';
+import { listFindings, type Finding } from '../../store/reviewFindings.js';
+import { currentReviewCycleStart, scopeCycleFindings } from '../../model/findingScope.js';
+import { listStageRuns } from '../../store/stageRuns.js';
 import { finishProcessRun } from '../../store/processRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
@@ -658,7 +660,13 @@ export async function runReview(
 
   // Read the sibling findings BEFORE the lane runs: the lane persists its own
   // as they land, so reading afterwards would double them.
-  const existingFindings = rerun ? findingsForAttempt(store, opts.ticketId, evidence.attempt) : [];
+  const existingFindings = rerun
+    ? scopeCycleFindings(
+        listFindings(store, opts.ticketId),
+        evidence.attempt,
+        currentReviewCycleStart(listStageRuns(store, opts.ticketId)),
+      )
+    : [];
 
   // Resolves the config default, and (spec §8.14) skips the AI call entirely
   // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
