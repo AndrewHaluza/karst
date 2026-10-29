@@ -2,12 +2,13 @@ import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
 import { countShipRuns } from '../../store/shipRuns.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
-import { listFindings, findingsForAttempt } from '../../store/reviewFindings.js';
+import { listFindings } from '../../store/reviewFindings.js';
 import { listImplementationTimeline, readSegmentTokenTotals } from '../../store/implementationRuns.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listStageRuns } from '../../store/stageRuns.js';
+import { currentReviewCycleStart, scopeCycleFindings } from '../../model/findingScope.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
 import { summarizeRecordedTokenUsageForProcess } from '../../store/tokenUsage.js';
@@ -83,29 +84,25 @@ export function readSegmentTokens(
 // records NO batch at all (`workflow/gates/evidence.ts`'s early return
 // on zero findings). `latestFindingBatch`'s greatest-`runAt` reduction
 // therefore keeps re-surfacing a fixed-and-passed ticket's stale batch
-// forever — it is never superseded by an empty one that was never
-// written. Scoped to the review STAGE's CURRENT `attempt` instead:
-// `attempt` only climbs on a FAILED verdict (`workflow/machine.ts`) and
-// holds on a pass, so a fail-then-fix-then-pass re-review shares its
-// attempt number with the fail it followed — the fail's findings are
-// still "this attempt"'s findings, and a LATER attempt (a fresh fail)
-// silently drops them, exactly the "cleared" reading a permanent-noise
-// row cannot give.
+// forever. Scoped to the review stage's CURRENT `attempt` AND its CURRENT
+// review CYCLE instead: `attempt` climbs on a failed verdict and holds on
+// a pass, but send-back / reset / PR-feedback / gate retry RESET it to 0,
+// so a bare attempt number mixes cycles (a later cycle's attempt 0 would
+// also match the first cycle's attempt-0 rows). The cycle start is the
+// first review stage run after the last reset (`findingScope.ts`); rows
+// older than it are not this cycle's, attributed or not.
 //
-// Intended reach (deliberate, not an oversight): because `attempt`
-// climbs only on a failed verdict, this row is SILENT on the ordinary
-// fail→fix→clean-pass path — and a ticket with unresolved
-// current-attempt blocking findings cannot reach ship anyway, since R6
-// fails review first. The row is a BACKSTOP, not the primary gate: it
-// catches a `review.findings.blockingSeverity` threshold lowered AFTER
-// the review passed, and a ticket advanced to ship by hand. The
-// attempt scoping is the trade that buys that backstop without a
-// permanent, unclearable false-red row (see the ruling above).
+// Intended reach (deliberate): within a cycle `attempt` climbs only on a
+// failed verdict, so this row is SILENT on the ordinary fail→fix→clean-pass
+// path, and a ticket with unresolved current-attempt blocking findings
+// cannot reach ship anyway (R6 fails review first). The row is a BACKSTOP:
+// it catches a `review.findings.blockingSeverity` threshold lowered AFTER
+// the review passed, and a ticket advanced to ship by hand.
 export function readShipFindings(store: Store, ticket: Ticket) {
-  return findingsForAttempt(
-    store,
-    ticket.id,
+  return scopeCycleFindings(
+    listFindings(store, ticket.id),
     ticket.stages.find((s) => s.stageKey === 'review')?.attempt ?? 0,
+    currentReviewCycleStart(listStageRuns(store, ticket.id)),
   );
 }
 

@@ -224,18 +224,12 @@ export function latestFindingBatch(store: Store, ticketId: number): Finding[] {
 }
 
 /**
- * A ticket's findings recorded under one specific review-stage `attempt`.
+ * A ticket's findings recorded under one review-stage `attempt` number.
  *
- * Unlike `latestFindingBatch` (greatest `runAt`), this is scoped by the
- * `stages` row's `attempt` column, which only climbs on a FAILED verdict
- * (`workflow/machine.ts`'s `transition`) and stays put on a pass — so a
- * fail-then-pass re-run at the review stage shares its attempt number with
- * the fail it followed, and a caller that already knows the ticket's CURRENT
- * review attempt can ask "what's on record for THIS attempt" rather than
- * "what's on record most recently", which never clears once a batch has
- * landed. Findings are append-only with no resolve path, so this is the only
- * way a caller can tell "still unresolved" from "recorded once, then the
- * ticket moved on".
+ * Bare attempt filter: `stages.attempt` climbs on a FAILED verdict but is
+ * RESET to 0 by send-back, stage reset, PR-feedback fix and gate retry, so the
+ * same number recurs across review cycles. Callers that mean "the current
+ * cycle" must use `scopeCycleFindings` (`model/findingScope.ts`) instead.
  */
 export function findingsForAttempt(store: Store, ticketId: number, attempt: number): Finding[] {
   return listFindings(store, ticketId).filter((f) => f.attempt === attempt);

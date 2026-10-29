@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { scopeReviewFindings, scopeUatFindings } from './findingScope.js';
+import { scopeReviewFindings, scopeUatFindings, currentReviewCycleStart, scopeCycleFindings } from './findingScope.js';
+import type { StageRun } from '../store/stageRuns.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { UatFinding } from '../store/uatFindings.js';
 import type { ProcessRun } from '../store/processRuns.js';
@@ -154,5 +155,40 @@ describe('scopeUatFindings', () => {
     ];
     const result = scopeUatFindings(findings, run);
     expect(result).toEqual([]);
+  });
+});
+
+describe('review cycle scoping', () => {
+  const run = (id: number, attempt: number, runAt: string, outcome: StageRun['outcome']): StageRun =>
+    ({ id, ticketId: 1, stageKey: 'review', attempt, runAt, status: 'finished', outcome, manifestHash: null, pid: null, startedAt: runAt, endedAt: runAt });
+  const fnd = (attempt: number, runAt: string, title: string): Finding =>
+    ({ id: 0, ticketId: 1, attempt, runAt, processRunId: null, severity: 'high', repo: 'r', file: 'f', line: 1, title, detail: '', source: 'agent', createdAt: runAt, identity: null }) as Finding;
+
+  const runs = [
+    run(1, 0, '2026-01-01T01', 'blocked'),
+    run(2, 1, '2026-01-01T02', 'blocked'),
+    run(3, 2, '2026-01-01T03', 'advanced'),
+    run(4, 0, '2026-01-02T01', 'advanced'),
+  ];
+  const all = [fnd(0, '2026-01-01T01', 'first'), fnd(1, '2026-01-01T02', 'second'), fnd(0, '2026-01-02T01', 'fourth')];
+
+  it('4th run (attempt reset) shows only its own findings', () => {
+    const start = currentReviewCycleStart(runs);
+    expect(start).toBe('2026-01-02T01');
+    expect(scopeCycleFindings(all, 0, start).map((f) => f.title)).toEqual(['fourth']);
+  });
+
+  it('fail→fix→pass inside one cycle keeps the cycle start at the first run', () => {
+    expect(currentReviewCycleStart(runs.slice(0, 3))).toBe('2026-01-01T01');
+    expect(scopeCycleFindings(all, 1, '2026-01-01T01').map((f) => f.title)).toEqual(['second']);
+  });
+
+  it('pass at attempt 0 then rerun at attempt 0 opens a new cycle', () => {
+    expect(currentReviewCycleStart([run(1, 0, 'a', 'advanced'), run(2, 0, 'b', null)])).toBe('b');
+  });
+
+  it('no review runs: null start, attempt filter only', () => {
+    expect(currentReviewCycleStart([])).toBeNull();
+    expect(scopeCycleFindings(all, 0, null)).toHaveLength(2);
   });
 });

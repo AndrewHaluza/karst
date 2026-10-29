@@ -1,3 +1,4 @@
+import type { StageRun } from '../store/stageRuns.js';
 import type { ProcessRun } from '../store/processRuns.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { UatFinding } from '../store/uatFindings.js';
@@ -30,7 +31,7 @@ import type { UatFinding } from '../store/uatFindings.js';
  * process run exists) is the correct reading, not staleness.
  *
  * Deliberately NOT a consumer: the ship stage's findings row
- * (`ui/dashboard/state.ts`), which scopes by the review stage's `attempt` under
+ * (`ui/dashboard/state.ts`), which scopes by the review stage's `attempt` within the current review cycle (below) under
  * its own recorded ruling, and the fix-brief readers
  * (`extension.ts`, `context/ticketContext.ts`, `cli/fixBriefCommand.ts`),
  * which legitimately want the batch being fixed.
@@ -91,4 +92,43 @@ export function scopeUatFindings(
   run: ProcessRun | undefined,
 ): UatFinding[] {
   return run === undefined ? [] : findings.filter((f) => f.processRunId === run.id);
+}
+
+/**
+ * The `runAt` of the first review stage run of the CURRENT review cycle, or
+ * `null` when the ticket has no review run.
+ *
+ * `stages.attempt` climbs on a failed verdict but is RESET to 0 by send-back,
+ * stage reset, PR-feedback fix and gate retry, so an attempt number alone
+ * cannot tell cycles apart. A run opens a new cycle when its attempt dropped
+ * below the previous run's, or held while the previous run advanced (passed):
+ * inside a cycle a fail bumps the attempt, so the next run is strictly higher.
+ */
+export function currentReviewCycleStart(runs: readonly StageRun[]): string | null {
+  const review = runs.filter((r) => r.stageKey === 'review');
+  let start: string | null = null;
+  review.forEach((run, i) => {
+    const prev = review[i - 1];
+    const opens =
+      prev === undefined ||
+      run.attempt < prev.attempt ||
+      (run.attempt === prev.attempt && prev.outcome === 'advanced');
+    if (opens) start = run.runAt;
+  });
+  return start;
+}
+
+/**
+ * `attempt`'s findings, restricted to the current review cycle: an earlier
+ * cycle's rows that share the (reset) attempt number are not this cycle's.
+ * Unattributed legacy rows are scoped the same way, by `runAt`.
+ */
+export function scopeCycleFindings(
+  findings: readonly Finding[],
+  attempt: number,
+  cycleStart: string | null,
+): Finding[] {
+  return findings.filter(
+    (f) => f.attempt === attempt && (cycleStart === null || f.runAt >= cycleStart),
+  );
 }
