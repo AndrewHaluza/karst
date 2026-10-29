@@ -607,13 +607,16 @@ export async function runUat(
 
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
-    const uiCut = await cutGatesWithoutUiChange(
-      resolution.gates,
-      git,
-      target.path,
-      opts.manifest ? resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest) : 'HEAD',
-      opts.debug,
-    );
+    // No manifest means no real base ref (HEAD would diff as empty): keep every gate.
+    const uiCut = opts.manifest
+      ? await cutGatesWithoutUiChange(
+          resolution.gates,
+          git,
+          target.path,
+          resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest),
+          opts.debug,
+        )
+      : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
 

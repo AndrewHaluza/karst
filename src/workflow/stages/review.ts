@@ -20,6 +20,7 @@ import { baseDefinesScript } from '../gates/npmScript.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
 import { cutGatesWithoutUiChange } from '../gates/uiDiff.js';
 import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
+import type { ResolvedGate } from '../gates/resolve.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
@@ -457,13 +458,16 @@ export async function runReview(
 
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
-    const uiCut = await cutGatesWithoutUiChange(
-      resolution.gates,
-      git,
-      target.path,
-      opts.manifest ? resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest) : 'HEAD',
-      opts.debug,
-    );
+    // No manifest means no real base ref (HEAD would diff as empty): keep every gate.
+    const uiCut = opts.manifest
+      ? await cutGatesWithoutUiChange(
+          resolution.gates,
+          git,
+          target.path,
+          resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest),
+          opts.debug,
+        )
+      : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
 
