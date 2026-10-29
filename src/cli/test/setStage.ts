@@ -26,6 +26,7 @@ const STATUS_VALUES: readonly StageStatus[] = ['pending', 'running', 'passed', '
 const BLOCK_KINDS: readonly BlockerKind[] = [
   'nothing-to-run',
   'capability-missing',
+  'resource-killed',
   'no-independent-signal',
   'boot-failed',
   'lease-lost',

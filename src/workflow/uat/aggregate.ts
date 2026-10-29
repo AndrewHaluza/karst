@@ -1,5 +1,6 @@
 import type { BlockerKind, Verdict } from '../../model/types.js';
 import type { GateRun } from '../../store/gateRuns.js';
+import { resourceKilledReason } from '../gates/resourceKill.js';
 import { capabilityGap, hostRefusalReason, staleBranchReason } from '../gates/capabilityGap.js';
 import type { GateResult } from '../gates/result.js';
 
@@ -138,6 +139,8 @@ export function aggregateUat(
 ): AggregateOutcome {
   const refusal = hostRefusalReason(entries.map((e) => e.result));
   if (refusal !== null) return { kind: 'blocked', blocker: 'capability-missing', reason: refusal };
+  const killed = resourceKilledReason(entries.map((e) => e.result));
+  if (killed !== null) return { kind: 'blocked', blocker: 'resource-killed', reason: killed };
   const stale = staleBranchReason(entries.map((e) => e.result));
   if (stale !== null) return { kind: 'blocked', blocker: 'capability-missing', reason: stale };
   const ran = entries.filter((e) => e.result.exitCode !== null);

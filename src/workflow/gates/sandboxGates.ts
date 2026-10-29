@@ -19,7 +19,7 @@ export function sandboxGateDeps(gate: GateProcessRunner | undefined, hostGate?: 
   return {
     // A fresh host runner per list: its one-time sync/dirty check covers exactly this run.
     runGates: (gates, cwd, opts = {}) =>
-      runGateList(gates, cwd, { ...opts, runProcess: gate, sandboxed: true, ...(hostGate && (gates.some((g) => g.sandbox === 'host') || hasHostOnlyEntry(opts.regenerate)) ? { hostProcess: hostGate() } : {}) }),
+      runGateList(gates, cwd, { ...opts, runProcess: gate, sandboxed: true, ...(hostGate && (gates.some((g) => g.sandbox === 'host' || g.onResourceKill === 'host') || hasHostOnlyEntry(opts.regenerate)) ? { hostProcess: hostGate() } : {}) }),
     runVerifier: gate,
     fingerprint: () => Promise.resolve(null),
   };
