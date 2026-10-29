@@ -14,6 +14,7 @@ import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deli
 import { deliverTargets } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
 import { autoDeliverAfterConflict, conflictRounds, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
+import { regenerateCommand, type RegenerateEntry } from '../../workflow/gates/regenerate.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
 /** Host-side seams shared by both ship actions; `extension.ts` supplies them (vscode lives only there). */
@@ -72,7 +73,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
 }
 
 /** Rebase every PR of the ticket that is behind its base, one repo at a time; the first failure stops the rest. */
-export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: string) => readonly string[]): Promise<void> {
+export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: string) => readonly RegenerateEntry[]): Promise<void> {
   try {
     const state = rebaseState(i.store, i.ticketId);
     if (!state.available) {
@@ -86,7 +87,7 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
     for (const pr of state.prs) {
       let failed = false;
       await rebaseOnBase({
-        repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo),
+        repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
         git: async (cwd, args) => {
           const r = await i.git([...args], cwd);
           return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };

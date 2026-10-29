@@ -1,6 +1,7 @@
 import { nowIso } from '../../model/time.js';
 import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
+import { runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { runProcess, type GateOutputChunk, type GateProcessRunner } from './run.js';
 
 /**
@@ -82,16 +83,48 @@ export interface RunGatesOptions {
   runProcess?: GateProcessRunner;
   /** Runs a gate declared `sandbox: host`; absent → such a gate uses `runProcess` like any other. Declared order is kept (arch:AC-36). */
   hostProcess?: GateProcessRunner;
+  /**
+   * The repo's `ship.regenerate` generators: run (where the gates run) and committed BEFORE the
+   * list. A generator that fails ends the pass with that one result and runs no gate.
+   */
+  regenerate?: RegenerateSpec;
 }
 
 export async function runGateList(
   gates: readonly ResolvedGate[],
   cwd: string,
   opts: RunGatesOptions = {},
-): Promise<{ kind: 'ran'; results: GateResult[] } | { kind: 'stopped'; results: GateResult[] }> {
+): Promise<
+  | { kind: 'ran'; results: GateResult[]; regenerateFailed?: true }
+  | { kind: 'stopped'; results: GateResult[] }
+> {
   const now = opts.now ?? nowIso;
   const results: GateResult[] = [];
   const onDebug = opts.onDebug;
+  if (opts.regenerate && opts.regenerate.commands.length > 0) {
+    const regenName = `regenerate (${opts.regenerate.repo})`;
+    opts.onGateStart?.(regenName);
+    const regen = await runRegenerate(
+      opts.regenerate,
+      cwd,
+      {
+        sandbox: opts.runProcess ?? runProcess,
+        ...(opts.hostProcess ? { host: opts.hostProcess } : {}),
+        signal: opts.signal,
+        onDebug,
+        ...(opts.onGateOutput ? { onOutput: (chunk: GateOutputChunk) => opts.onGateOutput?.(regenName, chunk) } : {}),
+      },
+      opts.runProcess !== undefined,
+      now,
+    );
+    if (regen.kind === 'stopped') return { kind: 'stopped', results };
+    if (regen.kind === 'failed') {
+      const r = regen.result;
+      // Index -1: the evidence row is not one of the resolved gates.
+      opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output);
+      return { kind: 'ran', results: [r], regenerateFailed: true };
+    }
+  }
   for (const [index, gate] of gates.entries()) {
     if (opts.signal?.aborted) return { kind: 'stopped', results };
     opts.onGateStart?.(gate.name);

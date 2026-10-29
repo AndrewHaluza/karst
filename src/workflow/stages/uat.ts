@@ -27,6 +27,7 @@ import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
+import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
@@ -681,6 +682,7 @@ export async function runUat(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
+      ...regenerateOption(opts.manifest, target.repo),
       // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
       ...(opts.manifest
         ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }
@@ -717,10 +719,12 @@ export async function runUat(
     });
 
     const produced: AggregateEntry[] = [];
+    const regenFailed = 'regenerateFailed' in run;
     for (const [index, result] of run.results.entries()) {
-      const gate = resolution.gates[index];
+      // A failed regenerate is the pass's only result; it is not one of the resolved gates.
+      const gate = regenFailed ? undefined : resolution.gates[index];
       produced.push({
-        result: { ...result, name: `${result.name} (${label})` },
+        result: regenFailed ? result : { ...result, name: `${result.name} (${label})` },
         identity: {
           repo: target.repo,
           command: gate?.command ?? result.name,
