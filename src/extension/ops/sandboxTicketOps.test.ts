@@ -44,14 +44,14 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     vi.mocked(runProcess).mockClear();
     await ticketSandboxRunner(deps({ bridgeOf: () => bridge, proc: fakeSbxProcess() }), 7)!.runner.runGate!('true', [], '/wt');
-    expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(['exec', '--env', 'KARST_EVIDENCE_DIR=/g/events/7', SBX, '--', 'true']);
+    expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(['exec', '--env', 'KARST_SANDBOX=1', '--env', 'KARST_EVIDENCE_DIR=/g/events/7', SBX, '--', 'true']);
     const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
     await ticketSandboxRunner(deps({ backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => 'opencode', bridgeOf: () => bridge, dockerProc: proc, platform: 'linux' }), 7)!
       .runner.runGate!('true', [], '/wt');
     expect(vi.mocked(runProcess).mock.calls[1]![1]).toContain('KARST_EVIDENCE_DIR=/karst-bridge/7');
     vi.mocked(runProcess).mockClear();
     await ticketSandboxRunner(deps({ proc: fakeSbxProcess() }), 7)!.runner.runGate!('true', [], '/wt');
-    expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(['exec', SBX, '--', 'true']);
+    expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(['exec', '--env', 'KARST_SANDBOX=1', SBX, '--', 'true']);
   });
 });
 
@@ -76,7 +76,7 @@ describe('ticketGateProcess', () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     vi.mocked(runProcess).mockClear();
     await inside('npm', ['test'], '/wt');
-    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', SBX, '--', 'npm', 'test']]);
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', '--env', 'KARST_SANDBOX=1', SBX, '--', 'npm', 'test']]);
     expect(debug).toHaveBeenCalledWith(`[gate] ticket 7: npm runs in sbx (${SBX})`);
     vi.mocked(runProcess).mockClear();
     const host = ticketGateProcess(deps({ proc: fakeSbxProcess(), debug }), 7)!;
@@ -127,7 +127,7 @@ describe('ticketGateProcess resolves the sandbox from the listing (F4)', () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     vi.mocked(runProcess).mockClear();
     await ticketGateProcess(d, 7)!('npm', ['test'], '/wt');
-    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', SBX, '--', 'npm', 'test']]);
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', '--env', 'KARST_SANDBOX=1', SBX, '--', 'npm', 'test']]);
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('has 2 sandboxes'));
   });
 
