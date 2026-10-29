@@ -1,105 +1,367 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
+import {
+  ALLOWED_EXTENSION_GROWTH,
+  COARSE_EXTENSION_CEILING,
+  calculateGrowth,
+  resolveBaseRef,
+  resolveMergeBase,
+  readBaseFileContent,
+  checkExtensionRatchet,
+  assertExtensionRatchet,
+  extensionGrowthErrorMessage,
+} from './ratchet.js';
 
-// The number ratchets down as extractions land and is, with the exception of
-// the planned servers seed wiring below, never raised. The value is the
-// measured line count plus 3 lines of deliberate slack. It was raised once for
-// the ONBOARDING-SETUP-AGENT binding: the setup feature's activation call is a
-// thin deps object in `activate()`, and its launch/proposal/watch logic lives in
-// `src/extension/setupWiring.ts` + `src/extension/ops/setup*.ts`. Anything
-// larger than a thin binding belongs in src/extension/ops/. Raised by 2 for the
-// graph-ticket mailbox binding (one import + one `visitMailboxOf` line in the
-// driver deps; the logic lives in `src/approaches/graph/visitMailbox*.ts`).
-// Raised by 2 for the 'Karst: Run Doctor' binding (one import + one registration;
-// logic is in `src/ui/doctor/host.ts` and `ops/doctorOps.ts`).
-// Raised by 2 for the draft-constraints bindings (`archDocs` on the proposal ops,
-// `repoPaths`/`commitExists`/`onWarnings` on the outbox); the checks live in
-// `ops/planningConstraintChecks.ts`.
-// Raised by 10 for the sub-task provider sync binding (`syncSubtask: makeSubtaskSync({...})`
-// in the lifecycle deps + 2 imports; logic is in `ops/subtaskSyncOps.ts`).
-// Raised by 10 for the baseline-review bindings (@arch:BASELINE-REVIEW): the
-// shared `vscodeNotify`, the `makeBaselineActions` spread, the panel-host worktree
-// roots and the rows loader; the logic is in `ops/baselineDecisionOps.ts` and
-// `ui/dashboard/baselineRows.ts`.
-// Raised by 2 for the artifact-store retention binding (one import + one
-// `sweepArtifactRetention` line in the PR-sync tick; logic is in `src/artifacts/retention.ts`).
-// Raised by 19 for the artifact-capture binding (`wireArtifactCapture` call, its
-// four hook bindings and the SessionEnd line); logic is in `src/artifacts/service.ts`
-// and `src/extension/artifactCaptureWiring.ts`.
-// Raised by 7 for the Settings pending-outputs bindings (`readPendingOutputs`,
-// `clearPendingOutputs` and the manager arg); logic is in `src/approaches/pendingOutputs.ts`.
-// Raised by 10 for the dashboard Artifacts binding (`createStoredArtifactBinding`
-// call, its disposal, the `forTicket` arg and the action spread); logic is in
-// `src/extension/ops/storedArtifactOps.ts`, the vscode half in `storedArtifactBinding.ts`.
-// Raised by 5 more for the sidebar artifact-count badge (`makeSidebarArtifactCounts`
-// call and the `artifactCount` arg); logic is in `src/artifacts/countCache.ts`.
-// Raised by 19 for the fix-delivery bindings (@arch:V77): the `fixDelivery` wiring
-// object + its sweep timer, the seed path's one-transaction snapshot write, the two
-// mailbox deps, and the `deliverFix` seam; logic is in `ops/fixDelivery*.ts`.
-// Raised by 18 for the reviewer-conformance bindings (`makeReviewArtifactsBinding` arg,
-// the `onRevision` feed and the `makeAlignmentTrigger` call + disposal); logic is in
-// `src/extension/reviewArtifactsBinding.ts` and `src/extension/alignmentBinding.ts`.
-// Raised by 3 (8531 -> 8533): #583 (MCP-first delivery pointers) landed on develop one line over the cap.
-// Raised by 8 (8533 -> 8541): launch MCP channel binding for the seed (`launchHasMcp`); logic is in `agent/karstCommandText.ts`.
-// Raised by 39 (8541 -> 8580): opencode2 pre-launch auth warning. The check
-// itself lives in `ops/opencode2AuthWarning.ts` and the parser in
-// `agent/opencode2Auth.ts`; what stays here is the one binding the ops module
-// cannot own — the `vscode.window.showWarningMessage` seam, the login command,
-// the isolated-env-capable output probe, and the `karst.openSession` call site.
-// Raised by 7 (8580 -> 8587): sbx backend (AC-32) — one import, the
-// `backendSessionOptions` spread at the launch site and the `karst.sandbox.sync`
-// registration; logic is in `ops/sandboxSyncOps.ts` and `agent/backendResolver.ts`.
-// Raised by 14 (8587 -> 8601): sandbox evidence bridge lifecycle (arch:AC-34) — imports,
-// the registry built from the hook endpoint's own dispatch closures, the boot
-// re-attach sweep, terminal-close detach, the `bridgeFor` launch spread and the
-// `karst.sandbox.dispose` registration; logic is in `ops/bridgeWiring.ts`,
-// `ops/bootSweeps.ts:runBridgeSweep`, `ops/sandboxSyncOps.ts` and `agent/bridge/bridgeRegistry.ts`.
-// Raised by 3 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
-// Raised by 4 (8603 -> 8607): sandbox rollout UI (ST9) — the settings `probeBackends` dep and its
-// import, the Sandbox card's four dashboard actions, the `sandboxLife` module-level handle those
-// actions reach, and the `showDiff`/`warn`/`ticketOverride` seams; logic is in `ops/sandboxDiffOp.ts`,
-// `ops/sandboxWiring.ts`, `ops/sandboxSyncOps.ts`, `agent/backendProbe.ts` and `ui/dashboard/sandboxView.ts`.
-// Raised by 58 (8580 -> 8638): the per-core subscription-quota binding (D163).
-// The decision half (badge text/warning) lives in `ops/quotaOps.ts` and the
-// reader service in `agent/quota/`; what stays here is the two vscode seams the
-// ops layer cannot own — the status-bar item and `window.showWarningMessage` —
-// plus the service lifecycle (construct, start, dispose) and the panel's two
-// quota deps.
-// Raised by 4 (8580 -> 8584): UAT probe bindings (KARST_UAT_PROBE=1 only) — one
-// import plus the `installProbeRecorder()` call (it must patch vscode.window
-// before anything else is created) and the `registerProbeCommand()` line in
-// `activate()`. All probe logic lives in `src/uatHost/probe/*`.
-// Both raises branched from 8580; the merge carries them together (measured 8639
-// lines + 3 slack: 8580 + 58 + 4 = 8642).
-// Merge of the sandbox branch (+27: 8580 -> 8607) with develop (8642): 8642 + 27 = 8669.
-// Sandbox dependency provisioning (D195, +1: 8669 -> 8670): the `karst.sandbox.setup` palette registration; logic is in `ops/sandboxSetupOp.ts` / `sandboxTicketOps.ts`.
-// T715 ship CI actions: +13 (ciHost seam, ciActionsInput, two handlers, imports): 8670 + 13 = 8683.
-// Deliver to PR: +6 (tracker, runPrSync sweep, ciHost deliver seam, runShipSaga option, action binding): 8683 + 6 = 8689.
-// Sidebar "Send CI failure to agent" peek CTA (T742, +2: 8689 -> 8691): one binding line + its comment; logic is `ops/ciFailureOps.ts`.
-// Servers stop on done (T762, +14: 8691 -> 8705): serverLifecycleDeps wiring, onTicketDone, onTicketCompleted, settleShipGates.
-// Usage-limit park actions binding (D159, +11: 8705 -> 8716): one import, the `createUsageLimitParkBinding` call, forTicket passed to `makeDashboardActions` and spread into `DashboardActions`.
-// Park re-run driver-lock binding (+3: 8716 -> 8719): the `withDriverRun` line plus the faithful-run seams merged with develop's tree; the wrapper lives in `usageLimitParkBinding.ts`.
-// Interactive usage-limit detection (D160, +9 over develop's 8718 -> 8727): the binding call, the session.error / transcript hooks and `switchAgentSession` returning its outcome; logic is `ops/interactiveUsageLimitOps.ts` + `interactiveUsageLimitBinding.ts`.
-// Raised by 20 (8727 -> 8747): Servers & resources panel bindings (the `createServersBinding` call,
-// `serversChanged` fan-out, `karst.openServers` and the Manage-link command); the logic is in
-// `ops/sharedServerOps.ts`, `ops/serversHostOps.ts` and `extension/serversBinding.ts`.
-// Planning auto-archive (+2: 8747 -> 8749): the `sweepPlanningArchive` call and its comment; logic is `ops/planningAutoArchive.ts`.
-// Raised by 3 (8749 -> 8752): cloud-session scan binding (arch:CLOUD-01) — one import, the
-// `makeCloudScanTick` call and its PR-sync-tick line; logic is in `ops/cloudSessionScanOps.ts`.
-// Raised by 17 (8752 -> 8769): human-only close/reopen palette commands (@arch:STAGEMACH) — one import,
-// the `registerCloseCommands` call with its vscode seams and the dashboard Close/Reopen actions; the
-// logic is in `ops/closeOps.ts` and `ops/closeCommands.ts`.
-// Raised by 5 (8769 -> 8774): sidebar menu actions (+3) merged from develop (#778) and agy sandbox appDataDir (+2) in createAgyWatchLoop (ENABLE-DOCKER-BACKEND-FOR-AGY).
-// Raised by 13 (8774 -> 8787): T831 — the `parkGateOnDriverFailure` import and call in the driver catch, and the dashboard `resetStage` binding; logic is `ops/parkOnDriverFailure.ts` and `ops/resetStageAction.ts`.
-// Raised by 3 (8787 -> 8790): the Stop-nudge wiring (`nudgeEligible`, `onNudged` markerNudged telemetry) next to `fixEligible`; logic is in `hooks/mailReply.ts`.
-const MAX_EXTENSION_LINES = 8790;
+// Extension entry file growth is capped at ALLOWED_EXTENSION_GROWTH (15) net lines
+// compared with the merge base of the ticket's base branch (origin/develop, or develop).
+// When git or the base is unavailable, COARSE_EXTENSION_CEILING applies as a fallback.
 
-describe('extension.ts ratchet', () => {
-  it('extension.ts does not exceed the recorded line count', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
-    const lineCount = source.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(MAX_EXTENSION_LINES);
+describe('extension.ts ratchet arithmetic and base resolution', () => {
+  it('calculates net growth correctly', () => {
+    expect(calculateGrowth(8790, 8790)).toBe(0);
+    expect(calculateGrowth(8790, 8805)).toBe(15);
+    expect(calculateGrowth(8790, 8806)).toBe(16);
+    expect(calculateGrowth(8790, 8780)).toBe(-10);
+  });
+
+  it('resolves base ref: prefers origin/develop when present', async () => {
+    const fakeGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse' && args[2] === 'origin/develop') {
+        return { stdout: 'sha-origin\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'not found', exitCode: 1 };
+    };
+    const ref = await resolveBaseRef(fakeGit, '/repo');
+    expect(ref).toBe('origin/develop');
+  });
+
+  it('resolves base ref: falls back to develop when remote ref does not exist', async () => {
+    const fakeGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'origin/develop') {
+        return { stdout: '', stderr: 'unknown revision', exitCode: 128 };
+      }
+      if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'develop') {
+        return { stdout: 'sha-local\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'not found', exitCode: 1 };
+    };
+    const ref = await resolveBaseRef(fakeGit, '/repo');
+    expect(ref).toBe('develop');
+  });
+
+  it('handles git throws gracefully', async () => {
+    const throwingGit: GitRunner = async () => {
+      throw new Error('git crashed');
+    };
+    expect(await resolveBaseRef(throwingGit, '/repo')).toBeNull();
+    expect(await resolveMergeBase(throwingGit, '/repo')).toBeNull();
+    expect(await readBaseFileContent(throwingGit, '/repo', 'sha', 'file')).toBeNull();
+  });
+
+  it('resolves merge base returns null when git exits non-zero or stdout is empty', async () => {
+    const emptyGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: '   \n', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    expect(await resolveMergeBase(emptyGit, '/repo')).toBeNull();
+
+    const nonZeroGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'sha-mb\n', stderr: 'err', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    expect(await resolveMergeBase(nonZeroGit, '/repo')).toBeNull();
+  });
+
+  it('readBaseFileContent returns null when show exits non-zero', async () => {
+    const failGit: GitRunner = async () => ({ stdout: '', stderr: 'missing', exitCode: 1 });
+    expect(await readBaseFileContent(failGit, '/repo', 'mb', 'path')).toBeNull();
+  });
+
+  it('resolves base ref: returns null when neither exists or git fails', async () => {
+    const fakeGit: GitRunner = async () => ({ stdout: '', stderr: 'not found', exitCode: 128 });
+    const ref = await resolveBaseRef(fakeGit, '/repo');
+    expect(ref).toBeNull();
+  });
+
+  it('supports custom baseBranch', async () => {
+    const fakeGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse' && args[2] === 'origin/main') {
+        return { stdout: 'sha-origin\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base' && args[1] === 'origin/main') {
+        return { stdout: 'mb-main\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'error', exitCode: 1 };
+    };
+    const mb = await resolveMergeBase(fakeGit, '/repo', 'main');
+    expect(mb).toBe('mb-main');
+  });
+
+  it('resolves merge base with origin/develop when available', async () => {
+    const calls: string[][] = [];
+    const fakeGit: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'rev-parse' && args[2] === 'origin/develop') {
+        return { stdout: 'sha-origin\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base' && args[1] === 'origin/develop') {
+        return { stdout: 'mb-sha-123\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'error', exitCode: 1 };
+    };
+    const mb = await resolveMergeBase(fakeGit, '/repo');
+    expect(mb).toBe('mb-sha-123');
+    expect(calls).toContainEqual(['rev-parse', '--verify', 'origin/develop']);
+    expect(calls).toContainEqual(['merge-base', 'origin/develop', 'HEAD']);
+  });
+
+  it('resolves merge base with develop when origin/develop is missing', async () => {
+    const calls: string[][] = [];
+    const fakeGit: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'rev-parse' && args[2] === 'origin/develop') {
+        return { stdout: '', stderr: 'error', exitCode: 1 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'develop') {
+        return { stdout: 'sha-local\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base' && args[1] === 'develop') {
+        return { stdout: 'mb-local-456\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'error', exitCode: 1 };
+    };
+    const mb = await resolveMergeBase(fakeGit, '/repo');
+    expect(mb).toBe('mb-local-456');
+    expect(calls).toContainEqual(['merge-base', 'develop', 'HEAD']);
+  });
+
+  it('returns null when merge-base fails (shallow clone)', async () => {
+    const fakeGit: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') {
+        return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base') {
+        return { stdout: '', stderr: 'fatal: no merge base', exitCode: 128 };
+      }
+      return { stdout: '', stderr: 'error', exitCode: 1 };
+    };
+    const mb = await resolveMergeBase(fakeGit, '/repo');
+    expect(mb).toBeNull();
+  });
+});
+
+describe('extension.ts ratchet growth check', () => {
+  const baseContent = Array(100).fill('line').join('\n'); // 100 lines
+
+  function makeGit(baseFileContent: string = baseContent): GitRunner {
+    return async (args) => {
+      if (args[0] === 'rev-parse') {
+        return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'merge-base') {
+        return { stdout: 'mb-sha\n', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'show' && args[1] === 'mb-sha:src/extension.ts') {
+        return { stdout: baseFileContent, stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: 'not found', exitCode: 1 };
+    };
+  }
+
+  it('falls back to ceiling when mergeBase is found but base file does not exist', async () => {
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'mb\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show') return { stdout: '', stderr: 'does not exist', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: 'line1\nline2',
+      ceiling: 10,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBeUndefined();
+  });
+
+  it('supports custom readFile callback', async () => {
+    let readCalled = false;
+    const res = await checkExtensionRatchet({
+      readFile: async (p) => {
+        readCalled = true;
+        return 'custom\nlines';
+      },
+      ceiling: 10,
+    });
+    expect(readCalled).toBe(true);
+    expect(res.currentLines).toBe(2);
+    expect(res.ceiling).toBe(10);
+  });
+
+  it('normalizes backslashes in relative path', async () => {
+    let requestedRelPath = '';
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: 'mb\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show' && args[1]) {
+        requestedRelPath = args[1];
+        return { stdout: 'line', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+    await checkExtensionRatchet({
+      git,
+      relPath: 'src\\extension.ts',
+      currentSource: 'line',
+    });
+    expect(requestedRelPath).toBe('mb:src/extension.ts');
+  });
+
+  it('handles git throws inside checkExtensionRatchet', async () => {
+    const git: GitRunner = async () => {
+      throw new Error('fail');
+    };
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: 'line',
+      ceiling: 10,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.mergeBase).toBeUndefined();
+  });
+
+  it('passes when change leaves the file the same size', async () => {
+    const git = makeGit();
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: baseContent,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBe(0);
+  });
+
+  it('passes when change removes lines', async () => {
+    const git = makeGit();
+    const reducedContent = Array(80).fill('line').join('\n'); // 80 lines (-20)
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: reducedContent,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBe(-20);
+  });
+
+  it('passes when change adds 15 or fewer net lines', async () => {
+    const git = makeGit();
+    const addedContent = Array(110).fill('line').join('\n'); // +10 lines
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: addedContent,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBe(10);
+  });
+
+  it('passes when change adds exactly 15 net lines', async () => {
+    const git = makeGit();
+    const addedContent = Array(115).fill('line').join('\n'); // +15 lines
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: addedContent,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.growth).toBe(15);
+  });
+
+  it('fails with actionable message when change adds 16 or more net lines', async () => {
+    const git = makeGit();
+    const addedContent = Array(116).fill('line').join('\n'); // +16 lines
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: addedContent,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.growth).toBe(16);
+    expect(res.errorMessage).toBe(
+      'src/extension.ts grew by 16 lines in this change (allowed: 15). Move the logic into a module under src/extension/ (a *Binding.ts, or ops/ for vscode-free logic) and keep only the wiring call here.'
+    );
+  });
+
+  it('assertExtensionRatchet throws the expected message when growth exceeded', async () => {
+    const git = makeGit();
+    const addedContent = Array(120).fill('line').join('\n'); // +20 lines
+    await expect(
+      assertExtensionRatchet({
+        git,
+        currentSource: addedContent,
+      })
+    ).rejects.toThrow(
+      'src/extension.ts grew by 20 lines in this change (allowed: 15). Move the logic into a module under src/extension/ (a *Binding.ts, or ops/ for vscode-free logic) and keep only the wiring call here.'
+    );
+  });
+});
+
+describe('extension.ts ratchet fallback ceiling when base is unavailable', () => {
+  it('passes when git is unavailable but line count is below fallback ceiling', async () => {
+    const git: GitRunner = async () => {
+      throw new Error('git not found');
+    };
+    const content = Array(5000).fill('line').join('\n');
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: content,
+      ceiling: 9100,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it('passes when shallow clone has no merge base and file is below fallback ceiling', async () => {
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse') return { stdout: 'sha\n', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: 'fatal: no merge base', exitCode: 128 };
+    };
+    const content = Array(9100).fill('line').join('\n'); // exactly ceiling
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: content,
+      ceiling: 9100,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it('fails with ceiling message and no raw git error when file exceeds fallback ceiling', async () => {
+    const git: GitRunner = async () => {
+      throw new Error('git: command not found (opaque raw git error)');
+    };
+    const content = Array(9101).fill('line').join('\n'); // ceiling + 1
+    const res = await checkExtensionRatchet({
+      git,
+      currentSource: content,
+      ceiling: 9100,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorMessage).toBeDefined();
+    expect(res.errorMessage).toContain('ceiling');
+    expect(res.errorMessage).not.toContain('command not found');
+    expect(res.errorMessage).not.toContain('opaque raw git error');
+
+    await expect(
+      assertExtensionRatchet({
+        git,
+        currentSource: content,
+        ceiling: 9100,
+      })
+    ).rejects.toThrow(/ceiling/);
+  });
+});
+
+describe('extension.ts ratchet live check', () => {
+  it('src/extension.ts passes the ratchet against the merge base', async () => {
+    await assertExtensionRatchet({ git: defaultGitRunner });
   });
 });
 
