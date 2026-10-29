@@ -138,6 +138,11 @@ export function createSender(api: WebviewApi) {
       stageKey: Msg<'stage-resume'>['stageKey'],
       requestId?: string,
     ) => send({ type: 'stage-resume', ticketId, stageKey }, requestId),
+    runGateOnHost: (
+      ticketId: Msg<'run-gate-on-host'>['ticketId'],
+      stageKey: Msg<'run-gate-on-host'>['stageKey'],
+      requestId?: string,
+    ) => send({ type: 'run-gate-on-host', ticketId, stageKey }, requestId),
     usageLimitPick: (
       ticketId: Msg<'usage-limit-pick'>['ticketId'],
       stageKey: Msg<'usage-limit-pick'>['stageKey'],

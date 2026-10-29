@@ -125,6 +125,8 @@ export function routeAction(
       return actions.copyTicketKey();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
+    case 'run-gate-on-host':
+      return actions.runGateOnHost(msg.ticketId, msg.stageKey);
     case 'usage-limit-pick':
       return actions.usageLimitPick(msg.ticketId, msg.stageKey);
     case 'usage-limit-retry':

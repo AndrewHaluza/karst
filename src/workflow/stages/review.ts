@@ -29,7 +29,8 @@ import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
-import { getDisabledGates } from '../../store/ticketGates.js';
+import { getDisabledGates, getHostGates } from '../../store/ticketGates.js';
+import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import {
   aggregateReview,
@@ -548,7 +549,7 @@ export async function runReview(
       `[gate] review ticket ${opts.ticketId}: target ${label} — ${resolution.gates.length} gate(s)` +
         (resolution.skipped.length > 0 ? `, ${resolution.skipped.length} disabled` : ''),
     );
-    const run = await runGates(resolution.gates, target.path, {
+    const run = await runGates(withHostOverride(resolution.gates, getHostGates(store, opts.ticketId)), target.path, {
       signal: opts.signal,
       now,
       scriptsAvailable: (script, derived) =>

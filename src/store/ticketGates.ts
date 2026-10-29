@@ -100,3 +100,27 @@ export function setDisabledGates(
       .run(empty ? null : JSON.stringify({ uat: next.uat, review: next.review }), ticketId);
   });
 }
+
+/** Gate names this ticket reruns on the host after a resource kill. Never throws; bad data reads empty. */
+export function getHostGates(store: Store, ticketId: number): readonly string[] {
+  const row = store.db.prepare('SELECT host_gates FROM tickets WHERE id = ?').get(ticketId) as
+    | { host_gates: string | null }
+    | undefined;
+  if (!row?.host_gates) return [];
+  try {
+    const parsed: unknown = JSON.parse(row.host_gates);
+    return Array.isArray(parsed) ? normalizeNames(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Add gate names to the host list (merged inside one transaction, like `setDisabledGates`). */
+export function addHostGates(store: Store, ticketId: number, names: readonly string[]): void {
+  runImmediateTransaction(store.db, () => {
+    const next = normalizeNames([...getHostGates(store, ticketId), ...names]);
+    store.db
+      .prepare("UPDATE tickets SET host_gates = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(next.length === 0 ? null : JSON.stringify(next), ticketId);
+  });
+}

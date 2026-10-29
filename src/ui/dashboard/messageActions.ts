@@ -139,6 +139,8 @@ export interface DashboardActions {
    * place, right against the store it is about to mutate.
    */
   resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  /** Resource-killed park: rerun the killed gate(s) on the host, then resume the stage. */
+  runGateOnHost: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   usageLimitPick: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   usageLimitRetry: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   usageLimitDismiss: (ticketId: number, stageKey: StageKey) => void | Promise<void>;

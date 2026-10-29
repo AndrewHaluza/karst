@@ -169,6 +169,7 @@ export type WebviewMessage =
    * moved to another stage must not be resumable by this message.
    */
   | { type: 'stage-resume'; ticketId: number; stageKey: StageKey }
+  | { type: 'run-gate-on-host'; ticketId: number; stageKey: StageKey }
   /** Pick agent/model to resolve a usage-limit block (D159). */
   | { type: 'usage-limit-pick'; ticketId: number; stageKey: StageKey }
   /** Retry same agent/model to resolve a usage-limit block (D159). */

@@ -389,6 +389,7 @@ import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAtt
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
+import { runKilledGatesOnHost } from './extension/ops/runGateOnHost.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { resetStageAction } from './extension/ops/resetStageAction.js';
 import { reviewStallBinding, registerReviewStallCommands } from './extension/reviewStallBinding.js';
@@ -8416,6 +8417,15 @@ function makeDashboardActions(
     // tested) — this stays a thin binding: apply it, and only on success
     // refresh the panel and kick the same driver trigger every other resume
     // path uses.
+    runGateOnHost: (msgTicketId, stageKey) => {
+      if (msgTicketId !== ticketId) return;
+      if (runKilledGatesOnHost(store, ticketId, stageKey).length === 0) return;
+      const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
+      if (outcome.kind === 'cleared') {
+        afterServerChange();
+        driveAfterResume(ticketId);
+      }
+    },
     resumeStage: (msgTicketId, stageKey) => {
       const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
       if (outcome.kind === 'cleared') {

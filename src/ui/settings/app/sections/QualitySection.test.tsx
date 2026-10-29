@@ -598,7 +598,7 @@ describe('QualitySection — per-gate enabled switch', () => {
 
   it('writes onResourceKill for a non-default policy, deletes it for the default, disables with the gate', () => {
     const { probe } = mountQuality(withGate({}));
-    const select = () => byLabel('On out-of-memory kill') as HTMLSelectElement;
+    const select = () => byLabel('On out-of-memory kill') as unknown as HTMLSelectElement;
     expect(select().value).toBe('retry-then-park');
     fireEvent.change(select(), { target: { value: 'host' } });
     expect((uatOf(probe).gates as Record<string, unknown>[])[0]).toMatchObject({ onResourceKill: 'host' });

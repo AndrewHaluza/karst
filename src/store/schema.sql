@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
+  host_gates        TEXT,                 -- JSON ["unit"]: gates this ticket reruns on the host after an out-of-memory kill; NULL = none
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it

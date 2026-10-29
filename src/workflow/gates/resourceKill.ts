@@ -29,6 +29,15 @@ export function isResourceKill(result: GateResult): boolean {
   return !FAILURE_MARKERS.some((re) => re.test(result.output));
 }
 
+/** Gates whose name the ticket asked to rerun on the host get `onResourceKill: 'host'`. */
+export function withHostOverride<G extends { name: string; onResourceKill?: ResourceKillPolicy }>(
+  gates: readonly G[],
+  hostNames: readonly string[],
+): G[] {
+  if (hostNames.length === 0) return [...gates];
+  return gates.map((g) => (hostNames.includes(g.name) ? { ...g, onResourceKill: 'host' as const } : g));
+}
+
 /** The park reason when any gate stayed resource-killed after its policy ran, else null. */
 export function resourceKilledReason(results: readonly GateResult[]): string | null {
   const killed = results.filter((r) => r.resourceKilled !== undefined);
