@@ -44,7 +44,7 @@ describe('serverOps: sandboxed rows (arch:AC-32)', () => {
     await stopServerRow(deps, id);
     expect(stopServer).not.toHaveBeenCalled();
     const { runProcess } = await import('../../workflow/gates/run.js');
-    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', SBX, '--', 'sh', '-c', STOP_SCRIPT, 'karst-svc-stop', 'api']]);
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', '--env', 'KARST_SANDBOX=1', SBX, '--', 'sh', '-c', STOP_SCRIPT, 'karst-svc-stop', 'api']]);
     const lines = proc.calls.map((c) => [c.command, ...c.args].join(' '));
     expect(lines).toContain(`sbx ports ${SBX} --unpublish 127.0.0.1:4100:4100`);
     expect(store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id)).toEqual({ status: 'stopped' });

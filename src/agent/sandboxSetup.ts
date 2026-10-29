@@ -134,11 +134,26 @@ async function waitForIdle(deps: SetupDeps, req: SetupRequest, fingerprint: stri
   return undefined;
 }
 
+/** Exit 0 when `node_modules` is absent or writable; else print its owner and exit 1. Never chowns (needs sudo in the agent's clone). */
+const WRITABLE_SH = 'if [ ! -e node_modules ] || [ -w node_modules ]; then exit 0; fi; stat -c %U node_modules 2>/dev/null || ls -ld node_modules | awk \'{print $3}\'; exit 1';
+
+async function unwritableNodeModules(deps: SetupDeps, req: SetupRequest): Promise<string | undefined> {
+  const out = await deps.runGate('sh', ['-c', WRITABLE_SH], req.cwd, { signal: req.signal });
+  if (out.kind !== 'completed' || out.exitCode === 0) return undefined; // a probe that cannot run is not a verdict
+  const owner = (out.stdout ?? out.output).trim() || 'unknown';
+  return `sandbox dependencies not provisioned: ${req.cwd}/node_modules is not writable by the sandbox user (owner ${owner}); fix its ownership inside the sandbox (e.g. \`sudo chown -R agent:agent node_modules\`), then re-run setup`;
+}
+
 /** Run the setup command once, record the outcome. The caller holds the lock. */
 async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string): Promise<SetupResult> {
   const now = deps.now ?? Date.now;
   const refused = await waitForIdle(deps, req, fingerprint);
   if (refused) return refused;
+  const blocked = await unwritableNodeModules(deps, req);
+  if (blocked) {
+    await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode: null, at: now() });
+    return { ok: false, reason: blocked };
+  }
   await writeState(deps.stateFile, { fingerprint, status: 'running', exitCode: null, at: now() });
   // The window closes in `finally`: after a failed, timed-out or aborted setup too.
   const opened = deps.window ? await deps.window.open(req.hosts ?? []) : undefined;

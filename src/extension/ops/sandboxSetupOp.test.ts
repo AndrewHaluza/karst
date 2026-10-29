@@ -1,20 +1,22 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { resetSetupLocks } from '../../agent/sandboxSetup.js';
 import { manifest as buildManifest, repo } from '../../manifest/fixtures.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
-import { clearSetupState, provisionTicketSandbox, type TicketSetupDeps } from './sandboxSetupOp.js';
+import { clearSetupState, LOCKFILES_SH, MISSING_SETUP_HINT, onceByMessage, provisionTicketSandbox, reposMissingSetup, warnMissingSetup, type TicketSetupDeps } from './sandboxSetupOp.js';
 
 const HASH = 'c'.repeat(64);
 
-function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandboxed?: boolean; docker?: boolean; turn?: boolean } = {}) {
+function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandboxed?: boolean; docker?: boolean; turn?: boolean; lockfile?: boolean } = {}) {
   const errors: string[] = [];
   const ran: string[][] = [];
   const runGate: GateProcessRunner = async (_c, args) => {
+    if (args[1]?.includes('-w node_modules')) return { kind: 'completed', exitCode: 0, output: '', stdout: '' };
     ran.push([...args]);
+    if (args[1] === LOCKFILES_SH) return { kind: 'completed', exitCode: opts.lockfile === false ? 1 : 0, output: '', stdout: '' };
     const fp = args[1]?.includes('command -v node');
     return { kind: 'completed', exitCode: fp ? 0 : (opts.exit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' };
   };
@@ -257,5 +259,82 @@ describe('clearSetupState', () => {
       await provisionTicketSandbox(c.deps, 7); await settle();
       expect(c.calls).toEqual(['help']);
     });
+  });
+});
+
+describe('reposMissingSetup', () => {
+  it('names a repo with a lockfile and no sandbox.setup, probing at its worktree', async () => {
+    const r = rig({ lockfile: true });
+    expect(await reposMissingSetup(r.deps, 7)).toEqual(['app']);
+    expect(r.ran).toEqual([['-c', '[ -e package-lock.json ] || [ -e pnpm-lock.yaml ] || [ -e yarn.lock ]']]);
+  });
+  it('is empty when the repo declares setup', async () => {
+    const r = rig({ setup: 'npm ci', lockfile: true });
+    expect(await reposMissingSetup(r.deps, 7)).toEqual([]);
+    expect(r.ran).toEqual([]);
+  });
+  it('is empty without a lockfile', async () => {
+    expect(await reposMissingSetup(rig({ lockfile: false }).deps, 7)).toEqual([]);
+  });
+  it('is empty for a host ticket or without a manifest', async () => {
+    expect(await reposMissingSetup(rig({ lockfile: true, sandboxed: false }).deps, 7)).toEqual([]);
+    expect(await reposMissingSetup({ ...rig({ lockfile: true }).deps, manifest: () => undefined }, 7)).toEqual([]);
+  });
+  it('matches a worktree to its manifest entry by repoPath', async () => {
+    const r = rig({ lockfile: true });
+    expect(await reposMissingSetup({ ...r.deps, worktrees: () => [{ repo: '/repo', path: '/wt' }] }, 7)).toEqual(['app']);
+  });
+  it('skips a worktree whose repo is not in the manifest', async () => {
+    const r = rig({ lockfile: true });
+    expect(await reposMissingSetup({ ...r.deps, worktrees: () => [{ repo: 'ghost', path: '/g' }] }, 7)).toEqual([]);
+    expect(r.ran).toEqual([]);
+  });
+});
+
+describe('warnMissingSetup', () => {
+  it('warns once naming the repos and the hint', async () => {
+    const warn = vi.fn();
+    await warnMissingSetup({ warn }, rig({ lockfile: true }).deps, 7);
+    expect(MISSING_SETUP_HINT).toBe('sandbox.setup: npm ci');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Karst: sandbox repo app has a lockfile but no sandbox.setup, so its clone has no dependencies. Add `sandbox.setup: npm ci` to its manifest entry.');
+  });
+  it('uses plural wording for several repos', async () => {
+    const warn = vi.fn();
+    const r = rig({ lockfile: true });
+    const manifest = buildManifest({ a: repo({ repoPath: '/a' }), b: repo({ repoPath: '/b' }) });
+    await warnMissingSetup({ warn }, { ...r.deps, manifest: () => manifest, worktrees: () => [{ repo: 'a', path: '/wa' }, { repo: 'b', path: '/wb' }] }, 7);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Karst: sandbox repos a, b have a lockfile but no sandbox.setup, so their clones have no dependencies. Add `sandbox.setup: npm ci` to each manifest entry.');
+  });
+  it('does not warn (or probe) when nothing is missing or there is no warn seam', async () => {
+    const warn = vi.fn();
+    await warnMissingSetup({ warn }, rig({ lockfile: false }).deps, 7);
+    const r = rig({ lockfile: true });
+    await warnMissingSetup({}, r.deps, 7);
+    expect(warn).not.toHaveBeenCalled();
+    expect(r.ran).toEqual([]);
+  });
+  it('swallows a failed probe when no debug seam is given', async () => {
+    const warn = vi.fn();
+    const deps = { ...rig().deps, gateProcess: () => (async () => { throw new Error('gone'); }) as GateProcessRunner };
+    await expect(warnMissingSetup({ warn }, deps, 7)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+  it('logs a failed probe to debug and never throws', async () => {
+    const warn = vi.fn();
+    const debug = vi.fn();
+    const deps = { ...rig().deps, gateProcess: () => (async () => { throw new Error('gone'); }) as GateProcessRunner };
+    await expect(warnMissingSetup({ warn, debug }, deps, 7)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith('[sandbox] ticket 7: missing-setup probe failed: gone');
+  });
+});
+
+describe('onceByMessage', () => {
+  it('passes each distinct message through exactly once', () => {
+    const seen: string[] = [];
+    const warn = onceByMessage((m) => { seen.push(m); });
+    warn('a'); warn('a'); warn('b');
+    expect(seen).toEqual(['a', 'b']);
   });
 });

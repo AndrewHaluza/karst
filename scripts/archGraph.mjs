@@ -27,14 +27,15 @@ const CONFIG = join(ROOT, '.dependency-cruiser.cjs');
  * hides both the bin and package.json, so `require.resolve` cannot be used
  * either — the ancestor walk is done by hand.
  */
-export function resolveDepcruiseBin(root = ROOT, exists = existsSync) {
+export function resolveDepcruiseBin(root = ROOT, exists = existsSync, env = process.env) {
   for (let dir = root; ; dir = dirname(dir)) {
     const candidate = join(dir, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs');
     if (exists(candidate)) return candidate;
     if (dirname(dir) === dir) {
-      throw new Error(
-        `dependency-cruiser is not installed in ${root} or any ancestor — run npm install`,
-      );
+      const hint = env.KARST_SANDBOX
+        ? 'dependencies are not installed in this sandbox (declare sandbox.setup in the manifest)'
+        : 'run npm install';
+      throw new Error(`dependency-cruiser is not installed in ${root} or any ancestor — ${hint}`);
     }
   }
 }

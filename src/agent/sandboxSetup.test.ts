@@ -8,11 +8,12 @@ import { ensureSandboxSetup, resetSetupLocks, SETUP_BOUND_MS, type SetupDeps } f
 const HASH = 'a'.repeat(64);
 const done = (output = '', exitCode = 0): ProcessOutcome => ({ kind: 'completed', exitCode, output, stdout: output });
 
-function rig(handler: (args: readonly string[], n: number) => ProcessOutcome | Promise<ProcessOutcome>, over: Partial<SetupDeps> = {}) {
+function rig(handler: (args: readonly string[], n: number) => ProcessOutcome | Promise<ProcessOutcome>, over: Partial<SetupDeps> = {}, probe: () => ProcessOutcome = () => done()) {
   const dir = mkdtempSync(join(tmpdir(), 'setup-'));
   const calls: string[][] = [];
   const runGate: GateProcessRunner = async (cmd, args) => {
     calls.push([cmd, ...args]);
+    if (args[1]?.includes('-w node_modules')) return probe();
     return handler(args, calls.length);
   };
   const deps: SetupDeps = { runGate, stateFile: join(dir, 'state', '1.setup.json'), logFile: join(dir, 'logs', 'setup.log'), ...over };
@@ -67,6 +68,32 @@ describe('ensureSandboxSetup', () => {
     expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
     expect(r.setups()).toHaveLength(1);
     expect(JSON.parse(readFileSync(r.deps.stateFile, 'utf8'))).toMatchObject({ fingerprint: HASH, status: 'ok', exitCode: 0 });
+    expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+    expect(r.setups()).toHaveLength(1);
+  });
+
+  it('fails setup naming node_modules and its owner when it is not writable, without running setup', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => done('root', 1));
+    const res = await ensureSandboxSetup(r.deps, req);
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('/clone/node_modules is not writable by the sandbox user (owner root)') });
+    expect(r.setups()).toHaveLength(0);
+    expect(JSON.parse(readFileSync(r.deps.stateFile, 'utf8')).status).toBe('failed');
+  });
+
+  it('names the owner as unknown when the probe prints nothing', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => done('', 1));
+    const res = await ensureSandboxSetup(r.deps, req);
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining('(owner unknown)') });
+  });
+
+  it('runs setup when the probe exits 0 explicitly', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => done('root', 0));
+    expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+    expect(r.setups()).toHaveLength(1);
+  });
+
+  it('runs setup when the writability probe passes or cannot complete', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''), {}, () => ({ kind: 'aborted', output: '' }) as ProcessOutcome);
     expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
     expect(r.setups()).toHaveLength(1);
   });

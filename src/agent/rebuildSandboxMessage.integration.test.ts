@@ -18,6 +18,12 @@ describe('rebuild-better-sqlite3 outside an install', () => {
     expect(r.stderr).not.toContain('main checkout');
   });
 
+  it('inside a sandbox gate exec (KARST_SANDBOX) names sandbox.setup too', () => {
+    const r = run({ KARST_SANDBOX: '1' });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('declare sandbox.setup in the manifest');
+  });
+
   it('on the host keeps the main-checkout hint', () => {
     expect(run({}).stderr).toContain('Run `npm install` in the main checkout first.');
   });

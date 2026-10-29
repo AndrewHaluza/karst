@@ -1,7 +1,7 @@
 import type { BackendWant } from '../agent/backendChoices.js';
 import { selectedSandboxBackends, wantedBackends } from '../agent/backendChoices.js';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Store } from '../store/db.js';
@@ -22,7 +22,7 @@ import { checkState } from '../doctor/stateChecks.js';
 import { checkStuckTickets, STUCK_IDLE_MINUTES } from '../doctor/stuckCheck.js';
 import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
-import { checkSandboxBackends } from '../doctor/sandboxChecks.js';
+import { checkSandboxBackends, checkSandboxSetupDeclared } from '../doctor/sandboxChecks.js';
 import { probeBackends, probeDockerDisk, probeDockerMemory, type BackendProbes } from '../agent/backendProbe.js';
 import { doneMergedTicketIds } from '../store/doneMerged.js';
 import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
@@ -170,6 +170,20 @@ export interface SandboxProbe {
 
 const SANDBOX_PROBE_NODE: SandboxProbe = { backends: probeBackends, dockerDisk: probeDockerDisk, dockerMemory: probeDockerMemory };
 
+const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'];
+
+/** Lockfile repos of a sandbox-backed manifest that declare no `sandbox.setup` (host repo; the lockfile is committed). */
+function sandboxSetupChecks(manifest: Manifest | undefined): DoctorCheck[] {
+  const selected = selectedSandboxBackends(manifest?.agentBackends);
+  if (!manifest || selected.length === 0) return [];
+  const repos = Object.entries(manifest.repositories).map(([name, r]) => ({
+    name,
+    hasSetup: Boolean(r.sandbox?.setup),
+    hasLockfile: LOCKFILES.some((f) => existsSync(join(r.repoPath, f))),
+  }));
+  return checkSandboxSetupDeclared(selected, repos);
+}
+
 /** Selected backend status and sandbox disk use (arch:AC-32); only with a sandbox backend, and only the checks of `area`. */
 async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | undefined, manifest: Manifest | undefined, io: CollectorInput): Promise<DoctorCheck[]> {
   const selected = selectedSandboxBackends(manifest?.agentBackends);
@@ -220,6 +234,7 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
       }));
     }
     if (areas.includes('manifest')) {
+      out.push(...sandboxSetupChecks(manifest));
       const live = new Set((store.db.prepare("SELECT pid FROM servers WHERE status = 'running' AND pid IS NOT NULL").all() as { pid: number }[]).map((r) => r.pid));
       const envProbe = nodeEnvProbe(io.manifestPath ? dirname(io.manifestPath) : undefined);
       out.push(...checkManifest({
