@@ -162,6 +162,13 @@ const dashboardVariants = (): Variant[] => [
     sharedServers: sharedServerFixtures(),
   }))),
   ...insideCaseVariants(),
+  // D283: one-shot edge ring pulse when revealed, framed statically in reduced-motion state.
+  variant('dashboard', 'attention', () => ({
+    messages: [
+      ...dashboardScenario('running', 2)().messages,
+      { type: 'attention' },
+    ],
+  }), { baseline: 'dashboard--attention', themes: ['dark-reduced-motion'], skipLayout: true }),
 ];
 
 // ----------------------------------------------------------------- settings

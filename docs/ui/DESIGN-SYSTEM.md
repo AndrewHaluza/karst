@@ -545,6 +545,7 @@ Shared motion tokens remain:
 | `--k-dur-base` | small expansion/move |
 | `--k-dur-slow` | overlay entrance |
 | `--k-dur-spin` | spinner |
+| `--k-dur-flash-attention` | one-shot panel attention pulse |
 | `--k-dur-flash-copy` | copy acknowledgement |
 | `--k-dur-flash-done` | transient completion acknowledgement |
 | `--k-ease-standard` | default easing |

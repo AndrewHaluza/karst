@@ -254,4 +254,15 @@ describe('TerminalDashboardBinder', () => {
     binder.onTerminalActivated(7);
     expect(rec.dashboards).toEqual([7]);
   });
+
+  it('pulses attention on the existing dashboard when a ticket terminal is activated', () => {
+    const revealedDashboards: Array<{ id: number; preserveFocus?: boolean }> = [];
+    const rec = recorder(true);
+    rec.deps.revealDashboard = (id) => revealedDashboards.push({ id, preserveFocus: true });
+
+    const binder = new TerminalDashboardBinder(rec.deps);
+    binder.onTerminalActivated(7);
+
+    expect(revealedDashboards).toEqual([{ id: 7, preserveFocus: true }]);
+  });
 });

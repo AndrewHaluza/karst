@@ -35,6 +35,7 @@ export type HostMessage =
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
   | { type: 'inside-progress'; event: InsideProgressEvent }
   | { type: 'bind'; enabled: boolean }
+  | { type: 'attention' }
   /**
    * The togglable gate names for this ticket. Its own message, not part of
    * `DashboardState`, because resolving it probes the filesystem and
