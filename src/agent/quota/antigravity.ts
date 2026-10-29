@@ -17,8 +17,8 @@ import type { QuotaKnown, QuotaReader, QuotaSnapshot, QuotaWindow } from './type
  * Both endpoints use `Connect-Protocol-Version: 1` and `x-codeium-csrf-token`. Zero model request spend.
  *
  * Tier-aware filtering:
- * - Free Tier: Shows only active Gemini rate limits (Gemini 5h & Gemini Weekly). Suppresses paid-only pools.
- * - Paid Tiers (Pro/Ultra): Shows Gemini 5h/Weekly, separated Claude/GPT Weekly, Argon Weekly, and Monthly Plan Credits.
+ * - Free Tier: Shows only active Gemini rate limits (5-hour & Weekly). Suppresses paid-only pools.
+ * - Paid Tiers (Pro/Ultra): Shows 5-hour, Weekly, separated Claude/GPT (Weekly), Argon (Weekly).
  * - Suppresses any bucket with `disabled: true`.
  * - Surfaces detected tier name in header source: "Antigravity Language Server (Google AI Pro)" / "(Free Tier)".
  *
@@ -101,6 +101,17 @@ export function antigravitySourceWithTier(tierName: string | null): string {
   return ANTIGRAVITY_QUOTA_SOURCE;
 }
 
+export function windowDurationMinutes(label: string): number {
+  const lower = label.toLowerCase();
+  if (lower.includes('5-hour') || lower.includes('5h')) {
+    return 300;
+  }
+  if (lower.includes('weekly') || lower.includes('7-day')) {
+    return 10080;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
 export function resolveBucketLabel(
   bucket: Record<string, unknown>,
   group?: Record<string, unknown> | null,
@@ -128,18 +139,18 @@ export function resolveBucketLabel(
   const isWeekly = window === 'weekly' || bucketId.includes('weekly') || lowerLabel.includes('weekly');
 
   if (isGemini) {
-    if (is5h) return 'Gemini 5h';
-    if (isWeekly) return 'Gemini Weekly';
+    if (is5h) return '5-hour';
+    if (isWeekly) return 'Weekly';
   }
 
   if (isArgon) {
-    if (isWeekly) return 'Argon Weekly';
-    if (is5h) return 'Argon 5h';
+    if (isWeekly) return 'Argon (Weekly)';
+    if (is5h) return 'Argon (5-hour)';
   }
 
   if (is3p) {
-    if (isWeekly) return 'Claude/GPT Weekly';
-    if (is5h) return 'Claude/GPT 5h';
+    if (isWeekly) return 'Claude/GPT (Weekly)';
+    if (is5h) return 'Claude/GPT (5-hour)';
   }
 
   if (explicitLabel.length > 0) return explicitLabel;
@@ -183,7 +194,7 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
         const label = resolveBucketLabel(bucket, group);
 
         if (!isPaid) {
-          if (label === 'Gemini 5h' || label === 'Gemini Weekly') {
+          if (label === '5-hour' || label === 'Weekly') {
             windows.push({ label, usedPct, resetsAt });
           }
         } else {
@@ -193,51 +204,7 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
     }
   }
 
-  // 2. Monthly credits from GetUserStatus (Paid tiers only)
-  if (isPaid && statusRoot) {
-    const userStatus = asRecord(statusRoot.userStatus);
-    const planStatus = asRecord(userStatus?.planStatus ?? statusRoot.planStatus);
-    const planInfo = asRecord(planStatus?.planInfo ?? userStatus?.planInfo ?? statusRoot.planInfo);
-    const creditSources = [planInfo, planStatus, userStatus, statusRoot];
-
-    // Prompt Credits
-    const monthlyPrompt = findNumber(creditSources, 'monthlyPromptCredits');
-    const availPrompt = findNumber(creditSources, 'availablePromptCredits');
-    if (monthlyPrompt !== null && availPrompt !== null && monthlyPrompt > 0) {
-      const usedPct = Math.round(((monthlyPrompt - availPrompt) / monthlyPrompt) * 100);
-      windows.push({
-        label: 'Prompt Credits',
-        usedPct,
-        resetsAt: null,
-      });
-    }
-
-    // Flow Credits
-    const monthlyFlow = findNumber(creditSources, 'monthlyFlowCredits');
-    const availFlow = findNumber(creditSources, 'availableFlowCredits');
-    if (monthlyFlow !== null && availFlow !== null && monthlyFlow > 0) {
-      const usedPct = Math.round(((monthlyFlow - availFlow) / monthlyFlow) * 100);
-      windows.push({
-        label: 'Flow Credits',
-        usedPct,
-        resetsAt: null,
-      });
-    }
-
-    // Monthly Plan Credits
-    const monthlyPlan = findNumber(creditSources, 'monthlyPlanCredits');
-    const availPlan = findNumber(creditSources, 'availablePlanCredits');
-    if (monthlyPlan !== null && availPlan !== null && monthlyPlan > 0) {
-      const usedPct = Math.round(((monthlyPlan - availPlan) / monthlyPlan) * 100);
-      windows.push({
-        label: 'Monthly Plan Credits',
-        usedPct,
-        resetsAt: null,
-      });
-    }
-  }
-
-  // 3. Fallback for legacy single-call GetUserStatus payloads without groups
+  // 2. Fallback for legacy single-call GetUserStatus payloads without groups
   if (groups === null && statusRoot) {
     const userStatus = asRecord(statusRoot.userStatus);
     const cascadeData = asRecord(userStatus?.cascadeModelConfigData ?? statusRoot.cascadeModelConfigData);
@@ -268,7 +235,7 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
               : 'Model';
 
         if (!isPaid) {
-          if (label === 'Gemini 5h' || label === 'Gemini Weekly') {
+          if (label === '5-hour' || label === 'Weekly') {
             windows.push({ label, usedPct, resetsAt });
           }
         } else {
@@ -277,6 +244,8 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
       }
     }
   }
+
+  windows.sort((a, b) => windowDurationMinutes(a.label) - windowDurationMinutes(b.label));
 
   return windows;
 }

@@ -10,6 +10,7 @@ import {
   findNumber,
   detectAntigravityTier,
   antigravitySourceWithTier,
+  windowDurationMinutes,
   resolveBucketLabel,
   writeCache,
   readCache,
@@ -177,92 +178,113 @@ describe('antigravitySourceWithTier', () => {
   });
 });
 
+describe('windowDurationMinutes', () => {
+  it('returns 300 minutes for 5-hour windows', () => {
+    expect(windowDurationMinutes('5-hour')).toBe(300);
+    expect(windowDurationMinutes('Gemini 5h')).toBe(300);
+    expect(windowDurationMinutes('Claude/GPT (5-hour)')).toBe(300);
+    expect(windowDurationMinutes('Argon (5-hour)')).toBe(300);
+  });
+
+  it('returns 10080 minutes for weekly windows', () => {
+    expect(windowDurationMinutes('Weekly')).toBe(10080);
+    expect(windowDurationMinutes('Claude/GPT (Weekly)')).toBe(10080);
+    expect(windowDurationMinutes('Argon (Weekly)')).toBe(10080);
+    expect(windowDurationMinutes('7-day')).toBe(10080);
+  });
+
+  it('returns Infinity for other or custom labels', () => {
+    expect(windowDurationMinutes('Model')).toBe(Number.POSITIVE_INFINITY);
+    expect(windowDurationMinutes('custom')).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
 describe('resolveBucketLabel', () => {
-  it('resolves Gemini rate-limit labels correctly', () => {
-    expect(resolveBucketLabel({ bucketId: 'gemini-5h' })).toBe('Gemini 5h');
-    expect(resolveBucketLabel({ bucketId: 'gemini-weekly' })).toBe('Gemini Weekly');
+  it('resolves Gemini rate-limit labels correctly to standard 5-hour and Weekly', () => {
+    expect(resolveBucketLabel({ bucketId: 'gemini-5h' })).toBe('5-hour');
+    expect(resolveBucketLabel({ bucketId: 'gemini-weekly' })).toBe('Weekly');
     expect(
       resolveBucketLabel(
         { window: '5h', displayName: '5h limit' },
         { displayName: 'Gemini Models' },
       ),
-    ).toBe('Gemini 5h');
+    ).toBe('5-hour');
     expect(
       resolveBucketLabel(
         { window: 'weekly', displayName: 'Weekly limit' },
         { displayName: 'Gemini Models' },
       ),
-    ).toBe('Gemini Weekly');
+    ).toBe('Weekly');
     expect(
       resolveBucketLabel(
         { window: '5h' },
         { name: 'gemini_service' },
       ),
-    ).toBe('Gemini 5h');
+    ).toBe('5-hour');
     expect(
       resolveBucketLabel(
         { window: 'weekly' },
         { name: 'gemini_service' },
       ),
-    ).toBe('Gemini Weekly');
+    ).toBe('Weekly');
   });
 
-  it('resolves Claude and GPT 3P rate-limit labels correctly', () => {
-    expect(resolveBucketLabel({ bucketId: '3p-5h' })).toBe('Claude/GPT 5h');
-    expect(resolveBucketLabel({ bucketId: '3p-weekly' })).toBe('Claude/GPT Weekly');
+  it('resolves Claude and GPT 3P rate-limit labels correctly to standard Claude/GPT (Weekly)', () => {
+    expect(resolveBucketLabel({ bucketId: '3p-5h' })).toBe('Claude/GPT (5-hour)');
+    expect(resolveBucketLabel({ bucketId: '3p-weekly' })).toBe('Claude/GPT (Weekly)');
     expect(
       resolveBucketLabel(
         { window: '5h', displayName: '5h Limit' },
         { displayName: 'Claude and GPT models' },
       ),
-    ).toBe('Claude/GPT 5h');
+    ).toBe('Claude/GPT (5-hour)');
     expect(
       resolveBucketLabel(
         { window: 'weekly', displayName: 'Weekly Limit' },
         { displayName: 'Claude and GPT models' },
       ),
-    ).toBe('Claude/GPT Weekly');
+    ).toBe('Claude/GPT (Weekly)');
     expect(
       resolveBucketLabel(
         { window: '5h' },
         { name: '3p_service' },
       ),
-    ).toBe('Claude/GPT 5h');
+    ).toBe('Claude/GPT (5-hour)');
     expect(
       resolveBucketLabel(
         { window: 'weekly' },
         { name: '3p_service' },
       ),
-    ).toBe('Claude/GPT Weekly');
+    ).toBe('Claude/GPT (Weekly)');
   });
 
-  it('resolves Argon rate-limit labels correctly and distinguishes from generic Gemini', () => {
-    expect(resolveBucketLabel({ bucketId: 'argon-weekly' })).toBe('Argon Weekly');
-    expect(resolveBucketLabel({ bucketId: 'argon-5h' })).toBe('Argon 5h');
+  it('resolves Argon rate-limit labels correctly to standard Argon (Weekly)', () => {
+    expect(resolveBucketLabel({ bucketId: 'argon-weekly' })).toBe('Argon (Weekly)');
+    expect(resolveBucketLabel({ bucketId: 'argon-5h' })).toBe('Argon (5-hour)');
     expect(
       resolveBucketLabel(
         { window: 'weekly', displayName: 'Weekly Limit' },
         { displayName: 'Gemini 4 Argon' },
       ),
-    ).toBe('Argon Weekly');
+    ).toBe('Argon (Weekly)');
     expect(
       resolveBucketLabel(
         { window: '5h', displayName: '5h Limit' },
         { displayName: 'Gemini 4 Argon' },
       ),
-    ).toBe('Argon 5h');
+    ).toBe('Argon (5-hour)');
     expect(
       resolveBucketLabel(
         { window: 'weekly' },
         { name: 'argon_service' },
       ),
-    ).toBe('Argon Weekly');
+    ).toBe('Argon (Weekly)');
     expect(
       resolveBucketLabel(
         { window: '5h' },
         { name: 'argon_service' },
       ),
-    ).toBe('Argon 5h');
+    ).toBe('Argon (5-hour)');
   });
 
   it('falls back to explicit label, bucketId, or "Model"', () => {
@@ -283,244 +305,129 @@ describe('parseAntigravityWindows', () => {
     expect(parseAntigravityWindows({})).toEqual([]);
   });
 
-  it('parses Prompt Credits with exact integer math', () => {
+  it('drops Prompt Credits, Flow Credits, and Monthly Plan Credits from windows', () => {
     const raw = {
       userStatus: {
         planStatus: {
           planInfo: {
             monthlyPromptCredits: 1000,
             availablePromptCredits: 350,
+            monthlyFlowCredits: 200,
+            availableFlowCredits: 50,
+            monthlyPlanCredits: 500,
+            availablePlanCredits: 100,
           },
         },
       },
     };
-    const windows = parseAntigravityWindows(raw);
-    expect(windows).toEqual([
-      {
-        label: 'Prompt Credits',
-        usedPct: 65,
-        resetsAt: null,
-      },
-    ]);
+    expect(parseAntigravityWindows(raw)).toEqual([]);
   });
 
-  it('parses Prompt Credits with non-integer rounding', () => {
-    const raw = {
-      planInfo: {
-        monthlyPromptCredits: 3,
-        availablePromptCredits: 1,
-      },
-    };
-    const windows = parseAntigravityWindows(raw);
-    expect(windows).toEqual([
-      {
-        label: 'Prompt Credits',
-        usedPct: 67,
-        resetsAt: null,
-      },
-    ]);
-  });
-
-  it('finds Prompt Credits across planStatus, userStatus and root levels', () => {
+  it('omits non-time credit pools across all levels so no windows without reset timestamps appear', () => {
     expect(
       parseAntigravityWindows({
         planStatus: { monthlyPromptCredits: 100, availablePromptCredits: 20 },
       }),
-    ).toEqual([{ label: 'Prompt Credits', usedPct: 80, resetsAt: null }]);
-
-    expect(
-      parseAntigravityWindows({
-        userStatus: { monthlyPromptCredits: 100, availablePromptCredits: 50 },
-      }),
-    ).toEqual([{ label: 'Prompt Credits', usedPct: 50, resetsAt: null }]);
-
-    expect(
-      parseAntigravityWindows({
-        monthlyPromptCredits: 100,
-        availablePromptCredits: 10,
-      }),
-    ).toEqual([{ label: 'Prompt Credits', usedPct: 90, resetsAt: null }]);
-  });
-
-  it('omits Prompt Credits when monthlyPromptCredits is 0, negative, or not a number', () => {
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: 0, availablePromptCredits: 0 },
-      }),
     ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: -10, availablePromptCredits: 5 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: 'invalid', availablePromptCredits: 5 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: 100, availablePromptCredits: 'invalid' },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: 100 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { availablePromptCredits: 50 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: NaN, availablePromptCredits: 50 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: 100, availablePromptCredits: NaN },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPromptCredits: Infinity, availablePromptCredits: 50 },
-      }),
-    ).toEqual([]);
-  });
-
-  it('parses Flow Credits with exact integer math', () => {
-    const raw = {
-      planStatus: {
-        planInfo: {
-          monthlyFlowCredits: 200,
-          availableFlowCredits: 50,
-        },
-      },
-    };
-    const windows = parseAntigravityWindows(raw);
-    expect(windows).toEqual([
-      {
-        label: 'Flow Credits',
-        usedPct: 75,
-        resetsAt: null,
-      },
-    ]);
-  });
-
-  it('parses Flow Credits with non-integer rounding', () => {
-    const raw = {
-      monthlyFlowCredits: 200,
-      availableFlowCredits: 65,
-    };
-    const windows = parseAntigravityWindows(raw);
-    expect(windows).toEqual([
-      {
-        label: 'Flow Credits',
-        usedPct: 68,
-        resetsAt: null,
-      },
-    ]);
-  });
-
-  it('finds Flow Credits across planStatus, userStatus and root levels', () => {
-    expect(
-      parseAntigravityWindows({
-        planStatus: { monthlyFlowCredits: 100, availableFlowCredits: 20 },
-      }),
-    ).toEqual([{ label: 'Flow Credits', usedPct: 80, resetsAt: null }]);
-
     expect(
       parseAntigravityWindows({
         userStatus: { monthlyFlowCredits: 100, availableFlowCredits: 50 },
       }),
-    ).toEqual([{ label: 'Flow Credits', usedPct: 50, resetsAt: null }]);
-
-    expect(
-      parseAntigravityWindows({
-        monthlyFlowCredits: 100,
-        availableFlowCredits: 10,
-      }),
-    ).toEqual([{ label: 'Flow Credits', usedPct: 90, resetsAt: null }]);
-  });
-
-  it('omits Flow Credits when monthlyFlowCredits is 0, negative, or not a number', () => {
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: 0, availableFlowCredits: 0 },
-      }),
     ).toEqual([]);
     expect(
       parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: -5, availableFlowCredits: 2 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: 'abc', availableFlowCredits: 2 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: 100, availableFlowCredits: 'abc' },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: 100 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { availableFlowCredits: 50 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: NaN, availableFlowCredits: 50 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: 100, availableFlowCredits: NaN },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyFlowCredits: Infinity, availableFlowCredits: 50 },
-      }),
-    ).toEqual([]);
-  });
-
-  it('parses Monthly Plan Credits when present in planInfo', () => {
-    const raw = {
-      planInfo: {
         monthlyPlanCredits: 500,
         availablePlanCredits: 100,
-      },
+      }),
+    ).toEqual([]);
+  });
+
+  it('sorts windows shortest duration first: 5-hour precedes Weekly and secondary weekly pools', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-weekly',
+              window: 'weekly',
+              remainingFraction: 0.2,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              remainingFraction: 0.5,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              remainingFraction: 0.8,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'argon-weekly',
+              window: 'weekly',
+              remainingFraction: 0.4,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
     };
-    const windows = parseAntigravityWindows(raw);
-    expect(windows).toEqual([
-      {
-        label: 'Monthly Plan Credits',
-        usedPct: 80,
-        resetsAt: null,
-      },
+    const status = {
+      planInfo: { teamsTier: 'TEAMS_TIER_PRO' },
+    };
+    const windows = parseAntigravityWindows(summary, status);
+    expect(windows.map((w) => w.label)).toEqual([
+      '5-hour',
+      'Claude/GPT (Weekly)',
+      'Weekly',
+      'Argon (Weekly)',
     ]);
   });
 
-  it('omits Monthly Plan Credits when invalid or non-positive', () => {
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPlanCredits: 0, availablePlanCredits: 0 },
-      }),
-    ).toEqual([]);
-    expect(
-      parseAntigravityWindows({
-        planInfo: { monthlyPlanCredits: -10, availablePlanCredits: 5 },
-      }),
-    ).toEqual([]);
+  it('orders 5-hour before Weekly when Gemini group has Weekly listed before 5-hour', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              window: 'weekly',
+              remainingFraction: 0.5,
+              resetTime: '2026-11-06T12:00:00Z',
+              disabled: false,
+            },
+            {
+              bucketId: 'gemini-5h',
+              window: '5h',
+              remainingFraction: 0.8,
+              resetTime: '2026-10-30T14:00:00Z',
+              disabled: false,
+            },
+          ],
+        },
+      ],
+    };
+    const windows = parseAntigravityWindows(summary, { planInfo: { teamsTier: 'TEAMS_TIER_FREE' } });
+    expect(windows.map((w) => w.label)).toEqual(['5-hour', 'Weekly']);
   });
 
   it('parses Model Quota with label and resetTime', () => {
@@ -660,17 +567,17 @@ describe('parseAntigravityWindows', () => {
       planInfo: { teamsTier: 'TEAMS_TIER_FREE' },
       clientModelConfigs: [
         {
-          label: 'Gemini 5h',
+          label: '5-hour',
           quotaInfo: { remainingFraction: 0.8 },
         },
         {
-          label: 'Claude/GPT Weekly',
+          label: 'Claude/GPT (Weekly)',
           quotaInfo: { remainingFraction: 0.5 },
         },
       ],
     };
     expect(parseAntigravityWindows(raw)).toEqual([
-      { label: 'Gemini 5h', usedPct: 20, resetsAt: null },
+      { label: '5-hour', usedPct: 20, resetsAt: null },
     ]);
   });
 
@@ -715,7 +622,7 @@ describe('parseAntigravityWindows', () => {
     ]);
   });
 
-  it('Free Tier fixture: shows only active Gemini 5h & Gemini Weekly, suppressing Claude/GPT, Argon, and Monthly Credits', () => {
+  it('Free Tier fixture: shows only active 5-hour & Weekly, suppressing Claude/GPT, Argon, and Monthly Credits', () => {
     const summary = {
       groups: [
         {
@@ -790,12 +697,12 @@ describe('parseAntigravityWindows', () => {
     const windows = parseAntigravityWindows(summary, status);
     expect(windows).toEqual([
       {
-        label: 'Gemini 5h',
+        label: '5-hour',
         usedPct: 20,
         resetsAt: '2026-10-30T14:00:00Z',
       },
       {
-        label: 'Gemini Weekly',
+        label: 'Weekly',
         usedPct: 55,
         resetsAt: '2026-11-06T12:00:00Z',
       },
@@ -831,14 +738,14 @@ describe('parseAntigravityWindows', () => {
     const windows = parseAntigravityWindows(summary, status);
     expect(windows).toEqual([
       {
-        label: 'Gemini Weekly',
+        label: 'Weekly',
         usedPct: 70,
         resetsAt: '2026-11-06T12:00:00Z',
       },
     ]);
   });
 
-  it('Pro Tier fixture: shows Gemini 5h/Weekly, separated Claude/GPT Weekly, Argon Weekly, and Monthly Credits; suppresses disabled: true (e.g. 3p-5h)', () => {
+  it('Pro Tier fixture: shows 5-hour, Weekly, separated Claude/GPT (Weekly), Argon (Weekly); suppresses disabled: true (e.g. 3p-5h) and drops credits', () => {
     const summary = {
       groups: [
         {
@@ -915,39 +822,29 @@ describe('parseAntigravityWindows', () => {
     const windows = parseAntigravityWindows(summary, status);
     expect(windows).toEqual([
       {
-        label: 'Gemini 5h',
+        label: '5-hour',
         usedPct: 25,
         resetsAt: '2026-10-30T14:00:00Z',
       },
       {
-        label: 'Gemini Weekly',
+        label: 'Weekly',
         usedPct: 50,
         resetsAt: '2026-11-06T12:00:00Z',
       },
       {
-        label: 'Claude/GPT Weekly',
+        label: 'Claude/GPT (Weekly)',
         usedPct: 70,
         resetsAt: '2026-11-06T12:00:00Z',
       },
       {
-        label: 'Argon Weekly',
+        label: 'Argon (Weekly)',
         usedPct: 60,
         resetsAt: '2026-11-06T12:00:00Z',
-      },
-      {
-        label: 'Prompt Credits',
-        usedPct: 60,
-        resetsAt: null,
-      },
-      {
-        label: 'Flow Credits',
-        usedPct: 50,
-        resetsAt: null,
       },
     ]);
   });
 
-  it('Pro Tier includes Claude/GPT 5h when disabled is false', () => {
+  it('Pro Tier includes Claude/GPT (5-hour) when disabled is false', () => {
     const summary = {
       groups: [
         {
@@ -970,7 +867,7 @@ describe('parseAntigravityWindows', () => {
     const windows = parseAntigravityWindows(summary, status);
     expect(windows).toEqual([
       {
-        label: 'Claude/GPT 5h',
+        label: 'Claude/GPT (5-hour)',
         usedPct: 10,
         resetsAt: '2026-10-30T14:00:00Z',
       },
@@ -1272,12 +1169,10 @@ describe('antigravityQuotaReader', () => {
         source: 'Antigravity Language Server (Google AI Pro)',
         readAt: '2026-10-29T10:00:00.000Z',
         windows: [
-          { label: 'Gemini 5h', usedPct: 20, resetsAt: '2026-10-30T14:00:00Z' },
-          { label: 'Gemini Weekly', usedPct: 50, resetsAt: '2026-11-06T12:00:00Z' },
-          { label: 'Claude/GPT Weekly', usedPct: 80, resetsAt: '2026-11-06T12:00:00Z' },
-          { label: 'Argon Weekly', usedPct: 60, resetsAt: '2026-11-06T12:00:00Z' },
-          { label: 'Prompt Credits', usedPct: 60, resetsAt: null },
-          { label: 'Flow Credits', usedPct: 50, resetsAt: null },
+          { label: '5-hour', usedPct: 20, resetsAt: '2026-10-30T14:00:00Z' },
+          { label: 'Weekly', usedPct: 50, resetsAt: '2026-11-06T12:00:00Z' },
+          { label: 'Claude/GPT (Weekly)', usedPct: 80, resetsAt: '2026-11-06T12:00:00Z' },
+          { label: 'Argon (Weekly)', usedPct: 60, resetsAt: '2026-11-06T12:00:00Z' },
         ],
       });
 
@@ -1381,8 +1276,8 @@ describe('antigravityQuotaReader', () => {
         source: 'Antigravity Language Server (Free Tier)',
         readAt: '2026-10-29T10:00:00.000Z',
         windows: [
-          { label: 'Gemini 5h', usedPct: 10, resetsAt: '2026-10-30T14:00:00Z' },
-          { label: 'Gemini Weekly', usedPct: 30, resetsAt: '2026-11-06T12:00:00Z' },
+          { label: '5-hour', usedPct: 10, resetsAt: '2026-10-30T14:00:00Z' },
+          { label: 'Weekly', usedPct: 30, resetsAt: '2026-11-06T12:00:00Z' },
         ],
       });
     } finally {
@@ -1454,7 +1349,7 @@ describe('antigravityQuotaReader', () => {
         state: 'ok',
         source: 'Antigravity Language Server (Google AI Pro)',
         readAt: '2026-10-28T12:00:00.000Z',
-        windows: [{ label: 'Prompt Credits', usedPct: 40, resetsAt: null }],
+        windows: [{ label: '5-hour', usedPct: 40, resetsAt: '2026-10-28T17:00:00.000Z' }],
       };
       writeFileSync(cachePath, JSON.stringify(cachedSnapshot), 'utf8');
 
@@ -1672,8 +1567,9 @@ describe('antigravityQuotaReader', () => {
     }
   });
 
-  it('resolves appDataDir using injected homeDir or default homedir', async () => {
+  it('resolves appDataDir using injected appDataDir or injected homeDir', async () => {
     const fakeHome = createTempDir();
+    const fakeAppData = createTempDir();
     try {
       const readerWithHome = antigravityQuotaReader({
         homeDir: fakeHome,
@@ -1684,15 +1580,17 @@ describe('antigravityQuotaReader', () => {
       expect(snap1.core).toBe('antigravity');
       expect(snap1.state).toBe('unknown');
 
-      const readerDefaultHome = antigravityQuotaReader({
+      const readerWithAppData = antigravityQuotaReader({
+        appDataDir: fakeAppData,
         env: {},
         now: () => new Date(0),
       });
-      const snap2 = await readerDefaultHome.read();
+      const snap2 = await readerWithAppData.read();
       expect(snap2.core).toBe('antigravity');
       expect(snap2.state).toBe('unknown');
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(fakeAppData, { recursive: true, force: true });
     }
   });
 });

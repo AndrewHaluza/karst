@@ -131,31 +131,53 @@ describe('defaultQuotaReaders', () => {
   });
 
   it('reports antigravity unknown when language server is unreachable and no cache exists', async () => {
-    const readers = defaultQuotaReaders({ homeDir: '/nope', env: {}, now: () => new Date(0) });
-    const snap = await readers.find((r) => r.core === 'antigravity')!.read();
-    expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });
-    expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+    const dir = mkdtempSync(join(tmpdir(), 'karst-quota-antigravity-unknown-'));
+    try {
+      const readers = defaultQuotaReaders({
+        homeDir: '/nope',
+        env: {},
+        now: () => new Date(0),
+        antigravityAppDataDir: dir,
+      });
+      const snap = await readers.find((r) => r.core === 'antigravity')!.read();
+      expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });
+      expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('reads antigravity live quota through injected fetch and env', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-quota-antigravity-'));
     try {
-      const fetchImpl = vi.fn(
-        async () =>
-          new Response(
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr.endsWith('RetrieveUserQuotaSummary')) {
+          return new Response(
             JSON.stringify({
-              userStatus: {
-                planStatus: {
-                  planInfo: {
-                    monthlyPromptCredits: 1000,
-                    availablePromptCredits: 800,
-                  },
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-5h',
+                      remainingFraction: 0.8,
+                      resetTime: '2026-10-30T14:00:00Z',
+                    },
+                  ],
                 },
-              },
+              ],
             }),
             { status: 200 },
-          ),
-      ) as unknown as typeof fetch;
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            userTier: { id: 'pro' },
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
       const readers = defaultQuotaReaders({
         homeDir: '/nope',
         env: {
@@ -170,8 +192,8 @@ describe('defaultQuotaReaders', () => {
       expect(snap).toMatchObject({
         core: 'antigravity',
         state: 'ok',
-        source: 'Antigravity Language Server',
-        windows: [{ label: 'Prompt Credits', usedPct: 20, resetsAt: null }],
+        source: 'Antigravity Language Server (Google AI Pro)',
+        windows: [{ label: '5-hour', usedPct: 20, resetsAt: '2026-10-30T14:00:00Z' }],
       });
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
