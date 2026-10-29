@@ -62,7 +62,10 @@ import {
   setGateEnabled,
   setProbeWhenAllDisabled,
   updateFindings,
+  readStallDetection,
+  stallErrors,
   updateReview,
+  updateStallDetection,
   updateUat,
   updateGates,
   type Base,
@@ -82,6 +85,8 @@ export function QualitySection() {
   const repositories = Object.keys(state.draft.repositories ?? {});
 
   const findings = review.findings ?? REVIEW_FINDINGS_DEFAULTS;
+  const stall = readStallDetection(draft);
+  const stallProblems = stallErrors(stall, review.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS);
   const testerEnabled = uat.testerObservations !== undefined;
   const testerSeverity =
     uat.testerObservations?.blockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
@@ -188,6 +193,59 @@ export function QualitySection() {
                     edit((current) =>
                       updateReview(current, {
                         maxFixAttempts: Number(value) || 1,
+                      }),
+                    ),
+                }}
+              />
+            </div>
+            <div className="q-row">
+              <Field
+                label="Stall detection"
+                help="Park the ticket as needs-you when review keeps finding new blocking problems in the same files."
+                control={{
+                  kind: 'checkbox',
+                  name: 'reviewStallEnabled',
+                  checked: stall.enabled,
+                  onChange: (checked) =>
+                    edit((current) => updateStallDetection(current, { enabled: checked })),
+                }}
+              />
+            </div>
+            <div className="q-row">
+              <Field
+                label="Same-file rounds"
+                help="Consecutive review attempts hitting the same file before parking."
+                error={stallProblems.sameFileRounds}
+                control={{
+                  kind: 'input',
+                  name: 'reviewStallSameFileRounds',
+                  type: 'number',
+                  min: 1,
+                  disabled: !stall.enabled,
+                  value: String(stall.sameFileRounds),
+                  onChange: (value) =>
+                    edit((current) =>
+                      updateStallDetection(current, { sameFileRounds: Number(value) }),
+                    ),
+                }}
+              />
+            </div>
+            <div className="q-row">
+              <Field
+                label="Repeated-finding rounds"
+                help="Park when the same finding recurs this many attempts in a row. Blank turns the rule off."
+                error={stallProblems.repeatedFindingRounds}
+                control={{
+                  kind: 'input',
+                  name: 'reviewStallRepeatedRounds',
+                  type: 'number',
+                  min: 1,
+                  disabled: !stall.enabled,
+                  value: stall.repeatedFindingRounds === null ? '' : String(stall.repeatedFindingRounds),
+                  onChange: (value) =>
+                    edit((current) =>
+                      updateStallDetection(current, {
+                        repeatedFindingRounds: value.trim() === '' ? null : Number(value),
                       }),
                     ),
                 }}

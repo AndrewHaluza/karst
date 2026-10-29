@@ -611,3 +611,51 @@ describe('QualitySection — per-gate enabled switch', () => {
     expect('probeWhenAllDisabled' in uatOf(probe)).toBe(false);
   });
 });
+
+describe('QualitySection — review stall detection', () => {
+  it('shows the defaults and writes edits without dropping siblings', () => {
+    const { probe } = mountQuality(
+      stateWith({ review: partialReview({ maxFixAttempts: 5, ...INERT }) }),
+    );
+    expect(field('reviewStallEnabled').checked).toBe(true);
+    expect(field('reviewStallSameFileRounds').value).toBe('3');
+    expect(field('reviewStallRepeatedRounds').value).toBe('');
+    act(() => {
+      fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '2' } });
+    });
+    expect(reviewOf(probe)).toMatchObject({
+      author: INERT.author,
+      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: 2 },
+    });
+    act(() => {
+      fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '' } });
+    });
+    expect((reviewOf(probe).stallDetection as { repeatedFindingRounds: unknown }).repeatedFindingRounds).toBeNull();
+  });
+
+  it('dims but keeps the inputs visible while disabled', () => {
+    mountQuality(
+      stateWith({
+        review: partialReview({
+          stallDetection: { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null },
+        }),
+      }),
+    );
+    expect(field('reviewStallEnabled').checked).toBe(false);
+    expect(field('reviewStallSameFileRounds').disabled).toBe(true);
+    expect(field('reviewStallRepeatedRounds').disabled).toBe(true);
+  });
+
+  it('shows an inline error for a value above maxFixAttempts', () => {
+    mountQuality(
+      stateWith({
+        review: partialReview({
+          maxFixAttempts: 3,
+          stallDetection: { enabled: true, sameFileRounds: 9, repeatedFindingRounds: null },
+        }),
+      }),
+    );
+    expect(field('reviewStallSameFileRounds').getAttribute('aria-invalid')).toBe('true');
+    expect(document.body.textContent).toContain('Enter a whole number from 1 to 3.');
+  });
+});
