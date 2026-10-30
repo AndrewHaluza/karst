@@ -178,13 +178,6 @@ describe('OverlayStack — artifact navigation', () => {
     expect(stack.getSnapshot().art).toEqual({ id: 'plan', from: 'index' });
   });
 
-  it('opens a detail from the stored view as if from the ticket', () => {
-    const { stack } = make();
-    stack.openStored();
-    stack.openArtifact('plan');
-    expect(stack.getSnapshot().art).toEqual({ id: 'plan', from: 'ticket' });
-  });
-
   it('Back is deterministic: detail to its origin, index and stored to the ticket', () => {
     const { stack } = make();
     stack.openIndex();
@@ -194,9 +187,6 @@ describe('OverlayStack — artifact navigation', () => {
     stack.back();
     expect(stack.getSnapshot().art).toBeNull();
     stack.openArtifact('plan');
-    stack.back();
-    expect(stack.getSnapshot().art).toBeNull();
-    stack.openStored();
     stack.back();
     expect(stack.getSnapshot().art).toBeNull();
     expect(() => stack.back()).not.toThrow();

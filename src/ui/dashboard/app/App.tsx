@@ -22,7 +22,6 @@ import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
 import { ServersPanel } from './ServersPanel.js';
-import { StoredPanel } from './StoredPanel.js';
 import { SubtasksPanel } from './SubtasksPanel.js';
 import { WorktreesPanel } from './WorktreesPanel.js';
 
@@ -56,7 +55,6 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <ServersPanel />
       <PrsPanel />
       <ArtifactsShelf />
-      <StoredPanel />
       <Overlays />
       <RegionPortal region="worktrees">
         <WorktreesPanel />

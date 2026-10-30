@@ -69,7 +69,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     expect(heard).toEqual([]);
   });
 
-  it('the shelf card, View all and the stored Open each open the artifact view once and persist it once', async () => {
+  it('the shelf card and View all each open the artifact view once and persist it once', async () => {
     const v = await open();
     await click(v, '#artifacts [data-art-open="uat-report"]');
     expect(surfaces(v)).toEqual(['art']);
@@ -79,10 +79,6 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     await click(v, '#artViewAll');
     expect(v.queryAll('#artView .artrow')).toHaveLength(4);
     expect(persisted(v).artView).toBe('index');
-    await escape(v);
-    await click(v, '#storedOpen');
-    expect(v.query('#artView')!.textContent).toContain('app / plans/a.md');
-    expect(persisted(v).artView).toBe('stored');
     expect(v.errors).toEqual([]);
   });
 
@@ -100,7 +96,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     await click(v, '#artifacts [data-art-open="uat-report"]');
     const before = v.posted.length;
     await click(v, '#artView [data-act="console"][data-console-proc="tester"]');
-    expect(surfaces(v)).toEqual(['console', 'art']);
+    expect(surfaces(v)).toEqual(['console']);
     expect(v.posted.slice(before).at(-1)).toMatchObject({ type: 'agent-log-request', processId: 'tester' });
     await escape(v);
     expect(surfaces(v)).toEqual(['art']);
@@ -147,13 +143,13 @@ describe('overlay stack — the ordered Escape chain', () => {
     await click(v, '#srvOps [data-act="server-logs-request"]');
     await click(v, '#inside [data-act="console"][data-console="uat"]:not([data-console-proc])');
     await click(v, '#ticketDataBtn');
-    expect(surfaces(v)).toEqual(['drawer', 'console', 'logs', 'env', 'art']);
+    expect(surfaces(v)).toEqual(['drawer', 'console']);
     const trail: string[][] = [];
     for (let i = 0; i < 5; i += 1) {
       expect((await escape(v)).defaultPrevented).toBe(true);
       trail.push(surfaces(v));
     }
-    expect(trail).toEqual([['console', 'logs', 'env', 'art'], ['logs', 'env', 'art'], ['env', 'art'], ['art'], []]);
+    expect(trail).toEqual([['console'], ['logs'], ['env'], ['art'], []]);
     expect((await escape(v)).defaultPrevented).toBe(false);
     expect(v.document.body.className.trim()).toBe('');
     expect(v.errors).toEqual([]);
@@ -189,7 +185,7 @@ describe('artifact view — Back, scroll memory and persistence', () => {
     expect(scrollTop(v)).toBe(0);
     scrollTo(v, 80);
     await click(v, '#artView [data-art-open="review"]');
-    expect(v.query('#artView [data-art="back"]')!.textContent).toBe('← Artifacts');
+    expect(v.query('#artView [data-art="back"]')!.getAttribute('aria-label')).toBe('Back to Artifacts');
     scrollTo(v, 900);
     await click(v, '#artView [data-art="back"]');
     expect(v.queryAll('#artView .artrow')).toHaveLength(4);
@@ -198,7 +194,7 @@ describe('artifact view — Back, scroll memory and persistence', () => {
     expect(shown(v, '#artView')).toBe(false);
     expect(scrollTop(v)).toBe(500);
     await click(v, '#artifacts [data-art-open="review"]');
-    expect(v.query('#artView [data-art="back"]')!.textContent).toBe('← Ticket');
+    expect(v.query('#artView [data-art="back"]')!.getAttribute('aria-label')).toBe('Back to Dashboard');
     expect(scrollTop(v)).toBe(900);
     await click(v, '#artView [data-art="back"]');
     expect(surfaces(v)).toEqual([]);
@@ -237,6 +233,7 @@ describe('artifact view — Back, scroll memory and persistence', () => {
         srvFilter: 'svc-3',
         artView: { id: 'review', from: 'index' },
         artScrolls: { ticket: 0, index: 12, detail: { review: 640 } },
+        history: [{ art: null, console: null, logs: false, env: false }, { art: 'index', console: null, logs: false, env: false }],
       },
     });
     await waitForSettingsReady(h);
@@ -244,7 +241,7 @@ describe('artifact view — Back, scroll memory and persistence', () => {
     expect(shown(h, '#artView')).toBe(true);
     expect(h.document.body.classList.contains('art-nav')).toBe(true);
     expect(h.query('#artView .art-title')!.textContent).toBe('Review');
-    expect(h.query('#artView [data-art="back"]')!.textContent).toBe('← Artifacts');
+    expect(h.query('#artView [data-art="back"]')!.getAttribute('aria-label')).toBe('Back to Artifacts');
     expect(scrollTop(h)).toBe(640);
     expect(h.query<HTMLInputElement>('#srvFilter')!.value).toBe('svc-3');
     expect(h.queryAll('#rail .pick').filter((p) => p.getAttribute('aria-pressed') === 'true').map((p) => (p as HTMLElement).dataset.stage)).toEqual(['review']);
@@ -297,7 +294,7 @@ describe('console — the terminal, in the real page', () => {
     await drainReactWork(v);
     expect(FakeTerminal.made[0]!.written).toBe('recorded\nlive\n');
     expect(v.query('#tstatus')!.textContent).toBe('');
-    await click(v, '#termView [data-term="close"]');
+    await click(v, '#termView [data-art="back"]');
     expect(FakeTerminal.made[0]!.disposed).toBe(true);
     expect(surfaces(v)).toEqual([]);
     expect(v.query('#termView')!.childElementCount).toBe(0);

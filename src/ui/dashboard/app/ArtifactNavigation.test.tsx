@@ -3,68 +3,56 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import type { DashboardState } from '../state.js';
 import { all, bodyHas, isHidden, mountOverlays, must, text, type OverlayHarness } from './fixtures/overlaysKit.js';
-import { SHA1, SHA2, stateWithArtifacts, storedView } from './fixtures/artifactFixtures.js';
+import { SHA1, SHA2, stateWithArtifacts, storedWithSpec } from './fixtures/artifactFixtures.js';
 
 const openIndex = (h: OverlayHarness): void => h.act(() => h.overlays.openIndex());
 const openDetail = (h: OverlayHarness, id: string): void => h.act(() => h.overlays.openArtifact(id));
 const view = (): string => must('#artView').textContent ?? '';
 
-describe('ArtifactView — the stored view', () => {
-  const withStored = (v: unknown = storedView): DashboardState => stateWithArtifacts({ storedArtifacts: v });
-  const openStored = (h: OverlayHarness): void => h.act(() => h.overlays.openStored());
+describe('ArtifactView — captured files in the one index', () => {
+  const withStored = (v: unknown = storedWithSpec): DashboardState => stateWithArtifacts({ storedArtifacts: v });
 
-  it('groups kind then approach and lists rows, history and skipped files', () => {
+  it('lists an unclaimed file under its stage group, after the semantic rows, and folds the claimed one into its detail', () => {
     const h = mountOverlays(withStored());
-    openStored(h);
-    expect(text('.artsub')).toBe('Artifacts · 1');
-    expect(all('.artgroup-title').map((n) => n.textContent)).toEqual(['plan', 'Skipped files']);
-    expect(text('.sa-path')).toBe('app / plans/a.md');
-    expect(text('.sa-main .sa-meta').replace(/\s+/g, ' ')).toMatch(/^2 revisions · /);
-    expect(view()).toContain('app/.env — secret-pattern');
+    openIndex(h);
+    expect(all('.artgroup-title').map((n) => n.textContent)).toEqual(['Implement', 'UAT', 'Review', 'Ship', 'Unassigned']);
+    expect(all('.sa-path').map((n) => n.textContent)).toEqual(['app / docs/spec.md']);
+    expect(text('.dh-current')).toMatch(/^Artifacts · \d+$/);
+    expect(all('.sa-bar button').map((b) => b.textContent)).toEqual(['Reveal folder', 'Purge files…']);
+    openDetail(h, 'plan');
+    expect(all('[aria-label="Captured files"] .sa-path').map((n) => n.textContent)).toEqual(['app / plans/a.md']);
     expect(all('[data-act="stored-artifact-diff"]')).toHaveLength(1); // the oldest revision has no previous one
     expect(all('.sa-rev')).toHaveLength(2);
-    expect(must('.sa-hist summary').textContent).toBe('History');
-    expect(all('.sa-bar button').map((b) => b.textContent)).toEqual(['Reveal folder', 'Purge artifacts']);
-  });
-
-  it('names the active outputs globs in the empty state, and shows Loading until the host answers', () => {
-    const h = mountOverlays(withStored({ total: 0, groups: [], skips: [], globs: ['plans/**', 'docs/spec/*.md'] }));
-    openStored(h);
-    expect(must('.sa-empty').textContent).toBe('No artifacts captured yet. Watching: plans/**, docs/spec/*.md.');
-    expect(all('.sa-empty code').map((c) => c.textContent)).toEqual(['plans/**', 'docs/spec/*.md']);
-    h.emit({ type: 'state', state: withStored({ total: 0, groups: [], skips: [], globs: [] }) });
-    expect(must('.sa-empty').textContent).toBe('No artifacts captured yet. No outputs globs are configured for the enabled approaches.');
-  });
-
-  it('says Loading while the store has not answered', () => {
-    const h = mountOverlays(stateWithArtifacts());
-    openStored(h);
-    expect(text('.artsub')).toBe('Artifacts · 0');
-    expect(must('.sa-empty').textContent).toBe('Loading…');
   });
 
   it('posts store paths and revision shas only, each with a request id', () => {
     const h = mountOverlays(withStored());
-    openStored(h);
+    openDetail(h, 'plan');
     fireEvent.click(must('.sa-main [data-act="stored-artifact-open"]'));
     fireEvent.click(must('[data-act="stored-artifact-live"]'));
     fireEvent.click(must('[data-act="stored-artifact-diff"]'));
-    fireEvent.click(must('[data-act="stored-artifact-reveal"]'));
-    fireEvent.click(must('[data-act="stored-artifact-purge"]'));
     expect(h.send.storedArtifactOpen.mock.calls).toEqual([['app/plans/a.md', SHA2, 'req-1']]);
     expect(h.send.storedArtifactLive.mock.calls).toEqual([['app/plans/a.md', 'req-2']]);
     expect(h.send.storedArtifactDiff.mock.calls).toEqual([['app/plans/a.md', SHA1, SHA2, 'req-3']]);
-    expect(h.send.storedArtifactReveal.mock.calls).toEqual([['req-4']]);
-    expect(h.send.storedArtifactPurge.mock.calls).toEqual([['req-5']]);
   });
 
-  it('opens a history revision, and Back returns to the ticket', () => {
+  it('Reveal folder and Purge files… post once each from the index header', () => {
     const h = mountOverlays(withStored());
-    openStored(h);
+    openIndex(h);
+    fireEvent.click(must('[data-act="stored-artifact-reveal"]'));
+    fireEvent.click(must('[data-act="stored-artifact-purge"]'));
+    expect(h.send.storedArtifactReveal.mock.calls).toEqual([['req-1']]);
+    expect(h.send.storedArtifactPurge.mock.calls).toEqual([['req-2']]);
+  });
+
+  it('opens a history revision, and Back returns to the previous view', () => {
+    const h = mountOverlays(withStored());
+    openIndex(h);
+    openDetail(h, 'plan');
     fireEvent.click(all('.sa-rev [data-act="stored-artifact-open"]')[1]!);
     expect(h.send.storedArtifactOpen.mock.calls).toEqual([['app/plans/a.md', SHA1, 'req-1']]);
     fireEvent.click(must('[data-art="back"]'));
-    expect(isHidden('#artView')).toBe(true);
+    expect(h.overlays.getSnapshot().art).toBe('index');
   });
 });
 

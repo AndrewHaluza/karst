@@ -4,8 +4,17 @@ exports[`dashboard region parity (DOM contract) > artView #artView · closed > a
 
 exports[`dashboard region parity (DOM contract) > artView #artView · detail > artView · detail 1`] = `
 "<div#artView.artview tabindex="-1">
-  <div.arthead>
-    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the artifacts index" type="button"> "← Artifacts"
+  <div.drillhead data-region="drill-head">
+    <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Artifacts" data-art="back" title="Back to Artifacts" type="button">
+      <span aria-hidden="true"> "←"
+      <span.dh-backlabel> "Artifacts"
+    <nav.dh-trail aria-label="Breadcrumb">
+      <ol>
+        <li.dh-mid>
+          <button.dh-link type="button"> "Artifacts"
+        <li.dh-current>
+          <span aria-current="page" title="UAT report"> "UAT report"
+    <kbd.dh-esc aria-hidden="true"> "Esc"
   <div.artdetail>
     <div.arthero>
       <span.art-title> "UAT report"
@@ -56,10 +65,19 @@ exports[`dashboard region parity (DOM contract) > artView #artView · detail > a
 
 exports[`dashboard region parity (DOM contract) > artView #artView · index > artView · index 1`] = `
 "<div#artView.artview tabindex="-1">
-  <div.arthead>
-    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the ticket dashboard" type="button"> "← Ticket"
-    <h2> "FEAT-142 · Add per-repo base branch override to the worktree picker"
-    <span.artsub> "Artifacts · 3"
+  <div.drillhead data-region="drill-head">
+    <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Dashboard" data-art="back" title="Back to Dashboard" type="button">
+      <span aria-hidden="true"> "←"
+      <span.dh-backlabel> "Dashboard"
+    <nav.dh-trail aria-label="Breadcrumb">
+      <ol>
+        <li.dh-current>
+          <span aria-current="page" title="Artifacts · 5"> "Artifacts · 5"
+    <div.dh-actions>
+      <span.sa-bar>
+        <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder" type="button"> "Reveal folder"
+        <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" type="button"> "Purge files…"
+    <kbd.dh-esc aria-hidden="true"> "Esc"
   <section.artgroup aria-label="Implement artifacts">
     <div.artgroup-title> "Implement"
     <ul.artrows>
@@ -100,61 +118,6 @@ exports[`dashboard region parity (DOM contract) > artView #artView · index > ar
             <svg.kmark aria-hidden="true">
             <span> "Karst · Codex"
           <span.arw aria-hidden="true"> "›""
-`;
-
-exports[`dashboard region parity (DOM contract) > artView #artView · stored index > artView · stored index 1`] = `
-"<div#artView.artview tabindex="-1">
-  <div.arthead>
-    <button.k-btn.k-btn--ghost.k-btn--sm data-art="back" title="Return to the ticket dashboard" type="button"> "← Ticket"
-    <h2> "FEAT-142 · Add per-repo base branch override to the worktree picker"
-    <span.artsub> "Artifacts · 2"
-    <span.sa-bar>
-      <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder" type="button"> "Reveal folder"
-      <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" type="button"> "Purge artifacts"
-  <section.artgroup aria-label="screenshot artifacts">
-    <div.artgroup-title> "screenshot"
-    <div.sa-meta> "default"
-    <ul.artrows>
-      <li.sa-row>
-        <div.sa-main>
-          <span.sa-path> "web / a.png"
-          <span.sa-chip> "default"
-          <span.sa-chip> "uat"
-          <span.sa-meta> "2 revisions · <stamp>"
-        <div.sa-main>
-          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="abcdef1234" title="Open the latest revision read-only" type="button"> "Open latest"
-          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-live" data-path="web/a.png" title="Open the worktree file, if it still exists" type="button"> "Open live file"
-        <details.sa-hist>
-          <summary> "History"
-          <ul.artrows>
-            <li.sa-rev>
-              <span.sa-meta> "<stamp>"
-              <span.sa-chip> "uat"
-              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="abcdef1234" title="Open this revision read-only" type="button"> "Open"
-              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-diff" data-from="1234abcdef" data-path="web/a.png" data-to="abcdef1234" title="Show changes since the previous revision" type="button"> "Diff vs previous"
-            <li.sa-rev>
-              <span.sa-meta> "<stamp>"
-              <span.sa-chip> "uat"
-              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="web/a.png" data-sha="1234abcdef" title="Open this revision read-only" type="button"> "Open"
-      <li.sa-row>
-        <div.sa-main>
-          <span.sa-path> "api / b.png"
-          <span.sa-chip> "default"
-          <span.sa-chip> "uat"
-          <span.sa-meta> "1 revision · <stamp>"
-        <div.sa-main>
-          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="api/b.png" data-sha="fedcba9876" title="Open the latest revision read-only" type="button"> "Open latest"
-          <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-live" data-path="api/b.png" title="Open the worktree file, if it still exists" type="button"> "Open live file"
-        <details.sa-hist>
-          <summary> "History"
-          <ul.artrows>
-            <li.sa-rev>
-              <span.sa-meta> "<stamp>"
-              <span.sa-chip> "uat"
-              <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-open" data-path="api/b.png" data-sha="fedcba9876" title="Open this revision read-only" type="button"> "Open"
-  <section.artgroup aria-label="Skipped files">
-    <div.artgroup-title> "Skipped files"
-    <div.sa-skip> "web/big.bin — too large""
 `;
 
 exports[`dashboard region parity (DOM contract) > artifacts #artPanel · three artifacts > artifacts · three artifacts 1`] = `
@@ -247,10 +210,15 @@ exports[`dashboard region parity (DOM contract) > envView #envView · closed > e
 
 exports[`dashboard region parity (DOM contract) > envView #envView · editor open > envView · editor open 1`] = `
 "<div#envView.envview tabindex="-1">
-  <div.thead>
-    <span.ttitle> "Environment variables"
-    <span.sp>
-      <button.k-btn.k-btn--ghost.k-btn--sm data-env-close title="Close the environment variables view" type="button"> "Close"
+  <div.drillhead data-region="drill-head">
+    <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Dashboard" data-art="back" title="Back to Dashboard" type="button">
+      <span aria-hidden="true"> "←"
+      <span.dh-backlabel> "Dashboard"
+    <nav.dh-trail aria-label="Breadcrumb">
+      <ol>
+        <li.dh-current>
+          <span aria-current="page" title="Env variables"> "Env variables"
+    <kbd.dh-esc aria-hidden="true"> "Esc"
   <div.ebody>
     <div.elead> "One per line. These extend each service’s own and override the keys they name — for this ticket only. The repository’s file is never written. Saved values apply the next time the services are started."
       <code> "KEY=value"
@@ -2353,23 +2321,6 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · two runnin
                   <svg.k-icon aria-hidden="true">"
 `;
 
-exports[`dashboard region parity (DOM contract) > stored #storedPanel · loaded with two files > stored · loaded with two files 1`] = `
-"<div#storedPanel.panel.span>
-  <div.phead> "Captured artifacts"
-    <button#storedOpen.k-btn.k-btn--ghost.k-btn--sm data-art="stored" title="Browse captured output files and their revision history" type="button"> "Open ›"
-      <span#storedTotal> "2"
-  <div#storedSummary.pbody>
-    <span.sa-meta> "screenshot 2""
-`;
-
-exports[`dashboard region parity (DOM contract) > stored #storedPanel · not loaded (hidden) > stored · not loaded (hidden) 1`] = `
-"<div#storedPanel.hidden.panel.span>
-  <div.phead> "Captured artifacts"
-    <button#storedOpen.k-btn.k-btn--ghost.k-btn--sm data-art="stored" title="Browse captured output files and their revision history" type="button"> "Open ›"
-      <span#storedTotal>
-  <div#storedSummary.pbody>"
-`;
-
 exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none and cannot add (hidden) > subtasks · none and cannot add (hidden) 1`] = `
 "<div#subtaskPanel.hidden.panel.span>
   <div.phead> "Sub-tasks"
@@ -2446,20 +2397,34 @@ exports[`dashboard region parity (DOM contract) > termView #termView · closed >
 
 exports[`dashboard region parity (DOM contract) > termView #termView · tester process console while loading > termView · tester process console while loading 1`] = `
 "<div#termView.termview tabindex="-1">
-  <div.thead>
-    <span.ttitle> "Console · Tester"
-    <span.sp>
-      <button.k-btn.k-btn--ghost.k-btn--sm data-term="close" title="Close the console view" type="button"> "Close"
+  <div.drillhead data-region="drill-head">
+    <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Dashboard" data-art="back" title="Back to Dashboard" type="button">
+      <span aria-hidden="true"> "←"
+      <span.dh-backlabel> "Dashboard"
+    <nav.dh-trail aria-label="Breadcrumb">
+      <ol>
+        <li.dh-mid>
+          <span title="Console"> "Console"
+        <li.dh-current>
+          <span aria-current="page" title="Tester"> "Tester"
+    <kbd.dh-esc aria-hidden="true"> "Esc"
   <div#tstatus.tstatus role="status"> "Loading console output…"
   <div#termHost.termhost>"
 `;
 
 exports[`dashboard region parity (DOM contract) > termView #termView · uat stage console while loading > termView · uat stage console while loading 1`] = `
 "<div#termView.termview tabindex="-1">
-  <div.thead>
-    <span.ttitle> "Console · UAT"
-    <span.sp>
-      <button.k-btn.k-btn--ghost.k-btn--sm data-term="close" title="Close the console view" type="button"> "Close"
+  <div.drillhead data-region="drill-head">
+    <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Dashboard" data-art="back" title="Back to Dashboard" type="button">
+      <span aria-hidden="true"> "←"
+      <span.dh-backlabel> "Dashboard"
+    <nav.dh-trail aria-label="Breadcrumb">
+      <ol>
+        <li.dh-mid>
+          <span title="Console"> "Console"
+        <li.dh-current>
+          <span aria-current="page" title="UAT"> "UAT"
+    <kbd.dh-esc aria-hidden="true"> "Esc"
   <div#tstatus.tstatus role="status"> "Loading console output…"
   <div#termHost.termhost>"
 `;

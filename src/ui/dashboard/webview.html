@@ -190,10 +190,6 @@
        (the zero state is ABSENCE, never an empty section, §4.1): React toggles .hidden on this root. The panel
        carries NO `.count`: the button IS the counter. -->
   <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>
-  <!-- Captured artifacts (T2 store): app/StoredPanel.tsx puts the "Open N" button into the header and renders the
-       per-kind summary into #storedSummary, once the host's first load answers. "Open" swaps in the stored view
-       (app/StoredView.tsx). -->
-  <div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts</div><div class="pbody" id="storedSummary"></div></div>
 </div>
 
 <!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring the ticket form's brief drawer.

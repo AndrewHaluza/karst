@@ -18,7 +18,7 @@ import type { DashboardSender } from './hostBridge.js';
 import { initialXtermState, runXtermBundle, settledXtermState, type XtermState } from './xtermLoader.js';
 
 /** null = the ticket dashboard; a detail remembers where Back answers (the ticket, or the index it came from). */
-export type ArtView = 'index' | 'stored' | { readonly id: string; readonly from: 'index' | 'ticket' };
+export type ArtView = 'index' | { readonly id: string; readonly from: 'index' | 'ticket' };
 
 export interface ArtScrolls {
   ticket: number;
@@ -101,7 +101,7 @@ function restoreView(raw: unknown): OverlayView | null {
   const console = isRecord(c) && typeof c.stage === 'string' && c.stage ? { stage: c.stage, processId: typeof c.processId === 'string' && c.processId ? c.processId : null } : null;
   const v = raw.art;
   const art: ArtView | null =
-    v === 'index' || v === 'stored' ? v : isRecord(v) && typeof v.id === 'string' && v.id ? { id: v.id, from: v.from === 'index' ? 'index' : 'ticket' } : null;
+    v === 'index' ? v : v === 'stored' ? 'index' : isRecord(v) && typeof v.id === 'string' && v.id ? { id: v.id, from: v.from === 'index' ? 'index' : 'ticket' } : null;
   return { console, logs: raw.logs === true, env: raw.env === true, art };
 }
 
@@ -110,7 +110,7 @@ export function restoreArt(raw: unknown): { art: ArtView | null; scrolls: ArtScr
   const view = isRecord(raw) ? raw : {};
   const v = view.artView;
   const art: ArtView | null =
-    v === 'index' || v === 'stored' ? v : isRecord(v) && typeof v.id === 'string' && v.id ? { id: v.id, from: v.from === 'index' ? 'index' : 'ticket' } : null;
+    v === 'index' ? v : v === 'stored' ? 'index' : isRecord(v) && typeof v.id === 'string' && v.id ? { id: v.id, from: v.from === 'index' ? 'index' : 'ticket' } : null;
   const s = isRecord(view.artScrolls) ? view.artScrolls : {};
   const detail: Record<string, number> = {};
   if (isRecord(s.detail)) for (const [id, top] of Object.entries(s.detail)) detail[id] = finite(top);
@@ -118,7 +118,7 @@ export function restoreArt(raw: unknown): { art: ArtView | null; scrolls: ArtScr
   return { art, scrolls: { ticket: finite(s.ticket), index: finite(s.index), detail }, history };
 }
 
-const listsStage = (v: ArtView | null): v is 'index' | 'stored' => v === 'index' || v === 'stored';
+const listsStage = (v: ArtView | null): v is 'index' => v === 'index';
 
 export class OverlayStack {
   private snapshot: OverlaySnapshot;
@@ -213,7 +213,6 @@ export class OverlayStack {
 
   readonly openIndex = (): void => this.navigate('index');
 
-  readonly openStored = (): void => this.navigate('stored');
 
   /** A detail opened from the index returns to it; from anywhere else it returns to the ticket (spec §7.3). */
   readonly openArtifact = (id: string): void => this.navigate({ id, from: this.snapshot.art === 'index' ? 'index' : 'ticket' });
