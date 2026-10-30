@@ -21,8 +21,17 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
-/** The only HEADLESS profile today; a union so a second one is a type-checked addition. */
-export type HeadlessPolicy = 'gate';
+/**
+ * The HEADLESS profiles. `reviewer` is `gate` plus the deterministic-check deny
+ * (`gateCheckDeniedCommands`): the findings lane reads the diff, the gates phase
+ * already ran the checks. Fix keeps plain `gate` — it must run tests.
+ */
+export type HeadlessPolicy = 'gate' | 'reviewer';
+
+/** True for every headless profile that carries the gate sandbox. */
+export function isGatePolicy(policy: HeadlessPolicy | InteractivePolicy | undefined): boolean {
+  return policy === 'gate' || policy === 'reviewer';
+}
 
 /**
  * The INTERACTIVE launch profiles (`InteractiveCommandOpts.policy`) — the same
@@ -44,9 +53,42 @@ export const GATE_BUILD_COMMANDS = [
   'git clean *',
 ] as const;
 
-/** Every shell command pattern the gate profile denies. */
-export function gateDeniedCommands(): string[] {
-  return [...PROCESS_WIDE_KILL_COMMANDS, ...GATE_BUILD_COMMANDS];
+/** Test runners, type checkers, linters and screenshot suites the `reviewer` profile denies. */
+export const GATE_CHECK_COMMANDS = [
+  'npm test*',
+  'npm run test*',
+  'npm run typecheck*',
+  'npm run lint*',
+  'npx vitest*',
+  'npx jest*',
+  'npx tsc*',
+  'npx eslint*',
+  'npx playwright*',
+  'vitest*',
+  'jest*',
+  'tsc*',
+  'eslint*',
+  'playwright*',
+] as const;
+
+/** `npm run uat:host*` is the host-side UAT driver the reviewer may still call. */
+const ALLOWED_RUN_PREFIX = 'uat:host';
+
+/** The check denies plus one `npm run <script>*` per declared gate script. */
+export function gateCheckDeniedCommands(gateScripts: readonly string[] = []): string[] {
+  const scripts = gateScripts
+    .filter((s) => s.length > 0 && !s.startsWith(ALLOWED_RUN_PREFIX))
+    .map((s) => `npm run ${s}*`);
+  return [...new Set([...GATE_CHECK_COMMANDS, ...scripts])];
+}
+
+/** Every shell command pattern the gate profile denies; `reviewer` adds the check list. */
+export function gateDeniedCommands(
+  policy: HeadlessPolicy | InteractivePolicy = 'gate',
+  gateScripts: readonly string[] = [],
+): string[] {
+  const base = [...PROCESS_WIDE_KILL_COMMANDS, ...GATE_BUILD_COMMANDS];
+  return policy === 'reviewer' ? [...base, ...gateCheckDeniedCommands(gateScripts)] : base;
 }
 
 /**
@@ -70,9 +112,14 @@ function claudeProtectedPathDeny(env?: NodeJS.ProcessEnv, home?: string): string
 }
 
 /** claude permission-rule deny list for the gate profile (`--disallowedTools` shape). */
-export function claudeGateDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
+export function claudeGateDeny(
+  env?: NodeJS.ProcessEnv,
+  home?: string,
+  policy: HeadlessPolicy = 'gate',
+  gateScripts: readonly string[] = [],
+): string[] {
   const paths = claudeProtectedPathDeny(env, home);
-  return [...gateDeniedCommands().map((c) => `Bash(${c})`), ...paths];
+  return [...gateDeniedCommands(policy, gateScripts).map((c) => `Bash(${c})`), ...paths];
 }
 
 /** claude deny rules for the `attended` profile: pattern kills + home-config writes. */
@@ -100,9 +147,11 @@ export function opencodeGatePermission(
   env?: NodeJS.ProcessEnv,
   home?: string,
   extraRoots: readonly string[] = [],
+  policy: HeadlessPolicy = 'gate',
+  gateScripts: readonly string[] = [],
 ): { bash: Record<string, 'deny'>; edit: Record<string, 'allow' | 'deny'> } {
   return {
-    bash: Object.fromEntries(gateDeniedCommands().map((c) => [c, 'deny' as const])),
+    bash: Object.fromEntries(gateDeniedCommands(policy, gateScripts).map((c) => [c, 'deny' as const])),
     edit: {
       '*': 'deny',
       [`${cwd}/**`]: 'allow',

@@ -75,6 +75,8 @@ export interface RunHeadlessOpts {
    * extra profile (classify / PR-description calls).
    */
   policy?: HeadlessPolicy;
+  /** The target's declared gate scripts; the `reviewer` profile denies `npm run <script>*` for each. */
+  gateScripts?: string[];
   resume?: string; // session_id to continue
   model?: string;
   /**

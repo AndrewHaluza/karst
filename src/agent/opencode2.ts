@@ -30,7 +30,7 @@ import {
 } from './instructions.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
-import type { InteractivePolicy } from './gatePolicy.js';
+import { isGatePolicy, type HeadlessPolicy, type InteractivePolicy } from './gatePolicy.js';
 import {
   opencode2Command,
   opencode2Config,
@@ -306,6 +306,9 @@ export function buildOpencode2ConfigContent(opts: {
   addDirs?: string[] | undefined;
   /** Headless gate profile cwd (`gatePolicy.ts`); absent → ordinary permission. */
   gateCwd?: string | undefined;
+  /** `reviewer` adds the check deny; absent → plain `gate`. */
+  gatePolicy?: HeadlessPolicy | undefined;
+  gateScripts?: readonly string[] | undefined;
   /** Interactive launch profile (`gatePolicy.ts`); `gate` needs `cwd`. */
   policy?: InteractivePolicy | undefined;
   cwd?: string | undefined;
@@ -320,7 +323,9 @@ export function buildOpencode2ConfigContent(opts: {
   config['permission'] = opencodeLaunchPermission({
     ...opts,
     ...(opts.policy && opts.cwd ? launchProfile(opts.policy, opts.cwd) : {}),
-    ...(opts.gateCwd ? { gate: { cwd: opts.gateCwd } } : {}),
+    ...(opts.gateCwd
+      ? { gate: { cwd: opts.gateCwd, policy: opts.gatePolicy, gateScripts: opts.gateScripts } }
+      : {}),
   });
   if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
@@ -625,7 +630,13 @@ export class Opencode2Adapter implements AgentAdapter {
           ...opencode2IsolationEnv(opencode2Config().home),
           OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
             headless: true,
-            ...(opts.policy === 'gate' ? { gateCwd: opts.cwd } : {}),
+            ...(isGatePolicy(opts.policy)
+              ? {
+                  gateCwd: opts.cwd,
+                  gatePolicy: opts.policy as HeadlessPolicy,
+                  gateScripts: opts.gateScripts,
+                }
+              : {}),
           }),
           // A headless `run` may discover a plugin an earlier interactive
           // session left in the worktree; the marker makes setup() return

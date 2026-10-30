@@ -11,7 +11,9 @@ const BACKGROUND_MARKERS: readonly RegExp[] = [
   /Command moved to the background \(shell ID:\s*([^)\s]*)\s*\)/g,
 ];
 
-export const BACKGROUND_ENDED_DETAIL = 'tester ended while a background command was still running';
+export function backgroundEndedDetail(role: 'tester' | 'reviewer'): string {
+  return `${role} ended while a background command was still running`;
+}
 
 /**
  * True when the LAST backgrounded command is never mentioned again after its

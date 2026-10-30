@@ -31,6 +31,7 @@ import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
+import { declaredCheckGates } from '../review/declaredGates.js';
 import { getDisabledGates, getHostGates } from '../../store/ticketGates.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
@@ -678,6 +679,7 @@ export async function runReview(
       worktreePath: t.path,
       baseRef: baseRefByRepo.get(t.repo) ?? null,
       branch: branchByRepo.get(t.repo) ?? null,
+      gates: declaredCheckGates(opts.manifest, t.repo),
     })),
     // A re-run fills a partial `findings` block from the defaults, as the
     // re-run always did; the stage reads the block as given.
