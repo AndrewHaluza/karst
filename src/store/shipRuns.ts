@@ -902,6 +902,28 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
 }
 
 /**
+ * The HEAD karst itself last pushed for this ticket + repo: the `localHead` of
+ * the newest push intent that landed (`applied`/`reconciled`), across every run.
+ * Null when karst never pushed this repo. Only an observed, recorded value —
+ * the lease in `shipPushRecovery` is never built from anything else.
+ */
+export function lastPushedHead(store: Store, ticketId: number, repo: string): string | null {
+  const row = store.db
+    .prepare(
+      `SELECT i.pre_state_json AS pre
+         FROM ship_operation_intents i
+         JOIN ship_runs r ON r.id = i.ship_run_id
+        WHERE r.ticket_id = ? AND i.repo = ? AND i.step = 'push'
+          AND i.status IN ('applied','reconciled')
+        ORDER BY i.id DESC LIMIT 1`,
+    )
+    .get(ticketId, repo) as { pre: string } | undefined;
+  if (row === undefined) return null;
+  const pre = parseShipPreState(row.pre, 'push');
+  return pre !== null && pre.step === 'push' && pre.localHead !== '' ? pre.localHead : null;
+}
+
+/**
  * How many ship runs a ticket has recorded, in total. `listShipEvidence` keeps
  * only the LATEST run; the artifact model counts runs as VERSIONS of the one
  * ship-summary artifact, so the total is a separate, cheaper read.

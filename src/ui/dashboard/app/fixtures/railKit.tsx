@@ -81,7 +81,7 @@ export const blockedState = (blocked: Record<string, unknown> | undefined, over:
     ...over,
   });
 
-const SENDERS = ['shipTicket', 'mergePr', 'resolveConflicts', 'stageResume', 'runGateOnHost', 'usageLimitPick', 'usageLimitRetry', 'usageLimitDismiss', 'reviewStallHint', 'reviewStallContinue', 'reviewStallRescope', 'baselineApprove', 'baselineReject', 'testerSkippedRerun', 'testerSkippedAccept'] as const;
+const SENDERS = ['shipTicket', 'mergePr', 'resolveConflicts', 'stageResume', 'runGateOnHost', 'usageLimitPick', 'usageLimitRetry', 'usageLimitDismiss', 'reviewStallHint', 'reviewStallContinue', 'reviewStallRescope', 'baselineApprove', 'baselineReject', 'testerSkippedRerun', 'testerSkippedAccept', 'pushDivergedOverwrite', 'pushDivergedIntegrate'] as const;
 
 export interface RailHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;

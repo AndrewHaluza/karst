@@ -460,6 +460,13 @@ export const COVERED: readonly ParityCase[] = [
     act: `tester-skipped-${k}`, state: () => blockedState('tester-skipped', false), sel: act(`tester-skipped-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `tester-skipped-${k}` }], rid: true,
   })),
+  { act: 'push-diverged-fix', state: () => blockedState('push-diverged', false), sel: act('push-diverged-fix', '[data-stagekey="uat"]'), posts: [], pendingSel: false },
+  ...(['overwrite', 'integrate'] as const).map((k): ParityCase => ({
+    act: `push-diverged-${k}`, state: () => blockedState('push-diverged', false),
+    prep: ensureClick(act('push-diverged-fix', '[data-stagekey="uat"]'), act(`push-diverged-${k}`, '[data-stagekey="uat"]')),
+    sel: act(`push-diverged-${k}`, '[data-stagekey="uat"]'),
+    posts: [{ type: `push-diverged-${k}` }], rid: true,
+  })),
   {
     act: 'baseline-approve', variant: 'one row', state: baselineState, sel: act('baseline-approve', '[data-indices="1"]'),
     posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [1] }], rid: true,

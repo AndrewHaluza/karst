@@ -232,6 +232,10 @@ export type WebviewMessage =
   | { type: 'tester-skipped-rerun' }
   /** Accept a skipped Tester: UAT finishes as passed. */
   | { type: 'tester-skipped-accept' }
+  /** Overwrite origin after a `push-diverged` ship block (lease over the probed SHA). */
+  | { type: 'push-diverged-overwrite' }
+  /** Send the ticket back to Implement to merge origin into the branch. */
+  | { type: 'push-diverged-integrate' }
   /**
    * Ask the host to push one gate stage's console log (the uat/review artifact
    * file) for the terminal "detailed mode" view. Carries the STAGE only — a

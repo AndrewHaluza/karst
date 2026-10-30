@@ -618,6 +618,9 @@
   "src/store/shipRuns.ts": [
     "arch:GH-00"
   ],
+  "src/store/shipRuns.ts#lastPushedHead": [
+    "arch:GH-08"
+  ],
   "src/store/stageBlocks.ts#parkGateStage": [
     "arch:V82"
   ],
@@ -791,6 +794,9 @@
   ],
   "src/workflow/stages/ship*.ts": [
     "arch:GH-00"
+  ],
+  "src/workflow/stages/shipPushRecovery.ts#classifyRejectedPush": [
+    "arch:GH-08"
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"

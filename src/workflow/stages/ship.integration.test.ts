@@ -1104,6 +1104,91 @@ setTimeout(() => {
     expect(row.needs_force_push).toBe(1);
   });
 
+  describe('non-fast-forward rejection of a plain push', () => {
+    const ownSha = 'a'.repeat(40);
+    const rewrittenSha = 'b'.repeat(40);
+    const foreignSha = 'c'.repeat(40);
+
+    /** Fake remote: plain pushes are rejected while `rejectPlain`; leased pushes land. */
+    function rejectingGit(state: { local: string; remote: string | null; rejectPlain: boolean; log: string }) {
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: state.local, stderr: '', exitCode: 0 };
+        if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+          return state.remote === null
+            ? { stdout: '', stderr: '', exitCode: 1 }
+            : { stdout: state.remote, stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'rev-parse' && args[1] === 'origin/develop') return { stdout: 'd'.repeat(40), stderr: '', exitCode: 0 };
+        if (args[0] === 'log') return { stdout: state.log, stderr: '', exitCode: 0 };
+        if (args[0] === 'push') {
+          const leased = args.some((a) => a.startsWith('--force-with-lease'));
+          if (!leased && state.rejectPlain) {
+            return { stdout: '', stderr: '! [rejected] HEAD -> karst/x (non-fast-forward)', exitCode: 1 };
+          }
+          state.remote = state.local;
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      return { git, calls };
+    }
+
+    it('retries once under a lease over karst\'s own last push when origin still holds it', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const state = { local: ownSha, remote: null as string | null, rejectPlain: false, log: '' };
+      const { git, calls } = rejectingGit(state);
+      const { gh } = fakeGh();
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      // The agent rewrites the branch in its worktree; origin still holds karst's push.
+      state.local = rewrittenSha;
+      state.remote = ownSha;
+      state.rejectPlain = true;
+      calls.length = 0;
+      await shipTicket(store, { ticketId: id, deliverToOpenPr: true }, gh, fakeAdapter(), git);
+
+      expect(calls.filter((a) => a[0] === 'push')).toEqual([
+        ['push', '-u', 'origin', 'HEAD'],
+        ['push', '-u', `--force-with-lease=karst/x:${ownSha}`, 'origin', 'HEAD'],
+      ]);
+    });
+
+    it('parks push-diverged, listing foreign commits, and pushes nothing more when origin moved', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const state = { local: ownSha, remote: null as string | null, rejectPlain: false, log: '' };
+      const { git, calls } = rejectingGit(state);
+      const { gh } = fakeGh();
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      state.local = rewrittenSha;
+      state.remote = foreignSha;
+      state.rejectPlain = true;
+      state.log = 'abc1234\tfix: a teammate commit\n';
+      calls.length = 0;
+      const out = await shipTicket(store, { ticketId: id, deliverToOpenPr: true }, gh, fakeAdapter(), git);
+
+      expect(out.prs).toEqual([]);
+      expect(calls.filter((a) => a[0] === 'push')).toEqual([['push', '-u', 'origin', 'HEAD']]);
+      const block = stageBlock(store, id, 'ship');
+      expect(block?.kind).toBe('push-diverged');
+      expect(block?.reason).toContain(foreignSha);
+      expect(block?.reason).toContain('abc1234 fix: a teammate commit');
+    });
+
+    it('fails naming the exact force-with-lease command when origin is unreadable', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const state = { local: rewrittenSha, remote: null as string | null, rejectPlain: true, log: '' };
+      const { git } = rejectingGit(state);
+      const { gh } = fakeGh();
+      await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+        /git push --force-with-lease=karst\/x:<sha> origin HEAD/,
+      );
+    });
+  });
+
   it('pushes ordinarily when the force-push flag is not armed', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();

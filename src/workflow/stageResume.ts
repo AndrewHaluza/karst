@@ -63,6 +63,8 @@ export function resumeBlockedStage(
   // The Tester observed nothing and the user decides (Re-run tester / Accept
   // skip); a generic Resume would only re-run UAT into the same park.
   if (block.kind === 'tester-skipped') return { kind: 'refused' };
+  // Origin holds foreign commits; Overwrite / Integrate is the user's call.
+  if (block.kind === 'push-diverged') return { kind: 'refused' };
   // Same shape: the stall question was asked and only the user's choice
   // (hint / continue / re-scope) answers it — a generic Resume would re-open
   // the very fix loop that was stopped.

@@ -189,6 +189,8 @@ export interface DashboardActions {
   baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
   testerSkippedRerun: () => void | Promise<void>;
   testerSkippedAccept: () => void | Promise<void>;
+  pushDivergedOverwrite: () => void | Promise<void>;
+  pushDivergedIntegrate: () => void | Promise<void>;
   /** Reject one changed baseline with a reason; the host re-derives and validates. */
   baselineReject: (blockId: string, index: number, reason: string) => void | Promise<void>;
   /**

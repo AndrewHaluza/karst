@@ -131,6 +131,10 @@ export type BlockerKind =
   // not judged, so never a verdict or a fix round: the USER decides (Re-run
   // tester / Accept skip), and a generic Resume is refused.
   | 'tester-skipped'
+  // Ship's plain push was rejected non-fast-forward and origin holds commits the
+  // branch lacks (not karst's own last push). The USER decides: Overwrite remote
+  // (lease over the probed origin SHA) or Integrate (send back to impl). Resume refused.
+  | 'push-diverged'
   // Review keeps finding new blocking problems in the same file(s) round after
   // round (`review.stallDetection`) — a likely design problem, not a bug. Karst
   // stops opening fix rounds and asks the human; the question WAS asked, so a

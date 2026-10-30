@@ -78,7 +78,15 @@ import {
   type ShipOperationIntent,
   type ShipOperationPreState,
   type ShipRun,
+  lastPushedHead,
 } from '../../store/shipRuns.js';
+import {
+  classifyRejectedPush,
+  divergedReason,
+  isNonFastForward,
+  manualLeaseCommand,
+  type ForeignCommit,
+} from './shipPushRecovery.js';
 import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
@@ -591,6 +599,24 @@ function parkShipAwaitingSubtask(
     verdict: null,
     endedAt: null,
     blockedKind: 'awaiting-subtask',
+    blockedReason: reason,
+    blockedAt: nowIso(),
+  });
+}
+
+/** Park `ship` on `push-diverged`: origin holds commits the branch lacks. */
+function parkShipPushDiverged(
+  store: Store,
+  ticketId: number,
+  reason: string,
+  debug?: (message: string) => void,
+): void {
+  debug?.(`[driver] ticket ${ticketId}: parking 'ship' — push-diverged`);
+  setStage(store, ticketId, 'ship', {
+    status: 'pending',
+    verdict: null,
+    endedAt: null,
+    blockedKind: 'push-diverged',
     blockedReason: reason,
     blockedAt: nowIso(),
   });
@@ -1305,8 +1331,32 @@ export async function shipTicket(
           // is stranded at ship forever.
           const took = takeForcePushLease(store, opts.ticketId, wt.repo);
           const lease = took && preRemoteHead ? { ref, expected: preRemoteHead } : undefined;
+          let diverged: { originSha: string; commits: ForeignCommit[] } | undefined;
           try {
-            await pushBranch(git, wt.path, { forceWithLease: lease });
+            try {
+              await pushBranch(git, wt.path, { forceWithLease: lease });
+            } catch (pushErr) {
+              // A plain push rejected as non-fast-forward: an agent rewrote the
+              // branch without arming a lease. Classify origin before giving up.
+              if (lease !== undefined || !isNonFastForward(pushErr)) throw pushErr;
+              const found = await classifyRejectedPush(
+                git,
+                wt.path,
+                ref,
+                lastPushedHead(store, opts.ticketId, wt.repo),
+              );
+              if (found.kind === 'own') {
+                // Origin is exactly what karst last pushed: overwrite it, guarded by a
+                // lease over that observed SHA. One retry only.
+                await pushBranch(git, wt.path, { forceWithLease: { ref, expected: found.originSha } });
+              } else if (found.kind === 'foreign') {
+                diverged = { originSha: found.originSha, commits: found.commits };
+                throw pushErr;
+              } else {
+                const base = pushErr instanceof Error ? pushErr.message : String(pushErr);
+                throw new Error(`${base}\nTo overwrite origin yourself: ${manualLeaseCommand(ref, found.originSha)}`);
+              }
+            }
           } catch (err) {
             // The lease was taken (cleared) above, before this push ran — even
             // when it could not be turned into an actual `--force-with-lease`
@@ -1328,6 +1378,12 @@ export async function shipTicket(
               detail,
               endedAt: nowIso(),
             });
+            if (diverged !== undefined) {
+              // Foreign commits on origin: the user decides (Overwrite / Integrate).
+              // Never a `failed` verdict — ship has no failed edge (@arch:BLOCKED).
+              parkShipPushDiverged(store, opts.ticketId, divergedReason(wt.repo, ref, diverged.originSha, diverged.commits), opts.debug);
+              return { prs: [] };
+            }
             // This run's push never landed, but a PR for the branch may already
             // exist on GitHub — opened by hand, or by an attempt whose result
             // write was lost. Without this probe, ship never reaches the `pr`
