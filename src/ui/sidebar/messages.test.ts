@@ -100,6 +100,13 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: '12', repo: 'api' })).toBeNull();
   });
 
+  it('accepts cloud-session-add with exactly one target', () => {
+    expect(parseSidebarMessage({ type: 'cloud-session-add', ticketId: 3 })).toEqual({ type: 'cloud-session-add', ticketId: 3 });
+    expect(parseSidebarMessage({ type: 'cloud-session-add', proposalId: 4 })).toEqual({ type: 'cloud-session-add', proposalId: 4 });
+    expect(parseSidebarMessage({ type: 'cloud-session-add' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'cloud-session-add', ticketId: 3, proposalId: 4 })).toBeNull();
+  });
+
   it('rejects non-objects and unknown types', () => {
     expect(parseSidebarMessage(null)).toBeNull();
     expect(parseSidebarMessage('x')).toBeNull();
@@ -146,6 +153,7 @@ describe('routeSidebarAction', () => {
       cloudSessionOpen: vi.fn(),
       cloudSessionLink: vi.fn(),
       cloudSessionUnlink: vi.fn(),
+      cloudSessionAdd: vi.fn(),
     };
   }
 
@@ -216,6 +224,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'cloud-session-link', url: 'u4', proposalId: 5 }, a);
     expect(a.cloudSessionOpen).toHaveBeenCalledWith('u1');
     expect(a.cloudSessionUnlink).toHaveBeenCalledWith('u2');
+    routeSidebarAction({ type: 'cloud-session-add', ticketId: 3 }, a);
+    expect(a.cloudSessionAdd).toHaveBeenCalledWith({ ticketId: 3 });
     expect(a.cloudSessionLink).toHaveBeenNthCalledWith(1, 'u3', { ticketId: 9 });
     expect(a.cloudSessionLink).toHaveBeenNthCalledWith(2, 'u4', { proposalId: 5 });
   });

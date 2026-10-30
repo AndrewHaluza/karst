@@ -50,7 +50,10 @@ export type SidebarWebviewMessage =
   | { type: 'cloud-session-open'; url: string }
   | { type: 'cloud-session-unlink'; url: string }
   | { type: 'cloud-session-link'; url: string; ticketId: number }
-  | { type: 'cloud-session-link'; url: string; proposalId: number };
+  | { type: 'cloud-session-link'; url: string; proposalId: number }
+  // No url: the host asks for one (input box), then links it by hand.
+  | { type: 'cloud-session-add'; ticketId: number }
+  | { type: 'cloud-session-add'; proposalId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -113,6 +116,7 @@ export interface SidebarActions {
   cloudSessionOpen(url: string): void | Promise<void>;
   cloudSessionLink(url: string, target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
   cloudSessionUnlink(url: string): void | Promise<void>;
+  cloudSessionAdd(target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -158,6 +162,13 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
       return id
         ? { type: 'cloud-session-link', url: m.url, ticketId: m.ticketId as number }
         : { type: 'cloud-session-link', url: m.url, proposalId: m.proposalId as number };
+    }
+    case 'cloud-session-add': {
+      const proposal = typeof m.proposalId === 'number' && Number.isFinite(m.proposalId);
+      if (id === proposal) return null;
+      return id
+        ? { type: 'cloud-session-add', ticketId: m.ticketId as number }
+        : { type: 'cloud-session-add', proposalId: m.proposalId as number };
     }
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
@@ -273,6 +284,8 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.cloudSessionOpen(msg.url);
     case 'cloud-session-unlink':
       return actions.cloudSessionUnlink(msg.url);
+    case 'cloud-session-add':
+      return actions.cloudSessionAdd('ticketId' in msg ? { ticketId: msg.ticketId } : { proposalId: msg.proposalId });
     case 'cloud-session-link':
       return actions.cloudSessionLink(msg.url, 'ticketId' in msg ? { ticketId: msg.ticketId } : { proposalId: msg.proposalId });
   }

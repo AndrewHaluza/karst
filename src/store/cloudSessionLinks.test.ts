@@ -5,7 +5,6 @@ import {
   clearManualLink,
   listCloudSessionLinks,
   setManualLink,
-  upsertCloudSessionLink,
 } from './cloudSessionLinks.js';
 
 const U = 'https://claude.ai/code/session_a';
@@ -26,31 +25,10 @@ function setup() {
 const list = (s: ReturnType<typeof setup>) => listCloudSessionLinks(s, { projectId: 1 });
 
 describe('cloudSessionLinks store', () => {
-  it('upserts a scan match and re-points it on a rescan', () => {
-    const s = setup();
-    upsertCloudSessionLink(s, ref, { ticketId: 10, source: 'pr' });
-    upsertCloudSessionLink(s, ref, { ticketId: 11, source: 'branch' });
-    expect(list(s)).toEqual([
-      expect.objectContaining({ ticketId: 11, linkSource: 'branch', proposalId: null }),
-    ]);
-  });
-  it('records an unmatched session as unlinked', () => {
-    const s = setup();
-    upsertCloudSessionLink(s, ref, null);
-    expect(list(s)[0]).toMatchObject({ ticketId: null, linkSource: null });
-  });
-  it('never overwrites a manual row', () => {
+  it('clearManualLink keeps the row manual and unlinked', () => {
     const s = setup();
     setManualLink(s, ref, { ticketId: 10 });
-    upsertCloudSessionLink(s, ref, { ticketId: 11, source: 'pr' });
-    upsertCloudSessionLink(s, ref, null);
-    expect(list(s)[0]).toMatchObject({ ticketId: 10, linkSource: 'manual' });
-  });
-  it('clearManualLink keeps the row manual and unlinked across a rescan', () => {
-    const s = setup();
-    upsertCloudSessionLink(s, ref, { ticketId: 10, source: 'key' });
     clearManualLink(s, ref);
-    upsertCloudSessionLink(s, ref, { ticketId: 10, source: 'key' });
     expect(list(s)).toHaveLength(1);
     expect(list(s)[0]).toMatchObject({ ticketId: null, linkSource: 'manual' });
   });
@@ -84,8 +62,8 @@ describe('cloudSessionLinks store', () => {
   });
   it('scopes by project and cascades on ticket delete', () => {
     const s = setup();
-    upsertCloudSessionLink(s, ref, { ticketId: 10, source: 'pr' });
-    upsertCloudSessionLink(s, { ...ref, projectId: 2 }, null);
+    setManualLink(s, ref, { ticketId: 10 });
+    setManualLink(s, { ...ref, projectId: 2 }, { ticketId: 11 });
     expect(list(s)).toHaveLength(1);
     s.db.prepare('DELETE FROM tickets WHERE id=10').run();
     expect(list(s)).toHaveLength(0);
@@ -106,5 +84,22 @@ describe('v90 migration', () => {
     migrate(s.db);
     migrate(s.db);
     expect(s.db.prepare("SELECT name FROM sqlite_master WHERE name='cloud_session_links'").all()).toHaveLength(1);
+  });
+});
+
+describe('v92 migration', () => {
+  it('deletes scanned rows, keeps manual ones, idempotently', () => {
+    const s = setup();
+    const ins = s.db.prepare('INSERT INTO cloud_session_links (project_id, provider, url, ticket_id, link_source) VALUES (1, ?, ?, ?, ?)');
+    ins.run('claude', 'u-pr', 10, 'pr');
+    ins.run('claude', 'u-branch', 10, 'branch');
+    ins.run('claude', 'u-key', 11, 'key');
+    ins.run('claude', 'u-null', null, null);
+    ins.run('claude', 'u-manual', 10, 'manual');
+    ins.run('claude', 'u-manual-unlinked', null, 'manual');
+    s.db.pragma('user_version = 91');
+    migrate(s.db);
+    migrate(s.db);
+    expect(list(s).map((r) => r.url).sort()).toEqual(['u-manual', 'u-manual-unlinked']);
   });
 });

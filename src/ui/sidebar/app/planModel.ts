@@ -87,6 +87,7 @@ export function draftActions(d: PlanningProposalRow): PlanAction[] {
   return [
     { key: 'review', spec: { act: 'plan-proposal-review', proposal }, label: 'Approve', aria: `Approve draft: ${d.title}`, icon: 'check', kind: 'icon' },
     { key: 'discard', spec: { act: 'plan-proposal-discard', proposal }, label: 'Discard', aria: `Discard draft: ${d.title}`, icon: 'x', kind: 'icon' },
+    { key: 'cloud-add', spec: { act: 'cloud-session-add', proposal }, label: 'Link cloud session…', aria: `Link a cloud session to draft: ${d.title}`, icon: 'cloud', kind: 'icon' },
   ];
 }
 

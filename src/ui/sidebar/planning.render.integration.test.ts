@@ -403,7 +403,7 @@ describe('sidebar planning tree keyboard', () => {
     await h.receive({ type: 'state', state: stateOf('all-sections') });
     await h.key(draft(h, 501), 'F10', { shiftKey: true });
     const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
-    expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard']);
+    expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard', 'cloud-session-add']);
     expect(h.document.activeElement).toBe(items[0]);
     await h.click('#ctxMenu [data-act="plan-proposal-review"]');
     expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-proposal-review', proposalId: 501 }));

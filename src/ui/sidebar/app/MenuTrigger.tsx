@@ -45,6 +45,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
       divider: true,
       title: 'Archive ticket, hiding it from the active list',
     },
+    { key: 'cloud-add', spec: { act: 'cloud-session-add', id }, label: 'Link cloud session…', icon: 'cloud', title: 'Link a cloud agent session to this ticket by URL' },
     ...unlinkItems(row),
   ];
 }

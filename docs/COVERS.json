@@ -285,9 +285,6 @@
   "src/cli/writableStore.ts#openWritableStore": [
     "arch:CLI-05"
   ],
-  "src/cloud/match.ts": [
-    "arch:CLOUD-01"
-  ],
   "src/cloud/sessionLinks.ts": [
     "arch:CLOUD-01"
   ],
@@ -316,9 +313,6 @@
     "arch:APP-00"
   ],
   "src/extension/ops/cloudSessionLinkOps.ts": [
-    "arch:CLOUD-01"
-  ],
-  "src/extension/ops/cloudSessionScanOps.ts": [
     "arch:CLOUD-01"
   ],
   "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
@@ -711,6 +705,9 @@
   ],
   "src/ui/settings/sections.ts": [
     "arch:MS-00"
+  ],
+  "src/ui/sidebar/cloudActions.ts": [
+    "arch:CLOUD-01"
   ],
   "src/ui/worktreePath.ts#PathContext": [
     "arch:GH-07"
