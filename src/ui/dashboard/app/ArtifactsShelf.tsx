@@ -11,6 +11,8 @@
 import { memo, useLayoutEffect } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { OriginChip, StaleChip, StatusChip, type Origin } from './ArtifactChips.js';
+import { ART_STAGE_LABEL } from './ArtifactSections.js';
+import { Icon } from './Icon.js';
 import { useOverlays } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { useSlice } from './useSlice.js';
@@ -24,7 +26,13 @@ interface Card {
   readonly status: string;
   readonly stale: boolean;
   readonly origin: Origin | null;
+  readonly kind: string;
+  /** 'Stage · vN', the card's second line. */
+  readonly stageLine: string;
 }
+
+const KIND_ICON: Readonly<Record<string, string>> = { plan: 'list-tree', 'uat-report': 'circle-check', review: 'eye', 'ship-summary': 'git-compare' };
+const GENERIC_KIND_ICON = 'file-text';
 
 interface ShelfSlice {
   readonly total: number;
@@ -46,6 +54,8 @@ const selectShelf = (snapshot: DashboardSnapshot): ShelfSlice | null => {
       status: a.status,
       stale: a.freshness === 'stale',
       origin: a.origin,
+      kind: a.kind,
+      stageLine: `${ART_STAGE_LABEL[a.stage] ?? a.stage} · ${a.currentVersionLabel}`,
     })),
   };
 };
@@ -55,9 +65,17 @@ const ArtCard = memo(function ArtCard({ a }: { readonly a: Card }) {
   const overlays = useOverlays();
   return (
     <button type="button" className="artcard" data-art-open={a.id} aria-label={`Open ${a.title}`} onClick={() => overlays.openArtifact(a.id)}>
-      <span className="artcard-title">
-        {a.title}
-        {a.scope ? <span className="art-sub">· {a.scope}</span> : null}
+      <span className="artcard-top">
+        <span className="artcard-kind">
+          <Icon name={KIND_ICON[a.kind] ?? GENERIC_KIND_ICON} size={15} />
+        </span>
+        <span className="artcard-id">
+          <span className="artcard-title">
+            {a.title}
+            {a.scope ? <span className="art-sub">· {a.scope}</span> : null}
+          </span>
+          <span className="artcard-stage">{a.stageLine}</span>
+        </span>
       </span>
       <span className="artcard-summary">{a.summary}</span>
       <span className="artcard-meta">

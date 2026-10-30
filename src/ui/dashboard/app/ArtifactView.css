@@ -168,3 +168,11 @@ body.art-nav .stepper,body.art-nav .grid{display:none}
 .artfiles .commit-origin{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
   padding:var(--k-space-0) var(--k-space-2);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
   color:var(--k-text-dim);white-space:nowrap}
+
+/* Detail 5A: the evidence in the main column, About and Files in a side panel; one column below the mid tier (@ui:UI-R49). */
+.artdetail{container-type:inline-size}
+.artdetail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:var(--k-space-7);align-items:start}
+.artmain,.artside{min-width:0}
+.artside{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);background:var(--k-surface);padding:var(--k-space-6)}
+.artside .artsection:last-child{margin-bottom:0}
+@container (max-width: 699px){.artdetail-grid{grid-template-columns:minmax(0,1fr)}}

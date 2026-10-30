@@ -104,16 +104,22 @@ const Detail = memo(function Detail({ a }: { readonly a: ArtifactSummary }) {
         </div>
         <div className="artcard-summary">{a.summary}</div>
         {a.freshness === 'stale' ? <p className="art-stale art-stale-note">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p> : null}
-        <Metrics a={a} />
-        <Tasks a={a} />
-        <Baselines a={a} />
-        <Findings key={a.id} a={a} />
-        <Gates a={a} />
-        <Prs a={a} />
-        <Commits a={a} />
-        <Details a={a} />
-        <Files a={a} />
-        <CapturedFor kind={a.kind} />
+        <div className="artdetail-grid">
+          <div className="artmain">
+            <Metrics a={a} />
+            <Tasks a={a} />
+            <Findings key={a.id} a={a} />
+            <Gates a={a} />
+            <Baselines a={a} />
+            <Prs a={a} />
+            <Commits a={a} />
+          </div>
+          <aside className="artside" aria-label="About this artifact">
+            <Details a={a} />
+            <Files a={a} />
+            <CapturedFor kind={a.kind} />
+          </aside>
+        </div>
       </div>
     </>
   );

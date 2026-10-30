@@ -25,6 +25,17 @@ describe('ArtifactView — captured files in the one index', () => {
     expect(all('.sa-rev')).toHaveLength(2);
   });
 
+  it('lays the detail out as a main column and a side panel: About and Files (with captured files) beside the evidence', () => {
+    const h = mountOverlays(withStored());
+    openDetail(h, 'plan');
+    const side = must('.artdetail > .artdetail-grid > aside.artside');
+    expect(side.querySelector('[aria-label="Details"]')).not.toBeNull();
+    expect(side.querySelector('[aria-label="Captured files"]')).not.toBeNull();
+    const main = must('.artdetail > .artdetail-grid > .artmain');
+    expect(main.querySelector('[aria-label="Details"]')).toBeNull();
+    expect(main.querySelector('.artmetrics, [aria-label="Tasks"]')).not.toBeNull();
+  });
+
   it('posts store paths and revision shas only, each with a request id', () => {
     const h = mountOverlays(withStored());
     openDetail(h, 'plan');

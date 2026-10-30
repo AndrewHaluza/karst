@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import { art, isHidden, mount, q, openedViews, stateWith, text } from './fixtures/artifactsPanelsKit.js';
 
 const cards = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#artifacts .artcard')];
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('Artifacts shelf', () => {
   it('stays hidden and empty before the first snapshot and with no artifact', () => {
@@ -33,6 +35,17 @@ describe('Artifacts shelf', () => {
     expect(text('#artTotal')).toBe('4');
     expect(q('#artViewAll').textContent).toBe('View all 4 ›');
     expect(cards().map((c) => c.getAttribute('data-art-open'))).toEqual(['plan', 'uat-report', 'review']);
+  });
+
+  it('paints the kind glyph and a Stage · vN line on each card, with a generic glyph for an unknown kind', () => {
+    vi.stubGlobal('karstIcon', (name: string) => `<svg class="k-icon" width="15" height="15" viewBox="0 0 24 24"><path data-icon="${name}"/></svg>`);
+    mount(stateWith({ artifacts: [art('review', { stage: 'review', currentVersionLabel: 'v3' }), art('plan', { stage: 'impl', currentVersionLabel: 'v1' }), art('x', { kind: 'other' as never })] }));
+    const [review, plan, other] = cards();
+    expect(review!.querySelector('.artcard-stage')!.textContent).toBe('Review · v3');
+    expect(plan!.querySelector('.artcard-stage')!.textContent).toBe('Implement · v1');
+    expect(review!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('eye');
+    expect(plan!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('list-tree');
+    expect(other!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('file-text');
   });
 
   it('paints a card: title, scope, summary, status word, stale flag and origin chip, never a filename', () => {
