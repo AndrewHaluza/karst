@@ -773,7 +773,8 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
       scopedFindings.length > 0
         ? `${scopedFindings.length} finding${scopedFindings.length === 1 ? '' : 's'}`
           + ` · ${blocking} need${blocking === 1 ? 's' : ''} attention`
-        : gateSummary(entries),    status: failedStage ? 'failed' : scopedFindings.length > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
+        : gateSummary(entries),
+    status: failedStage ? 'failed' : blocking > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'review', createdAt),
     origin: originFor('review', processRuns, ticket),
     versionCount: attemptCount || 1,
