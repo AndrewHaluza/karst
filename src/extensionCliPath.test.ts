@@ -8,7 +8,9 @@ import { dirname, join } from 'node:path';
  * interpolated into agent-facing prompt text. Prompts reference `"$KARST_CLI"`
  * (or `"$KARST_GRAPH_CLI"`); the path itself lives only in the two env sources.
  */
-const SOURCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'extension.ts'), 'utf8');
+const HERE = dirname(fileURLToPath(import.meta.url));
+// extension.ts plus the helper module that now holds cliEntryAndManifest (a pure move).
+const SOURCE = ['extension.ts', 'extension/cliPrefixes.ts'].map((f) => readFileSync(join(HERE, f), 'utf8')).join('\n');
 const CLI_PATH = "'dist', 'cli', 'main.js'";
 
 function functionBody(name: string): string {
