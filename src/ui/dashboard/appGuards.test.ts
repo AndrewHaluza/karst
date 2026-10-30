@@ -26,7 +26,7 @@ describe('dashboard app source guards', () => {
       'console',
       'preview-ticket-data', 'toggle-base-form', 'toggle-rebase-switch', 'artifact-findings-repo', 'toggle-graph-view',
       'baseline-view', 'baseline-reject-open', 'baseline-reject-cancel',
-      'server-logs-request', 'env-overrides-open',
+      'server-logs-request', 'env-overrides-open', 'push-diverged-fix',
     ]);
     const emitted = appComponents()
       .flatMap((text) => [...text.matchAll(/data-act="([a-z][a-z-]*)"/g)].map((m) => m[1]!))
