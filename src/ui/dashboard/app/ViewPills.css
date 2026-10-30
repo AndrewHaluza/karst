@@ -1,0 +1,30 @@
+/* The view pills (data-region="views"): one row under the ticket header on every drill-down surface. The root is the
+   container, so the tiers (docs/ui UI-R49) follow the frame width: below 700px the row scrolls inside itself (hidden
+   scrollbar, faded edge), below 400px the pills are icons only. Never a sideways page scroll (UI-R43). */
+.viewsroot{container-type:inline-size;position:relative;margin-bottom:var(--k-space-4)}
+.vp-bar{display:flex;gap:var(--k-space-3);overflow-x:auto;scrollbar-width:none}
+.vp-bar::-webkit-scrollbar{display:none}
+.vp-slot{position:relative;flex:none}
+.vp-pill{display:inline-flex;align-items:center;gap:var(--k-space-3);height:var(--k-control-h, 26px);padding:0 var(--k-space-5);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface);
+  color:var(--k-text-dim);cursor:pointer;white-space:nowrap;font-size:var(--k-text-sm)}
+.vp-pill:hover{color:var(--k-text)}
+.vp-pill[aria-current="page"]{color:var(--k-text);border-color:var(--k-focus, var(--k-border));font-weight:var(--k-weight-semibold)}
+.vp-count{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+.vp-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;z-index:5;min-width:240px;max-width:calc(100cqw - 16px);
+  display:flex;flex-direction:column;padding:var(--k-space-2);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-md);background:var(--k-surface)}
+.vp-item{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border:0;background:none;
+  color:var(--k-text);text-align:left;cursor:pointer;border-radius:var(--k-radius-sm)}
+.vp-item:hover,.vp-item:focus-visible{background:var(--k-surface-hover, var(--k-border))}
+.vp-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vp-word{font-size:var(--k-text-2xs);color:var(--k-text-dim)}
+.vp-item small{color:var(--k-text-faint)}
+.vp-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--k-pending)}
+.vp-dot.pass{background:var(--k-passed)}.vp-dot.fail{background:var(--k-failed)}
+.vp-dot.run,.vp-dot.wait{background:var(--k-running)}
+@container (max-width:699px){.vp-bar{mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent)}}
+@container (max-width:399px){
+  .vp-text,.vp-count{display:none}
+  .vp-menu{position:fixed;left:8px;right:8px;width:auto;max-width:none}
+}

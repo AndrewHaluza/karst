@@ -16,6 +16,7 @@ import { BlockedBanner } from './BlockedBanner.js';
 import { Header } from './Header.js';
 import { Inside } from './Inside.js';
 import { Overlays } from './Overlays.js';
+import { ViewPills } from './ViewPills.js';
 import { PrsPanel } from './PrsPanel.js';
 import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
@@ -45,6 +46,9 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <DashboardSlices />
       {/* Each region draws into its static root in webview.html. */}
       <Header />
+      <RegionPortal id="viewsRoot">
+        <ViewPills />
+      </RegionPortal>
       <Rail />
       <Inside />
       <BlockedBanner />

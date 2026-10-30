@@ -203,6 +203,9 @@ export class OverlayStack {
     if (this.snapshot.env) this.back();
   };
 
+  /** Opens any view (a pill, a crumb): pushes the view it leaves, like every other navigation. */
+  readonly goTo = (view: OverlayView): void => this.enter(view);
+
   /** A view-pill menu says whether it is open so Escape closes it first. */
   readonly setPillMenuOpen = (open: boolean): void => this.set({ pillMenu: open });
 
