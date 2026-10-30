@@ -18,6 +18,7 @@ const OLD_ENVELOPE = {
   srvFilter: 'svc-3',
   artView: { id: 'plan', from: 'index' },
   artScrolls: { ticket: 300, index: 40, detail: { plan: 900 } },
+  history: [],
 };
 
 describe('readPersisted — the shape the old page wrote', () => {
@@ -29,26 +30,28 @@ describe('readPersisted — the shape the old page wrote', () => {
       srvFilter: 'svc-3',
       art: { id: 'plan', from: 'index' },
       scrolls: { ticket: 300, index: 40, detail: { plan: 900 } },
+      history: [],
     });
   });
 
   it('reads the pre-envelope shape, a bare snapshot, as the state with no view state', () => {
-    expect(readPersisted(snap(9))).toEqual({ state: snap(9), sel: null, shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS });
+    expect(readPersisted(snap(9))).toEqual({ state: snap(9), sel: null, shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS, history: [] });
   });
 
   it('reads an envelope from before the artifact view existed (no artView, no artScrolls, no filter)', () => {
     const old = { state: snap(7), sel: 'uat', shipWait: null };
-    expect(readPersisted(old)).toEqual({ state: snap(7), sel: 'uat', shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS });
+    expect(readPersisted(old)).toEqual({ state: snap(7), sel: 'uat', shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS, history: [] });
   });
 
   it('keeps the view state of an envelope that holds no snapshot yet, and never mistakes it for a snapshot', () => {
-    expect(readPersisted({ state: null, sel: null, shipWait: null, srvFilter: 'x', artView: null, artScrolls: FRESH_SCROLLS })).toEqual({
+    expect(readPersisted({ state: null, sel: null, shipWait: null, srvFilter: 'x', artView: null, artScrolls: FRESH_SCROLLS, history: [] })).toEqual({
       state: null,
       sel: null,
       shipWait: null,
       srvFilter: 'x',
       art: null,
       scrolls: FRESH_SCROLLS,
+      history: [],
     });
     expect(readPersisted({ srvFilter: 'x' }).state).toBeNull();
   });
@@ -66,11 +69,12 @@ describe('readPersisted — the shape the old page wrote', () => {
       srvFilter: '',
       art: null,
       scrolls: FRESH_SCROLLS,
+      history: [],
     });
   });
 
   it.each([[null], [undefined], ['text'], [7], [true]])('reads %s as nothing persisted', (raw) => {
-    expect(readPersisted(raw)).toEqual({ state: null, sel: null, shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS });
+    expect(readPersisted(raw)).toEqual({ state: null, sel: null, shipWait: null, srvFilter: '', art: null, scrolls: FRESH_SCROLLS, history: [] });
   });
 });
 
@@ -84,7 +88,7 @@ describe('ViewPersistence — what is written, and when', () => {
     const { vp, write } = make();
     vp.receive(push(snap(7)));
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith({ state: snap(7), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS });
+    expect(write).toHaveBeenCalledWith({ state: snap(7), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
   });
 
   it('writes the restored view state back unchanged on the next push', () => {
@@ -96,7 +100,7 @@ describe('ViewPersistence — what is written, and when', () => {
   it('upgrades a bare snapshot into the envelope on the next push', () => {
     const { vp, write } = make(snap(9));
     vp.receive(push(snap(9)));
-    expect(write).toHaveBeenCalledWith({ state: snap(9), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS });
+    expect(write).toHaveBeenCalledWith({ state: snap(9), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
   });
 
   it('holds a live repaint without writing it, and the next write carries it', () => {
@@ -151,13 +155,13 @@ describe('ViewPersistence — what is written, and when', () => {
   it('writes a filter change even before any snapshot, as the old page did', () => {
     const { vp, write } = make();
     vp.filter('abc');
-    expect(write).toHaveBeenCalledWith({ state: null, sel: null, shipWait: null, srvFilter: 'abc', artView: null, artScrolls: FRESH_SCROLLS });
+    expect(write).toHaveBeenCalledWith({ state: null, sel: null, shipWait: null, srvFilter: 'abc', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
   });
 
   it('writes an artifact view change even before any snapshot, with its own copy of the scrolls', () => {
     const { vp, write } = make();
     const scrolls = { ticket: 5, index: 0, detail: {} };
-    vp.art({ artView: 'index', artScrolls: scrolls });
+    vp.art({ artView: 'index', artScrolls: scrolls, history: [] });
     expect(write).toHaveBeenCalledWith(expect.objectContaining({ artView: 'index', artScrolls: scrolls }));
   });
 

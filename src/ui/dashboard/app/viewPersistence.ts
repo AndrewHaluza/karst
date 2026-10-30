@@ -12,7 +12,7 @@
  */
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
-import { restoreArt, type ArtScrolls, type ArtView, type PersistArt } from './overlayStack.js';
+import { restoreArt, type ArtScrolls, type ArtView, type OverlayView, type PersistArt } from './overlayStack.js';
 import type { PersistSel } from './stageSelection.js';
 
 /** What `readPersisted` hands the app to start from. */
@@ -23,6 +23,7 @@ export interface PersistedView {
   readonly srvFilter: string;
   readonly art: ArtView | null;
   readonly scrolls: ArtScrolls;
+  readonly history: readonly OverlayView[];
 }
 
 /** The value `vscode.setState` receives. */
@@ -33,6 +34,8 @@ export interface PersistedEnvelope {
   readonly srvFilter: string;
   readonly artView: ArtView | null;
   readonly artScrolls: ArtScrolls;
+  /** Additive: the drill-down history Back walks through; an older envelope lacks it and restores empty. */
+  readonly history: readonly OverlayView[];
 }
 
 const VIEW_KEYS = ['state', 'sel', 'shipWait', 'srvFilter', 'artView', 'artScrolls'];
@@ -41,13 +44,13 @@ const text = (v: unknown): string | null => (typeof v === 'string' && v ? v : nu
 
 /** The persisted state, from whatever `getState()` returned. An object with none of the envelope's keys is a bare snapshot. */
 export function readPersisted(raw: unknown): PersistedView {
-  const none: PersistedView = { state: null, sel: null, shipWait: null, srvFilter: '', art: null, scrolls: restoreArt(null).scrolls };
+  const none: PersistedView = { state: null, sel: null, shipWait: null, srvFilter: '', art: null, scrolls: restoreArt(null).scrolls, history: [] };
   if (!isRecord(raw)) return none;
   if (!VIEW_KEYS.some((key) => key in raw)) return { ...none, state: raw as unknown as DashboardState };
   const state = isRecord(raw.state) ? (raw.state as unknown as DashboardState) : null;
   // Only an envelope that holds a snapshot restores an artifact view: there is nothing to show it over otherwise.
-  const { art, scrolls } = restoreArt(state ? raw : null);
-  return { state, sel: text(raw.sel), shipWait: text(raw.shipWait), srvFilter: typeof raw.srvFilter === 'string' ? raw.srvFilter : '', art, scrolls };
+  const { art, scrolls, history } = restoreArt(state ? raw : null);
+  return { state, sel: text(raw.sel), shipWait: text(raw.shipWait), srvFilter: typeof raw.srvFilter === 'string' ? raw.srvFilter : '', art, scrolls, history };
 }
 
 export class ViewPersistence {
@@ -57,6 +60,7 @@ export class ViewPersistence {
   private filterText: string;
   private artView: ArtView | null;
   private artScrolls: ArtScrolls;
+  private history: readonly OverlayView[];
 
   constructor(
     private readonly write: (envelope: PersistedEnvelope) => void,
@@ -68,6 +72,7 @@ export class ViewPersistence {
     this.filterText = restored.srvFilter;
     this.artView = restored.art;
     this.artScrolls = restored.scrolls;
+    this.history = restored.history;
   }
 
   /** The servers filter the panel starts from (restored, then the latest typed). */
@@ -97,6 +102,7 @@ export class ViewPersistence {
   readonly art = (detail: PersistArt): void => {
     this.artView = detail.artView;
     this.artScrolls = detail.artScrolls;
+    this.history = detail.history;
     this.persist();
   };
 
@@ -108,6 +114,7 @@ export class ViewPersistence {
       srvFilter: this.filterText,
       artView: this.artView,
       artScrolls: this.artScrolls,
+      history: this.history,
     });
   }
 }

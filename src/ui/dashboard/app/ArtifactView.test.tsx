@@ -95,7 +95,8 @@ describe('ArtifactView — a detail', () => {
     expect(proc!.closest('.am-origin')?.querySelector('.art-origin')?.textContent).toBe('Karst · Codex');
     fireEvent.click(stage!);
     expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: null });
-    fireEvent.click(proc!);
+    h.act(() => h.overlays.back());
+    fireEvent.click(all<HTMLButtonElement>('[data-act="console"]')[1]!);
     expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: 'tester' });
     expect(h.send.stageLogRequest.mock.calls).toEqual([['uat']]);
     expect(h.send.agentLogRequest.mock.calls).toEqual([['tester']]);

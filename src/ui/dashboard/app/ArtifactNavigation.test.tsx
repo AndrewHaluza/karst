@@ -68,6 +68,8 @@ describe('ArtifactView — the stored view', () => {
   });
 });
 
+const DASH = { console: null, logs: false, env: false, art: null };
+
 describe('ArtifactView — scroll memory and persistence', () => {
   const setTop = (n: number): void => {
     document.documentElement.scrollTop = n;
@@ -95,7 +97,7 @@ describe('ArtifactView — scroll memory and persistence', () => {
     const h = mountOverlays(stateWithArtifacts());
     setTop(500);
     openIndex(h);
-    expect(h.persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 500, index: 0, detail: {} } });
+    expect(h.persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 500, index: 0, detail: {} }, history: [DASH] });
     fireEvent.click(must('[data-art-open="plan"]'));
     expect(h.persisted.at(-1)?.artView).toEqual({ id: 'plan', from: 'index' });
     expect(h.persisted).toHaveLength(2);
