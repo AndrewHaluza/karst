@@ -5,6 +5,7 @@ import { transition } from '../machine.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { runUatTester, type RunUatTesterOpts, type TesterTarget } from './tester.js';
+import { MAX_SKIP_DETAIL } from '../../model/coverageRecord.js';
 import { observedNothing, skippedDetail, reaskPrefix } from './testerSkip.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
@@ -59,8 +60,16 @@ describe('testerSkip helpers', () => {
   it('quotes the previous coverage title in the exact re-ask text', () => {
     expect(reaskPrefix('T')).toBe(
       'Your previous UAT run on this ticket observed nothing. You reported: "T".\n' +
-        'Before you report SKIPPED again, try the karst UAT harness: run `npm run uat:host:docker` (it builds and runs in a container, so it needs no node_modules in the worktree), or run the project\'s tests inside the gate container. Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.',
+        "Before you report SKIPPED again, try to exercise the change another way: install what is missing in the worktree, or run the project's own test or UAT command (or run it inside a container). Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.",
     );
+  });
+
+  it('keeps the re-ask text project-neutral and caps a long quoted title to one line', () => {
+    const text = reaskPrefix(`${'x'.repeat(500)}\nnext`);
+    expect(text).not.toContain('uat:host');
+    const quoted = text.split('"')[1]!;
+    expect(quoted).toHaveLength(MAX_SKIP_DETAIL);
+    expect(quoted).not.toContain('\n');
   });
 });
 

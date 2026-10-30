@@ -23,8 +23,10 @@ export function skippedDetail(first: { repo: string; title: string }, targetCoun
 
 /** The exact text prepended to the Tester prompt on the one re-ask (`onSkip` reask / reask-then-park). */
 export function reaskPrefix(coverageTitle: string): string {
+  const quoted = coverageTitle.replace(/\s+/g, ' ').trim();
+  const title = quoted.length > MAX_SKIP_DETAIL ? `${quoted.slice(0, MAX_SKIP_DETAIL - 1)}…` : quoted;
   return (
-    `Your previous UAT run on this ticket observed nothing. You reported: "${coverageTitle}".\n` +
-    'Before you report SKIPPED again, try the karst UAT harness: run `npm run uat:host:docker` (it builds and runs in a container, so it needs no node_modules in the worktree), or run the project\'s tests inside the gate container. Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.'
+    `Your previous UAT run on this ticket observed nothing. You reported: "${title}".\n` +
+    "Before you report SKIPPED again, try to exercise the change another way: install what is missing in the worktree, or run the project's own test or UAT command (or run it inside a container). Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result."
   );
 }
