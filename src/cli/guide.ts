@@ -252,6 +252,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
    \`<kind>\` is one of plan, research, spec, review, meta, script, other. The
    path must be inside one of this ticket's worktrees; it takes no other
    arguments and never moves the ticket.
+ - \`artifact show <treePath>\` — print the newest stored revision of an
+   artifact from this ticket's store, e.g. the full alignment report
+   \`_karst/alignment/intent-spec.md\` named in an alignment inbox message.
+   Those paths exist only in the store, not in your worktree — do not search
+   the filesystem for them. Read-only.
  - \`graph submit\` — internal: submits the fixed planner artifact
    (\`graph.json\`) for the graph run named by the host-owned environment. It
    takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by

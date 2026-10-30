@@ -158,14 +158,18 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: 'artifact',
-    summary: 'Capture a file outside the outputs globs into the ticket artifacts.',
+    summary:
+      'Capture a file outside the outputs globs into the ticket artifacts (add, needs kind), or print a stored artifact by tree path (show, e.g. _karst/alignment/intent-spec.md).',
     input: obj(
-      { path: str, kind: { type: 'string', enum: [...OUTPUT_KINDS] } },
-      ['path', 'kind'],
+      { path: str, kind: { type: 'string', enum: [...OUTPUT_KINDS] }, action: { type: 'string', enum: ['add', 'show'] } },
+      ['path'],
     ),
     globals: { db: true, manifest: true, ticket: true },
     writes: true,
-    toArgv: (input) => ['artifact', 'add', requireString(input, 'path'), '--kind', requireString(input, 'kind')],
+    toArgv: (input) =>
+      input.action === 'show'
+        ? ['artifact', 'show', requireString(input, 'path')]
+        : ['artifact', 'add', requireString(input, 'path'), '--kind', requireString(input, 'kind')],
   },
   {
     name: 'graph',

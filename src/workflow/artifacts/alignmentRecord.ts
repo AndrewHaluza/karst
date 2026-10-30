@@ -5,6 +5,28 @@ import { join } from 'node:path';
 import type { ArtifactStore } from '../../artifacts/store.js';
 import { alignmentReportPath } from './alignmentReport.js';
 import { mediumPlus, type AlignmentOutcome } from './alignmentTrigger.js';
+import type { Finding } from '../review/findings.js';
+
+const MESSAGE_CAP = 2000;
+const MEDIUM_PLUS: readonly string[] = ['critical', 'high', 'medium'];
+
+const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+/** One bullet per medium+ finding, cut at the cap with a `…N more` tail. */
+function findingLines(findings: readonly Finding[]): string {
+  const lines = findings
+    .filter((f) => MEDIUM_PLUS.includes(f.severity))
+    .map((f) => `- [${f.severity}] ${oneLine(`${f.title} — ${f.detail ?? ''}`).replace(/ —$/, '')}`);
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length + 1 > MESSAGE_CAP) break;
+    kept.push(line);
+    used += line.length + 1;
+  }
+  const more = lines.length - kept.length;
+  return [...kept, ...(more > 0 ? [`…${more} more`] : [])].join('\n');
+}
 
 export interface RecordDeps {
   store: Pick<ArtifactStore, 'commitRevision'>;
@@ -44,7 +66,9 @@ export async function recordAlignmentOutcome(deps: RecordDeps, r: AlignmentOutco
   if (issues > 0) {
     deps.postMessage({
       toTicketId: r.ticketId,
-      body: `Artifact alignment (${r.edge}): ${issues} issue(s) — see artifact ${alignmentReportPath(r.edge)}`,
+      body:
+        `Artifact alignment (${r.edge}): ${issues} issue(s)\n${findingLines(r.findings)}\n` +
+        `Full report: karst artifact show ${alignmentReportPath(r.edge)}`,
     });
   }
 }

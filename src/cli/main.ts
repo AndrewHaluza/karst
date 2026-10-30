@@ -15,6 +15,7 @@ import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { runPhaseCommand } from './phase.js';
 import { runArtifactAddCommand } from './artifactAdd.js';
+import { runArtifactShowCommand } from './artifactShow.js';
 import { runGraphCommand } from './graph.js';
 import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
@@ -98,7 +99,7 @@ function loadProjectSlug(
  *             `Verdict` and never touches the machine: a mark records an event,
  *             it cannot move a ticket (see parsePhaseArgs).
  *   artifact: `… artifact add <path> --kind <kind> --db <db> --manifest <yml> --ticket <ticketKey>`
- *             capture a file outside the outputs globs into the ticket's artifact
+ *             capture a file outside the outputs globs into the ticket's artifact (`artifact show <treePath>` prints the newest stored revision)
  *             store and track it; narrow argv, path contained to the ticket's
  *             worktrees (see artifactAdd.ts). Async: runs via runCliAsync.
  *   test:     `… test <subcommand> --db <db> [--ticket <key>] …`
@@ -743,7 +744,9 @@ export async function runCliAsync(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return await runArtifactAddCommand(store, found.id, db, rest);
+      return rest[1] === 'show'
+        ? await runArtifactShowCommand(store, found.id, db, rest)
+        : await runArtifactAddCommand(store, found.id, db, rest);
     } finally {
       store.close();
     }

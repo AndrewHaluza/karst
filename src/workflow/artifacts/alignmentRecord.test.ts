@@ -59,4 +59,25 @@ describe('recordAlignmentOutcome', () => {
     expect(postMessage.mock.calls[0]![0]).toMatchObject({ toTicketId: 1 });
     expect(postMessage.mock.calls[0]![0].body).toMatch(/1 issue/);
   });
+
+  it('quotes each medium+ finding and names the show command', async () => {
+    const { d, postMessage } = deps();
+    await recordAlignmentOutcome(d, outcome({ findings: [
+      { severity: 'high', title: 'Req A uncovered', detail: 'no spec item' },
+      { severity: 'low', title: 'nit', detail: 'x' },
+    ] as never }));
+    const body = postMessage.mock.calls[0]![0].body as string;
+    expect(body).toContain('- [high] Req A uncovered — no spec item');
+    expect(body).not.toContain('nit');
+    expect(body).toContain('karst artifact show _karst/alignment/intent-spec.md');
+  });
+
+  it('caps the finding list and reports the remainder', async () => {
+    const { d, postMessage } = deps();
+    const findings = Array.from({ length: 60 }, (_, i) => ({ severity: 'medium', title: `finding ${i}`, detail: 'd'.repeat(80) }));
+    await recordAlignmentOutcome(d, outcome({ findings: findings as never }));
+    const body = postMessage.mock.calls[0]![0].body as string;
+    expect(body).toMatch(/…\d+ more/);
+    expect(body.length).toBeLessThan(2300);
+  });
 });
