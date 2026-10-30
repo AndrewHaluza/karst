@@ -40,7 +40,8 @@ import {
   reconcileRequirementFindings,
   targetHasChanges,
 } from './requirements.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, reviewBlockingSeverityRule, type NamedGate } from '../../agent/promptText.js';
+import { endedOnBackgroundCommand, backgroundEndedDetail } from '../uat/backgroundCommand.js';
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
@@ -51,6 +52,14 @@ import {
   type AggregateEntry,
   type FindingsLaneOutcome,
 } from './aggregate.js';
+
+/** The script names of the declared gates, for the `reviewer` deny. */
+function gateScriptsOf(gates: readonly NamedGate[] | undefined): string[] {
+  return (gates ?? []).flatMap((g) => {
+    const script = g.script?.replace(/^npm run /, '') ?? '';
+    return script !== '' && !script.includes(' ') ? [script] : [];
+  });
+}
 
 /** One target the lane asks about — the same shape `runReview` already plans. */
 export interface FindingsLaneTarget {
@@ -71,6 +80,8 @@ export interface FindingsLaneTarget {
    * a worktree on the base branch no longer reads as "no changes" (fu1).
    */
   branch?: string | null;
+  /** The target repo's declared `review.gates` + `uat.gates` (de-duplicated): named in the no-gates rule, denied by script under the `reviewer` policy. */
+  gates?: readonly NamedGate[];
 }
 
 /**
@@ -211,6 +222,8 @@ export function buildFindingsPrompt(
   blockingSeverity?: Severity,
   /** The ticket's intent / spec / plan; absent or empty → the prompt is unchanged. */
   artifacts?: ReviewArtifacts,
+  /** The gates the gates phase already ran; named in the never-replaced no-gates rule. */
+  gates?: readonly NamedGate[],
 ): string {
   const conformance = artifacts ? buildConformanceBlock(artifacts, repo) : [];
   const baseClause = baseRef
@@ -251,6 +264,9 @@ export function buildFindingsPrompt(
     ...conformance,
     ``,
     GATE_ISOLATION_RULE,
+    // Outside `strategy`, so `instructions` cannot remove them.
+    noGatesRule('reviewer', gates),
+    NO_DANGLING_COMMAND_RULE,
     ``,
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
@@ -380,6 +396,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} snapshot ` +
             `${snapshotRef ?? 'unavailable — using the branch range'}`,
         );
+        const captured: string[] = [];
         const result = await adapter.runHeadless({
           prompt: buildFindingsPrompt(
             target.repo,
@@ -391,14 +408,19 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             target.worktreePath,
             opts.config.blockingSeverity === 'none' ? undefined : opts.config.blockingSeverity,
             opts.artifacts,
+            target.gates,
           ),
           cwd: target.worktreePath,
           model: opts.process?.assignment.model,
           effort: opts.process?.assignment.effort,
           signal: opts.signal,
           timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
-          policy: 'gate',
-          onOutput: opts.onOutput,
+          policy: 'reviewer',
+          gateScripts: gateScriptsOf(target.gates),
+          onOutput: (chunk) => {
+            if (chunk.stream === 'stdout') captured.push(chunk.text);
+            opts.onOutput?.(chunk);
+          },
           // Prompt 09: request the core's native structured output when it
           // declares the surface supported (claude `--json-schema`, codex
           // `--output-schema`) so the CLI enforces the findings array shape
@@ -416,6 +438,17 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         if (opts.signal?.aborted) {
           debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
           return stopped();
+        }
+        // The core exited clean but left a command running in a background
+        // shell: whatever it answered is not a finished review. Recorded as a
+        // target that failed to answer, never as a clean pass.
+        if (endedOnBackgroundCommand(captured.join(''))) {
+          const detail = `${target.repo}: ${backgroundEndedDetail('reviewer')}`;
+          debug?.(`[gate] review findings ticket ${opts.ticketId}: target ${detail} — recording partial`);
+          crashes.push(detail);
+          opts.onTargetProgress?.({ repo: target.repo, status: 'completed', detail: backgroundEndedDetail('reviewer') });
+          targetOutcomes.push({ repo: target.repo, status: 'partial', findings: 0 });
+          continue;
         }
         const { findings: rawFindings, shape, tier } = parseFindingsResult(
           result.raw,

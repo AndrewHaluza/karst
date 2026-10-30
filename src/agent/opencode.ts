@@ -53,6 +53,8 @@ import {
   gitCommonDirRoots,
   opencodeAttendedEdit,
   opencodeGatePermission,
+  isGatePolicy,
+  type HeadlessPolicy,
   type InteractivePolicy,
 } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
@@ -1460,7 +1462,11 @@ export class OpencodeAdapter implements AgentAdapter {
         // (AC-27); opencode2 remains the only core that rebases its state dirs.
         isolationEnv: {
           OPENCODE_PERMISSION: JSON.stringify(
-            opencodeLaunchPermission(opts.policy === 'gate' ? { gate: { cwd: opts.cwd } } : {}),
+            opencodeLaunchPermission(
+              isGatePolicy(opts.policy)
+                ? { gate: { cwd: opts.cwd, policy: opts.policy as HeadlessPolicy, gateScripts: opts.gateScripts } }
+                : {},
+            ),
           ),
         },
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
@@ -1530,7 +1536,7 @@ export function opencodeLaunchPermission(opts: {
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
   /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
-  gate?: { cwd: string } | undefined;
+  gate?: { cwd: string; policy?: HeadlessPolicy | undefined; gateScripts?: readonly string[] | undefined } | undefined;
   /** Interactive `attended` profile: deny-only edit rules for the operator's home config. */
   attended?: boolean | undefined;
 }): Record<string, unknown> {
@@ -1543,6 +1549,8 @@ export function opencodeLaunchPermission(opts: {
       undefined,
       undefined,
       [...dirs, ...gitCommonDirRoots(opts.gate.cwd)],
+      opts.gate.policy,
+      opts.gate.gateScripts,
     );
     return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
   }

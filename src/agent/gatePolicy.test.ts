@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeAttendedDeny, claudeGateDeny,gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
+import { claudeAttendedDeny, claudeGateDeny, gateCheckDeniedCommands, gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 describe('gatePolicy', () => {
@@ -58,5 +58,31 @@ describe('gate policy: worktree git + extra roots', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('reviewer policy', () => {
+  it('adds the check deny and the declared gate scripts to the gate list', () => {
+    const cmds = gateDeniedCommands('reviewer', ['lint:react', 'uat:host-probe']);
+    expect(cmds).toEqual(expect.arrayContaining([...gateDeniedCommands('gate'), 'npm test*', 'npx vitest*', 'npm run lint:react*']));
+    expect(cmds).not.toContain('npm run uat:host-probe*');
+    expect(cmds).not.toContain('npm run uat:host*');
+  });
+
+  it('leaves the gate profile unchanged', () => {
+    expect(gateDeniedCommands('gate')).not.toContain('npm test*');
+    expect(claudeGateDeny({}, '/h')).not.toContain('Bash(npm test*)');
+    expect(claudeGateDeny({}, '/h', 'reviewer', ['x'])).toEqual(expect.arrayContaining(['Bash(npm test*)', 'Bash(npm run x*)']));
+  });
+
+  it('emits the deny in the opencode permission map', () => {
+    const p = opencodeGatePermission('/wt', '/tmp', {}, '/h', [], 'reviewer', ['x']);
+    expect(p.bash['vitest*']).toBe('deny');
+    expect(p.bash['npm run x*']).toBe('deny');
+    expect(opencodeGatePermission('/wt', '/tmp', {}, '/h').bash['vitest*']).toBeUndefined();
+  });
+
+  it('gateCheckDeniedCommands de-duplicates', () => {
+    expect(gateCheckDeniedCommands(['test', 'test']).filter((c) => c === 'npm run test*')).toHaveLength(1);
   });
 });

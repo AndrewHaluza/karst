@@ -53,7 +53,7 @@ import {
 } from './quota/claudeStatusline.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
-import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
+import { claudeAttendedDeny, claudeGateDeny, isGatePolicy, type HeadlessPolicy } from './gatePolicy.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
@@ -677,8 +677,8 @@ export class ClaudeAdapter implements AgentAdapter {
     // `--settings` layer too, so the sandbox is karst-owned rather than
     // inherited from a project `.claude/settings.json` (T661 pre-trust makes
     // those project allow rules live for headless runs). Deny beats allow.
-    if (opts.policy === 'gate') {
-      const deny = claudeGateDeny();
+    if (isGatePolicy(opts.policy)) {
+      const deny = claudeGateDeny(undefined, undefined, opts.policy as HeadlessPolicy, opts.gateScripts);
       args.push('--disallowedTools', ...deny);
       args.push('--settings', JSON.stringify({ permissions: { deny } }));
     }

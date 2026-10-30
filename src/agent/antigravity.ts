@@ -225,7 +225,7 @@ export class AntigravityAdapter implements AgentAdapter {
     headlessPolicy: unsupported(
       'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
         '`--dangerously-skip-permissions`, and its rules live in the user-global settings file ' +
-        'karst never writes (AC-17); the gate roles rely on the prompt isolation rule here',
+        'karst never writes (AC-17); the gate roles (tester, reviewer) rely on the prompt isolation and no-gates rules here',
     ),
     interactiveGatePolicy: unsupported(
       'agy has no sandbox or per-launch permission flag (`--mode` is accept-edits | plan only) ' +

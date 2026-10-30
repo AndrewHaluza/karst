@@ -114,6 +114,33 @@ export const GATE_ISOLATION_RULE =
   'Never rebuild, clean or reinstall the worktree (npm rebuild, npm run build/clean, git clean). ' +
   PROCESS_KILL_RULE;
 
+/** Never displaced by `instructions`: an answer ended on a live command is an empty run (T722). */
+export const NO_DANGLING_COMMAND_RULE =
+  'Do not end your answer while a command you started is still running; wait for it in the foreground, or kill it and report that it did not finish.';
+
+/** One declared gate as the no-gates rule names it: the label and the script/command it runs. */
+export interface NamedGate {
+  name: string;
+  script?: string | null;
+}
+
+/**
+ * The deterministic-checks rule: the gates phase already ran the project's
+ * checks, so the role must read the change, not re-run them. Text for the
+ * reviewer; the parenthesised script list is omitted when no gate is known.
+ */
+export function noGatesRule(_role: 'reviewer', gates: readonly NamedGate[] = []): string {
+  const names = gates.map((g) => g.name).join(', ');
+  const scripts = gates.flatMap((g) => (g.script ? [g.script] : [])).join(', ');
+  const ran = names ? ` ${names}${scripts ? ` (${scripts})` : ''}` : ' the project checks';
+  return (
+    `Deterministic checks are not your job: the gates phase already ran${ran} on this change. ` +
+    'Do NOT run them, or any test runner, type checker, linter or visual/screenshot suite ' +
+    '(npm test, npm run test*, vitest, jest, tsc, eslint, playwright), here or through a wrapper. ' +
+    'Read the diff and the code it touches; report what is wrong with it.'
+  );
+}
+
 /**
  * The rule that keeps a session from starting a service by hand. Karst owns
  * port allocation, health gating, pid attribution and reaping for a ticket's

@@ -310,7 +310,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(seen.policy).toBe('gate');
+    expect(seen.policy).toBe('reviewer');
   });
 
   it('honors an explicit headless deadline from the caller', async () => {
@@ -1318,5 +1318,61 @@ describe('runFindingsLane — advisory coverage record', () => {
 
   it('names the coverage rule in the prompt', () => {
     expect(buildFindingsPrompt('/web', 'develop')).toContain('COVERAGE (reported): ');
+  });
+});
+
+describe('findings lane: no-gates + background rules', () => {
+  const gates = [{ name: 'lint', script: 'lint:react' }];
+
+  it('always carries the no-gates and no-dangling rules, even with custom instructions', () => {
+    for (const instructions of [undefined, 'Only look at naming.']) {
+      const prompt = buildFindingsPrompt('/web', null, null, instructions, false, null, null, undefined, undefined, gates);
+      expect(prompt).toContain('the gates phase already ran lint (lint:react) on this change');
+      expect(prompt).toContain('Do NOT run them, or any test runner');
+      expect(prompt).toContain('Do not end your answer while a command you started is still running');
+    }
+    expect(buildFindingsPrompt('/web')).toContain('already ran the project checks on this change');
+  });
+
+  it('runs under the reviewer policy with the gate scripts', async () => {
+    const { adapter, calls } = capturingAdapter('[]');
+    await runFindingsLane({
+      targets: [{ ...TARGET, gates }],
+      config: CONFIG,
+      adapter,
+      ticketId: 1,
+    });
+    expect(calls[0]?.policy).toBe('reviewer');
+    expect(calls[0]?.gateScripts).toEqual(['lint:react']);
+  });
+
+  function bgAdapter(transcript: string): AgentAdapter {
+    return {
+      ...adapter('[]'),
+      runHeadless: async (opts) => {
+        opts.onOutput?.({ stream: 'stdout', text: transcript });
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+  }
+
+  it('records a run ending on a background command as not answered', async () => {
+    const outcome = await runFindingsLane({
+      targets: [TARGET],
+      config: CONFIG,
+      adapter: bgAdapter('Command moved to the background (shell ID: sh_x)\n'),
+      ticketId: 1,
+    });
+    expect(outcome).toMatchObject({ kind: 'ran', crashes: ['/web: reviewer ended while a background command was still running'] });
+  });
+
+  it('does not when the shell is read afterwards', async () => {
+    const outcome = await runFindingsLane({
+      targets: [TARGET],
+      config: CONFIG,
+      adapter: bgAdapter('Command moved to the background (shell ID: sh_x)\nread sh_x output\n'),
+      ticketId: 1,
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], targetCount: 1 });
   });
 });

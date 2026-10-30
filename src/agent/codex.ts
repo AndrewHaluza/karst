@@ -17,7 +17,7 @@ import {
   join,
 } from 'node:path';
 import { tmpdir } from 'node:os';
-import { gitCommonDirRoots, type HeadlessPolicy } from './gatePolicy.js';
+import { gitCommonDirRoots, isGatePolicy, type HeadlessPolicy } from './gatePolicy.js';
 import { toStrictSchema } from './strictSchema.js';
 import type {
   AgentAdapter,
@@ -286,7 +286,7 @@ function appendPolicyArgs(
   policy?: HeadlessPolicy,
   cwd?: string,
 ): void {
-  if (policy === 'gate') {
+  if (isGatePolicy(policy)) {
     // workspace-write confines writes to cwd + tmp (the operator's ~/.codex and
     // ~/.claude are read-only); approval never so a denied write fails instead
     // of waiting on a prompt nobody answers. Overrides ~/.codex/config.toml.
