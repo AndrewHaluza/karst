@@ -7,6 +7,7 @@ import { createArtifactStore } from '../artifacts/store.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { recordAlignmentOutcome } from '../workflow/artifacts/alignmentRecord.js';
+import type { AlignmentOutcome } from '../workflow/artifacts/alignmentTrigger.js';
 import { parseArtifactShowArgs, runArtifactShowCommand } from './artifactShow.js';
 
 let tmp: string;
@@ -37,7 +38,7 @@ describe('runArtifactShowCommand', () => {
     const ticket = createTicket(registry, { key: 'T-1', title: 't', projectId: 4 });
     const dbPath = join(tmp, 'karst.db');
     const store = createArtifactStore({ artifactsRoot: join(tmp, 'artifacts'), projectId: 4 });
-    const base = { ticketId: ticket.id, edge: 'intent-spec', findings: [], parentFp: 'I', childFp: 'S', failed: false } as const;
+    const base = { ticketId: ticket.id, edge: 'intent-spec', findings: [], parentFp: 'I', childFp: 'S', failed: false } satisfies Omit<AlignmentOutcome, 'report'>;
     const post = { postMessage: () => undefined };
     await recordAlignmentOutcome({ store, ...post }, { ...base, report: 'OLD report' });
     await recordAlignmentOutcome({ store, ...post }, { ...base, report: 'NEW report' });
