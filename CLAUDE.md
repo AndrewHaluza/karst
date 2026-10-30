@@ -9,6 +9,7 @@
 - Coverage: `npm run -s test:coverage -- --coverage.reporter=text-summary`. The default `text` reporter prints a row per source file.
 - Mutation: `stryker.config.json` is silent by design (reporters `html`+`json`, `logLevel: warn`; only a score-under-break error prints; CI overrides to `clear-text` + `logLevel info` so its log keeps the per-file table). Use `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` for the score, worst files and top survivors (markdown on stdout). Details of one file: `reports/mutation/mutation.html`.
 - Never dump logs or reports whole: pipe through `tail -n`/`grep`.
+- After editing or adding tests, also run `npm run -s typecheck` (vitest does not typecheck).
 
 `test:unit`, `test:integration`, `test:coverage`, `test:mutation` each `pretest:*`-rebuild better-sqlite3 for the Node ABI. Other scripts (`typecheck`, `lint:react`, `build`, `compile`, `inventory:extension`, `typecheck:visual`): see `package.json`; CI runs `lint:react` too.
 - Unit config `vitest.config.ts` excludes `*.integration.test.*` and `*.e2e.test.*`; those run via `--config vitest.integration.config.ts`. Unit stores use `openStore(':memory:')`.

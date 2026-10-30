@@ -62,6 +62,33 @@ above. If the gate code has not landed, these docs describe the contract it
 implements.
 END_DOC_BLOCK: [@ui:README-VOCAB]
 
+## [@ui:README-FIXTURES] Fixtures: hand-written state vs built from store
+
+Question this answers: does a store ordering/query change touch a fixture or a
+visual baseline? Only through the ONE runtime coupling below. No fixture opens
+SQLite (`openStore`) or reads the store; all are hand-written data typed by the
+view's production state shape. The visual sweep seeds from them via
+`tests/visual/corpora.ts`.
+
+| Fixture file | Kind | Note |
+|---|---|---|
+| `src/ui/sidebar/renderFixtures.ts` | hand-written state | `SidebarState` rows/PRs/planning literals; no store import |
+| `src/ui/dashboard/renderFixtures.ts` | hand-written state | Literals; reuses model helpers (`buildStageRail`, `boundedEvidenceRows`), type-only store imports |
+| `src/ui/dashboard/app/fixtures/artifactFixtures.ts` | hand-written state | `ArtifactSummary` literals (plus `*Kit.tsx`/`persistTrace.ts` test kits in that folder) |
+| `src/ui/resources/renderFixtures.ts` | hand-written state | Hand-written inventory fed to the pure `buildServersState`; type-only store imports |
+| `src/ui/usage/renderFixtures.ts` | hand-written state | Imports the `USAGE_SORTS` constant from `store/tokenUsageQuery.ts`: changing sort ids or their order changes the sort control and baselines. Rows are literals, so query ordering changes do not |
+| `src/ui/gettingStarted/renderFixtures.ts` | hand-written state | Uses `TUTORIAL_STEPS` from `./state.js` (not store) |
+| `src/ui/diffs/renderFixtures.ts` | hand-written state | Pure data, reserved ticket ids 900001–999999 |
+| `src/ui/settings/app/testFixtures.ts` | hand-written state | `buildSettingsState` over `manifest/fixtures.ts` literals |
+| `tests/visual/corpora.ts` MINIMAL_SETTINGS / MINIMAL_TICKET_FORM | hand-written state | Inline seeds for `settings` and `ticketForm` (no renderFixtures module) |
+
+Built from store: none among UI fixtures. Store-seeded fixtures are non-UI:
+`src/uatHost/fixtures.ts` (seeds for UAT host stores) and
+`src/store/fixtures/fixDeliveryHarness.ts`. A store change that alters
+displayed order or query results reaches a baseline only after the
+state-builder (`state.ts`) changes; the fixture literals stay as written.
+END_DOC_BLOCK: [@ui:README-FIXTURES]
+
 ## [@ui:README-GAPS] Known gaps
 
 - No z-index scale (deferred: no T601 symptom).
