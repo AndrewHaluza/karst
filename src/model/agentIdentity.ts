@@ -193,7 +193,7 @@ export function agentIdentityJs(): string {
     '    : "";\n' +
     '  const name = \'<span class="agent-identity-name">\' + esc(agentLabel(p)) + \'</span>\';\n' +
     '  const modelHtml = model\n' +
-    '    ? \'<span class="agent-identity-sep" aria-hidden="true">·</span><span class="agent-identity-model">\' + esc(model) + \'</span>\'\n' +
+    '    ? \'<span class="agent-identity-sep" aria-hidden="true">·</span><span class="agent-identity-model" aria-label="\' + esc(model) + \'" title="\' + esc(model) + \'">\' + esc(model) + \'</span>\'\n' +
     '    : "";\n' +
     '  return \'<span class="agent-identity\' + (compact ? \' compact\' : \'\') + \'"\' + (p ? \' data-provider="\' + esc(p) + \'"\' : \'\') + \'>\'\n' +
     '    + icon + name + modelHtml + \'</span>\';\n' +

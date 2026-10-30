@@ -72,7 +72,9 @@ const LITERAL_BUDGET: Record<string, number> = {
   // px allowlist test.
   dashboard: 24,
   diffs: 1,
-  ticketForm: 0,
+  // 4, not 0: the layout B′ tier breakpoints (@container 999/699/399 + the
+  // 700px label-left query) — a container condition cannot read a custom property.
+  ticketForm: 4,
   settings: 0,
   sidebar: 0,
   usage: 0,

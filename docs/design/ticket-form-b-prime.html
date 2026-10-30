@@ -1,0 +1,208 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Ticket Form B′ Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one reading column of findings, then each variant as a full-width "editor tab" mock framed like VS Code. */
+:root{
+  --bg:#f6f7f9; --fg:#1d2330; --muted:#5b6475; --line:#d9dde5; --accent:#0b6bcb; --warn:#b25b00; --bad:#c23b3b;
+  /* mock = VS Code dark editor, same in both page themes */
+  --m-bg:#1f1f1f; --m-panel:#252526; --m-line:#3c3c3c; --m-fg:#d4d4d4; --m-muted:#8b8b8b; --m-input:#2b2b2b; --m-acc:#0e70c0; --m-acc2:#3794ff; --m-chip:#063b5f;
+  --f-ui:"IBM Plex Sans",system-ui,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171c;--fg:#e3e6ec;--muted:#98a1b2;--line:#2c323c;--accent:#5aa8ff;--warn:#e59a4a;--bad:#ff7b7b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14171c;--fg:#e3e6ec;--muted:#98a1b2;--line:#2c323c;--accent:#5aa8ff;--warn:#e59a4a;--bad:#ff7b7b;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding-block:32px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:40px}
+h1{font-size:28px;margin:0;text-wrap:balance}
+h2{font-size:20px;margin:0 0 6px;text-wrap:balance}
+p{margin:0;max-width:72ch}
+.lede{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.shots figure{margin:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--m-bg)}
+.shots img{display:block;width:100%;height:340px;object-fit:cover;object-position:top}
+.shots figcaption{font-size:12px;color:var(--muted);padding:8px 10px;background:var(--bg)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tbl{overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+td:first-child{font:600 12px var(--f-mono);white-space:nowrap}
+.sev{font:600 11px var(--f-mono);padding:1px 6px;border-radius:3px;border:1px solid currentColor}
+.sev.h{color:var(--bad)}.sev.m{color:var(--warn)}.sev.l{color:var(--muted)}
+.variant{display:grid;gap:14px}
+.vhead{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.vhead .tag{font:600 12px var(--f-mono);color:var(--accent)}
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px}
+.pc ul{margin:4px 0 0;padding-left:18px}
+.pc b{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+@media(max-width:640px){.pc{grid-template-columns:1fr}}
+
+/* ---------- mock (VS Code webview) ---------- */
+.mock{background:var(--m-bg);color:var(--m-fg);border:1px solid var(--m-line);border-radius:6px;font:13px/1.45 var(--f-ui);overflow:hidden;color-scheme:dark}
+.mock .tab{background:#181818;border-bottom:1px solid var(--m-line);padding:6px 12px;font-size:12px;color:var(--m-muted)}
+.mock .body{padding:18px 20px;display:grid;gap:14px}
+.m-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.m-grow{flex:1 1 220px;min-width:0}
+.m-lbl{font-size:11px;color:var(--m-muted);display:block;margin-bottom:4px}
+.m-in,.m-ta,.m-sel{background:var(--m-input);border:1px solid var(--m-line);border-radius:3px;color:var(--m-fg);padding:6px 8px;font:inherit;width:100%;box-sizing:border-box}
+.m-ta{min-height:90px;resize:none;white-space:pre-wrap}
+.m-sel{display:flex;justify-content:space-between;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-sel::after{content:"▾";color:var(--m-muted)}
+.m-title{font-size:18px;font-weight:600;background:transparent;border:0;border-bottom:1px solid var(--m-line);border-radius:0;padding:4px 0}
+.m-btn{background:#3a3d41;color:#fff;border:0;border-radius:3px;padding:6px 12px;font:inherit;white-space:nowrap}
+.m-btn.p{background:var(--m-acc)}.m-btn.g{background:transparent;border:1px solid var(--m-line);color:var(--m-fg)}
+.m-link{color:var(--m-acc2)}
+.m-hint{font-size:11.5px;color:var(--m-muted)}
+.m-sec{font:600 11px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--m-muted);margin-top:4px}
+.m-chip{display:inline-flex;align-items:center;gap:6px;background:var(--m-chip);border:1px solid #1b5c8a;border-radius:12px;padding:2px 10px;font-size:12px;white-space:nowrap}
+.m-chip.off{background:transparent;border-style:dashed;border-color:var(--m-line);color:var(--m-muted)}
+.m-chip small{color:#9cc3e6}
+.m-foot{border-top:1px solid var(--m-line);background:var(--m-panel);padding:10px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.m-foot .sp{flex:1}
+.m-src{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--m-panel);border:1px solid var(--m-line);border-radius:4px;padding:8px 10px}
+.m-kv{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;align-items:center}
+.m-kv>span:nth-child(odd){color:var(--m-muted);font-size:12px}
+.m-card{border:1px solid var(--m-line);border-radius:4px;padding:12px 14px;display:grid;gap:10px}
+.m-seg{display:inline-flex;border:1px solid var(--m-line);border-radius:3px;overflow:hidden}
+.m-seg span{padding:5px 10px;font-size:12px;border-right:1px solid var(--m-line)}
+.m-seg span:last-child{border-right:0}.m-seg .on{background:var(--m-acc);color:#fff}
+.m-sw{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.m-sw i{width:26px;height:14px;border-radius:7px;background:var(--m-acc);position:relative}
+.m-sw i::after{content:"";position:absolute;right:2px;top:2px;width:10px;height:10px;border-radius:50%;background:#fff}
+.m-sw.off i{background:#555}.m-sw.off i::after{right:auto;left:2px}
+.m-att{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--m-line);border-radius:3px;padding:3px 8px;font-size:12px}
+.m-details{border-top:1px solid var(--m-line);padding-top:10px;color:var(--m-muted);font-size:12px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.two>.main{padding:18px 20px;display:grid;gap:14px;align-content:start}
+.two>.side{background:var(--m-panel);border-left:1px solid var(--m-line);padding:18px 16px;display:grid;gap:16px;align-content:start}
+@media(max-width:760px){.two{grid-template-columns:1fr}.two>.side{border-left:0;border-top:1px solid var(--m-line)}}
+.steps{display:flex;gap:0;border-bottom:1px solid var(--m-line)}
+.steps span{flex:1;padding:10px 14px;font-size:12px;color:var(--m-muted);border-bottom:2px solid transparent}
+.steps .on{color:var(--m-fg);border-color:var(--m-acc2)}
+.steps .done{color:var(--m-fg)}
+.steps .done::before{content:"✓ ";color:#4ec97b}
+.composer{border:1px solid var(--m-line);border-radius:6px;background:var(--m-input)}
+.composer .ta{padding:12px 14px;min-height:110px;white-space:pre-wrap}
+.composer .bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--m-line);padding:8px 10px}
+.pill{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--m-line);border-radius:12px;padding:2px 10px;font-size:12px;background:#2f2f2f;white-space:nowrap}
+.pill em{font-style:normal;color:var(--m-muted)}
+.pill::after{content:"▾";color:var(--m-muted);font-size:10px}
+.callout{font-size:11.5px;color:#e5c07b;border-left:2px solid #e5c07b;padding-left:8px}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+
+<div class="wrap"><header style="display:grid;gap:8px"><span class="eyebrow">karst · src/ui/ticketForm · design prototype (binding, ui:UI-R39)</span><h1>Ticket form B′</h1><p class="lede">Regions, order and stacking on this page are requirements. Content is example data. Regions: header · content (title, brief, prompt, tester-check, attachments) · settings (source, type, repos, approach, agent, pull-base) · actions. Below 700 px, settings stacks under content; actions bar never covers fields.</p></header>
+<!-- ============ B' ============ -->
+<section class="variant">
+  <div class="vhead"><span class="tag">Variant B′</span><h2>B, revised after review</h2></div>
+  <p class="lede">Same split as B. Repos keep today's chips with their base-branch action button. Agent is either a preset or core + model + effort as separate selects (core picker with icon and model logic reused from Settings › Agents). Improve with AI sits in the prompt header. Source shows the provider logo, name, ticket id with a copy button, and the fetched brief as a collapsible card.</p>
+  <div class="mock">
+    <div class="tab">Edit T42 · 86c2f9qke</div>
+    <div class="two" style="grid-template-columns:minmax(0,1fr) 320px">
+      <div class="main" data-region="content">
+        <div class="m-in m-title">Add per-repo override to the base-branch picker</div>
+        <div class="m-card" style="background:var(--m-panel);gap:8px">
+          <div class="m-row" style="justify-content:space-between">
+            <span class="m-row" style="gap:6px"><span style="color:var(--m-muted)">▾</span><b style="font-size:12px">Brief</b><span class="m-hint">from</span><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="#7b68ee"/><path d="M4 9.5l2.5 2.5M4 6.5l5.5 5.5M5.5 4.5l6 6M8.5 4l3.5 3.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></svg><span class="m-hint">ClickUp · fetched 2 h ago</span></span>
+            <span class="m-row" style="gap:8px"><span class="m-link">Use as prompt</span><span class="m-link">Open ↗</span></span>
+          </div>
+          <div class="m-row" style="gap:6px"><span class="pill" style="background:#2f2f2f">In Progress</span><span class="pill">High</span><span class="pill">frontend</span><span class="pill">picker</span><span class="m-hint">· assignee A. Haluza · cycle 42</span></div>
+          <div style="font-size:12.5px;color:#c8c8c8;max-width:70ch">Release branches differ per repo. Today the base is the manifest default for all repos, so release fixes in <code>api</code> need a manual rebase.<br><br><b>Acceptance</b><br>• Each selected repo shows its effective base.<br>• Override survives a form reload.</div>
+          <span class="m-link" style="font-size:12px">Show full brief (14 more lines) · 2 comments</span>
+        </div>
+        <div class="m-row" style="justify-content:space-between"><span class="m-lbl" style="margin:0">Prompt</span><span class="m-row" style="gap:10px"><span class="m-sw" title="Improves the prompt after each fetch"><i></i>Auto-improve</span><button class="m-btn g">✦ Improve with AI</button></span></div>
+        <div class="m-ta" style="min-height:130px">Let a ticket pick its base branch per repository instead of the manifest default.
+
+Show the effective default next to each repo.</div>
+        <div><span class="m-lbl">Acceptance check for the tester</span><div class="m-ta" style="min-height:60px">Pick a non-default base for api only; worktree cuts from it.</div></div>
+        <div class="m-row"><button class="m-btn g" title="Attach file" aria-label="Attach file" style="padding:4px 8px;display:inline-flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9-9a3.7 3.7 0 015.2 5.2l-9 9a1.8 1.8 0 01-2.6-2.6l8.3-8.3"/></svg></button><span class="m-att">🖼 picker-480px.png ✕</span><span class="m-hint">or paste a screenshot</span></div>
+      </div>
+      <aside class="side" data-region="settings">
+        <div><span class="m-lbl">Source</span>
+          <div class="m-row" style="gap:6px;flex-wrap:nowrap">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><rect width="16" height="16" rx="4" fill="#7b68ee"/><path d="M4 9.5l2.5 2.5M4 6.5l5.5 5.5M5.5 4.5l6 6M8.5 4l3.5 3.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <span>ClickUp</span><span class="m-link" style="font-family:var(--f-mono);font-size:12px">86c2f9qke</span>
+            <span title="Copy 86c2f9qke" aria-label="Copy ticket id" style="display:inline-flex;color:var(--m-muted);cursor:pointer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></span>
+            <span class="m-link" title="Open in ClickUp">↗</span>
+            <span style="flex:1"></span><button class="m-btn g" style="padding:2px 8px">Re-fetch</button>
+          </div></div>
+        <div><span class="m-lbl">Type</span><div class="m-sel">feat</div></div>
+        <div><span class="m-lbl">Repositories</span>
+          <div class="m-row" style="gap:6px">
+            <span class="m-chip" style="padding-right:2px">web <small>develop</small><span style="border-left:1px solid #1b5c8a;padding:0 6px">▾</span></span>
+            <span class="m-chip" style="padding-right:2px">api <small>develop</small><span style="border-left:1px solid #1b5c8a;padding:0 6px">▾</span></span>
+            <span class="m-chip off">infra</span>
+          </div>
+          <span class="m-hint">▾ on a chip picks its base branch</span></div>
+        <div><span class="m-lbl">Approach</span>
+          <div class="m-card" style="padding:8px 10px;gap:2px;border-color:var(--m-acc2);background:var(--m-input)">
+            <div class="m-row" style="justify-content:space-between"><b>Superpowers <span class="pill" style="font-size:10px;padding:0 6px">Recommended</span></b><span style="color:var(--m-muted)">▴</span></div>
+            <span class="m-hint">Brainstorm → plan → TDD</span>
+          </div>
+          <div role="listbox" aria-label="Approach" style="margin-top:4px;border:1px solid var(--m-line);border-radius:4px;background:#2a2a2a;box-shadow:0 6px 18px rgba(0,0,0,.4)">
+            <div style="padding:7px 10px;background:#04395e;border-left:2px solid var(--m-acc2)"><div class="m-row" style="justify-content:space-between"><b>✓ Superpowers</b><span class="m-hint">★</span></div><span class="m-hint">Brainstorm → plan → TDD. Best for features.</span></div>
+            <div style="padding:7px 10px;border-top:1px solid var(--m-line)"><b>GSD</b><br><span class="m-hint">Phase-based plan / execute / verify. Larger, multi-step work.</span></div>
+            <div style="padding:7px 10px;border-top:1px solid var(--m-line)"><b>Quick fix</b><br><span class="m-hint">Single implement stage. Small, well-understood changes.</span></div>
+            <div style="padding:6px 10px;border-top:1px solid var(--m-line)"><span class="m-link" style="font-size:12px">Manage approaches…</span></div>
+          </div>
+          <span class="m-hint">Shown open. Closed state is the card above: name + description.</span></div>
+        <div><span class="m-lbl">Agent</span>
+          <div class="m-seg" style="margin-bottom:8px;display:flex"><span style="flex:1;text-align:center">Preset</span><span class="on" style="flex:1;text-align:center">Core + model</span></div>
+          <div style="display:grid;gap:6px">
+            <div class="m-sel">🐙 Claude Code</div>
+            <div class="m-row" style="gap:6px;flex-wrap:nowrap"><div class="m-sel" style="flex:2 1 0;min-width:0">claude-opus-5-5</div><div class="m-sel" style="flex:1 1 0;min-width:0">high</div></div>
+          </div>
+          <span class="m-hint">Preset tab: one select (fast, deep-review); core, model, effort hide.</span></div>
+        <span class="m-sw"><i></i>Pull base first</span>
+      </aside>
+    </div>
+    <div class="m-foot" data-region="actions"><span class="sp"></span><button class="m-btn g">Cancel</button><button class="m-btn">Save</button><button class="m-btn p">Save &amp; start ▸</button></div>
+  </div>
+  <div class="pc"><div><b>Changed from B</b><ul><li>Repo chips + action button kept (intentional design).</li><li>Agent: Preset or Core + model + effort, never both visible.</li><li>Improve with AI: same control, in prompt header.</li><li>Source: provider logo + name + id with copy icon + open link.</li><li>Brief: collapsible card above the prompt (status, priority, labels, excerpt, "Use as prompt").</li><li>Attach: paperclip icon button.</li></ul></div><div><b>Open points</b><ul><li>Side panel width (320 px) vs. routed-model picker (T777) labels.</li><li>Below 700 px: panel stacks under content, chips wrap.</li><li>Brief collapsed by default in edit mode, expanded right after a fetch?</li></ul></div></div>
+</section>
+
+<!-- ============ B' brief expanded ============ -->
+<section class="variant">
+  <div class="vhead"><span class="tag">Variant B′ · state</span><h2>Brief expanded, with comments</h2></div>
+  <p class="lede">After "Show full brief", the card grows in place, inside the main column (the side panel is unchanged and omitted here). Description first, then attachments from the provider, then comments oldest first. Long briefs cap at about 420 px and scroll inside the card; "Collapse" returns to the excerpt.</p>
+  <div class="mock">
+    <div class="tab">Edit T42 · 86c2f9qke · main column only</div>
+    <div class="body" style="max-width:760px">
+      <div class="m-card" style="background:var(--m-panel);gap:10px">
+        <div class="m-row" style="justify-content:space-between">
+          <span class="m-row" style="gap:6px"><span style="color:var(--m-muted)">▴</span><b style="font-size:12px">Brief</b><span class="m-hint">from</span><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="#7b68ee"/><path d="M4 9.5l2.5 2.5M4 6.5l5.5 5.5M5.5 4.5l6 6M8.5 4l3.5 3.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></svg><span class="m-hint">ClickUp · fetched 2 h ago</span></span>
+          <span class="m-row" style="gap:8px"><span class="m-link">Use as prompt</span><span class="m-link">Open ↗</span></span>
+        </div>
+        <div class="m-row" style="gap:6px"><span class="pill">In Progress</span><span class="pill">High</span><span class="pill">frontend</span><span class="pill">picker</span><span class="m-hint">· assignee A. Haluza · cycle 42</span></div>
+        <div style="max-height:420px;overflow:auto;display:grid;gap:12px;padding-right:6px;font-size:12.5px;color:#c8c8c8">
+          <div style="max-width:70ch">Release branches differ per repo. Today the base is the manifest default for all repos, so release fixes in <code>api</code> need a manual rebase.<br><br>
+          <b>Proposal</b><br>Show each selected repo's effective base next to its chip, and let the user override it per ticket. The override is stored on the ticket, not in karst.yml.<br><br>
+          <b>Acceptance</b><br>• Each selected repo shows its effective base.<br>• Override survives a form reload.<br>• Sub-tasks default to the parent branch.<br><br>
+          <b>Out of scope</b><br>• Changing the manifest default from the form.</div>
+          <div><span class="m-sec" style="display:block;margin-bottom:6px">Attachments · 1</span><span class="m-att">🖼 current-picker.png <small>112 KB</small> <span class="m-link">Attach to ticket</span></span></div>
+          <div style="display:grid;gap:10px">
+            <span class="m-sec">Comments · 2</span>
+            <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px">
+              <span style="width:24px;height:24px;border-radius:50%;background:#3b5b7a;display:grid;place-items:center;font-size:11px">JL</span>
+              <div><div class="m-row" style="gap:6px"><b style="font-size:12px">Jana Lind</b><span class="m-hint">Oct 24, 14:02</span></div>
+              <div style="max-width:68ch">Repro: release/2.4 in api, develop in web. Worktree for api was cut from develop, PR went to the wrong base.</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px">
+              <span style="width:24px;height:24px;border-radius:50%;background:#5a4a7a;display:grid;place-items:center;font-size:11px">MK</span>
+              <div><div class="m-row" style="gap:6px"><b style="font-size:12px">Marek Kral</b><span class="m-hint">Oct 25, 09:41</span></div>
+              <div style="max-width:68ch">Please keep the chip's ▾ menu, people already use it. Just show the branch name on the chip.</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="m-row" style="justify-content:space-between;border-top:1px solid var(--m-line);padding-top:8px"><span class="m-link" style="font-size:12px">Collapse</span><span class="m-hint">Read-only. Reply in ClickUp.</span></div>
+      </div>
+      <div class="m-row" style="justify-content:space-between"><span class="m-lbl" style="margin:0">Prompt</span><span class="m-row" style="gap:10px"><span class="m-sw"><i></i>Auto-improve</span><button class="m-btn g">✦ Improve with AI</button></span></div>
+      <div class="m-ta" style="min-height:70px">Let a ticket pick its base branch per repository instead of the manifest default.</div>
+    </div>
+  </div>
+  <div class="pc"><div><b>Behavior</b><ul><li>Comments: author initials avatar, name, date, text; escaped and length-capped (UI-R32).</li><li>Card scrolls inside itself; page keeps one scroll region (UI-R45).</li><li>Provider attachments can be copied to the ticket's own attachments.</li></ul></div><div><b>Open points</b><ul><li>Include comments in the prompt sent by "Use as prompt"? Proposed: no, the prompt keeps description only; comments go to the agent through the brief file as today.</li></ul></div></div>
+</section>
+
+</div>
+
+</body></html>

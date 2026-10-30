@@ -739,8 +739,12 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   it('contains no raw hex/rgb/px/rem style literal outside the injected tokens (UI-R04)', () => {
     const [main] = styleBlocks();
     const local = main!.slice(main!.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
-    const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
-    expect(offenders, JSON.stringify(offenders)).toBeNull();
+    // `@container` conditions cannot read a custom property: the four tier
+    // breakpoints (ui:UI-R49/R50) are the only allowed px literals.
+    const offenders = (local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g) ?? []).filter(
+      (o) => !['700px', '999px', '699px', '399px'].includes(o),
+    );
+    expect(offenders, JSON.stringify(offenders)).toEqual([]);
   });
 
   it('carries no inline style="…" attribute in the markup (UI-R04 extends past the stylesheet)', () => {
@@ -749,7 +753,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
 
   it('.ghost resolves to the real k-btn--ghost primitive, not a ruleless local class (UI-R10)', () => {
     expect(HTML).not.toMatch(/class="ghost"/);
-    expect(HTML).toContain('id="attachBtn" class="k-btn k-btn--ghost"');
+    expect(HTML).toContain('class="k-btn k-btn--ghost" id="cancelBtn"');
   });
 
   it('does not restyle a bare <button> — every button is a `.k-btn`/`.k-iconbtn`/`.k-switch` variant (UI-R07)', () => {
@@ -1064,9 +1068,7 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
   });
 
   it('keeps the attach hint short and moves the long-text behaviour into the title', () => {
-    const row = HTML.slice(HTML.indexOf('id="attachBtn"'), HTML.indexOf('<div id="attachments"'));
-    expect(row).toContain('>or paste a screenshot<');
-    expect(row).toMatch(/title="[^"]*long text/i);
+    expect(HTML).toMatch(/title="[^"]*long text[^"]*">or paste a screenshot</i);
   });
 
   // The analysis runs through the SETTINGS Ticket-analysis assignment (its
@@ -1172,19 +1174,23 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
     expect(rule('label')).toContain('color:var(--k-text-dim)');
   });
 
-  it('wraps the key/fetch and filter rows and drops the analyze min-width', () => {
+  it('wraps the key/fetch and filter rows', () => {
     expect(rule('.searchfilter')).toContain('flex-wrap:wrap');
     expect(css).toMatch(/\.row\{[^}]*flex-wrap:wrap/);
-    const a = css!.match(/#analyzeBtn\{[^}]*\}/)![0];
-    expect(a).not.toMatch(/min-width/);
-    expect(a).toContain('max-width:100%');
   });
 
-  it('shows a visible hint under the Auto-improve and Pull-base switches', () => {
-    expect(HTML).toMatch(/id="autoImproveHint"/);
-    expect(HTML).toMatch(/id="pullBaseHint"/);
-    expect(HTML).toMatch(/id="autoImprove"[^>]*aria-describedby="autoImproveHint"/);
-    expect(HTML).toMatch(/id="pullBase"[^>]*aria-describedby="pullBaseHint"/);
+  it('Improve with AI is the shared button primitive, not the pixel/monospace control', () => {
+    expect(HTML).toMatch(/<button[^>]*class="k-btn k-btn--secondary[^"]*"[^>]*id="analyzeBtn"|<button[^>]*id="analyzeBtn"[^>]*class="k-btn k-btn--secondary/);
+    expect(HTML).not.toContain('pixcore');
+    expect(css).not.toMatch(/#analyzeBtn\{/);
+    expect(css).not.toMatch(/#autoImprove\{/);
+  });
+
+  it('explains the Auto-improve and Pull-base switches by tooltip, not a permanent hint', () => {
+    expect(HTML).not.toMatch(/id="autoImproveHint"/);
+    expect(HTML).not.toMatch(/id="pullBaseHint"/);
+    expect(HTML).toMatch(/id="autoImprove"[^>]*title="[^"]+"/);
+    expect(HTML).toMatch(/id="pullBase"[^>]*title="[^"]+"/);
   });
 
   it('drops the arrow glyph from Improve', () => {
@@ -1192,7 +1198,7 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
   });
 
   it('shortens the status filter hint', () => {
-    expect(HTML).toContain('>Filters search results<');
+    expect(HTML).toContain('title="Filters search results"');
   });
 
   it('gives the attachment detach button a scrim background', () => {
@@ -1224,7 +1230,7 @@ describe('ticket-form webview.html — intent and code pointers', () => {
 
   it('declares the intent textarea, a hidden code-pointers row and a warning slot', () => {
     expect(HTML).toContain('<textarea id="intent"');
-    expect(HTML).toMatch(/<div id="codePointersRow" hidden>/);
+    expect(HTML).toMatch(/<div id="codePointersRow" class="field" hidden>/);
     expect(HTML).toContain('<textarea id="codePointers"');
     expect(HTML).toMatch(/<div class="analysis-warning" id="analysisWarning" hidden>/);
   });

@@ -158,7 +158,7 @@ describe('agentIdentityJs', () => {
       expect(out).toContain('<span class="agent-identity-icon"');
       expect(out).toContain('<span class="agent-identity-name">Claude Code</span>');
       expect(out).toContain('<span class="agent-identity-sep"');
-      expect(out).toContain('<span class="agent-identity-model">Opus 4.1</span>');
+      expect(out).toContain('<span class="agent-identity-model" aria-label="Opus 4.1" title="Opus 4.1">Opus 4.1</span>');
     });
 
     it('omits the separator and model when no model is known', () => {

@@ -269,11 +269,17 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 
 ### Ticket form
 
-| Element | Target |
-|---|---|
-| sticky action bar | tight: static at end of form; narrow: sticky with reserved bottom padding; primary `Create & start session` always full label, `Cancel`/`Save draft` in ⋯ at tight |
-| agent picker `#agentIdentityPicker` | `.ap` single column at tight; `.ap-trigger-label` 2-line allowed |
-| context drawer | sheet at tight |
+Layout B′ (prototype: `docs/design/ticket-form-b-prime.html`). Regions in DOM order: `header`, `content`, `settings`, `actions`. Tiers are measured on the shell container, `@container` 999/699/399.
+
+| Region / element | wide ≥1000 | mid 700-999 | narrow 400-699 | tight 320-399 |
+|---|---|---|---|---|
+| columns | `minmax(0,1fr) 320px` | `minmax(0,1fr) 280px` | one column, settings under content | same |
+| content labels | left when the content region is ≥700px, else above | above | above | above |
+| settings labels | above | above | above | above |
+| repo chips | wrap, base-branch ▾ action kept | same | same | same, chips wrap |
+| `actions` bar | sticky | sticky | sticky | static (never covers fields); primary full width, last |
+| agent picker `#agentIdentityPicker` | – | – | – | `.ap` single column; `.ap-trigger-label` 2-line allowed |
+| context drawer | – | – | – | sheet |
 
 ### gettingStarted, serverLogs
 
