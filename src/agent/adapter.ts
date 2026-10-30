@@ -321,6 +321,18 @@ export interface MaterializeOpts {
    */
   cliContextPrefix?: string;
   /**
+   * The ticket's concrete key, baked into the generated commands where the agent
+   * CLI's `$ARGUMENTS` would stand (it expands to the whole kickoff, ticket
+   * narrative included, at every occurrence). Absent → `$ARGUMENTS` is kept.
+   */
+  ticketKey?: string;
+  /**
+   * The conflicted repo of a resolve-conflict launch, baked into the
+   * `resolve-conflict` command beside `ticketKey`. With a `ticketKey` set, that
+   * command is only written when this is present too.
+   */
+  conflictRepo?: string;
+  /**
    * Shell command prefix the generated `/karst:<id>` command runs (with the
    * ticket key appended) to fire the impl→uat marker when implementation is
    * done (§5.4), e.g. `node "$KARST_CLI" stage impl pass --db "$KARST_DB"

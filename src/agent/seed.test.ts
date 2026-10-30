@@ -57,6 +57,16 @@ describe('buildSessionSeed routing', () => {
     expect(seed.kickoff).not.toContain('## Services');
   });
 
+  it('carries the ticket narrative exactly once in the kickoff', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      invocation: '/karst:rpi PROJ-9',
+      approachPrompt: 'METHOD',
+    });
+    expect(seed.kickoff.split('Users bounce to /login.').length - 1).toBe(1);
+  });
+
   it('omits the invocation line when none is given (kickoff starts with authored text)', () => {
     const seed = buildSessionSeed({ authoredContext: AUTHORED, factsContext: FACTS });
     expect(seed.kickoff.startsWith('# Ticket: PROJ-9')).toBe(true);

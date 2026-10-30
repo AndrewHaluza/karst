@@ -383,6 +383,7 @@ export class AntigravityAdapter implements AgentAdapter {
           id: opts.pkg.id,
           label: opts.pkg.label,
           phases: opts.pkg.workflow!,
+          ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
           ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
@@ -436,6 +437,7 @@ export class AntigravityAdapter implements AgentAdapter {
           basename: START_TASK_BASENAME,
           body: renderStartTaskCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
           description: START_TASK_DESCRIPTION,
@@ -445,6 +447,7 @@ export class AntigravityAdapter implements AgentAdapter {
           basename: RESUME_BASENAME,
           body: renderResumeCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
           description: RESUME_DESCRIPTION,
@@ -457,6 +460,7 @@ export class AntigravityAdapter implements AgentAdapter {
           basename: FIX_BASENAME,
           body: renderFixCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             fixBriefCommand: opts.cliFixBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
@@ -465,11 +469,13 @@ export class AntigravityAdapter implements AgentAdapter {
         });
       }
 
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         commandEntries.push({
           basename: RESOLVE_CONFLICT_BASENAME,
           body: renderResolveConflictCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
+            ...(opts.conflictRepo ? { conflictRepo: opts.conflictRepo } : {}),
             conflictBriefCommand: opts.cliConflictBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
@@ -502,7 +508,7 @@ export class AntigravityAdapter implements AgentAdapter {
       if (opts.cliFixBriefPrefix) {
         entryInvocations['fix'] = `$${FIX_BASENAME}`;
       }
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         entryInvocations['resolve-conflict'] = `$${RESOLVE_CONFLICT_BASENAME}`;
       }
     }

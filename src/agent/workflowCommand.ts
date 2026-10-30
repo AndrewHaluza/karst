@@ -198,18 +198,18 @@ export function renderGateOnlyInstruction(): string {
  * share one copy of the context-pull, authoritative-output, re-run,
  * worktree-prohibition, and session-ending prose.
  */
-function renderCommandCore(contextCommand: string, guideCommand?: string, mcp = false): string {
+function renderCommandCore(contextCommand: string, guideCommand?: string, mcp = false, ticketKey?: string): string {
+  const key = ticketKey ?? '<key>';
   const lines: string[] = [
     mcp
-      ? "Load the ticket's full context: call the karst MCP tool `context` with { key: \"<key>\", format: \"md\" }. If the tool is not available, run:"
+      ? `Load the ticket's full context: call the karst MCP tool \`context\` with { key: "${key}", format: "md" }. If the tool is not available, run:`
       : `Load the ticket's full context by running:`,
     '',
     '```bash',
-    `${contextCommand} <key> --md`,
+    `${contextCommand} ${key} --md`,
     '```',
     '',
-    'where `<key>` is that first token.',
-    '',
+    ...(ticketKey ? [] : ['where `<key>` is that first token.', '']),
     'The output is authoritative for the current stage, repositories in scope, worktrees and branches you must work inside, running servers, open pull requests, attachments, and how this stage ends — the `## How this stage ends` section names either the exact done-marker command to run or states that the stage is decided by gate exit codes.',
     '',
     'Re-run this command whenever those facts may have moved. Do not work outside the worktree it names.',
@@ -230,6 +230,17 @@ function renderCommandCore(contextCommand: string, guideCommand?: string, mcp = 
 }
 
 /**
+ * The concrete argument text a generated command bakes in at launch, in place of
+ * the agent CLI's `$ARGUMENTS` (which expands to the WHOLE kickoff — the ticket
+ * narrative included — at every occurrence). A repo path holding whitespace is
+ * double-quoted so it stays ONE value (arch:AC-20).
+ */
+export function entryArguments(ticketKey: string, conflictRepo?: string): string {
+  if (conflictRepo === undefined) return ticketKey;
+  return /\s/.test(conflictRepo) ? `${ticketKey} "${conflictRepo}"` : `${ticketKey} ${conflictRepo}`;
+}
+
+/**
  * Render the markdown body for the generated start-task orchestrator — the
  * ticket-independent entry point every adapter materializes. Returns BODY
  * ONLY (no frontmatter): `skillDocument(name, description, body)` prepends
@@ -242,11 +253,13 @@ export function renderStartTaskCommand(input: {
   contextCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  ticketKey?: string;
 }): string {
-  const { contextCommand, guideCommand, mcp } = input;
-  const grammarParagraph =
-    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id; everything after it is the brief the user wrote, and the brief is the work.`;
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
+  const { contextCommand, guideCommand, mcp, ticketKey } = input;
+  const grammarParagraph = ticketKey
+    ? `This session works ticket \`${ticketKey}\`; the brief the user wrote follows this command in the kickoff, and the brief is the work.`
+    : `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id; everything after it is the brief the user wrote, and the brief is the work.`;
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -258,12 +271,15 @@ export function renderResumeCommand(input: {
   contextCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  ticketKey?: string;
 }): string {
-  const { contextCommand, guideCommand, mcp } = input;
+  const { contextCommand, guideCommand, mcp, ticketKey } = input;
   const grammarParagraph =
-    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
+    (ticketKey
+      ? `This session works ticket \`${ticketKey}\`. `
+      : `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. `) +
     'This session is resuming work already in progress — there is no brief.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -276,16 +292,20 @@ export function renderFixCommand(input: {
   fixBriefCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  ticketKey?: string;
 }): string {
-  const { contextCommand, fixBriefCommand, guideCommand, mcp } = input;
+  const { contextCommand, fixBriefCommand, guideCommand, mcp, ticketKey } = input;
+  const key = ticketKey ?? '<key>';
   const grammarParagraph =
-    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
+    (ticketKey
+      ? `This session works ticket \`${ticketKey}\`. `
+      : `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. `) +
     (mcp
-      ? `Call the karst MCP tool \`fix-brief\` with { key: "<key>" } FIRST (if the tool is not available, run \`${fixBriefCommand} <key>\`)`
-      : `Run \`${fixBriefCommand} <key>\` FIRST`) +
+      ? `Call the karst MCP tool \`fix-brief\` with { key: "${key}" } FIRST (if the tool is not available, run \`${fixBriefCommand} ${key}\`)`
+      : `Run \`${fixBriefCommand} ${key}\` FIRST`) +
     ' and treat its output as the work — the brief ' +
     'names the gate that failed and what it reported.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -299,16 +319,22 @@ export function renderResolveConflictCommand(input: {
   conflictBriefCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  ticketKey?: string;
+  conflictRepo?: string;
 }): string {
-  const { contextCommand, conflictBriefCommand, guideCommand, mcp } = input;
+  const { contextCommand, conflictBriefCommand, guideCommand, mcp, ticketKey, conflictRepo } = input;
+  const baked = ticketKey !== undefined && conflictRepo !== undefined;
+  const args = baked ? entryArguments(ticketKey, conflictRepo) : '<key> <repo>';
   const grammarParagraph =
-    '`$ARGUMENTS` is `<key> <repo>`: the first whitespace-delimited token is `<key>` (a ticket key or `T<n>` id) and the rest of the line is `<repo>` — ONE argument, even when the path contains a space (such a path arrives double-quoted). ' +
+    (baked
+      ? `This session resolves the merge conflict of repository \`${conflictRepo}\` on ticket \`${ticketKey}\`. `
+      : '`$ARGUMENTS` is `<key> <repo>`: the first whitespace-delimited token is `<key>` (a ticket key or `T<n>` id) and the rest of the line is `<repo>` — ONE argument, even when the path contains a space (such a path arrives double-quoted). ') +
     (mcp
-      ? `Call the karst MCP tool \`conflict-brief\` with { key: "<key>", repo: "<repo>" } FIRST (if the tool is not available, run \`${conflictBriefCommand} <key> <repo>\`)`
-      : `Run \`${conflictBriefCommand} <key> <repo>\` FIRST`) +
+      ? `Call the karst MCP tool \`conflict-brief\` with { key: "${baked ? ticketKey : '<key>'}", repo: "${baked ? conflictRepo : '<repo>'}" } FIRST (if the tool is not available, run \`${conflictBriefCommand} ${args}\`)`
+      : `Run \`${conflictBriefCommand} ${args}\` FIRST`) +
     ' — resolving the named conflict is the ' +
     'whole job and it must not drift into other work.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -364,8 +390,15 @@ export function renderWorkflowCommand(input: {
    * MCP tool first and keep the CLI line as fallback. Absent → CLI-only, byte-identical.
    */
   mcp?: boolean;
+  /**
+   * The concrete ticket key baked in where `$ARGUMENTS` would stand. `$ARGUMENTS`
+   * expands to the whole kickoff (ticket narrative included) at every
+   * occurrence, so a launch that knows the key passes it. Absent → `$ARGUMENTS`.
+   */
+  ticketKey?: string;
 }): string {
-  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand, mcp } = input;
+  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand, mcp, ticketKey } = input;
+  const arg = ticketKey ?? '$ARGUMENTS';
   // Every CLI command this body inlines shares the same `node "<cli>"` head. Emit
   // that shared invocation ONCE as the `KARST` alias at the top of the body, then
   // write the informational steps (context load, guide, phase-enter markers) as
@@ -397,16 +430,19 @@ export function renderWorkflowCommand(input: {
       ]
     : [];
   const loadStep = mcp
-    ? ': call the karst MCP tool `context` with { key: "$ARGUMENTS", format: "md" } ' +
-      `(if the tool is not available, run \`${contextCommand ? expand(contextCommand) : ''} $ARGUMENTS\`)`
-    : ` by running \`${contextCommand ? expand(contextCommand) : ''} $ARGUMENTS\``;
+    ? `: call the karst MCP tool \`context\` with { key: "${arg}", format: "md" } ` +
+      `(if the tool is not available, run \`${contextCommand ? expand(contextCommand) : ''} ${arg}\`)`
+    : ` by running \`${contextCommand ? expand(contextCommand) : ''} ${arg}\``;
+  const ticketIntro = ticketKey
+    ? `This session works ticket \`${ticketKey}\`. `
+    : `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. `;
   const loadInstruction = contextCommand
-    ? `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
+    ? ticketIntro +
       `First, load the ticket's full context${loadStep} ` +
       'and read the result — re-run it any time you need to refresh live worktree, ' +
       'branch, service, or PR state.'
-    : `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
-      'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
+    : ticketIntro +
+      `First, read and describe the ticket identified by \`${arg}\` so you understand ` +
       'what is being asked before proceeding.';
   const guideClause = guideCommand
     ? mcp
@@ -446,8 +482,8 @@ export function renderWorkflowCommand(input: {
     if (phaseCommand) {
       parts.push(
         mcp
-          ? `First call the karst MCP tool \`phase\` with { name: "${phase.name}" } (if the tool is not available, run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\`) to report entering it.`
-          : `First run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\` to report entering it.`,
+          ? `First call the karst MCP tool \`phase\` with { name: "${phase.name}" } (if the tool is not available, run \`${expand(phaseCommand(phase.name))} ${arg}\`) to report entering it.`
+          : `First run \`${expand(phaseCommand(phase.name))} ${arg}\` to report entering it.`,
       );
     }
     if (phase.command !== undefined) parts.push(`Run the \`${phase.command}\` slash command.`);
@@ -461,7 +497,7 @@ export function renderWorkflowCommand(input: {
   // marker is run in. The phase-enter markers above are informational and may use
   // `$KARST`; this closing instruction never does.
   if (stageCommand) {
-    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS', mcp ? 'impl' : undefined));
+    lines.push('', renderDoneMarkerInstruction(stageCommand, arg, mcp ? 'impl' : undefined));
   }
   return lines.join('\n');
 }

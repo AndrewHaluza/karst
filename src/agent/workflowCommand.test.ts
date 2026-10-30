@@ -537,3 +537,53 @@ describe('MCP-first command bodies', () => {
     expect(body).not.toContain('MCP');
   });
 });
+
+describe('baked ticket key (no $ARGUMENTS)', () => {
+  const KEY = 'ABC-12';
+  const ctx = 'node "/cli.js" context --db /d --manifest /m';
+  const base = { contextCommand: ctx, guideCommand: 'node "/cli.js" guide' };
+  const rendered = (mcp: boolean): Record<string, string> => ({
+    start: renderStartTaskCommand({ ...base, mcp, ticketKey: KEY }),
+    resume: renderResumeCommand({ ...base, mcp, ticketKey: KEY }),
+    fix: renderFixCommand({ ...base, mcp, ticketKey: KEY, fixBriefCommand: 'node "/cli.js" fix-brief' }),
+    conflict: renderResolveConflictCommand({
+      ...base,
+      mcp,
+      ticketKey: KEY,
+      conflictRepo: '/my repos/app',
+      conflictBriefCommand: 'node "/cli.js" conflict-brief',
+    }),
+    workflow: renderWorkflowCommand({
+      id: 'x',
+      label: 'X',
+      phases: [{ name: 'research' } as WorkflowPhase],
+      contextCommand: ctx,
+      stageCommand: 'node "/cli.js" stage impl pass --ticket',
+      phaseCommand: (n) => `node "/cli.js" phase ${n} --ticket`,
+      mcp,
+      ticketKey: KEY,
+    }),
+  });
+
+  it.each([false, true])('never emits $ARGUMENTS (mcp=%s)', (mcp) => {
+    for (const [name, body] of Object.entries(rendered(mcp))) {
+      expect(body, name).not.toContain('$ARGUMENTS');
+      expect(body, name).toContain(KEY);
+    }
+  });
+
+  it('ends every context/phase/stage command line with only the key', () => {
+    const { workflow } = rendered(false);
+    expect(workflow).toContain(`context --db /d --manifest /m ${KEY}\``);
+    expect(workflow).toContain(`phase research --ticket ${KEY}\``);
+    expect(workflow).toContain(`stage impl pass --ticket ${KEY}\``);
+  });
+
+  it('bakes the repo as one quoted value for resolve-conflict', () => {
+    expect(rendered(false)['conflict']).toContain(`conflict-brief ${KEY} "/my repos/app"\` FIRST`);
+  });
+
+  it('keeps $ARGUMENTS when no key is known', () => {
+    expect(renderStartTaskCommand(base)).toContain('$ARGUMENTS');
+  });
+});
