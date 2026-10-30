@@ -83,6 +83,8 @@ function actions(): DashboardActions {
     baselineReject: vi.fn(),
     testerSkippedRerun: vi.fn(),
     testerSkippedAccept: vi.fn(),
+    pushDivergedOverwrite: vi.fn(),
+    pushDivergedIntegrate: vi.fn(),
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
     changeBaseRef: vi.fn(),

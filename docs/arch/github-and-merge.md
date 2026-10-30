@@ -85,7 +85,7 @@ sequenceDiagram
 | Ship tail loses `awaiting-merge` block write | `settleShipGate` detects passed `ship_runs` without active run | Automatically repairs lost `awaiting-merge` block on next sweep tick. |
 
 ### Rules
-@arch:GH-02 · @arch:GH-03 · @arch:GH-04 · @arch:GH-05 · @arch:GH-06 · @arch:GH-07
+@arch:GH-02 · @arch:GH-03 · @arch:GH-04 · @arch:GH-05 · @arch:GH-06 · @arch:GH-07 · @arch:GH-08
 END_DOC_BLOCK: [@arch:GH-00]
 
 ## [@arch:GH-02] A merge probe's file list is PARSED output, and the format is not what it looks like
@@ -126,3 +126,9 @@ covers: src/ui/worktreePath.ts#repoDisplayPath, src/ui/worktreePath.ts#PathConte
 
 Any path the ship stage prints goes through `repoDisplayPath` + `PathContext` (the manifest's `worktreePathDisplay`) — the PR panel rows (`PrView.repoDisplay`, set in dashboard `state.ts`) and the ship strip (`ShipPrView.repoDisplay`). One preference, one formatter; never a second local format.
 END_DOC_BLOCK: [@arch:GH-07]
+
+## [@arch:GH-08] A rejected ship push is classified against origin, never blindly forced
+covers: src/workflow/stages/shipPushRecovery.ts#classifyRejectedPush, src/store/shipRuns.ts#lastPushedHead
+
+Ship pushes plainly unless a lease was armed by a karst-owned rewrite (`takeForcePushLease`). An agent's own reset/rebase arms nothing, so its plain push is rejected non-fast-forward. Only that rejection (a leased push that fails keeps today's path) fetches `origin/<ref>` and classifies: (a) origin equals the HEAD karst itself last pushed for this ticket+repo (`lastPushedHead`: newest landed `push` intent) -> one retry under `--force-with-lease=<ref>:<that SHA>`; (b) origin carries commits the local HEAD lacks -> ship parks `push-diverged` (@arch:BLOCKED) with `<repo>: origin/<ref> is at <sha>` plus one `<short sha> <subject>` line per foreign commit, and pushes nothing; (c) origin unreadable -> the push fails as before and the error ends with the exact `git push --force-with-lease=<ref>:<sha> origin HEAD`. A lease's expected SHA is only ever a value karst observed (its own recorded push, or the freshly fetched tracking ref) — never typed or inferred. The block's one dashboard button, Fix push, opens Overwrite remote (arms the lease for that repo, clears the block, re-runs ship; the push builds the lease from the origin SHA it probes) or Integrate (`sendBackToImplement` with "merge origin/<ref> into the branch, then mark done"); both live in `extension/ops/pushDivergedOps.ts`.
+END_DOC_BLOCK: [@arch:GH-08]

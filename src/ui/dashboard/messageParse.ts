@@ -270,6 +270,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'tester-skipped-rerun' };
     case 'tester-skipped-accept':
       return { type: 'tester-skipped-accept' };
+    case 'push-diverged-overwrite':
+      return { type: 'push-diverged-overwrite' };
+    case 'push-diverged-integrate':
+      return { type: 'push-diverged-integrate' };
     case 'baseline-reject': {
       if (m.blockId !== BASELINE_BLOCK_ID) return null;
       if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;

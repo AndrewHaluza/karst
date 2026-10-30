@@ -1,4 +1,5 @@
 import { makeTesterSkipActions } from './ops/testerSkipOps.js';
+import { makePushDivergedActions } from './ops/pushDivergedOps.js';
 import { makeBaselineActions } from './ops/baselineDecisionOps.js';
 import { reviewStallBinding } from './reviewStallBinding.js';
 import { type DriverController } from '../workflow/driverController.js';
@@ -526,6 +527,11 @@ export function makeDashboardActions(
     // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
     // all validation and effects live in ops/baselineDecisionOps.ts.
     ...makeTesterSkipActions({ store, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
+    ...makePushDivergedActions({
+      store, ticketId, notify: vscodeNotify, debug,
+      runShip: (id) => void runShipSaga(id).catch((e) => logError('push-diverged overwrite: ship failed', e)),
+      redrive: driveAfterResume, refresh: afterServerChange,
+    }),
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     ...usageLimitParks,
     // Open one artifact resource in a normal VS Code editor — the deliberate

@@ -126,7 +126,9 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
         row.blockedKind !== 'usage-limit' &&
         // A review stall (T845) is answered by Redesign hint / Continue anyway /
         // Re-scope; a generic Resume would re-open the fix loop that was stopped.
-        row.blockedKind !== 'review-stalled',
+        row.blockedKind !== 'review-stalled' &&
+        // Foreign commits on origin: Fix push (Overwrite / Integrate) answers it.
+        row.blockedKind !== 'push-diverged',
     },
   };
 }

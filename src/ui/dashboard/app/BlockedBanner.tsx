@@ -22,7 +22,7 @@
  * The key they carry is `data-stagekey`, NOT `data-stage`: the vanilla delegator selects a stage on any
  * `[data-stage]` ancestor, so these buttons must never also re-point the Inside panel.
  */
-import { memo, useCallback, useLayoutEffect } from 'react';
+import { memo, useCallback, useLayoutEffect, useState } from 'react';
 import type { BaselineReviewRow } from '../baselineRows.js';
 import { BaselineReview, useBaselineDrafts, type BaselineDrafts } from './BaselineReview.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
@@ -49,7 +49,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
   const blocked = cell?.blocked;
   if (!s || !cell || !blocked) return null;
   const review = blocked.kind === 'baseline-review';
-  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped')) return null;
+  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped' || blocked.kind === 'push-diverged')) return null;
   return {
     ticketId: s.ticketId,
     stageKey: cell.stageKey,
@@ -118,6 +118,62 @@ function StallActions({ ticketId, stageKey }: ActionProps) {
 
 /** The reason `stages/uat.ts` parks with: `tester observed nothing — <detail>`. */
 const SKIP_REASON_PREFIX = 'tester observed nothing — ';
+
+/** Reason lines after the header are `<sha> <subject>`, one foreign commit each. */
+function PushDivergedActions({ stageKey, reason }: ActionProps & { readonly reason: string }) {
+  const send = useDashboardSend();
+  const [choosing, setChoosing] = useState(false);
+  const onOverwrite = usePendingAction(useCallback((requestId: string) => send.pushDivergedOverwrite(requestId), [send]));
+  const onIntegrate = usePendingAction(useCallback((requestId: string) => send.pushDivergedIntegrate(requestId), [send]));
+  const commits = reason.split('\n').slice(1).filter((l) => l.trim() !== '');
+  if (!choosing) {
+    return (
+      <div className="facts">
+        <button
+          type="button"
+          className="k-btn k-btn--primary k-btn--sm"
+          data-act="push-diverged-fix"
+          data-stagekey={stageKey}
+          title="Choose how to reconcile the branch with origin"
+          onClick={() => setChoosing(true)}
+        >
+          Fix push
+        </button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <ul className="facts" data-role="foreign-commits">
+        {commits.map((c) => (
+          <li key={c}>{c}</li>
+        ))}
+      </ul>
+      <div className="facts">
+        <button
+          type="button"
+          className="k-btn k-btn--secondary k-btn--sm"
+          data-act="push-diverged-overwrite"
+          data-stagekey={stageKey}
+          title="Replace origin's branch with this one (guarded by a lease on the commit shown)"
+          onClick={onOverwrite}
+        >
+          Overwrite remote
+        </button>
+        <button
+          type="button"
+          className="k-btn k-btn--primary k-btn--sm"
+          data-act="push-diverged-integrate"
+          data-stagekey={stageKey}
+          title="Send the ticket back to Implement to merge origin into the branch"
+          onClick={onIntegrate}
+        >
+          Integrate
+        </button>
+      </div>
+    </>
+  );
+}
 
 function TesterSkippedActions({ stageKey }: ActionProps) {
   const send = useDashboardSend();
@@ -215,6 +271,14 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
       <>
         <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
         <StallActions ticketId={ticketId} stageKey={stageKey} />
+      </>
+    );
+  }
+  if (kind === 'push-diverged') {
+    return (
+      <>
+        <Head title="Push rejected" reason={reason.split('\n')[0] ?? reason} />
+        <PushDivergedActions ticketId={ticketId} stageKey={stageKey} reason={reason} />
       </>
     );
   }

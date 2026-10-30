@@ -159,6 +159,10 @@ export function routeAction(
       return actions.testerSkippedRerun();
     case 'tester-skipped-accept':
       return actions.testerSkippedAccept();
+    case 'push-diverged-overwrite':
+      return actions.pushDivergedOverwrite();
+    case 'push-diverged-integrate':
+      return actions.pushDivergedIntegrate();
     case 'baseline-reject':
       return actions.baselineReject(msg.blockId, msg.index, msg.reason);
     case 'stage-log-request':

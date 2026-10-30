@@ -409,3 +409,28 @@ describe('BlockedBanner — tester skipped (T861)', () => {
     expect(h.send.stageResume).not.toHaveBeenCalled();
   });
 });
+
+describe('BlockedBanner — push diverged', () => {
+  const diverged = () =>
+    blockedState(
+      block('push-diverged', {
+        resumable: false,
+        reason: '/repo/fe: origin/karst/x is at ' + 'c'.repeat(40) + ' with 1 commit(s) not in the branch:\nabc1234 fix: theirs',
+      }),
+    );
+
+  it('offers only Fix push at first, with no Resume', () => {
+    mountRail(diverged());
+    expect(all<HTMLButtonElement>('#blocked .facts button').map((b) => b.textContent)).toEqual(['Fix push']);
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+  });
+
+  it('Fix push reveals the foreign commits and the two choices', () => {
+    const h = mountRail(diverged());
+    fireEvent.click(btn('push-diverged-fix'));
+    expect(text('[data-role="foreign-commits"]')).toBe('abc1234 fix: theirs');
+    expect(all<HTMLButtonElement>('#blocked button').map((b) => b.textContent)).toEqual(['Overwrite remote', 'Integrate']);
+    fireEvent.click(btn('push-diverged-overwrite'));
+    expect(h.send.pushDivergedOverwrite).toHaveBeenCalledWith('req-1');
+  });
+});
