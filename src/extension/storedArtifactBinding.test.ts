@@ -84,9 +84,18 @@ describe('createStoredArtifactBinding', () => {
     const refresh = vi.fn();
     expect(b.forTicket(9, refresh)).toBe('actions');
     const arg = (ops.makeStoredArtifactActionsForTicket.mock.calls as unknown as [Record<string, unknown>][])[0]![0] as {
-      ui: { openFile(p: string): Promise<void>; reveal(p: string): Promise<void>; confirm(m: string): Promise<boolean> };
+      ui: { showPreview(t: string, x: string): Promise<void>; showDiff(t: string, l: { title: string; text: string }, r: { title: string; text: string }): Promise<void>; openFile(p: string): Promise<void>; reveal(p: string): Promise<void>; confirm(m: string): Promise<boolean> };
     } & Record<string, unknown>;
     expect(arg).toMatchObject({ registry: deps.registry, artifactsRoot: '/a', fallbackProjectId: 4, notify: deps.notify, ticketId: 9, refresh });
+    await arg.ui.showPreview('p.md', '# P');
+    const previewUri = v.uriFrom.mock.results[0]!.value;
+    expect(v.executeCommand).toHaveBeenLastCalledWith('markdown.showPreview', previewUri);
+    expect(v.state.provider!.provideTextDocumentContent(previewUri)).toBe('# P');
+    await arg.ui.showDiff('a ↔ b', { title: 'a', text: 'L' }, { title: 'b', text: 'R' });
+    const [left, right] = [v.uriFrom.mock.results[1]!.value, v.uriFrom.mock.results[2]!.value];
+    expect(v.executeCommand).toHaveBeenLastCalledWith('vscode.diff', left, right, 'a ↔ b');
+    expect(v.state.provider!.provideTextDocumentContent(left)).toBe('L');
+    expect(v.state.provider!.provideTextDocumentContent(right)).toBe('R');
     await arg.ui.openFile('/f');
     expect(v.openTextDocument).toHaveBeenCalledWith({ file: '/f' });
     expect(v.showTextDocument).toHaveBeenCalledWith({ u: { file: '/f' } }, { preview: true });

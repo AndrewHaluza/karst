@@ -376,6 +376,14 @@ const KINDS: Record<ArtifactKind, { stage: ArtifactStage; title: string }> = {
   'ship-summary': { stage: 'ship', title: 'PR summary' },
 };
 
+/** The semantic artifact kind a free-form Karst-Kind trailer names, or null (a captured file of any other kind). */
+export function semanticKind(kind: string | undefined): ArtifactKind | null {
+  return kind !== undefined && Object.hasOwn(KINDS, kind) ? (kind as ArtifactKind) : null;
+}
+
+/** The stage a semantic kind belongs to. */
+export const stageOfKind = (kind: ArtifactKind): ArtifactStage => KINDS[kind].stage;
+
 /**
  * Semantic preview priority (spec §5): the three previews represent the most
  * useful current outputs, stably ordered. Active tickets lead with the plan

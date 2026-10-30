@@ -1,4 +1,5 @@
 import type { ArtifactStore, RevisionInfo } from '../../artifacts/store.js';
+import { semanticKind, stageOfKind, type ArtifactKind, type ArtifactStage } from '../../model/artifacts.js';
 
 /**
  * The dashboard's Artifacts view model: what the T2 store holds for one ticket,
@@ -8,12 +9,36 @@ import type { ArtifactStore, RevisionInfo } from '../../artifacts/store.js';
 
 export const UNKNOWN_LABEL = 'unknown';
 
+/** A captured file whose stage no rule resolves; the index shows it last, under its own group. */
+export const UNASSIGNED = 'unassigned';
+export type StoredStage = ArtifactStage | typeof UNASSIGNED;
+
+const STAGES: readonly ArtifactStage[] = ['impl', 'uat', 'review', 'ship'];
+const asStage = (v: string | undefined): ArtifactStage | null => (STAGES as readonly string[]).includes(v ?? '') ? (v as ArtifactStage) : null;
+
+/**
+ * The stage a captured file belongs to: the newest revision's Karst-Stage, else the stage its approach is bound to,
+ * else the stage of its Karst-Kind, else Unassigned. Files captured from the graph (source=graph) are Implement.
+ */
+export function resolveStage(trailers: Record<string, string>, approachStage: (approach: string) => ArtifactStage | null): StoredStage {
+  const own = asStage(trailers.stage);
+  if (own) return own;
+  if (trailers.source === 'graph') return 'impl';
+  const bound = trailers.approach ? approachStage(trailers.approach) : null;
+  if (bound) return bound;
+  const kind = semanticKind(trailers.kind);
+  return kind ? stageOfKind(kind) : UNASSIGNED;
+}
+
 export interface StoredArtifactRow {
   /** `<repo>/<relPath>` — the store key every action carries back. */
   path: string;
   repo: string;
   relPath: string;
   kind: string;
+  /** The semantic artifact this file folds into (same Karst-Kind), or null for an ordinary index row. */
+  artifactKind: ArtifactKind | null;
+  stage: StoredStage;
   approach: string;
   source: string;
   revisions: number;
@@ -51,6 +76,7 @@ export async function buildStoredArtifacts(
   store: StoreReader,
   ticketId: number,
   globs: readonly string[],
+  approachStage: (approach: string) => ArtifactStage | null = () => null,
 ): Promise<StoredArtifactsView> {
   const [summaries, skips] = await Promise.all([store.listArtifacts(ticketId), store.listSkips(ticketId)]);
   const rows: StoredArtifactRow[] = [];
@@ -63,6 +89,8 @@ export async function buildStoredArtifacts(
       repo: slash === -1 ? s.path : s.path.slice(0, slash),
       relPath: slash === -1 ? '' : s.path.slice(slash + 1),
       kind: latest?.trailers.kind || UNKNOWN_LABEL,
+      artifactKind: semanticKind(latest?.trailers.kind),
+      stage: resolveStage(latest?.trailers ?? {}, approachStage),
       approach: latest?.trailers.approach || UNKNOWN_LABEL,
       source: latest?.trailers.source || UNKNOWN_LABEL,
       revisions: s.revisions,
