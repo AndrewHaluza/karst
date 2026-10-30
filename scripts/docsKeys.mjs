@@ -18,13 +18,19 @@ const OPEN = /^## \[@([^\]]+)\] (.*)$/;
 const END = /^END_DOC_BLOCK: \[@([^\]]+)\]\s*$/;
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const HEADER = /^<!-- AGENT INSTRUCTIONS:[\s\S]*?-->/;
-// Cross-references to a keyed block. Only the `arch` and `issue` namespaces are
-// linted here; the other namespaces (`ui:`, `core:`, `gloss:`, `ts:`, …) are a
-// separate concern. `KEY` is the docs' own metavariable for "any key" (see
-// `docs/arch/cli.md`), so it is never a real reference.
-const REF_NS = 'arch|issue';
-const BARE_REF = new RegExp(`@(${REF_NS}):([A-Za-z0-9_-]+)`, 'g');
-const QUALIFIED_REF = new RegExp(`([A-Za-z0-9_./-]+\\.md)#@(${REF_NS}):([A-Za-z0-9_-]+)`, 'g');
+// Cross-references to a keyed block (`@ns:ID` or `path.md#@ns:ID`). Every
+// namespace some doc defines is linted; an `@word:token` in any other namespace
+// (`@ns:ID` in prose, `@types/…`) is not a reference. `KEY` is the docs' own
+// metavariable for "any key" (see `docs/arch/cli.md`), so it is never a real
+// reference.
+const REF_ID = '[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*';
+const refPatterns = (namespaces) => {
+  const ns = [...namespaces].map(escapeRe).join('|');
+  return {
+    bare: new RegExp(`@(${ns}):(${REF_ID})`, 'g'),
+    qualified: new RegExp(`([A-Za-z0-9_./-]+\\.md)#@(${ns}):(${REF_ID})`, 'g'),
+  };
+};
 const PLACEHOLDER_IDS = new Set(['KEY']);
 
 // The -00 overview block of every `docs/arch` file uses a fixed prefix, so a
@@ -294,7 +300,8 @@ export function keyIndex(docs) {
 }
 
 /**
- * Lint `@arch:`/`@issue:` cross-references in `sources` against `index`. A bare
+ * Lint `@ns:ID` cross-references in `sources` against `index`, for every
+ * namespace `index` defines. A bare
  * reference must resolve to exactly one defining doc; `path#@ns:KEY` must
  * resolve to the doc it names (a leading `./` is accepted). A block's definition
  * marker and the per-file AGENT INSTRUCTIONS header are not references, though a
@@ -303,6 +310,9 @@ export function keyIndex(docs) {
  */
 export function lintRefs(sources, index) {
   const out = [];
+  const namespaces = new Set([...index.keys()].map((k) => k.slice(0, k.indexOf(':'))));
+  if (!namespaces.size) return out;
+  const { bare, qualified: qualifiedRe } = refPatterns(namespaces);
   for (const s of sources) {
     const lines = s.text.split(/\r?\n/);
     let fence = null;
@@ -329,7 +339,7 @@ export function lintRefs(sources, index) {
       const open = OPEN.exec(line);
       if (open) scan = ' '.repeat(line.length - open[2].length) + open[2];
       if (END.test(line)) scan = ' '.repeat(line.length);
-      const qualified = [...scan.matchAll(QUALIFIED_REF)];
+      const qualified = [...scan.matchAll(qualifiedRe)];
       for (const m of qualified) {
         const [, path, ns, id] = m;
         if (PLACEHOLDER_IDS.has(id)) continue;
@@ -338,7 +348,7 @@ export function lintRefs(sources, index) {
         }
       }
       const spans = qualified.map((m) => [m.index, m.index + m[0].length]);
-      for (const m of scan.matchAll(BARE_REF)) {
+      for (const m of scan.matchAll(bare)) {
         if (spans.some(([a, b]) => m.index >= a && m.index < b)) continue;
         const [, ns, id] = m;
         if (PLACEHOLDER_IDS.has(id)) continue;
@@ -368,7 +378,7 @@ export function collectDocs(dir = DOCS_DIR, skipDirs = SKIP_DIRS) {
 }
 
 /**
- * The TypeScript sources a `@arch:`/`@issue:` reference may live in. Test files
+ * The TypeScript sources a `@ns:ID` reference may live in. Test files
  * are excluded: their fixtures assert the runtime's handling of keys that are
  * deliberately unknown, which are not doc references to resolve.
  */
@@ -386,13 +396,15 @@ function collectSrc(dir = SRC_DIR) {
 }
 
 /**
- * Everything the reference lint reads: every doc under `docs/` plus `src/`.
+ * Everything the reference lint reads: every doc under `docs/`, `src/`, and the
+ * root `CLAUDE.md` (the entry point that links into the docs).
  * This deliberately covers `plans/` and `superpowers/`, which the FORMAT lint
  * and the index skip — working notes do not follow the keyed-block format, but
  * a reference written in one still has to resolve.
  */
 export function collectRefSources() {
-  return [...collectDocs(DOCS_DIR, new Set()), ...collectSrc()];
+  const claudeMd = { path: 'CLAUDE.md', text: readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8') };
+  return [...collectDocs(DOCS_DIR, new Set()), ...collectSrc(), claudeMd];
 }
 
 function escapeRe(s) {

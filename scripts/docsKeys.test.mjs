@@ -168,6 +168,25 @@ describe('lintRefs', () => {
     const errs = lintRefs([src('docs/plans/2026-01-01-x.md', 'see @arch:NOPE')], index);
     expect(errs.join()).toMatch(/unresolved reference @arch:NOPE/);
   });
+
+  it('checks references in every namespace a doc defines, not only arch and issue', () => {
+    const index = keyIndex([doc('docs/ui/a.md', block('ui:U-01')), doc('docs/glossary.md', block('gloss:GL-01'))]);
+    const errs = lintRefs([src('docs/x.md', 'see @ui:U-01, @ui:NOPE and @gloss:GL-99')], index);
+    expect(errs).toEqual([
+      'docs/x.md:1: unresolved reference @ui:NOPE',
+      'docs/x.md:1: unresolved reference @gloss:GL-99',
+    ]);
+  });
+
+  it('accepts a key with dotted parts, and does not take a trailing period as part of it', () => {
+    const index = keyIndex([doc('docs/ui/d.md', block('ui:12.7'))]);
+    expect(lintRefs([src('docs/x.md', 'see @ui:12.7, and @ui:12.7.')], index)).toEqual([]);
+  });
+
+  it('ignores an @word:token whose namespace no doc defines', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    expect(lintRefs([src('docs/x.md', 'see `@ns:ID` and npm:@types/node@1')], index)).toEqual([]);
+  });
 });
 
 describe('collectRefSources', () => {
@@ -176,6 +195,10 @@ describe('collectRefSources', () => {
     expect(paths.some((p) => p.startsWith('docs/plans/'))).toBe(true);
     expect(paths.some((p) => p.startsWith('docs/superpowers/'))).toBe(true);
     expect(paths.some((p) => p.startsWith('src/'))).toBe(true);
+  });
+
+  it('covers the root CLAUDE.md, the entry point into the docs', () => {
+    expect(collectRefSources().map((s) => s.path)).toContain('CLAUDE.md');
   });
 });
 
