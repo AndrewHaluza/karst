@@ -628,7 +628,9 @@ uat:
   # every observation at or above it fails UAT with one Tester-attributed Fix
   # round ("uat tester observations: 1 high"). Same vocabulary as
   # `review.findings.blockingSeverity`: critical | high | medium | low | info | none.
-  testerObservations: { blockingSeverity: none }
+  # `onSkip` decides a run that observed nothing (coverage SKIPPED / NOT RUN, 0 observations):
+  # pass (shown as skipped) | reask (one re-ask, then pass) | reask-then-park (then ask me).
+  testerObservations: { blockingSeverity: none, onSkip: pass }
   # WIRED, manifest-only. The FRESH-token budget ONE Tester target may spend
   # before the lane stops the call and re-asks once for whatever the agent had
   # already observed. A run the budget stops records its findings as PARTIAL

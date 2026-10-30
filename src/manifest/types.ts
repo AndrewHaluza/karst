@@ -700,6 +700,13 @@ export interface UatTesterObservationsConfig {
    * Tester-attributed recovery round, exactly like the review lane's R6.
    */
   blockingSeverity: Severity | 'none';
+  /**
+   * What a Tester run that observed nothing (coverage SKIPPED / NOT RUN, no
+   * observation) does. Absent → `'pass'` (shown as skipped, UAT continues —
+   * today's behavior). `'reask'` asks once more, then passes; `'reask-then-park'`
+   * asks once more, then parks UAT `blocked:tester-skipped` for the user.
+   */
+  onSkip?: 'pass' | 'reask' | 'reask-then-park';
 }
 
 /**

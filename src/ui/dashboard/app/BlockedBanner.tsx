@@ -49,7 +49,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
   const blocked = cell?.blocked;
   if (!s || !cell || !blocked) return null;
   const review = blocked.kind === 'baseline-review';
-  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled')) return null;
+  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped')) return null;
   return {
     ticketId: s.ticketId,
     stageKey: cell.stageKey,
@@ -111,6 +111,39 @@ function StallActions({ ticketId, stageKey }: ActionProps) {
       </button>
       <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="review-stall-rescope" data-stagekey={stageKey} onClick={onRescope}>
         Re-scope
+      </button>
+    </div>
+  );
+}
+
+/** The reason `stages/uat.ts` parks with: `tester observed nothing — <detail>`. */
+const SKIP_REASON_PREFIX = 'tester observed nothing — ';
+
+function TesterSkippedActions({ stageKey }: ActionProps) {
+  const send = useDashboardSend();
+  const onRerun = usePendingAction(useCallback((requestId: string) => send.testerSkippedRerun(requestId), [send]));
+  const onAccept = usePendingAction(useCallback((requestId: string) => send.testerSkippedAccept(requestId), [send]));
+  return (
+    <div className="facts">
+      <button
+        type="button"
+        className="k-btn k-btn--primary k-btn--sm"
+        data-act="tester-skipped-rerun"
+        data-stagekey={stageKey}
+        title="Run the Tester again; the gates are not re-run"
+        onClick={onRerun}
+      >
+        Re-run tester
+      </button>
+      <button
+        type="button"
+        className="k-btn k-btn--secondary k-btn--sm"
+        data-act="tester-skipped-accept"
+        data-stagekey={stageKey}
+        title="Finish UAT as passed without a tester observation"
+        onClick={onAccept}
+      >
+        Accept skip
       </button>
     </div>
   );
@@ -182,6 +215,15 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
       <>
         <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
         <StallActions ticketId={ticketId} stageKey={stageKey} />
+      </>
+    );
+  }
+  if (kind === 'tester-skipped') {
+    const detail = reason.startsWith(SKIP_REASON_PREFIX) ? reason.slice(SKIP_REASON_PREFIX.length) : reason;
+    return (
+      <>
+        <Head title="Tester skipped" reason={`The UAT tester observed nothing: ${detail}`} />
+        <TesterSkippedActions ticketId={ticketId} stageKey={stageKey} />
       </>
     );
   }

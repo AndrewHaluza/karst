@@ -190,6 +190,8 @@ export function createSender(api: WebviewApi) {
       indices: Msg<'baseline-approve'>['indices'],
       requestId?: string,
     ) => send({ type: 'baseline-approve', blockId, indices }, requestId),
+    testerSkippedRerun: (requestId?: string) => send({ type: 'tester-skipped-rerun' }, requestId),
+    testerSkippedAccept: (requestId?: string) => send({ type: 'tester-skipped-accept' }, requestId),
     baselineReject: (
       blockId: Msg<'baseline-reject'>['blockId'],
       index: Msg<'baseline-reject'>['index'],

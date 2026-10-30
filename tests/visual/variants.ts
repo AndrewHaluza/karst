@@ -118,7 +118,7 @@ function dashboardScenario(
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.aliasOf === undefined).map((c) =>
-    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state())),
+    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), c.skipLayout ? { skipLayout: true } : undefined),
   );
 
 const dashboardVariants = (): Variant[] => [

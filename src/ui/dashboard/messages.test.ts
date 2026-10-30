@@ -81,6 +81,8 @@ function actions(): DashboardActions {
     revealStoredFolder: vi.fn(),
     purgeStoredArtifacts: vi.fn(),
     baselineReject: vi.fn(),
+    testerSkippedRerun: vi.fn(),
+    testerSkippedAccept: vi.fn(),
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
     changeBaseRef: vi.fn(),

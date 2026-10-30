@@ -487,6 +487,35 @@ uat:
     }
   });
 
+  describe('uat.testerObservations.onSkip (T861)', () => {
+    const read = (onSkip: string | null) => {
+      const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  testerObservations:
+    blockingSeverity: none
+${onSkip === null ? '' : `    onSkip: ${onSkip}\n`}`;
+      const { path, cleanup } = fixture(yaml);
+      try {
+        return loadManifest(path).uat?.testerObservations;
+      } finally {
+        cleanup();
+      }
+    };
+
+    it.each(['pass', 'reask', 'reask-then-park'])('accepts %s', (value) => {
+      expect(read(value)?.onSkip).toBe(value);
+    });
+
+    it('leaves onSkip absent (= pass) when omitted', () => {
+      expect(read(null)).toEqual({ blockingSeverity: 'none' });
+    });
+
+    it('rejects any other value with the documented text', () => {
+      expect(() => read('park')).toThrow('uat.testerObservations.onSkip must be one of: pass, reask, reask-then-park');
+    });
+  });
+
   it('defaults uat.testerObservations.blockingSeverity to none', () => {
     const yaml = `${VALID}
 uat:

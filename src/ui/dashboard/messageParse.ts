@@ -266,6 +266,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!indices.every((i) => Number.isInteger(i) && (i as number) >= 0)) return null;
       return { type: 'baseline-approve', blockId: BASELINE_BLOCK_ID, indices: indices as number[] };
     }
+    case 'tester-skipped-rerun':
+      return { type: 'tester-skipped-rerun' };
+    case 'tester-skipped-accept':
+      return { type: 'tester-skipped-accept' };
     case 'baseline-reject': {
       if (m.blockId !== BASELINE_BLOCK_ID) return null;
       if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;

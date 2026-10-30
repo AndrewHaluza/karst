@@ -35,6 +35,11 @@ import {
   completeFixExecution,
 } from '../../store/recoveryRounds.js';
 
+/** A clean answer: no observation, a PASS coverage row (a bare `[]` reads as a skipped run). */
+const PASS_COVERAGE_ANSWER = JSON.stringify([
+  { severity: 'info', title: 'COVERAGE (reported): PASS — checked the change', detail: '' },
+]);
+
 const now = () => '2026-07-30T10:00:00.000Z';
 
 function deps(over: Partial<UatDeps> = {}): UatDeps {
@@ -1248,7 +1253,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     deps({
       tester: {
         assignment: { agentName: 'UAT Agent', provider: 'claude' },
-        adapter: testerAgent('[]'),
+        adapter: testerAgent(PASS_COVERAGE_ANSWER),
       },
       ...over,
     });
@@ -1319,6 +1324,43 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listObservations(store, id)).toHaveLength(2);
   });
 
+  describe('a Tester that observed nothing (T861)', () => {
+    const run = (onSkip?: 'pass' | 'reask' | 'reask-then-park') =>
+      runUat(
+        store,
+        {
+          ticketId: id,
+          cwd: '/wt/web',
+          artifactDir,
+          manifest: manifest(
+            {},
+            { uat: uatConfig({ testerObservations: { blockingSeverity: 'none', ...(onSkip ? { onSkip } : {}) } }) },
+          ),
+        },
+        testerDeps({ tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: testerAgent('[]') } }),
+      );
+
+    it('absent onSkip passes and records result_kind skipped', async () => {
+      expect(await run()).toEqual({ kind: 'advanced', next: 'review' });
+      const kinds = store.db.prepare("SELECT result_kind, status FROM process_runs WHERE process_id = 'tester'").all();
+      expect(kinds).toEqual([{ result_kind: 'skipped', status: 'passed' }]);
+    });
+
+    it('reask-then-park + two skips parks tester-skipped: no fix round, no failed verdict', async () => {
+      const res = await run('reask-then-park');
+      expect(res).toMatchObject({ kind: 'blocked', blocker: 'tester-skipped' });
+      expect(res).toMatchObject({ reason: expect.stringMatching(/^tester observed nothing — /) });
+      expect(listRecoveryRounds(store, id)).toEqual([]);
+      expect(stageBlock(store, id, 'uat')?.kind).toBe('tester-skipped');
+      const runs = store.db.prepare("SELECT COUNT(*) AS n FROM process_runs WHERE process_id = 'tester'").get() as { n: number };
+      expect(runs.n).toBe(2);
+    });
+
+    it('reask then pass finishes UAT as passed', async () => {
+      expect(await run('reask')).toEqual({ kind: 'advanced', next: 'review' });
+    });
+  });
+
   it('passes uat when observations are advisory (threshold none)', async () => {
     const res = await runUat(
       store,
@@ -1348,7 +1390,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
   it('records a stopped Tester as partial, warns, and still passes uat on green gates', async () => {
     const warnings: string[] = [];
     const adapter: AgentAdapter = {
-      ...testerAgent('[]'),
+      ...testerAgent(PASS_COVERAGE_ANSWER),
       runHeadless: async () => {
         const err = new Error('headless agent run timed out after 3600000ms');
         err.name = 'TimeoutError';
@@ -1374,7 +1416,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
 
   it('a partial Tester run that recovered a blocking observation still fails uat (T663)', async () => {
     const adapter: AgentAdapter = {
-      ...testerAgent('[]'),
+      ...testerAgent(PASS_COVERAGE_ANSWER),
       runHeadless: async (opts) => {
         opts.onOutput?.({
           stream: 'stdout',
@@ -1445,7 +1487,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
         tester: {
           assignment: { agentName: 'UAT Agent', provider: 'claude' },
           adapter: {
-            ...testerAgent('[]'),
+            ...testerAgent(PASS_COVERAGE_ANSWER),
             runHeadless: async () => {
               throw new Error('adapter crashed');
             },
@@ -1472,7 +1514,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
         tester: {
           assignment: { agentName: 'UAT Agent', provider: 'claude' },
           adapter: {
-            ...testerAgent('[]'),
+            ...testerAgent(PASS_COVERAGE_ANSWER),
             runHeadless: async () => {
               throw limitErr;
             },
@@ -1499,7 +1541,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
   it('one unreadable target among others with observations does not park — observations still flow', async () => {
     let call = 0;
     const adapter: AgentAdapter = {
-      ...testerAgent('[]'),
+      ...testerAgent(PASS_COVERAGE_ANSWER),
       runHeadless: async () => {
         call += 1;
         // call 1: target 1's initial ask (prose). call 2: target 1's reformat
@@ -1552,12 +1594,12 @@ describe('runUat — Tester and verifier (Task 8)', () => {
   });
 
   it('does not run the Tester when the gates failed — no AI spend on a failed run', async () => {
-    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER }));
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       testerDeps({
-        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless } },
+        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless } },
         runGates: async (gates) => ({
           kind: 'ran',
           results: gates.map((g) => ({ name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now() })),
@@ -1579,7 +1621,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(assignment).toBeNull();
     // The disabled resolution injects ABSENCE — exactly what the host seam
     // collapses a null resolution into: no process bundle reaches the stage.
-    const tester = assignment === null ? undefined : { assignment, adapter: testerAgent('[]') };
+    const tester = assignment === null ? undefined : { assignment, adapter: testerAgent(PASS_COVERAGE_ANSWER) };
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
@@ -1769,17 +1811,17 @@ describe('runUat — Tester and verifier (Task 8)', () => {
   });
 
   it('threads the opened Tester process id into token attribution at the stage seam', async () => {
-    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER }));
     const seen: (unknown)[] = [];
     const spied = async (headlessOpts: { tracking?: unknown }) => {
       seen.push(headlessOpts.tracking);
-      return { sessionId: '', verdict: null, raw: '[]' };
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
     };
     await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       testerDeps({
-        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless: spied } },
+        tester: { assignment: { provider: 'claude' }, adapter: { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless: spied } },
       }),
     );
     const run = listProcessRuns(store, id)[0]!;
@@ -1800,9 +1842,9 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     let capturedPrompt: string | undefined;
     const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
       capturedPrompt = headlessOpts.prompt;
-      return { sessionId: '', verdict: null, raw: '[]' };
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
     });
-    const adapter: AgentAdapter = { ...testerAgent('[]'), runHeadless };
+    const adapter: AgentAdapter = { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless };
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
@@ -1836,9 +1878,9 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     let capturedPrompt: string | undefined;
     const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
       capturedPrompt = headlessOpts.prompt;
-      return { sessionId: '', verdict: null, raw: '[]' };
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
     });
-    const adapter: AgentAdapter = { ...testerAgent('[]'), runHeadless };
+    const adapter: AgentAdapter = { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless };
     const res = await runUat(
       store,
       {
@@ -1874,12 +1916,12 @@ describe('runUat — Tester and verifier (Task 8)', () => {
         "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'karst/x', 'develop', 'inherited')",
       )
       .run(id);
-    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER }));
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
       testerDeps({
-        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless } },
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless } },
         planTargets: async () => ({
           kind: 'targets',
           targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
@@ -1911,7 +1953,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
       },
       runHeadless: async (headlessOpts) => {
         captured.push(headlessOpts);
-        return { sessionId: '', verdict: null, raw: '[]' };
+        return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
       },
     };
     const res = await runUat(
@@ -2009,10 +2051,10 @@ describe('runUat — Tester and verifier (Task 8)', () => {
       reg();
       const runGates = vi.fn();
       const planTargets = vi.fn();
-      const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+      const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER });
       const res = await runUat(
         store,
-        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { uat: uatConfig({}) }), rerun: rerunOf({ ...testerAgent('[]'), runHeadless }) },
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { uat: uatConfig({}) }), rerun: rerunOf({ ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless }) },
         deps({ runGates, planTargets }),
       );
       expect(res).toEqual({ kind: 'advanced', next: 'review' });
@@ -2034,7 +2076,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
           cwd: '/wt/web',
           artifactDir,
           manifest: manifest({}, { uat: uatConfig({ baselineReview: { paths: ['b.png'] } }) }),
-          rerun: rerunOf({ ...testerAgent('[]'), runHeadless }),
+          rerun: rerunOf({ ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless }),
         },
         deps({ detectBaselines }),
       );
@@ -2054,7 +2096,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
           artifactDir,
           manifest: manifest({}, { uat: uatConfig({}) }),
           rerun: rerunOf(
-            { ...testerAgent('[]'), runHeadless: async () => { throw limitErr; } },
+            { ...testerAgent(PASS_COVERAGE_ANSWER), runHeadless: async () => { throw limitErr; } },
             { siblingObservations: [sibling], siblingTargets: [{ repo: 'api', status: 'observed' }] },
           ),
         },
@@ -2091,7 +2133,7 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     buildInteractiveCommand: () => {
       throw new Error('not used by the tester');
     },
-    runHeadless: async () => ({ sessionId: '', verdict: null, raw: '[]' }),
+    runHeadless: async () => ({ sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER }),
   };
 
   beforeEach(() => {
@@ -2340,7 +2382,7 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
       ...testerAgent,
       runHeadless: async () => {
         testerRan = true;
-        return { sessionId: '', verdict: null, raw: '[]' };
+        return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
       },
     };
     const res = await run({
