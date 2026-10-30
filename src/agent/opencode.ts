@@ -1261,6 +1261,7 @@ export class OpencodeAdapter implements AgentAdapter {
         id: opts.pkg.id,
         label: opts.pkg.label,
         phases: opts.pkg.workflow!,
+        ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
         ...(opts.cliContextPrefix
           ? { contextCommand: opts.cliContextPrefix }
           : {}),
@@ -1326,6 +1327,7 @@ export class OpencodeAdapter implements AgentAdapter {
           basename: START_TASK_BASENAME,
           body: renderStartTaskCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
           description: START_TASK_DESCRIPTION,
@@ -1334,6 +1336,7 @@ export class OpencodeAdapter implements AgentAdapter {
           basename: RESUME_BASENAME,
           body: renderResumeCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
           description: RESUME_DESCRIPTION,
@@ -1345,6 +1348,7 @@ export class OpencodeAdapter implements AgentAdapter {
           basename: FIX_BASENAME,
           body: renderFixCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             fixBriefCommand: opts.cliFixBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
@@ -1352,11 +1356,13 @@ export class OpencodeAdapter implements AgentAdapter {
         });
       }
 
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         commandEntries.push({
           basename: RESOLVE_CONFLICT_BASENAME,
           body: renderResolveConflictCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
+            ...(opts.conflictRepo ? { conflictRepo: opts.conflictRepo } : {}),
             conflictBriefCommand: opts.cliConflictBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
           }),
@@ -1392,7 +1398,7 @@ export class OpencodeAdapter implements AgentAdapter {
       if (opts.cliFixBriefPrefix) {
         entryInvocations['fix'] = '/karst-fix';
       }
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         entryInvocations['resolve-conflict'] = '/karst-resolve-conflict';
       }
     }

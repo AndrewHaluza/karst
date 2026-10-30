@@ -506,6 +506,7 @@ export class ClaudeAdapter implements AgentAdapter {
           id: opts.pkg.id,
           label: opts.pkg.label,
           phases: opts.pkg.workflow!,
+          ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
           ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
@@ -547,6 +548,7 @@ export class ClaudeAdapter implements AgentAdapter {
           basename: START_TASK_BASENAME,
           body: renderStartTaskCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
             ...(opts.mcp ? { mcp: true } : {}),
           }),
@@ -557,6 +559,7 @@ export class ClaudeAdapter implements AgentAdapter {
           basename: RESUME_BASENAME,
           body: renderResumeCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
             ...(opts.mcp ? { mcp: true } : {}),
           }),
@@ -570,6 +573,7 @@ export class ClaudeAdapter implements AgentAdapter {
           basename: FIX_BASENAME,
           body: renderFixCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
             fixBriefCommand: opts.cliFixBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
             ...(opts.mcp ? { mcp: true } : {}),
@@ -579,11 +583,13 @@ export class ClaudeAdapter implements AgentAdapter {
         });
       }
 
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         commandEntries.push({
           basename: RESOLVE_CONFLICT_BASENAME,
           body: renderResolveConflictCommand({
             contextCommand: opts.cliContextPrefix,
+            ...(opts.ticketKey ? { ticketKey: opts.ticketKey } : {}),
+            ...(opts.conflictRepo ? { conflictRepo: opts.conflictRepo } : {}),
             conflictBriefCommand: opts.cliConflictBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
             ...(opts.mcp ? { mcp: true } : {}),
@@ -614,7 +620,7 @@ export class ClaudeAdapter implements AgentAdapter {
       if (opts.cliFixBriefPrefix) {
         entryInvocations['fix'] = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
       }
-      if (opts.cliConflictBriefPrefix) {
+      if (opts.cliConflictBriefPrefix && (!opts.ticketKey || opts.conflictRepo)) {
         entryInvocations['resolve-conflict'] = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
       }
     }

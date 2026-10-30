@@ -6298,6 +6298,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             sessionDir: wt.path,
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(cliTok),
+            ticketKey: t.key?.trim() || formatId('ticket', ticketId),
+            ...(options.seedPrompt && options.seedRepo ? { conflictRepo: options.seedRepo } : {}),
             cliStagePrefix:
               markerStage === null
                 ? undefined
