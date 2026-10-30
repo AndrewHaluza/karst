@@ -14,10 +14,12 @@ export interface CloudSidebarDeps {
   projectId: () => number | undefined;
   notify: Notify;
   openExternal: (url: string) => PromiseLike<boolean>;
+  /** Ask the user for a session URL; undefined = cancelled. */
+  promptUrl: () => PromiseLike<string | undefined>;
   refresh: () => void;
 }
 
-type CloudActions = Pick<SidebarActions, 'cloudSessionOpen' | 'cloudSessionLink' | 'cloudSessionUnlink'>;
+type CloudActions = Pick<SidebarActions, 'cloudSessionOpen' | 'cloudSessionLink' | 'cloudSessionUnlink' | 'cloudSessionAdd'>;
 
 export function makeCloudSidebarActions(d: CloudSidebarDeps): CloudActions {
   const linkDeps = () => {
@@ -35,6 +37,11 @@ export function makeCloudSidebarActions(d: CloudSidebarDeps): CloudActions {
       if (!ok) throw new Error('The cloud session was not opened.');
     },
     cloudSessionLink: (url, target) => done(linkCloudSession(linkDeps(), url, target)),
+    cloudSessionAdd: async (target) => {
+      const url = (await d.promptUrl())?.trim();
+      if (!url) return;
+      done(linkCloudSession(linkDeps(), url, target));
+    },
     cloudSessionUnlink: (url) => done(unlinkCloudSession(linkDeps(), url)),
   };
 }

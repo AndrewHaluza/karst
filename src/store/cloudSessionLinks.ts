@@ -1,13 +1,9 @@
 import type { Store } from './db.js';
 
 /**
- * `cloud_session_links` (v90, arch:CLOUD-01) — display-only cache of agent
- * sessions that ran in a vendor's cloud. Rebuildable from git/PR text; NEVER
- * read by stage, gate or agent_state logic.
- *
- * `link_source` NULL = unlinked by scan. A 'manual' row is never overwritten by
- * a scan; an explicit unlink keeps 'manual' with both ids NULL so the next scan
- * does not re-link it.
+ * `cloud_session_links` (v90, arch:CLOUD-01) — display-only record of agent
+ * sessions the user linked by hand; NEVER read by stage, gate or agent_state
+ * logic. Manual only since v92: an unlink keeps the row 'manual' with both ids NULL.
  */
 
 /** Mirrored by `schema.sql` for a fresh DB; the v90 migration step execs it. */
@@ -46,26 +42,6 @@ export interface CloudSessionLinkRow {
   firstSeen: string;
 }
 
-/**
- * Record a scan result. `ticketId` null = session seen but unmatched. Never
- * overwrites a 'manual' row.
- */
-export function upsertCloudSessionLink(
-  store: Store,
-  ref: CloudSessionRef,
-  match: { ticketId: number; source: Exclude<CloudLinkSource, 'manual'> } | null,
-): void {
-  store.db
-    .prepare(
-      `INSERT INTO cloud_session_links (project_id, provider, url, ticket_id, link_source)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (project_id, provider, url) DO UPDATE SET
-         ticket_id = excluded.ticket_id, proposal_id = NULL, link_source = excluded.link_source
-       WHERE cloud_session_links.link_source IS NOT 'manual'`,
-    )
-    .run(ref.projectId, ref.provider, ref.url, match?.ticketId ?? null, match?.source ?? null);
-}
-
 /** Pin a session to a ticket or a draft proposal by hand (exactly one target). */
 export function setManualLink(
   store: Store,
@@ -84,7 +60,7 @@ export function setManualLink(
     .run(ref.projectId, ref.provider, ref.url, ticketId, proposalId);
 }
 
-/** Explicit unlink: the row stays 'manual' (both ids NULL) so a rescan leaves it alone. */
+/** Explicit unlink: the row stays 'manual' (both ids NULL) so it stays an unlinked manual row. */
 export function clearManualLink(store: Store, ref: CloudSessionRef): void {
   store.db
     .prepare(

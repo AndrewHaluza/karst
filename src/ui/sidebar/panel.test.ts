@@ -46,6 +46,7 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     cloudSessionOpen: vi.fn(),
     cloudSessionLink: vi.fn(),
     cloudSessionUnlink: vi.fn(),
+    cloudSessionAdd: vi.fn(),
     toggleFacet: vi.fn(),
     setFilter: vi.fn(),
     refresh: vi.fn(),
