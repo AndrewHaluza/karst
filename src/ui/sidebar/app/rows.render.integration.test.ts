@@ -292,8 +292,8 @@ describe('context window', () => {
 
   it('opens at the "⋯" trigger with Edit / Create follow-up / Archive and hands focus to the first item', async () => {
     const { h, trigger } = await opened();
-    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'pause-ticket', 'create-follow-up', 'archive']);
-    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Pause execution', 'Create follow-up', 'Archive']);
+    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'pause-ticket', 'create-follow-up', 'archive', 'cloud-session-add']);
+    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Pause execution', 'Create follow-up', 'Archive', 'Link cloud session…']);
     expect(items(h)[3]!.classList.contains('danger')).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
@@ -305,7 +305,7 @@ describe('context window', () => {
     const h = await mount(stateWith({ current: [{ ...row(1), paused: true, canDetach: true, canClose: true, canReopen: true }] }));
     await h.click(h.query<HTMLButtonElement>('[data-menu="910001"]')!);
     expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual([
-      'edit', 'unpause-ticket', 'create-follow-up', 'detach-subtask', 'close-ticket', 'reopen-ticket', 'archive',
+      'edit', 'unpause-ticket', 'create-follow-up', 'detach-subtask', 'close-ticket', 'reopen-ticket', 'archive', 'cloud-session-add',
     ]);
     expect(items(h)[4]!.classList.contains('danger')).toBe(true);
     expect(items(h)[6]!.previousElementSibling!.getAttribute('role')).toBe('separator');
@@ -349,7 +349,7 @@ describe('context window', () => {
     const { h } = await opened();
     await h.click('[data-menu="910002"]');
     expect(h.queryAll('#ctxMenu.open')).toHaveLength(1);
-    expect(items(h).map((i) => i.getAttribute('data-id'))).toEqual(['910002', '910002', '910002', '910002']);
+    expect(items(h).map((i) => i.getAttribute('data-id'))).toEqual(['910002', '910002', '910002', '910002', '910002']);
     expect(h.query('[data-menu="910001"]')!.getAttribute('aria-expanded')).toBe('false');
   });
 

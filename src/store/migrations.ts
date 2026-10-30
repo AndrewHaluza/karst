@@ -2755,8 +2755,7 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 90) {
-    // v90: `cloud_session_links` (arch:CLOUD-01) — display-only cache, no backfill
-    // (the first scan after boot rebuilds it).
+    // v90: `cloud_session_links` (arch:CLOUD-01) — display-only cache, no backfill.
     db.exec(CLOUD_SESSION_LINKS_DDL);
   }
 
@@ -2765,6 +2764,13 @@ function migrateLocked(db: Database): void {
     // resource kill (`Run gate on host`). Additive; NULL = none, nothing to backfill.
     const cols91 = ticketColumns(db);
     if (cols91.size > 0 && !cols91.has('host_gates')) db.exec('ALTER TABLE tickets ADD COLUMN host_gates TEXT');
+  }
+
+  if (current < 92) {
+    // v92: cloud-session links are manual only (arch:CLOUD-01). Drop every row a
+    // scan wrote ('pr' | 'branch' | 'key', or NULL = unlinked by scan): a local
+    // Remote-Control URL is indistinguishable from a cloud one. Manual rows stay.
+    db.exec("DELETE FROM cloud_session_links WHERE link_source IS NOT 'manual'");
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

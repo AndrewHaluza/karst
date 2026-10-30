@@ -10,7 +10,7 @@ import {
 
 /**
  * Manual cloud-session link commands (arch:CLOUD-01). Display-only: they write
- * `cloud_session_links` and nothing else. A manual link survives every rescan.
+ * `cloud_session_links` and nothing else.
  */
 
 export interface CloudLinkDeps {
@@ -40,7 +40,7 @@ export function linkCloudSession(deps: CloudLinkDeps, url: string, target: Cloud
   return true;
 }
 
-/** Detach a session from whatever it is linked to; a rescan will not re-link it. */
+/** Detach a session from whatever it is linked to. */
 export function unlinkCloudSession(deps: CloudLinkDeps, url: string): boolean {
   const provider = isOpenableCloudUrl(url) ? providerForUrl(url) : undefined;
   if (!provider) {

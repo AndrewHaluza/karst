@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../../store/db.js';
-import { listCloudSessionLinks, upsertCloudSessionLink } from '../../store/cloudSessionLinks.js';
+import { listCloudSessionLinks } from '../../store/cloudSessionLinks.js';
 import type { Notify } from './notify.js';
 import { linkCloudSession, openCloudSession, unlinkCloudSession } from './cloudSessionLinkOps.js';
 
@@ -21,10 +21,12 @@ function setup() {
 const rows = (s: ReturnType<typeof setup>) => listCloudSessionLinks(s.store, { projectId: 1 });
 
 describe('linkCloudSession', () => {
-  it('links to a project ticket and survives a rescan', () => {
+  it('links to a project ticket; a second link of the same provider adds a second row', () => {
     const s = setup();
     expect(linkCloudSession(s.deps, U, { ticketId: 10 })).toBe(true);
-    upsertCloudSessionLink(s.store, { projectId: 1, provider: 'claude', url: U }, null);
+    expect(linkCloudSession(s.deps, `${U}2`, { ticketId: 10 })).toBe(true);
+    expect(rows(s)).toHaveLength(2);
+    s.store.db.prepare('DELETE FROM cloud_session_links WHERE url = ?').run(`${U}2`);
     expect(rows(s)).toMatchObject([{ ticketId: 10, linkSource: 'manual', provider: 'claude' }]);
   });
   it('links to a live draft proposal', () => {
@@ -56,11 +58,10 @@ describe('linkCloudSession', () => {
 });
 
 describe('unlinkCloudSession', () => {
-  it('unlinks and a rescan does not re-link', () => {
+  it('unlinks, keeping a manual unlinked row', () => {
     const s = setup();
-    upsertCloudSessionLink(s.store, { projectId: 1, provider: 'claude', url: U }, { ticketId: 10, source: 'pr' });
+    linkCloudSession(s.deps, U, { ticketId: 10 });
     expect(unlinkCloudSession(s.deps, U)).toBe(true);
-    upsertCloudSessionLink(s.store, { projectId: 1, provider: 'claude', url: U }, { ticketId: 10, source: 'pr' });
     expect(rows(s)[0]).toMatchObject({ ticketId: null, linkSource: 'manual' });
   });
   it('refuses a bad url', () => {

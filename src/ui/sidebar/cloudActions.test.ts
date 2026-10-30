@@ -13,11 +13,11 @@ describe('makeCloudSidebarActions', () => {
     store.db.prepare("INSERT INTO projects (id, slug) VALUES (1, 'p')").run();
   });
   afterEach(() => store.close());
-  function setup(projectId: number | null = 1) {
+  function setup(projectId: number | null = 1, entered: string | undefined = undefined) {
     const notify = { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) };
     const openExternal = vi.fn(async () => true);
     const refresh = vi.fn();
-    const actions = makeCloudSidebarActions({ store, projectId: () => projectId ?? undefined, notify, openExternal, refresh });
+    const actions = makeCloudSidebarActions({ store, projectId: () => projectId ?? undefined, notify, openExternal, promptUrl: async () => entered, refresh });
     return { actions, notify, openExternal, refresh };
   }
 
@@ -37,6 +37,24 @@ describe('makeCloudSidebarActions', () => {
     actions.cloudSessionUnlink(URL1);
     expect(listCloudSessionLinks(store, { projectId: 1 })[0]!.ticketId).toBeNull();
     expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('add: a pasted url links by hand; a second link of the same provider adds a row; bad url warns; cancel is a no-op', async () => {
+    const t = createTicket(store, { key: 'A-1', title: 'a', projectId: 1 });
+    const first = setup(1, URL1);
+    await first.actions.cloudSessionAdd({ ticketId: t.id });
+    await setup(1, `${URL1}2`).actions.cloudSessionAdd({ ticketId: t.id });
+    expect(listCloudSessionLinks(store, { projectId: 1 }).map((r) => [r.url, r.ticketId, r.linkSource])).toEqual([
+      [URL1, t.id, 'manual'],
+      [`${URL1}2`, t.id, 'manual'],
+    ]);
+    const bad = setup(1, 'https://evil.example/x');
+    await expect(bad.actions.cloudSessionAdd({ ticketId: t.id })).rejects.toThrow();
+    expect(bad.notify.warn).toHaveBeenCalledWith('Not a recognised cloud session URL.');
+    const cancelled = setup(1, undefined);
+    await cancelled.actions.cloudSessionAdd({ ticketId: t.id });
+    expect(cancelled.refresh).not.toHaveBeenCalled();
+    expect(listCloudSessionLinks(store, { projectId: 1 })).toHaveLength(2);
   });
 
   it('throws (no refresh) when the op refuses, and when no project is bound', () => {

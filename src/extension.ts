@@ -30,7 +30,6 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
-import { makeCloudScanTick } from './extension/ops/cloudSessionScanOps.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
@@ -913,7 +912,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
-    ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), refresh: () => mgr.refresh() }),
+    ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), promptUrl: () => vscode.window.showInputBox({ prompt: 'Cloud session URL', placeHolder: 'https://claude.ai/code/session_…', ignoreFocusOut: true }), refresh: () => mgr.refresh() }),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
@@ -5788,7 +5787,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // always has an end. A forced request that lands mid-sweep is not dropped like
   // a timer tick — it re-runs once the in-flight one finishes, because the answer
   // that sweep is producing may predate whatever the user just pushed.
-  const cloudScanTick = makeCloudScanTick({ store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync, debug: (m) => logger.debug(m), logError });
   const runPrSync = makePrSyncLoop({
     hasProject: () => currentProject() !== undefined,
     onRefresh: () => { provider.refresh(); dashboard.pushAll(); },
@@ -5870,7 +5868,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Finished planning sessions archive on this tick too (`archivePlanningAfterDays`).
       sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest(), isLive: (id) => planning.isLive(id), logError });
-      if (await cloudScanTick(project.id)) dashboard.pushAll();
       await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
