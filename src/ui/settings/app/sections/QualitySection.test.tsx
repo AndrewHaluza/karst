@@ -241,6 +241,23 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
     expect(uatOf(probe).testerObservations).toEqual({ blockingSeverity: 'high' });
   });
 
+  it('shows the onSkip select only while the tester is on, defaulting to pass', () => {
+    mountQuality();
+    expect(document.querySelector('[name="uatTesterOnSkip"]')).toBeNull();
+    fireEvent.click(field('uatTesterEnabled'));
+    expect(field('uatTesterOnSkip').value).toBe('pass');
+  });
+
+  it('writes onSkip and keeps blockingSeverity, and the reverse', () => {
+    const { probe } = mountQuality(
+      stateWith({ uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'high' } }) }),
+    );
+    fireEvent.change(field('uatTesterOnSkip'), { target: { value: 'reask-then-park' } });
+    expect(uatOf(probe).testerObservations).toEqual({ blockingSeverity: 'high', onSkip: 'reask-then-park' });
+    fireEvent.change(field('uatTesterSeverity'), { target: { value: 'low' } });
+    expect(uatOf(probe).testerObservations).toEqual({ blockingSeverity: 'low', onSkip: 'reask-then-park' });
+  });
+
   it('keeps the findings controls live when findings are off', () => {
     mountQuality();
     // Unlike the tester toggle, `f-findingsEnabled` hides nothing — the

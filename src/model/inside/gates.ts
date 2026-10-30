@@ -9,7 +9,7 @@ import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../ma
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import { stallView } from './stall.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
-import { isCoverageRecord } from '../coverageRecord.js';
+import { isCoverageRecord, skipReason } from '../coverageRecord.js';
 
 /** The advisory coverage record is `info` and never blocks, even at the lowest threshold. */
 const isBlockingFinding = (f: { severity: string; title: string }, threshold: Parameters<typeof isBlockingSeverity>[1]) =>
@@ -722,6 +722,12 @@ function scopeFindings<T extends { repo?: string | null }>(
 }
 
 /** The Tester's `observed` detail: advisory wording unless a threshold makes some block. */
+/** The skip reason, re-read from the run's coverage row (the store keeps no separate detail). */
+function skippedDetailOf(observations: readonly { title: string; repo?: string | null }[]): string {
+  const first = observations.find((f) => isCoverageRecord(f));
+  return first ? skipReason(first.title) : 'no coverage reported';
+}
+
 function testerObservedDetail(total: number, blocking: number, threshold: Severity | 'none'): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   if (threshold === 'none') return `${plural(total, 'observation')} — advisory`;
@@ -801,12 +807,18 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     label: 'Tester',
     failedResultKinds: ['verification-failed', 'unreadable-output'],
   });
+  // A run that observed nothing (coverage SKIPPED / NOT RUN, no observation)
+  // reads amber ('wait', the advisory-warning tone), never the green of a pass.
+  const skipped = run?.status === 'passed' && run.resultKind === 'skipped';
   return {
     ...base,
+    ...(skipped ? { status: 'wait' as const } : {}),
     ...(run
       ? {
           detail:
-            run.resultKind === 'observed'
+            run.resultKind === 'skipped'
+              ? `Tester skipped — ${skippedDetailOf(observations)}`
+              : run.resultKind === 'observed'
               ? testerObservedDetail(observations.length, blocking, threshold)
               : run.resultKind === 'partial'
                 ? // T663: the run was stopped by a budget or the deadline. The

@@ -21,6 +21,7 @@ import { openGatingSubtasks } from './subtaskGate.js';
  * - the named stage carries no block at all — nothing to clear;
  * - the block's kind is `baseline-review` — the user's Approve/Reject in the
  *   UAT report is the only thing that clears it (@arch:BASELINE-REVIEW);
+ * - the block's kind is `tester-skipped` — the user's Re-run tester / Accept skip decides;
  * - the block's kind is `awaiting-merge` — every OTHER `BlockerKind` means
  *   "karst could not ask the question, retry it", which Resume is for. This
  *   one means the question WAS asked (ship opened its PRs) and answered "not
@@ -59,6 +60,9 @@ export function resumeBlockedStage(
   // Same reasoning: the question was asked and the answer is the user's. A
   // generic Resume would re-run UAT straight back into the same park.
   if (block.kind === 'baseline-review') return { kind: 'refused' };
+  // The Tester observed nothing and the user decides (Re-run tester / Accept
+  // skip); a generic Resume would only re-run UAT into the same park.
+  if (block.kind === 'tester-skipped') return { kind: 'refused' };
   // Same shape: the stall question was asked and only the user's choice
   // (hint / continue / re-scope) answers it — a generic Resume would re-open
   // the very fix loop that was stopped.

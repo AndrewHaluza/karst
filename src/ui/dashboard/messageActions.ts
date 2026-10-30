@@ -187,6 +187,8 @@ export interface DashboardActions {
   purgeStoredArtifacts: () => void | Promise<void>;
   /** Approve changed baselines by entry index; the host re-derives and validates (see the message). */
   baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
+  testerSkippedRerun: () => void | Promise<void>;
+  testerSkippedAccept: () => void | Promise<void>;
   /** Reject one changed baseline with a reason; the host re-derives and validates. */
   baselineReject: (blockId: string, index: number, reason: string) => void | Promise<void>;
   /**

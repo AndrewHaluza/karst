@@ -155,6 +155,10 @@ export function routeAction(
       return actions.purgeStoredArtifacts();
     case 'baseline-approve':
       return actions.baselineApprove(msg.blockId, msg.indices);
+    case 'tester-skipped-rerun':
+      return actions.testerSkippedRerun();
+    case 'tester-skipped-accept':
+      return actions.testerSkippedAccept();
     case 'baseline-reject':
       return actions.baselineReject(msg.blockId, msg.index, msg.reason);
     case 'stage-log-request':

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
+import { UAT_TESTER_ON_SKIP } from '../../manifest/qualityDefaults.js';
 import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
@@ -891,6 +892,7 @@ export async function runUat(
     // `uat.testerObservations.blockingSeverity` applied below. At its default
     // `'none'` the observations are advisory and this gate verdict decides.
     let testerResult: TesterRunResult | null = null;
+    const testerOnSkip = opts.manifest?.uat?.testerObservations?.onSkip ?? UAT_TESTER_ON_SKIP;
     if (tester) {
       // Source fields: `Ticket.description` / `intent` — the ticket's done-when
       // criteria (Prompt 17). The ticket was read once, above, via the existing
@@ -929,6 +931,8 @@ export async function runUat(
           // T663: the per-target fresh-token budget. Absent → the Tester's own
           // default, so a manifest that omits `uat.tester` is unchanged.
           tokenBudget: opts.manifest?.uat?.tester?.tokenBudget,
+          // Absent → 'pass': a skipped run is recorded and UAT passes on, as today.
+          onSkip: testerOnSkip,
         },
         { now },
       );
@@ -991,6 +995,17 @@ export async function runUat(
       const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
       sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
       return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+    }
+    if (testerResult?.kind === 'skipped') {
+      // The Tester checked nothing (twice, under the re-ask modes). The code was
+      // NOT judged, so this is never a failed verdict or a fix round: under
+      // `reask-then-park` the USER decides (Re-run tester / Accept skip).
+      deps.warn?.(`uat tester: skipped — ${testerResult.detail}`);
+      if (testerOnSkip === 'reask-then-park') {
+        const reason = `tester observed nothing — ${testerResult.detail}`;
+        sections.push(`# uat tester (skipped)\n${testerResult.detail}`);
+        return finish({ kind: 'blocked', blocker: 'tester-skipped', reason }, [reason]);
+      }
     }
     if (testerResult?.kind === 'usage-limited') {
       // K11: the provider account is out of quota/allowance. NOT an advisory

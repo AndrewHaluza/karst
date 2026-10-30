@@ -78,6 +78,19 @@ describe('resumeBlockedStage', () => {
     expect(stageBlock(store, t.id, 'uat')?.kind).toBe('baseline-review');
   });
 
+  it('refuses to clear a tester-skipped block — only Re-run tester / Accept skip are entitled to', () => {
+    const t = createTicket(store, { key: 'RB-TS', title: 'thing' });
+    setStage(store, t.id, 'uat', {
+      status: 'running',
+      blockedKind: 'tester-skipped',
+      blockedReason: 'tester observed nothing — probe not run',
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    expect(resumeBlockedStage(store, t.id, t.id, 'uat')).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, t.id, 'uat')?.kind).toBe('tester-skipped');
+  });
+
   it('refuses to clear a usage-limit block — a retry cannot reset a quota (K11)', () => {
     const t = createTicket(store, { key: 'RB-UL', title: 'thing' });
     setStage(store, t.id, 'review', {

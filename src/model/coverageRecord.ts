@@ -58,3 +58,16 @@ export function coverageOrFallback<T extends { severity: string; title: string }
   if (first) return { ...first, severity: 'info' };
   return fallback ? fallback(COVERAGE_FALLBACK_TITLE) : ({ severity: 'info', title: COVERAGE_FALLBACK_TITLE } as T);
 }
+
+/** Longest one-line skip reason shown anywhere (Inside row, banner). */
+export const MAX_SKIP_DETAIL = 160;
+
+/** The coverage title after `COVERAGE (reported): <STATUS> — `, one line, bounded. */
+export function skipReason(coverageTitle: string): string {
+  const status = coverageStatus(coverageTitle);
+  let rest = coverageTitle.startsWith(COVERAGE_PREFIX) ? coverageTitle.slice(COVERAGE_PREFIX.length) : coverageTitle;
+  if (rest.startsWith(status)) rest = rest.slice(status.length);
+  rest = rest.replace(/^\s*[—-]\s*/, '');
+  const line = (rest.split('\n')[0] ?? '').trim();
+  return line.length > MAX_SKIP_DETAIL ? `${line.slice(0, MAX_SKIP_DETAIL - 1)}…` : line;
+}

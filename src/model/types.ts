@@ -126,6 +126,11 @@ export type BlockerKind =
   // retry cannot decide for the user, so Resume is refused and only a recorded
   // decision (approve-all → re-drive, reject → failed verdict) clears it.
   | 'baseline-review'
+  // UAT's Tester observed nothing (coverage SKIPPED / NOT RUN, no observation)
+  // twice under `uat.testerObservations.onSkip: reask-then-park`. The code was
+  // not judged, so never a verdict or a fix round: the USER decides (Re-run
+  // tester / Accept skip), and a generic Resume is refused.
+  | 'tester-skipped'
   // Review keeps finding new blocking problems in the same file(s) round after
   // round (`review.stallDetection`) — a likely design problem, not a bug. Karst
   // stops opening fix rounds and asks the human; the question WAS asked, so a

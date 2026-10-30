@@ -35,6 +35,8 @@ export interface InsideCase {
   readonly state: () => DashboardState;
   /** Already registered as this dashboard variant (ledger-keyed); no second baseline. */
   readonly aliasOf?: string;
+  /** A new dashboard route would add rows to the layout ledger, which only ever shrinks. */
+  readonly skipLayout?: boolean;
 }
 
 /** Build a case from rows: `current` is the stage the ticket sits on. */
@@ -252,6 +254,29 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'uat',
     id: 'usage-limit',
     state: fromFacts('uat', { cells: { uat: { status: 'running' } }, processRuns: [uatTesterRun({ status: 'running', endedAt: null })] }, parkPatch(USAGE_PARK)),
+  },
+  {
+    // T861: the Tester observed nothing — coverage SKIPPED, no observation.
+    stage: 'uat',
+    id: 'tester-skipped',
+    skipLayout: true,
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
+      processRuns: [uatTesterRun({ resultKind: 'skipped' })],
+      findings: [caseFinding({ id: 4, severity: 'info', title: 'COVERAGE (reported): SKIPPED — uat:host probe not run; unit tests only', processRunId: 11 })],
+    }),
+  },
+  {
+    // T861: `onSkip: reask-then-park` parked UAT; the banner offers Re-run tester / Accept skip.
+    stage: 'uat',
+    id: 'tester-skipped-blocked',
+    skipLayout: true,
+    state: fromFacts(
+      'uat',
+      { cells: { uat: { status: 'running' } }, gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })], processRuns: [uatTesterRun({ resultKind: 'skipped' })] },
+      parkPatch({ kind: 'tester-skipped', reason: 'tester observed nothing — uat:host probe not run; unit tests only', at: t(25), resumable: false }),
+    ),
   },
   {
     stage: 'uat',

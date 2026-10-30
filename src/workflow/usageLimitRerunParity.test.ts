@@ -184,9 +184,10 @@ describe('rerunParkedStage — outcome parity', () => {
     const { ticket, parkedRunId, park } = parkAt('uat', JSON.stringify({ observations: [], targets: [] }));
     const res = await rerun(park, adapterOf(answer([])), UAT_MANIFEST);
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    // A bare `[]` answer reports no coverage, so the Tester observed nothing (T861).
     expect(observed(ticket.id, 'uat', parkedRunId)).toEqual({
       stageRun: { status: 'finished', outcome: 'advanced' },
-      processResults: ['observed'],
+      processResults: ['skipped'],
       triggers: [],
       findings: 0,
     });

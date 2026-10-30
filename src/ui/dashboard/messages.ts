@@ -228,6 +228,10 @@ export type WebviewMessage =
   | { type: 'baseline-approve'; blockId: string; indices: number[] }
   /** Reject ONE changed baseline entry with the user's required reason. */
   | { type: 'baseline-reject'; blockId: string; index: number; reason: string }
+  /** Re-run ONLY the Tester lane of a UAT parked `tester-skipped`. */
+  | { type: 'tester-skipped-rerun' }
+  /** Accept a skipped Tester: UAT finishes as passed. */
+  | { type: 'tester-skipped-accept' }
   /**
    * Ask the host to push one gate stage's console log (the uat/review artifact
    * file) for the terminal "detailed mode" view. Carries the STAGE only — a

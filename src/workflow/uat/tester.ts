@@ -58,6 +58,7 @@ import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
+import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
 import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
 
 /**
@@ -292,6 +293,15 @@ export interface RunUatTesterOpts {
    * unqualified.
    */
   contextCommand?: string;
+  /**
+   * `uat.testerObservations.onSkip`. Absent / `'pass'` → a skipped run is recorded
+   * as `skipped` and nothing more (today's behavior). `'reask'` and
+   * `'reask-then-park'` send ONE more call per skipped target; the UAT stage owns
+   * what a second skip means (pass, or park).
+   */
+  onSkip?: OnSkip;
+  /** Internal: repo → the coverage title to quote in the one re-ask prefix. */
+  reaskTitles?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -338,6 +348,13 @@ export type TesterRunResult =
       detail: string;
     }
   | { kind: 'execution-failed'; message: string }
+  /**
+   * Every asked target answered SKIPPED / NOT RUN and kept no observation: the
+   * Tester checked nothing. Advisory like `observed` (the coverage rows are
+   * still recorded), but shown as skipped so it never reads as a clean pass.
+   * `detail` is the first skipped target's reason, one line.
+   */
+  | { kind: 'skipped'; findingIds: number[]; detail: string }
   /**
    * K11: a target's call died because the provider account is out of
    * quota/allowance. NOT an advisory absence and NOT a T663 partial — the
@@ -766,6 +783,30 @@ export async function runUatTester(
   opts: RunUatTesterOpts,
   deps: TesterDeps = {},
 ): Promise<TesterRunResult> {
+  const first = await runTesterOnce(store, opts, deps);
+  if (first.result.kind !== 'skipped' || (opts.onSkip ?? 'pass') === 'pass') return first.result;
+  // A skipped run means EVERY target observed nothing, so every target is re-asked
+  // — exactly once; the second run's result replaces the first's.
+  opts.debug?.(`[gate] uat tester ticket ${opts.ticketId}: observed nothing — re-asking once`);
+  return (await runTesterOnce(store, { ...opts, reaskTitles: first.skippedTitles }, deps)).result;
+}
+
+async function runTesterOnce(
+  store: Store,
+  opts: RunUatTesterOpts,
+  deps: TesterDeps,
+): Promise<{ result: TesterRunResult; skippedTitles: Record<string, string> }> {
+  const skippedTitles: Record<string, string> = {};
+  const result = await runTesterBody(store, opts, deps, skippedTitles);
+  return { result, skippedTitles };
+}
+
+async function runTesterBody(
+  store: Store,
+  opts: RunUatTesterOpts,
+  deps: TesterDeps,
+  skippedTitles: Record<string, string>,
+): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
   const run = openProcessRun(store, {
     ticketId: opts.ticketId,
@@ -920,7 +961,7 @@ export async function runUatTester(
       debug?.(
         `[gate] uat tester ${target.repo}: snapshot ${snapshotRef ?? 'unavailable — using the branch range'}`,
       );
-      const prompt = buildTesterPrompt(
+      const basePrompt = buildTesterPrompt(
         target,
         opts.assignment.instructions,
         snapshotRef,
@@ -932,6 +973,8 @@ export async function runUatTester(
           debug: opts.debug,
         },
       );
+      const reaskTitle = opts.reaskTitles?.[target.repo];
+      const prompt = reaskTitle === undefined ? basePrompt : `${reaskPrefix(reaskTitle)}\n\n${basePrompt}`;
       // Prompt 09: when the core declares native structured output support, ask
       // its CLI to ENFORCE the observation array shape (claude `--json-schema`,
       // codex `--output-schema`) instead of relying on the prose output rules
@@ -1113,6 +1156,10 @@ export async function runUatTester(
         ),
         repo: target.repo,
       });
+      const keptCoverage = coverageRecords[coverageRecords.length - 1];
+      if (keptCoverage && observedNothing(keptCoverage.title, keptRest.length) && !stopped) {
+        skippedTitles[target.repo] = keptCoverage.title;
+      }
       const parsed = keptRest.map((f) => ({
         severity: f.severity,
         repo: f.repo,
@@ -1207,6 +1254,15 @@ export async function runUatTester(
       return blockingSummary === undefined
         ? { kind: 'partial', findingIds, blocking, detail }
         : { kind: 'partial', findingIds, blocking, blockingSummary, detail };
+    }
+    const skippedRepos = Object.keys(skippedTitles);
+    const askedRepos = targetOutcomes.length;
+    if (askedRepos > 0 && skippedRepos.length === askedRepos && observations.length === 0) {
+      const firstTitle = skippedTitles[skippedRepos[0]!]!;
+      const detail = skippedDetail({ repo: skippedRepos[0]!, title: firstTitle }, askedRepos);
+      close('passed', 'skipped');
+      debug?.(`[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — skipped (${detail})`);
+      return { kind: 'skipped', findingIds, detail };
     }
     close('passed', 'observed');
     debug?.(

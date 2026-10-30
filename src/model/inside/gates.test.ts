@@ -617,6 +617,19 @@ describe('uatProcesses', () => {
     it('reads advisory when the threshold is absent', () => {
       expect(testerView({}).detail).toBe('3 observations — advisory');
     });
+
+    it('reads a skipped run as an amber "Tester skipped — <reason>" row', () => {
+      const tester = uatProcesses(
+        qualityInput({
+          processRuns: [processRun({ id: 5, status: 'passed', resultKind: 'skipped' })],
+          uatFindings: [
+            uatFinding('info', { processRunId: 5, title: 'COVERAGE (reported): SKIPPED — uat:host probe not run' }),
+          ],
+        }),
+      ).find((p) => p.id === 'tester')!;
+      expect(tester.detail).toBe('Tester skipped — uat:host probe not run');
+      expect(tester.status).toBe('wait');
+    });
   });
 
   it('renders an unreadable Tester answer distinctly from zero observations', () => {

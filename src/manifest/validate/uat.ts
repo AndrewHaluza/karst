@@ -213,8 +213,15 @@ function validateTesterObservations(raw: unknown): UatTesterObservationsConfig |
     }
     blockingSeverity = raw.blockingSeverity as Severity | 'none';
   }
-  return { blockingSeverity };
+  if (raw.onSkip === undefined) return { blockingSeverity };
+  if (typeof raw.onSkip !== 'string' || !ON_SKIP_VALUES.includes(raw.onSkip as OnSkipValue)) {
+    throw new ManifestError('uat.testerObservations.onSkip must be one of: pass, reask, reask-then-park');
+  }
+  return { blockingSeverity, onSkip: raw.onSkip as OnSkipValue };
 }
+
+type OnSkipValue = NonNullable<UatTesterObservationsConfig['onSkip']>;
+const ON_SKIP_VALUES: readonly OnSkipValue[] = ['pass', 'reask', 'reask-then-park'];
 
 /**
  * T663: the Tester's spend budget. The block is optional; a present-but-empty

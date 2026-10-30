@@ -377,3 +377,35 @@ describe('BlockedBanner — slice selection (migration plan A4)', () => {
     expect(must('#blocked .ftitle')).toBe(node);
   });
 });
+
+describe('BlockedBanner — tester skipped (T861)', () => {
+  const skipped = () =>
+    blockedState(block('tester-skipped', { resumable: false, reason: 'tester observed nothing — uat:host probe not run' }));
+
+  it('says what the tester did and carries no Resume', () => {
+    mountRail(skipped());
+    expect(shown()).toBe(true);
+    expect(text('.freason')).toBe(' · The UAT tester observed nothing: uat:host probe not run');
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+  });
+
+  it('offers Re-run tester then Accept skip, in that order', () => {
+    mountRail(skipped());
+    const buttons = all<HTMLButtonElement>('#blocked .facts button');
+    expect(buttons.map((b) => b.dataset.act)).toEqual(['tester-skipped-rerun', 'tester-skipped-accept']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['Re-run tester', 'Accept skip']);
+  });
+
+  it.each([
+    ['tester-skipped-rerun', 'testerSkippedRerun'],
+    ['tester-skipped-accept', 'testerSkippedAccept'],
+  ] as const)('%s posts exactly once with a request id', (act, sender) => {
+    const h = mountRail(skipped());
+    const b = btn(act);
+    fireEvent.click(b);
+    fireEvent.click(b);
+    expect(h.send[sender]).toHaveBeenCalledTimes(1);
+    expect(h.send[sender]).toHaveBeenCalledWith('req-1');
+    expect(h.send.stageResume).not.toHaveBeenCalled();
+  });
+});

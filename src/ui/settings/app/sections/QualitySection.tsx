@@ -31,6 +31,7 @@ import type {
   GateDef,
   ReviewConfig,
   UatConfig,
+  UatTesterObservationsConfig,
 } from '../../../../manifest/types.js';
 import type { BlockingSeverity } from './qualityTypes.js';
 import {
@@ -41,6 +42,7 @@ import {
   REVIEW_REQUIRE_INDEPENDENT_SIGNAL,
   UAT_MAX_FIX_ATTEMPTS,
   UAT_TESTER_BLOCKING_SEVERITY,
+  UAT_TESTER_ON_SKIP,
 } from '../../../../manifest/qualityDefaults.js';
 import {
   emptyGate,
@@ -72,6 +74,14 @@ import {
   type Base,
 } from './qualityDraft.js';
 
+type TesterOnSkip = NonNullable<UatTesterObservationsConfig['onSkip']>;
+
+const ON_SKIP_OPTIONS: { value: TesterOnSkip; label: string }[] = [
+  { value: 'pass', label: 'Pass (show as skipped)' },
+  { value: 'reask', label: 'Re-ask once, then pass' },
+  { value: 'reask-then-park', label: 'Re-ask once, then ask me' },
+];
+
 /** Severity options, from the imported vocabulary plus the advisory `none`. */
 const SEVERITY_OPTIONS = BLOCKING_SEVERITIES.map((severity) => ({
   value: severity,
@@ -89,6 +99,7 @@ export function QualitySection() {
   const stall = readStallDetection(draft);
   const stallProblems = stallErrors(stall, review.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS);
   const testerEnabled = uat.testerObservations !== undefined;
+  const testerOnSkip: TesterOnSkip = uat.testerObservations?.onSkip ?? UAT_TESTER_ON_SKIP;
   const testerSeverity =
     uat.testerObservations?.blockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
 
@@ -167,7 +178,29 @@ export function QualitySection() {
                     onChange: (value) =>
                       edit((current) =>
                         updateUat(current, {
-                          testerObservations: { blockingSeverity: value as BlockingSeverity },
+                          testerObservations: {
+                            ...uat.testerObservations,
+                            blockingSeverity: value as BlockingSeverity,
+                          },
+                        }),
+                      ),
+                  }}
+                />
+                <Field
+                  label="When the tester observes nothing"
+                  help="A run whose coverage is SKIPPED or NOT RUN and that recorded no observation."
+                  control={{
+                    kind: 'select',
+                    name: 'uatTesterOnSkip',
+                    value: testerOnSkip,
+                    options: ON_SKIP_OPTIONS,
+                    onChange: (value) =>
+                      edit((current) =>
+                        updateUat(current, {
+                          testerObservations: {
+                            blockingSeverity: testerSeverity,
+                            onSkip: value as TesterOnSkip,
+                          },
                         }),
                       ),
                   }}

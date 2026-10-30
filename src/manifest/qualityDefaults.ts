@@ -45,6 +45,9 @@ export const UAT_TESTER_BLOCKING_SEVERITY: Severity | 'none' = 'none';
  * observed runaway: a busy Tester that looped burned ~828k fresh tokens and
  * returned nothing, so the budget cuts well below that.
  */
+/** `uat.testerObservations.onSkip` default: a skipped Tester run is shown as skipped and UAT passes on. */
+export const UAT_TESTER_ON_SKIP = 'pass' as const;
+
 export const UAT_TESTER_TOKEN_BUDGET = 400_000;
 
 /**

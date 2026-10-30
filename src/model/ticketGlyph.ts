@@ -111,6 +111,8 @@ export function needsUser(t: TicketWithStages): boolean {
     // Approve/Reject (@arch:BASELINE-REVIEW): the question was asked, the
     // answer is the user's alone.
     current?.blockedKind === 'baseline-review' ||
+    // The Tester observed nothing and the user decides: Re-run tester / Accept skip.
+    current?.blockedKind === 'tester-skipped' ||
     // Review stalled on the same files (`review.stallDetection`): the user picks
     // Redesign hint / Continue anyway / Re-scope.
     current?.blockedKind === 'review-stalled' ||
