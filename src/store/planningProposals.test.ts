@@ -8,6 +8,7 @@ import {
   insertProposal,
   listPendingProposals,
   listSessionProposals,
+  listVisibleProposals,
   getProposal,
   updateProposalPayload,
   discardProposal,
@@ -110,6 +111,15 @@ describe('planning proposals', () => {
     expect(proposalPayloadEquals(payload, { ...payload })).toBe(true);
     expect(proposalPayloadEquals(payload, { ...payload, repos: ['api', 'web'] })).toBe(false);
     expect(proposalPayloadEquals(payload, { ...payload, title: 'other' })).toBe(false);
+  });
+
+  it('listVisibleProposals lists pending newest-first, then accepted newest-first', () => {
+    const [d1, d2, d3, d4] = [1, 2, 3, 4].map(() => insertProposal(store, sessionId, payload));
+    for (const id of [d2!, d4!]) {
+      const t = createTicket(store, { key: `K${id}`, title: 'x', projectId });
+      markProposalAccepted(store, id, t.id);
+    }
+    expect(listVisibleProposals(store, projectId).map((p) => p.id)).toEqual([d3, d1, d4, d2]);
   });
 
   it('listSessionProposals returns every status of one session, oldest first', () => {
