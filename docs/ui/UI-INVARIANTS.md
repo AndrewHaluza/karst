@@ -34,7 +34,7 @@ END_DOC_BLOCK: [@ui:CONTENTS]
 
 ## [@ui:TITLE-KEY] The TITLE is a ticket's identity; the key is derived from it
 
-The ticket form gates Phase 2 on the title ALONE for every provider. A blank key resolves ONCE in `persistDraft` via `generateTicketKey(store, scope, title)` → `slugifyTitleKey` (`store/titleKey.ts`), suffixed `-2`, `-3`… in scope, falling back to `MANUAL-XXXXXXXX` only when the title has nothing key-able. `ticketForm/webview.html` mirrors that rule as `deriveKey`/`TITLE_KEY_MAX` and previews it live while the Key field is untouched (`refTouched`) — `webview.test.ts` pins the mirror, because a drift shows one key and stores another.
+The ticket form disables its primary action (with a reason tied to the title field) until the title is filled, for every provider. A blank key resolves ONCE in `persistDraft` via `generateTicketKey(store, scope, title)` → `slugifyTitleKey` (`store/titleKey.ts`), suffixed `-2`, `-3`… in scope, falling back to `MANUAL-XXXXXXXX` only when the title has nothing key-able. `ticketForm/webview.html` mirrors that rule as `deriveKey`/`TITLE_KEY_MAX` and previews it live while the Key field is untouched (`refTouched`) — `webview.test.ts` pins the mirror, because a drift shows one key and stores another.
 END_DOC_BLOCK: [@ui:TITLE-KEY]
 
 ## [@ui:GETTING-STARTED] "Getting Started" names ONE surface, and the ticket form is not it
@@ -195,6 +195,8 @@ Three invariants the original investigators learned the hard way, now load-beari
   mounts one tab at a time while vanilla mounted all tabs in one DOM.- **CSS must be extracted.** To keep `webview.html` maintainable and component-driven, any CSS specific to a React component must be written in a dedicated `.css` file alongside the component (e.g. `PresetsSection.css`) and imported in the `.tsx` file, rather than placed in an inline `<style>` block in `webview.html`. `esbuild` bundles these imports and the injector places them in the document.
 
 The Agents page follows the approved clickable prototype, kept in the repo: [`docs/design/agents-settings-prototype.html`](../design/agents-settings-prototype.html) (generation brief: [`pT2.txt`](../design/pT2.txt)). The prototype's regions, order and stacking are binding (`ui:UI-R39`); only tokens, controls and spacing values defer to UI-RULES and DESIGN-SYSTEM. The cell-edit rule is binding too (`arch:AGENTSPAGE`).
+
+The ticket form follows the approved layout B′ prototype, kept in the repo: [`docs/design/ticket-form-b-prime.html`](../design/ticket-form-b-prime.html). Its regions, order and stacking are binding (`ui:UI-R39`); only tokens, controls and spacing values defer to UI-RULES and DESIGN-SYSTEM.
 END_DOC_BLOCK: [@ui:REACT-VIEWS]
 
 ## [@ui:DASHBOARD-MIGRATION] Dashboard migration completed (2026-10-25)

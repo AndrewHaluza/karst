@@ -31,6 +31,7 @@ karstTest.describe('full-page screenshots', () => {
           testInfo.skip();
           return;
         }
+        if (v.width !== undefined) await page.setViewportSize({ width: v.width, height: (page.viewportSize()?.height ?? 720) });
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
         if (v.id === 'attention') {
           await page.locator('.attention-ring').evaluate((el) => {

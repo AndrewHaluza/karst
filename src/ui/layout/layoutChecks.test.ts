@@ -244,6 +244,12 @@ describe('region-order', () => {
     expect(run([header, body, inHeader], expected)).toEqual([]);
     expect(run([header, body, inBody], expected)[0]?.detail).toContain('"detail"');
   });
+  it('accepts a primary action inside an actions region (form action bar)', () => {
+    const body = region('content', 0, 0);
+    const actions = region('actions', 0, 100);
+    const primary = el({ parentId: actions.id, primaryAction: true, rect: { y: 110, w: 80, h: 24 } });
+    expect(run([body, actions, primary], { layout: 'stacked', order: ['content', 'actions'] })).toEqual([]);
+  });
 });
 
 describe('state-survives-resize', () => {

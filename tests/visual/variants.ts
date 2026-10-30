@@ -65,13 +65,15 @@ export interface Variant {
    * page's known failures (rail, PR rows), so a variant that adds no layout of its own opts out.
    */
   readonly skipLayout?: boolean;
+  /** Screenshot viewport width override (px); absent = the project default. */
+  readonly width?: number;
 }
 
 function variant(
   view: ViewId,
   id: string,
   corpus: () => ViewCorpus,
-  opts: { baseline?: string; themes?: readonly string[]; skipLayout?: boolean } = {},
+  opts: { baseline?: string; themes?: readonly string[]; skipLayout?: boolean; width?: number } = {},
 ): Variant {
   return {
     id,
@@ -79,6 +81,7 @@ function variant(
     themes: opts.themes ?? DARK_ONLY,
     corpus,
     ...(opts.skipLayout ? { skipLayout: true } : {}),
+    ...(opts.width === undefined ? {} : { width: opts.width }),
   };
 }
 
@@ -373,6 +376,38 @@ const ROUTED_MODEL_CATALOG = {
   ],
 };
 
+/** Layout B′ realistic state (ui:UI-R57): clickup, 3 repos (one non-runnable), 3 described approaches, 2 presets, 1 attachment. */
+const REALISTIC_TICKET_FORM = {
+  provider: 'clickup',
+  ticketSearchEnabled: true,
+  canCreateProviderTicket: true,
+  sourceRef: '869e889uh',
+  title: 'Add per-repo base branch override to the ticket form',
+  description: 'Let a ticket pick its base branch per repository, defaulting to the manifest baseline.',
+  intent: 'Pick a base branch per repo, save, and confirm the worktree starts from it.',
+  repos: [
+    { service: 'karst', signals: [], score: 0, runnable: true, docker: false, selected: true },
+    { service: 'docs-site', signals: [], score: 0, runnable: true, docker: false, selected: false },
+    { service: 'infra', signals: [], score: 0, runnable: false, docker: false, selected: false },
+  ],
+  repoBases: [
+    { repo: 'karst', value: '', default: 'develop', source: 'manifest', candidates: ['develop', 'main'] },
+  ],
+  approaches: [
+    { id: 'tdd', label: 'TDD', description: 'Write failing tests first, then the smallest change.', recommended: true, installed: true },
+    { id: 'research', label: 'Research first', description: 'Investigate and write findings before any code.', installed: true },
+    { id: 'quick', label: 'Quick fix', description: 'Small, low-risk edit without a plan.', installed: true },
+  ],
+  selectedApproach: 'tdd',
+  agentProviders: ['claude', 'codex'],
+  agentPresetNames: ['fast', 'deep'],
+  selectedAgentPreset: 'fast',
+  modelCatalog: ROUTED_MODEL_CATALOG,
+  recentModels: {},
+  sessionOpen: false,
+  attachments: [{ id: 1, kind: 'image', name: 'layout-at-480px.png', byteSize: 48213, src: '' }],
+};
+
 const ticketFormVariants = (): Variant[] => {
   const base = MINIMAL_TICKET_FORM;
   const withState = (patch: Record<string, unknown>): ViewCorpus => stateMessage({ ...base, ...patch });
@@ -473,6 +508,25 @@ const ticketFormVariants = (): Variant[] => {
         sessionOpen: false,
       }),
     ),
+    // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html).
+    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM)),
+    variant('ticketForm', 'realistic-edit', () =>
+      withState({ ...REALISTIC_TICKET_FORM, ...edit, title: REALISTIC_TICKET_FORM.title, refLabel: 'T42 · FEAT-42' }),
+    ),
+    variant('ticketForm', 'subtask', () =>
+      withState({
+        ...REALISTIC_TICKET_FORM,
+        subtaskOf: 'Sub-task of T12',
+        repoBases: [
+          { repo: 'karst', value: '', default: 'karst/feat/parent', defaultLabel: 'parent branch: karst/feat/parent (default)', source: 'parent', candidates: [] },
+        ],
+      }),
+    ),
+    variant('ticketForm', 'session-open', () =>
+      withState({ ...REALISTIC_TICKET_FORM, ...edit, title: REALISTIC_TICKET_FORM.title, sessionOpen: true }),
+    ),
+    variant('ticketForm', 'narrow-480', () => withState(REALISTIC_TICKET_FORM), { width: 480 }),
+    variant('ticketForm', 'tight-320', () => withState(REALISTIC_TICKET_FORM), { width: 320 }),
     variant('ticketForm', 'attachments', () =>
       withState({
         ...edit,

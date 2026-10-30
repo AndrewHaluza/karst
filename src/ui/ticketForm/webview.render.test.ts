@@ -25,33 +25,35 @@ function open(state: Record<string, unknown>): RenderHandle {
   return h;
 }
 
-describe('ticket form — gated Phase 2 + always-on action bar', () => {
-  it('keeps the action bar visible and dims Phase 2 (inert) with a hint when the title is empty', () => {
+describe('ticket form — regions + title-gated primary', () => {
+  it('lays out header, content, settings, actions in DOM order', () => {
     const v = open(baseState());
-    const bar = v.query<HTMLElement>('#actionBar')!;
-    expect(bar).toBeTruthy();
-    expect(bar.classList.contains('hidden')).toBe(false);
-    expect(v.query('#phase2')!.contains(bar)).toBe(false);
-    const p2 = v.query<HTMLElement>('#phase2')!;
-    expect(p2.classList.contains('hidden')).toBe(false);
-    expect(p2.getAttribute('aria-disabled')).toBe('true');
-    expect(p2.hasAttribute('inert')).toBe(true);
-    const hint = v.query<HTMLElement>('#phase2Hint')!;
-    expect(hint.textContent).toContain('Add a title to continue');
-    expect(hint.classList.contains('hidden')).toBe(false);
+    const regions = v.queryAll('[data-region]').map((e) => e.getAttribute('data-region'));
+    expect(regions).toEqual(['header', 'content', 'settings', 'actions']);
+    expect(v.query('#actionBar')!.getAttribute('data-region')).toBe('actions');
   });
 
-  it('ungates Phase 2 once a title is present', () => {
+  it('keeps every section enabled and disables only the primary, with a reason, while the title is blank', () => {
+    const v = open(baseState());
+    expect(v.query('#phase2')).toBeNull();
+    expect(v.query('#phase2Hint')).toBeNull();
+    expect(v.query('[inert]')).toBeNull();
+    expect(v.query('[aria-disabled="true"]')).toBeNull();
+    const submit = v.query<HTMLButtonElement>('#submitBtn')!;
+    expect(submit.disabled).toBe(true);
+    expect(submit.title).toMatch(/title/i);
+    expect(v.document.body.textContent).not.toContain('Add a title to continue');
+    expect(v.query<HTMLButtonElement>('#saveBtn')!.disabled).toBe(false);
+  });
+
+  it('enables the primary once a title is present', () => {
     const v = open(baseState({ title: 'Fix it' }));
-    const p2 = v.query<HTMLElement>('#phase2')!;
-    expect(p2.hasAttribute('aria-disabled')).toBe(false);
-    expect(p2.hasAttribute('inert')).toBe(false);
-    expect(v.query('#phase2Hint')!.classList.contains('hidden')).toBe(true);
+    expect(v.query<HTMLButtonElement>('#submitBtn')!.disabled).toBe(false);
   });
 
-  it('submitting without a title shows #titleErr under the field, describes and focuses it', () => {
+  it('saving without a title shows #titleErr under the field, describes and focuses it', () => {
     const v = open(baseState());
-    v.click('#submitBtn');
+    v.click('#saveBtn');
     const err = v.query<HTMLElement>('#titleErr')!;
     expect(err.getAttribute('role')).toBe('alert');
     expect(err.classList.contains('hidden')).toBe(false);
@@ -62,36 +64,36 @@ describe('ticket form — gated Phase 2 + always-on action bar', () => {
     expect(title.getAttribute('aria-describedby')).toBe('titleErr');
     expect(v.document.activeElement).toBe(title);
     expect(v.query('#err')!.classList.contains('hidden')).toBe(true);
-    expect(v.posted.some((m) => (m as { type: string }).type === 'submit')).toBe(false);
+    expect(v.posted.some((m) => (m as { type: string }).type === 'save')).toBe(false);
   });
 });
 
 describe('ticket form — action labels', () => {
-  it('create mode: Save draft / Create & start session, Cancel first', () => {
+  it('create mode: Save draft / Create & start, Cancel first, primary last, no sentence', () => {
     const v = open(baseState());
     expect(v.query('#saveBtn')!.textContent).toBe('Save draft');
-    expect(v.query('#submitBtn')!.textContent).toBe('Create & start session');
+    expect(v.query('#submitBtn')!.textContent).toBe('Create & start');
     const ids = v.queryAll('#actionBar button').map((b) => b.id);
     expect(ids).toEqual(['cancelBtn', 'saveBtn', 'submitBtn']);
-    expect(v.query('#actionHint')!.textContent).toMatch(/start/i);
+    expect(v.query('#actionHint')).toBeNull();
   });
 
   it('static markup labels match the create-mode runtime labels', () => {
     const v = renderWebview('ticketForm');
     h = v;
     expect(v.query('#saveBtn')!.textContent).toBe('Save draft');
-    expect(v.query('#submitBtn')!.textContent).toBe('Create & start session');
+    expect(v.query('#submitBtn')!.textContent).toBe('Create & start');
   });
 
-  it('edit mode: Save changes / Save & start session', () => {
+  it('edit mode: Save / Save & start', () => {
     const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'PROJ-1', title: 'T' }));
-    expect(v.query('#saveBtn')!.textContent).toBe('Save changes');
-    expect(v.query('#submitBtn')!.textContent).toBe('Save & start session');
+    expect(v.query('#saveBtn')!.textContent).toBe('Save');
+    expect(v.query('#submitBtn')!.textContent).toBe('Save & start');
   });
 });
 
 describe('ticket form — field order and headings', () => {
-  it('Title (required) comes before Key (optional) and Type sits next to Key', () => {
+  it('Title (required) is in content; Key (optional) and Type are in settings', () => {
     const v = open(baseState());
     const title = v.query('#title')!;
     const ref = v.query('#ref')!;
@@ -99,37 +101,37 @@ describe('ticket form — field order and headings', () => {
     expect(v.query('label[for="title"]')!.textContent).toContain('(required)');
     expect(v.query('label[for="ref"]')!.textContent).toContain('(optional)');
     expect(ref.getAttribute('placeholder')).toBe('e.g. PROJ-142');
-    expect(v.query('#keyTypeRow #typeSelect')).toBeTruthy();
+    expect(v.query('[data-region="content"] #title')).toBeTruthy();
+    expect(v.query('[data-region="settings"] #ref')).toBeTruthy();
+    expect(v.query('[data-region="settings"] #typeSelect')).toBeTruthy();
   });
 
   it('replaces the dot stepper with plain section headings', () => {
     const v = open(baseState({ title: 'x' }));
     expect(v.query('.step .dot')).toBeNull();
     const heads = v.queryAll('h2').map((e) => e.textContent!.trim());
-    for (const want of ['Ticket', 'Repositories', 'Approach', 'Agent']) {
+    for (const want of ['Repositories', 'Approach', 'Agent']) {
       expect(heads.some((t) => t.startsWith(want))).toBe(true);
     }
     const labelledBy = v.query('#approachList')!.getAttribute('aria-labelledby')!;
     expect(v.query('#' + labelledBy)!.textContent).toBe('Approach');
   });
 
-  it('Create in ClickUp lives in the Ticket card in both modes', () => {
+  it('Create in ClickUp lives in the source block in both modes', () => {
     const v = open(baseState({ canCreateProviderTicket: true }));
-    const card = v.query('#ticketCard')!;
+    const card = v.query('#sourceBlock')!;
     expect(card.contains(v.query('#createInRow'))).toBe(true);
     expect(card.contains(v.query('#createInBtn'))).toBe(true);
   });
 });
 
 describe('ticket form — edit header, callout, empty states', () => {
-  it('edit mode: h1 is the title, key is a chip, "Editing" eyebrow', () => {
+  it('edit mode: h1 is the title and the ref is a chip', () => {
     const v = open(baseState({ mode: 'edit', ticketId: 7, refLabel: 'T7 · PROJ-142', key: 'PROJ-142', title: 'Add retry' }));
     expect(v.query('#heading')!.textContent).toBe('Add retry');
     const chip = v.query<HTMLElement>('#keyChip')!;
     expect(chip.classList.contains('hidden')).toBe(false);
     expect(chip.textContent).toBe('T7 · PROJ-142');
-    expect(v.query<HTMLElement>('#eyebrow')!.classList.contains('hidden')).toBe(false);
-    expect(v.query('#eyebrow')!.textContent).toBe('Editing');
   });
 
   it('draft review page shows the draft id in the chip, and a sub-task names its parent as T<n>', () => {
@@ -139,11 +141,11 @@ describe('ticket form — edit header, callout, empty states', () => {
     expect(v.query('#subhead')!.textContent).toBe('Sub-task of T12');
   });
 
-  it('create mode hides the eyebrow and key chip', () => {
+  it('create mode hides the key chip and shows no subtitle', () => {
     const v = open(baseState());
     expect(v.query('#heading')!.textContent).toBe('New ticket');
     expect(v.query('#keyChip')!.classList.contains('hidden')).toBe(true);
-    expect(v.query('#eyebrow')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#subhead')!.textContent).toBe('');
   });
 
   it('shows the design constraints card with chips, doc names and escaped warnings', () => {

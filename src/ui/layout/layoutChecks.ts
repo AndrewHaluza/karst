@@ -351,8 +351,8 @@ export interface RegionExpectation {
 /** tests/visual/expectations/<section>.json: expectations per tier. */
 export type RegionExpectations = Readonly<Partial<Record<LayoutTier, RegionExpectation>>>;
 
-/** R40: the primary action sits inside the header or toolbar region. */
-const PRIMARY_HOMES = new Set(['header', 'toolbar']);
+/** R40: the primary action sits inside the header, toolbar or (form) actions region. */
+const PRIMARY_HOMES = new Set(['header', 'toolbar', 'actions']);
 
 function regionOrder(s: LayoutSnapshot, expected: RegionExpectation | undefined): Found[] {
   if (!expected) return [];
@@ -386,7 +386,7 @@ function regionOrder(s: LayoutSnapshot, expected: RegionExpectation | undefined)
       check: 'region-order',
       selector: primary.path,
       rects: [primary.rect],
-      detail: `primary action is in region "${home?.region ?? 'page'}", not the header or toolbar`,
+      detail: `primary action is in region "${home?.region ?? 'page'}", not the header, toolbar or actions`,
     });
   }
   return out;

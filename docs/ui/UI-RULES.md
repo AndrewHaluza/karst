@@ -1109,7 +1109,7 @@ END_DOC_BLOCK: [@ui:UI-R39]
 ## [@ui:UI-R40] Reading order: header and primary action, then main, then secondary
 
 Order is header with the primary action → main content → secondary or advanced
-content. The primary action sits in the `header` or `toolbar` region.
+content. The primary action sits in the `header` or `toolbar` region (a form's action bar is the `actions` region).
 
 A user scans top-down; a primary action buried below the content or in a footer
 is found last.
@@ -1117,7 +1117,7 @@ is found last.
 **Verification:** VISUAL
 
 **Check:** VISUAL check (g) asserts region order in the DOM and on screen, and
-that the primary action's box lies inside the `header` or `toolbar` region.
+that the primary action's box lies inside the `header`, `toolbar` or `actions` region.
 END_DOC_BLOCK: [@ui:UI-R40]
 
 ## [@ui:UI-R41] Table cells align to headers; form controls share a left edge
