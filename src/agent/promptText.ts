@@ -127,9 +127,9 @@ export interface NamedGate {
 /**
  * The deterministic-checks rule: the gates phase already ran the project's
  * checks, so the role must read the change, not re-run them. Text for the
- * reviewer; the parenthesised script list is omitted when no gate is known.
+ * reviewer and tester; the parenthesised script list is omitted when no gate is known.
  */
-export function noGatesRule(_role: 'reviewer', gates: readonly NamedGate[] = []): string {
+export function noGatesRule(role: 'reviewer' | 'tester', gates: readonly NamedGate[] = []): string {
   const names = gates.map((g) => g.name).join(', ');
   const scripts = gates.flatMap((g) => (g.script ? [g.script] : [])).join(', ');
   const ran = names ? ` ${names}${scripts ? ` (${scripts})` : ''}` : ' the project checks';
@@ -137,7 +137,9 @@ export function noGatesRule(_role: 'reviewer', gates: readonly NamedGate[] = [])
     `Deterministic checks are not your job: the gates phase already ran${ran} on this change. ` +
     'Do NOT run them, or any test runner, type checker, linter or visual/screenshot suite ' +
     '(npm test, npm run test*, vitest, jest, tsc, eslint, playwright), here or through a wrapper. ' +
-    'Read the diff and the code it touches; report what is wrong with it.'
+    (role === 'tester'
+      ? "A coverage row of 'unit tests only' is not coverage. Exercise the running app (UI, CLI, API) as a user would."
+      : 'Read the diff and the code it touches; report what is wrong with it.')
   );
 }
 

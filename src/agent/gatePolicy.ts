@@ -22,15 +22,16 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 /**
- * The HEADLESS profiles. `reviewer` is `gate` plus the deterministic-check deny
+ * The HEADLESS profiles. `uat-tester` (T863) carries the same deny as `reviewer`: the
+ * Tester exercises the running app, the gates phase already ran the checks. `reviewer` is `gate` plus the deterministic-check deny
  * (`gateCheckDeniedCommands`): the findings lane reads the diff, the gates phase
  * already ran the checks. Fix keeps plain `gate` — it must run tests.
  */
-export type HeadlessPolicy = 'gate' | 'reviewer';
+export type HeadlessPolicy = 'gate' | 'reviewer' | 'uat-tester';
 
 /** True for every headless profile that carries the gate sandbox. */
 export function isGatePolicy(policy: HeadlessPolicy | InteractivePolicy | undefined): boolean {
-  return policy === 'gate' || policy === 'reviewer';
+  return policy === 'gate' || policy === 'reviewer' || policy === 'uat-tester';
 }
 
 /**
@@ -88,7 +89,7 @@ export function gateDeniedCommands(
   gateScripts: readonly string[] = [],
 ): string[] {
   const base = [...PROCESS_WIDE_KILL_COMMANDS, ...GATE_BUILD_COMMANDS];
-  return policy === 'reviewer' ? [...base, ...gateCheckDeniedCommands(gateScripts)] : base;
+  return policy === 'reviewer' || policy === 'uat-tester' ? [...base, ...gateCheckDeniedCommands(gateScripts)] : base;
 }
 
 /**

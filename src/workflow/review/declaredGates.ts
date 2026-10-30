@@ -27,3 +27,11 @@ export function declaredCheckGates(manifest: Manifest | undefined, repo: string)
   }
   return out;
 }
+
+/** The script names of the declared gates, for the `reviewer` / `uat-tester` deny. */
+export function gateScriptsOf(gates: readonly NamedGate[] | undefined): string[] {
+  return (gates ?? []).flatMap((g) => {
+    const script = g.script?.replace(/^npm run /, '') ?? '';
+    return script !== '' && !script.includes(' ') ? [script] : [];
+  });
+}
