@@ -2,6 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+/** extension.ts plus the top-level helper modules moved out of it (a pure move). */
+function readExtensionSources(): string {
+  return ['extension.ts', 'extension/cliPrefixes.ts', 'extension/terminalHosts.ts', 'extension/insideActionHost.ts', 'extension/dashboardActions.ts', 'extension/worktreePathContext.ts', 'extension/brandTabIcon.ts']
+    .map((f) => readFileSync(join(process.cwd(), 'src', f), 'utf8'))
+    .join('\n');
+}
+
 describe('extension activation', () => {
   it('starts after a window reload so live Codex hook endpoints are restored', () => {
     const pkg = JSON.parse(
@@ -21,14 +28,14 @@ describe('extension activation', () => {
   // dedupes) and re-runs the git/gate loaders — ~9 full snapshots per ship on
   // the VM trace. The click's own final push (and every catch) still settles.
   it('pushes ship steps and agent hooks as store news', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toMatch(/if \(event\) dashboard\.postInsideProgress\(ticketId, event\);[\s\S]{0,1200}?dashboard\.pushStoreState\(ticketId\);\s*\},/);
     expect(source).toMatch(/provider\.refresh\(\);[\s\S]{0,200}?dashboard\.pushStoreState\(ticketId\);\s*maybeDrive\(ticketId, 'hook'\);/);
   });
 
   it('settles the merge gate on the PR sweep, and pushes the status of what landed', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('settleShipGates(');
     expect(source).toContain('{ projectId: project.id }');
@@ -43,7 +50,7 @@ describe('extension activation', () => {
   // opened, which is exactly the claim this ticket exists to stop making. It now
   // fires from whichever path actually moved the ticket to `done`.
   it('pushes the provider status only for a ticket that actually reached done', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     // Ship: only the nothing-to-merge case walks straight through to done —
     // the guard rides the shared ship-saga seam (click AND stranded recovery).
@@ -60,7 +67,7 @@ describe('extension activation', () => {
   // every PR_SYNC_INTERVAL_MS, with no second interval to dispose. Without the
   // wiring, done tickets accumulate on the board forever.
   it('auto-archives done tickets on the PR sweep after the configured delay', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('autoArchiveDoneTickets(localStore, {');
     expect(source).toContain(
@@ -69,7 +76,7 @@ describe('extension activation', () => {
   });
 
   it('auto-archives finished planning sessions on the PR sweep after the configured delay', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest()');
   });
@@ -87,7 +94,7 @@ describe('extension activation', () => {
   // ticket's folder three days early — that broad predicate stays the manual
   // command's job.
   it('auto-archives inactive worktree folders on the PR sweep, after done tickets', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toMatch(
       /autoArchiveDoneTickets\(localStore, \{[\s\S]{0,3000}?archiveInactiveWorktrees\(/,
@@ -106,7 +113,7 @@ describe('extension activation', () => {
   // reap every other window's worktrees (P2-17). The binding hands the live
   // project id to the extracted op, which must refuse when it cannot bind.
   it('refuses the manual inactive-worktree archive when no project is bound', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     const opsSource = readFileSync(
       join(process.cwd(), 'src', 'extension', 'ops', 'archiveOps.ts'),
       'utf8',
@@ -141,7 +148,7 @@ describe('extension activation', () => {
   // decision logic runs in `ui/doneTerminals.test.ts`, this pins that the host
   // actually wires it behind the setting.
   it('closes a closed ticket\'s done terminals only behind the manifest setting', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     // The setting gate exists and both triggers ride it.
     // The archive op reads the manifest and gates on the setting; the binding
@@ -204,7 +211,7 @@ describe('extension activation', () => {
   // the artifact console-log root. Without the graph root, a hard delete leaves
   // graph snapshots/workspaces that only a later sweep (or nothing) cleans.
   it('passes the graph byte root and the artifact root from the delete command', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('graphBytesRoot');
     expect(source).toContain("artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts')");
@@ -230,7 +237,7 @@ describe('extension activation', () => {
   // coordinator re-attaches revived graph sessions on activation AND on each
   // PR sweep, and `openSession` re-attaches before reporting "not attached".
   it('re-attaches revived graph sessions on activation, on the sweep, and before the not-attached message', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     const transportSource = readFileSync(
       join(process.cwd(), 'src', 'approaches', 'graph', 'transport', 'supervisedCliTransport.ts'),
       'utf8',
@@ -252,7 +259,7 @@ describe('extension activation', () => {
   });
 
   it('directs a graph run awaiting its impl marker to the guarded marker command', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
     expect(source).toContain('karst stage impl pass');
@@ -271,7 +278,7 @@ describe('extension activation', () => {
   // walks runs through the SAME wrapper the activation pass uses, so a
   // reconcile-created block still reaches `settleGraphRun`.
   it('binds the planner relaunch seam and reconciles every run on the sweep', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     // The driver's relaunch is imported and invoked from a host closure that
     // captures the launch identity for the terminal-close fallback…
@@ -344,7 +351,7 @@ describe('extension activation', () => {
   // pinned here: liveness-gated read + resume through the SAME seam as the
   // confirm-ship click (one seam, never a second run body).
   it('resumes a stranded ship on activation, through the same seam as the click', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     const sweep = readFileSync(
       join(process.cwd(), 'src', 'extension', 'ops', 'strandedShip.ts'),
       'utf8',
@@ -372,7 +379,7 @@ describe('extension activation', () => {
   // reads a LIVE ship-sourced round instead, so an activation sweep can never
   // commit and push worktree changes onto a PR that is already under review.
   it('gates deliverToOpenPr on who asked for the ship', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     expect(source).toMatch(
       /const deliverToOpenPr = shipOpts\.deliver === true \|\| \(shipOpts\.unattended\s*\n\s*\? activeRecoverySeries\(localStore, ticketId, 'ship'\) !== null\s*\n\s*: hasCompletedShipRun\(localStore, ticketId\)\);/,
     );
@@ -384,7 +391,7 @@ describe('extension activation', () => {
   // The ONE unattended caller must be the one that opts in. If this regresses,
   // the activation sweep silently regains the permissive gate.
   it('marks only the stranded-ship resume as unattended', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     expect(source).toMatch(/runShip: \(id\) => runShipSaga\(id, false, \{ unattended: true \}\)/);
     expect(source.match(/unattended: true/g) ?? []).toHaveLength(1);
   });
@@ -397,7 +404,7 @@ describe('extension activation', () => {
   // recovered by the resume path — or by neither, if the block is dropped.
   it('parks ship runs whose host died on activation, and says which it closed', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'bootSweeps.ts'), 'utf8');
-    const activationSource = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const activationSource = readExtensionSources();
 
     expect(source).toMatch(
       /reconcileShipRuns\(deps\.store, pidAlive[\s\S]{0,80}?deps\.info\(\s*describeStaleShipRun\(/,
@@ -410,10 +417,7 @@ describe('extension activation', () => {
   });
 
   it('identifies restored terminals by pid, which a reload does not strip', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'src', 'extension.ts'),
-      'utf8',
-    );
+    const source = readExtensionSources();
 
     // A reattached terminal reports no launch env, so the pid captured at
     // creation is the only surviving terminal→ticket link. Capture it, and
@@ -447,7 +451,7 @@ describe('extension activation', () => {
   });
 
   it('binds dashboard agent switching to the header selection, host confirmation, and the normal launch path', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     expect(source).toContain('applyAgentSwitchSelection(');
     expect(source).toMatch(
       /fixExecutionActive: listRecoveryRounds\(localStore, ticketId\)\s*\.some\(\(round\) => round\.status === 'fixing'\)/,
@@ -466,7 +470,7 @@ describe('extension activation', () => {
   });
 
   it('keeps evidence status visible in the bounded-evidence Quick Pick', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     expect(source).toContain('row.status');
     expect(source).toContain('statusLabel');
   });
@@ -478,7 +482,7 @@ describe('extension activation', () => {
   // resolvers compose the SAME `instrument(resolveAdapter(...))` path
   // `wiring.test.ts` scans, so instrumentation stays centralized.
   it('wires the resolved Tester and Review processes and the verifier runner into the driver', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain("uatTester: (id) => processFor(id, 'uat-tester')");
     expect(source).toContain("reviewProcess: (id) => processFor(id, 'review')");
@@ -499,7 +503,7 @@ describe('extension activation', () => {
   // type-asserted at this seam; the callbacks now return
   // `DriveProcessBundle | null` natively.
   it('wires every configured inside process role, with no null-collapse type assertion at the seam', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain("processFor(ticketId, 'uat-fix')");
     expect(source).toContain("processFor(ticketId, 'review-fix')");
@@ -526,7 +530,7 @@ describe('extension activation', () => {
   // reported bug. The overlay lives at the shared `processFor` seam, so the
   // same rule wires UAT / Review / Fix, not just the analyzer.
   it('overlays the assigned Settings profile body as the process instructions at the processFor seam', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     // The seam reads the assignment's PROFILE reference (not the ticket's
     // single-subagent pick) and resolves its body…
@@ -551,7 +555,7 @@ describe('extension activation', () => {
   // assignment must be retired through the normal session-switch lifecycle and
   // relaunched through the explicit assignment override, never relabeled.
   it('refuses a disabled Fix process at the session seam and launches differing identities through the assignment override', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('configured Fix process disabled');
     expect(source).toMatch(/if \(process === null\) \{\s*logger\.info\s*\(/);
@@ -567,7 +571,7 @@ describe('extension activation', () => {
   // machine enters fix `running`, and nothing re-read it before, so a ticket
   // resting at fix for a human kept claiming the agent was actively fixing.
   it('parks the fix stage row whenever the host leaves a ticket at fix with no execution', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE');
     expect(source).toContain("!hasFixingRound(localStore, ticketId) &&\n          parkFixStage(localStore, ticketId, FIX_PARKED_NO_EXECUTION");
@@ -577,7 +581,7 @@ describe('extension activation', () => {
   });
 
   it('delegates configured Fix compatibility so only replacement paths probe before disposal or launch', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     const fixStart = source.indexOf('function resumeFixSession(');
     const fixEnd = source.indexOf('// The §5.4-safe driver nudge', fixStart);
     const fix = source.slice(fixStart, fixEnd);
@@ -596,7 +600,7 @@ describe('extension activation', () => {
   // without anyone opening the form. Pinned as source like every wiring case
   // in this file: extension.ts imports `vscode` and cannot load under vitest.
   it('wires the ticket API to the window project and a sidebar refresh', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('ticketApi: {');
     expect(source).toContain('projectId: () => currentProject()?.id,');
@@ -614,7 +618,7 @@ describe('extension activation', () => {
   // vitest. The decision logic is pinned in reconcile.test.ts and
   // recovery.test.ts; this pins the WIRING.
   it('reconciles a dead bootstrap planner, settles its stage block, and wires the bootstrap relaunch', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     // The reconcile wrapper settles a run this pass blocked (node OR planner),
     // writing the stage block the dashboard's graph-recovery Resume reads.
@@ -631,14 +635,14 @@ describe('extension activation', () => {
     // 15s reconcile retried — which a restart could turn into a permanent
     // `no-revision` strand. The election path now fires the SAME host seam
     // reconcile uses. Pinned as source: extension.ts imports `vscode`.
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     expect(source).toMatch(
       /if \(elected\.elected\) \{\s*void relaunchReplanPlannerHost\(graphRunId\);\s*\}/,
     );
   });
 
   it('refreshes and wakes recovered graph work, while describing blocked Stop accurately', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
 
     expect(source).toContain('onGraphRecovered(ticketId, graphRunId);');
     expect(source).toContain('provider.refresh();\n      dashboard.pushState(ticketId);\n      void driveGraphRunContinuation(graphRunId);');
@@ -647,7 +651,7 @@ describe('extension activation', () => {
   });
 
   it('refreshes and wakes every successful graph recovery from the legacy resume-stage route', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readExtensionSources();
     const start = source.indexOf('resumeStage: (ticketId, stageKey) => {');
     const end = source.indexOf('openFullEvidence:', start);
     const resumeStage = source.slice(start, end);

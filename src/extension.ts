@@ -1,9 +1,24 @@
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
+import { hostFallbackPrompts } from './extension/ops/sandboxLaunchOps.js';
+import { listInstalled } from './approaches/pkg.js';
+import { packagedApproachDefs } from './approaches/withBuiltInApproaches.js';
+import { listTicketLifecycle } from './store/runningServers.js';
+import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
+import { registerCloseCommands } from './extension/ops/closeCommands.js';
+import { registerReviewStallCommands } from './extension/reviewStallBinding.js';
+import { sessionDelivery } from './extension/ops/fixWatchdog.js';
+import { makeInsideActionHost } from './extension/insideActionHost.js';
+import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
+import { worktreePathContext } from './extension/worktreePathContext.js';
+import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
+import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
+import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, readdirSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -16,13 +31,11 @@ import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
-import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
-import { compileExpertSpend, graphRecoveryRefusalNotice, graphRefusalHandling, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { compileExpertSpend, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
-import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
@@ -30,7 +43,6 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
-import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
@@ -39,46 +51,31 @@ import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
-import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
-import { deliverToPrAction, autoDeliverAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { autoDeliverAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
-import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
-import { startFixWatchdog, sessionDelivery } from './extension/ops/fixWatchdog.js';
+import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
-import {
-  stopServerRow, startServerRow, restartServerRow, openServerRow, copyServerUrlRow,
-  type ServerOpsDeps,
-} from './extension/ops/serverOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
-import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { resolveSidebarEdge } from './ui/sidebar/edge.js';
 import { ActiveTicketTracker } from './ui/activeTicket.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
-import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
+import { DashboardManager } from './ui/dashboard/panel.js';
 import { makeDashboardPanelHost } from './ui/dashboard/host.js';
-import type { DashboardActions } from './ui/dashboard/messages.js';
-import type { AgentProcessId } from './ui/dashboard/messages.js';
-import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
 import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
-import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
-import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
+import { createStoredArtifactBinding } from './extension/storedArtifactBinding.js';
 import { createInteractiveUsageLimitBinding } from './extension/interactiveUsageLimitBinding.js';
-import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
+import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
-import {
-  TicketChangesManager,
-  type ChangesPanel,
-  type ChangesPanelHost,
-} from './ui/diffs/panel.js';
+import { TicketChangesManager } from './ui/diffs/panel.js';
 import { makeChangesPanelHost } from './ui/diffs/host.js';
 import {
   StaleDiffTargetError,
@@ -97,29 +94,8 @@ import {
   type VirtualDocumentAttempt,
   VirtualDocumentRegistry,
 } from './ui/diffs/hostResources.js';
-import {
-  deferSessionRetry,
-  KARST_LAUNCH_ENV,
-  SessionManager,
-  ticketIdFromTerminalEnv,
-  type TerminalHost,
-  type SessionTerminal,
-  type SessionIdentity,
-  type OpenSessionOptions,
-  type RestoredSession,
-  type RestoredSessionDisposition,
-} from './ui/session.js';
-import {
-  forgetSessionTerminal,
-  forgetSessionTerminalPid,
-  identifyTerminal,
-  parseSessionTerminalRecords,
-  pruneSessionTerminals,
-  rememberSessionTerminal,
-  type DurableSessionIdentityLookup,
-  type SessionTerminalRecord,
-  type TerminalIdentity,
-} from './ui/terminalIdentity.js';
+import { deferSessionRetry, SessionManager, type OpenSessionOptions, type RestoredSessionDisposition } from './ui/session.js';
+import { identifyTerminal, parseSessionTerminalRecords, type SessionTerminalRecord } from './ui/terminalIdentity.js';
 import { closeTerminalsOnTicketCompleted } from './extension/ops/completeTicketOps.js';
 import { maybeStopServersOnDone, type ServerLifecycleDeps } from './extension/ops/serverLifecycle.js';
 import { closeDoneTerminalsOf, type DoneTerminalProbe } from './ui/doneTerminals.js';
@@ -142,11 +118,7 @@ import { installProbeRecorder, registerProbeCommand } from './uatHost/probe/vsco
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
 import { resolvePlanningDefaults } from './agent/planningDefaults.js';
-import {
-  resolveProcessAssignment,
-  type DriveProcessBundle,
-  type ProcessAssignmentSnapshot,
-} from './agent/processAssignment.js';
+import { resolveProcessAssignment, type DriveProcessBundle } from './agent/processAssignment.js';
 import {
   PROMPT_BEARING_ROLES,
   type ProcessRole,
@@ -170,7 +142,6 @@ import {
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
-import type { ModelCatalog } from './agent/modelCatalog.js';
 import { applyAgentSwitchSelection, type AgentSwitchOutcome } from './agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
 import {
@@ -188,7 +159,7 @@ import {
 } from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { launchHasMcp } from './agent/karstCommandText.js';
-import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
+import { markerStageFor } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
@@ -219,27 +190,12 @@ import { compactTicketLabel } from './model/followUp.js';
 import { tabTitle } from './model/tabTitle.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
-import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
-import { KARST_TERMINAL_ICON_ID, terminalNaming } from './ui/terminalNaming.js';
-import { observeTerminalClose } from './ui/terminalObservation.js';
+import { terminalNaming } from './ui/terminalNaming.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
-import { composeContextCommand } from './cli/context.js';
-import { composeStageCommand } from './cli/stage.js';
-import { composePhaseCommand } from './cli/phaseCommand.js';
-import { composeGuideCommand, renderGuideInstruction } from './cli/guide.js';
-import { composeTestCommand } from './cli/test/main.js';
-import { composeFixBriefCommand } from './cli/fixBriefCommand.js';
-import { composeConflictBriefCommand } from './cli/conflictBriefCommand.js';
-import { composeServersPrefix, renderServersInstruction } from './cli/serversCommand.js';
-import {
-  buildWorkflowInvocation,
-  renderWorkflowCommand,
-  renderDoneMarkerInstruction,
-  renderGateOnlyInstruction,
-  KARST_PLUGIN_NAME,
-  orchestratorCommandBasename,
-} from './agent/workflowCommand.js';
+import { renderGuideInstruction } from './cli/guide.js';
+import { renderServersInstruction } from './cli/serversCommand.js';
+import { buildWorkflowInvocation, renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { TurnTracker } from './hooks/dispatch.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
@@ -252,13 +208,7 @@ import {
 } from './approaches/graph/coordinator/reconcile.js';
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
-import {
-  createSupervisedCliTransport,
-  type SupervisedCliTransport,
-  type SupervisedAgentSession,
-  type TransportTerminal,
-  type TransportTerminalHost,
-} from './approaches/graph/transport/supervisedCliTransport.js';
+import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -275,7 +225,7 @@ import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
-import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import { type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from './approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
@@ -303,31 +253,11 @@ import {
   fireGraphImplMarkerFromHost,
 } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
-import {
-  acceptSubmittedPlan,
-  acceptSubmittedReplan,
-  bootstrapAndLaunchPlanner,
-  confirmGraphRun,
-  driveReadyNodeRuns,
-  launchReplanPlanner,
-  plannerVocabularyFor,
-  relaunchBootstrapPlanner,
-  readPlannerDiagnostics,
-  compileDiagnosticsSection,
-  resolveProfileFor,
-  PLANNER_SUBMIT_INSTRUCTION,
-  type GraphDriverDeps,
-} from './approaches/graph/driver.js';
+import { acceptSubmittedPlan, acceptSubmittedReplan, bootstrapAndLaunchPlanner, confirmGraphRun, driveReadyNodeRuns, launchReplanPlanner, plannerVocabularyFor, relaunchBootstrapPlanner, readPlannerDiagnostics, compileDiagnosticsSection, PLANNER_SUBMIT_INSTRUCTION, type GraphDriverDeps } from './approaches/graph/driver.js';
 import { visitMailboxFacts } from './approaches/graph/visitMailboxFacts.js';
 import { runGraphCommand } from './cli/graph.js';
-import { buildGraphSessionEnv, isGraphSessionEnv } from './approaches/graph/transport/env.js';
-import {
-  cliTokensFor,
-  envRef,
-  exportedCliEnv,
-  sessionCliEnv,
-  type CliTokens,
-} from './agent/cliEnv.js';
+import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
+import { envRef, sessionCliEnv } from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
 import type {
   CommandDefinition,
@@ -345,7 +275,7 @@ import {
   type DomainEntry,
 } from './approaches/graph/integration/domains.js';
 import { canonicalRepoId } from './runtime/repoId.js';
-import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS } from './store/graph/transitions.js';
 import {
   graphRunApproachId as storeGraphRunApproachId,
   graphRunIdTicketStatus,
@@ -360,7 +290,7 @@ import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
-import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
+import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -370,14 +300,9 @@ import {
   selectLaunchableWorktrees,
 } from './commands/launchWorktree.js';
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
-import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
-import { ALL_SERVICES, setServiceEnvOverrides } from './store/ticketEnvOverrides.js';
-import { parseEnvText } from './runtime/env.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
-import { mergeTicketPr } from './workflow/mergePr.js';
-import { dismissTicketPr, undismissTicketPr } from './workflow/dismissPr.js';
 import { nowIso } from './model/time.js';
 import { settleShipGates, settleMergedNothingNew } from './workflow/mergeGate.js';
 import { integrateAndReleaseParent, isIntegrating, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
@@ -386,14 +311,7 @@ import { sweepArtifactRetention } from './artifacts/retention.js';
 import { wireArtifactCapture } from './extension/artifactCaptureWiring.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
-import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
-import { runKilledGatesOnHost } from './extension/ops/runGateOnHost.js';
-import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
-import { resetStageAction } from './extension/ops/resetStageAction.js';
-import { reviewStallBinding, registerReviewStallCommands } from './extension/reviewStallBinding.js';
-import { retryGateStage, retryGateState } from './workflow/retryGate.js';
-import { askPausedModal } from './extension/pausedModal.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
@@ -402,25 +320,18 @@ import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js'
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
-  changeBaseRef as changeBaseRefWorkflow,
-  describeChangeBaseRef,
-} from './workflow/changeBaseRef.js';
-import {
   openProcessRun,
   finishProcessRun,
   setProcessRunPromptTelemetry,
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
-import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
 import { archiveInactiveWorktrees, compactArchivedWorktrees } from './runtime/archiveBulk.js';
-import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
 import {
   defaultGitRunner,
 } from './integrations/git.js';
-import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
+import { loadManifest, type Manifest } from './manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
-import type { PathContext } from './ui/dashboard/state.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable } from './manifest/runnable.js';
@@ -446,12 +357,7 @@ import {
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import { resolveGraphPrompt } from './agent/graphPrompts.js';
-import {
-  approachDelta,
-  isBuiltInApproachId,
-  packagedApproachDefs,
-  withBuiltInApproaches,
-} from './approaches/withBuiltInApproaches.js';
+import { isBuiltInApproachId, withBuiltInApproaches } from './approaches/withBuiltInApproaches.js';
 import type {
   AgentProvider,
   ApproachDef,
@@ -463,30 +369,18 @@ import { resilientAdapter, type ModelFallbackEvent } from './agent/resilientAdap
 import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
-import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
+import { UsagePanelManager } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
 import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
 import type { QuotaSnapshot } from './agent/quota/types.js';
 import { QuotaOps } from './extension/ops/quotaOps.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from './manifest/validate/quota.js';
-import {
-  ResourcesPanelManager,
-  type ResourcesPanel,
-  type ResourcesPanelHost,
-} from './ui/resources/panel.js';
+import { ResourcesPanelManager } from './ui/resources/panel.js';
 import { pendingOutputsByApproach } from './approaches/pendingOutputs.js';
 import { makeResourcesPanelHost } from './ui/resources/host.js';
-import { ServerLogsManager, type ServerLogsPanel, type ServerLogsPanelHost } from './ui/serverLogs/panel.js';
+import { ServerLogsManager } from './ui/serverLogs/panel.js';
 import { makeServerLogsPanelHost } from './ui/serverLogs/host.js';
-import {
-  listInstalled,
-  readApproachPackage,
-  uninstallApproach,
-  readArtifactBody,
-  listArtifacts,
-  setPendingOutputs,
-  type ApproachPackage,
-} from './approaches/pkg.js';
+import { readApproachPackage, uninstallApproach, readArtifactBody, listArtifacts, setPendingOutputs, type ApproachPackage } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
 import { buildAgentPool, poolAgentBody, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
@@ -495,32 +389,14 @@ import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
-import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
-import type { InsideActionHost } from './ui/dashboard/insideActions.js';
+import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
-import { getPrById } from './store/prs.js';
-import { getShipCommitById } from './store/shipRuns.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
-import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
-import {
-  getTicket,
-  ticketLabel,
-  listTickets,
-  listArchivedTickets,
-  setAgentState,
-  setSessionId,
-  updateTicketFields,
-  clearApproachFromTickets,
-  archiveTicket,
-  unarchiveTicket,
-  pauseTicket,
-  unpauseTicket,
-} from './store/tickets.js';
+import { getTicket, ticketLabel, listTickets, listArchivedTickets, setAgentState, setSessionId, updateTicketFields, clearApproachFromTickets, pauseTicket, unpauseTicket } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
-import { listTicketLifecycle } from './store/runningServers.js';
 import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
   buildTicketFormActions,
@@ -529,9 +405,7 @@ import {
   type StartTicketResult,
   type StartTicketOptions,
 } from './ui/ticketForm/actions.js';
-import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { reapAttachments } from './attachments/reap.js';
-import { deleteTicketPermanently } from './runtime/deleteTicket.js';
 import { makeTicketFormPanelHost } from './ui/ticketForm/host.js';
 import {
   makeTokenProvider,
@@ -552,7 +426,6 @@ import {
   type LogError,
 } from './logging/logger.js';
 import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
-import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
   checkDependencyFaults,
@@ -592,23 +465,10 @@ import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.
  * managers, so the extension is a thin shell over covered code.
  */
 
-/** The shipped karst mark. The assets root is `dist/`, so media sits one level up. */
-const BRAND_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst.svg');
 
 /** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
 const MARK_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst-mark.svg');
 
-/** The shipped karst mark. The assets root is `dist/`, so media sits one level up. */
-function brandTabIcon(context: vscode.ExtensionContext): BrandIconPaths | undefined {
-  try {
-    return brandIconPaths({
-      storageDir: context.globalStorageUri.fsPath,
-      assetSvgPath: BRAND_SVG,
-    });
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Per-workspace flag: the user dismissed the fresh-install Getting Started
@@ -641,12 +501,6 @@ const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
  * surviving terminal→ticket link after a reload.
  */
 const SESSION_TERMINALS_KEY = 'karst.sessionTerminals';
-/**
- * How long a terminal gets to report its pid. Activation waits on this before
- * it may adopt a restored session, and `Terminal.processId` never settles for a
- * process that failed to start — so the wait is bounded rather than open-ended.
- */
-const PID_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Whether this window binds a ticket's agent terminal to its dashboard.
@@ -731,10 +585,6 @@ const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
 const driver = new DriverController();
 
-/** Minimal starter body for a brand-new agent file created from Settings. */
-function agentStarterTemplate(name: string): string {
-  return `---\nname: ${name}\ndescription: \n---\n\n# ${name}\n\nDescribe what this subagent does.\n`;
-}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
@@ -3113,6 +2963,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         storedArtifacts.forTicket(ticketId, () => dashboard.pushState(ticketId)),
         ciHost(ticketId),
         usageLimitParks.forTicket(ticketId),
+        { bindings: () => sandboxB, life: () => sandboxLife },
+        driver,
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -7372,1434 +7224,4 @@ export async function deactivate(): Promise<void> {
   if (cleanupErrors.length > 1) {
     throw new AggregateError(cleanupErrors, 'karst: extension deactivation cleanup failed');
   }
-}
-
-/**
- * The worktree-path rendering context for the dashboard: the manifest's
- * `worktreePathDisplay` + the workspace root. Reads the already-resolved
- * manifest when available, else quietly loads it (no prompts — the dashboard
- * shouldn't nag). Returns undefined (→ absolute paths) when nothing is resolvable.
- *
- * `warn`/`info` are only invoked on the fallback disk-read (the common case
- * reuses `current`, already surfaced by whoever resolved it) — each defaults to
- * a no-op so this stays silent, matching the "no prompts" contract, unless a
- * caller opts into logging (extension.ts's activate() passes `logger.warn`/
- * `logger.info`).
- */
-function worktreePathContext(
-  current: Manifest | undefined,
-  warn: (message: string) => void = () => {},
-  info: (message: string) => void = () => {},
-): PathContext | undefined {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) return undefined;
-
-  let manifest = current;
-  if (!manifest) {
-    try {
-      const loaded = loadManifestWithDiagnostics(manifestPathOrThrow());
-      for (const w of loaded.warnings) warn(`karst.yml: ${w}`);
-      for (const n of loaded.notices) info(`karst.yml: ${n}`);
-      manifest = loaded.manifest;
-    } catch {
-      return undefined; // no/invalid manifest — fall back to absolute paths
-    }
-  }
-  const display = manifest.worktreePathDisplay ?? 'absolute';
-  if (display !== 'relative') return undefined;
-  return { display, projectRoot: folder.uri.fsPath };
-}
-
-/**
- * The two inputs every `buildCli*Prefix` needs: the CLI karst ships
- * (`dist/cli/main.js` inside the extension) and the workspace manifest path.
- * The manifest is BEST-EFFORT on purpose — unresolved means the CLI falls back
- * to an unscoped key lookup rather than the command failing to compose.
- */
-function cliEntryAndManifest(context: vscode.ExtensionContext): {
-  cliEntry: string;
-  manifestPath: string | undefined;
-} {
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
-  return { cliEntry: join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js'), manifestPath };
-}
-
-/**
- * Compose the `node <cli> context --db <db> --manifest <yml>` prefix the
- * generated `/karst:<id>` command runs to refresh live ticket context. The CLI
- * ships in `dist/cli/main.js`; the manifest path is best-effort (omitted when
- * unresolved — the CLI then renders without the services section).
- */
-/**
- * The LITERAL tokens (machine paths) for a karst command, resolved ONCE per
- * composition: the CLI entry, the DB, the best-effort manifest and, when given,
- * the ticket key. `cliTokensFor` swaps in env refs only where the receiving
- * agent's env exported the value; this same object feeds that env
- * (`cliSessionInput`), so the refs and the export can never disagree.
- */
-function cliLiteral(
-  context: vscode.ExtensionContext,
-  dbPath: string,
-  ticketKey?: string,
-): CliTokens {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return {
-    cli: cliEntry,
-    db: dbPath,
-    ...(manifestPath ? { manifest: manifestPath } : {}),
-    ...(ticketKey ? { ticket: ticketKey } : {}),
-  };
-}
-
-/** The `sessionCliEnv` input that exports exactly `lit`. */
-function cliSessionInput(lit: CliTokens): {
-  cliEntry: string;
-  dbPath: string;
-  manifestPath?: string;
-  ticketKey?: string;
-} {
-  return {
-    cliEntry: lit.cli,
-    dbPath: lit.db,
-    ...(lit.manifest ? { manifestPath: lit.manifest } : {}),
-    ...(lit.ticket ? { ticketKey: lit.ticket } : {}),
-  };
-}
-
-/** Tokens for a prompt delivered to an agent launched with `lit` exported. */
-function launchTokens(lit: CliTokens): CliTokens {
-  return cliTokensFor(exportedCliEnv(sessionCliEnv(cliSessionInput(lit))), lit);
-}
-
-function buildCliContextPrefix(tok: CliTokens): string {
-  return composeContextCommand(tok.cli, tok.db, tok.manifest);
-}
-
-/**
- * Compose the `node <cli> stage <stage> pass --db <db> --ticket` prefix a session
- * runs (ticket key appended) to fire the done marker for the stage it is working
- * on. Same CLI entry as context. The manifest rides along so the CLI can tell
- * which project the ticket key belongs to — two projects sharing the DB may
- * legitimately use the same key.
- *
- * `stage` defaults to `impl` — the generated `/karst:<id>` command is written
- * per launch (no install-time generation) and only carries the impl boundary.
- * A live session seed passes the ticket's actual stage, so a resume at `fix`
- * fires `fix pass` instead of the impl marker (which would throw: no impl→? edge from fix).
- */
-function buildCliStagePrefix(tok: CliTokens, stage: MarkerStage = 'impl'): string {
-  return composeStageCommand(tok.cli, tok.db, stage, tok.manifest);
-}
-
-/**
- * Compose, for one phase name, the `node <cli> phase <name> --db <db> --ticket`
- * prefix a workflow step runs (ticket key appended) to report entering that
- * phase. Same CLI entry and same best-effort manifest as the stage prefix — the
- * manifest is what stops a key two projects share from marking the wrong board.
- *
- * Returned as a function because the phase name is baked into each command, so
- * the renderer needs one per declared phase rather than a single prefix.
- */
-function buildCliPhasePrefix(tok: CliTokens): (phaseName: string) => string {
-  return (phaseName: string): string =>
-    composePhaseCommand(tok.cli, tok.db, phaseName, tok.manifest);
-}
-
-/**
- * Compose the `node <cli> guide` command a session runs to read the agent
- * manual (how Karst works, the flow, the CLI verbs). Same CLI entry as the
- * context/stage/phase prefixes; no DB, no manifest, no ticket — the guide is
- * static karst-authored content.
- */
-function buildCliGuidePrefix(tok: CliTokens): string {
-  return composeGuideCommand(tok.cli);
-}
-
-/**
- * Compose the `node <cli> --db <db> --manifest <yml> --ticket <key>` prefix the
- * seed's `## Services` block appends each `servers` action to. Returns
- * `undefined` when the manifest path cannot be resolved: `servers
- * list|spin|restart` REFUSE without `--manifest`, so a prefix without it would
- * hand the session commands that throw — no block is better than a broken one.
- *
- * TERMINAL-ONLY: composed solely for an interactive session's launch seed
- * (servers are long-lived and belong to the ticket's terminal), never for a
- * headless prompt. It needs a ticket token too — a headless run's env carries
- * no reliable ticket key — so a token set without one yields `undefined`.
- */
-function buildCliServersPrefix(tok: CliTokens): string | undefined {
-  if (!tok.manifest || !tok.ticket) return undefined;
-  return composeServersPrefix(tok.cli, tok.db, tok.manifest, tok.ticket);
-}
-
-/**
- * Compose the `node <cli> test --db <db> --manifest <yml>` prefix the test-family
- * skill embeds so the agent never composes the `--db`/`--manifest` boilerplate
- * itself. Same CLI entry and best-effort manifest as the other prefixes.
- */
-function buildCliTestPrefix(tok: CliTokens): string {
-  return composeTestCommand(tok.cli, tok.db, tok.manifest);
-}
-
-/**
- * Compose the `node <cli> fix-brief --db <db> --manifest <yml>` prefix a
- * session's generated fix command runs (ticket key appended) to pull the
- * failing-gate brief. Same CLI entry and best-effort manifest as the other
- * prefixes.
- */
-function buildCliFixBriefPrefix(tok: CliTokens): string {
-  return composeFixBriefCommand(tok.cli, tok.db, tok.manifest);
-}
-
-/**
- * Compose the `node <cli> conflict-brief --db <db> --manifest <yml>` prefix a
- * session's generated resolve-conflict command runs (ticket key and repo
- * appended) to pull the merge-conflict brief. Same CLI entry and best-effort
- * manifest as the other prefixes.
- */
-function buildCliConflictBriefPrefix(tok: CliTokens): string {
-  return composeConflictBriefCommand(tok.cli, tok.db, tok.manifest);
-}
-
-/**
- * A terminal's launch environment, when it has one. `creationOptions` is a union
- * — a pty-backed terminal carries no `env` at all — so the narrowing lives here
- * rather than at each call site.
- */
-function terminalEnv(
-  terminal: vscode.Terminal | undefined,
-): Readonly<Record<string, string | undefined>> | undefined {
-  const opts = terminal?.creationOptions;
-  return opts && 'env' in opts
-    ? (opts.env as Readonly<Record<string, string | undefined>> | undefined)
-    : undefined;
-}
-
-/**
- * This window's terminal→ticket lookup, and the only place a pid is captured.
- * `identify` never awaits: `restoredSessions()` is called synchronously from the
- * open path, so a pid must already be resolved (via `resolve`) to count.
- */
-interface TerminalIdentityRegistry {
-  /** Learn a terminal's pid. Idempotent — repeat calls share one probe. */
-  resolve(terminal: vscode.Terminal): Promise<void>;
-  /** Name a terminal's ticket from what is already known. Never awaits. */
-  identify(terminal: vscode.Terminal): TerminalIdentity | undefined;
-  /** Remember a terminal karst just launched, once its pid resolves. */
-  remember(
-    terminal: vscode.Terminal,
-    env: Record<string, string>,
-    identity?: SessionIdentity,
-    mcp?: boolean,
-  ): void;
-  /** Release a ticket's record — its terminal closed, freeing the pid. */
-  forget(ticketId: number): void;
-  /** Release ONE closed terminal's record. A graphing ticket has several live
-   *  terminals at once, so the ticket is not an address for them; the pid is. */
-  forgetTerminal(terminal: vscode.Terminal): void;
-  /** Drop records for tickets this window can no longer act on. */
-  prune(knownTicketIds: readonly number[]): void;
-}
-
-function makeTerminalIdentityRegistry(
-  initial: readonly SessionTerminalRecord[],
-  persist: (records: SessionTerminalRecord[]) => void,
-  lookupIdentity?: DurableSessionIdentityLookup,
-  /**
-   * Live-pid registry hook (the resource monitor): called once a remembered
-   * terminal's pid resolves, with the pid and its ticket. The returned disposer
-   * runs when the ticket's record is forgotten — a closed terminal's pid is
-   * free for the OS to reissue, so the registration must not outlive it.
-   */
-  onSessionTerminal?: (pid: number, ticketId: number) => (() => void) | void,
-): TerminalIdentityRegistry {
-  let records: SessionTerminalRecord[] = [...initial];
-  const pidByTerminal = new WeakMap<vscode.Terminal, number>();
-  const probes = new WeakMap<vscode.Terminal, Promise<void>>();
-  const sessionDisposers = new Map<number, () => void>();
-
-  const resolve = (terminal: vscode.Terminal): Promise<void> => {
-    const running = probes.get(terminal);
-    if (running) return running;
-    // `Terminal.processId` never settles for a terminal whose process never
-    // reported one, and activation awaits this before it may adopt anything —
-    // so the probe is bounded. A pid that never arrives simply leaves the
-    // terminal unidentifiable: the state karst was in before records existed,
-    // never a hang and never a failure.
-    const probe = new Promise<number | undefined>((done) => {
-      const timer = setTimeout(() => done(undefined), PID_PROBE_TIMEOUT_MS);
-      void Promise.resolve(terminal.processId).then(
-        (pid) => {
-          clearTimeout(timer);
-          done(pid);
-        },
-        () => {
-          clearTimeout(timer);
-          done(undefined);
-        },
-      );
-    }).then((pid) => {
-      if (typeof pid === 'number' && pid > 0) pidByTerminal.set(terminal, pid);
-    });
-    probes.set(terminal, probe);
-    return probe;
-  };
-
-  const write = (next: SessionTerminalRecord[]): void => {
-    records = next;
-    persist(records);
-  };
-
-  return {
-    resolve,
-    identify: (terminal) =>
-      identifyTerminal(
-        { env: terminalEnv(terminal), pid: pidByTerminal.get(terminal) },
-        records,
-        lookupIdentity,
-      ),
-    remember: (terminal, env, sessionIdentity, mcp) => {
-      const ticketId = ticketIdFromTerminalEnv(env);
-      if (ticketId === undefined) return;
-      const launchId = env[KARST_LAUNCH_ENV];
-      // Graph ownership is recorded at launch because the reload that strips
-      // the env is exactly when it is needed: without it a revived node
-      // terminal reads as the ticket's session terminal.
-      const graph = isGraphSessionEnv(env);
-      void resolve(terminal).then(() => {
-        const pid = pidByTerminal.get(terminal);
-        if (pid === undefined) return;
-        write(
-          rememberSessionTerminal(records, {
-            ticketId,
-            pid,
-            ...(launchId ? { launchId } : {}),
-            ...(sessionIdentity ? { identity: sessionIdentity } : {}),
-            ...(graph ? { graph: true as const } : {}),
-            ...(mcp ? { mcp: true as const } : {}),
-          }),
-        );
-        // The live-pid registry (the resource monitor) is keyed by ticket and a
-        // graphing ticket has many pids, so a graph terminal never claims that
-        // per-ticket slot — it would evict the session terminal's disposer.
-        if (graph) return;
-        const dispose = onSessionTerminal?.(pid, ticketId);
-        if (dispose) sessionDisposers.set(ticketId, dispose);
-      });
-    },
-    forgetTerminal: (terminal) => {
-      const pid = pidByTerminal.get(terminal);
-      if (pid === undefined) return;
-      const next = forgetSessionTerminalPid(records, pid);
-      if (next.length !== records.length) write(next);
-    },
-    forget: (ticketId) => {
-      const next = forgetSessionTerminal(records, ticketId);
-      if (next.length !== records.length) write(next);
-      const dispose = sessionDisposers.get(ticketId);
-      if (dispose) {
-        sessionDisposers.delete(ticketId);
-        dispose();
-      }
-    },
-    prune: (knownTicketIds) => {
-      const next = pruneSessionTerminals(records, knownTicketIds);
-      if (next.length !== records.length) write(next);
-    },
-  };
-}
-
-/**
- * Read a terminal's karst identity, or undefined when it has none. `exitStatus`
- * is what separates a live session from a tab whose agent already quit.
- */
-function restoredSessionOf(
-  terminal: vscode.Terminal,
-  identity: TerminalIdentityRegistry,
-): RestoredSession | undefined {
-  const named = identity.identify(terminal);
-  if (!named) return undefined;
-  // A graph node/planner terminal is NOT a ticket session. It carries
-  // `KARST_TICKET_ID` like every karst terminal, so the session recovery used
-  // to see the second terminal of a graphing ticket as a duplicate restored
-  // session and CLOSE it — killing an agent node milliseconds after the graph
-  // driver launched it, which the reconcile sweep then reported as
-  // "process (pid N) is gone (dead at reconcile)" and blocked the whole run
-  // (869eg9k2p). The graph transport owns these terminals; `reattachGraphSessions`
-  // is their re-attach path.
-  if (named.graph) return undefined;
-  return {
-    ticketId: named.ticketId,
-    ...(named.launchId ? { launchId: named.launchId } : {}),
-    ...(named.identity ? { identity: named.identity } : {}),
-    ...(named.mcp ? { mcp: true } : {}),
-    ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
-    terminal: wrapTerminal(terminal),
-  };
-}
-
-/** Wrap a VS Code terminal for both freshly-created and restored sessions. */
-function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
-  return {
-    show: (preserveFocus) => terminal.show(preserveFocus),
-    sendText: (text, addNewLine = true) => terminal.sendText(text, addNewLine),
-    dispose: () => terminal.dispose(),
-    onDidClose: (handler) => observeTerminalClose(terminal, handler),
-  };
-}
-
-/** The workspace a revived graph terminal was launched in, when recoverable.
- *  `creationOptions.cwd` survives a reload (the pty details carry it); a
- *  non-string value degrades to '' — the session's cwd is used for attribution
- *  on terminate, and an empty value simply falls back to start-time matching. */
-function graphTerminalCwd(terminal: vscode.Terminal): string {
-  const opts = terminal.creationOptions;
-  const cwd = opts && 'cwd' in opts ? opts.cwd : undefined;
-  return typeof cwd === 'string' ? cwd : '';
-}
-
-/** Wrap a REVIVED vscode terminal in the graph transport's `TransportTerminal`
- *  surface (the graph host's `createTerminal` returns the same shape for a
- *  freshly-spawned one). Only ever used to re-attach a session that already
- *  exists — it never spawns, and never re-registers in the identity registry. */
-function wrapRevivedGraphTerminal(terminal: vscode.Terminal): TransportTerminal {
-  return {
-    processId: () => Promise.resolve(terminal.processId),
-    show: (preserveFocus) => terminal.show(preserveFocus),
-    sendText: (text) => terminal.sendText(text, true),
-    dispose: () => terminal.dispose(),
-    onDidClose: (handler) => observeTerminalClose(terminal, handler),
-  };
-}
-
-/** Real terminals, wrapped in the `SessionTerminal` interface. */
-function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
-  return {
-    createTerminal(opts): SessionTerminal {
-      // VS Code terminals have no separate "description" field — fold the title
-      // into the tab name so the terminal reads "Karst: <key> — <title>".
-      const name = opts.description ? `${opts.name} — ${opts.description}` : opts.name;
-      const terminal = vscode.window.createTerminal({
-        name,
-        cwd: opts.cwd,
-        shellPath: opts.shellPath,
-        shellArgs: opts.shellArgs,
-        env: opts.env,
-        hideFromUser: opts.hideFromUser,
-        // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
-        // readonly, so the launch glyph is what the tab keeps for its lifetime.
-        // A ThemeIcon (the contributed `karst-mark` font glyph), NOT a Uri: VS Code
-        // persists only ThemeIcon ids for revived terminals, so a Uri icon is lost
-        // on window reload. `opts.iconPath` stays the opt-in switch.
-        ...(opts.iconPath ? { iconPath: new vscode.ThemeIcon(KARST_TERMINAL_ICON_ID) } : {}),
-        ...(opts.color ? { color: new vscode.ThemeColor(opts.color) } : {}),
-      });
-      // Capture the launch pid NOW: it is what re-identifies this terminal
-      // after a reload strips the env that carries the ticket today.
-      identity.remember(terminal, opts.env, opts.identity, opts.mcp);
-      return wrapTerminal(terminal);
-    },
-    restoredSessions: () =>
-      vscode.window.terminals.flatMap((terminal) => {
-        const session = restoredSessionOf(terminal, identity);
-        return session ? [session] : [];
-      }),
-  };
-}
-
-/** Graph node terminals, wrapped in the `TransportTerminal` interface. */
-function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTerminalHost {
-  return {
-    createTerminal(opts): TransportTerminal {
-      const terminal = vscode.window.createTerminal({
-        name: opts.name,
-        cwd: opts.cwd,
-        shellPath: opts.shellPath,
-        shellArgs: opts.shellArgs,
-        env: opts.env,
-        hideFromUser: opts.hideFromUser,
-        // The brand mark rides the graph tab exactly like a regular session's
-        // (Terminal.creationOptions is readonly — the launch glyph is frozen). A
-        // ThemeIcon so it survives reload revival (a Uri icon does not persist).
-        ...(opts.iconPath ? { iconPath: new vscode.ThemeIcon(KARST_TERMINAL_ICON_ID) } : {}),
-      });
-      // Remembered in the same per-window registry the session terminals use:
-      // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload
-      // re-attaches a live node session instead of launching a second one.
-      identity.remember(terminal, opts.env, undefined);
-      return {
-        processId: () => Promise.resolve(terminal.processId),
-        show: (preserveFocus) => terminal.show(preserveFocus),
-        sendText: (text) => terminal.sendText(text, true),
-        dispose: () => terminal.dispose(),
-        // No captured output: VS Code exposes a terminal's data only through a
-        // proposed API a shipped extension cannot use, so the launch-failure
-        // reason carries no provider line here (see `terminalObservation`).
-        onDidClose: (handler) => observeTerminalClose(terminal, handler),
-      };
-    },
-  };
-}
-
-/**
- * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
- * open are wired to the supervisor + browser; restart can't fully re-run without
- * the original spawn opts (not persisted), so it stops the server and tells the
- * user to re-spin — honest rather than a fake no-op.
- */
-/** True when the capability's tools are present; otherwise tells the user why not. */
-type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
-
-/** The vscode bindings for the inside-action dispatches (Task 13). Every
- *  target was already containment- and ownership-checked by the panel; these
- *  resolve the recorded object to its real-world surface. Graph controls
- *  (Slice 3 Task 11) arrive as host callbacks — the transport/session surface
- *  they need lives in `activate`, not here. */
-function makeInsideActionHost(
-  store: Store,
-  graphHost: {
-    graphOpenSession: (
-      ticketId: number,
-      session: { kind: 'planner' | 'node'; runId: number },
-    ) => void;
-    graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphRestart: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphMarkImpl: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
-    graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
-  },
-  // The impl stage's Session row: reveal (never launch) the ticket's own
-  // interactive session terminal. The dispatch already proved a live
-  // implementation run exists; this goes through `SessionManager.revealSession`
-  // — the same reveal-or-adopt path `nudge` uses — so a reload that emptied
-  // this window's bookkeeping still finds the still-running agent.
-  revealSession: (ticketId: number) => void,
-  // The graph recovery action's host binding (Slice-4 T6): the atomic claim
-  // wrapper plus the prompt re-snapshot seam. Bound in activate where the
-  // snapshot root is known; the panel host only routes Resume to it.
-  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
-  // Launch the elected replan planner session (Slice-4 T5) — the recovery
-  // election returns a launch request; the host starts the session.
-  graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
-  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
-  // planner died before ever submitting — the `planner-relaunch` recovery.
-  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
-  /** Refresh the graph surfaces and immediately continue recoverable work. */
-  onGraphRecovered: (ticketId: number, graphRunId: number) => void,
-  retryShipRepo: (ticketId: number, repo: string) => void,
-): InsideActionHost {
-  /** Run either explicit graph recovery control. `recoverGraphRun` owns every
-   * state transition; this host binding only launches the planner it elected
-   * and reports the resulting non-verdict outcome. */
-  const recoverBlockedGraph = (
-    ticketId: number,
-    graphRunId: number,
-    mode: 'resume' | 'replan' | 'force-resume',
-  ): void => {
-    try {
-      const recovery = recoverGraphRun(
-        graphRecoveryDeps(graphRunId),
-        { ticketId, graphRunId, mode },
-      );
-      if (recovery.kind === 'replanned' && recovery.launch) {
-        graphReplanLaunch(recovery.launch);
-      }
-      if (recovery.kind === 'relaunched' && recovery.launch) {
-        graphBootstrapRelaunch(recovery.launch);
-      }
-      if (recovery.kind === 'refused') {
-        // A plain Resume on a node that already exited before starting twice is
-        // the loop, not a recovery: offer the explicit Force retry the guard
-        // refused to do on its own. Every other refusal is informational.
-        const handling = graphRefusalHandling(ticketId, mode, recovery.reason);
-        if (handling.offerForce) {
-          void vscode.window
-            .showWarningMessage(handling.message, { modal: true }, 'Force retry')
-            .then((choice) => {
-              if (choice === 'Force retry') recoverBlockedGraph(ticketId, graphRunId, 'force-resume');
-            });
-          return;
-        }
-        void vscode.window.showInformationMessage(handling.message);
-        return;
-      }
-      if (recovery.kind !== 'no-op') {
-        onGraphRecovered(ticketId, graphRunId);
-        void vscode.window.showInformationMessage(
-          mode === 'replan'
-            ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph is replanning (graph run ${graphRunId}).`
-            : `Ticket ${formatId('ticket', ticketId)}: the implementation graph recovery started (graph run ${graphRunId}).`,
-        );
-      }
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        `Could not ${mode} the implementation graph: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  };
-
-  return {
-    openFile: (path, line) => {
-      void (async () => {
-        try {
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
-          const options: vscode.TextDocumentShowOptions = { preview: true };
-          if (line !== undefined && line !== null && Number.isFinite(line) && line > 0) {
-            // The evidence's 1-based line → the editor's 0-based caret position:
-            // the cursor lands on the referenced line (869eja6uv).
-            options.selection = new vscode.Range(line - 1, 0, line - 1, 0);
-          }
-          await vscode.window.showTextDocument(doc, options);
-        } catch (e) {
-          // The dispatch already proved the deepest ancestor exists, but the
-          // file itself can be gone (worktree removed). Mirrors openStageLog's
-          // failure copy: a missing file is "cannot open", never a verdict.
-          void vscode.window.showWarningMessage(`Cannot open the file at ${path}.`);
-        }
-      })();
-    },
-    openPr: (_ticketId, prId) => {
-      const pr = getPrById(store, prId);
-      if (pr) void vscode.env.openExternal(vscode.Uri.parse(pr.url));
-    },
-    openCommit: (_ticketId, shipCommitId) => {
-      const commit = getShipCommitById(store, shipCommitId);
-      if (commit) {
-        void vscode.window.showInformationMessage(
-          `Commit ${commit.sha.slice(0, 8)} — recorded by ship in ${commit.repo}`,
-        );
-      }
-    },
-    resumeStage: (ticketId, stageKey) => {
-      const outcome = resumeBlockedStage(store, ticketId, ticketId, stageKey);
-      if (outcome.kind === 'cleared') {
-        void vscode.commands.executeCommand('karst.openDashboard', ticketId);
-        return;
-      }
-      if (outcome.kind === 'graph-recovery') {
-        // The generic Resume refuses the graph block by design (Slice-3 T9);
-        // the typed action runs graph-aware recovery: a retry on the same
-        // revision, clearing the block only after it durably entered.
-        const recovery = recoverGraphRun(
-          graphRecoveryDeps(outcome.graphRunId),
-          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
-        );
-        if (recovery.kind === 'retried') {
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
-          );
-        } else if (recovery.kind === 'confirmation-restored') {
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph is ready to start again.`,
-          );
-        } else if (recovery.kind === 'replanned') {
-          if (recovery.launch) graphReplanLaunch(recovery.launch);
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
-          );
-        } else if (recovery.kind === 'relaunched') {
-          if (recovery.launch) graphBootstrapRelaunch(recovery.launch);
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
-          );
-        } else if (recovery.kind === 'refused') {
-          void vscode.window.showInformationMessage(
-            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
-          );
-        }
-        // Keep this legacy Resume route on the same post-recovery seam as the
-        // typed graph controls. It owns neither a second recovery nor launch:
-        // it only refreshes the surfaces and wakes work recovery made ready.
-        if (
-          recovery.kind === 'retried' ||
-          recovery.kind === 'confirmation-restored' ||
-          recovery.kind === 'replanned' ||
-          recovery.kind === 'relaunched'
-        ) {
-          onGraphRecovered(ticketId, outcome.graphRunId);
-        }
-      }
-    },
-    openFullEvidence: (ticketId, processRunId) => {
-      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket ${formatId('ticket', ticketId)}`);
-    },
-    openBoundedEvidence: (_ticketId, title, rows) => {
-      const statusLabel: Record<string, string> = {
-        pending: 'Pending',
-        run: 'Running',
-        wait: 'Waiting',
-        pass: 'Passed',
-        fail: 'Failed',
-        note: 'Note',
-        skip: 'Skipped',
-      };
-      void vscode.window.showQuickPick(
-        rows.map((row) => ({
-          label: row.label,
-          ...(row.detail || row.status
-            ? { description: [row.status ? (statusLabel[row.status] ?? 'Recorded') : '', row.detail ?? ''].filter(Boolean).join(' · ') }
-            : {}),
-          ...(row.duration ? { detail: row.duration } : {}),
-        })),
-        { title, placeHolder: 'Recorded repository evidence' },
-      );
-    },
-    openSession: (ticketId) => revealSession(ticketId),
-    graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
-    graphStop: (ticketId, graphRunId) => graphHost.graphStop(ticketId, graphRunId),
-    graphRestart: (ticketId, graphRunId) => graphHost.graphRestart(ticketId, graphRunId),
-    graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
-    graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
-    graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),
-    graphMarkImpl: (ticketId, graphRunId) => graphHost.graphMarkImpl(ticketId, graphRunId),
-    graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
-    graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
-    retryShipRepo: (ticketId, repo) => retryShipRepo(ticketId, repo),
-  };
-}
-
-const vscodeNotify: Notify = {
-  info: (m) => void vscode.window.showInformationMessage(m),
-  warn: (m) => void vscode.window.showWarningMessage(m),
-  error: async (m) => { await vscode.window.showErrorMessage(m); }, errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
-  infoActions: async (m, actions) => vscode.window.showInformationMessage(m, ...actions),
-};
-
-function makeDashboardActions(
-  store: Store,
-  ticketId: number,
-  editTicket: () => void,
-  afterServerChange: () => void,
-  logError: LogError,
-  guardCapability: CapabilityGuard,
-  // Read fresh when the user confirms ship so a mid-session branch edit
-  // controls the PR target and convention edits apply without a window reload.
-  manifest: () => Manifest | undefined,
-  // Task 3: the configured pr-description process, resolved once at the click.
-  // NULL (enabled: false) makes ship skip the AI step for the deterministic
-  // fallback — no model call, no pr-description process run.
-  prDescriptionProcess: (ticketId: number) => DriveProcessBundle | null,
-  // Push the configured post-delivery status for THIS ticket, now that it has
-  // reached `done`. A callback rather than the ticketing config + provider,
-  // because reaching done is no longer something the ship click can conclude on
-  // its own: the same push has to fire from the merge click and from the
-  // background sweep, so the decision and the reporting live in one host helper.
-  onTicketCompleted: () => Promise<void>,
-  // Stream the generic inside-progress union (active/completed/cleared) while
-  // `shipTicket` runs, so the confirm-ship click has visible progress instead
-  // of a frozen button — ship rides the same channel as gates and Fix, never
-  // the legacy per-repo/per-step `ship-progress` stream (Finding 12).
-  onInsideProgress: (event: InsideProgressEvent) => void,
-  // Run the ship saga for a ticket and settle its aftermath. ONE seam, shared
-  // with the stranded-ship recovery at activation (a ship killed by a dead
-  // host resumes through the same path as the click that started it): the
-  // click owns only the capability guard and the failure toast.
-  runShipSaga: (ticketId: number) => Promise<void>,
-  // Dispatch one opaque inside action id: the panel posts only the id; the
-  // dashboard manager resolves it through the ticket's current registry.
-  onInsideAction: (actionId: string) => void,
-  // Deliver a prompt to this ticket's session, live or not: nudge the open
-  // terminal, else launch one seeded with it. A conflict brief handed to
-  // `openSession` alone would be dropped whenever a session is already up —
-  // openSession only focuses an existing terminal.
-  handOffToSession: (prompt: string, repo: string) => void,
-  // Open the host-owned, whole-ticket changes explorer. The dashboard action
-  // carries no path because this closure already owns the ticket id.
-  showChanges: () => void,
-  // Apply a staged agent-core/model selection to the open session. The closure
-  // owns the ticket id AND re-validates the selection against the catalog, so
-  // the webview can only ever propose a switch, never direct one.
-  switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void,
-  // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
-  // takes no id — every open dashboard reports the same toggle.
-  toggleBind: () => void,
-  // Force an immediate PR/mergeability sweep, ignoring the freshness floor the
-  // background tick respects. Project-scoped like the tick itself, so it takes no
-  // ticket: the panel is asking for a fresher answer, not a narrower one.
-  refreshPrs: () => Promise<void>,
-  refreshShipPreview: () => Promise<void> | void,
-  // Kick the §5.4-safe driver nudge (`maybeDrive`) after a block is cleared.
-  // Passed in rather than reached from here because it lives in `activate`'s
-  // scope, alongside every other driver trigger (hook, sweep, session close) —
-  // resume is just one more trigger, not a special path.
-  driveAfterResume: (ticketId: number) => void,
-  // Build a worktree's karst-extension checkout and open it as the dev host in
-  // a new window. The build takes minutes, so this owns the progress
-  // notification and the action ack is immediate (host acceptance only).
-  launchWorktree: (path: string) => void,
-  // Live feature config (karst.launchWorktreeDev.*), so the action refuses
-  // when the switch is off — a crafted message must not launch what the user
-  // disabled.
-  launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
-  // The graph recovery action's host binding (Slice-4 T6), bound in activate
-  // where the snapshot root is known.
-  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
-  // Launch the elected replan planner session (Slice-4 T5).
-  graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
-  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
-  // planner died before ever submitting — the `planner-relaunch` recovery.
-  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
-  // Resolve one gate stage's console log via the dashboard manager, which owns
-  // the ticket panel: the stage key arrives from the webview, the read stays
-  // host-side.
-  requestStageLog: (stage: GateStage) => void,
-  // Resolve one gate-lane AI process's console tail via the dashboard manager.
-  requestAgentLog: (processId: AgentProcessId) => void,
-  // Combined server logs: read all server log files and start polling.
-  requestServerLogs: () => void,
-  closeServerLogs: () => void,
-  // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
-  // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
-  debug: (message: string) => void,
-  storedArtifacts: StoredArtifactActions,
-  ciHost: CiHost,
-  usageLimitParks: UsageLimitParkActions,
-): DashboardActions {
-  const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
-  const worktreeActions = makeWorktreeActions(
-    {
-      createTerminal: (options) => vscode.window.createTerminal(options),
-      revealInExplorer: async (path) => {
-        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(path));
-      },
-      expandExplorer: async () => {
-        await vscode.commands.executeCommand('list.expand');
-      },
-      writeClipboard: async (text) => {
-        await vscode.env.clipboard.writeText(text);
-      },
-    },
-    logError,
-  );
-
-  const serverDeps: ServerOpsDeps = {
-    store,
-    notify: {
-      info: (m) => void vscode.window.showInformationMessage(m),
-      warn: (m) => void vscode.window.showWarningMessage(m),
-      error: async (m) => { await vscode.window.showErrorMessage(m); },
-    },
-    afterServerChange,
-    loadManifest: async () => (await resolveManifest(debug)) ?? null,
-    openExternal: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
-    copyText: (text) => void vscode.env.clipboard.writeText(text),
-    debug, ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
-  };
-
-  const dependencyOps = makeDependencyOps(store, {
-    openDashboard: (targetTicketId) => void vscode.commands.executeCommand('karst.openDashboard', targetTicketId),
-  });
-
-  // Start/Restart mean "run the services" — `servicesOnly` drops serviceless repos.
-  const spinServices = () =>
-    void vscode.commands.executeCommand('karst.spinTicket', { ticketId, servicesOnly: true });
-
-  return {
-    stopServer: (serverId) => stopServerRow(serverDeps, serverId),
-    restartServer: (serverId) => restartServerRow(serverDeps, serverId),
-    startServer: (serverId) => startServerRow(serverDeps, serverId),
-    openServer: (serverId) => openServerRow(serverDeps, serverId),
-    // Copy the server URL to the clipboard (the webview flashes its own feedback).
-    copyServerUrl: (serverId) => copyServerUrlRow(serverDeps, serverId),
-    // No servers yet → spin from the dashboard (that command owns picker+progress).
-    spinServers: spinServices,
-    // Restart-all IS a re-spin: `spinTicket` already calls `stopTicketServers`
-    // before starting, so it shares one command with `spinServers` rather than
-    // drifting. The two stay distinct by AVAILABILITY, not implementation — the
-    // dashboard disables Start when nothing is offline and Restart when there is
-    // nothing to restart. Do not "deduplicate" by deleting one button.
-    restartServers: spinServices,
-    // Stop-all is the one genuinely new effect: kill every running server on the
-    // ticket, retaining the rows so they come back as offline and restartable.
-    stopServers: async () => {
-      await (sandboxB ? sandboxB.stopTicket(store, ticketId) : stopTicketServers(store, ticketId)); // AC-32
-      afterServerChange();
-    },
-    openResources: () => void vscode.commands.executeCommand('karst.openServers'), // the ticket panel's "Manage shared services" link
-    showChanges,
-    switchAgent,
-    copyTicketKey: () => {
-      const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
-      void vscode.env.clipboard.writeText(key);
-    },
-    sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
-    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId), sandboxStashUpdate: () => sandboxLife.stashUpdate(ticketId),
-    ...worktreeActions,
-    // Launch must not be aimable: the webview names a path, and the host
-    // verifies it against the ticket's registered worktrees before building
-    // anything — a crafted or stale message cannot start a build in an
-    // arbitrary directory. It is also gated on the same config the button
-    // renders from: an off switch must hold against a crafted message even
-    // when no button is visible.
-    launchWorktreeExtension: (path) => {
-      if (!guardCapability('worktrees')) return;
-      if (!launchConfig().enabled) {
-        void vscode.window.showWarningMessage(
-          'Launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
-        );
-        return;
-      }
-      if (!listWorktreesByTicket(store, ticketId).some((w) => w.path === path)) {
-        void vscode.window.showWarningMessage('That worktree is not registered to this ticket.');
-        return;
-      }
-      launchWorktree(path);
-    },
-    openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
-    // Copy the PR URL to the clipboard (the webview flashes its own feedback,
-    // like copy-server-url / copy-worktree-branch).
-    copyPrUrl: (url) => void vscode.env.clipboard.writeText(url),
-    openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
-    editTicket,
-    openDependency: (id) => dependencyOps.openDependency(ticketId, id),
-    // Stop the auto-driver's next gate run for this ticket (it halts at the
-    // next boundary check, never mid-gate — see `shouldContinue`).
-    stopDriver: () => driver.requestStop(ticketId),
-    // Human confirms ship: open the PR(s) for every hot repo, then let the
-    // caller (dashboard) refresh so `done` (or a fresh PR list) shows up. The
-    // saga run and its aftermath live in ONE host seam (`runShipSaga`), shared
-    // with the stranded-ship recovery at activation — this click only adds the
-    // capability guard and the failure toast.
-    shipTicket: () => {
-      if (!guardCapability('ship')) return;
-      void runShipSaga(ticketId).catch((e) => {
-        logError('ship failed', e);
-        // `shipTicket` already recorded the reason on the ship stage, so the
-        // dashboard now explains itself — but the user just clicked a button
-        // and deserves an answer to THAT click, not a ticket that quietly goes
-        // red. Refresh first so the dashboard reflects the failure when the
-        // toast lands.
-        afterServerChange();
-        onInsideProgress(shipClearedEvent(ticketId));
-        void vscode.window.showErrorMessage(
-          `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      });
-    },
-    // Resume: same interactive-open path the sidebar/dashboard "open session"
-    // action already uses; `SessionManager.openSession` resolves --resume vs.
-    // a fresh launch on its own.
-    resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
-    // The unified "Send back to Implement" recovery action (869ehkkzp).
-    //
-    // The confirmation is a MODAL and the mutation stays host-side: the webview
-    // posts only the payload-free message, and everything about whether — and
-    // which stage from — it happens is decided here against the store, right
-    // before it is mutated. Availability is re-derived AFTER the confirmation
-    // too (inside `sendBackToImplement`'s transaction), so a ticket a sweep or
-    // a teammate's merge moved while the modal was up is refused rather than
-    // mutated underneath its new state.
-    //
-    // The dashboard is refreshed on EVERY exit — confirm, dismiss, refusal,
-    // throw — because the webview's pending state is settled by a state push
-    // (the same contract `mergePr` documents). Skipping the push on the cancel
-    // path would leave the ⋯ menu item stuck pending.
-    sendBackToImplement: () => {
-      void (async () => {
-        try {
-          // The store decides availability: a stale panel can offer an action
-          // for a stage the ticket has since left or landed.
-          const state = sendBackState(store, ticketId);
-          if (!state.available) {
-            void vscode.window.showInformationMessage(
-              `Ticket ${formatId('ticket', ticketId)} cannot be sent back to Implement right now.`,
-            );
-            return;
-          }
-          const fromShip = state.stage === 'ship';
-          const detail = fromShip
-            ? 'Move this ticket back to Implement? UAT and Review will need to run again. '
-                + 'Existing evidence will remain in history, and existing open pull requests are '
-                + 'kept as they are — they are not merged or closed.'
-            : 'Move this ticket back to Implement? UAT and Review will need to run again. '
-                + 'Existing evidence will remain in history.';
-          const choice = await vscode.window.showWarningMessage(
-            'Send back to Implement?',
-            { modal: true, detail },
-            'Send back to Implement',
-          );
-          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
-          const result = sendBackToImplement(store, ticketId, { debug });
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)} moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
-          );
-        } catch (e) {
-          logError('send back to implement failed', e);
-          void vscode.window.showErrorMessage(
-            `Could not send ticket ${formatId('ticket', ticketId)} back: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        } finally {
-          afterServerChange();
-        }
-      })();
-    },
-    // Reset the failed gate stage once its recovery budget is spent (T831).
-    resetStage: () =>
-      resetStageAction({
-        store, ticketId, afterServerChange, logError, debug,
-        drive: () => driveAfterResume(ticketId),
-        info: (m) => void vscode.window.showInformationMessage(m),
-        error: (m) => void vscode.window.showErrorMessage(m),
-        confirm: async (title, detail) =>
-          (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
-      }),
-    // Answers to a review stall (T845); logic in ops/reviewStallActions.
-    ...reviewStallBinding({
-      store, ticketId, afterServerChange, logError, debug,
-      drive: () => driveAfterResume(ticketId), editTicket,
-    }),
-    // Move this ticket into a PR-feedback recovery round at Fix. The logic
-    // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.
-    addressPrFeedback: () =>
-      addressPrFeedback({
-        store, ticketId, afterServerChange, logError, debug,
-        drive: () => driveAfterResume(ticketId),
-        info: (m) => void vscode.window.showInformationMessage(m),
-        error: (m) => void vscode.window.showErrorMessage(m),
-        confirm: async (detail) =>
-          (await vscode.window.showWarningMessage(
-            'Address pull request feedback?',
-            { modal: true, detail },
-            'Address feedback',
-          )) === 'Address feedback',
-      }),
-    // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
-    sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
-    deliverToPr: () => void deliverToPrAction(ciActionsInput()),
-    rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
-    // Retry a gate stage (uat/review) by resetting it to pending so the driver
-    // re-runs it. Lighter than "Send back to Implement": only the current gate
-    // stage is touched, and the ticket stays where it is in the graph.
-    rerunGate: (stage) => {
-      void (async () => {
-        try {
-          const state = retryGateState(store, ticketId);
-          if (!state.available) {
-            void vscode.window.showInformationMessage(
-              'This stage cannot be retried right now.',
-            );
-            return;
-          }
-          const stageLabel = stage === 'uat' ? 'UAT' : 'Review';
-          const choice = await vscode.window.showWarningMessage(
-            `Retry ${stageLabel}?`,
-            { modal: true, detail: `Re-run the ${stageLabel} stage. Existing evidence will remain in history.` },
-            'Retry',
-          );
-          if (!choice || (await askPausedModal(store, ticketId, `retry ${stageLabel}`, `Retry ${stageLabel}`, () => afterServerChange())) === 'cancel') return;
-          const result = retryGateStage(store, ticketId, stage);
-          if (!result.ok) {
-            void vscode.window.showInformationMessage(`Could not retry: ${result.reason}`);
-            return;
-          }
-          void vscode.window.showInformationMessage(`${stageLabel} stage reset — retrying.`);
-        } catch (e) {
-          logError('retry gate failed', e);
-          void vscode.window.showErrorMessage(
-            `Could not retry the stage: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        } finally {
-          afterServerChange();
-        }
-      })();
-    },
-    // Resume a parked gate stage (§ blocked state visible). All the "is this
-    // even valid" checking lives in `resumeBlockedStage` (vscode-free, unit
-    // tested) — this stays a thin binding: apply it, and only on success
-    // refresh the panel and kick the same driver trigger every other resume
-    // path uses.
-    runGateOnHost: (msgTicketId, stageKey) => {
-      if (msgTicketId !== ticketId) return;
-      if (runKilledGatesOnHost(store, ticketId, stageKey).length === 0) return;
-      const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
-      if (outcome.kind === 'cleared') {
-        afterServerChange();
-        driveAfterResume(ticketId);
-      }
-    },
-    resumeStage: (msgTicketId, stageKey) => {
-      const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
-      if (outcome.kind === 'cleared') {
-        afterServerChange();
-        driveAfterResume(ticketId);
-        return;
-      }
-      if (outcome.kind === 'graph-recovery') {
-        // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
-        // the typed action runs graph-aware recovery instead.
-        const recovery = recoverGraphRun(
-          graphRecoveryDeps(outcome.graphRunId),
-          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
-        );
-        if (
-          recovery.kind === 'retried' ||
-          recovery.kind === 'confirmation-restored' ||
-          recovery.kind === 'replanned' ||
-          recovery.kind === 'relaunched'
-        ) {
-          if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
-          if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);
-          afterServerChange();
-          driveAfterResume(ticketId);
-        } else if (recovery.kind === 'refused') {
-          void vscode.window.showInformationMessage(
-            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
-          );
-        }
-      }
-    },
-    // Pause: stamp the store flag FIRST so any in-flight driver round that
-    // checks between stages sees it, then ask the running round to stop. The
-    // interactive terminals stay open by design — the user is looking at them;
-    // pause only stops karst from starting new work on this ticket.
-    pauseExecution: () => {
-      pauseTicket(store, ticketId);
-      driver.requestStop(ticketId);
-      afterServerChange();
-    },
-    // Unpause: clear the flag, then nudge the driver through the same
-    // §5.4-safe seam a cleared block uses — resume is one more trigger.
-    unpauseExecution: () => {
-      unpauseTicket(store, ticketId);
-      afterServerChange();
-      driveAfterResume(ticketId);
-    },
-    // Opens the ticket form in edit mode on the new ticket so the user can type
-    // the actual follow-up ask straight away — the command itself copies
-    // repos/approach/agent/model from this ticket.
-    createFollowUpTicket: () =>
-      void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
-    // The webview sends no payload; the command prompts for the title and the
-    // blocking flag, then runs the one sub-task writer.
-    createSubtask: () => void vscode.commands.executeCommand('karst.createSubtask', ticketId),
-    // Detach a started sub-task from its parent: rebase onto the parent's base
-    // and clear the parent link (design NDL-70 §5 'Detach').
-    detachSubtask: () => void vscode.commands.executeCommand('karst.detachSubtask', ticketId),
-    // Same commands as the palette; the host prompts for the reason (payload-free message).
-    closeTicket: () => void vscode.commands.executeCommand('karst.closeTicket', ticketId),
-    reopenTicket: () => void vscode.commands.executeCommand('karst.reopenTicket', ticketId),
-    // The webview names ONLY the stage key; the path is re-derived from the
-    // store row this panel owns (never from the message) before `Uri.file`.
-    openStageLog: (stageKey) => {
-      const artifact = resolveStageLogPath((id) => getTicket(store, id), ticketId, stageKey);
-      if (artifact === null) {
-        void vscode.window.showWarningMessage('That stage has no log to open.');
-        return;
-      }
-      void (async () => {
-        try {
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(artifact));
-          await vscode.window.showTextDocument(doc, { preview: true });
-        } catch (e) {
-          // The gate wrote the path, but the file can be gone (worktree removed).
-          void vscode.window.showWarningMessage(`Cannot open the log at ${artifact}.`);
-          logError('open stage log failed', e);
-        }
-      })();
-    },
-    // A `stage-log-request` for the terminal "detailed mode" view: the manager
-    // owns the ticket panel, so the read (store + fs, bounded) happens here and
-    // the `stage-log` answer is posted to the panel that asked.
-    requestStageLog: (stage) => requestStageLog(stage),
-    // An `agent-log-request` for the terminal view of a gate-lane AI process
-    // (the UAT Tester / Review findings lane): the manager owns the panel, and
-    // the read of the persisted tail happens host-side.
-    requestAgentLog: (processId) => requestAgentLog(processId),
-    // Combined server logs: read all server log files and start polling for
-    // live updates. The manager owns the panel, so the read happens here.
-    requestServerLogs: () => requestServerLogs(),
-    // Close the combined server logs view and stop polling.
-    closeServerLogs: () => closeServerLogs(),
-    // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
-    // all validation and effects live in ops/baselineDecisionOps.ts.
-    ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
-    ...usageLimitParks,
-    // Open one artifact resource in a normal VS Code editor — the deliberate
-    // escape from the semantic artifact UI into the file model (spec §12). The
-    // webview names ONLY the artifact id and a resource index, so this re-reads
-    // the ticket's artifacts FRESH and resolves both against them: a stale
-    // panel, a gone artifact, or a forged message all land on the same
-    // "no longer available" refusal, and no webview-supplied path ever reaches
-    // `Uri.file`. Mirrors openStageLog's failure copy: a missing file is
-    // "cannot open", never a domain verdict about the artifact's result.
-    ...storedArtifacts,
-    openArtifactResource: (artifactId, index) => {
-      void (async () => {
-        const artifact = buildTicketArtifacts(store, ticketId).find((a) => a.id === artifactId);
-        const resource = artifact && artifact.resources[index];
-        if (!artifact || !resource) {
-          void vscode.window.showWarningMessage('That artifact file is no longer available.');
-          return;
-        }
-        try {
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resource.path));
-          await vscode.window.showTextDocument(doc, { preview: true });
-        } catch (e) {
-          void vscode.window.showWarningMessage(`Cannot open the file at ${resource.path}.`);
-          logError('open artifact resource failed', e);
-        }
-      })();
-    },
-    // Hand one repo's conflict to an agent, briefed with where, against what,
-    // and which paths the probe named. karst runs no git itself here: the
-    // worktree may still have a session sitting in it, and a half-applied merge
-    // left by a button click is a state nobody asked for.
-    resolveConflicts: (repo) => {
-      if (!guardCapability('sessions', ticketId)) return;
-      void askPausedModal(store, ticketId, 'resolving conflicts', 'Resolve conflicts', () => afterServerChange()).then((r) => (r === 'proceed' ? resolveConflictClick({
-        repo, label: formatId('ticket', ticketId),
-        probeSandbox: () => sandboxB?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
-        briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
-        arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
-        notify: (message) => void vscode.window.showInformationMessage(message),
-        deliver: (brief, hit) => handOffToSession(brief, hit),
-      }) : undefined));
-    },
-    // Merge one repo's PR, from the ship stage.
-    //
-    // Irreversible, so the confirmation is a MODAL and it is the same click that
-    // chooses the strategy — there is no default method and no way to merge
-    // without answering. The webview only names the repo; everything about how
-    // (and whether) the merge happens is decided here and in `mergeTicketPr`.
-    //
-    // The dashboard is refreshed on EVERY exit — success, refusal, cancel, throw —
-    // because the panel's pending state is cleared by a state push. Skipping the
-    // push on the cancel path would leave the button stuck on "Merging…".
-    mergePr: (repo) => {
-      if (!guardCapability('ship')) return;
-      void (async () => {
-        try {
-          // The store decides what is mergeable: `repo` arrived in a webview
-          // message and a stale panel can name a PR that has since gone.
-          const pr = findTicketPr(store, ticketId, repo);
-          if (!pr) {
-            void vscode.window.showInformationMessage(
-              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to merge.`,
-            );
-            return;
-          }
-          if (pr.status === 'merged') {
-            void vscode.window.showInformationMessage(
-              `Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`,
-            );
-            return;
-          }
-
-          const target = pr.baseRef ? ` into ${pr.baseRef}` : '';
-          const choice = await vscode.window.showWarningMessage(
-            `Merge pull request${pr.number ? ` #${pr.number}` : ''}${target}?`,
-            {
-              modal: true,
-              detail:
-                'This merges the branch on GitHub now. karst cannot undo it. '
-                + 'The worktree and its branch are kept.',
-            },
-            'Squash and merge',
-            'Create a merge commit',
-          );
-          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
-
-          const result = await mergeTicketPr(store, {
-            ticketId,
-            repo,
-            method: choice === 'Squash and merge' ? 'squash' : 'merge',
-          });
-          if (result.ok) {
-            void vscode.window.showInformationMessage(
-              result.completedTicket
-                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket ${formatId('ticket', ticketId)} done.`
-                : `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
-            );
-            // `done` is reached here, not at ship: this is where the work has
-            // actually landed, so this is where the provider's status is pushed.
-            // Only the merge that finished the ticket does it — a multi-repo
-            // ticket with PRs still open is not done.
-            if (result.completedTicket) await onTicketCompleted();
-            return;
-          }
-          // The reason is gh's own words where there are any. `mergeTicketPr` has
-          // already persisted the real, re-probed state, so the panel and this
-          // message describe the same PR.
-          logError(`merge failed for ticket ${formatId('ticket', ticketId)} (${repo})`, undefined);
-          void vscode.window.showErrorMessage(`Merge failed: ${result.reason}`);
-        } catch (e) {
-          logError('merge failed', e);
-          void vscode.window.showErrorMessage(
-            `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        } finally {
-          afterServerChange();
-        }
-      })();
-    },
-    // Dismiss one repo's PR — "this one will never land" — from the ship stage.
-    //
-    // The escape hatch for the stuck ship stage: the merge gate waits for a
-    // literal 'merged' per repo, and a PR CLOSED because the changes turned out
-    // to be unneeded can never reach it, so a multi-repo ticket parks at `ship`
-    // with no action able to move it. This is the human statement the gate is
-    // missing — and it is a statement about a PR, not a force-advance: the gate
-    // is re-read normally afterwards, so a ticket with other unmerged PRs stays
-    // exactly as parked as it was.
-    //
-    // Confirmed with a modal (it changes when a ticket reads Done) but NOT
-    // danger-worded: it is reversible from the same row. The dashboard is
-    // refreshed on every exit, for the same pending-state reason `mergePr`
-    // documents.
-    dismissPr: (repo) => {
-      if (!guardCapability('ship')) return;
-      void (async () => {
-        try {
-          const pr = findTicketPr(store, ticketId, repo);
-          if (!pr) {
-            void vscode.window.showInformationMessage(
-              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to dismiss.`,
-            );
-            return;
-          }
-          const num = pr.number ? ` #${pr.number}` : '';
-          const choice = await vscode.window.showWarningMessage(
-            `Stop waiting on pull request${num}?`,
-            {
-              modal: true,
-              detail:
-                'karst will treat this pull request as one that will never land, so it no '
-                + 'longer holds the ticket at Ship. Nothing on GitHub changes, and you can '
-                + 'undo this from the same row.',
-            },
-            'Dismiss pull request',
-          );
-          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
-
-          const result = await dismissTicketPr(
-            store,
-            {
-              ticketId,
-              repo,
-              at: nowIso(),
-              debug,
-            },
-            defaultGitRunner,
-          );
-          if (!result.ok) {
-            void vscode.window.showErrorMessage(result.reason);
-            return;
-          }
-          void vscode.window.showInformationMessage(
-            result.completedTicket
-              ? `Dismissed pull request${num} — ticket ${formatId('ticket', ticketId)} done.`
-              : `Dismissed pull request${num}.`,
-          );
-          // Same rule as the merge that finishes a ticket: `done` is where the
-          // provider's status is pushed, and only the action that reached it
-          // does the pushing.
-          if (result.completedTicket) await onTicketCompleted();
-        } catch (e) {
-          logError('dismiss failed', e);
-          void vscode.window.showErrorMessage(
-            `Could not dismiss the pull request: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        } finally {
-          afterServerChange();
-        }
-      })();
-    },
-    // Undo a dismissal. Not confirmed: it only puts a pull request back in the
-    // merge gate's way, which is the state the ticket was already in before the
-    // dismissal, and it can never move a ticket forward.
-    undismissPr: (repo) => {
-      if (!guardCapability('ship')) return;
-      try {
-        const result = undismissTicketPr(store, { ticketId, repo, debug });
-        if (!result.ok) void vscode.window.showInformationMessage(result.reason);
-      } catch (e) {
-        logError('undismiss failed', e);
-        void vscode.window.showErrorMessage(
-          `Could not undo the dismissal: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      } finally {
-        afterServerChange();
-      }
-    },
-    // Re-probe PR status and mergeability on demand, from the panel's refresh
-    // icon. The background sweep runs once a minute behind a five-minute
-    // freshness floor, so after pushing a conflict fix a user could watch a stale
-    // "conflicted" for minutes with no way to ask again.
-    //
-    // Errors are the sweep's own to log — this only has to guarantee the panel
-    // gets a push either way, or the icon spins forever.
-    refreshPrs: () => {
-      void (async () => {
-        try {
-          await refreshPrs();
-        } finally {
-          afterServerChange();
-        }
-      })();
-    },
-    refreshShipPreview: () => refreshShipPreview(),
-    toggleBind,
-    // Returns a promise, so the button reports a REAL terminal outcome rather
-    // than a bare ack (UI-R13): the write is fast and local, so there is no
-    // reason to settle on anything weaker.
-    insideAction: (actionId) => onInsideAction(actionId),
-    setDisabledGate: async (stage, name, disabled) => {
-      const current = getDisabledGates(store, ticketId)[stage];
-      const next = disabled ? [...current, name] : current.filter((n) => n !== name);
-      setDisabledGates(store, ticketId, stage, next);
-      // Re-push so the row re-renders from what was actually stored, never
-      // from what the click assumed.
-      afterServerChange();
-    },
-    // Save ONE scope of the ticket's env overrides. The scope is validated
-    // against the ticket's own selected repositories (or the all-services `*`)
-    // before anything is written: the editor offers exactly those, so a scope
-    // outside them is a crafted or stale message, never a user's intent. The
-    // body is parsed by the SAME parser that reads a repository's `.env`, and
-    // the result only ever reaches a spawn env — no `.env` on disk is written.
-    saveEnvOverrides: async (scope, text) => {
-      const known = getTicket(store, ticketId).selectedRepos;
-      if (scope !== ALL_SERVICES && !known.includes(scope)) {
-        void vscode.window.showWarningMessage(
-          `“${scope}” is not a repository this ticket scopes — nothing was saved.`,
-        );
-        return;
-      }
-      setServiceEnvOverrides(store, ticketId, scope, parseEnvText(text));
-      // Re-push so the editor re-renders from what was actually stored (keys
-      // the parser dropped included), never from what the user typed.
-      afterServerChange();
-    },
-    // Change a spun ticket's base branch for one repository (§ per-repo base
-    // branch — live change). `repo` is the worktree's repoPath; the manifest
-    // is read FRESH (like ship) so a mid-session `karst.yml` edit controls
-    // the resolved default. A refusal is reported via a THROW — the seam this
-    // resolves through (panel.ts's `change-base-ref` branch) reports `ok`
-    // from the resolved value, so `ok: false` is expressed by throwing, not
-    // by returning it — no repaint happens, and `worktrees.base_ref` is
-    // untouched (the workflow itself never writes it on a refusal).
-    changeBaseRef: async (repo, baseRef, rebase) => {
-      const manifestNow = manifest();
-      if (!manifestNow) return { ok: false, message: 'No manifest is loaded — nothing to change.' };
-      if (rebase && (await askPausedModal(store, ticketId, 'the rebase', 'Rebase', () => afterServerChange())) === 'cancel') return { ok: false, message: 'Cancelled.' };
-      const result = await changeBaseRefWorkflow({
-        store,
-        manifest: manifestNow,
-        ticketId,
-        repoPath: repo,
-        toBase: baseRef,
-        rebase,
-        git: defaultGitRunner, gh: defaultGhRunnerAsync, debug,
-        afterRewrite: () => sandboxLife.recreateNoSync(ticketId), sandboxUnsynced: () => sandboxLife.hasUnsynced(ticketId),
-      });
-      if (!result.ok) return { ok: false, message: result.reason };
-      return { ok: true, message: describeChangeBaseRef(result) };
-    },
-  };
 }
