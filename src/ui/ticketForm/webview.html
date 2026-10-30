@@ -421,11 +421,11 @@
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="field">
     <label for="intent">Acceptance check for the tester</label>
-    <textarea id="intent" class="k-input" rows="6" title="Black-box test charter — what UAT checks"></textarea>
+    <textarea id="intent" class="k-input" rows="6" aria-label="Acceptance check for the tester" title="Black-box test charter — what UAT checks"></textarea>
   </div>
   <div id="codePointersRow" class="field" hidden>
     <label for="codePointers">Code pointers</label>
-    <textarea id="codePointers" class="k-input" rows="4" title="Unverified hints — implementer only"></textarea>
+    <textarea id="codePointers" class="k-input" rows="4" aria-label="Code pointers" title="Unverified hints — implementer only"></textarea>
   </div>
   <div class="analysis-warning" id="analysisWarning" hidden></div>
   <div class="attachrow">
@@ -457,7 +457,7 @@
            opens and the field is the plain key entry. -->
       <div class="searchbox" id="searchBox">
         <input type="text" class="k-input" id="ref" placeholder="e.g. PROJ-142"
-               title="Blank derives the key from the title"
+               aria-label="Ticket key" title="Blank derives the key from the title"
                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
         <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
       </div>
