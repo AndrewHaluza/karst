@@ -32,7 +32,7 @@ function DashboardSlices() {
   return (
     // `data-react-owned` stays: the region parity snapshot pins this root's markup.
     <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
-      <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} />
+      <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} running={(state?.servers ?? []).filter((x) => x.status === 'running').length} />
     </div>
   );
 }

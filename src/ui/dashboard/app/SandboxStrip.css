@@ -286,3 +286,11 @@
     width: min(300px, calc(100vw - 48px));
   }
 }
+
+/* T871 width ladder (UI-R49): wide/mid keep the full facts; below 700 the strip is the backend tag + "N running". */
+.sandbox-strip{container-type:inline-size;container-name:sandbox}
+.sandbox-running-chip{display:none;color:var(--k-running)}
+@container sandbox (max-width: 699px){
+  .sandbox-running-chip{display:inline-flex}
+  .sandbox-strip-main .sandbox-fact,.sandbox-strip-main .sandbox-badge,.sandbox-strip-main .sandbox-sep{display:none}
+}
