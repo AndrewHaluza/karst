@@ -34,6 +34,7 @@ import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
+import { declaredCheckGates } from '../review/declaredGates.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import {
@@ -1202,6 +1203,7 @@ export function testerTargets(
     baseRef: baseRefByRepo.get(t.repo) ?? null,
     branch: branchByRepo.get(t.repo) ?? null,
     runningServices: runningServicesFor(manifest, t.names, servers),
+    gates: declaredCheckGates(manifest, t.repo),
   }));
 }
 

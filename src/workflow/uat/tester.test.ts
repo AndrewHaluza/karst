@@ -484,7 +484,8 @@ describe('runUatTester', () => {
   it('runs under the karst gate sandbox policy and carries the isolation rule', async () => {
     const { adapter, calls } = rawAdapter(PASS_COVERAGE_ANSWER);
     await runUatTester(store, opts({ adapter }), { now });
-    expect(calls[0]!.policy).toBe('gate');
+    expect(calls[0]!.policy).toBe('uat-tester');
+    expect(calls[0]!.gateScripts).toEqual([]);
     expect(calls[0]!.prompt).toContain('Environment isolation');
   });
 
@@ -1639,7 +1640,15 @@ describe('buildTesterPrompt — intent-driven black-box role', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!);
     expect(prompt).toContain('black-box UAT tester');
     expect(prompt).toContain('Do NOT read source code, the diff, implementation plans, review findings or code pointers');
-    expect(prompt).toContain("Do not run the project's test suites");
+    expect(prompt).not.toContain("Do not run the project's test suites");
+    expect(prompt).toContain('Deterministic checks are not your job');
+  });
+
+  it('the no-gates rule survives custom instructions and names the gate scripts', () => {
+    const target = { ...TARGETS[0]!, gates: [{ name: 'unit', script: 'npm run test:unit' }] };
+    const prompt = buildTesterPrompt(target, 'Just poke the UI.');
+    expect(prompt).toContain('already ran unit (npm run test:unit) on this change');
+    expect(prompt).toContain("A coverage row of 'unit tests only' is not coverage.");
   });
 
   it('custom instructions replace the role but the intent block and output rules remain', () => {

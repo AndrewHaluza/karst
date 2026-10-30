@@ -86,3 +86,13 @@ describe('reviewer policy', () => {
     expect(gateCheckDeniedCommands(['test', 'test']).filter((c) => c === 'npm run test*')).toHaveLength(1);
   });
 });
+
+describe('uat-tester policy', () => {
+  it('carries the reviewer deny and keeps npm run uat:host* allowed', () => {
+    const cmds = gateDeniedCommands('uat-tester', ['test:unit']);
+    expect(cmds).toEqual(expect.arrayContaining(['npm test*', 'npx playwright*', 'npm run test:unit*']));
+    expect(cmds).not.toContain('npm run uat:host*');
+    expect(claudeGateDeny({}, '/h', 'uat-tester', ['x'])).toContain('Bash(npm run x*)');
+    expect(opencodeGatePermission('/wt', '/tmp', {}, '/h', [], 'uat-tester', ['x']).bash['vitest*']).toBe('deny');
+  });
+});

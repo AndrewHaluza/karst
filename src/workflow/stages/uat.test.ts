@@ -2460,3 +2460,14 @@ describe('runUat live gate output', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 });
+
+describe('testerTargets gates', () => {
+  it('names the target repo declared review + uat gates', () => {
+    const m = {
+      ...manifest({ web: repo({ repoPath: '/web' }) }),
+      uat: { repositories: {}, gates: [{ name: 'unit', kind: 'script', script: 'test:unit' }] },
+    } as Manifest;
+    const [t] = testerTargets(m, [{ repo: '/web', path: '/wt', names: ['web'] }], []);
+    expect(t?.gates).toEqual([{ name: 'unit', script: 'test:unit' }]);
+  });
+});

@@ -16,6 +16,7 @@
  * meaning is whether the stage opens the diff view (`stages/review.ts`).
  */
 
+import { gateScriptsOf } from './declaredGates.js';
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
@@ -52,14 +53,6 @@ import {
   type AggregateEntry,
   type FindingsLaneOutcome,
 } from './aggregate.js';
-
-/** The script names of the declared gates, for the `reviewer` deny. */
-function gateScriptsOf(gates: readonly NamedGate[] | undefined): string[] {
-  return (gates ?? []).flatMap((g) => {
-    const script = g.script?.replace(/^npm run /, '') ?? '';
-    return script !== '' && !script.includes(' ') ? [script] : [];
-  });
-}
 
 /** One target the lane asks about — the same shape `runReview` already plans. */
 export interface FindingsLaneTarget {

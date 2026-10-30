@@ -46,7 +46,8 @@ import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../re
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { endedOnBackgroundCommand, backgroundEndedDetail } from './backgroundCommand.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE } from '../../agent/promptText.js';
+import { gateScriptsOf } from '../review/declaredGates.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, type NamedGate } from '../../agent/promptText.js';
 import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -155,6 +156,8 @@ export interface TesterTarget {
    * has no running service and the prompt says so.
    */
   runningServices?: readonly TesterRunningService[] | null;
+  /** The target's declared `review.gates` + `uat.gates`: named in the no-gates rule, denied by script under `uat-tester`. */
+  gates?: readonly NamedGate[];
 }
 
 export interface TesterRunningService {
@@ -714,7 +717,7 @@ export function buildTesterPrompt(
       : [
           `You are a black-box UAT tester. Verify the intent below by exercising the running application (UI, CLI, API) the way a user would. (repository: ${target.repo}) ${baseClause}`,
           `Do NOT read source code, the diff, implementation plans, review findings or code pointers — judge only observable behavior against the intent. ` +
-            `Do not run the project's test suites; the deterministic gates already did. Try to break it.${serviceClause}`,
+            `Try to break it.${serviceClause}`,
         ];
   // Compose the ONE command the agent may run past the recon ban — a single
   // value shared by the pointer line and the scope block's ban exception so the
@@ -736,6 +739,7 @@ export function buildTesterPrompt(
     // contract: the deny is a hard stop, but the agent must also know the RIGHT
     // way to stop its own child (`kill $!`) so it does not reach for `pkill`.
     GATE_ISOLATION_RULE,
+    noGatesRule('tester', target.gates),
     NO_DANGLING_COMMAND_RULE,
     testerMergeBaseRule(target.baseRef),
     COVERAGE_RULE_UAT,
@@ -998,7 +1002,8 @@ async function runTesterBody(
           effort: opts.assignment.effort,
           signal,
           timeoutMs,
-          policy: 'gate',
+          policy: 'uat-tester',
+          gateScripts: gateScriptsOf(target.gates),
           onOutput: captureOutput,
           ...(structured ? { outputSchema: TESTER_OUTPUT_SCHEMA } : {}),
           tracking: {
