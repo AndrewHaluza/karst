@@ -642,9 +642,18 @@ describe('buildSidebarState — planning sessions', () => {
     const clean = insertProposal(store, s.id, { title: 'Clean', ...body });
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
-      { id: warned, idLabel: `D${warned}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Warned', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown commit abc1234'] },
       { id: clean, idLabel: `D${clean}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
+      { id: warned, idLabel: `D${warned}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Warned', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown commit abc1234'] },
     ]);
+  });
+
+  it('lists a session\'s drafts newest-first', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const body = { description: 'd', summary: 's', repos: [] };
+    const ids = ['A', 'B', 'C'].map((title) => insertProposal(store, s.id, { title, ...body }));
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(state.planning[0]!.proposals.map((p) => p.id)).toEqual([...ids].reverse());
   });
 
   it('keeps accepted proposals under their session with their ticket id, after the pending ones', () => {
