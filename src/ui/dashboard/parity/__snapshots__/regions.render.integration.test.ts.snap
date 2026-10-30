@@ -20,47 +20,50 @@ exports[`dashboard region parity (DOM contract) > artView #artView · detail > a
       <span.art-title> "UAT report"
       <span.art-status.passed> "Passed"
     <div.artcard-summary> "2 passed · 1 failed"
-    <div.artmetrics>
-      <span.artmetric> "2"
-        <span.am-label> "done"
-    <section.artsection aria-label="Gate runs">
-      <div.artheading> "Gate runs"
-        <span.sp>
-          <button.ib.k-iconbtn.t-open aria-label="View this stage's console output in the dashboard" data-act="console" data-console="uat" title="View this stage's console output in the dashboard" type="button">
-            <svg.k-icon aria-hidden="true">
-      <div.artgate>
-        <span.ag-state.pass>
-          <span.ag-dot aria-label="passed" role="img">
-        <span.ag-name> "lint"
-        <span.ag-code> "exit 0"
-      <div.artgate>
-        <span.ag-state.fail>
-          <span.ag-dot aria-label="failed" role="img">
-        <span.ag-name> "e2e"
-        <span.ag-code> "exit 2"
-    <section.artsection aria-label="Details">
-      <div.artheading> "Details"
-      <div.artmeta>
-        <span.am-key> "Stage"
-        <span> "UAT"
-        <span.am-key> "Produced by"
-        <span.am-origin>
-          <span.art-origin aria-label="karst artifact for Codex">
-            <svg.kmark aria-hidden="true">
-            <span> "Karst · Codex"
-          <button.ib.k-iconbtn.t-open aria-label="View the Tester's console output in the dashboard" data-act="console" data-console="uat" data-console-proc="tester" title="View the Tester's console output in the dashboard" type="button">
-            <svg.k-icon aria-hidden="true">
-        <span.am-key> "Version"
-        <span> "v1 · current"
-        <span.am-key> "Created"
-        <span> "<stamp>"
-    <section.artsection aria-label="Underlying files">
-      <div.artheading> "Underlying files"
-      <ul.artfiles>
-        <li>
-          <span.af-label> "UAT log"
-          <span.af-name> "uat.log"
-          <button.k-btn.k-btn--secondary.k-btn--sm data-act="artifact-open-resource" data-artifact-id="uat-report" data-index="0" title="Open UAT log (uat.log) in the editor" type="button"> "Open in editor ↗""
+    <div.artdetail-grid>
+      <div.artmain>
+        <div.artmetrics>
+          <span.artmetric> "2"
+            <span.am-label> "done"
+        <section.artsection aria-label="Gate runs">
+          <div.artheading> "Gate runs"
+            <span.sp>
+              <button.ib.k-iconbtn.t-open aria-label="View this stage's console output in the dashboard" data-act="console" data-console="uat" title="View this stage's console output in the dashboard" type="button">
+                <svg.k-icon aria-hidden="true">
+          <div.artgate>
+            <span.ag-state.pass>
+              <span.ag-dot aria-label="passed" role="img">
+            <span.ag-name> "lint"
+            <span.ag-code> "exit 0"
+          <div.artgate>
+            <span.ag-state.fail>
+              <span.ag-dot aria-label="failed" role="img">
+            <span.ag-name> "e2e"
+            <span.ag-code> "exit 2"
+      <aside.artside aria-label="About this artifact">
+        <section.artsection aria-label="Details">
+          <div.artheading> "Details"
+          <div.artmeta>
+            <span.am-key> "Stage"
+            <span> "UAT"
+            <span.am-key> "Produced by"
+            <span.am-origin>
+              <span.art-origin aria-label="karst artifact for Codex">
+                <svg.kmark aria-hidden="true">
+                <span> "Karst · Codex"
+              <button.ib.k-iconbtn.t-open aria-label="View the Tester's console output in the dashboard" data-act="console" data-console="uat" data-console-proc="tester" title="View the Tester's console output in the dashboard" type="button">
+                <svg.k-icon aria-hidden="true">
+            <span.am-key> "Version"
+            <span> "v1 · current"
+            <span.am-key> "Created"
+            <span> "<stamp>"
+        <section.artsection aria-label="Underlying files">
+          <div.artheading> "Underlying files"
+          <ul.artfiles>
+            <li>
+              <span.af-label> "UAT log"
+              <span.af-name> "uat.log"
+              <button.k-btn.k-btn--secondary.k-btn--sm data-act="artifact-open-resource" data-artifact-id="uat-report" data-index="0" title="Open UAT log (uat.log) in the editor" type="button"> "Open in editor ↗""
 `;
 
 exports[`dashboard region parity (DOM contract) > artView #artView · index > artView · index 1`] = `
@@ -128,7 +131,12 @@ exports[`dashboard region parity (DOM contract) > artifacts #artPanel · three a
   <div#artifacts.pbody>
     <div.artcards>
       <button.artcard aria-label="Open Plan" data-art-open="plan" type="button">
-        <span.artcard-title> "Plan"
+        <span.artcard-top>
+          <span.artcard-kind>
+            <svg.k-icon aria-hidden="true">
+          <span.artcard-id>
+            <span.artcard-title> "Plan"
+            <span.artcard-stage> "Implement · v1"
         <span.artcard-summary> "3 tasks · 2 done"
         <span.artcard-meta>
           <span.art-status.info> "In progress"
@@ -136,7 +144,12 @@ exports[`dashboard region parity (DOM contract) > artifacts #artPanel · three a
             <svg.kmark aria-hidden="true">
             <span> "Karst · Codex"
       <button.artcard aria-label="Open UAT report" data-art-open="uat-report" type="button">
-        <span.artcard-title> "UAT report"
+        <span.artcard-top>
+          <span.artcard-kind>
+            <svg.k-icon aria-hidden="true">
+          <span.artcard-id>
+            <span.artcard-title> "UAT report"
+            <span.artcard-stage> "UAT · v1"
         <span.artcard-summary> "2 passed · 1 failed"
         <span.artcard-meta>
           <span.art-status.passed> "Passed"
@@ -144,7 +157,12 @@ exports[`dashboard region parity (DOM contract) > artifacts #artPanel · three a
             <svg.kmark aria-hidden="true">
             <span> "Karst · Codex"
       <button.artcard aria-label="Open Review" data-art-open="review" type="button">
-        <span.artcard-title> "Review"
+        <span.artcard-top>
+          <span.artcard-kind>
+            <svg.k-icon aria-hidden="true">
+          <span.artcard-id>
+            <span.artcard-title> "Review"
+            <span.artcard-stage> "Review · v1"
         <span.artcard-summary> "1 finding"
         <span.artcard-meta>
           <span.art-status.attention> "Needs attention"
@@ -260,17 +278,18 @@ exports[`dashboard region parity (DOM contract) > envView #envView · editor ope
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket that can reopen > header · closed ticket that can reopen 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus> "Closed"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -343,17 +362,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket > header · empty ticket 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T0 · (untitled)" role="group" title="T0 · (untitled)">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T0"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "(untitled)"
+  <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -426,17 +446,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · paused execution > header · paused execution 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.attention.k-chip.ticketStatus> "Paused"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -509,19 +530,20 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · populated impl with board link and priority > header · populated impl with board link and priority 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
       <span.provicon aria-hidden="true">
         <svg aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label="Priority: urgent"> "urgent"
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" data-url="fixture:https://app.clickup.com/t/abc" href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -594,17 +616,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · running agent with switch catalog > header · running agent with switch catalog 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.k-chip.running.ticketStatus> "Running"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -677,17 +700,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm > header · ship confirm 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T0 · (untitled)" role="group" title="T0 · (untitled)">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T0"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "(untitled)"
+  <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -760,17 +784,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · ship retry after failure > header · ship retry after failure 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -843,17 +868,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting to merge > header · ship waiting to merge 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
@@ -926,17 +952,18 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
 `;
 
 exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that can detach > header · sub-task that can detach 1`] = `
-"<div.dhead>
-  <div.ticketIdentity>
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus> "Idle"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">

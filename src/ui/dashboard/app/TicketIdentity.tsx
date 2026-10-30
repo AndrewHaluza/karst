@@ -10,6 +10,7 @@ import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { selectIdentity } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
+import { ticketIdentityText } from './ticketHead.js';
 import { useSlice } from './useSlice.js';
 
 /** How long the optimistic copy confirmation holds. */
@@ -75,13 +76,17 @@ export const TicketIdentity = memo(function TicketIdentity() {
   const slice = useSlice(selectIdentity);
   const overlays = useOverlays();
   const priority = slice?.priority ?? '';
+  const full = slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined;
   return (
-    <div className="ticketIdentity">
+    <div className="ticketIdentity" title={full} aria-label={full} role="group">
       <span id="providerMark" className="provicon" aria-hidden="true">
         <RuntimeIcon kind="provider" provider={slice?.provider ?? ''} />
       </span>
       <span id="idBadge" className="k-id">
         {slice?.idLabel}
+      </span>
+      <span id="statusChip" className={`k-chip ticketStatus ${slice?.statusTone ?? 'info'}`} hidden={!slice}>
+        {slice?.statusWord}
       </span>
       <CopyKeyButton label={slice?.key ?? ''} />
       <span id="priorityChip" className="prio" hidden={!priority} aria-label={priority ? `Priority: ${priority}` : ''}>
@@ -107,7 +112,7 @@ export const TicketIdentity = memo(function TicketIdentity() {
 export const TicketTitle = memo(function TicketTitle() {
   const slice = useSlice(selectIdentity);
   return (
-    <h1 id="title" className="ticketTitle">
+    <h1 id="title" className="ticketTitle" title={slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined}>
       {slice?.title}
     </h1>
   );

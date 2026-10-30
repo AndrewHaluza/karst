@@ -7,7 +7,6 @@ import { SHA1, SHA2, stateWithArtifacts, storedWithSpec } from './fixtures/artif
 
 const openIndex = (h: OverlayHarness): void => h.act(() => h.overlays.openIndex());
 const openDetail = (h: OverlayHarness, id: string): void => h.act(() => h.overlays.openArtifact(id));
-const view = (): string => must('#artView').textContent ?? '';
 
 describe('ArtifactView — captured files in the one index', () => {
   const withStored = (v: unknown = storedWithSpec): DashboardState => stateWithArtifacts({ storedArtifacts: v });

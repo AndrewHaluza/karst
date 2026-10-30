@@ -11,7 +11,7 @@
  */
 import { memo, useCallback, useRef, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
-import { useDashboardSend, useHostMessage, useOverlay, useOverlays } from './DashboardAppContext.js';
+import { useDashboardSend, useHostMessage, useOverlay } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
 import { DrillHeader } from './DrillHeader.js';
@@ -94,7 +94,6 @@ const EnvScope = memo(function EnvScope({ scope, label, hint, saved, draft, mess
 });
 
 function EnvEditor() {
-  const overlays = useOverlays();
   const env = useSlice(selectEnv);
   const [drafts, setDrafts] = useState<Texts>({});
   const [notes, setNotes] = useState<Texts>({});
