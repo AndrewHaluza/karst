@@ -31,7 +31,7 @@ describe('EnvView', () => {
     open(h);
     expect(isHidden('#envView')).toBe(false);
     expect(bodyHas('env-nav')).toBe(true);
-    expect(text('.ttitle')).toBe('Environment variables');
+    expect(text('.dh-current')).toBe('Env variables');
     expect(all('.envscope .ename').map((n) => n.textContent)).toEqual(['All services', 'api', 'web']);
     expect(area('*').value).toBe('SHARED=yes');
     expect(area('api').value).toBe('APP_HISTORY_FEATURE=true');
@@ -109,7 +109,7 @@ describe('EnvView', () => {
     const h = mountOverlays(stateWith());
     open(h);
     type('api', 'A=1');
-    fireEvent.click(must('[data-env-close]'));
+    fireEvent.click(must('[data-art="back"]'));
     expect(isHidden('#envView')).toBe(true);
     expect(bodyHas('env-nav')).toBe(false);
     expect(q('.envscope')).toBeNull();

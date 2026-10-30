@@ -1,0 +1,15 @@
+/* The shared drill-down header; the tiers follow the width of the header itself (UI-R49), one rendered form per tier. */
+.drillhead{container-type:inline-size;display:flex;align-items:center;gap:var(--k-space-4);min-width:0;padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+.drillhead .dh-back{flex:none;display:inline-flex;gap:var(--k-space-2);align-items:center;max-width:14rem}
+.drillhead .dh-backlabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drillhead .dh-trail{flex:1 1 auto;min-width:0}
+.drillhead .dh-trail ol{display:flex;align-items:center;gap:var(--k-space-2);margin:0;padding:0;list-style:none;min-width:0}
+.drillhead .dh-trail li{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim)}
+.drillhead .dh-trail li+li::before{content:"›";margin-right:var(--k-space-2);color:var(--k-text-dim)}
+.drillhead .dh-trail li.dh-current{flex:0 1 auto;color:var(--k-text);font-weight:var(--k-weight-semibold)}
+.drillhead .dh-link{all:unset;cursor:pointer;color:var(--k-link, var(--k-text-dim));text-decoration:underline}
+.drillhead .dh-link:focus-visible{outline:var(--k-focus-ring, 2px solid currentColor)}
+.drillhead .dh-actions{flex:none;margin-left:auto;display:flex;gap:var(--k-space-2)}
+.drillhead .dh-esc{flex:none;font-size:var(--k-text-sm);color:var(--k-text-dim)}
+@container (max-width: 699px){.drillhead .dh-trail li.dh-mid{display:none}.drillhead .dh-esc{display:none}}
+@container (max-width: 399px){.drillhead .dh-backlabel{display:none}.drillhead .dh-actions .k-btn-label{display:none}}

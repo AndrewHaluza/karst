@@ -108,7 +108,7 @@ describe('ArtifactView — scroll memory and persistence', () => {
     expect(isHidden('#artView')).toBe(false);
     expect(bodyHas('art-nav')).toBe(true);
     expect(text('.art-title')).toBe('Plan');
-    expect(must('[data-art="back"]').textContent).toBe('← Artifacts');
+    expect(must('[data-art="back"]').getAttribute('aria-label')).toBe('Back to Dashboard'); // no history persisted: Back answers the dashboard
     expect(top()).toBe(640);
   });
 

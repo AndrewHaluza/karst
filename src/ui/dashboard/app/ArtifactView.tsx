@@ -12,7 +12,7 @@ import { memo, useLayoutEffect } from 'react';
 import type { ArtifactSummary } from '../../../model/artifacts.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { OriginChip, StaleChip, StatusChip } from './ArtifactChips.js';
-import { BackButton, useHeading } from './ArtifactParts.js';
+import { DrillHeader } from './DrillHeader.js';
 import { ART_STAGE_LABEL, Baselines, Commits, Details, Files, Findings, Gates, Metrics, Prs, Tasks } from './ArtifactSections.js';
 import { useOverlay, useOverlays } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
@@ -30,15 +30,10 @@ const STAGES = ['impl', 'uat', 'review', 'ship'] as const;
 
 const Index = memo(function Index({ artifacts }: { readonly artifacts: readonly ArtifactSummary[] }) {
   const overlays = useOverlays();
-  const heading = useHeading();
   const groups = STAGES.map((stage) => ({ stage, items: artifacts.filter((a) => a.stage === stage) })).filter((g) => g.items.length > 0);
   return (
     <>
-      <div className="arthead">
-        <BackButton to="ticket" />
-        <h2>{heading}</h2>
-        <span className="artsub">{`Artifacts · ${artifacts.length}`}</span>
-      </div>
+      <DrillHeader trail={[{ label: `Artifacts · ${artifacts.length}` }]} />
       {groups.map((g) => (
         <section key={g.stage} className="artgroup" aria-label={`${ART_STAGE_LABEL[g.stage]} artifacts`}>
           <div className="artgroup-title">{ART_STAGE_LABEL[g.stage]}</div>
@@ -67,12 +62,10 @@ const Index = memo(function Index({ artifacts }: { readonly artifacts: readonly 
 });
 
 /** Detail is semantic-first, files last (spec §11): the result, the metrics, artifact-specific content, provenance, then the raw files. */
-const Detail = memo(function Detail({ a, from }: { readonly a: ArtifactSummary; readonly from: 'index' | 'ticket' }) {
+const Detail = memo(function Detail({ a }: { readonly a: ArtifactSummary }) {
   return (
     <>
-      <div className="arthead">
-        <BackButton to={from} />
-      </div>
+      <DrillHeader trail={[{ label: 'Artifacts', to: { console: null, logs: false, env: false, art: 'index' } }, { label: a.title }]} />
       <div className="artdetail">
         <div className="arthero">
           <span className="art-title">{a.title}</span>
@@ -105,7 +98,7 @@ function Surface({ art }: { readonly art: ArtView }) {
     if (vanished) overlays.fallbackToIndex();
   }, [vanished, overlays]);
   if (art === 'stored') return <StoredView />;
-  if (typeof art === 'object' && detail) return <Detail a={detail} from={art.from} />;
+  if (typeof art === 'object' && detail) return <Detail a={detail} />;
   return <Index artifacts={artifacts} />;
 }
 

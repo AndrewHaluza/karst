@@ -14,6 +14,7 @@ import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend, useHostMessage, useOverlay, useOverlays } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
+import { DrillHeader } from './DrillHeader.js';
 import { useOverlayRoot } from './useOverlayRoot.js';
 import { useSlice } from './useSlice.js';
 import './EnvView.css';
@@ -127,14 +128,7 @@ function EnvEditor() {
   );
   return (
     <>
-      <div className="thead">
-        <span className="ttitle">Environment variables</span>
-        <span className="sp">
-          <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-env-close="" title="Close the environment variables view" onClick={overlays.closeEnv}>
-            Close
-          </button>
-        </span>
-      </div>
+      <DrillHeader trail={[{ label: 'Env variables' }]} />
       <div className="ebody">
         <div className="elead">
           One <code>KEY=value</code> per line. These extend each service’s own <code>.env</code> and override the keys they name — for this ticket only. The repository’s <code>.env</code> file is never written. Saved values apply the next time the services are started.
