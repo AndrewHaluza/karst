@@ -1,15 +1,27 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { evalDockerPlan } from './evalDocker.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const IMAGE = 'karst-uat-host:local';
+const BASE_IMAGE = 'karst-uat-host:local';
+const EVAL_IMAGE = 'karst-uat-host-eval:local';
+let evalPlan = null;
+try {
+  evalPlan = evalDockerPlan(process.argv.slice(2), repoRoot);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(2);
+}
+const IMAGE = evalPlan ? EVAL_IMAGE : BASE_IMAGE;
+const runArgs = evalPlan ? evalPlan.forwarded : process.argv.slice(2);
 const name = `karst-uat-host-${process.pid}`;
 
-const build = spawnSync('docker', ['build', '-t', IMAGE, '-f', 'docker/uat-host/Dockerfile', '.'], {
-  cwd: repoRoot, stdio: 'inherit',
-});
-if (build.status !== 0) process.exit(build.status ?? 1);
+const buildImage = (tag, file) => spawnSync('docker', ['build', '-t', tag, '-f', file, '.'], { cwd: repoRoot, stdio: 'inherit' });
+for (const [tag, file] of [[BASE_IMAGE, 'docker/uat-host/Dockerfile'], ...(evalPlan ? [[EVAL_IMAGE, 'docker/uat-host/Dockerfile.eval']] : [])]) {
+  const build = buildImage(tag, file);
+  if (build.status !== 0) process.exit(build.status ?? 1);
+}
 
 const forceRemove = () => { spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' }); };
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
@@ -24,7 +36,8 @@ const child = spawn('docker', [
   '-v', `${repoRoot}:/work`,
   '-v', '/work/node_modules',          // container-private addon (arch:ABI-01/ABI-03)
   '-v', 'karst-uat-vscode:/vscode-cache',
-  IMAGE, ...process.argv.slice(2),
+  ...(evalPlan ? evalPlan.dockerArgs : []),
+  IMAGE, ...runArgs,
 ], { cwd: repoRoot, stdio: 'inherit' });
 
 child.on('error', (err) => { console.error(`docker run failed: ${err.message}`); forceRemove(); process.exit(1); });

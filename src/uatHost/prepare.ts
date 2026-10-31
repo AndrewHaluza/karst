@@ -45,7 +45,7 @@ if (!isKnownProvider(provider)) {
   process.exit(2);
 }
 const dbPath = flag('db');
-const ws = buildWorkspace(flag('root'), provider);
+const ws = buildWorkspace(flag('root'), provider, spec.taskRepo);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, spec);

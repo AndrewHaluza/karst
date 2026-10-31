@@ -1,0 +1,12 @@
+# Eval layer: PINNED Linux installs of the agent CLIs on top of the UAT host image.
+# Credentials are never baked in: they arrive at run time as `-e NAME` or a read-only auth-dir mount.
+FROM karst-uat-host:local
+ARG CLAUDE_CODE_VERSION=2.1.316
+ARG CODEX_VERSION=0.166.0
+RUN apt-get update && apt-get install -y --no-install-recommends iptables util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/karst-eval \
+    && npm install -g --prefix /opt/karst-eval \
+       "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}"
+COPY docker/uat-host/eval-lockdown.sh /usr/local/bin/eval-lockdown.sh
+ENV UAT_PRE_HOST_HOOK=/usr/local/bin/eval-lockdown.sh

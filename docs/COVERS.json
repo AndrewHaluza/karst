@@ -58,6 +58,15 @@
   "scripts/uat-host/docker.mjs": [
     "arch:UATHOST-01"
   ],
+  "scripts/uat-host/evalDocker.mjs": [
+    "arch:UATHOST-03"
+  ],
+  "scripts/uat-host/evalMode.mjs": [
+    "arch:UATHOST-03"
+  ],
+  "scripts/uat-host/evalProxy.mjs": [
+    "arch:UATHOST-03"
+  ],
   "scripts/uat-host/run.mjs": [
     "arch:UATHOST-01"
   ],
@@ -670,6 +679,9 @@
   "src/uatHost/fixtureFile.ts#parseFixtureFile": [
     "arch:UATHOST-02"
   ],
+  "src/uatHost/fixtures.ts#taskManifestText": [
+    "arch:UATHOST-03"
+  ],
   "src/uatHost/probe/*.ts": [
     "arch:UATHOST-00"
   ],
@@ -683,7 +695,8 @@
   ],
   "src/uatHost/seed.ts#seedStore": [
     "arch:UATHOST-00",
-    "arch:UATHOST-01"
+    "arch:UATHOST-01",
+    "arch:UATHOST-03"
   ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"

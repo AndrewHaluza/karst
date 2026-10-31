@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIXTURE_NAMES, fixtureSpec, isFixtureName, manifestText } from './fixtures.js';
+import { FIXTURE_NAMES, fixtureSpec, isFixtureName, manifestText, taskManifestText } from './fixtures.js';
 
 describe('fixtures', () => {
   it('empty has no tickets', () => {
@@ -29,5 +29,18 @@ describe('fixtures', () => {
   });
   it('manifestText takes a provider', () => {
     expect(manifestText('/w/repo', 'opencode')).toContain('agentProvider: opencode');
+  });
+  it('taskManifestText points at the task repo and declares only the given gates', () => {
+    const text = taskManifestText({
+      name: 'toy', repoPath: '/task', baseRef: 'main',
+      gates: [{ name: 'test', command: 'npm', args: ['test'] }],
+    }, 'codex');
+    expect(text).toContain('agentProvider: codex');
+    expect(text).toContain('  toy:\n    repoPath: "/task"');
+    expect(text).toContain('{"name":"test","kind":"command","command":"npm","args":["test"]}');
+    expect(text).not.toContain('typecheck');
+  });
+  it('taskManifestText omits uat gates when none declared', () => {
+    expect(taskManifestText({ name: 'toy', repoPath: '/task', baseRef: 'main', gates: [] })).not.toContain('uat:');
   });
 });

@@ -34,9 +34,15 @@ export interface RowSeeds {
   gateRuns: GateRunSeed[];
   recoveryRounds: RecoveryRoundSeed[];
 }
+/** Where a seeded ticket's worktree row points; replaces the old fixed `/fixture/repo`. */
+export interface RepoBinding { repoPath: string; baseRef: string; worktreePath: string }
 export interface TicketSeed {
   key: string;
   title: string;
+  /** The ticket brief (what the agent is asked to do). */
+  description?: string;
+  /** Overrides the default worktree row for `worktree: true`. */
+  repo?: RepoBinding;
   stageCurrent: StageKey;
   /** Manifest repo names; a draft with none cannot open a session. */
   selectedRepos?: string[];
@@ -46,8 +52,14 @@ export interface TicketSeed {
   worktree?: boolean;
   rows?: Partial<RowSeeds>;
 }
+/** A gate in the scratch manifest: argv-based, no shell. Only these two names are allowed. */
+export interface TaskGate { name: 'test' | 'typecheck'; command: string; args: string[] }
+/** The external task repo the scratch karst.yml points at (eval runs). */
+export interface TaskRepo { name: string; repoPath: string; baseRef: string; gates: TaskGate[] }
 export interface FixtureSpec {
   name: string;
+  /** When set, the workspace manifest declares this repo and its gates instead of the stock `app`. */
+  taskRepo?: TaskRepo;
   tickets: TicketSeed[];
   /** Manifest `agentProvider`; defaults to claude. */
   provider?: string;
@@ -90,6 +102,30 @@ const SPECS: Record<FixtureName, TicketSeed[]> = {
 
 export function fixtureSpec(name: FixtureName): FixtureSpec {
   return { name, tickets: SPECS[name] };
+}
+
+const yamlStr = (v: string): string => JSON.stringify(v);
+
+/** Scratch manifest for an eval run: one repo at `repoPath`, only the declared gates (JSON is YAML flow). */
+export function taskManifestText(task: TaskRepo, provider = 'claude'): string {
+  const lines = [
+    'host: 127.0.0.1',
+    'portRange: [4000, 4100]',
+    `baselineBranch: ${yamlStr(task.baseRef)}`,
+    `agentProvider: ${provider}`,
+    'repositories:',
+    `  ${task.name}:`,
+    `    repoPath: ${yamlStr(task.repoPath)}`,
+    '    hasMigrations: false',
+    `    signals: [${task.name}]`,
+  ];
+  if (task.gates.length > 0) {
+    lines.push('uat:', '  gates:');
+    for (const g of task.gates) {
+      lines.push(`    - ${JSON.stringify({ name: g.name, kind: 'command', command: g.command, args: g.args })}`);
+    }
+  }
+  return [...lines, ''].join('\n');
 }
 
 export function manifestText(repoPath: string, provider = 'claude'): string {
