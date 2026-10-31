@@ -2,7 +2,7 @@ import { STAGE_KEYS } from '../model/types.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 import { KNOWN_AGENT_PROVIDERS } from '../model/agentProviders.js';
 import type {
-  FixtureSpec, GateRunSeed, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
+  FixtureSpec, GateRunSeed, RepoBinding, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
 } from './fixtures.js';
 
 type Obj = Record<string, unknown>;
@@ -151,15 +151,44 @@ function parseRows(raw: unknown, at: string): Partial<RowSeeds> {
   };
 }
 
+const GATE_NAMES = ['test', 'typecheck'] as const;
+
+function parseBinding(raw: unknown, at: string): RepoBinding {
+  const o = obj(raw, at);
+  checkKeys(o, ['repoPath', 'baseRef', 'worktreePath'], at);
+  return { repoPath: str(o, 'repoPath', at), baseRef: str(o, 'baseRef', at), worktreePath: str(o, 'worktreePath', at) };
+}
+
+function parseGate(raw: unknown, at: string): TaskGate {
+  const o = obj(raw, at);
+  checkKeys(o, ['name', 'command', 'args'], at);
+  const args = o['args'] === undefined ? [] : list(o, 'args', at);
+  if (!args.every((a) => typeof a === 'string')) throw new Error(`${at}: args must be strings`);
+  return { name: oneOf(o, 'name', GATE_NAMES, at), command: str(o, 'command', at), args: args as string[] };
+}
+
+function parseTaskRepo(raw: unknown, at: string): TaskRepo {
+  const o = obj(raw, at);
+  checkKeys(o, ['name', 'repoPath', 'baseRef', 'gates'], at);
+  const gates = o['gates'] === undefined ? [] : list(o, 'gates', at).map((g, i) => parseGate(g, `${at}.gates[${i}]`));
+  const names = gates.map((g) => g.name);
+  if (new Set(names).size !== names.length) throw new Error(`${at}: gate names must be unique`);
+  const name = str(o, 'name', at);
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`${at}: name must be letters, digits, _ or -`);
+  return { name, repoPath: str(o, 'repoPath', at), baseRef: str(o, 'baseRef', at), gates };
+}
+
 function parseTicket(raw: unknown, at: string): TicketSeed {
   const o = obj(raw, at);
-  checkKeys(o, ['key', 'title', 'stageCurrent', 'stages', 'archived', 'worktree', 'rows'], at);
+  checkKeys(o, ['key', 'title', 'description', 'repo', 'stageCurrent', 'stages', 'archived', 'worktree', 'rows'], at);
   const stages = o['stages'] === undefined ? [] : list(o, 'stages', at).map((s, i) => parseStage(s, `${at}.stages[${i}]`));
   const archived = bool(o, 'archived', at);
   const worktree = bool(o, 'worktree', at);
   return {
     key: str(o, 'key', at),
     title: str(o, 'title', at),
+    ...(o['description'] === undefined ? {} : { description: str(o, 'description', at) }),
+    ...(o['repo'] === undefined ? {} : { repo: parseBinding(o['repo'], `${at}.repo`) }),
     stageCurrent: oneOf(o, 'stageCurrent', STAGE_KEYS, at),
     stages,
     ...(archived ? { archived } : {}),
@@ -171,10 +200,11 @@ function parseTicket(raw: unknown, at: string): TicketSeed {
 /** A fixture file is data, never code: every field is validated and unknown keys are refused. */
 export function parseFixtureFile(json: unknown, name = 'fixture-file'): FixtureSpec {
   const o = obj(json, 'fixture file');
-  checkKeys(o, ['tickets', 'provider'], 'fixture file');
+  checkKeys(o, ['tickets', 'provider', 'taskRepo'], 'fixture file');
   const tickets = list(o, 'tickets', 'fixture file').map((t, i) => parseTicket(t, `ticket ${i}`));
   const keys = tickets.map((t) => t.key);
   if (new Set(keys).size !== keys.length) throw new Error('fixture file: ticket keys must be unique');
   const provider = o['provider'] === undefined ? undefined : oneOf(o, 'provider', KNOWN_AGENT_PROVIDERS, 'fixture file');
-  return { name, tickets, ...(provider ? { provider } : {}) };
+  const taskRepo = o['taskRepo'] === undefined ? undefined : parseTaskRepo(o['taskRepo'], 'taskRepo');
+  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}) };
 }

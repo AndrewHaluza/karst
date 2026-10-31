@@ -82,3 +82,17 @@ covers: src/uatHost/probe/vscodeProbe.ts#installProbeRecorder, src/uatHost/probe
 - **`--script` and `--out` must stay inside the checkout.** `run.mjs` resolves both against the checkout root and refuses (exit 2) anything that escapes it — lexically or through a symlink chain (containment is checked on the real path, following every link, so a link inside the checkout pointing out of it is refused too). The Docker harness bind-mounts only the repo root, so a path outside it is discarded with the container and leaves nothing to cite (`args.mjs`, `scripts/uat-host/args.test.mjs`). This is the check the UAT-tester's own instructions warn about.
 
 END_DOC_BLOCK: [@arch:UATHOST-02]
+
+## [@arch:UATHOST-03] Eval mode runs a real core on an external task repo
+covers: scripts/uat-host/evalMode.mjs, scripts/uat-host/evalDocker.mjs, scripts/uat-host/evalProxy.mjs, src/uatHost/seed.ts#seedStore, src/uatHost/fixtures.ts#taskManifestText
+
+Opt-in: `npm run uat:host:docker -- --eval <claude|codex> --eval-task <dir> [--eval-env NAME]... [--eval-auth-dir <dir>] --fixture-file <f.json> --eval-result <file>`. Fake-core runs and the stock fixtures are untouched.
+
+- **Real core.** `--eval` leaves `KARST_FAKE_CORE` empty (`resolveAdapter` fakes only on `1`). `evalTestsEnv` puts `/opt/karst-eval/bin` (the pinned CLI installs of `docker/uat-host/Dockerfile.eval`, versions are build ARGs) first on `PATH` with `VSCODE_CLI=1`. A host binary is never mounted (macOS arm64 vs Linux).
+- **Task workspace.** `--eval-task` is mounted at `/task`. It must be OUTSIDE the checkout: this is the one named, explicit extension of the UATHOST-02 containment rule. The task repo, its `git worktree add` and dependency install are the caller's job (no Docker socket, so no karst sandbox and no `sandbox.setup`).
+- **Fixture.** A ticket may carry `description` (the brief) and `repo: {repoPath, baseRef, worktreePath}`, which replace the old `/fixture/repo` + `main` constants for `worktree: true` (the constants remain the default). A top-level `taskRepo: {name, repoPath, baseRef, gates}` makes `prepare.js` write a scratch `karst.yml` for that repo with ONLY the declared gates (`test`, `typecheck`; argv, no shell). Unknown keys are refused.
+- **Credentials (DBG-03).** Only env-var NAMES are accepted (`-e NAME`; a value on the command line is refused) or a read-only auth-dir mount at `/auth`. Nothing is baked into the image. `preflightEval` fails fast (exit 3) naming the missing CLI or auth, and `--eval-result` records `{core, version, authVia: {envNames, authDir}, network}`: names, never values.
+- **Network.** The build (`npm ci`, VS Code download) runs with full network. Then `eval-lockdown.sh` (sourced via `UAT_PRE_HOST_HOOK`, needs `--cap-add NET_ADMIN`) rejects all egress except loopback and uid 65534, which runs `evalProxy.mjs`, a CONNECT-only hostname-allowlist proxy (package registries + the core's API host; github.com and other git hosts denied). `HTTPS_PROXY` is exported to the host. If the iptables rule cannot be installed, the run continues and `network.json` records `knownLeak`, which the result carries. Git-URL dependencies therefore fail (D291 skip rule).
+- **Not verified end to end.** Unit tests cover the pure parts; the Docker image build and the lockdown script were not run in CI (no Docker in the authoring environment).
+
+END_DOC_BLOCK: [@arch:UATHOST-03]

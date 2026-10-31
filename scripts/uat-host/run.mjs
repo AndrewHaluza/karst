@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveInsideCheckout } from './args.mjs';
+import { AUTH_MOUNT, evalTestsEnv, preflightEval, readNetworkStatus, runRecord } from './evalMode.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -44,6 +45,15 @@ const scriptArg = argValue('--script');
 const providerArg = argValue('--provider');
 const launchMode = process.argv.includes('--launch-mode');
 const outArg = argValue('--out');
+// Eval mode (opt-in): a REAL core on the task repo mounted at /task. `--eval <core>`; the
+// run record (core name + version, credential NAMES only) goes to `--eval-result <file>`.
+const evalCore = argValue('--eval');
+const evalResultArg = argValue('--eval-result');
+const NETWORK_STATUS = process.env.UAT_EVAL_NETWORK_STATUS ?? '/run/karst-eval/network.json';
+if (evalCore && (launchMode || !fixtureFileArg || !evalResultArg)) {
+  console.error('uat-host: --eval needs --fixture-file and --eval-result, and cannot combine with --launch-mode');
+  process.exit(2);
+}
 if (Boolean(fixture) === Boolean(fixtureFileArg) || (fixture && !FIXTURES.includes(fixture)) || Boolean(scriptArg) !== Boolean(outArg)) {
   console.error(`usage: run.mjs (--fixture <${FIXTURES.join('|')}> | --fixture-file <fixture.json>) [--script <steps.json> --out <dir>]`);
   process.exit(2);
@@ -122,6 +132,15 @@ if (launchMode) {
     chmodSync(shim, 0o755);
   }
 }
+let evalPreflight;
+if (evalCore) {
+  try {
+    evalPreflight = preflightEval({ core: evalCore, env: process.env, authDir: process.env.UAT_EVAL_AUTH_DIR === '1' ? AUTH_MOUNT : undefined });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(3);
+  }
+}
 let code = 1;
 try {
   const userData = join(root, 'user-data');
@@ -150,6 +169,7 @@ try {
     extensionTestsPath: join(here, 'testRunner.cjs'),
     extensionTestsEnv: {
       KARST_FAKE_CORE: launchMode ? 'launch' : '1',
+      ...(evalCore ? evalTestsEnv({ pathValue: process.env.PATH ?? '', proxyUrl: process.env.EVAL_PROXY_URL }) : {}),
       ...(launchMode
         ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' }
         : {}),
@@ -177,6 +197,10 @@ try {
     killGroup(child.pid);
     await exit; // reap so the inherited stdout flushes before we exit
     throw new Error(`hard timeout after ${hardTimeoutMs}ms`);
+  }
+  if (evalPreflight) {
+    // Written before the exit-code check so a failed run still records which core ran.
+    writeFileSync(resolveInsideCheckout(evalResultArg, repoRoot), runRecord(evalPreflight, readNetworkStatus(NETWORK_STATUS)));
   }
   if (outcome.code !== 0) throw new Error(`tests failed (${outcome.code ?? outcome.signal})`);
   code = 0;

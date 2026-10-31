@@ -73,4 +73,23 @@ describe('seedStore', () => {
     expect(store.db.prepare('SELECT COUNT(*) AS n FROM recovery_rounds WHERE ticket_id = ?').get(id)).toEqual({ n: 1 });
     expect(getTicketByKey(store, 'REC-1')?.archivedAt).not.toBeNull();
   });
+  it('seeds the brief and the repo binding instead of the fixed constants', () => {
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({
+      tickets: [{
+        key: 'EV-1', title: 'e', description: 'add a flag', stageCurrent: 'scope', worktree: true,
+        repo: { repoPath: '/task', baseRef: 'trunk', worktreePath: '/task/wt/EV-1' },
+      }],
+    });
+    const [id] = seedStore(store, spec);
+    expect(getTicketByKey(store, 'EV-1')?.description).toBe('add a flag');
+    expect(store.db.prepare('SELECT repo, path, branch, base_ref FROM worktrees WHERE ticket_id = ?').get(id))
+      .toEqual({ repo: '/task', path: '/task/wt/EV-1', branch: 'karst/EV-1', base_ref: 'trunk' });
+  });
+  it('keeps the old defaults without a binding', () => {
+    const store = openStore(':memory:');
+    const [id] = seedStore(store, parseFixtureFile({ tickets: [{ key: 'D-1', title: 'd', stageCurrent: 'uat', worktree: true }] }));
+    expect(store.db.prepare('SELECT repo, path, base_ref FROM worktrees WHERE ticket_id = ?').get(id))
+      .toEqual({ repo: '/fixture/repo', path: '/fixture/repo/.karst/worktrees/D-1', base_ref: 'main' });
+  });
 });

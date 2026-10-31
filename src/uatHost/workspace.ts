@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { manifestText } from './fixtures.js';
+import { manifestText, taskManifestText, type TaskRepo } from './fixtures.js';
 
 export interface Workspace { workspaceDir: string; repoDir: string; remoteDir: string; manifestPath: string }
 
@@ -14,7 +14,7 @@ const git = (args: string[], cwd?: string): void => {
   execFileSync('git', args, { cwd, env: GIT_ENV, stdio: 'pipe' });
 };
 
-export function buildWorkspace(root: string, provider?: string): Workspace {
+export function buildWorkspace(root: string, provider?: string, taskRepo?: TaskRepo): Workspace {
   const remoteDir = join(root, 'remote.git');
   const workspaceDir = join(root, 'workspace');
   const repoDir = join(workspaceDir, 'repo');
@@ -28,6 +28,6 @@ export function buildWorkspace(root: string, provider?: string): Workspace {
   git(['remote', 'add', 'origin', remoteDir], repoDir);
   git(['push', '-u', 'origin', 'main'], repoDir);
   mkdirSync(join(workspaceDir, '.karst'), { recursive: true });
-  writeFileSync(manifestPath, manifestText(repoDir, provider));
+  writeFileSync(manifestPath, taskRepo ? taskManifestText(taskRepo, provider) : manifestText(repoDir, provider));
   return { workspaceDir, repoDir, remoteDir, manifestPath };
 }

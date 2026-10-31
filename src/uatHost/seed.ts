@@ -5,10 +5,10 @@ import { openRecoveryRound } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { closeStageRun, openStageRun } from '../store/stageRuns.js';
 import { archiveTicket, createTicket, setStageCurrent, updateTicketFields } from '../store/tickets.js';
-import type { FixtureSpec, RowSeeds } from './fixtures.js';
+import type { FixtureSpec, RepoBinding, RowSeeds } from './fixtures.js';
 
 const AT = '2026-01-01T00:00:00.000Z';
-const WORKTREE_REPO = '/fixture/repo';
+const DEFAULT_BINDING: RepoBinding = { repoPath: '/fixture/repo', baseRef: 'main', worktreePath: '' };
 
 function seedRows(store: Store, ticketId: number, rows: Partial<RowSeeds>): void {
   const stageRunIds = (rows.stageRuns ?? []).map((r, i) => {
@@ -40,14 +40,15 @@ function seedRows(store: Store, ticketId: number, rows: Partial<RowSeeds>): void
 /** Seeds through the store APIs (never raw SQL) so the schema's own rules hold. */
 export function seedStore(store: Store, spec: FixtureSpec): number[] {
   return spec.tickets.map((seed) => {
-    const ticket = createTicket(store, { key: seed.key, title: seed.title });
+    const ticket = createTicket(store, { key: seed.key, title: seed.title, ...(seed.description === undefined ? {} : { description: seed.description }) });
     setStageCurrent(store, ticket.id, seed.stageCurrent);
     if (seed.selectedRepos) updateTicketFields(store, ticket.id, { selectedRepos: seed.selectedRepos });
     for (const s of seed.stages) setStage(store, ticket.id, s.stageKey, s.patch);
     if (seed.worktree) {
+      const binding = seed.repo ?? DEFAULT_BINDING;
       store.db
         .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
-        .run(ticket.id, WORKTREE_REPO, `${WORKTREE_REPO}/.karst/worktrees/${seed.key}`, `karst/${seed.key}`, 'main');
+        .run(ticket.id, binding.repoPath, binding.worktreePath || `${binding.repoPath}/.karst/worktrees/${seed.key}`, `karst/${seed.key}`, binding.baseRef);
     }
     if (seed.rows) seedRows(store, ticket.id, seed.rows);
     if (seed.archived) archiveTicket(store, ticket.id);

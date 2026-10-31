@@ -81,6 +81,30 @@ describe('parseFixtureFile', () => {
   });
 });
 
+describe('parseFixtureFile eval fields', () => {
+  const repo = { repoPath: '/task', baseRef: 'main', worktreePath: '/task/.karst/worktrees/T-1' };
+  it('parses description, repo binding and taskRepo', () => {
+    const spec = parseFixtureFile({
+      taskRepo: { name: 'toy', repoPath: '/task', baseRef: 'main', gates: [{ name: 'test', command: 'npm', args: ['test'] }] },
+      tickets: [{ ...ticket, description: 'fix it', repo, worktree: true }],
+    });
+    expect(spec.tickets[0]).toMatchObject({ description: 'fix it', repo });
+    expect(spec.taskRepo?.gates).toEqual([{ name: 'test', command: 'npm', args: ['test'] }]);
+  });
+  it.each([
+    ['unknown repo key', { tickets: [{ ...ticket, repo: { ...repo, extra: 1 } }] }],
+    ['repo missing baseRef', { tickets: [{ ...ticket, repo: { repoPath: '/t', worktreePath: '/w' } }] }],
+    ['empty description', { tickets: [{ ...ticket, description: '' }] }],
+    ['unknown gate name', { tickets: [], taskRepo: { name: 'a', repoPath: '/t', baseRef: 'main', gates: [{ name: 'lint', command: 'x' }] } }],
+    ['duplicate gate', { tickets: [], taskRepo: { name: 'a', repoPath: '/t', baseRef: 'main', gates: [{ name: 'test', command: 'x' }, { name: 'test', command: 'y' }] } }],
+    ['non-string arg', { tickets: [], taskRepo: { name: 'a', repoPath: '/t', baseRef: 'main', gates: [{ name: 'test', command: 'x', args: [1] }] } }],
+    ['bad repo name', { tickets: [], taskRepo: { name: 'a b', repoPath: '/t', baseRef: 'main' } }],
+    ['unknown taskRepo key', { tickets: [], taskRepo: { name: 'a', repoPath: '/t', baseRef: 'main', url: 'x' } }],
+  ])('refuses %s', (_n, input) => {
+    expect(() => parseFixtureFile(input)).toThrow();
+  });
+});
+
 describe('shipped samples', () => {
   const sample = (f: string): unknown => JSON.parse(readFileSync(join(process.cwd(), 'scripts', 'uat-host', 'samples', f), 'utf8'));
   it('stranded-uat fixture is a valid fixture file: uat running, no run rows', () => {
