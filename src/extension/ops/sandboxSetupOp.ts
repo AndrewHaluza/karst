@@ -8,7 +8,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { Notify } from './notify.js';
 
-/** What the buttons on a sandbox-setup failure do (arch:AC-40); the host binds them. */
+/** What the buttons on a sandbox-setup failure do (arch:AC-47); the host binds them. */
 export interface SetupFailureActions {
   /** Forget the recorded setup, run it again, clear the block and re-drive the stage. */
   readonly rerun: (ticketId: number) => Promise<void>;

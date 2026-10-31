@@ -25,7 +25,7 @@ export interface TesterSkipDeps {
 }
 
 /**
- * The two actions of a `tester-skipped` block (@arch:UAT-OBS). Both refuse
+ * The two actions of a `tester-skipped` block (@arch:UAT-OBS-RUNS). Both refuse
  * unless UAT is still parked on that block. Neither is a verdict about the
  * code: Accept commits a PASSED UAT verdict (clearing the block in the same
  * transaction), Re-run clears the block and re-drives UAT, which then follows

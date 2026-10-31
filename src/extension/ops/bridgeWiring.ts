@@ -42,7 +42,7 @@ export interface BridgeBuildDeps {
   readonly cli: () => { readonly cliEntry: string; readonly dbPath: string; readonly manifestPath: string | undefined };
   readonly nodePath: string;
   readonly debug?: (message: string) => void;
-  /** A marker failure is a WARN, never DEBUG-only (arch:AC-34). */
+  /** A marker failure is a WARN, never DEBUG-only (arch:AC-45). */
   readonly warn?: (message: string) => void;
   /** Shows the user a failed done marker; `diverged` = a Needs-you blocker with Open sync diff. */
   readonly notifyFailure?: (ticketId: number, message: string, diverged: boolean, gaveUp: boolean) => void;

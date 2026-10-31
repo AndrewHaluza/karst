@@ -32,7 +32,7 @@ covers: scripts/docsKeys.mjs
   - Purpose: 1–3 sentences. Connections: `- in:` / `- out:` bullets naming other `@arch:` keys. Tradeoffs: a chosen|rejected|why table. Fallbacks: a trigger|behaviour|recovery table. Rules: a ` · `-separated list of the file's rule keys (replaces any Invariants section).
 - **Flow** is a single `mermaid` fence (flowchart or sequenceDiagram) and is the LAST fence in the block. Only a trailing `<!-- GENERATED:end -->` comment may follow it; notes go above it.
 - **Rule blocks** stay one statement: no `### ` sections, no diagram; `covers:` is optional.
-- `MAX_BLOCK_BYTES` (6200) is unchanged: if a -00 block would exceed it, shorten the prose — never split into sidecar blocks.
+- `MAX_BLOCK_BYTES` (6400) caps every hand-written block; `docs:check` WARNS above 90% of it and fails above it. A block holding a `GENERATED:start` marker has its own cap (`GENERATED_MAX_BLOCK_BYTES`, 12000). If a -00 block would exceed the cap, shorten the prose — never split into sidecar blocks. Any other block: split it. Keep the original key on the core rule, move rationale/history into a new `@arch:<NS>-NN` block (next free number; suffixed keys like `UAT-OBS-RUNS` are fine for unnumbered families) that opens with `Split out of \`arch:<KEY>\`.`, and end the original with `Continued in \`arch:<NEW>\` (…)`.
 - `npm run -s docs:mermaid` parses every `mermaid` fence with `mermaid.parse()` under jsdom (mermaid 11.17.2, pinned in devDependencies); a fence that does not parse fails CI.
 
 ~~~md

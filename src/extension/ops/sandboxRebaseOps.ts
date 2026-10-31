@@ -2,7 +2,7 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import { backendKindOf, removeSandboxGuarded, type SandboxLifecycleDeps } from './sandboxLifecycleOps.js';
 import { recordSyncedHead, sandboxRunnerFor, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
-/** The sandbox primitives "Rebase on base" needs (arch:AC-33 no-sync recreate). */
+/** The sandbox primitives "Rebase on base" needs (arch:AC-51 no-sync recreate). */
 export interface SandboxRebaseDeps extends SandboxLifecycleDeps {
   readonly reopen: (ticketId: number) => Promise<void>;
   /** Test seams. */
