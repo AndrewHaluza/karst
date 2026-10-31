@@ -49,6 +49,9 @@ const BARE_KARST_SPAN = /`karst\s+[a-z][a-z-]*\b[^`]*`/g;
 /** The MCP phrasing (the sandbox has no karst MCP server). */
 const MCP_TOOL_CLAUSE = /call the karst MCP tool `[a-z-]+`(?: with \{[^}]*\})?/g;
 
+/** The Claude ToolSearch hint for deferred karst MCP tools. */
+const DEFERRED_HINT = /karst MCP tools may be deferred: load them first with ToolSearch `[^`]*`\.?/g;
+
 /**
  * Last line of defence for sandboxed text: any host command span or MCP tool
  * call that survived composition is replaced, so the agent is never told to run
@@ -57,6 +60,6 @@ const MCP_TOOL_CLAUSE = /call the karst MCP tool `[a-z-]+`(?: with \{[^}]*\})?/g
 export function scrubHostCli(text: string): { readonly text: string; readonly scrubbed: number } {
   let scrubbed = 0;
   const swap = (): string => { scrubbed += 1; return NOT_IN_SANDBOX; };
-  const out = text.replace(HOST_CLI_SPAN, swap).replace(BARE_KARST_SPAN, swap).replace(MCP_TOOL_CLAUSE, swap);
+  const out = text.replace(HOST_CLI_SPAN, swap).replace(BARE_KARST_SPAN, swap).replace(DEFERRED_HINT, swap).replace(MCP_TOOL_CLAUSE, swap);
   return { text: out, scrubbed };
 }

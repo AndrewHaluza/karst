@@ -38,3 +38,13 @@ describe('scrubHostCli', () => {
     expect(scrubHostCli('nothing here')).toEqual({ text: 'nothing here', scrubbed: 0 });
   });
 });
+
+describe('scrubHostCli deferred MCP hint', () => {
+  it('strips the ToolSearch hint', () => {
+    const hint = 'karst MCP tools may be deferred: load them first with ToolSearch `select:mcp__karst__context,mcp__karst__stage`.';
+    const out = scrubHostCli(`${hint} Then work.`);
+    expect(out.text).not.toContain('deferred');
+    expect(out.text).not.toContain('ToolSearch');
+    expect(out.scrubbed).toBe(1);
+  });
+});
