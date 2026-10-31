@@ -3,7 +3,17 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveAgyAppDataDir } from '../agyConversationWatch.js';
+import {
+  ANTIGRAVITY_NOT_RUNNING_REASON,
+  ANTIGRAVITY_UNRESPONSIVE_REASON,
+  discoverAntigravityServer,
+  type FileReader,
+  type PortLister,
+  type ProcessLister,
+} from './antigravityDiscovery.js';
 import type { QuotaKnown, QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
+
+export { ANTIGRAVITY_NOT_RUNNING_REASON, ANTIGRAVITY_UNRESPONSIVE_REASON };
 
 /**
  * Antigravity quota reader — Language Server Connect RPC endpoint (`arch:AC-29`).
@@ -350,6 +360,9 @@ export interface AntigravityQuotaReaderDeps {
   fetchImpl?: typeof fetch;
   cacheTtlMs?: number;
   timeoutMs?: number;
+  listProcesses?: ProcessLister;
+  listPorts?: PortLister;
+  readFile?: FileReader;
 }
 
 export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): QuotaReader {
@@ -365,13 +378,26 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
       const ttlMs = deps.cacheTtlMs ?? ANTIGRAVITY_CACHE_TTL_MS;
       const timeoutMs = deps.timeoutMs ?? ANTIGRAVITY_TIMEOUT_MS;
 
-      const address = env.ANTIGRAVITY_LS_ADDRESS;
-      const csrf = env.ANTIGRAVITY_CSRF_TOKEN;
+      const discovery = await discoverAntigravityServer({
+        env,
+        homeDir: home,
+        appDataDir,
+        fetchImpl: fetchFn,
+        timeoutMs,
+        listProcesses: deps.listProcesses,
+        listPorts: deps.listPorts,
+        readFile: deps.readFile,
+      });
 
       let liveError: string | null = null;
-      if (address && csrf) {
+      if ('address' in discovery && 'csrfToken' in discovery && discovery.address && discovery.csrfToken) {
         try {
-          const { windows, source } = await fetchLiveQuota(address, csrf, fetchFn, timeoutMs);
+          const { windows, source } = await fetchLiveQuota(
+            discovery.address,
+            discovery.csrfToken,
+            fetchFn,
+            timeoutMs,
+          );
           const snapshot: QuotaKnown = {
             core: 'antigravity',
             state: 'ok',
@@ -381,13 +407,11 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
           };
           writeCache(cachePath, snapshot);
           return snapshot;
-        } catch (err) {
-          liveError = err instanceof Error ? err.message : String(err);
+        } catch {
+          liveError = ANTIGRAVITY_UNRESPONSIVE_REASON;
         }
       } else {
-        liveError = !address
-          ? 'ANTIGRAVITY_LS_ADDRESS is not set'
-          : 'ANTIGRAVITY_CSRF_TOKEN is not set';
+        liveError = discovery.reason ?? ANTIGRAVITY_NOT_RUNNING_REASON;
       }
 
       const cached = await readCache(cachePath, nowFn().getTime(), ttlMs);

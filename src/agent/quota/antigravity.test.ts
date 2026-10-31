@@ -19,6 +19,8 @@ import {
   ANTIGRAVITY_CACHE_TTL_MS,
   ANTIGRAVITY_TIMEOUT_MS,
   ANTIGRAVITY_RELATIVE_CACHE,
+  ANTIGRAVITY_NOT_RUNNING_REASON,
+  ANTIGRAVITY_UNRESPONSIVE_REASON,
 } from './antigravity.js';
 import type { QuotaKnown } from './types.js';
 
@@ -1383,58 +1385,62 @@ describe('antigravityQuotaReader', () => {
     }
   });
 
-  it('reports unknown with ANTIGRAVITY_LS_ADDRESS is not set when address is missing/empty and no cache', async () => {
+  it('reports friendly unknown reason when address or token is missing and no server running', async () => {
     const appDataDir = createTempDir();
     try {
       const readerMissing = antigravityQuotaReader({
         appDataDir,
         env: { ANTIGRAVITY_CSRF_TOKEN: 'csrf-only' },
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       expect(await readerMissing.read()).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'ANTIGRAVITY_LS_ADDRESS is not set',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
       });
 
       const readerEmpty = antigravityQuotaReader({
         appDataDir,
         env: { ANTIGRAVITY_LS_ADDRESS: '', ANTIGRAVITY_CSRF_TOKEN: 'csrf-only' },
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       expect(await readerEmpty.read()).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'ANTIGRAVITY_LS_ADDRESS is not set',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
       });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
     }
   });
 
-  it('reports unknown with ANTIGRAVITY_CSRF_TOKEN is not set when token is missing/empty and no cache', async () => {
+  it('reports friendly unknown reason when token is missing/empty and no server running', async () => {
     const appDataDir = createTempDir();
     try {
       const readerMissing = antigravityQuotaReader({
         appDataDir,
         env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123' },
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       expect(await readerMissing.read()).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'ANTIGRAVITY_CSRF_TOKEN is not set',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
       });
 
       const readerEmpty = antigravityQuotaReader({
         appDataDir,
         env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123', ANTIGRAVITY_CSRF_TOKEN: '' },
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       expect(await readerEmpty.read()).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'ANTIGRAVITY_CSRF_TOKEN is not set',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
       });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
@@ -1497,7 +1503,7 @@ describe('antigravityQuotaReader', () => {
       expect(snapshot).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'Language server HTTP 500',
+        reason: ANTIGRAVITY_UNRESPONSIVE_REASON,
       });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
@@ -1560,7 +1566,7 @@ describe('antigravityQuotaReader', () => {
       expect(snapshot).toEqual({
         core: 'antigravity',
         state: 'unknown',
-        reason: 'No quota windows in language server response',
+        reason: ANTIGRAVITY_UNRESPONSIVE_REASON,
       });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
@@ -1591,6 +1597,229 @@ describe('antigravityQuotaReader', () => {
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
       rmSync(fakeAppData, { recursive: true, force: true });
+    }
+  });
+
+  it('reader with empty env + fake discovered server produces ok snapshot and writes cache', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const fetchImpl = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('RetrieveUserQuotaSummary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    name: 'gemini',
+                    buckets: [
+                      {
+                        bucketId: 'gemini-5h',
+                        window: '5h',
+                        remainingFraction: 0.8,
+                        resetTime: '2026-10-31T15:00:00Z',
+                      },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('GetUserStatus')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                userStatus: {
+                  userTier: { id: 'g1-pro-tier' },
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      }) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {},
+        now: () => new Date('2026-10-31T12:00:00.000Z'),
+        fetchImpl,
+        listProcesses: () => [
+          {
+            pid: 999,
+            command: 'language_server --csrf_token discovered-csrf --http_server_port 57687',
+          },
+        ],
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot).toEqual({
+        core: 'antigravity',
+        state: 'ok',
+        windows: [
+          {
+            label: '5-hour',
+            usedPct: 20,
+            resetsAt: '2026-10-31T15:00:00Z',
+          },
+        ],
+        source: 'Antigravity Language Server (Google AI Pro)',
+        readAt: '2026-10-31T12:00:00.000Z',
+      });
+
+      const cachePath = join(appDataDir, 'cache', 'quota.json');
+      const cachedContent = JSON.parse(readFileSync(cachePath, 'utf8'));
+      expect(cachedContent.state).toBe('ok');
+      expect(cachedContent.windows[0].label).toBe('5-hour');
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('no server running returns friendly unknown reason', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {},
+        listProcesses: () => [],
+        readFile: () => null,
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot).toEqual({
+        core: 'antigravity',
+        state: 'unknown',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
+      });
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('env vars take priority over discovered server', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const fetchUrls: string[] = [];
+      const fetchHeaders: Array<Record<string, string>> = [];
+      const fetchImpl = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        fetchUrls.push(url);
+        fetchHeaders.push((init?.headers ?? {}) as Record<string, string>);
+        if (url.includes('RetrieveUserQuotaSummary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    name: 'gemini',
+                    buckets: [
+                      {
+                        bucketId: 'gemini-5h',
+                        window: '5h',
+                        remainingFraction: 0.5,
+                        resetTime: '2026-10-31T15:00:00Z',
+                      },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify({ userStatus: {} }), { status: 200 }));
+      }) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'env-csrf-token',
+        },
+        fetchImpl,
+        listProcesses: () => [
+          {
+            pid: 999,
+            command: 'language_server --csrf_token ignored-csrf --http_server_port 57687',
+          },
+        ],
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot.state).toBe('ok');
+      expect(fetchUrls[0]).toContain('127.0.0.1:45123');
+      expect(fetchHeaders[0]?.['x-codeium-csrf-token']).toBe('env-csrf-token');
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('csrf token never appears in snapshot, errors, or cached files', async () => {
+    const appDataDir = createTempDir();
+    const secretToken = 'super-secret-token-never-leak-999';
+    try {
+      const fetchImpl = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('RetrieveUserQuotaSummary')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    name: 'gemini',
+                    buckets: [
+                      {
+                        bucketId: 'gemini-5h',
+                        window: '5h',
+                        remainingFraction: 0.9,
+                      },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify({ userStatus: {} }), { status: 200 }));
+      }) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: secretToken,
+        },
+        fetchImpl,
+      });
+
+      const snapshot = await reader.read();
+      const serialized = JSON.stringify(snapshot);
+      expect(serialized).not.toContain(secretToken);
+
+      const cachePath = join(appDataDir, 'cache', 'quota.json');
+      const cachedRaw = readFileSync(cachePath, 'utf8');
+      expect(cachedRaw).not.toContain(secretToken);
+
+      const failingFetch = vi.fn().mockRejectedValue(new Error(`Failed with ${secretToken}`));
+      const failingAppDataDir = createTempDir();
+      try {
+        const failingReader = antigravityQuotaReader({
+          appDataDir: failingAppDataDir,
+          env: {
+            ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+            ANTIGRAVITY_CSRF_TOKEN: secretToken,
+          },
+          fetchImpl: failingFetch,
+        });
+        const failSnapshot = await failingReader.read();
+        expect(JSON.stringify(failSnapshot)).not.toContain(secretToken);
+      } finally {
+        rmSync(failingAppDataDir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
     }
   });
 });

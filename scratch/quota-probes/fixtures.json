@@ -133,6 +133,21 @@
         }
       }
     },
+    "language_server_discovery": {
+      "process_argv_pattern": "language_server --csrf_token <REDACTED> --http_server_port 57687",
+      "flags": {
+        "csrf_token": "--csrf_token <REDACTED>",
+        "http_server_port": "--http_server_port 57687"
+      },
+      "lsof_pattern": "TCP localhost:57687 (LISTEN)",
+      "file_discovery_pattern": {
+        "path": "~/.gemini/antigravity/discovery.json",
+        "shape": {
+          "address": "127.0.0.1:57687",
+          "csrf_token": "<REDACTED>"
+        }
+      }
+    },
     "subscription_quota_source": null
   },
   "opencode": {
