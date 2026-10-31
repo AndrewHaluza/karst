@@ -127,6 +127,17 @@ export function needsUser(t: TicketWithStages): boolean {
 }
 
 /**
+ * Whether a RUNNING agent is working a ticket whose current stage is `failed`
+ * (a stalled/parked stage a human re-opened a session on). The stage row stays
+ * failed; only the ticket-level reading yields to the working agent (@arch:BLOCKED).
+ */
+export function agentWorkingOnFailedStage(t: TicketWithStages): boolean {
+  return (
+    ((t.agentState ?? 'none') as AgentState) === 'running' && currentStageStatus(t) === 'failed'
+  );
+}
+
+/**
  * The one derivation every surface (sidebar, tabs, terminal, status bar) uses so
  * they all show the same color. Wraps the H1 `glyphFor` over a ticket, with the
  * needs-you override applied first — `glyphFor` sees only (status, agentState)
@@ -135,6 +146,9 @@ export function needsUser(t: TicketWithStages): boolean {
 export function ticketGlyph(t: TicketWithStages): Glyph {
   if (t.stageCurrent === 'closed') return 'gray';
   if (needsUser(t)) return 'amber';
+  // A live agent working a parked (failed) stage reads in-progress; the stored
+  // failure stays and the red reading returns when the session ends.
+  if (agentWorkingOnFailedStage(t)) return 'blue';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the
   // glyph, facet, badge and attention set all read "in progress", never

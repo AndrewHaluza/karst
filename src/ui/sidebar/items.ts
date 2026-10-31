@@ -161,7 +161,7 @@ export function buildTicketNodes(
   return tickets.map((t) => {
     const badge = stageBadge(t);
     const current = t.stages.find((s) => s.stageKey === t.stageCurrent);
-    const failed = currentStageStatus(t) === 'failed';
+    const failed = badge.glyph === 'red';
     const blocker: Blocker | null = failed
       ? { reason: current?.verdict ?? null, attempt: current?.attempt ?? 0 }
       : null;

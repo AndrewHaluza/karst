@@ -237,6 +237,17 @@ describe('buildTicketNodes', () => {
     expect(n.blocker).toEqual({ reason: '2 tests red', attempt: 2 });
   });
 
+  it('no blocker while an agent runs on a failed stage; blocker when idle', () => {
+    const stages = [
+      { ticketId: 1, stageKey: 'uat', status: 'failed', attempt: 1, verdict: 'x', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
+    ] as never;
+    const run = buildTicketNodes([ticket({ stageCurrent: 'uat', stages, agentState: 'running' })])[0]!;
+    expect(run.blocker).toBeNull();
+    expect(run.glyph).toBe('blue');
+    const idle = buildTicketNodes([ticket({ stageCurrent: 'uat', stages, agentState: 'idle' })])[0]!;
+    expect(idle.blocker).toEqual({ reason: 'x', attempt: 1 });
+  });
+
   it('blocker reason is null (line still shows the attempt) when a failed stage has no verdict', () => {
     const n = buildTicketNodes([
       ticket({
