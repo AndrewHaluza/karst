@@ -3,7 +3,7 @@
    panel, closed by an explicit Close. Each scope is a `.env`-shaped textarea: the user types what they would type in the
    file, and the host reads it with the file's own parser. */
 body.env-nav .stepper,body.env-nav .grid{display:none}
-.envview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;
+.envview{height:calc(100vh - var(--k-drill-chrome, 140px));min-height:320px;display:flex;flex-direction:column;
   background:var(--k-bg);color:var(--k-text);overflow:auto}
 .envview.hidden{display:none}
 .envview .thead{display:flex;align-items:center;gap:var(--k-space-4);

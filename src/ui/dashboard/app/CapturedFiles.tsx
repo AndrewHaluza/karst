@@ -1,18 +1,15 @@
 /**
- * The Captured artifacts view (T2 store): the stored files of the ticket, grouped kind then approach. Every action carries
- * the STORE path and revision shas only; the host re-resolves both (ops/storedArtifactOps.ts). Each posting control is
+ * Captured files (T2 store) inside the one Artifacts list. A file whose Karst-Kind names a semantic artifact folds into
+ * that artifact's detail; every other file is an ordinary index row under its resolved stage. Every action carries the
+ * STORE path and revision shas only; the host re-resolves both (ops/storedArtifactOps.ts). Each posting control is
  * runtime-pending and settles on the host's `action-result`; its className is constant.
  */
-import { Fragment, memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import type { StoredArtifactRow } from '../storedArtifacts.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
-import { BackButton, useHeading } from './ArtifactParts.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
-
-const selectStored = (snapshot: DashboardSnapshot) => snapshot.state?.storedArtifacts ?? null;
-
 const when = (iso: string): string => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
@@ -50,7 +47,7 @@ function LiveButton({ path }: { readonly path: string }) {
   );
 }
 
-const Row = memo(function Row({ r }: { readonly r: StoredArtifactRow }) {
+export const CapturedRow = memo(function CapturedRow({ r }: { readonly r: StoredArtifactRow }) {
   return (
     <li className="sa-row">
       <div className="sa-main">
@@ -83,7 +80,7 @@ const Row = memo(function Row({ r }: { readonly r: StoredArtifactRow }) {
   );
 });
 
-function Bar() {
+export function CapturedActions() {
   const send = useDashboardSend();
   const reveal = usePendingAction(useCallback((requestId: string) => send.storedArtifactReveal(requestId), [send]));
   const purge = usePendingAction(useCallback((requestId: string) => send.storedArtifactPurge(requestId), [send]));
@@ -93,70 +90,17 @@ function Bar() {
         Reveal folder
       </button>
       <button type="button" className={GHOST} data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" onClick={purge}>
-        Purge artifacts
+        Purge files…
       </button>
     </span>
   );
 }
 
-export function StoredView() {
-  const v = useSlice(selectStored);
-  const heading = useHeading();
-  const head = (
-    <div className="arthead">
-      <BackButton to="ticket" />
-      <h2>{heading}</h2>
-      <span className="artsub">{`Artifacts · ${v ? Number(v.total) : 0}`}</span>
-      <Bar />
-    </div>
-  );
-  if (!v) {
-    return (
-      <>
-        {head}
-        <p className="sa-empty">Loading…</p>
-      </>
-    );
-  }
-  return (
-    <>
-      {head}
-      {v.total === 0 ? (
-        <p className="sa-empty">
-          {v.globs.length ? 'No artifacts captured yet. Watching: ' : 'No artifacts captured yet. No outputs globs are configured for the enabled approaches.'}
-          {v.globs.map((g, i) => (
-            <Fragment key={g}>
-              {i > 0 ? ', ' : null}
-              <code>{g}</code>
-            </Fragment>
-          ))}
-          {v.globs.length ? '.' : null}
-        </p>
-      ) : (
-        v.groups.map((g) => (
-          <section key={g.kind} className="artgroup" aria-label={`${g.kind} artifacts`}>
-            <div className="artgroup-title">{g.kind}</div>
-            {g.approaches.map((a) => (
-              <Fragment key={a.approach}>
-                <div className="sa-meta">{a.approach}</div>
-                <ul className="artrows">
-                  {a.rows.map((r) => (
-                    <Row key={r.path} r={r} />
-                  ))}
-                </ul>
-              </Fragment>
-            ))}
-          </section>
-        ))
-      )}
-      {v.skips.length ? (
-        <section className="artgroup" aria-label="Skipped files">
-          <div className="artgroup-title">Skipped files</div>
-          {v.skips.map((k) => (
-            <div key={k.path} className="sa-skip">{`${k.path} — ${k.reason}`}</div>
-          ))}
-        </section>
-      ) : null}
-    </>
-  );
+
+const selectView = (snapshot: DashboardSnapshot) => snapshot.state?.storedArtifacts ?? null;
+
+/** Every captured file of the ticket, flat; empty until the host's first load answers. */
+export function useCaptured(): readonly StoredArtifactRow[] {
+  const view = useSlice(selectView);
+  return useMemo(() => (view ? view.groups.flatMap((g) => g.approaches.flatMap((a) => a.rows)) : []), [view]);
 }

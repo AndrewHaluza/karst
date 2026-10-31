@@ -43,6 +43,7 @@ export function buildFixture(
   view: ViewId,
   theme: ThemeId,
   corpusMessages: readonly unknown[],
+  viewState?: unknown,
 ): string {
   const entry = CHAINS[view];
   if (!entry) throw new Error(`Unknown view: ${view}`);
@@ -77,7 +78,7 @@ export function buildFixture(
 
   // The acquireVsCodeApi stub MUST go before the first <script> tag because
   // the webview's own script calls it immediately.  Insert it after <head>.
-  const vsApiStub = buildVsApiStub();
+  const vsApiStub = buildVsApiStub(viewState);
   const firstScriptIdx = html.indexOf('<script');
   if (firstScriptIdx !== -1) {
     html = html.slice(0, firstScriptIdx) + vsApiStub + '\n' + html.slice(firstScriptIdx);
@@ -96,7 +97,7 @@ export function buildFixture(
   // without a tag in the source. Emitting it immediately before the seed also
   // fixes the cascade position: the class is on `document.body` before the
   // first corpus message dispatches and synchronously before `data-karst-ready`.
-  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${jsonForInlineScript(themeData.bodyClass)};</script>`;
+  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.classList.add(...${jsonForInlineScript(themeData.bodyClass)}.split(' ').filter(Boolean));</script>`;
 
   // Append the body class, then the message dispatch + readiness signal,
   // before </body> (or at the end of a fragment that has no </body>).
@@ -134,13 +135,13 @@ function jsonForInlineScript(value: unknown): string {
 /**
  * Build the acquireVsCodeApi stub — must run before the webview's own script.
  */
-function buildVsApiStub(): string {
+function buildVsApiStub(viewState?: unknown): string {
   return `<script nonce="${FIXED_NONCE}">
 (function() {
   window.acquireVsCodeApi = function() {
     return {
       postMessage: function() {},
-      getState: function() { return undefined; },
+      getState: function() { return ${viewState === undefined ? 'undefined' : jsonForInlineScript(viewState)}; },
       setState: function() {}
     };
   };
@@ -208,7 +209,7 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
       }
       // One page per registered variant (ui:UI-R57).
       for (const v of VARIANTS[view]) {
-        const html = buildFixture(view, theme, v.corpus().messages);
+        const html = buildFixture(view, theme, v.corpus().messages, v.corpus().viewState);
         writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');
       }
     }

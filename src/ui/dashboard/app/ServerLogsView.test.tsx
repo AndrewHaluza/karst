@@ -127,3 +127,23 @@ describe('ServerLogsView — the thin wrapper over the shared runtime', () => {
     expect(must('#logsHost')).toBe(host);
   });
 });
+
+describe('ServerLogsView — shared DrillHeader', () => {
+  it('asks the runtime for the header slot and fills it with the Back/breadcrumb header', () => {
+    const h = mountOverlays(state);
+    factory.mockImplementationOnce((opts: Opts) => {
+      expect(opts).toMatchObject({ drillHead: true });
+      const api: Api = {
+        open: vi.fn(() => { must('#logsView').innerHTML = '<div id="logsDrillHead"></div>'; }),
+        close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(),
+      };
+      return api;
+    });
+    // A fresh factory identity so the page-level cache builds a new instance.
+    vi.stubGlobal('createServerLogsView', factory);
+    open(h);
+    const head = must('#logsView [data-region="drill-head"]');
+    expect(head.textContent).toContain('Server logs');
+    expect(must('[data-art="back"]').getAttribute('aria-label')).toBe('Back to Dashboard');
+  });
+});

@@ -107,6 +107,8 @@ const storedState = (): DashboardState =>
                   revisions: 2,
                   lastAt: '2026-08-12T10:00:00.000Z',
                   latestSha: 'sha-new',
+                  stage: 'unassigned',
+                  artifactKind: null,
                   history: [
                     { sha: 'sha-new', at: '2026-08-12T10:00:00.000Z', source: 'agent' },
                     { sha: 'sha-old', at: '2026-08-11T10:00:00.000Z', source: 'agent' },
@@ -513,8 +515,8 @@ export const COVERED: readonly ParityCase[] = [
   ).map(([a, , scope, msg, extra]): ParityCase => ({
     act: a,
     variant: scope ? 'latest revision' : undefined,
-    state: storedState,
-    prep: ensureClick('[data-art="stored"]', act(a)),
+    state: () => ({ ...artifactState(), ...storedState() }),
+    prep: ensureClick('#artPanel [data-art="index"]', act(a)),
     sel: scope + act(a, extra),
     posts: [msg],
     rid: true,

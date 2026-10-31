@@ -38,6 +38,19 @@ describe('SandboxStrip', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it('carries a running-servers chip for the narrow tiers, with the full count in its name', () => {
+    render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend()} running={2} />);
+    const chip = screen.getByTestId('sandbox-running-chip');
+    expect(chip.textContent).toBe('2 running');
+    expect(chip.getAttribute('title')).toBe('2 servers running');
+    expect(screen.getByTestId('sandbox-strip').getAttribute('data-region')).toBe('sandbox');
+  });
+
+  it('omits the chip when no server runs', () => {
+    render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend()} running={0} />);
+    expect(screen.queryByTestId('sandbox-running-chip')).toBeNull();
+  });
+
   it('renders cube mark, Sandbox label, backend tag, canonical core name, and facts', () => {
     render(<SandboxStrip sandbox={SBX_VIEW} send={fullSend()} />);
 

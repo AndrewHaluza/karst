@@ -69,7 +69,7 @@ export const storedView = {
           approach: 'gsd',
           rows: [
             {
-              path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan', approach: 'gsd', source: 'watcher', revisions: 2,
+              path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan', artifactKind: 'plan', stage: 'impl', approach: 'gsd', source: 'watcher', revisions: 2,
               lastAt: '2026-01-02T00:00:00Z', latestSha: SHA2,
               history: [{ sha: SHA2, at: '2026-01-02T00:00:00Z', source: 'watcher' }, { sha: SHA1, at: '2026-01-01T00:00:00Z', source: 'hook' }],
             },
@@ -78,4 +78,15 @@ export const storedView = {
       ],
     },
   ],
+};
+
+/** A captured file no semantic artifact claims: an ordinary index row, with no stage. */
+export const specRow = {
+  path: 'app/docs/spec.md', repo: 'app', relPath: 'docs/spec.md', kind: 'spec', artifactKind: null, stage: 'unassigned', approach: 'gsd', source: 'watcher',
+  revisions: 1, lastAt: '2026-01-03T00:00:00Z', latestSha: SHA1, history: [{ sha: SHA1, at: '2026-01-03T00:00:00Z', source: 'watcher' }],
+};
+export const storedWithSpec = {
+  ...storedView,
+  total: 2,
+  groups: [...storedView.groups, { kind: 'spec', approaches: [{ approach: 'gsd', rows: [specRow] }] }],
 };

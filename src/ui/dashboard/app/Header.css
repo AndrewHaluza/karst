@@ -136,3 +136,12 @@
 .shipWait > .k-btn{margin-left:var(--k-space-2)}
 /* Narrow tier: the picker keeps core + live dot; the model label (one click away in the popover) and the state word give their room to the title and the ⋯. */
 @media (max-width:560px){.agentButton .agentSep,.agentButton .agentMeta{display:none}.agentLive #agentLiveText{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
+/* T871 ticket-head width ladder (UI-R49, RD-LADDERS): the id and status chip never drop; key then title give way. */
+.dhead{container-type:inline-size;container-name:ticket-head}
+.ticketStatus{flex:none}
+.ticketStatus.passed{color:var(--k-passed)}
+.ticketStatus.running{color:var(--k-running)}
+.ticketStatus.attention{color:var(--k-attention)}
+@container ticket-head (max-width: 999px){ .ticketKey{max-width:calc(var(--k-space-8) * 5);overflow:hidden;text-overflow:ellipsis} }
+@container ticket-head (max-width: 699px){ .ticketKey,.ticketIdentity .prio{display:none} }
+@container ticket-head (max-width: 399px){ .dhead h1.ticketTitle{display:none} }

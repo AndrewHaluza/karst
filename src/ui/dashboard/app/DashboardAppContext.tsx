@@ -49,7 +49,10 @@ export function DashboardAppProvider({
         getState: () => store.getSnapshot().state,
         scroll: pageScroll,
         persistArt: persistence.art,
-        restored: { art: restored.art, scrolls: restored.scrolls },
+        restored: { art: restored.art, scrolls: restored.scrolls, history: restored.history },
+        // Back skips a detail whose artifact has since vanished.
+        exists: (view) =>
+          typeof view.art !== 'object' || view.art === null || (store.getSnapshot().state?.artifacts ?? []).some((x) => x.id === (view.art as { id: string }).id),
       }),
   );
   const [subscribed, setSubscribed] = useState(false);

@@ -10,6 +10,11 @@
 .artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
 .artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
   font-weight:var(--k-weight-semibold);color:var(--k-text)}
+.artcard-top{display:flex;align-items:center;gap:var(--k-space-4);min-width:0}
+.artcard-kind{display:inline-flex;flex:none;color:var(--k-text-dim)}
+.artcard-id{display:flex;flex-direction:column;min-width:0;flex:1}
+.artcard-id .artcard-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artcard-stage{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;letter-spacing:.5px}
 .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);flex-wrap:wrap}
 /* The native origin's core icon sits in React's wrapper span; the wrapper must not become the flex item. */
 .art-origin .agenticon-island{display:contents}

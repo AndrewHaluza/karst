@@ -16,12 +16,12 @@ import { BlockedBanner } from './BlockedBanner.js';
 import { Header } from './Header.js';
 import { Inside } from './Inside.js';
 import { Overlays } from './Overlays.js';
+import { ViewPills } from './ViewPills.js';
 import { PrsPanel } from './PrsPanel.js';
 import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
 import { SandboxStrip } from './SandboxStrip.js';
 import { ServersPanel } from './ServersPanel.js';
-import { StoredPanel } from './StoredPanel.js';
 import { SubtasksPanel } from './SubtasksPanel.js';
 import { WorktreesPanel } from './WorktreesPanel.js';
 
@@ -32,7 +32,7 @@ function DashboardSlices() {
   return (
     // `data-react-owned` stays: the region parity snapshot pins this root's markup.
     <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
-      <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} />
+      <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} running={(state?.servers ?? []).filter((x) => x.status === 'running').length} />
     </div>
   );
 }
@@ -45,6 +45,9 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <DashboardSlices />
       {/* Each region draws into its static root in webview.html. */}
       <Header />
+      <RegionPortal id="viewsRoot">
+        <ViewPills />
+      </RegionPortal>
       <Rail />
       <Inside />
       <BlockedBanner />
@@ -52,7 +55,6 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
       <ServersPanel />
       <PrsPanel />
       <ArtifactsShelf />
-      <StoredPanel />
       <Overlays />
       <RegionPortal region="worktrees">
         <WorktreesPanel />

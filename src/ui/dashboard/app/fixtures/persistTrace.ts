@@ -16,7 +16,7 @@ export interface PersistTrace {
   readonly art: PersistArt[];
 }
 
-type Envelope = { sel: string | null; shipWait: string | null; artView: PersistArt['artView']; artScrolls: PersistArt['artScrolls'] };
+type Envelope = { sel: string | null; shipWait: string | null; artView: PersistArt['artView']; artScrolls: PersistArt['artScrolls']; history: PersistArt['history'] };
 
 /** `persisted` is the view state the harness's `getState()` hands back beside the snapshot. */
 export function tracePersist(persisted: Record<string, unknown> = {}): PersistTrace {
@@ -35,7 +35,7 @@ export function tracePersist(persisted: Record<string, unknown> = {}): PersistTr
     const nextArt = JSON.stringify({ artView: envelope.artView, artScrolls: envelope.artScrolls });
     if (nextArt !== lastArt) {
       lastArt = nextArt;
-      art.push({ artView: envelope.artView, artScrolls: envelope.artScrolls });
+      art.push({ artView: envelope.artView, artScrolls: envelope.artScrolls, history: envelope.history });
     }
   });
   return { setState, sel, art };

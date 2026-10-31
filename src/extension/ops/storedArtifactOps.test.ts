@@ -28,12 +28,13 @@ function setup(over: Partial<StoredArtifactDeps> = {}) {
       { sha: SHA_A, at: 't1', trailers: {} },
     ]),
     show: vi.fn(async () => Buffer.from('body')),
-    diff: vi.fn(async () => '+x'),
     materializeView: vi.fn(async () => '/store/view'),
     purgeArtifacts: vi.fn(async () => undefined),
   } as unknown as ArtifactStore;
   const ui = {
     showReadOnly: vi.fn(async () => undefined),
+    showPreview: vi.fn(async () => undefined),
+    showDiff: vi.fn(async () => undefined),
     openFile: vi.fn(async () => undefined),
     reveal: vi.fn(async () => undefined),
     confirm: vi.fn(async () => true),
@@ -47,19 +48,28 @@ function setup(over: Partial<StoredArtifactDeps> = {}) {
 }
 
 describe('storedArtifactOps', () => {
-  it('opens a known revision read-only', async () => {
+  it('opens a known markdown revision in the rendered preview', async () => {
     const { actions, ui, store } = setup();
     await actions.openStoredRevision('app/plans/a.md', SHA_A);
     expect(store.show).toHaveBeenCalledWith(1, SHA_A, 'app/plans/a.md');
-    expect(ui.showReadOnly).toHaveBeenCalledWith(`a.md @ ${SHA_A.slice(0, 7)}`, 'body', undefined);
+    expect(ui.showPreview).toHaveBeenCalledWith(`a.md @ ${SHA_A.slice(0, 7)}`, 'body');
+    expect(ui.showReadOnly).not.toHaveBeenCalled();
+  });
+
+  it('opens any other revision as read-only text', async () => {
+    const { actions, ui, store } = setup();
+    (store.listArtifacts as ReturnType<typeof vi.fn>).mockResolvedValue([{ path: 'app/x.json', revisions: 2, latestSha: SHA_B }]);
+    await actions.openStoredRevision('app/x.json', SHA_A);
+    expect(ui.showReadOnly).toHaveBeenCalledWith(`x.json @ ${SHA_A.slice(0, 7)}`, 'body', undefined);
+    expect(ui.showPreview).not.toHaveBeenCalled();
   });
 
   it('refuses a diff when only ONE of the two revisions is known', async () => {
     const { actions, ui, store } = setup();
     await actions.diffStoredRevisions('app/plans/a.md', SHA_A, 'c'.repeat(40));
     await actions.diffStoredRevisions('app/plans/a.md', 'c'.repeat(40), SHA_B);
-    expect(store.diff).not.toHaveBeenCalled();
-    expect(ui.showReadOnly).not.toHaveBeenCalled();
+    expect(store.show).not.toHaveBeenCalled();
+    expect(ui.showDiff).not.toHaveBeenCalled();
   });
 
   it('refuses an unknown artifact or revision', async () => {
@@ -72,27 +82,22 @@ describe('storedArtifactOps', () => {
     expect(notify.warn).toHaveBeenCalledTimes(2);
   });
 
-  it('diffs two known revisions and shows the diff read-only', async () => {
+  it('diffs two known revisions side by side over read-only documents', async () => {
     const { actions, ui, store } = setup();
+    (store.show as ReturnType<typeof vi.fn>).mockImplementation(async (_t, sha) => Buffer.from(sha === SHA_A ? 'old' : 'new'));
     await actions.diffStoredRevisions('app/plans/a.md', SHA_A, SHA_B);
-    expect(store.diff).toHaveBeenCalledWith(1, SHA_A, SHA_B, 'app/plans/a.md');
-    expect(ui.showReadOnly).toHaveBeenCalledWith(
-      `a.md diff ${SHA_A.slice(0, 7)}..${SHA_B.slice(0, 7)}`, '+x', 'diff');
+    expect(ui.showDiff).toHaveBeenCalledWith(
+      `a.md ${SHA_A.slice(0, 7)} ↔ ${SHA_B.slice(0, 7)}`,
+      { title: `a.md @ ${SHA_A.slice(0, 7)}`, text: 'old' },
+      { title: `a.md @ ${SHA_B.slice(0, 7)}`, text: 'new' },
+    );
   });
 
-  it('says so when a diff has no changes', async () => {
-    const { actions, ui, notify, store } = setup();
-    (store.diff as ReturnType<typeof vi.fn>).mockResolvedValue('');
+  it('says so when the two revisions are identical', async () => {
+    const { actions, ui, notify } = setup();
     await actions.diffStoredRevisions('app/plans/a.md', SHA_A, SHA_B);
-    expect(ui.showReadOnly).not.toHaveBeenCalled();
+    expect(ui.showDiff).not.toHaveBeenCalled();
     expect(notify.info).toHaveBeenCalledWith('No differences between those revisions.');
-  });
-
-  it('treats a whitespace-only diff as no change', async () => {
-    const { actions, ui, store } = setup();
-    (store.diff as ReturnType<typeof vi.fn>).mockResolvedValue('  \n ');
-    await actions.diffStoredRevisions('app/plans/a.md', SHA_A, SHA_B);
-    expect(ui.showReadOnly).not.toHaveBeenCalled();
   });
 
   it('opens the live worktree file when it exists, warns when gone', async () => {

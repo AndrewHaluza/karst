@@ -126,4 +126,12 @@ describe('shared server logs surface', () => {
     );
     expect(portedSegments[0]!.classes).toContain('k-ansi-fg-green');
   });
+
+  it('drillHead swaps the runtime title and Close for the slot the dashboard header fills; tabs stay runtime state', () => {
+    expect(SERVER_LOGS_JS).toContain("o.drillHead === true");
+    expect(SERVER_LOGS_JS).toContain('id="logsDrillHead"');
+    // A tab click only sets activeTab and re-renders: no post, so the history never sees it.
+    const tabBranch = SERVER_LOGS_JS.slice(SERVER_LOGS_JS.indexOf("closest('[data-log-tab]')"), SERVER_LOGS_JS.indexOf("closest('[data-log-prev]')"));
+    expect(tabBranch).not.toContain('post(');
+  });
 });

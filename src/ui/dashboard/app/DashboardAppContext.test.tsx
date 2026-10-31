@@ -125,6 +125,7 @@ describe('DashboardAppContext', () => {
         srvFilter: '',
         artView: null,
         artScrolls: { ticket: 0, index: 0, detail: {} },
+        history: [],
       });
     });
 

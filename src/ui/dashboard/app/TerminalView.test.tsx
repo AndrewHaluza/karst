@@ -60,7 +60,7 @@ describe('TerminalView — the surface', () => {
     open(h);
     expect(isHidden('#termView')).toBe(false);
     expect(bodyHas('term-nav')).toBe(true);
-    expect(text('.ttitle')).toBe('Console · UAT');
+    expect(text('.dh-current')).toBe('UAT');
     expect(text('#tstatus')).toBe('Loading console output…');
     expect(must('#tstatus').getAttribute('role')).toBe('status');
     expect(h.send.stageLogRequest.mock.calls).toEqual([['uat']]);
@@ -71,9 +71,9 @@ describe('TerminalView — the surface', () => {
     installXterm();
     const h = mountOverlays(state);
     open(h, 'uat', 'tester');
-    expect(text('.ttitle')).toBe('Console · Tester');
+    expect(text('.dh-current')).toBe('Tester');
     open(h, 'review', 'review');
-    expect(text('.ttitle')).toBe('Console · Review');
+    expect(text('.dh-current')).toBe('Review');
     expect(h.send.agentLogRequest.mock.calls).toEqual([['tester'], ['review']]);
   });
 
@@ -81,14 +81,14 @@ describe('TerminalView — the surface', () => {
     installXterm();
     const h = mountOverlays(state);
     open(h, 'impl');
-    expect(text('.ttitle')).toBe('Console · Implementation');
+    expect(text('.dh-current')).toBe('Implementation');
   });
 
   it('closes from its Close button: disposes the terminal and restores the dashboard', () => {
     installXterm();
     const h = mountOverlays(state);
     open(h);
-    fireEvent.click(must('[data-term="close"]'));
+    fireEvent.click(must('[data-art="back"]'));
     expect(made[0]!.disposed).toBe(true);
     expect(isHidden('#termView')).toBe(true);
     expect(bodyHas('term-nav')).toBe(false);

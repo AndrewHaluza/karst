@@ -23,40 +23,62 @@ function* specsOf(node, project) {
 
 const posixRelative = (path, root) => (isAbsolute(path) ? relative(root, path) : path).split('\\').join('/');
 
+const MAX_MESSAGE = 300;
+const MAX_NAMED = 5;
+const MAX_LISTED = 10;
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+/** The first error message of the last result; ledger NEW/STALE counts win over the raw text. */
+function failureMessage(results) {
+  const raw = (results.at(-1)?.error?.message ?? '').replace(ANSI, '');
+  const verdicts = raw.match(/\d+ (?:STALE|NEW)\b/g);
+  if (verdicts) return `ledger: ${verdicts.join(', ')}`;
+  return raw.slice(0, MAX_MESSAGE);
+}
+
+/** Up to MAX_LISTED items, then one 'and N more (M total)' line. */
+export function collapseList(items) {
+  if (items.length <= MAX_LISTED) return items;
+  return [...items.slice(0, MAX_LISTED), `and ${items.length - MAX_LISTED} more (${items.length} total)`];
+}
+
 /** The failed specs of a Playwright JSON report: screenshot mismatches, plus a count of every other failure. */
 export function failingScreenshots(report, root) {
   const screenshots = [];
-  let otherFailures = 0;
+  const others = [];
   for (const spec of specsOf(report, undefined)) {
     if (spec.status !== 'unexpected') continue;
     const expected = spec.results
       .flatMap((r) => r.attachments ?? [])
       .find((a) => a.name?.endsWith('-expected.png') && a.path);
     if (!expected) {
-      otherFailures++;
+      others.push({ project: spec.project, title: spec.title, message: failureMessage(spec.results) });
       continue;
     }
     screenshots.push({ project: spec.project, title: spec.title, baseline: posixRelative(expected.path, root) });
   }
-  return { screenshots, otherFailures };
+  return { screenshots, others };
+}
+
+function otherFailuresReason(others) {
+  const named = others.slice(0, MAX_NAMED).map((o) => `[${o.project}] ${o.title}${o.message ? ` — ${o.message}` : ''}`);
+  if (others.length > MAX_NAMED) named.push(`+${others.length - MAX_NAMED} more`);
+  const head = others.length === 1 ? '1 failure is not a screenshot mismatch' : `${others.length} failures are not screenshot mismatches`;
+  return `${head}: ${named.join('; ')}`;
 }
 
 /**
  * Whether a failed gate can be re-judged against the base.
  * `ownBaselines` are the baselines the ticket itself recorded (never drift).
  */
-export function planBaseCheck({ screenshots, otherFailures }, ownBaselines) {
-  if (screenshots.length === 0 && otherFailures === 0) return { kind: 'skip' };
-  if (otherFailures > 0) {
-    return { kind: 'fail', reason: `${otherFailures} failure(s) are not screenshot mismatches; no base comparison` };
-  }
+export function planBaseCheck({ screenshots, others }, ownBaselines) {
+  if (screenshots.length === 0 && others.length === 0) return { kind: 'skip' };
+  if (others.length > 0) return { kind: 'fail', reason: otherFailuresReason(others) };
   const own = screenshots.filter((s) => ownBaselines.has(s.baseline));
   if (own.length > 0) {
     return {
       kind: 'fail',
-      reason: `baseline(s) this ticket recorded fail their own screenshot (approval flow, never drift): ${own
-        .map((s) => s.baseline)
-        .join(', ')}`,
+      reason: `baseline(s) this ticket recorded fail their own screenshot (approval flow, never drift): ${collapseList(own.map((s) => s.baseline)).join(', ')}`,
     };
   }
   if (screenshots.length > BASE_RERUN_CAP) {
@@ -103,11 +125,11 @@ const label = (s) => `${s.project}: ${s.title}`;
 export function reportLines({ drift, breaks }) {
   const lines = [];
   if (drift.length > 0) {
-    lines.push(`base drift (develop drift, not this ticket) — ${drift.length}:`, ...drift.map((s) => `  - ${label(s)}`));
+    lines.push(`base drift (develop drift, not this ticket) — ${drift.length}:`, ...collapseList(drift.map(label)).map((l) => `  - ${l}`));
     lines.push(`NOTICE: ${driftNotice(drift.length)}`);
   }
   if (breaks.length > 0) {
-    lines.push(`ticket breaks (pass at the base, fail here) — ${breaks.length}:`, ...breaks.map((s) => `  - ${label(s)}`));
+    lines.push(`ticket breaks (pass at the base, fail here) — ${breaks.length}:`, ...collapseList(breaks.map(label)).map((l) => `  - ${l}`));
   }
   return lines;
 }

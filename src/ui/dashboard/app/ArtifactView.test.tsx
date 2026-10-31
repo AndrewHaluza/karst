@@ -26,9 +26,9 @@ describe('ArtifactView — the index', () => {
     openIndex(h);
     expect(isHidden('#artView')).toBe(false);
     expect(bodyHas('art-nav')).toBe(true);
-    expect(text('.arthead h2')).toBe('FEAT-7 · Seven');
-    expect(text('.artsub')).toBe('Artifacts · 4');
-    expect(must('[data-art="back"]').textContent).toBe('← Ticket');
+    expect(text('.dh-current')).toMatch(/^Artifacts · \d+$/);
+    expect(text('.dh-current')).toBe('Artifacts · 4');
+    expect(must('[data-art="back"]').getAttribute('aria-label')).toBe('Back to Dashboard');
     expect(all('.artgroup').map((g) => g.getAttribute('aria-label'))).toEqual(['Implement artifacts', 'UAT artifacts', 'Review artifacts', 'Ship artifacts']);
     expect(all('.artrow').map((r) => r.getAttribute('data-art-open'))).toEqual(['plan', 'uat-report', 'review', 'ship-summary']);
     expect(view()).not.toContain('/data/karst/artifacts'); // semantic titles, never paths
@@ -38,7 +38,7 @@ describe('ArtifactView — the index', () => {
   it('heads a ticket without a key by its title alone, and omits stages with nothing', () => {
     const h = mountOverlays(stateWithArtifacts({ key: '', artifacts: artifactFixtures().filter((a) => a.stage === 'uat') }));
     openIndex(h);
-    expect(text('.arthead h2')).toBe('Seven');
+    expect(text('.dh-current')).toMatch(/^Artifacts · \d+$/);
     expect(all('.artgroup')).toHaveLength(1);
   });
 
@@ -61,8 +61,8 @@ describe('ArtifactView — a detail', () => {
     const h = mountOverlays(stateWithArtifacts());
     openIndex(h);
     openDetail(h, 'uat-report');
-    expect(must('[data-art="back"]').textContent).toBe('← Artifacts');
-    expect(must('[data-art="back"]').getAttribute('title')).toBe('Return to the artifacts index');
+    expect(must('[data-art="back"]').getAttribute('aria-label')).toBe('Back to Artifacts');
+    expect(must('[data-art="back"]').getAttribute('title')).toBe('Back to Artifacts');
     expect(text('.art-title')).toBe('UAT report');
     expect(text('.arthero .art-status')).toBe('Passed');
     expect(text('.artcard-summary')).toBe('2 passed · 1 failed');
@@ -95,7 +95,8 @@ describe('ArtifactView — a detail', () => {
     expect(proc!.closest('.am-origin')?.querySelector('.art-origin')?.textContent).toBe('Karst · Codex');
     fireEvent.click(stage!);
     expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: null });
-    fireEvent.click(proc!);
+    h.act(() => h.overlays.back());
+    fireEvent.click(all<HTMLButtonElement>('[data-act="console"]')[1]!);
     expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: 'tester' });
     expect(h.send.stageLogRequest.mock.calls).toEqual([['uat']]);
     expect(h.send.agentLogRequest.mock.calls).toEqual([['tester']]);
@@ -302,7 +303,7 @@ describe('ArtifactView — a detail', () => {
   it('a detail opened from the ticket returns to the ticket', () => {
     const h = mountOverlays(stateWithArtifacts());
     openDetail(h, 'uat-report');
-    expect(must('[data-art="back"]').textContent).toBe('← Ticket');
+    expect(must('[data-art="back"]').getAttribute('aria-label')).toBe('Back to Dashboard');
     fireEvent.click(must('[data-art="back"]'));
     expect(isHidden('#artView')).toBe(true);
   });

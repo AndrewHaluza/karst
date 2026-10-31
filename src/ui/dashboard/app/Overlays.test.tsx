@@ -30,16 +30,16 @@ describe('Overlays — the one Escape owner', () => {
     add.mockRestore();
   });
 
-  it('closes the drawer, console, logs, env editor and artifact view in that order, claiming each Escape', () => {
+  it('closes the drawer, then walks back through console, logs, env editor and artifact view, claiming each Escape', () => {
     const h = mountOverlays(state());
     openAll(h);
-    expect(open(h)).toEqual(['drawer', 'console', 'logs', 'env', 'art']);
+    expect(open(h)).toEqual(['drawer', 'console']);
     const trail: string[][] = [];
     for (let i = 0; i < 5; i++) {
       expect(escapeOn().defaultPrevented).toBe(true);
       trail.push(open(h));
     }
-    expect(trail).toEqual([['console', 'logs', 'env', 'art'], ['logs', 'env', 'art'], ['env', 'art'], ['art'], []]);
+    expect(trail).toEqual([['console'], ['logs'], ['env'], ['art'], []]);
     expect(escapeOn().defaultPrevented).toBe(false);
   });
 
@@ -105,6 +105,6 @@ describe('Overlays — the one Escape owner', () => {
     must('#logsView').append(search);
     search.addEventListener('keydown', (e) => e.stopPropagation());
     escapeOn(search);
-    expect(open(h)).toEqual(['logs', 'env', 'art']);
+    expect(open(h)).toEqual(['logs']);
   });
 });

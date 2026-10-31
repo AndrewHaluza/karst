@@ -79,6 +79,7 @@
 /* Variant 2 Badges & Popovers */
 .sandbox-badge {
   display: inline-flex;
+  min-height: 20px; /* layout check: control height min 20 */
   align-items: center;
   gap: var(--k-space-2);
   padding: var(--k-space-1) var(--k-space-3);
@@ -141,8 +142,9 @@
   line-height: 1.4;
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
   cursor: auto;
   user-select: text;
   text-transform: none;
@@ -166,6 +168,7 @@
 .sandbox-badge:hover .sandbox-popover,
 .sandbox-badge:focus-within .sandbox-popover {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
   pointer-events: auto;
 }
@@ -285,4 +288,12 @@
     left: 0;
     width: min(300px, calc(100vw - 48px));
   }
+}
+
+/* T871 width ladder (UI-R49): wide/mid keep the full facts; below 700 the strip is the backend tag + "N running". */
+.sandbox-strip{container-type:inline-size;container-name:sandbox}
+.sandbox-running-chip{display:none;color:var(--k-running)}
+@container sandbox (max-width: 699px){
+  .sandbox-running-chip{display:inline-flex}
+  .sandbox-strip-main .sandbox-fact,.sandbox-strip-main .sandbox-badge,.sandbox-strip-main .sandbox-sep{display:none}
 }

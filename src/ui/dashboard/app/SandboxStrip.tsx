@@ -16,6 +16,8 @@ import './SandboxStrip.css';
 export interface SandboxStripProps {
   readonly sandbox: DashboardSandboxView | null;
   readonly send: DashboardSender;
+  /** Servers currently running; the narrow tiers show only this count. */
+  readonly running?: number;
 }
 
 /** A strip action: owns its pending state and posts through the typed sender with its request id. */
@@ -79,7 +81,7 @@ function HostBadge({ testId, label, ariaLabel, title, body, tone }: HostBadgePro
   );
 }
 
-export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
+export function SandboxStrip({ sandbox, send, running = 0 }: SandboxStripProps) {
   if (!sandbox) return null;
 
   const coreLabel =
@@ -108,6 +110,16 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
         <span className="sandbox-backend-tag" data-testid="sandbox-backend-tag">
           {sandbox.backend}
         </span>
+
+        {running > 0 && (
+          <span
+            className="sandbox-running-chip k-chip"
+            data-testid="sandbox-running-chip"
+            title={`${running} ${running === 1 ? 'server' : 'servers'} running`}
+          >
+            {`${running} running`}
+          </span>
+        )}
 
         <span className="sandbox-sep" aria-hidden="true">
           ·

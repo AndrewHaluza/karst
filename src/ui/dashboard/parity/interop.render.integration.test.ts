@@ -288,19 +288,11 @@ describe('React Artifacts shelf and Captured artifacts islands / vanilla art vie
     expect(persistedArtView(v)).toBe('index');
   });
 
-  it('Open on the Captured artifacts panel opens the vanilla stored view', async () => {
-    const v = await openShelf();
-    await click(v, '#storedOpen');
-    expect(artViewOpen(v)).toBe(true);
-    expect(v.query('#artView')!.textContent).toContain('No artifacts captured yet.');
-    expect(persistedArtView(v)).toBe('stored');
-  });
-
-  it('a click inside either panel closes the header popovers', async () => {
+  it('a click inside the panel closes the header popovers', async () => {
     const v = await openShelf();
     v.click('#agentButton');
     expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
-    await click(v, '#storedOpen');
+    await click(v, '#artViewAll');
     expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
   });
 

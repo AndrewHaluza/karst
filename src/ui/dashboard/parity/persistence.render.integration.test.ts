@@ -44,8 +44,8 @@ describe('view-state persistence — written by the React app, in the envelope t
     const state = populatedStateFor('impl');
     v.receive({ type: 'state', state });
     await drainReactWork(v);
-    expect(v.state).toEqual({ state, sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS });
-    expect(Object.keys(v.state as object)).toEqual(['state', 'sel', 'shipWait', 'srvFilter', 'artView', 'artScrolls']);
+    expect(v.state).toEqual({ state, sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
+    expect(Object.keys(v.state as object)).toEqual(['state', 'sel', 'shipWait', 'srvFilter', 'artView', 'artScrolls', 'history']);
   });
 
   it('does not write for a live repaint, and the next real push carries the repainted snapshot', async () => {
@@ -85,7 +85,7 @@ describe('view-state restore — an envelope, and the bare snapshot of an older 
     const pushed = populatedStateFor('impl');
     v.receive({ type: 'state', state: pushed });
     await drainReactWork(v);
-    expect(v.state).toEqual({ ...OLD_ENVELOPE(state), state: pushed });
+    expect(v.state).toEqual({ ...OLD_ENVELOPE(state), state: pushed, history: [] });
   });
 
   it('shows a snapshot persisted bare by a build from before the envelope, and upgrades it on the next push', async () => {
@@ -95,7 +95,7 @@ describe('view-state restore — an envelope, and the bare snapshot of an older 
     expect(v.state).toBe(state);
     v.receive({ type: 'state', state });
     await drainReactWork(v);
-    expect(v.state).toEqual({ state, sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS });
+    expect(v.state).toEqual({ state, sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
     expect(v.errors).toEqual([]);
   });
 
