@@ -558,7 +558,7 @@ export async function runReview(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
-      ...regenerateOption(opts.manifest, target.repo),
+      ...regenerateOption(opts.manifest, target, opts.debug),
       // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
       ...(opts.manifest
         ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }

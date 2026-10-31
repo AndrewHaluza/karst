@@ -121,12 +121,11 @@ export async function runGateList(
       now,
     );
     if (regen.kind === 'stopped') return { kind: 'stopped', results };
-    if (regen.kind === 'failed') {
-      const r = regen.result;
-      // Index -1: the evidence row is not one of the resolved gates.
-      opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output);
-      return { kind: 'ran', results: [r], regenerateFailed: true };
-    }
+    // Index -1: the evidence row is not one of the resolved gates. Written on EVERY run
+    // (ok too), so a regenerate that changed nothing or never committed is still visible.
+    const r = regen.result;
+    opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output);
+    if (regen.kind === 'failed') return { kind: 'ran', results: [r], regenerateFailed: true };
   }
   for (const [index, gate] of gates.entries()) {
     if (opts.signal?.aborted) return { kind: 'stopped', results };
