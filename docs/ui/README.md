@@ -30,6 +30,7 @@ read a whole file.
 6. **Screenshot changes need user approval.** Never edit baselines or the layout
    ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
    shrinks only via `npm run test:layout:docker:prune`.
+7. **New dashboard `data-act`.** Every new `data-act` needs a parity case in `COVERED` (`src/ui/dashboard/parity/parityCases.ts`) or a `NOT_COVERED` reason; the unit test `src/ui/dashboard/parity/coverage.test.ts` fails with the exact hint otherwise.
 
 Cite the rule id in the commit when a change exists to satisfy one (UI-R35).
 END_DOC_BLOCK: [@ui:README-ORDER]
