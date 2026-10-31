@@ -89,7 +89,9 @@ const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number; input
   serverLogs: { inputs: 3, buttons: 4 },
   settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline (phase 4)
   sidebar: { inputs: 1, buttons: 4 },
-  ticketForm: { inputs: 7, buttons: 12 },
+  // ticketForm: B′ (D287) dropped the details drawer + acard radios for the brief card and a
+  // single approach button; measured 10 buttons on the seeded state.
+  ticketForm: { inputs: 7, buttons: 10 },
   // usage: measured after seeded host state — no form inputs; focusable 8, buttons 8
   usage: { inputs: 8, buttons: 8, inputsProbe: 'focusable' },
 };
