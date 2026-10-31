@@ -348,12 +348,18 @@
      the tiers; the regions carry the page gutters so the tiers measure the full
      viewport. Tier CSS follows the base rules (UI-R49, R50). */
   .shell{container-type:inline-size;min-width:0}
-  .pghead{padding:var(--k-space-0) var(--k-space-9) var(--k-space-6)}
-  .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 16));
-    gap:var(--k-space-8);align-items:start;padding:var(--k-space-0) var(--k-space-9) var(--k-space-8)}
+  /* One frame (prototype .mock): hairline border, small radius, header strip on top,
+     content | settings in the middle, the actions bar as its footer. The bar is
+     in flow (not sticky), so no field can ever sit under it (UI-R44). */
+  .frame{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-bg);overflow:hidden;min-width:0;margin-inline:var(--k-space-7)}
+  .pghead{background:var(--k-surface);border-bottom:var(--k-border-w) solid var(--k-border);
+    padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch}
+  .cols > .content{padding:var(--k-space-8) var(--k-space-9)}
   .content{container-type:inline-size;container-name:content;min-width:0}
-  .settings{min-width:0;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
-    background:var(--k-surface);padding:var(--k-space-6) var(--k-space-7)}
+  .settings{min-width:0;background:var(--k-surface);border-left:var(--k-border-w) solid var(--k-border);
+    padding:var(--k-space-8) var(--k-space-7)}
   .setblock{margin-bottom:var(--k-space-7);min-width:0}
   .setblock:last-child{margin-bottom:var(--k-space-0)}
   .setblock > label:first-child{margin-top:var(--k-space-0)}
@@ -362,9 +368,13 @@
   .settings .chips,.settings .repo-split{min-width:0;max-width:100%}
   .repochip{max-width:100%;overflow-wrap:anywhere}
   .k-switch,.repochip,.repo-caret{min-height:var(--k-space-8)}
-  .actionbar{position:sticky;bottom:0;z-index:calc(var(--k-z-scrim) - 1);display:flex;align-items:center;
-    flex-wrap:wrap;gap:var(--k-space-4);justify-content:flex-end;
-    padding:var(--k-space-5) var(--k-space-9);background:var(--k-bg);border-top:var(--k-border-w) solid var(--k-border)}
+  .actionbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
+    padding:var(--k-space-5) var(--k-space-9);background:var(--k-surface);border-top:var(--k-border-w) solid var(--k-border)}
+  .actionbar .sp{flex:1}
+  .actionbar .reason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .actionbar .reason:empty{display:none}
+  /* Disabled primary stays readable (A5): dimmed, never near-invisible. */
+  .actionbar .k-btn--primary:disabled{opacity:.7}
   .field{display:block}
   .pullrow{margin:var(--k-space-0)}
 
@@ -378,30 +388,33 @@
   }
 
   @container (max-width: 999px){
-    .cols{grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 14))}
+    .cols{grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 14)}
   }
   @container (max-width: 699px){
-    .cols{grid-template-columns:minmax(0,1fr);padding-inline:var(--k-space-7)}
+    .cols{grid-template-columns:minmax(0,1fr)}
+    .settings{border-left:0;border-top:var(--k-border-w) solid var(--k-border)}
+    .cols > .content{padding-inline:var(--k-space-7)}
     .pghead,.actionbar{padding-inline:var(--k-space-7)}
-    .actionbar{position:static}
+    /* Footer stacks: full-width buttons, primary first, reason above them. */
+    .actionbar{flex-direction:column-reverse;align-items:stretch}
+    .actionbar .k-btn{width:100%}
+    .actionbar .sp{display:none}
+    .actionbar .reason{text-align:center}
   }
   @container (max-width: 399px){
-    .cols{padding-inline:var(--k-space-5)}
-    .pghead{padding-inline:var(--k-space-5)}
-    .actionbar{position:static;padding-inline:var(--k-space-5);flex-direction:column-reverse;align-items:stretch}
-    .actionbar .k-btn{width:100%}
+    .frame{margin-inline:var(--k-space-5)}
+    .cols > .content,.pghead,.actionbar{padding-inline:var(--k-space-5)}
   }
 </style>
 
 <div class="shell">
+<div class="frame">
 <!-- Header region. Create: "New ticket". Edit: the title as the h1 and the
      T<n> · <key> ref as a chip beside it. A sub-task keeps its parent subhead. -->
 <header class="pghead" data-region="header">
-  <div class="titlerow">
-    <h1 id="heading">New ticket</h1>
-    <span class="k-chip keychip hidden" id="keyChip"></span>
-  </div>
-  <div class="sub" id="subhead"></div>
+  <span id="heading">New ticket</span>
+  <span class="keychip hidden" id="keyChip"></span>
+  <span class="sub" id="subhead"></span>
 </header>
 
 <div class="cols">
@@ -565,9 +578,12 @@
 <!-- Actions region: Cancel · secondary save · primary launch, primary last.
      Labels are set per mode by render(); the static text IS the create-mode label. -->
 <div class="actionbar" id="actionBar" data-region="actions">
-  <button type="button" class="k-btn k-btn--ghost" id="cancelBtn">Cancel</button>
-  <button type="button" class="k-btn k-btn--secondary" id="saveBtn">Save draft</button>
-  <button type="button" class="k-btn k-btn--primary" id="submitBtn" disabled title="Add a title to enable">Create &amp; start</button>
+  <span class="reason" id="actionReason">Add a title to continue</span>
+  <span class="sp"></span>
+  <button type="button" class="k-btn k-btn--ghost m-btn g" id="cancelBtn">Cancel</button>
+  <button type="button" class="k-btn k-btn--secondary m-btn" id="saveBtn">Save draft</button>
+  <button type="button" class="k-btn k-btn--primary m-btn p" id="submitBtn" disabled title="Add a title to enable">Create &amp; start</button>
+</div>
 </div>
 </div>
 
@@ -703,9 +719,9 @@
     // tab title agree) as a chip beside it. Create mode: "New ticket".
     const isEdit = state.mode === 'edit';
     const refLabel = state.refLabel || '';
-    el('heading').textContent = isEdit ? (state.title || '(untitled)') : 'New ticket';
+    el('heading').textContent = isEdit ? (refLabel ? 'Edit ' + refLabel : 'Edit ticket') : 'New ticket';
     el('keyChip').textContent = refLabel;
-    el('keyChip').classList.toggle('hidden', !refLabel);
+    el('keyChip').classList.toggle('hidden', isEdit || !refLabel);
     el('subhead').textContent = state.subtaskOf || '';
     // The label text is set here, once per state push, and NEVER touched while
     // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled. The
@@ -1136,6 +1152,7 @@
     const blank = !phase1Valid();
     btn.disabled = submitBusy || blank;
     if (blank) btn.title = TITLE_REASON; else btn.removeAttribute('title');
+    el('actionReason').textContent = blank ? 'Add a title to continue' : '';
   }
 
   // MIRROR of src/store/titleKey.ts (slugifyTitleKey / TITLE_KEY_MAX) — this
