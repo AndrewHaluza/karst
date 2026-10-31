@@ -829,7 +829,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
 
   it('the destructive attachment control uses the danger icon-button variant with a matching aria-label (UI-R10b, R21, R24)', () => {
     const script = scriptBlock();
-    expect(script).toContain('k-iconbtn k-iconbtn--danger attachdetach');
+    expect(script).toContain('k-iconbtn attachdetach');
     expect(script).toContain('aria-label="Remove attachment" title="Remove attachment"');
   });
 
@@ -1198,6 +1198,15 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
 
   it('shortens the status filter hint', () => {
     expect(HTML).toContain('title="Filters search results"');
+  });
+
+  it('attachment chip is flat: borderless open button, non-danger remove, bordered attach button (B′ prototype)', () => {
+    expect(rule('#attachBtn')).toContain('border:var(--k-border-w) solid var(--k-border)');
+    expect(rule('.attachopen')).toContain('border:0');
+    expect(rule('.attachdetach')).toContain('color:var(--k-text-dim)');
+    expect(HTML).toMatch(/id="attachBtn" class="k-iconbtn"/);
+    expect(scriptBlock()).not.toContain('k-iconbtn--danger attachdetach');
+    expect(scriptBlock()).toContain('k-iconbtn attachdetach');
   });
 
   it('renders attachments as compact inline chips, not tall tiles', () => {
