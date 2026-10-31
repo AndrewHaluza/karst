@@ -366,7 +366,7 @@ describe('renderFixBrief', () => {
         [],
         { hasPrototype: true },
       );
-      const occurrences = brief?.split(PROTOTYPE_REGION_CHECKLIST_RULE).length - 1;
+      const occurrences = (brief ?? '').split(PROTOTYPE_REGION_CHECKLIST_RULE).length - 1;
       expect(occurrences).toBe(1);
     });
   });
