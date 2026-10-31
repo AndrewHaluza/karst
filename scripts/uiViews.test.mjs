@@ -121,9 +121,9 @@ describe('selectionLine', () => {
   });
 });
 
-it('keeps package.json passing KARST_UI_GREP into both gate containers', () => {
+it('keeps package.json passing KARST_UI_GREP into the gate and update containers', () => {
   const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts;
   expect(scripts['test:visual:docker']).toContain('-e KARST_UI_GREP');
   expect(scripts['test:layout:docker']).toContain('-e KARST_UI_GREP');
-  expect(scripts['test:visual:docker:update']).not.toContain('KARST_UI_GREP');
+  expect(scripts['test:visual:docker:update']).toContain('-e KARST_UI_GREP');
 });
