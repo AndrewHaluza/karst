@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
-import { renderFixBrief } from './fixBrief.js';
+import { hasLinkedPrototype, PROTOTYPE_REGION_CHECKLIST_RULE, renderFixBrief } from './fixBrief.js';
 
 function finding(over: Partial<Finding> = {}): Finding {
   return {
@@ -327,5 +327,47 @@ describe('renderFixBrief', () => {
     expect(brief).toContain('review gate failed');
     expect(brief).toContain('review says no');
     expect(brief).not.toContain('ship gate failed');
+  });
+
+  describe('linked prototype checklist rule (@ui:UI-R39-REJECT)', () => {
+    it('detects a linked prototype in title, description, or brief', () => {
+      expect(hasLinkedPrototype({ title: 'feat: add prototype support' })).toBe(true);
+      expect(hasLinkedPrototype({ description: 'see docs/design/ticket-form-b-prime.html' })).toBe(true);
+      expect(hasLinkedPrototype({ brief: 'The prototype is binding per UI-R39' })).toBe(true);
+      expect(hasLinkedPrototype({ title: 'plain backend task', description: 'no UI here' })).toBe(false);
+    });
+
+    it('adds the per-region checklist instruction when hasPrototype is true', () => {
+      const brief = renderFixBrief(
+        'PROJ-30',
+        [{ stageKey: 'uat', status: 'failed', verdict: 'exit 1' }],
+        [],
+        [],
+        [],
+        { hasPrototype: true },
+      );
+      expect(brief).toContain(PROTOTYPE_REGION_CHECKLIST_RULE);
+    });
+
+    it('omits the checklist instruction when hasPrototype is false or omitted', () => {
+      const brief = renderFixBrief(
+        'PROJ-31',
+        [{ stageKey: 'uat', status: 'failed', verdict: 'exit 1' }],
+      );
+      expect(brief).not.toContain('@ui:UI-R39-REJECT');
+    });
+
+    it('does not duplicate the instruction if gate.verdict already includes it', () => {
+      const brief = renderFixBrief(
+        'PROJ-32',
+        [{ stageKey: 'uat', status: 'failed', verdict: `rejected\n${PROTOTYPE_REGION_CHECKLIST_RULE}` }],
+        [],
+        [],
+        [],
+        { hasPrototype: true },
+      );
+      const occurrences = brief?.split(PROTOTYPE_REGION_CHECKLIST_RULE).length - 1;
+      expect(occurrences).toBe(1);
+    });
   });
 });

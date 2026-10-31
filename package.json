@@ -64,6 +64,7 @@
     "test:visual:ci:update": "(test -e node_modules/.package-lock.json || npm ci) && playwright test --update-snapshots",
     "install:visual-browsers": "playwright install --with-deps chromium",
     "typecheck:visual": "tsc -p tsconfig.visual.json",
+    "proto:shot": "node scripts/prototypeShot.mjs",
     "verify:ui": "npm run -s docs:graph -- --check && npm run -s test:integration && npm run -s typecheck:visual && npm run -s test:layout:docker"
   },
   "contributes": {

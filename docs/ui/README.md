@@ -15,7 +15,9 @@ read a whole file.
 ## [@ui:README-ORDER] Read order
 
 0. **Prototype linked?** Open it and list its regions (`data-region` names), their
-   order and stacking. They are binding (`ui:UI-R39`).
+   order and stacking. They are binding (`ui:UI-R39`). Render the prototype with
+   `npm run -s proto:shot -- <html> --regions` (Docker is not needed; view aid,
+   not a gate) and compare each region with your baseline.
 1. **Group L** — `UI-RULES.md` `ui:UI-R39`..`ui:UI-R48`: layout and placement.
    Below 700 px (split editor groups, down to the 320 px floor) also read **group E**
    (`ui:UI-R49`..`ui:UI-R56`) and `RESPONSIVE-DENSITY.md` (tiers `ui:RD-TIERS`, ladders `ui:RD-LADDERS`).
