@@ -2,8 +2,9 @@
 /** The overlay stack: which overlay is open, the one Escape chain, the artifact navigation with its scroll memory. */
 import { describe, expect, it, vi } from 'vitest';
 import type { DashboardState } from '../state.js';
-import { OverlayStack, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
+import { MAX_HISTORY, OverlayStack, restoreArt, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
 
+const DASH = { console: null, logs: false, env: false, art: null };
 const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', ...over }) as unknown as DashboardState;
 
 function make(opts: { state?: DashboardState | null; art?: ArtView | null; scrolls?: ArtScrolls; top?: number } = {}) {
@@ -105,7 +106,7 @@ describe('OverlayStack — console', () => {
 });
 
 describe('OverlayStack — Escape chain', () => {
-  it('closes the drawer first, then the console, then the logs view, then the env editor, then the artifact view', () => {
+  it('closes the drawer first, then walks the history back: console, logs, env editor, artifact view', () => {
     vi.stubGlobal('createServerLogsView', () => ({}));
     const { stack } = make();
     stack.openIndex();
@@ -117,10 +118,10 @@ describe('OverlayStack — Escape chain', () => {
       const s = stack.getSnapshot();
       return [s.drawer && 'drawer', s.console && 'console', s.logs && 'logs', s.env && 'env', s.art && 'art'].filter(Boolean) as string[];
     };
-    expect(open()).toEqual(['drawer', 'console', 'logs', 'env', 'art']);
+    expect(open()).toEqual(['drawer', 'console']);
     const seen: string[][] = [];
     while (stack.escape()) seen.push(open());
-    expect(seen).toEqual([['console', 'logs', 'env', 'art'], ['logs', 'env', 'art'], ['env', 'art'], ['art'], []]);
+    expect(seen).toEqual([['console'], ['logs'], ['env'], ['art'], []]);
     expect(stack.escape()).toBe(false);
     vi.unstubAllGlobals();
   });
@@ -177,13 +178,6 @@ describe('OverlayStack — artifact navigation', () => {
     expect(stack.getSnapshot().art).toEqual({ id: 'plan', from: 'index' });
   });
 
-  it('opens a detail from the stored view as if from the ticket', () => {
-    const { stack } = make();
-    stack.openStored();
-    stack.openArtifact('plan');
-    expect(stack.getSnapshot().art).toEqual({ id: 'plan', from: 'ticket' });
-  });
-
   it('Back is deterministic: detail to its origin, index and stored to the ticket', () => {
     const { stack } = make();
     stack.openIndex();
@@ -195,9 +189,6 @@ describe('OverlayStack — artifact navigation', () => {
     stack.openArtifact('plan');
     stack.back();
     expect(stack.getSnapshot().art).toBeNull();
-    stack.openStored();
-    stack.back();
-    expect(stack.getSnapshot().art).toBeNull();
     expect(() => stack.back()).not.toThrow();
   });
 
@@ -205,13 +196,13 @@ describe('OverlayStack — artifact navigation', () => {
     const { stack, persisted, scrollTo } = make();
     scrollTo(300);
     stack.openIndex();
-    expect(persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 300, index: 0, detail: {} } });
+    expect(persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 300, index: 0, detail: {} }, history: [DASH] });
     scrollTo(40);
     stack.openArtifact('plan');
-    expect(persisted.at(-1)).toEqual({ artView: { id: 'plan', from: 'index' }, artScrolls: { ticket: 300, index: 40, detail: {} } });
+    expect(persisted.at(-1)).toEqual({ artView: { id: 'plan', from: 'index' }, artScrolls: { ticket: 300, index: 40, detail: {} }, history: [DASH, { ...DASH, art: 'index' }] });
     scrollTo(900);
     stack.back();
-    expect(persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 300, index: 40, detail: { plan: 900 } } });
+    expect(persisted.at(-1)).toEqual({ artView: 'index', artScrolls: { ticket: 300, index: 40, detail: { plan: 900 } }, history: [DASH] });
     stack.back();
     expect(persisted.at(-1)?.artView).toBeNull();
     expect(persisted).toHaveLength(4);
@@ -254,5 +245,79 @@ describe('OverlayStack — artifact navigation', () => {
     expect(stack.getSnapshot().art).toBe('index');
     expect(persisted.at(-1)?.artView).toBe('index');
     expect(written).toEqual([]);
+  });
+});
+
+describe('OverlayStack — drill-down history', () => {
+  it('Back and Escape return to the previous view, not always the dashboard', () => {
+    const { stack } = make();
+    stack.openIndex();
+    stack.openArtifact('plan');
+    stack.openConsole('uat', null);
+    stack.back();
+    expect(stack.getSnapshot()).toMatchObject({ console: null, art: { id: 'plan', from: 'index' } });
+    expect(stack.escape()).toBe(true);
+    expect(stack.getSnapshot().art).toBe('index');
+    stack.back();
+    expect(stack.getSnapshot()).toMatchObject({ art: null, history: [] });
+    expect(stack.escape()).toBe(false);
+  });
+
+  it('re-entering the view already showing adds no history entry, even for an equal but new target', () => {
+    const { stack } = make();
+    stack.openIndex();
+    stack.openConsole('uat', null);
+    stack.openConsole('uat', null);
+    expect(stack.getSnapshot().history).toHaveLength(2);
+  });
+
+  it('keeps only the newest MAX_HISTORY entries, so the persisted envelope stays bounded', () => {
+    const { stack, persisted } = make();
+    for (let i = 0; i < MAX_HISTORY + 20; i++) stack.openArtifact(`a${i}`);
+    expect(stack.getSnapshot().history).toHaveLength(MAX_HISTORY);
+    expect(persisted.at(-1)?.history).toHaveLength(MAX_HISTORY);
+    stack.back();
+    expect(stack.getSnapshot().art).toMatchObject({ id: `a${MAX_HISTORY + 18}` });
+  });
+
+  it('a surface restored with no history goes back to the dashboard', () => {
+    const { stack } = make({ art: 'index' });
+    stack.back();
+    expect(stack.getSnapshot().art).toBeNull();
+  });
+
+  it('closes an open pill menu before leaving the surface', () => {
+    const { stack } = make();
+    stack.openEnv();
+    stack.setPillMenuOpen(true);
+    expect(stack.escape()).toBe(true);
+    expect(stack.getSnapshot()).toMatchObject({ pillMenu: false, env: true });
+    expect(stack.escape()).toBe(true);
+    expect(stack.getSnapshot().env).toBe(false);
+  });
+
+  it('skips a history entry whose target no longer exists', () => {
+    const stack = new OverlayStack({
+      send: { xtermRequest: vi.fn(), stageLogRequest: vi.fn(), agentLogRequest: vi.fn() } as unknown as OverlayDeps['send'],
+      getState: () => null,
+      scroll: { read: () => 0, write: () => {} },
+      persistArt: () => {},
+      restored: { art: null, scrolls: { ticket: 0, index: 0, detail: {} } },
+      exists: (v) => !(typeof v.art === 'object' && v.art?.id === 'gone'),
+    });
+    stack.openIndex();
+    stack.openArtifact('gone');
+    stack.openEnv();
+    stack.back();
+    expect(stack.getSnapshot().art).toBe('index');
+  });
+
+  it('persists the history and restores it, dropping malformed entries', () => {
+    const { stack, persisted } = make();
+    stack.openIndex();
+    stack.openEnv();
+    const history = persisted.at(-1)!.history;
+    expect(restoreArt({ history: [...history, 7, null] }).history).toEqual(history);
+    expect(restoreArt({}).history).toEqual([]);
   });
 });

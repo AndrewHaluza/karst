@@ -10,9 +10,11 @@ import type { PersistArt } from '../overlayStack.js';
 import { tracePersist } from './persistTrace.js';
 import type { OverlayStack } from '../overlayStack.js';
 import { Overlays } from '../Overlays.js';
+import { ViewPills } from '../ViewPills.js';
 
 /** The static roots webview.html carries for the overlays, and the dashboard regions the body-nav classes hide. */
 const ROOTS =
+  '<div id="viewsRoot" class="viewsroot hidden" data-region="views"></div>' +
   '<div class="stepper"></div><div class="grid"></div>' +
   '<div id="ticketDataHost" class="tdHost"></div>' +
   '<div id="artView" class="artview hidden" tabindex="-1"></div>' +
@@ -68,6 +70,7 @@ export function mountOverlays(initial: DashboardState | null, opts: MountOptions
   render(
     <DashboardAppProvider bridge={bridge}>
       <Probe />
+      <ViewPills />
       <Overlays />
     </DashboardAppProvider>,
   );

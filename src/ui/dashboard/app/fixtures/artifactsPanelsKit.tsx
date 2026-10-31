@@ -7,7 +7,6 @@ import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider } from '../DashboardAppContext.js';
 import { ArtifactsShelf } from '../ArtifactsShelf.js';
-import { StoredPanel } from '../StoredPanel.js';
 import { tracePersist, type PersistTrace } from './persistTrace.js';
 import type { ArtView } from '../overlayStack.js';
 
@@ -56,8 +55,7 @@ export interface Harness {
 }
 
 const ROOTS =
-  '<div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>' +
-  '<div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts</div><div class="pbody" id="storedSummary"></div></div>';
+  '<div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div class="pbody" id="artifacts"></div></div>';
 
 let trace: PersistTrace = tracePersist();
 
@@ -76,12 +74,7 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
       };
     },
   };
-  const panels = (
-    <>
-      <ArtifactsShelf />
-      <StoredPanel />
-    </>
-  );
+  const panels = <ArtifactsShelf />;
   render(
     <DashboardAppProvider bridge={bridge}>
       {onRender ? (

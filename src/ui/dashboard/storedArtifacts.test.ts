@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ArtifactStore } from '../../artifacts/store.js';
-import { buildStoredArtifacts, UNKNOWN_LABEL } from './storedArtifacts.js';
+import { buildStoredArtifacts, resolveStage, UNASSIGNED, UNKNOWN_LABEL } from './storedArtifacts.js';
 
 type Reader = Pick<ArtifactStore, 'listArtifacts' | 'history' | 'listSkips'>;
 
@@ -32,7 +32,7 @@ describe('buildStoredArtifacts', () => {
     const plan = v.groups[0]!;
     expect(plan.approaches.map((a) => a.approach)).toEqual(['gsd', 'superpowers']);
     expect(plan.approaches[1]!.rows[0]).toEqual({
-      path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan',
+      path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan', artifactKind: 'plan', stage: 'impl',
       approach: 'superpowers', source: 'watcher', revisions: 3, lastAt: '2026-01-02T00:00:00Z',
       latestSha: 'sha-a', history: [{ sha: 'top-app/plans/a.md', at: '2026-01-02T00:00:00Z', source: 'watcher' }],
     });
@@ -52,5 +52,23 @@ describe('buildStoredArtifacts', () => {
   it('is empty (no groups, globs kept) for a ticket with nothing stored', async () => {
     const empty: Reader = { listArtifacts: async () => [], history: async () => [], listSkips: async () => [] };
     expect(await buildStoredArtifacts(empty, 1, ['a/**'])).toEqual({ total: 0, groups: [], skips: [], globs: ['a/**'] });
+  });
+});
+
+describe('resolveStage', () => {
+  const none = () => null;
+  it('prefers the newest revision’s Karst-Stage', () => {
+    expect(resolveStage({ stage: 'uat', kind: 'plan', approach: 'x' }, () => 'ship')).toBe('uat');
+  });
+  it('sends source=graph to Implement', () => {
+    expect(resolveStage({ source: 'graph', kind: 'review' }, none)).toBe('impl');
+  });
+  it('falls to the approach binding, then the stage of the Karst-Kind', () => {
+    expect(resolveStage({ approach: 'gsd', kind: 'review' }, (a) => (a === 'gsd' ? 'ship' : null))).toBe('ship');
+    expect(resolveStage({ approach: 'gsd', kind: 'review' }, none)).toBe('review');
+  });
+  it('is Unassigned when nothing resolves (intent-plan.md-style kind-less file)', () => {
+    expect(resolveStage({ kind: 'spec' }, none)).toBe(UNASSIGNED);
+    expect(resolveStage({}, none)).toBe(UNASSIGNED);
   });
 });

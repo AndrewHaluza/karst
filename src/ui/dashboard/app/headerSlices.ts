@@ -4,6 +4,7 @@
  */
 import type { DashboardSnapshot } from './dashboardStore.js';
 import type { DashboardState } from '../state.js';
+import { ticketStatus, type StatusTone } from './ticketHead.js';
 
 export interface IdentitySlice {
   readonly idLabel: string;
@@ -12,6 +13,8 @@ export interface IdentitySlice {
   readonly provider: string;
   readonly priority: string;
   readonly ticketUrl: string | null;
+  readonly statusWord: string;
+  readonly statusTone: StatusTone;
 }
 
 type Relation = { readonly ref: string } | null;
@@ -44,10 +47,15 @@ export interface AgentSlice {
   readonly switch: DashboardState['agentSwitch'];
 }
 
+const statusFields = (s: DashboardState): { statusWord: string; statusTone: StatusTone } => {
+  const { word, tone } = ticketStatus({ stageCurrent: s.stageCurrent, paused: s.paused, agentState: s.agentState });
+  return { statusWord: word, statusTone: tone };
+};
+
 export const selectIdentity = (snapshot: DashboardSnapshot): IdentitySlice | null => {
   const s = snapshot.state;
   return s
-    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: (s.priority || '').trim(), ticketUrl: s.ticketUrl || null }
+    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: (s.priority || '').trim(), ticketUrl: s.ticketUrl || null, ...statusFields(s) }
     : null;
 };
 

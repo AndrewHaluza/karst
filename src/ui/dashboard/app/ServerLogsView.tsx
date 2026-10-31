@@ -11,9 +11,11 @@
  * One runtime instance serves every open: it binds listeners to the root element each time its shell is built, so a
  * second instance would act on the first one's DOM.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ServerLogEntry } from '../messages.js';
 import { useDashboardSend, useHostMessage, useOverlays } from './DashboardAppContext.js';
+import { DrillHeader } from './DrillHeader.js';
 import { fromRegion } from './pageRegions.js';
 import './ServerLogsView.css';
 
@@ -23,7 +25,7 @@ interface LogsView {
   handleInitial(servers: readonly ServerLogEntry[]): void;
   handleOutput(service: string, text: string): void;
 }
-type LogsFactory = (options: { post: (msg: { type?: string } | null) => void; onClose: () => void }) => LogsView;
+type LogsFactory = (options: { post: (msg: { type?: string } | null) => void; onClose: () => void; drillHead?: boolean }) => LogsView;
 
 let cached: { factory: LogsFactory; view: LogsView; closed: { current: () => void } } | null = null;
 
@@ -33,7 +35,7 @@ function acquire(post: (msg: { type?: string } | null) => void): { view: LogsVie
   if (typeof factory !== 'function') return null;
   if (!cached || cached.factory !== factory) {
     const closed = { current: (): void => undefined };
-    cached = { factory, view: factory({ post, onClose: () => closed.current() }), closed };
+    cached = { factory, view: factory({ post, onClose: () => closed.current(), drillHead: true }), closed };
   }
   return cached;
 }
@@ -56,6 +58,7 @@ export function ServerLogsView() {
   const send = useDashboardSend();
   const overlays = useOverlays();
   const view = useRef<LogsView | null>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     const post = (msg: { type?: string } | null): void => {
@@ -73,9 +76,11 @@ export function ServerLogsView() {
     };
     view.current = acquired.view;
     acquired.view.open();
+    setSlot(document.getElementById('logsDrillHead'));
     send.serverLogsRequest();
     return () => {
       view.current = null;
+      setSlot(null);
       if (!closed) acquired.view.close();
     };
   }, [send, overlays]);
@@ -93,5 +98,6 @@ export function ServerLogsView() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  return null;
+  // The runtime's shell holds an empty slot for the shared header; its server tabs never touch the history.
+  return slot ? createPortal(<DrillHeader trail={[{ label: 'Server logs' }]} />, slot) : null;
 }

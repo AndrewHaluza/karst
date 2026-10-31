@@ -76,6 +76,10 @@ const FOCUS_CAP = 12;
  * Artifacts view's own controls (rows, Reveal, Purge) render only inside
  * `#artView`, which the sweep never opens, so they add nothing.
  *
+ * Dashboard Artifacts revamp (T871): `#storedOpen` and the Captured artifacts
+ * panel are gone; captured files open from the one Artifacts index, whose
+ * controls render only inside `#artView` (never opened by the sweep).
+ *
  * Updated a ninth time by ticket-analysis intent/code pointers: `ticketForm`
  * +2 — the Intent and Code pointers textareas (ticket analysis now stores a
  * black-box test charter and opt-in implementer hints). Both are net-new edit

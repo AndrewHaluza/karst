@@ -22,6 +22,10 @@ import type { Notify } from './notify.js';
 export interface StoredArtifactUi {
   /** Open text in a read-only editor (never a writable untitled doc). */
   showReadOnly(title: string, text: string, language: string | undefined): Promise<void>;
+  /** Open markdown text in the editor's rendered preview (`markdown.showPreview`). */
+  showPreview(title: string, text: string): Promise<void>;
+  /** Open two texts in the editor's side-by-side diff (`vscode.diff`). */
+  showDiff(title: string, left: { title: string; text: string }, right: { title: string; text: string }): Promise<void>;
   openFile(path: string): Promise<void>;
   /** Reveal a folder in the OS file manager. */
   reveal(path: string): Promise<void>;
@@ -71,17 +75,25 @@ export function makeStoredArtifactActions(deps: StoredArtifactDeps): StoredArtif
     async openStoredRevision(path, sha) {
       if (!(await resolveShas(path, [sha]))) return;
       const body = await store.show(ticketId, sha, path);
-      await ui.showReadOnly(`${basename(path)} @ ${sha.slice(0, 7)}`, body.toString('utf8'), undefined);
+      const title = `${basename(path)} @ ${sha.slice(0, 7)}`;
+      const text = body.toString('utf8');
+      if (/\.(md|markdown)$/i.test(path)) await ui.showPreview(title, text);
+      else await ui.showReadOnly(title, text, undefined);
     },
 
     async diffStoredRevisions(path, from, to) {
       if (!(await resolveShas(path, [from, to]))) return;
-      const text = await store.diff(ticketId, from, to, path);
-      if (text.trim() === '') {
+      const [before, after] = await Promise.all([store.show(ticketId, from, path), store.show(ticketId, to, path)]);
+      if (before.equals(after)) {
         notify.info('No differences between those revisions.');
         return;
       }
-      await ui.showReadOnly(`${basename(path)} diff ${from.slice(0, 7)}..${to.slice(0, 7)}`, text, 'diff');
+      const name = basename(path);
+      await ui.showDiff(
+        `${name} ${from.slice(0, 7)} ↔ ${to.slice(0, 7)}`,
+        { title: `${name} @ ${from.slice(0, 7)}`, text: before.toString('utf8') },
+        { title: `${name} @ ${to.slice(0, 7)}`, text: after.toString('utf8') },
+      );
     },
 
     async openStoredLive(path) {

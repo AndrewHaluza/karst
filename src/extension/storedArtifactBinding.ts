@@ -46,12 +46,21 @@ export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
     provideTextDocumentContent: (uri) => docs.get(uri.toString()) ?? '',
   });
   let seq = 0;
+  /** Serve `text` under a fresh read-only uri. The seq keeps two opens of the same title as two documents; the sanitized title is only a tab label, never a path. */
+  const serve = (title: string, text: string): vscode.Uri => {
+    const uri = vscode.Uri.from({ scheme: SCHEME, path: `/${title.replace(/[^\w.@ -]/g, '_')}`, query: String(++seq) });
+    docs.set(uri.toString(), text);
+    return uri;
+  };
   const ui: StoredArtifactUi = {
+    async showPreview(title, text) {
+      await vscode.commands.executeCommand('markdown.showPreview', serve(title, text));
+    },
+    async showDiff(title, left, right) {
+      await vscode.commands.executeCommand('vscode.diff', serve(left.title, left.text), serve(right.title, right.text), title);
+    },
     async showReadOnly(title, text, language) {
-      // The seq keeps two opens of the same title as two documents; the
-      // sanitized title is only a tab label, never a path.
-      const uri = vscode.Uri.from({ scheme: SCHEME, path: `/${title.replace(/[^\w.@ -]/g, '_')}`, query: String(++seq) });
-      docs.set(uri.toString(), text);
+      const uri = serve(title, text);
       const doc = await vscode.workspace.openTextDocument(uri);
       if (language) await vscode.languages.setTextDocumentLanguage(doc, language);
       await vscode.window.showTextDocument(doc, { preview: true });

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent } from '@testing-library/react';
-import { art, isHidden, mount, q, openedViews, stateWith, stored, text } from './fixtures/artifactsPanelsKit.js';
+import { art, isHidden, mount, q, openedViews, stateWith, text } from './fixtures/artifactsPanelsKit.js';
 
 const cards = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#artifacts .artcard')];
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('Artifacts shelf', () => {
   it('stays hidden and empty before the first snapshot and with no artifact', () => {
@@ -33,6 +35,17 @@ describe('Artifacts shelf', () => {
     expect(text('#artTotal')).toBe('4');
     expect(q('#artViewAll').textContent).toBe('View all 4 ›');
     expect(cards().map((c) => c.getAttribute('data-art-open'))).toEqual(['plan', 'uat-report', 'review']);
+  });
+
+  it('paints the kind glyph and a Stage · vN line on each card, with a generic glyph for an unknown kind', () => {
+    vi.stubGlobal('karstIcon', (name: string) => `<svg class="k-icon" width="15" height="15" viewBox="0 0 24 24"><path data-icon="${name}"/></svg>`);
+    mount(stateWith({ artifacts: [art('review', { stage: 'review', currentVersionLabel: 'v3' }), art('plan', { stage: 'impl', currentVersionLabel: 'v1' }), art('x', { kind: 'other' as never })] }));
+    const [review, plan, other] = cards();
+    expect(review!.querySelector('.artcard-stage')!.textContent).toBe('Review · v3');
+    expect(plan!.querySelector('.artcard-stage')!.textContent).toBe('Implement · v1');
+    expect(review!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('eye');
+    expect(plan!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('list-tree');
+    expect(other!.querySelector('.artcard-kind path')!.getAttribute('data-icon')).toBe('file-text');
   });
 
   it('paints a card: title, scope, summary, status word, stale flag and origin chip, never a filename', () => {
@@ -125,58 +138,5 @@ describe('Artifacts shelf', () => {
     const before = renders;
     h.emit({ type: 'state', state: { ...base, key: 'T-9' } as never });
     expect(renders).toBe(before);
-  });
-});
-
-describe('Captured artifacts panel', () => {
-  it('stays hidden and empty until the host answered', () => {
-    mount(stateWith({}));
-    expect(isHidden('#storedPanel')).toBe(true);
-    expect(q('#storedSummary').childElementCount).toBe(0);
-    expect(text('#storedTotal')).toBe('');
-  });
-
-  it('keeps the Open button in the header even while hidden', () => {
-    mount(null);
-    const button = q<HTMLButtonElement>('#storedOpen');
-    expect(button.parentElement).toBe(q('#storedPanel .phead'));
-    expect(button.getAttribute('data-art')).toBe('stored');
-    expect(button.getAttribute('title')).toBe('Browse captured output files and their revision history');
-    expect(button.className).toBe('k-btn k-btn--ghost k-btn--sm');
-  });
-
-  it('summarises the count per kind, in order, with the total on the button', () => {
-    mount(stateWith({ storedArtifacts: stored([['screenshot', 2], ['plan', 1]]) }));
-    expect(isHidden('#storedPanel')).toBe(false);
-    expect(q('#storedOpen').textContent).toBe('Open 3 ›');
-    expect(q('#storedSummary').children).toHaveLength(1);
-    expect(q('#storedSummary .sa-meta').textContent).toBe('screenshot 2 · plan 1');
-  });
-
-  it('counts rows across every approach of a kind', () => {
-    const view = stored([], 3);
-    view.groups = [{ kind: 'plan', approaches: [{ approach: 'a', rows: [{} as never, {} as never] }, { approach: 'b', rows: [{} as never] }] }];
-    mount(stateWith({ storedArtifacts: view }));
-    expect(q('#storedSummary .sa-meta').textContent).toBe('plan 3');
-  });
-
-  it('says nothing was captured when the total is zero', () => {
-    mount(stateWith({ storedArtifacts: stored([], 0) }));
-    expect(isHidden('#storedPanel')).toBe(false);
-    expect(q('#storedSummary .sa-empty').textContent).toBe('Nothing captured yet.');
-    expect(text('#storedTotal')).toBe('0');
-  });
-
-  it('opens the stored view once from Open', () => {
-    mount(stateWith({ storedArtifacts: stored([['plan', 1]]) }));
-    fireEvent.click(q('#storedOpen'));
-    expect(openedViews()).toEqual(['stored']);
-  });
-
-  it('hides again when the stored view disappears', () => {
-    const h = mount(stateWith({ storedArtifacts: stored([['plan', 1]]) }));
-    h.emit({ type: 'state', state: stateWith({}) });
-    expect(isHidden('#storedPanel')).toBe(true);
-    expect(q('#storedSummary').childElementCount).toBe(0);
   });
 });

@@ -17,6 +17,7 @@ import type { StageLogResult } from '../messages.js';
 import { useHostMessage, useOverlay, useOverlays } from './DashboardAppContext.js';
 import { fromRegion } from './pageRegions.js';
 import { RegionPortal } from './RegionPortal.js';
+import { DrillHeader } from './DrillHeader.js';
 import { useOverlayRoot } from './useOverlayRoot.js';
 import { xtermGlobals, xtermPresent, type XtermTerminal } from './xtermLoader.js';
 import './Terminal.css';
@@ -168,14 +169,7 @@ function Console({ stage, processId }: { readonly stage: string; readonly proces
   const title = processId ? (processId === 'tester' ? 'Tester' : 'Review') : (STAGE_TITLE[stage] ?? stage);
   return (
     <>
-      <div className="thead">
-        <span className="ttitle">{`Console · ${title}`}</span>
-        <span className="sp">
-          <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-term="close" title="Close the console view" onClick={overlays.closeConsole}>
-            Close
-          </button>
-        </span>
-      </div>
+      <DrillHeader trail={[{ label: 'Console' }, { label: title }]} />
       <div className="tstatus" id="tstatus" role="status">
         {loading ? 'Loading console output…' : status}
       </div>

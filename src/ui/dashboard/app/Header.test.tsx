@@ -19,6 +19,16 @@ describe('Header — identity', () => {
     expect($('#boardLink').getAttribute('data-url')).toBe('https://x/t');
   });
 
+  it('keeps the full identity in title= and the accessible name, with a status chip that never hides', () => {
+    mountHeader(headerState({ paused: true }));
+    const full = 'T7 · FEAT-7 · Add the thing';
+    expect($('.ticketIdentity').getAttribute('title')).toBe(full);
+    expect($('.ticketIdentity').getAttribute('aria-label')).toBe(full);
+    expect($('#title').getAttribute('title')).toBe(full);
+    expect($('#statusChip').textContent).toBe('Paused');
+    expect($('#statusChip').hasAttribute('hidden')).toBe(false);
+  });
+
   it('hides the key, priority and board link when the ticket has none, and shows "(untitled)"', () => {
     mountHeader(headerState({ key: null, title: null }));
     expect($('#keyBtn').hasAttribute('hidden')).toBe(true);

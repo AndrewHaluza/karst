@@ -44,7 +44,7 @@ const deps = (ticketId: number, over: { fallbackProjectId?: number } = {}) => ({
   artifactsRoot: root,
   fallbackProjectId: over.fallbackProjectId,
   ticketId,
-  ui: { showReadOnly: vi.fn(async () => undefined), openFile: vi.fn(async () => undefined), reveal: vi.fn(async () => undefined), confirm: vi.fn(async () => true) },
+  ui: { showReadOnly: vi.fn(async () => undefined), showPreview: vi.fn(async () => undefined), showDiff: vi.fn(async () => undefined), openFile: vi.fn(async () => undefined), reveal: vi.fn(async () => undefined), confirm: vi.fn(async () => true) },
   notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => undefined) },
   refresh: vi.fn(),
 });

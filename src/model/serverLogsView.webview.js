@@ -11,6 +11,8 @@
 // focusSearch }`.
 //
 //   post       sends a webview-to-host message (`server-logs-detach`).
+//   drillHead  true replaces the title and Close with an empty #logsDrillHead slot (the dashboard fills it with its
+//              shared DrillHeader; Back is the way out)
 //   detached   true omits the "Open in Window" control — the standalone panel
 //              has no second window to open.
 //   onClose    lets the host clear its own open flag and stop tailing when the
@@ -216,6 +218,7 @@ window.createServerLogsView = function (opts) {
   var o = opts || {};
   var post = typeof o.post === 'function' ? o.post : function () {};
   var detached = o.detached === true;
+  var drillHead = o.drillHead === true;
   var onClose = typeof o.onClose === 'function' ? o.onClose : null;
 
   // ── state ────────────────────────────────────────────────────────────────
@@ -242,8 +245,10 @@ window.createServerLogsView = function (opts) {
     if (!b) return;
     var detach = detached ? ''
       : '<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-detach>Open in Window</button>';
-    b.innerHTML = '<div class="thead">'
-      + '<span class="ttitle">Server Logs</span>'
+    var closeBtn = '<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-close title="Close the logs view">Close</button></span>';
+    b.innerHTML = (drillHead ? '<div id="logsDrillHead"></div>' : '')
+      + '<div class="thead">'
+      + (drillHead ? '' : '<span class="ttitle">Server Logs</span>')
       + '<span class="logcontrols">'
       + '<input class="k-input" id="logsSearch" type="search" placeholder="Search logs" aria-label="Search logs">'
       + '<span id="logsMatches"></span>'
@@ -254,7 +259,7 @@ window.createServerLogsView = function (opts) {
       + '<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-clear>Clear</button>'
       + detach
       + '</span>'
-      + '<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-close title="Close the logs view">Close</button></span>'
+      + (drillHead ? '' : closeBtn)
       + '</div>'
       + '<div class="tstatus" id="logsStatus" role="status"></div>'
       + '<div class="tabs" id="logsTabs"></div>'

@@ -376,6 +376,14 @@ const KINDS: Record<ArtifactKind, { stage: ArtifactStage; title: string }> = {
   'ship-summary': { stage: 'ship', title: 'PR summary' },
 };
 
+/** The semantic artifact kind a free-form Karst-Kind trailer names, or null (a captured file of any other kind). */
+export function semanticKind(kind: string | undefined): ArtifactKind | null {
+  return kind !== undefined && Object.hasOwn(KINDS, kind) ? (kind as ArtifactKind) : null;
+}
+
+/** The stage a semantic kind belongs to. */
+export const stageOfKind = (kind: ArtifactKind): ArtifactStage => KINDS[kind].stage;
+
 /**
  * Semantic preview priority (spec §5): the three previews represent the most
  * useful current outputs, stably ordered. Active tickets lead with the plan
@@ -773,7 +781,8 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
       scopedFindings.length > 0
         ? `${scopedFindings.length} finding${scopedFindings.length === 1 ? '' : 's'}`
           + ` · ${blocking} need${blocking === 1 ? 's' : ''} attention`
-        : gateSummary(entries),    status: failedStage ? 'failed' : scopedFindings.length > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
+        : gateSummary(entries),
+    status: failedStage ? 'failed' : blocking > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'review', createdAt),
     origin: originFor('review', processRuns, ticket),
     versionCount: attemptCount || 1,

@@ -217,8 +217,6 @@ const GRID: Case[] = [
   ['prs', '#prs', 'multi-repo: merge, conflict, dismissed', () => ({ ...populated('ship'), prs: multiRepoPrs(), mergeChecks: conflictCheck() })],
   ['artifacts', '#artPanel', 'zero artifacts (hidden)', () => populated()],
   ['artifacts', '#artPanel', 'three artifacts', () => ({ ...populated(), artifacts: artifacts() })],
-  ['stored', '#storedPanel', 'not loaded (hidden)', () => populated()],
-  ['stored', '#storedPanel', 'loaded with two files', () => ({ ...populated(), storedArtifacts: stored() })],
 ];
 
 const withArt = (): DashboardState => ({ ...populated(), artifacts: artifacts(), storedArtifacts: stored() });
@@ -229,7 +227,6 @@ const OVERLAY: Case[] = [
   ['artView', '#artView', 'closed', withArt],
   ['artView', '#artView', 'index', withArt, openArt('index')],
   ['artView', '#artView', 'detail', withArt, openArtDetail],
-  ['artView', '#artView', 'stored index', withArt, openArt('stored')],
   ['termView', '#termView', 'closed', () => populated()],
   ['termView', '#termView', 'uat stage console while loading', () => populated('uat'), click('[data-act="console"][data-console="uat"]:not([data-console-proc])')],
   ['termView', '#termView', 'tester process console while loading', () => populated('uat'), click('[data-act="console"][data-console-proc="tester"]')],
@@ -262,12 +259,6 @@ describe('dashboard region parity (DOM contract)', () => {
       expect(await hidden(populated(), '#artPanel')).toBe(true);
       h?.close();
       expect(await hidden({ ...populated(), artifacts: artifacts() }, '#artPanel')).toBe(false);
-    });
-
-    it('captured-artifacts panel waits for the first host answer', async () => {
-      expect(await hidden(populated(), '#storedPanel')).toBe(true);
-      h?.close();
-      expect(await hidden({ ...populated(), storedArtifacts: stored() }, '#storedPanel')).toBe(false);
     });
 
     it('blocked banner shows for resumable and usage-limit blocks, never for awaiting-merge', async () => {

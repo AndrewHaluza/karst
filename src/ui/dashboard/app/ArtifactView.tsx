@@ -12,11 +12,11 @@ import { memo, useLayoutEffect } from 'react';
 import type { ArtifactSummary } from '../../../model/artifacts.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { OriginChip, StaleChip, StatusChip } from './ArtifactChips.js';
-import { BackButton, useHeading } from './ArtifactParts.js';
+import { CapturedActions, CapturedRow, useCaptured } from './CapturedFiles.js';
+import { DrillHeader } from './DrillHeader.js';
 import { ART_STAGE_LABEL, Baselines, Commits, Details, Files, Findings, Gates, Metrics, Prs, Tasks } from './ArtifactSections.js';
 import { useOverlay, useOverlays } from './DashboardAppContext.js';
 import { RegionPortal } from './RegionPortal.js';
-import { StoredView } from './StoredView.js';
 import { useOverlayRoot } from './useOverlayRoot.js';
 import { useSlice } from './useSlice.js';
 import type { ArtView } from './overlayStack.js';
@@ -27,21 +27,27 @@ const selectReady = (snapshot: DashboardSnapshot): boolean => snapshot.state !==
 const selectArtifacts = (snapshot: DashboardSnapshot): readonly ArtifactSummary[] => snapshot.state?.artifacts ?? NO_ARTIFACTS;
 
 const STAGES = ['impl', 'uat', 'review', 'ship'] as const;
+const STAGE_GROUPS = [...STAGES, 'unassigned'] as const;
+const GROUP_LABEL: Readonly<Record<string, string>> = { ...ART_STAGE_LABEL, unassigned: 'Unassigned' };
 
 const Index = memo(function Index({ artifacts }: { readonly artifacts: readonly ArtifactSummary[] }) {
   const overlays = useOverlays();
-  const heading = useHeading();
-  const groups = STAGES.map((stage) => ({ stage, items: artifacts.filter((a) => a.stage === stage) })).filter((g) => g.items.length > 0);
+  const captured = useCaptured();
+  // A captured file of a semantic kind folds into that artifact's detail; every other file is an ordinary row.
+  const folded = new Set(artifacts.map((a) => a.kind));
+  const ordinary = captured.filter((r) => !r.artifactKind || !folded.has(r.artifactKind));
+  const groups = STAGE_GROUPS.map((stage) => ({
+    stage,
+    items: artifacts.filter((a) => a.stage === stage),
+    files: ordinary.filter((r) => r.stage === stage),
+  })).filter((g) => g.items.length + g.files.length > 0);
+  const total = artifacts.length + ordinary.length;
   return (
     <>
-      <div className="arthead">
-        <BackButton to="ticket" />
-        <h2>{heading}</h2>
-        <span className="artsub">{`Artifacts · ${artifacts.length}`}</span>
-      </div>
+      <DrillHeader trail={[{ label: `Artifacts · ${total}` }]} actions={<CapturedActions />} />
       {groups.map((g) => (
-        <section key={g.stage} className="artgroup" aria-label={`${ART_STAGE_LABEL[g.stage]} artifacts`}>
-          <div className="artgroup-title">{ART_STAGE_LABEL[g.stage]}</div>
+        <section key={g.stage} className="artgroup" aria-label={`${GROUP_LABEL[g.stage]} artifacts`}>
+          <div className="artgroup-title">{GROUP_LABEL[g.stage]}</div>
           <ul className="artrows">
             {g.items.map((a) => (
               <li key={a.id}>
@@ -59,6 +65,9 @@ const Index = memo(function Index({ artifacts }: { readonly artifacts: readonly 
                 </button>
               </li>
             ))}
+            {g.files.map((r) => (
+              <CapturedRow key={r.path} r={r} />
+            ))}
           </ul>
         </section>
       ))}
@@ -66,13 +75,27 @@ const Index = memo(function Index({ artifacts }: { readonly artifacts: readonly 
   );
 });
 
+/** The captured files folded into this artifact (same Karst-Kind), after its own files. */
+function CapturedFor({ kind }: { readonly kind: string }) {
+  const rows = useCaptured().filter((r) => r.artifactKind === kind);
+  if (!rows.length) return null;
+  return (
+    <section className="artsection" aria-label="Captured files">
+      <div className="artheading">Captured files</div>
+      <ul className="artrows">
+        {rows.map((r) => (
+          <CapturedRow key={r.path} r={r} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Detail is semantic-first, files last (spec §11): the result, the metrics, artifact-specific content, provenance, then the raw files. */
-const Detail = memo(function Detail({ a, from }: { readonly a: ArtifactSummary; readonly from: 'index' | 'ticket' }) {
+const Detail = memo(function Detail({ a }: { readonly a: ArtifactSummary }) {
   return (
     <>
-      <div className="arthead">
-        <BackButton to={from} />
-      </div>
+      <DrillHeader trail={[{ label: 'Artifacts', to: { console: null, logs: false, env: false, art: 'index' } }, { label: a.title }]} />
       <div className="artdetail">
         <div className="arthero">
           <span className="art-title">{a.title}</span>
@@ -81,15 +104,22 @@ const Detail = memo(function Detail({ a, from }: { readonly a: ArtifactSummary; 
         </div>
         <div className="artcard-summary">{a.summary}</div>
         {a.freshness === 'stale' ? <p className="art-stale art-stale-note">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p> : null}
-        <Metrics a={a} />
-        <Tasks a={a} />
-        <Baselines a={a} />
-        <Findings key={a.id} a={a} />
-        <Gates a={a} />
-        <Prs a={a} />
-        <Commits a={a} />
-        <Details a={a} />
-        <Files a={a} />
+        <div className="artdetail-grid">
+          <div className="artmain">
+            <Metrics a={a} />
+            <Tasks a={a} />
+            <Findings key={a.id} a={a} />
+            <Gates a={a} />
+            <Baselines a={a} />
+            <Prs a={a} />
+            <Commits a={a} />
+          </div>
+          <aside className="artside" aria-label="About this artifact">
+            <Details a={a} />
+            <Files a={a} />
+            <CapturedFor kind={a.kind} />
+          </aside>
+        </div>
       </div>
     </>
   );
@@ -104,8 +134,7 @@ function Surface({ art }: { readonly art: ArtView }) {
   useLayoutEffect(() => {
     if (vanished) overlays.fallbackToIndex();
   }, [vanished, overlays]);
-  if (art === 'stored') return <StoredView />;
-  if (typeof art === 'object' && detail) return <Detail a={detail} from={art.from} />;
+  if (typeof art === 'object' && detail) return <Detail a={detail} />;
   return <Index artifacts={artifacts} />;
 }
 

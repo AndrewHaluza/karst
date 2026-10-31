@@ -88,15 +88,15 @@ test.describe('buildFixture', () => {
     // dashboard's markup has no <body> tag — the case that used to be skipped.
     const noBodyTag = buildFixture('dashboard', 'light', [{ type: 'state', state: {} }]);
     expect(noBodyTag).not.toMatch(/<body[\s>]/i);
-    expect(noBodyTag).toContain(`document.body.className="${lightClass}"`);
+    expect(noBodyTag).toContain(`document.body.classList.add(..."${lightClass}"`);
 
     // diffs does carry a <body> tag and must keep the same script.
     const withBodyTag = buildFixture('diffs', 'hc', [{ type: 'state', state: {} }]);
     expect(withBodyTag).toMatch(/<body[\s>]/i);
-    expect(withBodyTag).toContain(`document.body.className="${hcClass}"`);
+    expect(withBodyTag).toContain(`document.body.classList.add(..."${hcClass}"`);
 
     for (const html of [noBodyTag, withBodyTag]) {
-      const assign = html.indexOf('document.body.className=');
+      const assign = html.indexOf("document.body.classList.add(");
       expect(assign).toBeGreaterThanOrEqual(0);
       // The class must be on <body> before the seed dispatches a message and
       // before it sets data-karst-ready — never after.

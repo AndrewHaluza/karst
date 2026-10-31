@@ -6,7 +6,7 @@
  * The roots are the static shell in `webview.html`; the region parity snapshots pin them as markup.
  */
 export const REGION_SELECTOR =
-  '[data-react-owned], .dhead, #headerMeta, #rail, #inside, #blocked, #subtaskPanel, .svpanel, [data-region="worktrees"], .prpanel, #artPanel, #storedPanel';
+  '[data-react-owned], .dhead, #headerMeta, #rail, #inside, #blocked, #subtaskPanel, .svpanel, [data-region="worktrees"], .prpanel, #artPanel';
 
 /** True when the event started inside one of those regions. */
 export function fromRegion(e: Event): boolean {

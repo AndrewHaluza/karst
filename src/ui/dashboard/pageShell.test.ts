@@ -57,7 +57,6 @@ describe('dashboard page — the shell and the injection markers', () => {
       '<div class="panel" data-region="worktrees"></div>',
       'class="panel span prpanel"',
       'id="artPanel"',
-      'id="storedPanel"',
       'id="ticketDataHost"',
       'id="artView"',
       'id="termView"',

@@ -197,6 +197,29 @@ describe('buildTicketArtifacts', () => {
     expect(a.status).toBe('passed');
   });
 
+  it('non-blocking findings with passing gates are passed, not attention (#640 shape)', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:20:00.000Z',
+      findings: [
+        { severity: 'low', repo: '/wt/web', title: 'Nit', detail: '', source: 'agent' },
+        { severity: 'info', repo: '/wt/web', title: 'Note', detail: '', source: 'agent' },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ status: 'passed', summary: '2 findings · 0 need attention' });
+  });
+
   it('the Changes-panel evidence row is not a review gate', () => {
     const t = ticket({ stageCurrent: 'review' });
     stage(t.id, 'review', 'running', '2026-08-01T09:00:00.000Z', null);

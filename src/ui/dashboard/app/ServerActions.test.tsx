@@ -79,7 +79,7 @@ describe('ServersPanel — actions', () => {
     fireEvent.click(one('server-logs-request'));
     expect(h.overlays().getSnapshot()).toMatchObject({ logs: true, env: false });
     fireEvent.click(one('env-overrides-open'));
-    expect(h.overlays().getSnapshot()).toMatchObject({ logs: true, env: true });
+    expect(h.overlays().getSnapshot()).toMatchObject({ logs: false, env: true });
     vi.unstubAllGlobals();
     for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
     expect(one('server-logs-request').hasAttribute('aria-busy')).toBe(false);
