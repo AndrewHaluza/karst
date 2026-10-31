@@ -32,6 +32,7 @@ describe('capabilityGap', () => {
     expect(gap?.reason).toContain('"visual (extention)"');
     expect(gap?.reason).toContain('exited 127');
     expect(gap?.reason).toContain('docker is not installed');
+    expect(gap?.reason).toContain('install it in sandbox.setup, or mark the gate sandbox: host');
   });
 
   it('names every gate that hit the gap', () => {

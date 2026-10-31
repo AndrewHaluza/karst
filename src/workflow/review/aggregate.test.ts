@@ -560,6 +560,42 @@ describe('gatesOutcomeBeforeFindings', () => {
     });
   });
 
+  // T877 audit: security gates (gitleaks/semgrep) must never read as a pass on a non-zero exit.
+  const secretsInvocation = { repo: '/web', command: 'gitleaks', args: ['dir', '--config', '.gitleaks.toml', '.'] };
+
+  it('fails the gate (never passes) when gitleaks exits 1 on an unloadable config', () => {
+    const secrets: AggregateEntry = {
+      result: {
+        name: 'secrets (web)',
+        exitCode: 1,
+        output: 'FTL unable to load gitleaks config, err: open .gitleaks.toml: no such file or directory',
+      },
+      identity: secretsInvocation,
+    };
+    const out = aggregateReview([lintWeb, secrets], [], NOT_RUN, RELAXED);
+    expect(out).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: secrets (web)' },
+      warnings: [],
+    });
+  });
+
+  it('parks a sandboxed 127 (tool missing in the container) with a recorded reason, never a pass', () => {
+    const sast: AggregateEntry = {
+      result: {
+        name: 'secrets (web)',
+        exitCode: 127,
+        output: 'OCI runtime exec failed: exec failed: executable file `gitleaks` not found in $PATH',
+      },
+      identity: secretsInvocation,
+    };
+    const out = aggregateReview([lintWeb, sast], [], NOT_RUN, RELAXED);
+    expect(out.kind).toBe('blocked');
+    expect(out.kind === 'blocked' && out.blocker).toBe('capability-missing');
+    expect(out.kind === 'blocked' && out.reason).toContain('secrets (web)');
+    expect(out.kind === 'blocked' && out.reason).toContain('not found in $PATH');
+  });
+
   it('keeps the ordinary reason when a gate resolved but a DIFFERENT one was disabled', () => {
     expect(gatesOutcomeBeforeFindings([testWebSkipped], ['lint'])).toEqual({
       kind: 'blocked',

@@ -24,15 +24,40 @@ function relativeScript(command: string | undefined): string | undefined {
   return first;
 }
 
+/** Worktrees live under the main checkout; a path there is not the main checkout's own copy. */
+const WORKTREES_SEGMENT = '/.karst/worktrees/';
+
+/** Absolute `command`/`args` tokens that point inside a declared repoPath (the main checkout). */
+function pinnedPaths(g: GateDef, repos: Named[]): string[] {
+  const tokens = [g.command, ...(g.args ?? [])].filter((t): t is string => t !== undefined);
+  return tokens.filter((t) => {
+    if (!t.startsWith('/') || t.includes(WORKTREES_SEGMENT)) return false;
+    return repos.some(([, r]) => {
+      const root = r.repoPath.replace(/\/+$/, '');
+      return t === root || t.startsWith(`${root}/`);
+    });
+  });
+}
+
+function pinWarnings(g: GateDef, where: string, repos: Named[]): string[] {
+  return pinnedPaths(g, repos).map(
+    (p) => `${where}: gate ${g.name} pins ${p} in the main checkout; use a path relative to the worktree`,
+  );
+}
+
 function gateWarnings(gates: GateDef[], where: string, repos: Named[], probe: EnvProbe): string[] {
   return gates.flatMap((g, i) => {
+    const pins = pinWarnings(g, `${where}[${i}]`, repos);
     const script = relativeScript(g.command);
-    if (script === undefined) return [];
+    if (script === undefined) return pins;
     const targets = repos.filter(([name]) => g.repo === undefined || name.toLowerCase() === g.repo.toLowerCase());
     // Unscoped gates run in every repo, so name each one that lacks the file.
-    return targets.filter(([, r]) => !probe.fileExists(r.repoPath, script)).map(
-      ([, r]) => `${where}[${i}].command: '${script}' not found in ${r.repoPath} — add the script or fix the path`,
-    );
+    return [
+      ...pins,
+      ...targets.filter(([, r]) => !probe.fileExists(r.repoPath, script)).map(
+        ([, r]) => `${where}[${i}].command: '${script}' not found in ${r.repoPath} — add the script or fix the path`,
+      ),
+    ];
   });
 }
 
