@@ -79,6 +79,7 @@
 /* Variant 2 Badges & Popovers */
 .sandbox-badge {
   display: inline-flex;
+  min-height: 20px; /* layout check: control height min 20 */
   align-items: center;
   gap: var(--k-space-2);
   padding: var(--k-space-1) var(--k-space-3);
@@ -141,8 +142,9 @@
   line-height: 1.4;
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
   cursor: auto;
   user-select: text;
   text-transform: none;
@@ -166,6 +168,7 @@
 .sandbox-badge:hover .sandbox-popover,
 .sandbox-badge:focus-within .sandbox-popover {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
   pointer-events: auto;
 }

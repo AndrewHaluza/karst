@@ -83,6 +83,8 @@
     .pchev{transition:none}
   }
 
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-7)}
+
   /*KARST_INSIDE_PROTO_START*/
   /* The Inside block's rules are React-owned (app/Inside*.css). The one rule that shared its narrow-width media query and is
      not Inside's stays here, between the markers that exempt it from the literal budget (UI-R04: a media condition cannot read a custom property). */
@@ -92,7 +94,6 @@
   /*KARST_INSIDE_PROTO_END*/
 
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-7)}
   .panel{border:var(--k-border-w) solid var(--k-border);border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface);overflow:hidden}
   .panel.span{grid-column:1 / -1}
   .phead{display:flex;align-items:center;gap:var(--k-space-4);min-height:var(--phead-h);padding:var(--k-space-4) var(--k-space-7);

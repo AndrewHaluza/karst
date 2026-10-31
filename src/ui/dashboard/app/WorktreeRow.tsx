@@ -198,7 +198,7 @@ export function WorktreeRow({ w, stats, send, formOpen, rebaseOn, onToggleForm, 
         </span>
         {w.branch ? (
           <span className="wbranch">
-            <span className="wbr">{w.branch}</span>
+            <span className="wbr" title={w.branch} aria-label={w.branch}>{w.branch}</span>
             <CopyBranchButton branch={w.branch} send={send} />
           </span>
         ) : null}

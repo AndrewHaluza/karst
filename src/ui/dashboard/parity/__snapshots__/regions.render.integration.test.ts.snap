@@ -2505,7 +2505,7 @@ exports[`dashboard region parity (DOM contract) > worktrees #worktrees · two re
         <span.wbasebr> "main"
         <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/web" title="Change base branch" type="button"> "✎"
       <span.wbranch>
-        <span.wbr> "feat/FEAT-142-base-branch-override"
+        <span.wbr aria-label="feat/FEAT-142-base-branch-override" title="feat/FEAT-142-base-branch-override"> "feat/FEAT-142-base-branch-override"
         <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
           <svg.k-icon aria-hidden="true">
       <span.wsep>
@@ -2522,7 +2522,7 @@ exports[`dashboard region parity (DOM contract) > worktrees #worktrees · two re
         <span.wbasebr> "main"
         <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/api" title="Change base branch" type="button"> "✎"
       <span.wbranch>
-        <span.wbr> "feat/FEAT-142-base-branch-override"
+        <span.wbr aria-label="feat/FEAT-142-base-branch-override" title="feat/FEAT-142-base-branch-override"> "feat/FEAT-142-base-branch-override"
         <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
           <svg.k-icon aria-hidden="true">
       <span.wsep>
