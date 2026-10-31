@@ -29,10 +29,38 @@ read a whole file.
    (`test:visual:docker` for baselines).
 6. **Screenshot changes need user approval.** Never edit baselines or the layout
    ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
-   shrinks only via `npm run test:layout:docker:prune`.
+   shrinks only via `npm run test:layout:docker:prune`. After a DOM structure
+   change the ledger reads STALE and NEW at once: follow `ui:LEDGER-SHIFT`.
 
 Cite the rule id in the commit when a change exists to satisfy one (UI-R35).
 END_DOC_BLOCK: [@ui:README-ORDER]
+
+## [@ui:LEDGER-SHIFT] Layout ledger after DOM structure changes
+
+Ledger keys are `route|width|check|selector`, and the selector is an nth-child
+path. Inserting or removing an element before a ledgered node shifts its path:
+the old entry reads **STALE** and the same known failure reads **NEW** (T871:
+171 STALE, 128 NEW after a new header and chip).
+
+Expect it after any change to a webview's DOM structure (new header, chip,
+wrapper). Run `npm run test:layout:docker` right after that change, not at the
+end. Docker runs take minutes: run them in the background.
+
+What the commands do (`src/ui/layout/layoutLedger.ts`):
+- `npm run test:layout:docker:prune` removes STALE entries only and never adds
+  one. It refuses a filtered (partial) run or a non-docker run.
+- `npm run test:layout:docker:seed` is only for a missing ledger file. It
+  refuses when the file exists; that is expected, not a blocker.
+
+Recipe:
+1. Fix every real layout failure your change caused.
+2. Run `npm run test:layout:docker:prune`.
+3. Run `npm run test:layout:docker` again. 0 NEW and 0 STALE: commit the
+   ledger diff in its own commit and name the cause in the message.
+4. NEW entries still listed: prune cannot accept them, and no other command
+   may. Stop and ask the user, with the NEW count and the DOM change that
+   shifted the paths. Never hand-edit the file, and never delete it to re-seed.
+END_DOC_BLOCK: [@ui:LEDGER-SHIFT]
 
 ## [@ui:README-WHEN] When to read what
 
