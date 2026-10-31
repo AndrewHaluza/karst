@@ -176,3 +176,12 @@ describe('stageBadge', () => {
     expect(b.glyph).toBe('gray');
   });
 });
+
+describe('failed stage with a running agent', () => {
+  it('reads blue / in-progress, not "failed"', () => {
+    const t = { stageCurrent: 'fix', agentState: 'running', stages: [{ stageKey: 'fix', status: 'failed' }] } as never;
+    const b = stageBadge(t);
+    expect(b.glyph).toBe('blue');
+    expect(b.label).not.toMatch(/failed/);
+  });
+});

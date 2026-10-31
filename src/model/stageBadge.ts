@@ -1,7 +1,7 @@
 import type { TicketWithStages } from '../store/tickets.js';
 import { ALL_STAGE_KEYS, type StageKey } from './types.js';
 import { isTerminal } from '../workflow/graph.js';
-import { currentStageStatus, needsUser, ticketGlyph } from './ticketGlyph.js';
+import { agentWorkingOnFailedStage, currentStageStatus, needsUser, ticketGlyph } from './ticketGlyph.js';
 import type { Glyph } from './glyph.js';
 
 /**
@@ -76,8 +76,8 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   if (needsUser(t)) return { label: 'Needs you', glyph, stage };
 
   const status = currentStageStatus(t);
-  if (status === 'failed') return { label: `${title} failed`, glyph, stage };
-  if (status === 'running') return { label: STAGE_ACTIVITY[stage], glyph, stage };
+  if (status === 'failed' && !agentWorkingOnFailedStage(t)) return { label: `${title} failed`, glyph, stage };
+  if (status === 'running' || status === 'failed') return { label: STAGE_ACTIVITY[stage], glyph, stage };
   if (status === 'skipped') return { label: `${title} skipped`, glyph, stage };
   // Every gate was disabled for this ticket: the stage did not gate, but the
   // pipeline continued. Distinct from "passed" — no gate outcome was proven.

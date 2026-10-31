@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TicketWithStages } from '../store/tickets.js';
-import { needsUser, ticketGlyph } from './ticketGlyph.js';
+import { agentWorkingOnFailedStage, needsUser, ticketGlyph } from './ticketGlyph.js';
 
 function ticket(over: Partial<TicketWithStages>): TicketWithStages {
   return {
@@ -258,5 +258,34 @@ describe('ticketGlyph', () => {
         }),
       ),
     ).toBe('gray');
+  });
+});
+
+describe('agent working on a failed (parked) current stage', () => {
+  const failedFix = (over: Partial<TicketWithStages> = {}): TicketWithStages =>
+    ticket({
+      stageCurrent: 'fix',
+      stages: [{ stageKey: 'fix', status: 'failed', verdict: 'stalled' } as never],
+      ...over,
+    });
+
+  it.each([
+    ['running', 'blue'],
+    ['idle', 'red'],
+    ['none', 'red'],
+    ['waiting', 'amber'],
+  ])('agent=%s → %s', (agentState, expected) => {
+    expect(ticketGlyph(failedFix({ agentState: agentState as never }))).toBe(expected);
+  });
+
+  it('helper is true only for failed + running', () => {
+    expect(agentWorkingOnFailedStage(failedFix({ agentState: 'running' }))).toBe(true);
+    expect(agentWorkingOnFailedStage(failedFix({ agentState: 'idle' }))).toBe(false);
+    expect(agentWorkingOnFailedStage(ticket({ agentState: 'running' }))).toBe(false);
+  });
+
+  it('closed stays gray and paused stays amber (needs-you first)', () => {
+    expect(ticketGlyph(failedFix({ agentState: 'running', stageCurrent: 'closed' }))).toBe('gray');
+    expect(ticketGlyph(failedFix({ agentState: 'running', pausedAt: '2026-10-31' as never }))).toBe('amber');
   });
 });
