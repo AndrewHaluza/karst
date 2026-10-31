@@ -131,15 +131,23 @@ const insideCaseVariants = (): Variant[] =>
 const DRILL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 500], ['tight', 360]] as const;
 const DRILL_SURFACES = [['index', []], ['env', ['Env variables']], ['logs', ['Server logs']], ['console', ['Console']]] as const;
 /** T871: the artifact index restored from the persisted view, so the drill-down pills are on screen. */
-const drillCorpus = (mutate: (s: DashboardState) => DashboardState = (s) => s): (() => ViewCorpus) => () => ({
-  ...dashboardScenario('running', 2, mutate)(),
-  viewState: { artView: 'index' },
+const drillCorpus = (mutate: (s: DashboardState) => DashboardState = (s) => s): (() => ViewCorpus) => () => {
+  const corpus = dashboardScenario('running', 2, mutate)();
+  // An envelope restores an artifact view only over a snapshot, so the state travels with it.
+  const snapshot = (corpus.messages as readonly { type?: string; state?: unknown }[]).find((m) => m.type === 'state')?.state;
+  return { ...corpus, viewState: { state: snapshot, artView: 'index' } };
+};
+
+/** The Console pill needs a stream behind it: every stage view carries a console. */
+const withConsoles = (s: DashboardState): DashboardState => ({
+  ...s,
+  insideViews: Object.fromEntries(Object.entries(s.insideViews ?? {}).map(([k, v]) => [k, { ...v, console: true }])),
 });
 
 /** Every drill-down surface at every tier, and the long identity at the extremes. */
 const drillDownVariants = (): Variant[] => [
   ...DRILL_SURFACES.flatMap(([surface, pills]) =>
-    DRILL_TIERS.map(([tier, width]) => variant('dashboard', `drill-${surface}-${tier}`, drillCorpus(), { width, pills, skipLayout: true })),
+    DRILL_TIERS.map(([tier, width]) => variant('dashboard', `drill-${surface}-${tier}`, drillCorpus(withConsoles), { width, pills, skipLayout: true })),
   ),
   ...DRILL_TIERS.map(([tier, width]) =>
     variant('dashboard', `drill-long-identity-${tier}`, drillCorpus((s) => ({ ...s, title: LONG_TITLE, key: 'PLATFORM-INFRA-1234567' })), { width, skipLayout: true }),
