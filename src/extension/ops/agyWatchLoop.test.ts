@@ -7,7 +7,13 @@ import Database from 'better-sqlite3';
 import { openStore, type Store } from '../../store/db.js';
 import { createHookChannelRecorder } from '../../diagnostics/hookChannel.js';
 import { createAgyWatchLoop, type AgyTerminalNamed, type AgyWatchLoopDeps } from './agyWatchLoop.js';
-import { AGY_SUMMARIES_DB, type AgyWatchState } from '../../agent/agyConversationWatch.js';
+import {
+  AGY_SUMMARIES_DB,
+  AGY_STEP_STATUS_RUNNING,
+  AGY_STEP_STATUS_DONE,
+  type AgyWatchState,
+} from '../../agent/agyConversationWatch.js';
+import { implementationSessionProcess } from '../../model/inside/agent.js';
 import type { AgyUsageState } from '../../agent/agyUsageWatch.js';
 
 // `dispatchHook` is observed through a spy that keeps the real implementation:
@@ -577,6 +583,161 @@ describe('createAgyWatchLoop', () => {
       agent_state: string;
     };
     expect(row.agent_state).toBe('running');
+  });
+
+  it('does not dispatch Stop when summary is idle but a step is still running, keeping agent_state running and rendering running', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const convId = '99999999-9999-4999-9999-999999999999';
+    const dbPath = fixtureDb(dir, convId, worktreePath, false);
+    // Agys background command step (status = 2, running)
+    const convDb = new Database(dbPath);
+    convDb.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 132, ?)').run(
+      AGY_STEP_STATUS_RUNNING,
+    );
+    convDb.close();
+
+    // Summary says IDLE, but step 2 is still running
+    summaryFixture(dir, convId, 'CASCADE_RUN_STATUS_IDLE');
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key, agent_state) VALUES ('T-1', 'running')").run()
+        .lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    // Live implementation run so the stage's done marker is pending
+    const procId = Number(
+      store.db
+        .prepare(
+          "INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at) VALUES (?, 'impl', 'session', 0, 'running', ?)",
+        )
+        .run(ticketId, new Date().toISOString()).lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        "INSERT INTO implementation_runs (ticket_id, process_run_id, attempt, status, started_at) VALUES (?, ?, 0, 'running', ?)",
+      )
+      .run(ticketId, procId, new Date().toISOString());
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+    });
+    const loop = createAgyWatchLoop(deps);
+
+    // Initial sweep baselines session (SessionStart dispatched).
+    withHome(dir, () => loop.run());
+    expect(deps.notifyHook).toHaveBeenCalledWith(
+      ticketId,
+      expect.objectContaining({ hook_event_name: 'SessionStart' }),
+    );
+    // Because step is running, state is busy (idle: false) and no Stop event was dispatched
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(false);
+
+    vi.mocked(deps.notifyHook).mockClear();
+    withHome(dir, () => loop.run());
+    // Still running step: no Stop event dispatched!
+    expect(deps.notifyHook).not.toHaveBeenCalled();
+
+    let row = store.db.prepare('SELECT agent_state FROM tickets WHERE id = ?').get(ticketId) as {
+      agent_state: string;
+    };
+    expect(row.agent_state).toBe('running');
+
+    // Agent model renders 'agent session running', NOT 'the agent asked a question — waiting on your answer'
+    let proc = implementationSessionProcess(
+      { stageKey: 'impl', status: 'running' },
+      null,
+      [],
+      null,
+      null,
+      new Date().toISOString(),
+      undefined,
+      [],
+      row.agent_state === 'waiting',
+    );
+    expect(proc.status).toBe('run');
+    expect(proc.detail).toBe('agent session running');
+    expect(proc.detail).not.toContain('asked a question');
+
+    // Step finishes (status = 3)
+    const updateDb = new Database(dbPath);
+    updateDb.prepare('UPDATE steps SET status = ? WHERE idx = 2').run(AGY_STEP_STATUS_DONE);
+    updateDb.close();
+
+    // Now turn really ends: Stop is dispatched
+    withHome(dir, () => loop.run());
+    expect(deps.notifyHook).toHaveBeenCalledWith(
+      ticketId,
+      expect.objectContaining({ hook_event_name: 'Stop' }),
+    );
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(true);
+
+    row = store.db.prepare('SELECT agent_state FROM tickets WHERE id = ?').get(ticketId) as {
+      agent_state: string;
+    };
+    expect(row.agent_state).toBe('waiting');
+
+    // After Stop, agent model now renders 'the agent asked a question — waiting on your answer'
+    proc = implementationSessionProcess(
+      { stageKey: 'impl', status: 'running' },
+      null,
+      [],
+      null,
+      null,
+      new Date().toISOString(),
+      undefined,
+      [],
+      row.agent_state === 'waiting',
+    );
+    expect(proc.status).toBe('wait');
+    expect(proc.detail).toBe('the agent asked a question — waiting on your answer');
+  });
+
+  it('falls back to summary-only when steps table in conversation DB is unreadable', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const convId = '55555555-5555-4555-8555-555555555555';
+    // DB without steps table:
+    const conversationsDir = join(dir, '.gemini', 'antigravity-cli', 'conversations');
+    mkdirSync(conversationsDir, { recursive: true });
+    const dbPath = join(conversationsDir, `${convId}.db`);
+    const db = new Database(dbPath);
+    db.exec('CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);');
+    db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run(
+      'main',
+      Buffer.concat([Buffer.from([1]), Buffer.from(`file://${worktreePath}`), Buffer.from([2])]),
+    );
+    db.close();
+
+    summaryFixture(dir, convId, 'CASCADE_RUN_STATUS_IDLE');
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key, agent_state) VALUES ('T-1', 'running')").run()
+        .lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+    });
+    const loop = createAgyWatchLoop(deps);
+
+    // Initial sweep: steps table is missing so runningStepCount is null -> summary only behavior
+    withHome(dir, () => loop.run());
+    expect(deps.notifyHook).toHaveBeenCalledWith(
+      ticketId,
+      expect.objectContaining({ hook_event_name: 'SessionStart' }),
+    );
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(true);
   });
 
   it('does not drop the lifecycle tick when the summary DB cannot be read', () => {

@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import {
   AGY_SUMMARIES_DB,
+  AGY_STEP_STATUS_RUNNING,
+  AGY_STEP_STATUS_DONE,
+  AGY_STEP_STATUS_AWAITING_APPROVAL,
   agyPointerBusy,
   agyWatchTick,
   findConversationForWorktree,
@@ -96,6 +99,7 @@ describe('agyConversationWatch', () => {
         throw new Error('SQLITE_BUSY: database is locked');
       },
       pendingApprovalCount: () => 0,
+      runningStepCount: () => null,
       usage: () => null,
       close: () => undefined,
     });
@@ -118,6 +122,36 @@ describe('agyConversationWatch', () => {
     const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', true);
     const db = openAgyConversationDb(dbPath);
     expect(db.pendingApprovalCount()).toBe(1);
+    db.close();
+  });
+
+  it('reads runningStepCount from status=2 steps and 0 when none run', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+    const db = openAgyConversationDb(dbPath);
+    expect(db.runningStepCount()).toBe(0);
+
+    const raw = new Database(dbPath);
+    raw.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 132, ?)').run(
+      AGY_STEP_STATUS_RUNNING,
+    );
+    raw.close();
+
+    expect(db.runningStepCount()).toBe(1);
+    db.close();
+  });
+
+  it('runningStepCount returns null and never throws when steps table is unreadable', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const conversationsDir = join(dir, 'conversations');
+    mkdirSync(conversationsDir, { recursive: true });
+    const dbPath = join(conversationsDir, 'corrupt.db');
+    const raw = new Database(dbPath);
+    raw.exec('CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);');
+    raw.close();
+
+    const db = openAgyConversationDb(dbPath);
+    expect(db.runningStepCount()).toBeNull();
     db.close();
   });
 
@@ -213,6 +247,113 @@ describe('agyConversationWatch', () => {
     expect(state.idle).toBe(true);
     // Unchanged idle emits nothing.
     expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([]);
+  });
+
+  it('summary idle + running step → no idle event, state busy; running step finishes → idle event once', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    // 1. Summary says idle, but runningStepCount is 1: no idle event, state is busy
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: 1 }),
+      ),
+    ).toEqual([]);
+    expect(state.idle).toBe(false);
+    expect(agyPointerBusy(state, true)).toBe(true);
+
+    // 2. While running count is still 1 and summary still idle, no idle event
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: 1 }),
+      ),
+    ).toEqual([]);
+    expect(state.idle).toBe(false);
+
+    // 3. Running step finishes (drops to 0) while summary is idle: emits idle once
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: 0 }),
+      ),
+    ).toEqual([{ kind: 'idle' }]);
+    expect(state.idle).toBe(true);
+    expect(agyPointerBusy(state, true)).toBe(false);
+
+    // 4. Stays silent while idle
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: 0 }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('summary idle + no running step → idle (unchanged)', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: 0 }),
+      ),
+    ).toEqual([{ kind: 'idle' }]);
+    expect(state.idle).toBe(true);
+  });
+
+  it('unreadable steps table (runningStepCount null or undefined) falls back to summary only behaviour', () => {
+    const stateNull: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    expect(
+      agyWatchTick(
+        stateNull,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: null }),
+      ),
+    ).toEqual([{ kind: 'idle' }]);
+    expect(stateNull.idle).toBe(true);
+
+    const stateUndef: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    expect(
+      agyWatchTick(
+        stateUndef,
+        snapshot({ conversationId: 'c1', idle: true, runningStepCount: undefined }),
+      ),
+    ).toEqual([{ kind: 'idle' }]);
+    expect(stateUndef.idle).toBe(true);
+  });
+
+  it('applies idle→running edge when agy resumes on its own after running step finished', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: true,
+    };
+    expect(
+      agyWatchTick(
+        state,
+        snapshot({ conversationId: 'c1', idle: false, runningStepCount: 0 }),
+      ),
+    ).toEqual([{ kind: 'running' }]);
+    expect(state.idle).toBe(false);
   });
 
   it('emits running on an idle→running (true→false) edge and clears idle', () => {
