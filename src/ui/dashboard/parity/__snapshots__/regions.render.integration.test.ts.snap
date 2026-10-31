@@ -1709,8 +1709,17 @@ exports[`dashboard region parity (DOM contract) > logsView #logsView · closed >
 
 exports[`dashboard region parity (DOM contract) > logsView #logsView · open > logsView · open 1`] = `
 "<div#logsView.logsview tabindex="-1">
+  <div#logsDrillHead>
+    <div.drillhead data-region="drill-head">
+      <button.dh-back.k-btn.k-btn--ghost.k-btn--sm aria-label="Back to Dashboard" data-art="back" title="Back to Dashboard" type="button">
+        <span aria-hidden="true"> "←"
+        <span.dh-backlabel> "Dashboard"
+      <nav.dh-trail aria-label="Breadcrumb">
+        <ol>
+          <li.dh-current>
+            <span aria-current="page" title="Server logs"> "Server logs"
+      <kbd.dh-esc aria-hidden="true"> "Esc"
   <div.thead>
-    <span.ttitle> "Server Logs"
     <span.logcontrols>
       <input#logsSearch.k-input aria-label="Search logs" placeholder="Search logs" type="search">
       <span#logsMatches>
@@ -1722,8 +1731,6 @@ exports[`dashboard region parity (DOM contract) > logsView #logsView · open > l
         <input data-log-current-run type="checkbox">
       <button.k-btn.k-btn--ghost.k-btn--sm data-log-clear type="button"> "Clear"
       <button.k-btn.k-btn--ghost.k-btn--sm data-log-detach type="button"> "Open in Window"
-    <span.sp>
-      <button.k-btn.k-btn--ghost.k-btn--sm data-log-close title="Close the logs view" type="button"> "Close"
   <div#logsStatus.tstatus role="status"> "Loading server logs…"
   <div#logsTabs.tabs>
   <div#logsHost.loghost tabindex="0">
@@ -1977,6 +1984,7 @@ exports[`dashboard region parity (DOM contract) > root #root · sandbox strip wi
           <svg.k-icon aria-hidden="true">
           <span> "Sandbox"
         <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
+        <span.k-chip.sandbox-running-chip data-testid="sandbox-running-chip" title="2 servers running"> "2 running"
         <span.sandbox-sep aria-hidden="true"> "·"
         <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
           <span.agenticon-island>
@@ -2056,6 +2064,7 @@ exports[`dashboard region parity (DOM contract) > root #root · sbx sandbox stri
           <svg.k-icon aria-hidden="true">
           <span> "Sandbox"
         <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
+        <span.k-chip.sandbox-running-chip data-testid="sandbox-running-chip" title="2 servers running"> "2 running"
         <span.sandbox-sep aria-hidden="true"> "·"
         <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
           <span.agenticon-island>

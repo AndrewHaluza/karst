@@ -114,7 +114,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     v.receive({ type: 'server-logs', servers: [{ service: 'web', content: 'hello\n', truncated: false }] });
     await drainReactWork(v);
     expect(v.query('#logsHost')!.textContent).toContain('hello');
-    await click(v, '#logsView [data-log-close]');
+    await click(v, '#logsView [data-art="back"]');
     expect(surfaces(v)).toEqual([]);
     expect(types(v, before)).toEqual(['server-logs-request', 'server-logs-close']);
     // A second open reuses the surface and asks again.
