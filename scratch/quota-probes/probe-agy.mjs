@@ -87,8 +87,13 @@ export function probeAgyLanguageServerEnv() {
     activeInEnvironment: Boolean(address && hasCsrf),
     address,
     hasCsrfToken: hasCsrf,
-    lifecycle: 'ephemeral child process spawned per active agy turn; dead when idle or before launch',
-    dockerReachability: 'unreachable from host; language server runs in isolated container network namespace (ccf74c0a9ea, 72d0ae4bb51)'
+    lifecycle: 'active language server or session loopback Connect RPC',
+    discovery: {
+      envPrecedence: true,
+      processScan: 'ps -eo pid,args for language_server with --csrf_token and --http_server_port (or lsof for listening ports)',
+      fileDiscovery: '~/.gemini/antigravity/discovery.json'
+    },
+    dockerReachability: 'unreachable across isolated container namespace without port forward'
   };
 }
 
