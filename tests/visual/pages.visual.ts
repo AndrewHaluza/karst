@@ -33,6 +33,11 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.width !== undefined) await page.setViewportSize({ width: v.width, height: (page.viewportSize()?.height ?? 720) });
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
+        for (const pill of v.pills ?? []) await page.getByRole('button', { name: new RegExp(`^${pill}`) }).first().click();
+        if (v.id.startsWith('drill-')) {
+          // UI-R43: no sideways page scroll at any tier.
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+        }
         if (v.id === 'attention') {
           await page.locator('.attention-ring').evaluate((el) => {
             el.classList.add('pulsing');

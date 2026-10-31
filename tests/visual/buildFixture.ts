@@ -43,6 +43,7 @@ export function buildFixture(
   view: ViewId,
   theme: ThemeId,
   corpusMessages: readonly unknown[],
+  viewState?: unknown,
 ): string {
   const entry = CHAINS[view];
   if (!entry) throw new Error(`Unknown view: ${view}`);
@@ -77,7 +78,7 @@ export function buildFixture(
 
   // The acquireVsCodeApi stub MUST go before the first <script> tag because
   // the webview's own script calls it immediately.  Insert it after <head>.
-  const vsApiStub = buildVsApiStub();
+  const vsApiStub = buildVsApiStub(viewState);
   const firstScriptIdx = html.indexOf('<script');
   if (firstScriptIdx !== -1) {
     html = html.slice(0, firstScriptIdx) + vsApiStub + '\n' + html.slice(firstScriptIdx);
@@ -134,13 +135,13 @@ function jsonForInlineScript(value: unknown): string {
 /**
  * Build the acquireVsCodeApi stub — must run before the webview's own script.
  */
-function buildVsApiStub(): string {
+function buildVsApiStub(viewState?: unknown): string {
   return `<script nonce="${FIXED_NONCE}">
 (function() {
   window.acquireVsCodeApi = function() {
     return {
       postMessage: function() {},
-      getState: function() { return undefined; },
+      getState: function() { return ${viewState === undefined ? 'undefined' : jsonForInlineScript(viewState)}; },
       setState: function() {}
     };
   };
@@ -208,7 +209,7 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
       }
       // One page per registered variant (ui:UI-R57).
       for (const v of VARIANTS[view]) {
-        const html = buildFixture(view, theme, v.corpus().messages);
+        const html = buildFixture(view, theme, v.corpus().messages, v.corpus().viewState);
         writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');
       }
     }

@@ -33,6 +33,8 @@ export type ViewId = WebviewName;
 
 export interface ViewCorpus {
   readonly messages: readonly unknown[];
+  /** What the webview's `getState()` hands back at boot (the persisted view state), e.g. an open artifact index. */
+  readonly viewState?: unknown;
 }
 
 /**
