@@ -2,7 +2,7 @@
    container, so the tiers (docs/ui UI-R49) follow the frame width: below 700px the row scrolls inside itself (hidden
    scrollbar, faded edge), below 400px the pills are icons only. Never a sideways page scroll (UI-R43). */
 .viewsroot{container-type:inline-size;position:relative;margin-bottom:var(--k-space-4)}
-.vp-bar{display:flex;gap:var(--k-space-3);overflow-x:auto;scrollbar-width:none}
+.vp-bar{display:flex;gap:var(--k-space-3);scrollbar-width:none}
 .vp-bar::-webkit-scrollbar{display:none}
 .vp-slot{position:relative;flex:none}
 .vp-pill{display:inline-flex;align-items:center;gap:var(--k-space-3);height:var(--k-control-h, 26px);padding:0 var(--k-space-5);
@@ -23,8 +23,11 @@
 .vp-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--k-pending)}
 .vp-dot.pass{background:var(--k-passed)}.vp-dot.fail{background:var(--k-failed)}
 .vp-dot.run,.vp-dot.wait{background:var(--k-running)}
-@container (max-width:699px){.vp-bar{mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent)}}
+/* The row scrolls only below 700px; an overflow container would clip the stream menu, so there the menu is fixed to the frame. */
+@container (max-width:699px){
+  .vp-bar{overflow-x:auto;mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent)}
+  .vp-menu{position:fixed;left:8px;right:8px;width:auto;max-width:none;margin-top:calc(var(--k-control-h, 26px) + var(--k-space-2))}
+}
 @container (max-width:399px){
   .vp-text,.vp-count{display:none}
-  .vp-menu{position:fixed;left:8px;right:8px;width:auto;max-width:none}
 }
