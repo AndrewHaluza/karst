@@ -301,6 +301,8 @@
   .srchead.manual{color:var(--k-text-dim)}
   .srchead .srcid{font-family:var(--k-font-mono);overflow-wrap:anywhere;display:inline-flex;align-items:center;
     min-height:var(--k-control-h-sm)}
+  .srchead a.srcid{color:var(--k-link);text-decoration:none}
+  .srchead a.srcid:hover{color:var(--k-link-active);text-decoration:underline}
   .k-iconbtn.is-copied{color:var(--k-success)}
   #keyRow{margin-top:var(--k-space-4)}
   #keyRow.hidden{display:none}
@@ -315,19 +317,25 @@
   #briefToggle[aria-expanded="true"] svg{transform:rotate(180deg)}
   @media (prefers-reduced-motion:reduce){#briefToggle svg{transition:none}}
   .brief-fetched{color:var(--k-text-dim)}
+  .brief-fetched::before{content:"· "}
   .brief-meta{display:flex;flex-wrap:wrap;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-6) var(--k-space-4);
     font-size:var(--k-text-sm);align-items:center}
-  .brief-fact,.brief-person{color:var(--k-text-dim)}
+  .brief-fact{color:var(--k-text-dim)}
+  .brief-person{color:var(--k-text-dim)}
+  .brief-label{font-weight:var(--k-weight-semibold)}
+  .brief-from{color:var(--k-text-dim)}
   .brief-person{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
     padding:var(--k-space-1) var(--k-space-3)}
   .brief-body{max-height:var(--k-brief-max-h);overflow:auto;padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-excerpt{padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-excerpt,.brief-desc,.brief-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--k-text-md);
-    line-height:var(--k-leading-normal)}
+    line-height:var(--k-leading-normal);color:var(--k-text-dim)}
   .brief-more{margin:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-sub{margin:var(--k-space-6) var(--k-space-0) var(--k-space-3);font-size:var(--k-text-sm);
     color:var(--k-text-dim);font-weight:var(--k-weight-semibold)}
-  .brief-att{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;margin-bottom:var(--k-space-3)}
+  .brief-att{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;margin-bottom:var(--k-space-3);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);padding:var(--k-space-2) var(--k-space-4)}
+  .brief-att svg{flex:none;color:var(--k-text-dim)}
   .brief-att .attname{flex:1;min-width:0;overflow-wrap:anywhere}
   .brief-comment{display:flex;gap:var(--k-space-4);margin-bottom:var(--k-space-5)}
   .brief-avatar{flex:none;width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);
@@ -979,7 +987,7 @@
     if (!b) return '';
     const parts = [];
     ['status', 'priority', 'milestone'].forEach((k) => {
-      if (b[k]) parts.push('<span class="brief-fact">' + esc(clip(b[k], BRIEF_NAME_MAX_CHARS)) + '</span>');
+      if (b[k]) parts.push('<span class="k-chip">' + esc(clip(b[k], BRIEF_NAME_MAX_CHARS)) + '</span>');
     });
     (b.tags || []).forEach((t) => parts.push('<span class="k-chip">' + esc(clip(t, BRIEF_NAME_MAX_CHARS)) + '</span>'));
     const people = b.people || [];
@@ -1006,7 +1014,7 @@
 
   function briefAttachmentsHtml(atts) {
     return '<div id="briefAttachments"><h3 class="brief-sub">Attachments · ' + atts.length + '</h3>'
-      + atts.map((a, i) => '<div class="brief-att"><span class="attname">' + esc(clip(a.name, BRIEF_NAME_MAX_CHARS)) + '</span>'
+      + atts.map((a, i) => '<div class="brief-att">' + karstIcon('paperclip', 14) + '<span class="attname">' + esc(clip(a.name, BRIEF_NAME_MAX_CHARS)) + '</span>'
         + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-brief-attach="' + i + '">Attach to ticket</button></div>').join('') + '</div>';
   }
 
@@ -1016,12 +1024,12 @@
     return '<div class="brief-head">'
       + '<button type="button" class="k-iconbtn" id="briefToggle" aria-expanded="' + briefOpen + '" aria-controls="briefBody"'
       + ' aria-label="Toggle brief" title="Toggle brief">' + karstIcon('chevron-down', 16) + '</button>'
-      + '<span>Brief from ' + providerBadgeHtml(currentProvider) + '</span>'
+      + '<span class="brief-label">Brief</span><span class="brief-from">from</span>' + providerBadgeHtml(currentProvider)
       + (fetched ? '<span class="brief-fetched" id="briefFetched">fetched ' + esc(fetched) + '</span>' : '')
       + '<span class="grow"></span>'
       + (promptUndo ? '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefUndo">Undo</button>' : '')
-      + '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefUse">Use as prompt</button>'
-      + (url ? '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefOpen" data-act="open-ticket-link" data-url="' + esc(url) + '">Open ↗</button>' : '')
+      + '<button type="button" class="k-btn k-btn--link k-btn--sm" id="briefUse">Use as prompt</button>'
+      + (url ? '<button type="button" class="k-btn k-btn--link k-btn--sm" id="briefOpen" data-act="open-ticket-link" data-url="' + esc(url) + '">Open ↗</button>' : '')
       + '</div>';
   }
 
@@ -1031,7 +1039,7 @@
       return '<div class="brief-body" id="briefBody"><div class="brief-desc">' + esc(desc) + '</div>'
         + (atts.length ? briefAttachmentsHtml(atts) : '')
         + (comments.length ? briefCommentsHtml(comments) : '') + '</div>'
-        + '<div class="brief-foot"><button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefCollapse">Collapse</button>'
+        + '<div class="brief-foot"><button type="button" class="k-btn k-btn--link k-btn--sm" id="briefCollapse">Collapse</button>'
         + '<span>Read-only. Reply in ' + esc(label) + '.</span></div>';
     }
     const all = desc.split('\n');
