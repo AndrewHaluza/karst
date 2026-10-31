@@ -127,3 +127,30 @@ describe('evalDockerPlan', () => {
     expect(() => evalDockerPlan(['--eval', 'claude', '--eval-task', '/d/t', '--eval-env', 'K=v'], '/repo', dirs)).toThrow(/env-var name/);
   });
 });
+
+import { connect } from 'node:net';
+import { startProxy } from './evalProxy.mjs';
+
+describe('startProxy', () => {
+  const talk = (port, payload) => new Promise((resolve) => {
+    const c = connect(port, '127.0.0.1', () => payload.forEach((p) => c.write(p)));
+    let out = '';
+    c.on('data', (d) => { out += d; if (out.includes('\r\n\r\n')) { c.destroy(); resolve(out); } });
+    c.on('close', () => resolve(out));
+  });
+  it('denies a disallowed host even when the header arrives in split chunks', async () => {
+    const seen = [];
+    const server = await startProxy({ allowed: ['registry.npmjs.org'], port: 0, onDecision: (d) => seen.push(d) });
+    const { port } = server.address();
+    const out = await talk(port, ['CONNECT github.com:44', '3 HTTP/1.1\r\nHost: x\r\n', '\r\n']);
+    server.close();
+    expect(out).toContain('403');
+    expect(seen).toEqual([{ host: 'github.com', allowed: false }]);
+  });
+  it('refuses non-CONNECT requests', async () => {
+    const server = await startProxy({ allowed: ['registry.npmjs.org'], port: 0 });
+    const out = await talk(server.address().port, ['GET http://github.com/ HTTP/1.1\r\n\r\n']);
+    server.close();
+    expect(out).toContain('403');
+  });
+});

@@ -6,6 +6,8 @@ export function hostAllowed(host, allowed) {
   return allowed.some((a) => h === a || h.endsWith(`.${a}`));
 }
 
+const MAX_HEADER_BYTES = 8192;
+
 /** Parses `CONNECT host:port HTTP/1.1`; returns null for anything else (plain-HTTP proxying is refused). */
 export function parseConnect(line) {
   const m = /^CONNECT ([^\s:]+):(\d{1,5}) HTTP\/1\.[01]$/.exec(line.trim());
@@ -19,24 +21,37 @@ export function parseConnect(line) {
  */
 export function startProxy({ allowed, port, onDecision = () => {} }) {
   const server = createServer((client) => {
-    client.once('data', (buf) => {
-      const head = buf.toString('latin1');
-      const target = parseConnect(head.split('\r\n')[0] ?? '');
+    let pending = Buffer.alloc(0);
+    const onData = (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      const end = pending.indexOf('\r\n\r\n');
+      if (end < 0) {
+        if (pending.length > MAX_HEADER_BYTES) client.destroy();
+        return; // header not complete yet: keep buffering
+      }
+      client.off('data', onData);
+      client.pause();
+      const target = parseConnect(pending.subarray(0, end).toString('latin1').split('\r\n')[0] ?? '');
       if (!target || target.port !== 443 || !hostAllowed(target.host, allowed)) {
         onDecision({ host: target?.host ?? '(non-CONNECT)', allowed: false });
         client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
         return;
       }
       onDecision({ host: target.host, allowed: true });
+      const early = pending.subarray(end + 4); // bytes pipelined behind the CONNECT header
       const upstream = connect(target.port, target.host, () => {
         client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (early.length > 0) upstream.write(early);
         client.pipe(upstream);
         upstream.pipe(client);
+        client.resume();
       });
       const drop = () => { client.destroy(); upstream.destroy(); };
       upstream.on('error', drop);
       client.on('error', drop);
-    });
+    };
+    client.on('data', onData);
+    client.on('error', () => client.destroy());
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
 }
