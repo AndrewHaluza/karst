@@ -495,23 +495,20 @@ describe('attachment strip', () => {
     expect(render([]).trim()).toBe('');
   });
 
-  it('renders an image tile with an img element pointing at the src', () => {
+  it('renders an image chip with a photo glyph and the name', () => {
     const html = render([
       { id: 1, kind: 'image', name: 'login-error.png', byteSize: 4096, src: 'webview://a.png' },
     ]);
-    expect(html).toContain('<img');
-    expect(html).toContain('src="webview://a.png"');
+    expect(html).toContain('data-icon="photo"');
     expect(html).toContain('login-error.png');
   });
 
-  it('renders a video tile with a controllable video element', () => {
+  it('renders a video chip with a video glyph and the name', () => {
     const html = render([
       { id: 2, kind: 'video', name: 'repro.mov', byteSize: 1048576, src: 'webview://b.mp4' },
     ]);
-    expect(html).toContain('<video');
-    expect(html).toContain('controls');
-    expect(html).toContain('preload="metadata"');
-    expect(html).toContain('src="webview://b.mp4"');
+    expect(html).toContain('data-icon="video"');
+    expect(html).toContain('repro.mov');
   });
 
   it('renders a file tile with a file-text glyph and no media element', () => {
@@ -530,7 +527,8 @@ describe('attachment strip', () => {
     const html = render([
       { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
     ]);
-    expect(html).toMatch(/<img[^>]*data-attach-id="7"/);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('data-icon="photo"');
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="7"/);
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="7"/);
     expect(html).toContain('aria-label="Open a.png"');
@@ -540,7 +538,8 @@ describe('attachment strip', () => {
     const html = render([
       { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },
     ]);
-    expect(html).toMatch(/<video[^>]*data-attach-id="8"/);
+    expect(html).not.toContain('<video');
+    expect(html).toContain('data-icon="video"');
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="8"/);
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="8"/);
     expect(html).toContain('aria-label="Open b.mov"');
@@ -1201,8 +1200,9 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
     expect(HTML).toContain('title="Filters search results"');
   });
 
-  it('gives the attachment detach button a scrim background', () => {
-    expect(rule('.attachdetach')).toContain('background:var(--k-scrim)');
+  it('renders attachments as compact inline chips, not tall tiles', () => {
+    expect(rule('.attachtile')).toContain('display:inline-flex');
+    expect(HTML).not.toContain('attachmeta');
   });
 
   it('announces sync/delta changes politely', () => {

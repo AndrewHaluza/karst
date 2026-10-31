@@ -98,22 +98,12 @@
   .hint{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-0)}
   .attachstrip{display:flex;flex-wrap:wrap;gap:var(--k-space-4)}
   .attachstrip:empty{display:none}
-  .attachtile{position:relative;display:flex;flex-direction:column;width:calc(var(--k-space-8) * 6.6);border-radius:var(--k-radius-sm);overflow:hidden;
-    border:var(--k-border-w) solid var(--k-border)}
-  .attachtile img,.attachtile video{display:block;flex:none;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
-    background:var(--k-bg)}
-  .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
-    color:var(--k-text-dim)}
-  .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
-    color:var(--k-text-dim)}
-  .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  /* .attachdetach/.attachopen are `.k-iconbtn`/`.k-btn` instances (UI-R07) —
-     only LAYOUT (position, size, border SIDE) stays local; the tile's own
-     `overflow:hidden` (above) clips the primitive's corner radius flush with
-     the tile edge, so nothing here needs to override it. */
-  .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1);background:var(--k-scrim)}
-  .attachopen{display:flex;width:100%;justify-content:center;
-    border-top:var(--k-border-w) solid var(--k-border)}
+  /* Compact chip (prototype .m-att): icon + name + remove, one inline row. */
+  .attachtile{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-2);
+    font-size:var(--k-text-sm)}
+  .attachname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(var(--k-space-8) * 5)}
+  .attachopen{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0}
   /* The Attach… button reports its outcome through the strip — the tile appearing IS
      the result (UI-R13); the shared primitive shows no success treatment. */
 
@@ -681,26 +671,17 @@
   function renderAttachments(list) {
     if (!list || list.length === 0) return '';
     return list.map(function (a) {
-      const media = a.kind === 'video'
-        ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
-          + 'data-attach-id="' + esc(a.id) + '"></video>'
-        : a.kind === 'file'
-        ? '<span class="attachfile" aria-hidden="true">' + karstIcon('file-text', 26) + '</span>'
-        : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
-          + 'data-attach-id="' + esc(a.id) + '">';
-      return '<div class="attachtile">'
-        + media
-        // Destructive (removes the attachment) → `.k-iconbtn--danger` (UI-R10b);
-        // aria-label matches the tooltip text exactly, since the glyph carries
-        // no accessible name of its own (UI-R21, R24).
+      const icon = a.kind === 'video' ? 'video' : a.kind === 'file' ? 'file-text' : 'photo';
+      return '<span class="attachtile">'
+        // The chip body opens the attachment; the label names the file for AT.
+        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
+        + 'title="Open attachment (' + esc(formatBytes(a.byteSize)) + ')" aria-label="Open ' + esc(a.name) + '">'
+        + karstIcon(icon, 14) + '<span class="attachname">' + esc(a.name) + '</span></button>'
+        // Destructive → `.k-iconbtn--danger` (UI-R10b); aria-label matches the tooltip (UI-R21, R24).
         + '<button type="button" class="k-iconbtn k-iconbtn--danger attachdetach" data-attach-id="' + esc(a.id) + '" '
         + 'aria-label="Remove attachment" title="Remove attachment">'
         + '<span aria-hidden="true">&times;</span></button>'
-        + '<span class="attachmeta"><span class="attachname" title="' + esc(a.name) + '">'
-        + esc(a.name) + '</span>' + esc(formatBytes(a.byteSize)) + '</span>'
-        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
-        + 'title="Open attachment" aria-label="Open ' + esc(a.name) + '">Open</button>'
-        + '</div>';
+        + '</span>';
     }).join('');
   }
 
