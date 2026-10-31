@@ -587,3 +587,35 @@ describe('baked ticket key (no $ARGUMENTS)', () => {
     expect(renderStartTaskCommand(base)).toContain('$ARGUMENTS');
   });
 });
+
+describe('deferred MCP ToolSearch hint (claude core)', () => {
+  const ctx = 'node "$KARST_CLI" context';
+  const hint = 'karst MCP tools may be deferred: load them first with ToolSearch `select:mcp__karst__context,mcp__karst__guide,mcp__karst__stage,mcp__karst__phase,mcp__karst__notes,mcp__karst__artifact,mcp__karst__fix-brief,mcp__karst__conflict-brief`.';
+  const count = (s: string) => s.split('karst MCP tools may be deferred').length - 1;
+
+  it('names the registered tools once per entry command when deferredMcp', () => {
+    const bodies = [
+      renderStartTaskCommand({ contextCommand: ctx, mcp: true, deferredMcp: true }),
+      renderResumeCommand({ contextCommand: ctx, mcp: true, deferredMcp: true }),
+      renderFixCommand({ contextCommand: ctx, fixBriefCommand: 'fb', mcp: true, deferredMcp: true }),
+      renderResolveConflictCommand({ contextCommand: ctx, conflictBriefCommand: 'cb', mcp: true, deferredMcp: true }),
+    ];
+    for (const b of bodies) {
+      expect(count(b)).toBe(1);
+      expect(b).toContain(hint);
+      expect(b.indexOf(hint)).toBeLessThan(b.indexOf('karst MCP tool `'));
+      expect(b).toMatch(/tool is not available, run/);
+    }
+  });
+
+  it('workflow command carries it once, before the first MCP call', () => {
+    const b = renderWorkflowCommand({ id: 'x', label: 'X', phases: [{ name: 'p' }], contextCommand: ctx, stageCommand: 'node "$KARST_CLI" stage impl pass', mcp: true, deferredMcp: true });
+    expect(count(b)).toBe(1);
+    expect(b.indexOf(hint)).toBeLessThan(b.indexOf('karst MCP tool `'));
+  });
+
+  it('is absent without deferredMcp (codex/opencode) or without mcp', () => {
+    expect(renderStartTaskCommand({ contextCommand: ctx, mcp: true })).not.toContain('deferred');
+    expect(renderStartTaskCommand({ contextCommand: ctx, deferredMcp: true })).not.toContain('deferred');
+  });
+});

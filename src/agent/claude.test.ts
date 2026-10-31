@@ -1074,6 +1074,7 @@ describe('ClaudeAdapter.materializeApproach', () => {
       expect(body, name).toContain(`karst MCP tool ${tool}`);
       expect(body, name).toContain('$KARST_CLI');
       expect(body, name).not.toMatch(/\/Users\/|globalStorage|\/ext\//);
+      expect(body.split('ToolSearch `select:mcp__karst__context,').length - 1, name).toBe(1);
     }
     const testSkill = readFileSync(join(root, 'skills', 'karst-test', 'SKILL.md'), 'utf8');
     expect(testSkill).not.toContain('MCP tool');

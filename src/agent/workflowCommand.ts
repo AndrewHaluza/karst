@@ -1,5 +1,6 @@
 import type { WorkflowPhase } from '../manifest/types.js';
 import { PREFIX } from '../model/entityId.js';
+import { KARST_MCP_NAME } from './mcpConfig.js';
 import type { MarkerStage } from './markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO, PROCESS_KILL_RULE } from './promptText.js';
 
@@ -192,6 +193,24 @@ export function renderGateOnlyInstruction(): string {
   );
 }
 
+/** Karst MCP tools the generated commands name (local names; the server prefix is added). */
+const COMMAND_MCP_TOOLS = ['context', 'guide', 'stage', 'phase', 'notes', 'artifact', 'fix-brief', 'conflict-brief'] as const;
+
+/**
+ * Claude Code defers MCP tool schemas: calling one before loading it fails.
+ * ONE sentence per command file naming the registered tools (`mcp__<server>__<tool>`,
+ * server name from mcpConfig). Claude core only — other cores have no ToolSearch.
+ */
+export function renderDeferredMcpHint(): string {
+  const names = COMMAND_MCP_TOOLS.map((t) => `mcp__${KARST_MCP_NAME}__${t}`).join(',');
+  return `karst MCP tools may be deferred: load them first with ToolSearch \`select:${names}\`.`;
+}
+
+/** The hint paragraph (with its blank-line separator), or '' when it does not apply. */
+function deferredHintPrefix(mcp?: boolean, deferredMcp?: boolean): string {
+  return mcp && deferredMcp ? `${renderDeferredMcpHint()}\n\n` : '';
+}
+
 /**
  * Shared core paragraphs emitted by all four human-facing command renderers.
  * NOT exported — an implementation detail kept private so the four bodies
@@ -253,13 +272,14 @@ export function renderStartTaskCommand(input: {
   contextCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  deferredMcp?: boolean;
   ticketKey?: string;
 }): string {
-  const { contextCommand, guideCommand, mcp, ticketKey } = input;
+  const { contextCommand, guideCommand, mcp, ticketKey, deferredMcp } = input;
   const grammarParagraph = ticketKey
     ? `This session works ticket \`${ticketKey}\`; the brief the user wrote follows this command in the kickoff, and the brief is the work.`
     : `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id; everything after it is the brief the user wrote, and the brief is the work.`;
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
+  return deferredHintPrefix(mcp, deferredMcp) + grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -271,15 +291,16 @@ export function renderResumeCommand(input: {
   contextCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  deferredMcp?: boolean;
   ticketKey?: string;
 }): string {
-  const { contextCommand, guideCommand, mcp, ticketKey } = input;
+  const { contextCommand, guideCommand, mcp, ticketKey, deferredMcp } = input;
   const grammarParagraph =
     (ticketKey
       ? `This session works ticket \`${ticketKey}\`. `
       : `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. `) +
     'This session is resuming work already in progress — there is no brief.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
+  return deferredHintPrefix(mcp, deferredMcp) + grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -292,9 +313,10 @@ export function renderFixCommand(input: {
   fixBriefCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  deferredMcp?: boolean;
   ticketKey?: string;
 }): string {
-  const { contextCommand, fixBriefCommand, guideCommand, mcp, ticketKey } = input;
+  const { contextCommand, fixBriefCommand, guideCommand, mcp, ticketKey, deferredMcp } = input;
   const key = ticketKey ?? '<key>';
   const grammarParagraph =
     (ticketKey
@@ -305,7 +327,7 @@ export function renderFixCommand(input: {
       : `Run \`${fixBriefCommand} ${key}\` FIRST`) +
     ' and treat its output as the work — the brief ' +
     'names the gate that failed and what it reported.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
+  return deferredHintPrefix(mcp, deferredMcp) + grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -319,10 +341,11 @@ export function renderResolveConflictCommand(input: {
   conflictBriefCommand: string;
   guideCommand?: string;
   mcp?: boolean;
+  deferredMcp?: boolean;
   ticketKey?: string;
   conflictRepo?: string;
 }): string {
-  const { contextCommand, conflictBriefCommand, guideCommand, mcp, ticketKey, conflictRepo } = input;
+  const { contextCommand, conflictBriefCommand, guideCommand, mcp, ticketKey, conflictRepo, deferredMcp } = input;
   const baked = ticketKey !== undefined && conflictRepo !== undefined;
   const args = baked ? entryArguments(ticketKey, conflictRepo) : '<key> <repo>';
   const grammarParagraph =
@@ -334,7 +357,7 @@ export function renderResolveConflictCommand(input: {
       : `Run \`${conflictBriefCommand} ${args}\` FIRST`) +
     ' — resolving the named conflict is the ' +
     'whole job and it must not drift into other work.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
+  return deferredHintPrefix(mcp, deferredMcp) + grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp, ticketKey);
 }
 
 /**
@@ -390,6 +413,8 @@ export function renderWorkflowCommand(input: {
    * MCP tool first and keep the CLI line as fallback. Absent → CLI-only, byte-identical.
    */
   mcp?: boolean;
+  /** Claude Code defers MCP schemas: add the one-line ToolSearch hint (claude core only; needs `mcp`). */
+  deferredMcp?: boolean;
   /**
    * The concrete ticket key baked in where `$ARGUMENTS` would stand. `$ARGUMENTS`
    * expands to the whole kickoff (ticket narrative included) at every
@@ -397,7 +422,7 @@ export function renderWorkflowCommand(input: {
    */
   ticketKey?: string;
 }): string {
-  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand, mcp, ticketKey } = input;
+  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand, mcp, ticketKey, deferredMcp } = input;
   const arg = ticketKey ?? '$ARGUMENTS';
   // Every CLI command this body inlines shares the same `node "<cli>"` head. Emit
   // that shared invocation ONCE as the `KARST` alias at the top of the body, then
@@ -453,6 +478,7 @@ export function renderWorkflowCommand(input: {
     `# ${label}`,
     '',
     ...karstBlock,
+    ...(mcp && deferredMcp ? [renderDeferredMcpHint(), ''] : []),
     loadInstruction + guideClause,
     '',
     ...(phaseCommand
