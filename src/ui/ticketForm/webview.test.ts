@@ -495,23 +495,20 @@ describe('attachment strip', () => {
     expect(render([]).trim()).toBe('');
   });
 
-  it('renders an image tile with an img element pointing at the src', () => {
+  it('renders an image chip with a photo glyph and the name', () => {
     const html = render([
       { id: 1, kind: 'image', name: 'login-error.png', byteSize: 4096, src: 'webview://a.png' },
     ]);
-    expect(html).toContain('<img');
-    expect(html).toContain('src="webview://a.png"');
+    expect(html).toContain('data-icon="photo"');
     expect(html).toContain('login-error.png');
   });
 
-  it('renders a video tile with a controllable video element', () => {
+  it('renders a video chip with a video glyph and the name', () => {
     const html = render([
       { id: 2, kind: 'video', name: 'repro.mov', byteSize: 1048576, src: 'webview://b.mp4' },
     ]);
-    expect(html).toContain('<video');
-    expect(html).toContain('controls');
-    expect(html).toContain('preload="metadata"');
-    expect(html).toContain('src="webview://b.mp4"');
+    expect(html).toContain('data-icon="video"');
+    expect(html).toContain('repro.mov');
   });
 
   it('renders a file tile with a file-text glyph and no media element', () => {
@@ -530,7 +527,8 @@ describe('attachment strip', () => {
     const html = render([
       { id: 7, kind: 'image', name: 'a.png', byteSize: 1, src: 'webview://a.png' },
     ]);
-    expect(html).toMatch(/<img[^>]*data-attach-id="7"/);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('data-icon="photo"');
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="7"/);
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="7"/);
     expect(html).toContain('aria-label="Open a.png"');
@@ -540,7 +538,8 @@ describe('attachment strip', () => {
     const html = render([
       { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },
     ]);
-    expect(html).toMatch(/<video[^>]*data-attach-id="8"/);
+    expect(html).not.toContain('<video');
+    expect(html).toContain('data-icon="video"');
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachdetach\b[^"]*"[^>]*data-attach-id="8"/);
     expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="8"/);
     expect(html).toContain('aria-label="Open b.mov"');
@@ -763,7 +762,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(main).not.toContain('#fetchBtn.done{');
   });
 
-  it('every <button> (static or templated) carries a k-btn/k-iconbtn/k-switch/k-chip/acard class (UI-R07)', () => {
+  it('every <button> (static or templated) carries a k-btn/k-iconbtn/k-switch/k-chip/approach-btn class (UI-R07)', () => {
     // Strip HTML comments, <style> blocks, and JS `//`/`/* */` comments first —
     // a doc comment describing markup (e.g. "a real <button role=…>") reads as
     // a bare `<button …>` tag to a naive regex otherwise.
@@ -774,15 +773,13 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     const buttonTags = [...withoutLineComments.matchAll(/<button\b[^>]*>/g)].map((m) => m[0]);
     expect(buttonTags.length).toBeGreaterThan(0);
     for (const tag of buttonTags) {
-      expect(tag, tag).toMatch(/class="[^"]*\b(k-btn|k-iconbtn|k-switch|k-chip|acard)\b/);
+      expect(tag, tag).toMatch(/class="[^"]*\b(k-btn|k-iconbtn|k-switch|k-chip|approach-btn)\b/);
     }
   });
 
-  it('#detailsBtn tracks its disclosure state via aria-expanded (UI-R26)', () => {
-    expect(HTML).toContain('id="detailsBtn" aria-expanded="false"');
+  it('#briefToggle tracks its disclosure state via aria-expanded (UI-R26)', () => {
     const script = scriptBlock();
-    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'true');");
-    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'false');");
+    expect(script).toContain('id="briefToggle" aria-expanded="\' + briefOpen + \'"');
   });
 
   it('repo chips are real buttons carrying aria-pressed, not a bare role="button" span (UI-R09, R26)', () => {
@@ -791,12 +788,14 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain('class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"');
   });
 
-  it('the approach picker is a radiogroup of real buttons carrying aria-checked (UI-R09, R26)', () => {
-    expect(HTML).toContain('id="approachList" role="radiogroup" aria-labelledby="approachHeading"');
+  it('the approach picker is a button-card opening a listbox of options (UI-R09, R26)', () => {
+    expect(HTML).toContain('id="approachList"');
     const script = scriptBlock();
-    expect(script).toContain('role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}"');
-    expect(script).not.toMatch(/class="acard[^"]*"\s+role="button"/);
+    expect(script).toContain('aria-haspopup="listbox"');
+    expect(script).toContain('role="option"');
+    expect(script).not.toContain('role="radio"');
   });
+
 
   it('the gate signal-word inputs carry an accessible name, not a placeholder alone (UI-R25)', () => {
     const script = scriptBlock();
@@ -830,7 +829,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
 
   it('the destructive attachment control uses the danger icon-button variant with a matching aria-label (UI-R10b, R21, R24)', () => {
     const script = scriptBlock();
-    expect(script).toContain('k-iconbtn k-iconbtn--danger attachdetach');
+    expect(script).toContain('k-iconbtn attachdetach');
     expect(script).toContain('aria-label="Remove attachment" title="Remove attachment"');
   });
 
@@ -1201,8 +1200,18 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
     expect(HTML).toContain('title="Filters search results"');
   });
 
-  it('gives the attachment detach button a scrim background', () => {
-    expect(rule('.attachdetach')).toContain('background:var(--k-scrim)');
+  it('attachment chip is flat: borderless open button, non-danger remove, bordered attach button (B′ prototype)', () => {
+    expect(rule('#attachBtn')).toContain('border:var(--k-border-w) solid var(--k-border)');
+    expect(rule('.attachopen')).toContain('border:0');
+    expect(rule('.attachdetach')).toContain('color:var(--k-text-dim)');
+    expect(HTML).toMatch(/id="attachBtn" class="k-iconbtn"/);
+    expect(scriptBlock()).not.toContain('k-iconbtn--danger attachdetach');
+    expect(scriptBlock()).toContain('k-iconbtn attachdetach');
+  });
+
+  it('renders attachments as compact inline chips, not tall tiles', () => {
+    expect(rule('.attachtile')).toContain('display:inline-flex');
+    expect(HTML).not.toContain('attachmeta');
   });
 
   it('announces sync/delta changes politely', () => {

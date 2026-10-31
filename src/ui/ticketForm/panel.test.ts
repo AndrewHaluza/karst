@@ -109,6 +109,8 @@ function recordingFactory(
       attachBytes: async () => {},
       detachAttachment: async () => {},
       openAttachment: async () => {},
+      attachBriefAttachment: async () => {},
+      openSettings: () => {},
       openTicketLink: () => {},
       createProviderTicket: () => {},
       retryRelationWriteback: () => {},

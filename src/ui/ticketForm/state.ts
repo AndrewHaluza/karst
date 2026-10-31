@@ -128,6 +128,8 @@ export interface TicketFormState {
   sourceRef: string;
   /** Synthesized context brief, or null before a fetch. */
   brief: string | null;
+  /** ISO time of the last fetch (`tickets.source_fetched_at`), or null before one. */
+  briefFetchedAt: string | null;
   /** Stored analysis intent (black-box test charter), or null before an analysis. */
   intent: string | null;
   /** Stored opt-in code pointers (unverified implementer hints), or null. */
@@ -418,6 +420,7 @@ export function buildTicketFormState(
       description: '',
       sourceRef: '',
       brief: null,
+      briefFetchedAt: null,
       intent: null,
       codePointers: null,
       provider,
@@ -484,6 +487,7 @@ export function buildTicketFormState(
     description: ticket.description ?? '',
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
+    briefFetchedAt: ticket.sourceFetchedAt,
     intent: ticket.intent,
     codePointers: ticket.codePointers,
     provider,

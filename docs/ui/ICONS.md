@@ -74,6 +74,7 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Clear a role's own value (Agents page) | `eraser` | icon button, label "Clear" |
 | Delete / destructive remove | `trash` | danger variant on the control, never the glyph |
 | Attach file (ticket form) | `paperclip` | icon-only button, label "Attach file" |
+| Copy ticket id | `copy` | icon-only button, label "Copy ticket id"; flashes `check` on success |
 | New ticket | `plus` | toolbar |
 | Start planning session | `bulb` | sidebar toolbar |
 | Search / filter | `search` | toolbar + facets |

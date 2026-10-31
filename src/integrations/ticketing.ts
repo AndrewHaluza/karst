@@ -200,6 +200,12 @@ export interface TicketingProvider {
    */
   fetchTicket?(ref: string): Promise<ContextBrief>;
   /**
+   * Download one attachment of a fetched brief, with the credential scoped to
+   * the provider's own hosts. Optional: `manualProvider` has no remote. Throws
+   * on a failed download; the caller reports it.
+   */
+  downloadAttachment?(attachment: BriefAttachment): Promise<Uint8Array>;
+  /**
    * List available statuses for the configured list. Optional: only ClickUp
    * implements this. Returns status names in provider order.
    */

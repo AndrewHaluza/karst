@@ -2063,6 +2063,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       warn: (msg: string) => logger.warn(msg),
       listInstalledIds: listInstalledApproachIds,
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+      openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
       storageDir: context.globalStorageUri.fsPath,
       pickAttachment: async (): Promise<string[]> => {
         const picked = await vscode.window.showOpenDialog({

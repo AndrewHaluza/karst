@@ -70,19 +70,16 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
   });
 
   // The policy is only this tight because nothing loads externally. The ticket form
-  // is the narrow exception: its attachment renderer emits img/video elements,
-  // and its panel alone receives the media-source CSP grant (the dashboard gets the
-  // same grant for img only, for the baseline review's images). If another webview
+  // attachments are icon chips (no media elements); its panel still receives the
+  // media-source CSP grant and the dashboard gets it for img only, for the
+  // baseline review's images. If another webview
   // gains a <link>/<img>/<video>/url()/fetch(), default-src 'none' silently
   // breaks it — better to fail here, at the assumption, than to debug a blank
   // panel.
   it('loads nothing externally, which is what default-src none assumes', () => {
     const html = read(name);
     expect(html).not.toMatch(/<link\b/);
-    if (name === 'ticketForm') {
-      expect(html).toMatch(/<img\b/);
-      expect(html).toMatch(/<video\b/);
-    } else if (name === 'dashboard') {
+    if (name === 'dashboard') {
       // The blocked banner's baseline review shows images (@arch:BASELINE-REVIEW), and the panel's CSP grants img-src
       // for them. Since the banner moved to React (app/BaselineReview.tsx) the <img> is rendered by the injected app
       // bundle, so this document itself carries none.

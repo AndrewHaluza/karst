@@ -341,6 +341,18 @@ describe('parseTicketFormMessage', () => {
     expect(parseTicketFormMessage({ type: 'open-ticket-link', url: 42 })).toBeNull();
   });
 
+  it('parses open-settings with no payload', () => {
+    expect(parseTicketFormMessage({ type: 'open-settings' })).toEqual({ type: 'open-settings' });
+  });
+
+  it('parses attach-brief-attachment only with a non-negative integer index', () => {
+    expect(parseTicketFormMessage({ type: 'attach-brief-attachment', index: 0 }))
+      .toEqual({ type: 'attach-brief-attachment', index: 0 });
+    for (const index of [-1, 1.5, '1', null, undefined]) {
+      expect(parseTicketFormMessage({ type: 'attach-brief-attachment', index })).toBeNull();
+    }
+  });
+
   it('records keyAutoDerived (auto-derived key) on submit and save', () => {
     const auto = { key: 'FIX-LOGIN-REDIRECT', title: 'Fix login redirect', description: 'd' };
     const submit = parseTicketFormMessage({ type: 'submit', ...auto, keyAutoDerived: true });
@@ -363,6 +375,7 @@ describe('parseTicketFormMessage', () => {
       setProvider: () => {}, setPreset: () => {}, setType: () => {}, setBackend: () => {}, analyze: () => {}, attachPick: async () => {},
       usageLimitParkPick: () => {}, usageLimitParkRetry: () => {}, usageLimitParkDismiss: () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
+      attachBriefAttachment: async () => {}, openSettings: () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
       retryRelationWriteback: () => {}, openDependency: () => {},
       closeForm: () => {},
@@ -413,6 +426,8 @@ describe('routeTicketFormAction', () => {
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
       openAttachment: vi.fn(),
+      attachBriefAttachment: vi.fn(),
+      openSettings: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),
       retryRelationWriteback: vi.fn(),
@@ -472,6 +487,8 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
     routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     routeTicketFormAction({ type: 'create-provider-ticket' }, actions);
+    routeTicketFormAction({ type: 'attach-brief-attachment', index: 2 }, actions);
+    routeTicketFormAction({ type: 'open-settings' }, actions);
     routeTicketFormAction({ type: 'close-form' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.searchTickets).toHaveBeenCalledWith('pay', 'to do');
@@ -489,6 +506,8 @@ describe('routeTicketFormAction', () => {
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
     expect(actions.createProviderTicket).toHaveBeenCalled();
+    expect(actions.attachBriefAttachment).toHaveBeenCalledWith(2);
+    expect(actions.openSettings).toHaveBeenCalledTimes(1);
     expect(actions.closeForm).toHaveBeenCalled();
     // set-provider must not also drive setType (a missing `return` in the
     // switch made a provider pick write the provider id as the ticket TYPE).
@@ -567,6 +586,8 @@ describe('attachment messages', () => {
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
       openAttachment: vi.fn(),
+      attachBriefAttachment: vi.fn(),
+      openSettings: vi.fn(),
     };
   }
 

@@ -91,45 +91,26 @@
   #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
-  .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-5)}
+  .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3);margin-top:var(--k-space-5)}
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
      secondary-text treatment `.sub` gives page-level notes, without its
      bottom margin (this rides a flex row). */
   .hint{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-0)}
+  #attachBtn{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-3)}
   .attachstrip{display:flex;flex-wrap:wrap;gap:var(--k-space-4)}
   .attachstrip:empty{display:none}
-  .attachtile{position:relative;display:flex;flex-direction:column;width:calc(var(--k-space-8) * 6.6);border-radius:var(--k-radius-sm);overflow:hidden;
-    border:var(--k-border-w) solid var(--k-border)}
-  .attachtile img,.attachtile video{display:block;flex:none;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
-    background:var(--k-bg)}
-  .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
-    color:var(--k-text-dim)}
-  .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
-    color:var(--k-text-dim)}
-  .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  /* .attachdetach/.attachopen are `.k-iconbtn`/`.k-btn` instances (UI-R07) —
-     only LAYOUT (position, size, border SIDE) stays local; the tile's own
-     `overflow:hidden` (above) clips the primitive's corner radius flush with
-     the tile edge, so nothing here needs to override it. */
-  .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1);background:var(--k-scrim)}
-  .attachopen{display:flex;width:100%;justify-content:center;
-    border-top:var(--k-border-w) solid var(--k-border)}
+  /* Compact chip (prototype .m-att): icon + name + remove, one inline row. */
+  .attachtile{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-0) var(--k-space-1) var(--k-space-0) var(--k-space-3);
+    font-size:var(--k-text-sm)}
+  .attachname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(var(--k-space-8) * 20)}
+  .attachopen{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;border:0;padding:var(--k-space-0);
+    min-height:var(--k-control-h-sm);background:transparent}
+  .attachdetach{color:var(--k-text-dim);min-height:var(--k-control-h-sm);min-width:var(--k-control-h-sm);padding:var(--k-space-0)}
+  .attachdetach:hover,.attachdetach:focus-visible{color:var(--k-danger)}
   /* The Attach… button reports its outcome through the strip — the tile appearing IS
      the result (UI-R13); the shared primitive shows no success treatment. */
 
-  /* Card heading row: title on the left, provider chip pinned top-right. */
-  .cardhead{display:flex;align-items:center;justify-content:space-between;
-    gap:var(--k-space-5);margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
-  .cardhead h2{margin:var(--k-space-0)}
-  .cardhead .provline{margin:var(--k-space-0)}
-
-  /* Provider chip (top-right of the Ticket card): tells the user WHERE a fetch
-     pulls from. The badge portion (icon + brand) is the shared provider-identity
-     component (§ KARST_PROVIDER_CSS below); this just lays out the "Fetches
-     from …" row around it. */
-  .provline{display:flex;align-items:center;gap:var(--k-space-4);font-size:var(--k-text-sm);
-    margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);white-space:nowrap}
-  .provline.manual{color:var(--k-text-dim)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). Used by the "Fetches from" chip above and the
@@ -192,13 +173,7 @@
      never shifts between states. */
   #fetchBtn{min-width:calc(var(--k-space-8) * 5.2);white-space:nowrap}
 
-  /* "Show details" link, shown next to the field once a brief exists. */
   .row2{display:flex;align-items:center;gap:var(--k-space-6);margin-top:var(--k-space-4)}
-  /* External ticket link (opens the board): a distinct action from "Show
-     details" (which reads the local brief), so it's pushed to the row's far
-     end rather than sitting flush beside it. */
-  #ticketLink{margin-left:auto;font-size:var(--k-text-sm);display:inline-flex;align-items:center;gap:var(--k-space-2)}
-
   /* Key-field search combobox: the input plus its dropdown. `.searchbox` is
      the positioning context (the popup spans the input's width, not the whole
      row); the popup follows the same absolute/elevated pattern as the
@@ -271,20 +246,32 @@
      (the same call settings.ts makes for `.card-toggle`). Values are tokens
      throughout even though the shape itself is local. */
   .approaches{display:flex;flex-direction:column;gap:var(--k-space-4)}
-  .acard{display:flex;gap:var(--k-space-5);align-items:flex-start;text-align:left;
+  .approaches{position:relative}
+  .approach-btn{display:flex;gap:var(--k-space-5);align-items:flex-start;text-align:left;
     width:100%;font:inherit;color:inherit;cursor:pointer;
     padding:var(--k-space-5) var(--k-space-6);border-radius:var(--k-radius-md);
     border:var(--k-border-w) solid var(--k-border);background:transparent}
-  .acard[aria-checked="true"]{border-color:var(--k-focus);
-    background:var(--k-surface-hover)}
-  .acard:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .acard .radio{flex:none;width:var(--k-space-6);height:var(--k-space-6);border-radius:var(--k-radius-circle);margin-top:var(--k-space-1);
-    border:calc(var(--k-border-w) * 1.5) solid var(--k-text-dim)}
-  .acard[aria-checked="true"] .radio{border-color:var(--k-action-bg);
-    background:radial-gradient(circle,var(--k-action-bg) 42%,transparent 46%)}
-  .acard .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
-  .acard .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
-  .acard .adesc{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  .approach-btn[aria-expanded="true"]{border-color:var(--k-focus)}
+  .approach-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .approach-btn .achev{flex:none;display:inline-flex;margin-top:var(--k-space-1)}
+  .approach-btn[aria-expanded="true"] .achev{transform:rotate(180deg)}
+  .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+  .adesc{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  /* The popover is capped to the viewport so it never spills at tight width. */
+  .approach-pop{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;max-width:100%;
+    z-index:var(--k-z-drawer);box-sizing:border-box;
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
+    max-height:60vh;overflow:auto}
+  .aopt{display:flex;gap:var(--k-space-4);align-items:flex-start;padding:var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer}
+  .aopt:hover,.aopt.is-active{background:var(--k-surface-hover)}
+  .aopt[aria-selected="true"]{background:var(--k-surface-hover);box-shadow:inset var(--k-border-w) 0 0 var(--k-focus)}
+  .aopt .acheck{flex:none;width:var(--k-space-6);color:var(--k-focus)}
+  .approach-manage{display:block;width:100%;text-align:left;margin-top:var(--k-space-2)}
+  .approach-manage.is-active{background:var(--k-surface-hover)}
 
   /* Inline improve control (dirty-state model): the Prompt label on the left;
      on the right the Auto-improve switch, a status that flips ✓ in sync ↔ Δ <why>,
@@ -302,25 +289,60 @@
     border:var(--k-border-w) solid var(--k-warning);
     border-radius:var(--k-radius-xs);padding:var(--k-space-1) var(--k-space-3)}
 
-  /* Slide-over brief drawer — the page's signature moment. `.k-scrim`/`.k-drawer`
-     supply the surface/shadow/border/z-index; the open/closed transform (the
-     primitive has no default-closed state to toggle) and the scrim's own
-     opacity fade stay local. */
-  .scrim{opacity:0;pointer-events:none;transition:opacity var(--k-dur-base) var(--k-ease-standard)}
-  .scrim.open{opacity:1;pointer-events:auto}
-  @media (prefers-reduced-motion:reduce){
-    .scrim{transition:none}
-  }
-  #drawer{width:min(calc(var(--k-space-8) * 23),86vw);display:flex;flex-direction:column;
-    transform:translateX(100%)}
-  #drawer.open{transform:translateX(0)}
-  #drawer:not(.open){visibility:hidden}
-  .drawer-head{display:flex;align-items:center;gap:var(--k-space-5);
-    padding:var(--k-space-7) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
-  .drawer-head h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);flex:1;min-width:0}
-  .drawer-body{
-    flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6) var(--k-space-7);overflow:auto;white-space:pre-wrap;
-    font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
+  /* Source header (settings top): provider mark, label, id link and id actions. */
+  .srchead{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3) var(--k-space-4);
+    margin-bottom:var(--k-space-4);font-size:var(--k-text-sm);min-width:0}
+  .srchead.manual{color:var(--k-text-dim)}
+  .srchead .srcid{font-family:var(--k-font-mono);overflow-wrap:anywhere;display:inline-flex;align-items:center;
+    min-height:var(--k-control-h-sm)}
+  .srchead a.srcid{color:var(--k-link);text-decoration:none}
+  .srchead a.srcid:hover{color:var(--k-link-active);text-decoration:underline}
+  .k-iconbtn.is-copied{color:var(--k-success)}
+  #keyRow{margin-top:var(--k-space-4)}
+  #keyRow.hidden{display:none}
+
+  /* Brief card (content region): the fetched ticket context, inline. */
+  .brief{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);margin:var(--k-space-6) var(--k-space-0);min-width:0}
+  .brief-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3) var(--k-space-5);
+    padding:var(--k-space-4) var(--k-space-6);font-size:var(--k-text-sm)}
+  .brief-head .grow{flex:1}
+  #briefToggle svg{transition:transform var(--k-dur-base) var(--k-ease-standard)}
+  #briefToggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+  @media (prefers-reduced-motion:reduce){#briefToggle svg{transition:none}}
+  .brief-fetched{color:var(--k-text-dim)}
+  .brief-fetched::before{content:"· "}
+  .brief-meta{display:flex;flex-wrap:wrap;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-6) var(--k-space-4);
+    font-size:var(--k-text-sm);align-items:center}
+  .brief-fact{color:var(--k-text-dim)}
+  .brief-person{color:var(--k-text-dim)}
+  .brief-head .k-btn--link,.brief-foot .k-btn--link,.brief-more{min-height:var(--k-control-h-sm)}
+  .brief-label{font-weight:var(--k-weight-semibold)}
+  .brief-from{color:var(--k-text-dim)}
+  .brief-person{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
+    padding:var(--k-space-1) var(--k-space-3)}
+  .brief-body{max-height:var(--k-brief-max-h);overflow:auto;padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
+  .brief-excerpt{padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
+  .brief-excerpt,.brief-desc,.brief-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--k-text-md);
+    line-height:var(--k-leading-normal);color:var(--k-text-dim)}
+  .brief-more{margin:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
+  .brief-sub{margin:var(--k-space-6) var(--k-space-0) var(--k-space-3);font-size:var(--k-text-sm);
+    color:var(--k-text-dim);font-weight:var(--k-weight-semibold)}
+  .brief-att{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;margin-bottom:var(--k-space-3);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);padding:var(--k-space-2) var(--k-space-4)}
+  .brief-att svg{flex:none;color:var(--k-text-dim)}
+  .brief-att .attname{flex:1;min-width:0;overflow-wrap:anywhere}
+  .brief-comment{display:flex;gap:var(--k-space-4);margin-bottom:var(--k-space-5)}
+  .brief-avatar{flex:none;width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);
+    display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-xs);
+    background:var(--k-surface-hover);color:var(--k-text-dim)}
+  .brief-cmain{flex:1;min-width:0}
+  .brief-chead{display:flex;gap:var(--k-space-4);align-items:baseline;flex-wrap:wrap;font-size:var(--k-text-sm)}
+  .brief-cmain .k-btn{min-height:var(--k-control-h-sm)}
+  .brief-author{font-weight:var(--k-weight-semibold)}
+  .brief-date{color:var(--k-text-dim)}
+  .brief-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
+    padding:var(--k-space-4) var(--k-space-6);border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-sm);color:var(--k-text-dim)}
   /* ── Layout B′ shell (prototype: docs/design/ticket-form-b-prime.html) ──────
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
@@ -337,7 +359,6 @@
   .setblock > label:first-child{margin-top:var(--k-space-0)}
   .setblock.pullrow{margin-bottom:var(--k-space-0)}
   .settings .row2{flex-wrap:wrap}
-  .settings .provline{white-space:normal;margin-bottom:var(--k-space-3)}
   .settings .chips,.settings .repo-split{min-width:0;max-width:100%}
   .repochip{max-width:100%;overflow-wrap:anywhere}
   .k-switch,.repochip,.repo-caret{min-height:var(--k-space-8)}
@@ -444,33 +465,33 @@
 
 <!-- Settings region: how the ticket runs. Labels always sit above their fields. -->
 <aside class="settings" data-region="settings" aria-label="Ticket settings">
-  <!-- Interim source block (key, Fetch, status filter, provider) — moved
-       unchanged; the source header replaces it. -->
+  <!-- Source: the header (provider, id, copy, open, Re-fetch) is rendered by
+       renderSourceHeader; the key row is the fetch entry before an id exists. -->
   <div class="setblock" id="sourceBlock">
-    <div class="provline hidden" id="provline">
-      <span id="provtext"></span>
-    </div>
-    <label for="ref">Key <span class="opt">(optional)</span></label>
-    <div class="row">
-      <!-- The Key field doubles as a search combobox over the provider's list
-           (searchEnabled: true on the state). Without search the popup never
-           opens and the field is the plain key entry. -->
-      <div class="searchbox" id="searchBox">
-        <input type="text" class="k-input" id="ref" placeholder="e.g. PROJ-142"
-               aria-label="Ticket key" title="Blank derives the key from the title"
-               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
-        <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
+    <h2 id="sourceHeading">Source</h2>
+    <div class="srchead" id="srcHeader"></div>
+    <div id="keyRow">
+      <label for="ref">Key <span class="opt">(optional)</span></label>
+      <div class="row">
+        <!-- The Key field doubles as a search combobox over the provider's list
+             (searchEnabled: true on the state). Without search the popup never
+             opens and the field is the plain key entry. -->
+        <div class="searchbox" id="searchBox">
+          <input type="text" class="k-input" id="ref" placeholder="e.g. PROJ-142"
+                 aria-label="Ticket key" title="Blank derives the key from the title"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
+          <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
+        </div>
+        <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
+        <div class="searchfilter hidden" id="searchFilterRow">
+          <label for="searchStatus">Status</label>
+          <select class="k-input" id="searchStatus" title="Filters search results">
+            <option value="to do" selected>to do</option>
+          </select>
+        </div>
       </div>
-      <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
-    </div>
-    <div class="row searchfilter hidden" id="searchFilterRow">
-      <label for="searchStatus">Status</label>
-      <select class="k-input" id="searchStatus" title="Filters search results">
-        <option value="to do" selected>to do</option>
-      </select>
     </div>
     <div class="row2">
-      <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
       <!-- "Create in <provider>" — ONE location for both modes. Create mode: a
            switch (persisting also mints + binds the provider task). Edit mode, a
            ticket with no provider ref yet: a button. Both hidden once sourceRef
@@ -485,7 +506,6 @@
       <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="createInBtn"
               title="Create the matching task and link this ticket to it">Create in <span id="createInBtnName"></span></button>
       <span class="err hidden" id="createInBtnErr" role="alert"></span>
-      <a href="#" class="k-link hidden" id="ticketLink"></a>
     </div>
   </div>
 
@@ -501,7 +521,7 @@
 
   <div class="setblock">
     <h2 id="approachHeading">Approach</h2>
-    <div class="approaches" id="approachList" role="radiogroup" aria-labelledby="approachHeading"></div>
+    <div class="approaches" id="approachList"></div>
   </div>
 
   <div class="setblock">
@@ -541,17 +561,6 @@
   </div>
 </aside>
 </div>
-
-<!-- Slide-over brief drawer + scrim (the fetched context, on demand) -->
-<div class="k-scrim scrim" id="scrim"></div>
-<aside class="k-drawer" id="drawer" role="dialog" aria-modal="true"
-       aria-labelledby="drawerTitle" aria-hidden="true">
-  <div class="drawer-head">
-    <h3 id="drawerTitle">Context brief</h3>
-    <button type="button" class="k-iconbtn" id="drawerClose" aria-label="Close details" title="Close details">✕</button>
-  </div>
-  <div class="drawer-body" id="drawerBody"></div>
-</aside>
 
 <!-- Actions region: Cancel · secondary save · primary launch, primary last.
      Labels are set per mode by render(); the static text IS the create-mode label. -->
@@ -618,22 +627,6 @@
   // they opt into the recommendation by clicking its card (ticket 869e889uh).
   let aiSuggestion = null;
 
-  function renderTicketFormTicketLink(state) {
-    const link = el('ticketLink');
-    if (!state.ticketUrl) {
-      link.classList.add('hidden');
-      link.innerHTML = '';
-      return;
-    }
-    link.classList.remove('hidden');
-    link.href = '#';
-    link.dataset.act = 'open-ticket-link';
-    link.dataset.url = state.ticketUrl;
-    const badge = providerBadgeHtml(state.provider);
-    const ref = state.sourceRef ? ' · ' + esc(state.sourceRef) : '';
-    link.innerHTML = '↗ ' + badge + ref;
-  }
-
   // Last inline error for the provider-task control (see renderCreateIn). Lives
   // here so it survives the state pushes that re-render the control: a failed
   // attempt re-seeds the page in edit mode, and the error must still be there
@@ -682,26 +675,17 @@
   function renderAttachments(list) {
     if (!list || list.length === 0) return '';
     return list.map(function (a) {
-      const media = a.kind === 'video'
-        ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
-          + 'data-attach-id="' + esc(a.id) + '"></video>'
-        : a.kind === 'file'
-        ? '<span class="attachfile" aria-hidden="true">' + karstIcon('file-text', 26) + '</span>'
-        : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
-          + 'data-attach-id="' + esc(a.id) + '">';
-      return '<div class="attachtile">'
-        + media
-        // Destructive (removes the attachment) → `.k-iconbtn--danger` (UI-R10b);
-        // aria-label matches the tooltip text exactly, since the glyph carries
-        // no accessible name of its own (UI-R21, R24).
-        + '<button type="button" class="k-iconbtn k-iconbtn--danger attachdetach" data-attach-id="' + esc(a.id) + '" '
+      const icon = a.kind === 'video' ? 'video' : a.kind === 'file' ? 'file-text' : 'photo';
+      return '<span class="attachtile">'
+        // The chip body opens the attachment; the label names the file for AT.
+        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
+        + 'title="Open attachment (' + esc(formatBytes(a.byteSize)) + ')" aria-label="Open ' + esc(a.name) + '">'
+        + karstIcon(icon, 14) + '<span class="attachname">' + esc(a.name) + '</span></button>'
+        // Destructive → `.k-iconbtn--danger` (UI-R10b); aria-label matches the tooltip (UI-R21, R24).
+        + '<button type="button" class="k-iconbtn attachdetach" data-attach-id="' + esc(a.id) + '" '
         + 'aria-label="Remove attachment" title="Remove attachment">'
         + '<span aria-hidden="true">&times;</span></button>'
-        + '<span class="attachmeta"><span class="attachname" title="' + esc(a.name) + '">'
-        + esc(a.name) + '</span>' + esc(formatBytes(a.byteSize)) + '</span>'
-        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
-        + 'title="Open attachment" aria-label="Open ' + esc(a.name) + '">Open</button>'
-        + '</div>';
+        + '</span>';
     }).join('');
   }
 
@@ -732,7 +716,8 @@
     if (!saveBusy) el('saveBtn').textContent = labels.save;
     renderProvider(state.provider);
     renderSearchControls(state.ticketSearchEnabled === true);
-    renderTicketFormTicketLink(state);
+    lastState = state;
+    renderSourceHeader(state);
     renderCreateIn(state);
 
     // Only overwrite text inputs from state when they are empty (don't clobber
@@ -768,11 +753,12 @@
     el('designConstraintsList').innerHTML = dc ? dc.entries.map((c) => `<div class="chip" title="${esc(c.doc ? c.text + ' — ' + c.doc : c.text)}">${esc(c.text)}${c.doc ? ` <span class="hint">${esc(c.doc)}</span>` : ''}</div>`).join('') : '';
 
     renderGate(state.unclassified, state.repos);
-    // Drawer header title: the persisted brief's first heading, else the ticket
-    // title. `state.brief` is the rendered text ("# Title\n\n…"). The banner
-    // itself no longer shows a title — the Title input is the single source.
-    const drawerTitle = briefHeading(state.brief) || state.title || '';
-    renderFetched(state.brief, drawerTitle);
+    briefPersisted = state.brief ? String(state.brief) : '';
+    lastTicketUrl = state.ticketUrl || '';
+    // A fresh fetch in this panel keeps its local timestamp over a state push
+    // that has none yet.
+    if (state.briefFetchedAt || !briefData) briefFetchedAt = state.briefFetchedAt || null;
+    applyBrief();
     renderRepos(state.repos, state.repoBases);
     renderApproaches(state.approaches, state.selectedApproach);
     lastSelectedAgent = state.selectedAgent ?? null;
@@ -800,11 +786,11 @@
     syncAnalyzeBtn();
   }
 
-  // First "# heading" line of a rendered brief, or '' if none.
-  function briefHeading(brief) {
-    if (!brief) return '';
-    const first = String(brief).split('\n', 1)[0] || '';
-    return first.startsWith('# ') ? first.slice(2).trim() : '';
+  // A persisted brief is rendered markdown ("# Title\n\n…"): the card shows it
+  // without the title line, which the Title input already carries.
+  function stripBriefHeading(brief) {
+    const text = String(brief || '');
+    return text.startsWith('# ') ? text.replace(/^# [^\n]*\n*/, '') : text;
   }
 
   function renderGate(unclassified, repos) {
@@ -835,27 +821,84 @@
     )).join('');
   }
 
-  // Full brief text for the drawer, and whether we've fetched at all.
+  // Full brief text (feeds the prompt analyzer), and whether we've fetched at all.
   let briefText = '';
+  let lastState = null;
+  let lastTicketUrl = '';
+  // Id/url of a fetch done in this panel, shown in the source header until a
+  // state push carries the bound sourceRef.
+  let srcFetched = null;
+  let pendingFetchRef = '';
+  let fetchInFlight = false;
+  let copyState = 'idle'; // idle | copied | failed
 
-  // `manual` has no board to fetch from — hide the Fetch button and show a
-  // muted note; the field is then pure key entry. The icon+brand badge itself
-  // is the shared provider-identity component (providerBadgeHtml, injected).
+  // `manual` has no board to fetch from — hide the Fetch button; the field is
+  // then pure key entry. Name + mark come from the injected provider identity.
   function renderProvider(provider) {
     const p = provider || 'manual';
     currentProvider = p;
-    const line = el('provline');
+    el('fetchBtn').classList.toggle('hidden', p === 'manual');
+  }
+
+  function srcIdOf(state) {
+    return (state && state.sourceRef) || (srcFetched && srcFetched.id) || '';
+  }
+  function srcUrlOf(state) {
+    return (state && state.ticketUrl) || (srcFetched && srcFetched.url) || '';
+  }
+
+  // Source header: provider mark + label + id (link) + copy + open + Re-fetch.
+  // Manual tickets show a plain label and no id controls. The key row is the
+  // fetch entry, so it hides once an id is shown.
+  function renderSourceHeader(state) {
+    const p = (state && state.provider) || 'manual';
+    const header = el('srcHeader');
+    const id = p === 'manual' ? '' : srcIdOf(state);
+    const url = srcUrlOf(state);
+    const label = providerLabelText(p);
+    header.classList.toggle('manual', p === 'manual');
+    el('keyRow').classList.toggle('hidden', Boolean(id));
     if (p === 'manual') {
-      line.classList.remove('hidden');
-      line.classList.add('manual');
-      el('provtext').textContent = 'Manual ticket — no board to fetch from';
-      el('fetchBtn').classList.add('hidden');
+      header.innerHTML = '<span id="srcLabel">Manual ticket</span>';
       return;
     }
-    line.classList.remove('hidden');
-    line.classList.remove('manual');
-    el('provtext').innerHTML = 'Fetches from ' + providerBadgeHtml(p);
-    el('fetchBtn').classList.remove('hidden');
+    let html = providerIconHtml(p) + '<span id="srcLabel">' + esc(label) + '</span>';
+    if (id) {
+      html += url
+        ? '<a href="#" class="srcid" id="srcId" data-act="open-ticket-link" data-url="' + esc(url) + '">' + esc(id) + '</a>'
+        : '<span class="srcid" id="srcId">' + esc(id) + '</span>';
+      const copied = copyState === 'copied';
+      const title = copyState === 'failed' ? 'Copy failed — select the id and copy it' : 'Copy ticket id';
+      html += '<button type="button" class="k-iconbtn' + (copied ? ' is-copied' : '') + '" id="copyIdBtn" data-id="' + esc(id) + '"'
+        + ' aria-label="Copy ticket id" title="' + esc(title) + '">' + karstIcon(copied ? 'check' : 'copy', 16) + '</button>';
+      if (url) {
+        html += '<button type="button" class="k-iconbtn" id="srcOpen" data-act="open-ticket-link" data-url="' + esc(url) + '"'
+          + ' aria-label="Open in ' + esc(label) + '" title="Open in ' + esc(label) + '">' + karstIcon('external-link', 16) + '</button>';
+      }
+      html += '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="refetchBtn" data-id="' + esc(id) + '"'
+        + (fetchInFlight ? ' aria-busy="true" disabled' : '') + '>Re-fetch</button>';
+    }
+    header.innerHTML = html;
+  }
+
+  const COPY_FLASH_MS = 1500;
+  async function copyTicketId(id) {
+    try {
+      await navigator.clipboard.writeText(id);
+      copyState = 'copied';
+    } catch (err) {
+      copyState = 'failed';
+    }
+    renderSourceHeader(lastState);
+    setTimeout(function () { copyState = 'idle'; renderSourceHeader(lastState); }, COPY_FLASH_MS);
+  }
+
+  function refetch(id) {
+    if (!id || fetchInFlight) return;
+    pendingFetchRef = id;
+    fetchInFlight = true;
+    renderSourceHeader(lastState);
+    post({ type: 'fetch-source', ref: id });
   }
 
   // The Fetch button doubles as its own status: idle | busy | done. The LABEL
@@ -883,25 +926,194 @@
     }
   }
 
-  // Stash the full brief for the drawer and flip the button to its done state.
-  // The "Show details" link appears once a brief exists. The `title` arg feeds
-  // the drawer header only. No brief → idle button, link hidden.
-  function renderFetched(brief, title) {
-    if (!brief) {
-      briefText = '';
-      el('detailsBtn').classList.add('hidden');
-      // Don't force the button back to idle if a fetch is mid-flight.
-      if (!el('fetchBtn').disabled) setFetchState('idle');
-      syncAnalyzeBtn();
-      return;
+  // ---- Brief card ----
+  // The fetched ticket context, inline between Title and Prompt. Constants, not
+  // magic numbers: the excerpt length and the per-comment cap.
+  const BRIEF_EXCERPT_LINES = 6;
+  const BRIEF_COMMENT_MAX_CHARS = 600;
+  const BRIEF_PEOPLE_MAX = 3;
+  const BRIEF_NAME_MAX_CHARS = 80;
+  const MS_MIN = 60000, MS_HOUR = 3600000, MS_DAY = 86400000;
+  // Structured brief from this panel's fetch (wins over the persisted markdown).
+  let briefData = null;
+  let briefPersisted = '';
+  let briefFetchedAt = null;
+  let briefOpen = false;
+  // The #desc value before "Use as prompt"; null once #desc is edited.
+  let promptUndo = null;
+  const openComments = new Set();
+
+  function clip(text, max) {
+    const t = String(text == null ? '' : text);
+    return t.length > max ? t.slice(0, max) + '…' : t;
+  }
+  function relativeTime(iso) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const d = Math.max(0, Date.now() - t);
+    if (d < MS_MIN) return 'just now';
+    if (d < MS_HOUR) return Math.floor(d / MS_MIN) + ' min ago';
+    if (d < MS_DAY) return Math.floor(d / MS_HOUR) + ' h ago';
+    return Math.floor(d / MS_DAY) + ' d ago';
+  }
+  function initials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return ((parts[0] || '?').charAt(0) + (parts.length > 1 ? parts[parts.length - 1].charAt(0) : '')).toUpperCase();
+  }
+  function briefDescription() {
+    return briefData ? String(briefData.description || '') : stripBriefHeading(briefPersisted).trim();
+  }
+  function sortedComments() {
+    const list = briefData && Array.isArray(briefData.comments) ? briefData.comments.slice() : [];
+    return list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  }
+
+  function briefMetaHtml() {
+    const b = briefData;
+    if (!b) return '';
+    const parts = [];
+    ['status', 'priority', 'milestone'].forEach((k) => {
+      if (b[k]) parts.push('<span class="k-chip">' + esc(clip(b[k], BRIEF_NAME_MAX_CHARS)) + '</span>');
+    });
+    (b.tags || []).forEach((t) => parts.push('<span class="k-chip">' + esc(clip(t, BRIEF_NAME_MAX_CHARS)) + '</span>'));
+    const people = b.people || [];
+    people.slice(0, BRIEF_PEOPLE_MAX).forEach((pp) => parts.push('<span class="brief-person">' + esc(clip(pp.name, BRIEF_NAME_MAX_CHARS)) + '</span>'));
+    if (people.length > BRIEF_PEOPLE_MAX) parts.push('<span class="brief-fact">+' + (people.length - BRIEF_PEOPLE_MAX) + '</span>');
+    return parts.length ? '<div class="brief-meta" id="briefMeta">' + parts.join('') + '</div>' : '';
+  }
+
+  function briefCommentsHtml(comments) {
+    return '<div id="briefComments"><h3 class="brief-sub">Comments · ' + comments.length + '</h3>'
+      + comments.map((c, i) => {
+        const full = String(c.text || '');
+        const long = full.length > BRIEF_COMMENT_MAX_CHARS;
+        const open = openComments.has(i);
+        const shown = long && !open ? full.slice(0, BRIEF_COMMENT_MAX_CHARS) + '…' : full;
+        return '<div class="brief-comment"><span class="brief-avatar" aria-hidden="true">' + esc(initials(c.author)) + '</span>'
+          + '<div class="brief-cmain"><div class="brief-chead"><span class="brief-author">' + esc(clip(c.author, BRIEF_NAME_MAX_CHARS)) + '</span>'
+          + '<span class="brief-date">' + esc(String(c.date || '').slice(0, 10)) + '</span></div>'
+          + '<div class="brief-text">' + esc(shown) + '</div>'
+          + (long ? '<button type="button" class="k-btn k-btn--link k-btn--sm" data-comment-more="' + i + '">' + (open ? 'less' : 'more') + '</button>' : '')
+          + '</div></div>';
+      }).join('') + '</div>';
+  }
+
+  function briefAttachmentsHtml(atts) {
+    return '<div id="briefAttachments"><h3 class="brief-sub">Attachments · ' + atts.length + '</h3>'
+      + atts.map((a, i) => '<div class="brief-att">' + karstIcon('paperclip', 14) + '<span class="attname">' + esc(clip(a.name, BRIEF_NAME_MAX_CHARS)) + '</span>'
+        + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-brief-attach="' + i + '">Attach to ticket</button></div>').join('') + '</div>';
+  }
+
+  function briefHeadHtml(label) {
+    const fetched = briefFetchedAt ? relativeTime(briefFetchedAt) : '';
+    const url = (briefData && briefData.url) || lastTicketUrl || (srcFetched && srcFetched.url) || '';
+    return '<div class="brief-head">'
+      + '<button type="button" class="k-iconbtn" id="briefToggle" aria-expanded="' + briefOpen + '" aria-controls="briefBody"'
+      + ' aria-label="Toggle brief" title="Toggle brief">' + karstIcon('chevron-down', 16) + '</button>'
+      + '<span class="brief-label">Brief</span><span class="brief-from">from</span>' + providerBadgeHtml(currentProvider)
+      + (fetched ? '<span class="brief-fetched" id="briefFetched">fetched ' + esc(fetched) + '</span>' : '')
+      + '<span class="grow"></span>'
+      + (promptUndo ? '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefUndo">Undo</button>' : '')
+      + '<button type="button" class="k-btn k-btn--link k-btn--sm" id="briefUse">Use as prompt</button>'
+      + (url ? '<button type="button" class="k-btn k-btn--link k-btn--sm" id="briefOpen" data-act="open-ticket-link" data-url="' + esc(url) + '">Open ↗</button>' : '')
+      + '</div>';
+  }
+
+  function briefBodyHtml(label, desc, comments) {
+    const atts = briefData && Array.isArray(briefData.attachments) ? briefData.attachments : [];
+    if (briefOpen) {
+      return '<div class="brief-body" id="briefBody"><div class="brief-desc">' + esc(desc) + '</div>'
+        + (atts.length ? briefAttachmentsHtml(atts) : '')
+        + (comments.length ? briefCommentsHtml(comments) : '') + '</div>'
+        + '<div class="brief-foot"><button type="button" class="k-btn k-btn--link k-btn--sm" id="briefCollapse">Collapse</button>'
+        + '<span>Read-only. Reply in ' + esc(label) + '.</span></div>';
     }
-    briefText = String(brief);
-    setFetchState('done');
-    el('detailsBtn').classList.remove('hidden');
-    el('drawerTitle').textContent = title || 'Context brief';
-    el('drawerBody').textContent = briefText;
+    const all = desc.split('\n');
+    const more = Math.max(0, all.length - BRIEF_EXCERPT_LINES);
+    const k = comments.length;
+    let html = '<div class="brief-excerpt" id="briefBody">' + esc(all.slice(0, BRIEF_EXCERPT_LINES).join('\n')) + '</div>';
+    if (more > 0 || k > 0) {
+      html += '<button type="button" class="k-btn k-btn--link k-btn--sm brief-more" id="briefMore">Show full brief'
+        + (more > 0 ? ' (' + more + ' more line' + (more === 1 ? '' : 's') + ')' : '')
+        + (k > 0 ? ' · ' + k + ' comment' + (k === 1 ? '' : 's') : '') + '</button>';
+    }
+    return html;
+  }
+
+  function renderBrief() {
+    const slot = el('briefSlot');
+    const ae = document.activeElement;
+    const focusSel = ae && slot.contains(ae)
+      ? (ae.id ? '#' + ae.id : ae.dataset && ae.dataset.commentMore !== undefined ? '[data-comment-more="' + ae.dataset.commentMore + '"]' : '')
+      : '';
+    if (!briefData && !briefPersisted) { slot.innerHTML = ''; return; }
+    const label = providerLabelText(currentProvider);
+    const desc = briefDescription();
+    const comments = sortedComments();
+    slot.innerHTML = '<section class="brief" id="briefCard" aria-label="Ticket brief">'
+      + briefHeadHtml(label) + briefMetaHtml() + briefBodyHtml(label, desc, comments) + '</section>';
+    if (focusSel) { const f = slot.querySelector(focusSel); if (f) f.focus(); }
+  }
+
+  // Brief → card + analyzer text + Fetch button state. Called on every state
+  // push and on a fresh `brief` message.
+  function applyBrief() {
+    briefText = briefData ? briefToText(briefData) : briefPersisted;
+    if (briefText) setFetchState('done');
+    else if (!el('fetchBtn').disabled) setFetchState('idle');
+    renderBrief();
     syncAnalyzeBtn();
   }
+
+  function setBriefOpen(open) {
+    briefOpen = open;
+    renderBrief();
+    const t = open ? el('briefCollapse') : el('briefToggle');
+    if (t && !open) t.focus();
+  }
+
+  function useBriefAsPrompt() {
+    promptUndo = { prev: el('desc').value };
+    el('desc').value = briefDescription();
+    syncAnalyzeBtn();
+    renderBrief();
+    const u = el('briefUndo');
+    if (u) u.focus();
+  }
+
+  el('briefSlot').addEventListener('click', (e) => {
+    const t = e.target.closest ? e.target : null;
+    if (!t) return;
+    if (t.closest('#briefToggle')) { setBriefOpen(!briefOpen); return; }
+    if (t.closest('#briefMore')) { briefOpen = true; renderBrief(); const tg = el('briefToggle'); if (tg) tg.focus(); return; }
+    if (t.closest('#briefCollapse')) { setBriefOpen(false); return; }
+    if (t.closest('#briefUse')) { useBriefAsPrompt(); return; }
+    if (t.closest('#briefUndo')) {
+      el('desc').value = promptUndo ? promptUndo.prev : el('desc').value;
+      promptUndo = null;
+      syncAnalyzeBtn();
+      renderBrief();
+      el('desc').focus();
+      return;
+    }
+    const more = t.closest('[data-comment-more]');
+    if (more) {
+      const i = Number(more.dataset.commentMore);
+      if (openComments.has(i)) openComments.delete(i); else openComments.add(i);
+      renderBrief();
+      return;
+    }
+    const att = t.closest('[data-brief-attach]');
+    if (att) {
+      const requestId = karstRequestId();
+      karstBeginPending(att, requestId);
+      post({ type: 'attach-brief-attachment', index: Number(att.dataset.briefAttach), requestId });
+    }
+  });
+  // Editing #desc ends the Undo window.
+  el('desc').addEventListener('input', () => {
+    if (promptUndo) { promptUndo = null; renderBrief(); }
+  });
 
   // Phase 1 is complete once the ticket has an identity, and the TITLE is that
   // identity: a key left blank is derived from the title at persist time (see
@@ -1089,6 +1301,30 @@
     return out;
   }
 
+  // Approach popover state: open flag and the active (aria-activedescendant)
+  // index; index === approaches.length is the "Manage approaches…" row.
+  let approachOpen = false;
+  let approachActive = 0;
+  function openApproach() {
+    approachOpen = true;
+    renderApproaches(lastApproaches, lastSelectedApproach);
+    el('approachListbox').focus();
+  }
+  function closeApproach(refocus) {
+    approachOpen = false;
+    renderApproaches(lastApproaches, lastSelectedApproach);
+    if (refocus) el('approachBtn').focus();
+  }
+  function setApproachActive(i) {
+    approachActive = i;
+    const lb = el('approachListbox');
+    const rows = Array.from(lb.querySelectorAll('[role="option"]'));
+    rows.forEach((r, n) => r.classList.toggle('is-active', n === i));
+    const manage = el('approachManage');
+    manage.classList.toggle('is-active', i === rows.length);
+    lb.setAttribute('aria-activedescendant', i === rows.length ? 'approachManage' : (rows[i] ? rows[i].id : ''));
+  }
+
   function renderApproaches(approaches, selected) {
     syncAnalyzeBtn();
     if (!approaches || !approaches.length) {
@@ -1100,23 +1336,35 @@
     const sel = draft.approach ?? selected;
     lastSelectedApproach = selected ?? null;
     lastApproaches = approaches;
-    // Selectable cards: a real <button role="radio" aria-checked> (UI-R09,
-    // R26) inside the `role="radiogroup"` container above. The whole card is
-    // clickable (delegated handler reads `data-approach`), with a faux radio
-    // dot for affordance. Keeps Recommended + AI badges. A suggestion only
+    // Button-card + listbox popover (UI-R22, R26). Options are DIVs inside the
+    // listbox (the same justified exception as the key-search options): role,
+    // aria-selected and keyboard handling are all wired. A suggestion only
     // badges its row — it never moves the pick.
-    el('approachList').innerHTML = approaches.map((a) => (
-      `<button type="button" class="acard" role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}">`
-      + `<span class="radio" aria-hidden="true"></span>`
-      + `<span class="amain">`
-      + `<span class="aname">${esc(a.label)}${a.recommended ? ' <span class="k-chip">Recommended</span>' : ''}</span>`
-      + (a.description ? `<span class="adesc">${esc(a.description)}</span>` : '')
+    const cur = approaches.find((a) => a.id === sel) || null;
+    const selIdx = Math.max(0, approaches.findIndex((a) => a.id === sel));
+    if (approachActive > approaches.length || !approachOpen) approachActive = selIdx;
+    const optId = (i) => 'approachOpt' + i;
+    const activeId = approachActive === approaches.length ? 'approachManage' : optId(approachActive);
+    const btn = '<button type="button" class="approach-btn" id="approachBtn" aria-haspopup="listbox" aria-expanded="' + approachOpen + '" aria-controls="approachListbox">'
+      + '<span class="amain"><span class="aname">' + (cur ? esc(cur.label) : 'Choose an approach')
+      + (cur && cur.recommended ? ' <span class="k-chip">Recommended</span>' : '') + '</span>'
+      + (cur && cur.description ? '<span class="adesc">' + esc(cur.description) + '</span>' : '') + '</span>'
+      + '<span class="achev" aria-hidden="true">' + karstIcon('chevron-down', 16) + '</span></button>';
+    const opts = approaches.map((a, i) => (
+      '<div class="aopt' + (i === approachActive ? ' is-active' : '') + '" role="option" id="' + optId(i) + '" aria-selected="' + (a.id === sel) + '" data-approach="' + esc(a.id) + '">'
+      + '<span class="acheck" aria-hidden="true">' + (a.id === sel ? '✓' : '') + '</span>'
+      + '<span class="amain"><span class="aname">' + esc(a.label) + (a.recommended ? ' <span aria-label="Recommended" title="Recommended">★</span>' : '') + '</span>'
+      + (a.description ? '<span class="adesc">' + esc(a.description) + '</span>' : '')
       + (aiSuggestion && aiSuggestion.id === a.id
-          ? `<span class="adesc"><span class="k-chip ai">Recommend</span>: ${esc(aiSuggestion.reason || 'best fit for this ticket')}</span>`
+          ? '<span class="adesc"><span class="k-chip ai">Recommend</span>: ' + esc(aiSuggestion.reason || 'best fit for this ticket') + '</span>'
           : '')
-      + `</span>`
-      + `</button>`
+      + '</span></div>'
     )).join('');
+    el('approachList').innerHTML = btn
+      + '<div class="approach-pop' + (approachOpen ? '' : ' hidden') + '" id="approachPop">'
+      + '<div id="approachListbox" role="listbox" tabindex="-1" aria-labelledby="approachHeading" aria-activedescendant="' + activeId + '"'
+      + (approachOpen ? '' : ' class="hidden"') + '>' + opts + '</div>'
+      + '<button type="button" class="k-btn k-btn--link k-btn--sm approach-manage' + (approachActive === approaches.length ? ' is-active' : '') + '" id="approachManage">Manage approaches…</button></div>';
     syncStepper();
   }
 
@@ -1489,7 +1737,7 @@
   function doFetch() {
     if (el('fetchBtn').classList.contains('hidden') || el('fetchBtn').disabled) return;
     const ref = el('ref').value.trim();
-    if (ref) { setFetchState('busy'); post({ type: 'fetch-source', ref }); }
+    if (ref) { pendingFetchRef = ref; fetchInFlight = true; setFetchState('busy'); post({ type: 'fetch-source', ref }); }
   }
   el('fetchBtn').addEventListener('click', doFetch);
   // Enter in the key/fetch-id field fires the same fetch as the button — the
@@ -1838,7 +2086,7 @@
   // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
   // state — both are "the attach machinery" from the user's point of view,
   // and only one can usefully run at a time.
-  el('attachBtn').innerHTML = karstIcon('paperclip', 16);
+  el('attachBtn').innerHTML = karstIcon('paperclip', 14);
   karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
 
   // Delegated: the strip is re-rendered on every state push, so per-tile
@@ -1997,30 +2245,6 @@
     triggerAnalyze();
   });
 
-  // ---- brief drawer ----
-  let drawerTrigger = null; // element focus returns to on close
-  function openDrawer() {
-    drawerTrigger = document.activeElement;
-    el('scrim').classList.add('open');
-    el('drawer').classList.add('open');
-    el('drawer').setAttribute('aria-hidden', 'false');
-    el('detailsBtn').setAttribute('aria-expanded', 'true');
-    el('drawerClose').focus();
-  }
-  function closeDrawer() {
-    el('scrim').classList.remove('open');
-    el('drawer').classList.remove('open');
-    el('drawer').setAttribute('aria-hidden', 'true');
-    el('detailsBtn').setAttribute('aria-expanded', 'false');
-    if (drawerTrigger && drawerTrigger.focus) drawerTrigger.focus();
-  }
-  el('detailsBtn').addEventListener('click', openDrawer);
-  el('drawerClose').addEventListener('click', closeDrawer);
-  el('scrim').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el('drawer').classList.contains('open')) closeDrawer();
-  });
-
   // Toggle a repo chip: flip its effective state, post the full selected set,
   // and re-render so the chip + stepper reflect it. Suggest re-gates (repos are
   // part of the context fingerprint). Pending/result is reported through the
@@ -2044,11 +2268,14 @@
   // the radiogroup container for the same reason as toggleRepo above.
   function pickApproach(id) {
     draft.approach = id;
+    approachOpen = false;
     const list = el('approachList');
     const requestId = karstRequestId();
     karstBeginPending(list, requestId);
     post({ type: 'set-approach', id, requestId });
     renderApproaches(lastApproaches, lastSelectedApproach);
+    const btn = el('approachBtn');
+    if (btn) btn.focus();
     renderAgentPicker(lastAgents, lastSelectedAgent);
   }
 
@@ -2117,8 +2344,15 @@
       return;
     }
     if (openBasePop && !(t.closest && t.closest('[data-base-pop]'))) closeBase();
+    if (approachOpen && !(t.closest && t.closest('#approachList'))) closeApproach(false);
+    if (t.closest && t.closest('#approachBtn')) { if (approachOpen) closeApproach(true); else openApproach(); return; }
     const card = t.closest && t.closest('[data-approach]');
     if (card) { pickApproach(card.dataset.approach); return; }
+    if (t.closest && t.closest('#approachManage')) { closeApproach(true); post({ type: 'open-settings' }); return; }
+    const copy = t.closest && t.closest('#copyIdBtn');
+    if (copy) { copyTicketId(copy.dataset.id); return; }
+    const refetchBtn = t.closest && t.closest('#refetchBtn');
+    if (refetchBtn) { refetch(refetchBtn.dataset.id); return; }
     if (t.dataset && t.dataset.suggest) {
       // Pending is set here, locally, before the round trip (UI-R11); the
       // `busy` what:'suggest' message that follows clears it on every
@@ -2152,8 +2386,29 @@
     const t = e.target;
     const chip = t.closest && t.closest('[data-repo]');
     if (chip) { e.preventDefault(); toggleRepo(chip.dataset.repo); return; }
-    const card = t.closest && t.closest('[data-approach]');
-    if (card) { e.preventDefault(); pickApproach(card.dataset.approach); }
+  });
+
+  // Approach listbox keys (focus stays on the listbox; the active option is
+  // tracked through aria-activedescendant, UI-R22/R26). The last stop is the
+  // "Manage approaches…" row.
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t.closest && t.closest('#approachBtn') && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !approachOpen) {
+      e.preventDefault(); openApproach(); return;
+    }
+    if (!(t.closest && t.closest('#approachListbox'))) return;
+    const last = lastApproaches.length; // index of the Manage row
+    if (e.key === 'ArrowDown') { e.preventDefault(); setApproachActive((approachActive + 1) % (last + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setApproachActive((approachActive + last) % (last + 1)); }
+    else if (e.key === 'Home') { e.preventDefault(); setApproachActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setApproachActive(last); }
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (approachActive === last) { closeApproach(true); post({ type: 'open-settings' }); }
+      else { const a = lastApproaches[approachActive]; if (a) pickApproach(a.id); }
+    }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeApproach(true); }
+    else if (e.key === 'Tab') closeApproach(false);
   });
 
   function showErr(msg) { usageLimitPending = false; const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
@@ -2229,6 +2484,7 @@
     if (on) armBusyWatchdog(what); else clearBusyWatchdog(what);
     // The fetch button carries its own busy state; a failed fetch (on→false with
     // no brief) resets it to idle so the user can retry.
+    if (what === 'fetch') { fetchInFlight = on; renderSourceHeader(lastState); }
     if (what === 'fetch' && !on && !briefText) setFetchState('idle');
     // Submit runs worktree creation + the session launch, which take a beat.
     // Lock the button for the duration so it can't be fired twice, and say what
@@ -2274,12 +2530,17 @@
         // fetched from IS the key — no separate copy needed.
         if (!el('title').value && b.title) el('title').value = b.title;
         if (!el('desc').value && b.description) el('desc').value = b.description;
-        // Flip the fetch button to done + stash the brief for the drawer. The
-        // title arg feeds the drawer header only.
-        renderFetched(briefToText(b), b.title || '');
-        // Update ticket link now that we have a fresh fetch.
-        const state = vscode.getState();
-        if (state) renderTicketFormTicketLink(state);
+        // Show the card expanded, flip the fetch button to done, and bind the
+        // header to the id just fetched.
+        briefData = b;
+        briefOpen = true;
+        briefFetchedAt = new Date().toISOString();
+        promptUndo = null;
+        openComments.clear();
+        srcFetched = { id: pendingFetchRef || b.sourceRef || '', url: b.url || '' };
+        fetchInFlight = false;
+        applyBrief();
+        renderSourceHeader(lastState);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncSubmitGate();
         // A fresh brief is new context nothing has been improved against yet.
@@ -2425,7 +2686,7 @@
   });
 
   // Turn a fetched ContextBrief into the same text shape the host persists.
-  // Mirrors src/integrations/briefMarkdown.ts — a drawer PREVIEW only (the host
+  // Mirrors src/integrations/briefMarkdown.ts — a text PREVIEW only (the host
   // renders the authoritative persisted brief); keep the section order in sync.
   const RELATION_LABEL = {
     'blocks': 'Blocks', 'blocked-by': 'Blocked by', 'parent': 'Parent',

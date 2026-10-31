@@ -238,6 +238,64 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).brief).toContain('Login modal');
   });
 
+  describe('attachBriefAttachment', () => {
+    const SPEC = { name: 'spec.md', url: 'https://files.example/spec.md' };
+
+    async function fetched(over: Partial<TicketingProvider> = {}) {
+      deps.provider = fakeProvider({
+        fetchTicket: vi.fn(async () => ({ ...BRIEF, attachments: [SPEC] })),
+        downloadAttachment: vi.fn(async () => new Uint8Array(Buffer.from('# spec'))),
+        ...over,
+      });
+      const made = makeActions({ mode: 'edit' });
+      await made.actions.fetchSource('CU-9');
+      return made;
+    }
+
+    it('downloads the fetched brief attachment through the provider and stores it', async () => {
+      const { actions, ctx, deps, ticketId } = await fetched();
+      await actions.attachBriefAttachment(0);
+      const rows = listAttachments(deps.store, ticketId!);
+      expect(rows.map((r) => r.originalName)).toEqual(['spec.md']);
+      expect(deps.provider.downloadAttachment).toHaveBeenCalledWith(SPEC);
+      expect(ctx.statePushes).toBeGreaterThan(0);
+    });
+
+    it('rejects an index outside the last fetched brief', async () => {
+      const { actions, ctx, deps, ticketId } = await fetched();
+      await actions.attachBriefAttachment(5);
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(ctx.posted).toContainEqual(expect.objectContaining({ type: 'error' }));
+    });
+
+    it('asks for a re-fetch when no brief was fetched in this panel', async () => {
+      const { actions, ctx } = makeActions({ mode: 'edit' });
+      await actions.attachBriefAttachment(0);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('Re-fetch') }),
+      );
+    });
+
+    it('reports a provider without downloads instead of throwing', async () => {
+      const { actions, ctx } = await fetched({ downloadAttachment: undefined });
+      await actions.attachBriefAttachment(0);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('cannot download') }),
+      );
+    });
+
+    it('surfaces a failed download as an inline error', async () => {
+      const { actions, ctx, deps, ticketId } = await fetched({
+        downloadAttachment: vi.fn(async () => { throw new Error('download returned 403'); }),
+      });
+      await actions.attachBriefAttachment(0);
+      expect(listAttachments(deps.store, ticketId!)).toEqual([]);
+      expect(ctx.posted).toContainEqual(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('403') }),
+      );
+    });
+  });
+
   it('fetchSource persists the provider-native priority from the brief', async () => {
     const t = createTicket(store, { key: 'P-2', title: 't' });
     deps.provider = fakeProvider({

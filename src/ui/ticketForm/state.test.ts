@@ -76,6 +76,7 @@ describe('buildTicketFormState — create mode', () => {
     expect(s.key).toBe('');
     expect(s.title).toBe('');
     expect(s.brief).toBeNull();
+    expect(s.briefFetchedAt).toBeNull();
     expect(s.stepper).toEqual([]); // no ticket yet → no workflow to show
   });
 
@@ -357,6 +358,15 @@ describe('buildTicketFormState — edit mode', () => {
     expect(s.description).toBe('desc');
     expect(s.brief).toBe('the brief');
     expect(s.selectedApproach).toBe('tdd');
+  });
+
+  it('edit mode exposes source_fetched_at as briefFetchedAt', () => {
+    const t = createTicket(store, { key: 'PROJ-8', title: 'x' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id).briefFetchedAt).toBeNull();
+    updateTicketFields(store, t.id, { sourceFetchedAt: '2026-10-30T10:00:00.000Z' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id).briefFetchedAt).toBe(
+      '2026-10-30T10:00:00.000Z',
+    );
   });
 
   it('edit mode carries the stored intent and code pointers; a fresh ticket and create mode carry null', () => {
