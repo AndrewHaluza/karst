@@ -17,7 +17,17 @@ lock_family() {
     && "$1" -A OUTPUT -j REJECT 2>/dev/null
 }
 
-if lock_family iptables && lock_family ip6tables; then
+v4_locked=0; v6_locked=0
+lock_family iptables && v4_locked=1
+lock_family ip6tables && v6_locked=1
+if [ "$v4_locked" != "$v6_locked" ]; then
+  # One family is rejecting everything while the other is open and no proxy runs: the run cannot work and the
+  # "hosts were reachable" leak note would be false. Abort with an accurate status.
+  write_status "{\"enforced\":false,\"knownLeak\":\"partial egress lockdown (ipv4=$v4_locked ipv6=$v6_locked); run aborted\"}"
+  echo "eval-lockdown: only one IP family could be locked (ipv4=$v4_locked ipv6=$v6_locked)" >&2
+  return 1 2>/dev/null || exit 1
+fi
+if [ "$v4_locked" = 1 ]; then
   setpriv --reuid=65534 --regid=65534 --clear-groups \
     env EVAL_PROXY_PORT=$PROXY_PORT EVAL_ALLOWED_HOSTS="$EVAL_ALLOWED_HOSTS" \
     node /work/scripts/uat-host/evalProxy.mjs >/dev/null 2>"$STATUS_DIR/proxy.log" &
@@ -38,7 +48,7 @@ if lock_family iptables && lock_family ip6tables; then
   # capabilities are gone from the bounding set and cannot be regained, even through a setuid binary.
   HOST_LAUNCH_PREFIX="setpriv --no-new-privs --bounding-set=-net_admin,-net_raw,-setuid,-setgid"
 else
-  write_status '{"enforced":false,"knownLeak":"IPv4/IPv6 egress rules could not both be installed; github.com and other hosts were reachable"}'
+  write_status '{"enforced":false,"knownLeak":"no egress rules could be installed (iptables unavailable); github.com and other hosts were reachable"}'
 fi
 # /auth is mounted read-only but cores write to their config dir (token refresh, sessions): copy it, so
 # writes stay in the container and never reach the host.
