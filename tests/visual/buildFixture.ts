@@ -97,7 +97,7 @@ export function buildFixture(
   // without a tag in the source. Emitting it immediately before the seed also
   // fixes the cascade position: the class is on `document.body` before the
   // first corpus message dispatches and synchronously before `data-karst-ready`.
-  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${jsonForInlineScript(themeData.bodyClass)};</script>`;
+  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.classList.add(...${jsonForInlineScript(themeData.bodyClass)}.split(' ').filter(Boolean));</script>`;
 
   // Append the body class, then the message dispatch + readiness signal,
   // before </body> (or at the end of a fragment that has no </body>).

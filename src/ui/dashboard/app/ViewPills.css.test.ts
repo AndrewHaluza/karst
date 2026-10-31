@@ -17,3 +17,16 @@ describe('ViewPills.css — the stream menu is never clipped', () => {
     expect(CSS).toMatch(/@container \(max-width:699px\)\{[^@]*\.vp-menu\{position:fixed/);
   });
 });
+
+describe('drill surfaces stay under the ticket header and pills', () => {
+  const root = dirname(fileURLToPath(import.meta.url));
+  it.each([['Terminal.css', '.termview'], ['ServerLogsView.css', '.logsview'], ['EnvView.css', '.envview']])(
+    '%s lays its root out in flow, not fixed over the page',
+    (file, selector) => {
+      const css = readFileSync(join(root, file), 'utf8');
+      const rule = new RegExp(`^\\${selector}\\{([^}]*)`, 'm').exec(css)?.[1] ?? '';
+      expect(rule).not.toBe('');
+      expect(rule).not.toMatch(/position:\s*fixed/);
+    },
+  );
+});

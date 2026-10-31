@@ -2,7 +2,7 @@
    body.log-nav hides .stepper and .grid, like body.art-nav, body.term-nav and body.env-nav. The shared runtime
    (model/serverLogsView.webview.js) draws the inside and toggles the body class. */
 body.log-nav .stepper,body.log-nav .grid{display:none}
-.logsview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+.logsview{height:calc(100vh - var(--k-drill-chrome, 140px));min-height:320px;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
 .logsview.hidden{display:none}
 .logsview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
 .logsview .ttitle{font-weight:var(--k-weight-semibold)}
