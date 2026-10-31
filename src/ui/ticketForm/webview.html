@@ -101,12 +101,12 @@
   .attachstrip:empty{display:none}
   /* Compact chip (prototype .m-att): icon + name + remove, one inline row. */
   .attachtile{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-3);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-0) var(--k-space-1) var(--k-space-0) var(--k-space-3);
     font-size:var(--k-text-sm)}
   .attachname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(var(--k-space-8) * 20)}
   .attachopen{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;border:0;padding:var(--k-space-0);
-    min-height:0;background:transparent}
-  .attachdetach{color:var(--k-text-dim);min-height:0;min-width:0;padding:var(--k-space-0)}
+    min-height:var(--k-control-h-sm);background:transparent}
+  .attachdetach{color:var(--k-text-dim);min-height:var(--k-control-h-sm);min-width:var(--k-control-h-sm);padding:var(--k-space-0)}
   .attachdetach:hover,.attachdetach:focus-visible{color:var(--k-danger)}
   /* The Attach… button reports its outcome through the strip — the tile appearing IS
      the result (UI-R13); the shared primitive shows no success treatment. */
