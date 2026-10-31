@@ -2,7 +2,7 @@ import { dirname } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
-import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
+import type { TicketingProvider, ContextBrief, BriefAttachment } from '../../integrations/ticketing.js';
 import { renderBrief } from '../../integrations/briefMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
@@ -193,6 +193,8 @@ export interface TicketFormActionsDeps {
   listInstalledIds: () => string[];
   /** Open a URL in the external browser (vscode.env.openExternal). */
   openUrl?: (url: string) => void | Promise<void>;
+  /** Open the Settings panel (the approach picker's "Manage approaches…"). */
+  openSettings?: () => void | Promise<void>;
   /**
    * Global-storage root that attachment bytes are written under. Injected rather
    * than derived so this module stays free of `vscode` and testable against a
@@ -483,6 +485,10 @@ export function buildTicketFormActions(
      * rather than inventing a staging area that would need its own move-on-submit
      * lifecycle to get wrong.
      */
+    // Attachments of the brief this panel fetched last. attach-brief-attachment
+    // resolves its index against this list, so the webview never names a URL.
+    let lastBriefAttachments: readonly BriefAttachment[] = [];
+
     const ensureTicket = (): number => {
       if (ctx.ticketId !== undefined) return ctx.ticketId;
       const draft = createTicketFlow(deps.store, {
@@ -727,6 +733,36 @@ export function buildTicketFormActions(
       }
     },
 
+    attachBriefAttachment: async (index: number): Promise<void> => {
+      try {
+        const attachment = lastBriefAttachments[index];
+        if (!attachment) {
+          ctx.post({ type: 'error', message: 'Re-fetch the ticket to attach its files.' });
+          return;
+        }
+        if (!deps.provider.downloadAttachment) {
+          ctx.post({ type: 'error', message: 'This provider cannot download attachments.' });
+          return;
+        }
+        const bytes = Buffer.from(await deps.provider.downloadAttachment(attachment));
+        const validation = validateAttachment(attachment.name, bytes.byteLength);
+        if (!validation.ok) {
+          ctx.post({ type: 'error', message: validation.message });
+          return;
+        }
+        const ticketId = ensureTicket();
+        if (await record(
+          ticketId,
+          await ingestBytes(deps.storageDir, ticketId, attachment.name, bytes),
+          () => ingestBytes(deps.storageDir, ticketId, attachment.name, bytes),
+        )) {
+          ctx.pushState();
+        }
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+      }
+    },
+
     detachAttachment: async (id: number): Promise<void> => {
       try {
         // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
@@ -795,6 +831,7 @@ export function buildTicketFormActions(
       ctx.post({ type: 'busy', what: 'fetch', on: true });
       try {
         const brief = await deps.provider.fetchTicket(ref);
+        lastBriefAttachments = brief.attachments;
         const repos = scoredRepos(deps.manifest, brief);
 
         // Create mode: persist a draft so classification/approach/prefill can
@@ -1330,6 +1367,10 @@ export function buildTicketFormActions(
       if (deps.openUrl) {
         deps.openUrl(url);
       }
+    },
+
+    async openSettings(): Promise<void> {
+      await deps.openSettings?.();
     },
 
     // The edit-mode "Create in ClickUp" button: bind this ticket to a freshly

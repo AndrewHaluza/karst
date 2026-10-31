@@ -668,6 +668,15 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         .map((e) => e.result);
     },
 
+    async downloadAttachment(attachment: BriefAttachment): Promise<Uint8Array> {
+      // Same per-URL credential rule as the fetch-time download: the token only
+      // goes to ClickUp's own hosts.
+      const auth = isClickupHost(attachment.url) ? await deps.token() : undefined;
+      const res = await deps.fetchFn(attachment.url, { headers: auth ? { Authorization: auth } : {} });
+      if (!res.ok) throw new ClickupError(`download returned ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    },
+
     async fetchTicket(ref: string): Promise<ContextBrief> {
       // Task + comments fetched sequentially; both share the injected token.
       const task = (await getJson(`${API_BASE}/task/${ref}${taskQuery(deps.teamId, true)}`)) as RawTask;

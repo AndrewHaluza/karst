@@ -113,8 +113,7 @@ describe('ticket form — field order and headings', () => {
     for (const want of ['Repositories', 'Approach', 'Agent']) {
       expect(heads.some((t) => t.startsWith(want))).toBe(true);
     }
-    const labelledBy = v.query('#approachList')!.getAttribute('aria-labelledby')!;
-    expect(v.query('#' + labelledBy)!.textContent).toBe('Approach');
+    expect(v.query('#approachHeading')!.textContent).toBe('Approach');
   });
 
   it('Create in ClickUp lives in the source block in both modes', () => {

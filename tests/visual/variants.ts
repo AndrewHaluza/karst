@@ -408,6 +408,31 @@ const REALISTIC_TICKET_FORM = {
   attachments: [{ id: 1, kind: 'image', name: 'layout-at-480px.png', byteSize: 48213, src: '' }],
 };
 
+const BRIEF_FULL = {
+  title: 'Add per-repo base branch override',
+  description: Array.from({ length: 2 }, (_, i) => `Requirement line ${i + 1}: keep the manifest baseline as the default.`).join('\n'),
+  tags: ['frontend', 'picker'],
+  status: 'in progress',
+  priority: 'high',
+  people: [
+    { name: 'Jo Lee', role: 'assignee' },
+    { name: 'Mika Kato', role: 'reporter' },
+  ],
+  attachments: [{ name: 'current-picker.png', url: 'https://app.clickup.com/a/1' }],
+  comments: [
+    { author: 'Mika Kato', text: 'Design attached. '.repeat(3), date: '2026-10-29T10:30:00Z' },
+  ],
+  url: 'https://app.clickup.com/t/869e889uh',
+};
+const BRIEF_MINIMAL = {
+  title: 'Add per-repo base branch override',
+  description: 'Let a ticket pick its base branch per repository.',
+  tags: [],
+  comments: [],
+  attachments: [],
+  url: 'https://app.clickup.com/t/869e889uh',
+};
+
 const ticketFormVariants = (): Variant[] => {
   const base = MINIMAL_TICKET_FORM;
   const withState = (patch: Record<string, unknown>): ViewCorpus => stateMessage({ ...base, ...patch });
@@ -527,6 +552,23 @@ const ticketFormVariants = (): Variant[] => {
     ),
     variant('ticketForm', 'narrow-480', () => withState(REALISTIC_TICKET_FORM), { width: 480 }),
     variant('ticketForm', 'tight-320', () => withState(REALISTIC_TICKET_FORM), { width: 320 }),
+    // D287: the inline brief card — expanded with meta, attachment and comments,
+    // and the minimal tags-only brief; the approach picker with descriptions; a
+    // manual ticket's header.
+    variant('ticketForm', 'brief-expanded', () => ({
+      messages: [
+        ...withState({ ...REALISTIC_TICKET_FORM, attachments: [], description: '' }).messages,
+        { type: 'brief', brief: BRIEF_FULL },
+      ],
+    })),
+    variant('ticketForm', 'brief-minimal', () => ({
+      messages: [
+        ...withState(REALISTIC_TICKET_FORM).messages,
+        { type: 'brief', brief: BRIEF_MINIMAL },
+      ],
+    })),
+    variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM)),
+    variant('ticketForm', 'manual-provider', () => withState({ ...REALISTIC_TICKET_FORM, provider: 'manual', sourceRef: '' })),
     variant('ticketForm', 'attachments', () =>
       withState({
         ...edit,

@@ -168,6 +168,8 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   // rendering artefact at these control sizes rather than as motion.
   '--k-spinner-w': '2px',
   '--k-spinner-size': '12px',
+  // The ticket form's brief card body: taller briefs scroll inside the card (UI-R45).
+  '--k-brief-max-h': '420px',
 
   // ── Layering ───────────────────────────────────────────────────────────────
   '--k-z-scrim': '30',

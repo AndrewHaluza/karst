@@ -1116,3 +1116,35 @@ describe('clickupProvider relation id normalization', () => {
     expect(calls.some((c) => c.url.includes('custom_task_ids=true'))).toBe(false);
   });
 });
+
+describe('clickupProvider.downloadAttachment', () => {
+  const bytes = (n: number) => new Uint8Array(n).fill(7);
+  function bytesFetch(status = 200) {
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    const fn = (async (url: string | URL, init?: { headers?: Record<string, string> }) => {
+      calls.push({ url: String(url), headers: init?.headers ?? {} });
+      return new Response(bytes(3), { status });
+    }) as unknown as typeof fetch;
+    return { fn, calls };
+  }
+
+  it('returns the bytes and sends the token to a ClickUp host only', async () => {
+    const { fn, calls } = bytesFetch();
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const got = await provider.downloadAttachment!({ name: 'a.png', url: 'https://t1.clickup.com/a.png' });
+    await provider.downloadAttachment!({ name: 'b.png', url: 'https://evil.example.com/b.png' });
+
+    expect(Array.from(got)).toEqual([7, 7, 7]);
+    expect(calls[0]!.headers).toEqual({ Authorization: 'tok' });
+    expect(calls[1]!.headers).toEqual({});
+  });
+
+  it('throws a ClickupError on a non-ok download', async () => {
+    const { fn } = bytesFetch(500);
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+    await expect(
+      provider.downloadAttachment!({ name: 'a.png', url: 'https://t1.clickup.com/a.png' }),
+    ).rejects.toBeInstanceOf(ClickupError);
+  });
+});

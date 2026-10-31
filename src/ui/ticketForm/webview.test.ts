@@ -763,7 +763,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(main).not.toContain('#fetchBtn.done{');
   });
 
-  it('every <button> (static or templated) carries a k-btn/k-iconbtn/k-switch/k-chip/acard class (UI-R07)', () => {
+  it('every <button> (static or templated) carries a k-btn/k-iconbtn/k-switch/k-chip/approach-btn class (UI-R07)', () => {
     // Strip HTML comments, <style> blocks, and JS `//`/`/* */` comments first —
     // a doc comment describing markup (e.g. "a real <button role=…>") reads as
     // a bare `<button …>` tag to a naive regex otherwise.
@@ -774,15 +774,13 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     const buttonTags = [...withoutLineComments.matchAll(/<button\b[^>]*>/g)].map((m) => m[0]);
     expect(buttonTags.length).toBeGreaterThan(0);
     for (const tag of buttonTags) {
-      expect(tag, tag).toMatch(/class="[^"]*\b(k-btn|k-iconbtn|k-switch|k-chip|acard)\b/);
+      expect(tag, tag).toMatch(/class="[^"]*\b(k-btn|k-iconbtn|k-switch|k-chip|approach-btn)\b/);
     }
   });
 
-  it('#detailsBtn tracks its disclosure state via aria-expanded (UI-R26)', () => {
-    expect(HTML).toContain('id="detailsBtn" aria-expanded="false"');
+  it('#briefToggle tracks its disclosure state via aria-expanded (UI-R26)', () => {
     const script = scriptBlock();
-    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'true');");
-    expect(script).toContain("el('detailsBtn').setAttribute('aria-expanded', 'false');");
+    expect(script).toContain('id="briefToggle" aria-expanded="\' + briefOpen + \'"');
   });
 
   it('repo chips are real buttons carrying aria-pressed, not a bare role="button" span (UI-R09, R26)', () => {
@@ -791,12 +789,14 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain('class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"');
   });
 
-  it('the approach picker is a radiogroup of real buttons carrying aria-checked (UI-R09, R26)', () => {
-    expect(HTML).toContain('id="approachList" role="radiogroup" aria-labelledby="approachHeading"');
+  it('the approach picker is a button-card opening a listbox of options (UI-R09, R26)', () => {
+    expect(HTML).toContain('id="approachList"');
     const script = scriptBlock();
-    expect(script).toContain('role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}"');
-    expect(script).not.toMatch(/class="acard[^"]*"\s+role="button"/);
+    expect(script).toContain('aria-haspopup="listbox"');
+    expect(script).toContain('role="option"');
+    expect(script).not.toContain('role="radio"');
   });
+
 
   it('the gate signal-word inputs carry an accessible name, not a placeholder alone (UI-R25)', () => {
     const script = scriptBlock();

@@ -124,7 +124,13 @@ export type TicketFormMessage =
   | { type: 'attach-bytes'; name: string; base64: string }
   | { type: 'detach-attachment'; id: number }
   | { type: 'open-attachment'; id: number }
+  // Copy one attachment of the LAST fetched brief into the ticket's attachments.
+  // Carries an index, never a URL: the host resolves it against the brief it
+  // fetched, so a crafted message cannot make it download an arbitrary host.
+  | { type: 'attach-brief-attachment'; index: number }
   | { type: 'open-ticket-link'; url: string }
+  // The approach picker's "Manage approaches…" row: opens the Settings panel.
+  | { type: 'open-settings' }
   // Edit-mode button: create the provider task for a ticket with no source_ref
   // yet and bind it (the create-mode checkbox rides `submit`/`save` instead).
   | { type: 'create-provider-ticket' }
@@ -249,7 +255,9 @@ export interface TicketFormActions {
   attachBytes: (name: string, base64: string) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
   openAttachment: (id: number) => Promise<void>;
+  attachBriefAttachment: (index: number) => Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
+  openSettings: () => void | Promise<void>;
   /**
    * Create the provider task for the bound ticket and bind its ref as
    * `sourceRef`. Only meaningful in edit mode on a ticket with no ref yet —
@@ -459,6 +467,12 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return isRowId(m.id) ? { type: 'detach-attachment', id: m.id } : null;
     case 'open-attachment':
       return isRowId(m.id) ? { type: 'open-attachment', id: m.id } : null;
+    case 'attach-brief-attachment':
+      return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0
+        ? { type: 'attach-brief-attachment', index: m.index }
+        : null;
+    case 'open-settings':
+      return { type: 'open-settings' };
     case 'open-ticket-link':
       // http(s) only — this drives vscode.env.openExternal, so a non-empty-string
       // check is not enough (a crafted file://, vscode:// or command: URI would
@@ -567,9 +581,13 @@ export function routeTicketFormAction(
       return actions.detachAttachment(msg.id);
     case 'open-attachment':
       return actions.openAttachment(msg.id);
+    case 'attach-brief-attachment':
+      return actions.attachBriefAttachment(msg.index);
     case 'open-ticket-link':
       actions.openTicketLink(msg.url);
       return;
+    case 'open-settings':
+      return actions.openSettings();
     case 'create-provider-ticket':
       // Fire-and-forget: the action self-reports via busy/provider-ticket-* posts.
       void actions.createProviderTicket();
