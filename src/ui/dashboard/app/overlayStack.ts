@@ -78,6 +78,17 @@ export interface OverlayDeps {
   readonly exists?: (view: OverlayView) => boolean;
 }
 
+/** Back walks at most this many views; older entries drop, so the persisted envelope stays small. */
+export const MAX_HISTORY = 50;
+
+const sameArt = (a: ArtView | null, b: ArtView | null): boolean =>
+  a === b || (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null && a.id === b.id && a.from === b.from);
+const sameConsole = (a: ConsoleTarget | null, b: ConsoleTarget | null): boolean =>
+  a === b || (a !== null && b !== null && a.stage === b.stage && a.processId === b.processId);
+/** Views are equal by value: a re-opened console or artifact builds a fresh target object. */
+const sameView = (a: OverlayView, b: OverlayView): boolean =>
+  a.logs === b.logs && a.env === b.env && sameConsole(a.console, b.console) && sameArt(a.art, b.art);
+
 export const DASHBOARD: OverlayView = { console: null, logs: false, env: false, art: null };
 
 /** The drawer's body: the fetched brief verbatim, else the ticket's own heading and prompt (a manual ticket has no brief). */
@@ -237,9 +248,9 @@ export class OverlayStack {
   /** Every navigation pushes the view it leaves; re-entering the view already showing is a no-op. */
   private enter(view: OverlayView, extra: Partial<OverlaySnapshot> = {}): void {
     const cur = this.currentView();
-    if (cur.console === view.console && cur.logs === view.logs && cur.env === view.env && cur.art === view.art) return;
+    if (sameView(cur, view)) return;
     this.saveScroll();
-    this.set({ ...view, ...extra, history: [...this.snapshot.history, cur] });
+    this.set({ ...view, ...extra, history: [...this.snapshot.history, cur].slice(-MAX_HISTORY) });
     this.announce();
   }
 

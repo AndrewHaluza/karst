@@ -2,7 +2,7 @@
 /** The overlay stack: which overlay is open, the one Escape chain, the artifact navigation with its scroll memory. */
 import { describe, expect, it, vi } from 'vitest';
 import type { DashboardState } from '../state.js';
-import { OverlayStack, restoreArt, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
+import { MAX_HISTORY, OverlayStack, restoreArt, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
 
 const DASH = { console: null, logs: false, env: false, art: null };
 const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', ...over }) as unknown as DashboardState;
@@ -261,6 +261,23 @@ describe('OverlayStack — drill-down history', () => {
     stack.back();
     expect(stack.getSnapshot()).toMatchObject({ art: null, history: [] });
     expect(stack.escape()).toBe(false);
+  });
+
+  it('re-entering the view already showing adds no history entry, even for an equal but new target', () => {
+    const { stack } = make();
+    stack.openIndex();
+    stack.openConsole('uat', null);
+    stack.openConsole('uat', null);
+    expect(stack.getSnapshot().history).toHaveLength(2);
+  });
+
+  it('keeps only the newest MAX_HISTORY entries, so the persisted envelope stays bounded', () => {
+    const { stack, persisted } = make();
+    for (let i = 0; i < MAX_HISTORY + 20; i++) stack.openArtifact(`a${i}`);
+    expect(stack.getSnapshot().history).toHaveLength(MAX_HISTORY);
+    expect(persisted.at(-1)?.history).toHaveLength(MAX_HISTORY);
+    stack.back();
+    expect(stack.getSnapshot().art).toMatchObject({ id: `a${MAX_HISTORY + 18}` });
   });
 
   it('a surface restored with no history goes back to the dashboard', () => {
