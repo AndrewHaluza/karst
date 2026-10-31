@@ -90,4 +90,47 @@ describe('envWarnings', () => {
     }));
     expect(w).toEqual([]);
   });
+
+  describe('absolute in-repo gate paths', () => {
+    const gitleaks = (config: string) => ({
+      name: 'secrets', kind: 'command' as const, command: 'gitleaks', args: ['dir', '--config', config, '.'],
+    });
+
+    it('warns when a review gate arg pins a file in the main checkout', () => {
+      const m = manifest(
+        { a: repo({ repoPath: '/r/a' }) },
+        { review: review({ gates: [gitleaks('/r/a/.gitleaks.toml')] }) },
+      );
+      expect(envWarnings(m, probe())).toEqual([
+        'review.gates[0]: gate secrets pins /r/a/.gitleaks.toml in the main checkout; use a path relative to the worktree',
+      ]);
+    });
+
+    it('stays silent for a relative path, an outside path and a sibling-prefix path', () => {
+      const m = manifest(
+        { a: repo({ repoPath: '/r/a' }) },
+        { review: review({ gates: [gitleaks('.gitleaks.toml'), gitleaks('/etc/g.toml'), gitleaks('/r/ab/g.toml')] }) },
+      );
+      expect(envWarnings(m, probe())).toEqual([]);
+    });
+
+    it('stays silent for a path inside a ticket worktree', () => {
+      const m = manifest(
+        { a: repo({ repoPath: '/r/a' }) },
+        { review: review({ gates: [gitleaks('/r/a/.karst/worktrees/t1/.gitleaks.toml')] }) },
+      );
+      expect(envWarnings(m, probe())).toEqual([]);
+    });
+
+    it('also flags an absolute command and uat gates', () => {
+      const m = manifest(
+        { a: repo({ repoPath: '/r/a' }) },
+        { uat: uat({ gates: [{ name: 'u', kind: 'command', command: '/r/a/bin/check' }] }) },
+      );
+      const w = envWarnings(m, probe());
+      expect(w).toEqual([
+        'uat.gates[0]: gate u pins /r/a/bin/check in the main checkout; use a path relative to the worktree',
+      ]);
+    });
+  });
 });

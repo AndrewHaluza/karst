@@ -44,7 +44,7 @@ export function capabilityGap(failed: readonly GateResult[]): CapabilityGap | nu
     names,
     reason:
       `gate${many ? 's' : ''} ${names.map((n) => `"${n}"`).join(', ')} exited ${EXIT_COMMAND_NOT_FOUND} — ` +
-      `the command ${many ? 'they run' : 'it runs'} is not installed in this environment: ${detail}`,
+      `the command ${many ? 'they run' : 'it runs'} is not installed in this environment (install it in sandbox.setup, or mark the gate sandbox: host): ${detail}`,
   };
 }
 
