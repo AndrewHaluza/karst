@@ -141,7 +141,7 @@ const drillCorpus = (mutate: (s: DashboardState) => DashboardState = (s) => s): 
 /** The Console pill needs a stream behind it: every stage view carries a console. */
 const withConsoles = (s: DashboardState): DashboardState => ({
   ...s,
-  insideViews: Object.fromEntries(Object.entries(s.insideViews ?? {}).map(([k, v]) => [k, { ...v, console: true }])),
+  insideViews: Object.fromEntries(Object.entries(s.insideViews ?? {}).map(([k, v]) => [k, { ...v, console: true }])) as unknown as DashboardState['insideViews'],
 });
 
 /** Every drill-down surface at every tier, and the long identity at the extremes. */
