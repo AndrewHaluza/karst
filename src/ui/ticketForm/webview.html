@@ -360,6 +360,11 @@
   .content{container-type:inline-size;container-name:content;min-width:0}
   .settings{min-width:0;background:var(--k-surface);border-left:var(--k-border-w) solid var(--k-border);
     padding:var(--k-space-8) var(--k-space-7)}
+  /* Agent trigger identity truncates inside its button; the ancestor
+     .ap-trigger-label clips it (UI-R44), same as the Settings agents table. */
+  .settings .agent-identity{flex-wrap:nowrap;min-width:0}
+  .settings .agent-identity-icon{flex:none}
+  .settings .agent-identity-name{white-space:nowrap;min-width:0}
   .setblock{margin-bottom:var(--k-space-7);min-width:0}
   .setblock:last-child{margin-bottom:var(--k-space-0)}
   .setblock > label:first-child{margin-top:var(--k-space-0)}
