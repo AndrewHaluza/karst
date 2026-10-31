@@ -153,10 +153,17 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
               } catch {
                 // transient SQLITE_BUSY: leave pending as false
               }
+              let runningStepCount: number | null = null;
+              try {
+                runningStepCount = db.runningStepCount();
+              } catch {
+                // transient SQLITE_BUSY or foreign schema: leave as null (unknown)
+              }
               snapshot = {
                 dbPath: found.dbPath,
                 conversationId: found.conversationId,
                 pendingApproval: pending,
+                runningStepCount,
                 // The per-conversation DB cannot say whether a turn is in
                 // flight; the CLI's summary DB carries the run status. `null`
                 // (no row / unreadable) stays UNKNOWN — the typed route defers

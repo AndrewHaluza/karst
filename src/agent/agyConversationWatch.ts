@@ -42,6 +42,22 @@ export const AGY_SUMMARIES_DB = 'conversation_summaries.db';
 /** The summary `status` value that means the conversation finished its turn. */
 export const AGY_IDLE_STATUS = 'CASCADE_RUN_STATUS_IDLE';
 
+/**
+ * Observed numeric `status` values in the foreign `steps` table of
+ * per-conversation DBs. These are empirically observed values from the
+ * Antigravity CLI schema:
+ *   - 2: a step is currently running (e.g. a backgrounded run_command)
+ *   - 3: a step is done / completed
+ *   - 9: awaiting user decision / approval
+ *
+ * Foreign schema: if status values change or the table is unreadable, an
+ * unknown read must fall back to today's behaviour (summary only).
+ */
+export const AGY_STEP_STATUS_RUNNING = 2;
+export const AGY_STEP_STATUS_DONE = 3;
+export const AGY_STEP_STATUS_AWAITING_APPROVAL = 9;
+export const AGY_STEP_STATUS_PENDING_APPROVAL = AGY_STEP_STATUS_AWAITING_APPROVAL;
+
 /** Read handle on the CLI's summary DB (foreign schema — strictly read-only). */
 export interface AgySummariesDb {
   /** True when the conversation's run status is idle; null when it has no row. */
@@ -113,6 +129,8 @@ export interface AgyConversationDb {
   workspaceBlob(): Buffer | null;
   /** How many `steps` rows are awaiting a user decision (`status = 9`). */
   pendingApprovalCount(): number;
+  /** How many `steps` rows are currently running (`status = 2`), or null when unknown. */
+  runningStepCount(): number | null;
   /** Cumulative per-call usage recorded in this conversation, or null when none yet. */
   usage(): AgyConversationUsage | null;
   close(): void;
@@ -122,23 +140,70 @@ export type OpenAgyDb = (dbPath: string) => AgyConversationDb;
 
 export function openAgyConversationDb(dbPath: string): AgyConversationDb {
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-  const blobStmt = db.prepare(
-    "SELECT data AS data FROM trajectory_metadata_blob WHERE id = 'main'",
-  );
-  const pendingStmt = db.prepare('SELECT COUNT(*) AS n FROM steps WHERE status = 9');
-  const usageStmt = db.prepare('SELECT idx, metadata FROM steps ORDER BY idx');
+  let blobStmt: Database.Statement | null = null;
+  try {
+    blobStmt = db.prepare(
+      "SELECT data AS data FROM trajectory_metadata_blob WHERE id = 'main'",
+    );
+  } catch {
+    // Foreign schema
+  }
+  let pendingStmt: Database.Statement | null = null;
+  try {
+    pendingStmt = db.prepare(
+      `SELECT COUNT(*) AS n FROM steps WHERE status = ${AGY_STEP_STATUS_AWAITING_APPROVAL}`,
+    );
+  } catch {
+    // Foreign schema
+  }
+  let runningStmt: Database.Statement | null = null;
+  try {
+    runningStmt = db.prepare(
+      `SELECT COUNT(*) AS n FROM steps WHERE status = ${AGY_STEP_STATUS_RUNNING}`,
+    );
+  } catch {
+    // Foreign schema
+  }
+  let usageStmt: Database.Statement | null = null;
+  try {
+    usageStmt = db.prepare('SELECT idx, metadata FROM steps ORDER BY idx');
+  } catch {
+    // Foreign schema
+  }
   return {
     workspaceBlob(): Buffer | null {
-      const row = blobStmt.get() as { data: Buffer | null } | undefined;
-      return row?.data ?? null;
+      try {
+        const row = blobStmt?.get() as { data: Buffer | null } | undefined;
+        return row?.data ?? null;
+      } catch {
+        return null;
+      }
     },
     pendingApprovalCount(): number {
-      const row = pendingStmt.get() as { n: number } | undefined;
-      return row?.n ?? 0;
+      try {
+        const row = pendingStmt?.get() as { n: number } | undefined;
+        return row?.n ?? 0;
+      } catch {
+        return 0;
+      }
+    },
+    runningStepCount(): number | null {
+      try {
+        if (!runningStmt) return null;
+        const row = runningStmt.get() as { n: number } | undefined;
+        return row?.n ?? 0;
+      } catch {
+        return null;
+      }
     },
     usage(): AgyConversationUsage | null {
-      const rows = usageStmt.all() as { idx: number; metadata: Buffer | null }[];
-      return aggregateConversationUsage(rows);
+      try {
+        if (!usageStmt) return null;
+        const rows = usageStmt.all() as { idx: number; metadata: Buffer | null }[];
+        return aggregateConversationUsage(rows);
+      } catch {
+        return null;
+      }
     },
     close(): void {
       db.close();
@@ -219,6 +284,11 @@ export interface AgyConversationSnapshot {
   /** True while a `status = 9` step exists — the user's answer is pending. */
   pendingApproval: boolean;
   /**
+   * How many `steps` rows are currently running (`status = 2`). `null` when
+   * unknown (table missing or read failed).
+   */
+  runningStepCount?: number | null;
+  /**
    * The conversation's run status: `true` idle (a turn just ended and the agent
    * is at its prompt), `false` running, `null` unknown (the summary DB or row
    * is missing, or the read failed). Derived from the CLI's summary DB. The
@@ -287,11 +357,16 @@ export function agyWatchTick(
   if (snapshot === null) return [];
   const events: AgyWatchEvent[] = [];
   const sameConversation = state.dbPath === snapshot.dbPath;
+
+  const hasRunningStep =
+    typeof snapshot.runningStepCount === 'number' && snapshot.runningStepCount > 0;
+  const effectiveIdle = hasRunningStep ? false : snapshot.idle;
+
   if (!sameConversation || !state.started) {
     state.dbPath = snapshot.dbPath;
     state.started = true;
     state.awaiting = false;
-    state.idle = snapshot.idle;
+    state.idle = effectiveIdle;
     events.push({ kind: 'SessionStart', sessionId: snapshot.conversationId });
   }
   if (snapshot.pendingApproval && !state.awaiting) {
@@ -301,16 +376,16 @@ export function agyWatchTick(
     state.awaiting = false;
     events.push({ kind: 'UserPromptSubmit' });
   }
-  if (snapshot.idle === true && state.idle === false) {
+  if (effectiveIdle === true && state.idle === false) {
     events.push({ kind: 'idle' });
   }
-  if (state.idle === true && snapshot.idle === false && !state.awaiting) {
+  if (state.idle === true && effectiveIdle === false && !state.awaiting) {
     events.push({ kind: 'running' });
   }
   // Track the latest status verbatim: `false` (running) gates the typed route,
   // `true` is idle, and `null` (unknown) does NOT gate — an unreadable summary
   // must never hold mail. An idle event fires only on a definite running→idle
   // edge, so an unknown→idle observation can never fake a turn-end.
-  state.idle = snapshot.idle;
+  state.idle = effectiveIdle;
   return events;
 }
