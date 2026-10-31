@@ -220,7 +220,7 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
 
 export type EnsureSyncResult =
   | { readonly ok: true }
-  /** `rewritten`: the divergence is a host rebase/amend the sandbox's commits can be carried over (arch:AC-33). */
+  /** `rewritten`: the divergence is a host rebase/amend the sandbox's commits can be carried over (arch:AC-51). */
   | { readonly ok: false; readonly reason: string; readonly diverged: boolean; readonly rewritten?: boolean; /** The sandbox CLI could not answer (PATH, daemon): a blocker no sync diff can help with. */ readonly unknown?: true };
 
 const syncChains = new Map<number, Promise<unknown>>();

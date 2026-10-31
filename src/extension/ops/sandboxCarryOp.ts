@@ -18,7 +18,7 @@ export interface SandboxCarryDeps extends SandboxLifecycleDeps {
 }
 
 /**
- * "Carry sandbox commits onto host branch" (arch:AC-33): the host rewrote the
+ * "Carry sandbox commits onto host branch" (arch:AC-51): the host rewrote the
  * ticket branch (rebase/amend) under a sandbox that holds agent commits. Replay
  * the commits after the old host head with `git am -3`, then recreate the clone
  * WITHOUT the pre-remove sync (it would fail as diverged; the commits are on the

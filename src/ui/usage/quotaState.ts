@@ -11,7 +11,7 @@ import { AGENT_PROVIDER_LABELS } from '../../model/agentProviders.js';
  * receives strings and widths and renders them.
  *
  * A core with no readable source renders `unknown` with its reason — never a
- * fabricated 0% (`arch:AC-29`).
+ * fabricated 0% (`arch:AC-48`).
  */
 
 /** The state band of one window, compared against the warn threshold. */

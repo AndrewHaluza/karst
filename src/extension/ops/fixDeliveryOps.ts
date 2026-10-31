@@ -19,7 +19,7 @@ import {
 import { getSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 
 /**
- * Fix-brief delivery, host-agnostic (@arch:V77, @arch:MAILBOX). A fix round that
+ * Fix-brief delivery, host-agnostic (@arch:V77, @arch:MAILBOX-WAKE). A fix round that
  * reaches a LIVE session stores its brief (`fix_deliveries`) and sends ONE fixed
  * pointer line through the same per-core route mail uses: the turn-end hook block
  * on push cores, a typed line on the rest. Nothing is ever typed into a running

@@ -29,7 +29,7 @@ const PERMANENT_SYNC = /output exceeded \d+ bytes/;
 
 /**
  * Runs `karst stage <stage> pass` on the HOST for a verified sandbox marker
- * (arch:AC-34): the same CLI path a host session's marker takes. A sandboxed
+ * (arch:AC-45): the same CLI path a host session's marker takes. A sandboxed
  * ticket is synced first (fast-forward only); a sync failure never reaches the CLI.
  */
 export function createMarkerRunner(

@@ -114,7 +114,7 @@ export interface ClaudeGlobalStatuslineSyncDeps {
 }
 
 /**
- * The opt-in GLOBAL Claude statusline install (D184, `arch:AC-29`). ON
+ * The opt-in GLOBAL Claude statusline install (D184, `arch:AC-48`). ON
  * installs/refreshes the wrapper in the operator's settings; OFF restores the
  * backed-up entry. Idempotent, so it rides every manifest reload (activation,
  * Settings save, the external file watcher) and writes nothing when the file

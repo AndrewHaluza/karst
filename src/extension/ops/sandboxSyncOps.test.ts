@@ -330,7 +330,7 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     expect(r).toMatchObject({ ok: false, diverged: true, reason: expect.stringContaining('not a fast-forward') });
   });
 
-  describe('host head record and rewrite classification (arch:AC-33)', () => {
+  describe('host head record and rewrite classification (arch:AC-51)', () => {
     const OLD = 'a'.repeat(40); const CLONE = 'b'.repeat(40); const HOST = 'c'.repeat(40);
     const bridge = () => join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
     const answers = (refused: boolean) => ({
