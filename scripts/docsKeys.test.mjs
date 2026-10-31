@@ -9,8 +9,10 @@ import {
   lintCovers,
   lintDoc,
   lintRefs,
+  GENERATED_MAX_BLOCK_BYTES,
   MAX_BLOCK_BYTES,
   symbolRange,
+  warnDoc,
 } from './docsKeys.mjs';
 
 const header = (p) => `<!-- AGENT INSTRUCTIONS:
@@ -22,6 +24,35 @@ const header = (p) => `<!-- AGENT INSTRUCTIONS:
 `;
 const block = (id, body = 'text') => `## [@${id}] Title ${id}\n${body}\nEND_DOC_BLOCK: [@${id}]\n`;
 const doc = (p, ...blocks) => ({ path: p, text: header(p) + '\n' + blocks.join('\n') });
+
+describe('block size cap', () => {
+  const pad = (n) => 'x'.repeat(n);
+  it('adds a split hint to the overflow error', () => {
+    const errs = lintDoc(doc('docs/a.md', block('a:A-01', pad(MAX_BLOCK_BYTES)))).join();
+    expect(errs).toMatch(/exceeds 6400 B/);
+    expect(errs).toMatch(/split the block: move rationale\/history into a new @arch:<NS>-NN block and cross-reference it \(docs\/arch\/README\.md\)/);
+  });
+
+  it('gives a generated block its own higher cap', () => {
+    const gen = block('a:A-01', `<!-- GENERATED:start id=A-01 src=x -->\n${pad(MAX_BLOCK_BYTES + 500)}\n<!-- GENERATED:end -->`);
+    expect(lintDoc(doc('docs/a.md', gen))).toEqual([]);
+    const huge = block('a:A-01', `<!-- GENERATED:start id=A-01 src=x -->\n${pad(GENERATED_MAX_BLOCK_BYTES)}`);
+    expect(lintDoc(doc('docs/a.md', huge)).join()).toMatch(/generated-block cap/);
+  });
+
+  it('warns above 90% of the cap without failing', () => {
+    const near = doc('docs/a.md', block('a:A-01', pad(5800)));
+    expect(lintDoc(near)).toEqual([]);
+    expect(warnDoc(near).join()).toMatch(/WARNING a:A-01 is \d+ B, above 90% of the 6400 B cap; split the block/);
+  });
+
+  it('does not warn at or below 90%, above the cap, or on generated blocks', () => {
+    expect(warnDoc(doc('docs/a.md', block('a:A-01', pad(5000))))).toEqual([]);
+    expect(warnDoc(doc('docs/a.md', block('a:A-01', pad(MAX_BLOCK_BYTES))))).toEqual([]);
+    const gen = block('a:A-01', `<!-- GENERATED:start id=A-01 src=x -->\n${pad(6000)}`);
+    expect(warnDoc(doc('docs/a.md', gen))).toEqual([]);
+  });
+});
 
 describe('lintDoc', () => {
   it('accepts a well-formed doc', () => {

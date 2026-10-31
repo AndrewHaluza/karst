@@ -29,7 +29,6 @@ How an approach — a sourced package of prompts, agents, skills and commands �
 ### Flow
 ```mermaid
 sequenceDiagram
-  autonumber
   actor User as User / Settings
   participant Fetch as installApproach (approaches/fetch)
   participant Pkg as writeApproachArtifacts (approaches/pkg)
@@ -40,7 +39,7 @@ sequenceDiagram
 
   User->>Fetch: install-approach (git include / npm collect)
   Fetch->>Fetch: assertEntrypointResolvable, assertWorkflowCommandsResolvable, assertPackageContributes
-  Fetch->>Fetch: sanitizeFrontmatter + scanOutputSuggestions (pending only)
+  Fetch->>Fetch: sanitizeFrontmatter + scanOutputSuggestions
   Fetch->>Pkg: writeApproachArtifacts (replaces the package dir)
   Pkg-->>User: approach.yml + prompts/ + artifacts
   Fetch->>Store: reconcileApproachEnabled reads listInstalledIds
@@ -57,19 +56,19 @@ sequenceDiagram
 | Chosen | Rejected | Why |
 |---|---|---|
 | Neutral package on disk; the adapter materializes the launch format | Storing one agent's format (e.g. `.claude-plugin`) at install | Agent formats are agent-specific; the adapter is the only place that knows one, so every core launches from the same package. |
-| Replace the package dir on reinstall | Overlay the new files onto the old install | Leftovers are not inert — `materializeApproach` copies a skill's whole folder into the launch plugin, so a stale sibling still reaches the agent. |
-| Run the install guards before the write | Validate after writing | A rejected install must never destroy the working package it would have replaced. |
+| Replace the package dir on reinstall | Overlay the new files onto the old install | Leftovers are not inert: `materializeApproach` copies a skill's whole folder, so a stale sibling still reaches the agent. |
+| Run the install guards before the write | Validate after writing | A rejected install must never destroy the package it would replace. |
 | Keep scan suggestions as `pendingOutputs` in `approach.yml` | Write `outputs:` into `karst.yml` at scan time | A suggestion is not a decision; only accepting it in Settings writes the manifest. |
-| Point `enabled` at disk after every install/uninstall attempt | Set it from the attempt's outcome | A transient fetch error that left the package intact changes nothing; a source that can never produce a package retires itself. |
+| Point `enabled` at disk after every install/uninstall attempt | Set it from the attempt's outcome | A transient fetch error that left the package intact changes nothing; a source that never yields a package retires itself. |
 | Sanitize permission frontmatter at install | Trust fetched bodies and let the agent's own settings govern | Karst's `--settings` is the sole permission authority; a body must never grant bypass on its own. |
-| Watch literal output prefixes and filter against the base commit | Watch the worktree root and capture every changed file | A root watch costs one inotify watch per directory (including `node_modules`), and files identical to base are not outputs. |
+| Watch literal output prefixes and filter against the base commit | Watch the worktree root and capture every changed file | A root watch costs an inotify watch per directory (`node_modules` too); files identical to base are not outputs. |
 
 ### Fallbacks
 | Trigger | Behaviour | Recovery |
 |---|---|---|
 | Entrypoint is missing or unresolvable | `resolveApproachPrompt` returns null instead of throwing | The launch proceeds as a bare session. |
 | Source collects nothing and declares no workflow | `assertPackageContributes` rejects the install before any write | Fix the source/entrypoint; the installed package is untouched. |
-| Manifest fails to parse | Settings works from the last good in-memory copy and never rewrites the file | The user fixes `karst.yml`; an enable/disable cannot overwrite it. |
+| Manifest fails to parse | Settings uses the last good in-memory copy and never rewrites the file | The user fixes `karst.yml`; an enable/disable cannot overwrite it. |
 | `materializeApproach` throws | Launch degrades to no extra args and no owned paths | The session still opens, without the approach's agents/skills/commands. |
 | Watcher fails (ENOSPC/EMFILE) | Logs the error code and closes the handle | The 10 s `syncWatchers` reconcile re-arms it; the post-edit hook and final sweep still capture. |
 | Base commit unresolvable during a capture pass | Fail closed — nothing is captured | Once the base resolves, the next sweep captures the files. |

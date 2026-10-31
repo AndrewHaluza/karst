@@ -4,7 +4,12 @@ import { globSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MAX_BLOCK_BYTES = 6400; // 6200 -> 6400: the generated MAP-04 schema ER grew past 6200 with cloud_session_links (v90)
+export const MAX_BLOCK_BYTES = 6400; // hand-written blocks: one block must stay cheap to grep. Split, never raise.
+export const GENERATED_MAX_BLOCK_BYTES = 12000; // blocks holding a GENERATED:start marker (MAP-04 schema ER) own a higher cap
+export const WARN_RATIO = 0.9; // a hand-written block above this share of the cap gets a WARNING
+const GENERATED = /^<!-- GENERATED:start\b/;
+const SPLIT_HINT = 'split the block: move rationale/history into a new @arch:<NS>-NN block and cross-reference it (docs/arch/README.md)';
+const isGenerated = (b) => b.body.some((l) => GENERATED.test(l));
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS_DIR = join(ROOT, 'docs');
 const SRC_DIR = join(ROOT, 'src');
@@ -181,6 +186,14 @@ function lintOverview(path, blocks) {
   return out;
 }
 
+/** Warnings (never fail the gate): hand-written blocks above 90% of the cap but still within it. */
+export function warnDoc({ path, text }) {
+  const limit = WARN_RATIO * MAX_BLOCK_BYTES;
+  return parse(text).blocks
+    .filter((b) => !isGenerated(b) && b.bytes > limit && b.bytes <= MAX_BLOCK_BYTES)
+    .map((b) => `${path}: WARNING ${b.id} is ${b.bytes} B, above ${Math.round(WARN_RATIO * 100)}% of the ${MAX_BLOCK_BYTES} B cap; ${SPLIT_HINT}`);
+}
+
 export function lintDoc({ path, text }) {
   const { header, blocks, errors } = parse(text);
   const out = errors.map((e) => `${path}: ${e}`);
@@ -194,7 +207,9 @@ export function lintDoc({ path, text }) {
   for (const b of blocks) {
     if (seen.has(b.id)) out.push(`${path}: duplicate id ${b.id}`);
     seen.add(b.id);
-    if (b.bytes > MAX_BLOCK_BYTES) out.push(`${path}: ${b.id} exceeds ${MAX_BLOCK_BYTES} B (${b.bytes})`);
+    if (isGenerated(b)) {
+      if (b.bytes > GENERATED_MAX_BLOCK_BYTES) out.push(`${path}: ${b.id} exceeds ${GENERATED_MAX_BLOCK_BYTES} B (${b.bytes}), the generated-block cap`);
+    } else if (b.bytes > MAX_BLOCK_BYTES) out.push(`${path}: ${b.id} exceeds ${MAX_BLOCK_BYTES} B (${b.bytes}); ${SPLIT_HINT}`);
   }
   out.push(...lintOverview(path, blocks));
   return out;
@@ -475,6 +490,8 @@ function main(cmd, flags) {
   const docs = collectDocs();
   if (cmd === 'lint') {
     const errs = [...docs.flatMap(lintDoc), ...lintCovers(docs), ...lintRefs(collectRefSources(), keyIndex(docs))];
+    const warns = docs.flatMap(warnDoc);
+    if (warns.length) console.warn(warns.join('\n'));
     if (errs.length) console.error(errs.join('\n'));
     process.exitCode = errs.length ? 1 : 0;
   } else if (cmd === 'index') {
