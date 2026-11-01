@@ -4,6 +4,7 @@ import {
   opencodeConsoleLine,
   codexConsoleLine,
   consoleLineRendererFor,
+  renderAgentMessage,
 } from './consoleFormat.js';
 
 describe('claude console output', () => {
@@ -19,7 +20,7 @@ describe('claude console output', () => {
     });
 
     expect(consoleLineRendererFor('claude')?.(line)).toBe(
-      '[\n  { "severity": "high", "title": "Reasoning tokens are dropped" }\n]\n',
+      '── Findings: 1 high ──\n\n[HIGH] Reasoning tokens are dropped\n',
     );
   });
 
@@ -201,3 +202,70 @@ describe('StreamingConsoleFormat', () => {
     expect(f.flush('stderr')).toBe('warn\n');
   });
 });
+
+const DRIFT = {
+  severity: 'high',
+  title: 'vitestGate drift: unit config no longer excludes integration suffix',
+  file: 'src/workflow/gates/vitestGate.ts',
+  line: 42,
+  detail: 'Line one.\nLine two.',
+};
+const COVERAGE = { severity: 'info', title: 'COVERAGE: no new uncovered branches' };
+const RENDERED =
+  '── Findings: 1 high, 1 info ──\n\n' +
+  '[HIGH] vitestGate drift: unit config no longer excludes integration suffix\n' +
+  '  at src/workflow/gates/vitestGate.ts:42\n' +
+  '  Line one.\n  Line two.\n\n' +
+  '[INFO] COVERAGE: no new uncovered branches';
+
+describe('renderAgentMessage', () => {
+  it('renders a whole-doc findings object', () => {
+    expect(renderAgentMessage(JSON.stringify({ findings: [DRIFT, COVERAGE] }))).toBe(RENDERED);
+  });
+  it('renders a bare array carrying severity + title', () => {
+    expect(renderAgentMessage(JSON.stringify([DRIFT, COVERAGE]))).toBe(RENDERED);
+  });
+  it('renders a fenced block and keeps surrounding prose', () => {
+    const text = `Done.\n\`\`\`json\n${JSON.stringify({ findings: [DRIFT, COVERAGE] })}\n\`\`\`\nBye.`;
+    expect(renderAgentMessage(text)).toBe(`Done.\n${RENDERED}\nBye.`);
+  });
+  it('omits at-line when file is missing and :line when line is missing', () => {
+    expect(renderAgentMessage(JSON.stringify([{ severity: 'low', title: 'T', line: 3 }]))).toBe(
+      '── Findings: 1 low ──\n\n[LOW] T',
+    );
+    expect(renderAgentMessage(JSON.stringify([{ severity: 'low', title: 'T', file: 'a.ts' }]))).toContain('  at a.ts');
+    expect(renderAgentMessage(JSON.stringify([{ severity: 'low', title: 'T', file: 'a.ts' }]))).not.toContain('a.ts:');
+  });
+  it.each([
+    ['plain prose', 'all good'],
+    ['malformed JSON', '{"findings":[{"severity":'],
+    ['object without findings', '{"ok":true}'],
+    ['no valid finding', '{"findings":[{"severity":1,"title":2}]}'],
+    ['empty findings', '{"findings":[]}'],
+  ])('leaves %s unchanged', (_l, text) => {
+    expect(renderAgentMessage(text)).toBe(text);
+  });
+  it('skips non-string fields defensively', () => {
+    expect(renderAgentMessage(JSON.stringify([{ severity: 'low', title: 'T', file: 5, detail: {} }]))).toBe(
+      '── Findings: 1 low ──\n\n[LOW] T',
+    );
+  });
+});
+
+describe('provider renderers format findings', () => {
+  const doc = JSON.stringify({ findings: [DRIFT, COVERAGE] });
+  it('claude', () => {
+    expect(claudeLine(JSON.stringify({ result: doc }))).toBe(`${RENDERED}\n`);
+  });
+  it('opencode text', () => {
+    expect(opencodeConsoleLine(JSON.stringify({ type: 'text', part: { text: doc } }))).toBe(`${RENDERED}\n`);
+  });
+  it('codex agent_message', () => {
+    const ev = { type: 'item.completed', item: { type: 'agent_message', text: doc } };
+    expect(codexConsoleLine(JSON.stringify(ev))).toBe(`${RENDERED}\n`);
+  });
+});
+
+function claudeLine(line: string): string {
+  return consoleLineRendererFor('claude')!(line);
+}
