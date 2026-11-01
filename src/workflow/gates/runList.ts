@@ -197,9 +197,11 @@ export async function runGateList(
     try {
     const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
     // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
+    // The ticket's base branch reaches every gate process, host or sandbox (the D360 drift check reads it).
+    const baseEnv = opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : [];
     const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
-      extraEnv.length + offsetEnv.length > 0
-        ? run('env', [...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
+      extraEnv.length + offsetEnv.length + baseEnv.length > 0
+        ? run('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
         : run(gate.command, gate.args, cwd, runOpts);
     outcome = await launch(onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess));
     if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {

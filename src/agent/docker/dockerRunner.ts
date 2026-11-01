@@ -245,7 +245,7 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
   const { proc, names } = input;
   let clone: StepResult;
   try {
-    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch });
+    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch, ...(input.ticket.baseRef ? { baseRef: input.ticket.baseRef } : {}) });
   } catch (err) {
     clone = { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }

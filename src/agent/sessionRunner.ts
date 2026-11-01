@@ -52,6 +52,8 @@ export type RunHeadless = (
 export interface SandboxTicketRef {
   readonly hostWorktreePath: string;
   readonly branch: string;
+  /** The ticket's base branch; a docker first clone ships it as `refs/karst/base/<baseRef>` (D360 drift check). */
+  readonly baseRef?: string;
 }
 
 /** `stashMessage`: park the clone's uncommitted work with `git stash push -u -m <it>` before refreshing (never discarded). */

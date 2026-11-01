@@ -36,7 +36,7 @@ export interface BackendSessionInput {
   readonly ticketLabel: string;
   readonly info: (line: string) => void;
   /** The ticket worktree; the docker backend clones its branch. */
-  readonly worktree?: { readonly path: string; readonly branch: string | null };
+  readonly worktree?: { readonly path: string; readonly branch: string | null; readonly baseRef?: string | null };
   /** How many repos' worktrees the ticket has; more than one never gets a sandbox in v1 (decided at launch). */
   readonly worktreeCount?: number;
   readonly debug?: (message: string) => void;
@@ -76,7 +76,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
-      ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
+      ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch, ...(input.worktree.baseRef ? { baseRef: input.worktree.baseRef } : {}) } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
       } : {}),
