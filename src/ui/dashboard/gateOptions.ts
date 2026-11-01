@@ -24,9 +24,19 @@ export interface GateOption {
   configDisabled?: boolean;
 }
 
+export interface GateRunOrderEntry {
+  name: string;
+  repo: string;
+  disabled: boolean;
+}
+
 export interface GateOptions {
   uat: GateOption[];
   review: GateOption[];
+  runOrder?: {
+    uat: GateRunOrderEntry[];
+    review: GateRunOrderEntry[];
+  };
 }
 
 export type GateOptionsLoader = (ticketId: number, signal: AbortSignal) => Promise<GateOptions>;
@@ -86,7 +96,7 @@ export function buildGateOptionsLoader(deps: {
   const git = deps.git ?? defaultGitRunner;
 
   return async (ticketId, signal): Promise<GateOptions> => {
-    const empty: GateOptions = { uat: [], review: [] };
+    const empty: GateOptions = { uat: [], review: [], runOrder: { uat: [], review: [] } };
     const manifest = deps.manifest();
     if (!manifest) return empty;
     const disabled = getDisabledGates(deps.store, ticketId);
@@ -111,29 +121,49 @@ export function buildGateOptionsLoader(deps: {
 
       const uatNames: string[] = [];
       const uatOff: string[] = [];
-      const reviewOff: string[] = [];
+      const uatRunOrder: GateRunOrderEntry[] = [];
       if (uatPlan.kind === 'targets') {
         for (const target of uatPlan.targets) {
           const resolution = resolveTargetGates(probe(target.path), manifest.uat, target.names);
           if (resolution.kind !== 'gates') continue;
           uatNames.push(...resolution.gates.map((g) => g.name));
           uatOff.push(...resolution.skipped.map((g) => g.name));
+          for (const gate of resolution.gates) {
+            uatRunOrder.push({
+              name: gate.name,
+              repo: target.repo,
+              disabled: disabled.uat.includes(gate.name),
+            });
+          }
         }
       }
 
       const reviewNames: string[] = [];
+      const reviewOff: string[] = [];
+      const reviewRunOrder: GateRunOrderEntry[] = [];
       if (reviewPlan.kind === 'targets') {
         for (const target of reviewPlan.targets) {
           const resolution = resolveReviewGates(probe(target.path), manifest.review, target.names);
           if (resolution.kind !== 'gates') continue;
           reviewNames.push(...resolution.gates.map((g) => g.name));
           reviewOff.push(...resolution.skipped.map((g) => g.name));
+          for (const gate of resolution.gates) {
+            reviewRunOrder.push({
+              name: gate.name,
+              repo: target.repo,
+              disabled: disabled.review.includes(gate.name),
+            });
+          }
         }
       }
 
       return {
         uat: optionsFrom(uatNames, disabled.uat, uatOff.filter((n) => !uatNames.includes(n))),
         review: optionsFrom(reviewNames, disabled.review, reviewOff.filter((n) => !reviewNames.includes(n))),
+        runOrder: {
+          uat: uatRunOrder,
+          review: reviewRunOrder,
+        },
       };
     } catch {
       // A broken git, an unreadable tree — the panel is an observer here and a

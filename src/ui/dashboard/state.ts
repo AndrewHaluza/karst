@@ -28,6 +28,7 @@ import { readActionStates, shipActionViews } from './stateActions.js';
 import { buildInsideSection } from './stateInsideSection.js';
 import { buildRail } from './stateRail.js';
 import { formatId } from '../../model/entityId.js';
+import type { ResolvedGate } from '../../model/inside/gates.js';
 
 export type {
   DashboardAgentContext,
@@ -103,10 +104,16 @@ export function buildDashboardState(
    * as pending rows before the stage runs. Absent → no forecast, and the row
    * states that the gates resolve when the stage runs.
    */
-  resolvedGates?: {
-    uat: readonly { name: string; disabled: boolean }[];
-    review: readonly { name: string; disabled: boolean }[];
-  },
+  resolvedGates?:
+    | {
+        uat: readonly ResolvedGate[];
+        review: readonly ResolvedGate[];
+        runOrder?: {
+          uat: readonly ResolvedGate[];
+          review: readonly ResolvedGate[];
+        };
+      }
+    | undefined,
   /**
    * Whether a worktree is a karst-extension checkout, i.e. whether its row may
    * offer the "Launch Dev" action. Injected (the state builder never reads the
@@ -285,6 +292,11 @@ export function buildDashboardState(
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
 
+  const resolved =
+    resolvedGates && 'runOrder' in resolvedGates && resolvedGates.runOrder
+      ? resolvedGates.runOrder
+      : resolvedGates;
+
   const { insideViews, presentedStage, serverRows } = buildInsideSection(store, {
     ticket,
     stepper,
@@ -298,7 +310,7 @@ export function buildDashboardState(
     cellOf,
     attach,
     assignmentFor,
-    resolvedGates,
+    resolvedGates: resolved,
     findingsRepoSelection,
     repoNameFor,
     graphInside,

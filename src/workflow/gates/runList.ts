@@ -75,6 +75,11 @@ export interface RunGatesOptions {
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /**
+   * Called with a gate's name and the pid of each process it spawns; the
+   * returned disposer runs when that process settles. Absent → unregistered.
+   */
+  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
+  /**
    * Whether the base branch's package.json defines `script` (rebase target of a
    * stale ticket branch). Absent → the branch is never treated as stale.
    */
@@ -171,6 +176,7 @@ export async function runGateList(
       signal: opts.signal,
       onDebug,
       onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
+      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid) : undefined,
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
     // Integration suites own fixed port bands; concurrent gates (other tickets'

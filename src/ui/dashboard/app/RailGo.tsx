@@ -84,6 +84,16 @@ const ResolveGo = memo(function ResolveGo({ label, repo }: { readonly label: str
   );
 });
 
+const RetryShipGo = memo(function RetryShipGo({ label }: { readonly label: string }) {
+  const send = useDashboardSend();
+  const onClick = usePendingAction(useCallback((requestId: string) => send.retryShip(requestId), [send]));
+  return (
+    <button type="button" className="go" data-act="retry-ship" onClick={onClick}>
+      {label}
+    </button>
+  );
+});
+
 function GotoGo({ label, kind }: { readonly label: string; readonly kind: string }) {
   return (
     <button type="button" className="go" data-goto="" data-go={kind} onClick={() => gotoAction(kind)}>
@@ -96,6 +106,7 @@ export const RailGo = memo(function RailGo({ needs, busy }: { readonly needs: Ne
   const label = needs?.action || 'Open';
   const cta = needs?.cta;
   if (cta?.kind === 'ship-confirm') return <ShipGo label={label} busy={busy} />;
+  if (cta?.kind === 'retry-ship') return <RetryShipGo label={label} />;
   if (cta?.kind === 'merge') return <MergeGo label={label} repo={cta.repo} busy={busy} />;
   if (cta?.kind === 'resolve-conflicts') return <ResolveGo label={label} repo={cta.repo} />;
   return <GotoGo label={label} kind={cta ? cta.kind : 'open-session'} />;

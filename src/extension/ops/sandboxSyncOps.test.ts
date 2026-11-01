@@ -229,7 +229,7 @@ describe('backendSessionOptions worktree', () => {
     const debug = vi.fn();
     const opts = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
     await opts.resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, docker: { debug } });
+    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, log: debug, docker: { debug } });
     const bare = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
     await bare.resolveRunner!();
     expect(resolve).toHaveBeenLastCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7 });

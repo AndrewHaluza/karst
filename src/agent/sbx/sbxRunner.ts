@@ -18,7 +18,7 @@ import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
-import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead } from '../cloneSyncClass.js';
+import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
@@ -42,6 +42,8 @@ export interface SbxRunnerOptions {
   readonly cloneDir?: string;
   /** Clone-readiness polling overrides (tests). */
   readonly cloneReady?: CloneReadyOptions;
+  /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
+  readonly log?: (line: string) => void;
 }
 
 /**
@@ -71,7 +73,19 @@ const WRITE_PROBE = [
   `for d in "$HOME" /tmp; do f="$d/.karst-write-probe.$$"; { : > "$f" && unlink "$f"; } || exit ${PROBE_UNWRITABLE}; done`,
 ] as const;
 
+/** Runs in the sandbox after a failed probe: the kernel's ext4 messages (a journal abort remounts the disk read-only). */
+const EXT4_LOG = ['sh', '-c', 'dmesg 2>&1 | grep EXT4-fs'] as const;
+
+/** Runs in the sandbox (reads still work on a read-only disk): line 1 is HEAD, the rest is `git status --porcelain`. */
+const WORK_STATE = ['sh', '-c', 'g="git -c safe.directory=*"; $g rev-parse HEAD; $g status --porcelain'] as const;
+
 const SHA = /^[0-9a-f]{40,64}$/;
+
+/** Damaged-disk block reason; `restart` does not help (the same disks are reused), only removing the sandbox does. */
+const damagedReason = (name: string, workOnHost: boolean): string =>
+  workOnHost
+    ? `the sandbox disk is damaged: remove and recreate it (sbx rm ${name}, then Karst: Open AI Session); all its work is on the host`
+    : 'the sandbox disk is damaged and holds work that is not on the host yet: do not remove it, and do not just restart it';
 
 /** Host git never runs repo hooks/fsmonitor and ignores system/global config (the host worktree is the only repo it touches). */
 const HARDENED_GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] as const;
@@ -119,7 +133,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
    */
   const fetchSandbox = (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> =>
     withXfer(async (xfer) => {
-      const writable = await ensureWritable();
+      const writable = await ensureWritable({ hostWorktreePath: wt, branch });
       if (!writable.ok) return writable;
       const head = await git(wt, ['rev-parse', 'HEAD']);
       const have = head.code === 0 && SHA.test(head.stdout.trim()) ? head.stdout.trim() : '';
@@ -132,14 +146,30 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const fetched = await opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...fetchSandboxBundleArgs(path, branch)], { env: HARDENED_ENV });
       return fetched.code === 0 ? { ok: true as const } : { ok: false as const, reason: `git fetch of the sandbox bundle failed: ${fetched.stderr.trim()}` };
     }).catch((err: unknown) => ({ ok: false as const, reason: `sbx sync failed: ${err instanceof Error ? err.message : String(err)}` }));
+  /** Is every commit and edit in the sandbox on the host? HEAD in the host branch and the sandbox sync ref, tree clean. */
+  const workIsOnHost = async (ticket: SandboxTicketRef): Promise<boolean> => {
+    const state = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WORK_STATE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+    const [head = '', ...dirty] = state.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+    if (state.code !== 0 || !SHA.test(head) || dirty.length > 0) return false;
+    const refs = [`refs/heads/${ticket.branch}`, sandboxHeadRef(ticket.branch)];
+    const held = await git(ticket.hostWorktreePath, ['for-each-ref', '--contains', head, '--format=%(refname)', ...refs]);
+    return held.code === 0 && refs.every((r) => held.stdout.split('\n').map((l) => l.trim()).includes(r));
+  };
   /**
    * Cheap write probe before a launch, reattach or sync. Only a failed write blocks; any other `sbx exec`
    * failure (sandbox absent, CLI down) is left to the step that follows, which already reports it.
+   * A failed write with ext4 errors in the kernel log is a damaged disk: restart reuses it, so the reason says remove
+   * (and only says it is safe when `ticket` shows all work on the host).
    */
-  const ensureWritable = async (): Promise<StepOutcome> => {
+  const ensureWritable = async (ticket?: SandboxTicketRef): Promise<StepOutcome> => {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WRITE_PROBE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
     if (out.code === 0) return { ok: true };
-    return out.code === PROBE_UNWRITABLE || /read-only file system/i.test(out.stderr) ? { ok: false, reason: SANDBOX_READ_ONLY_REASON } : { ok: true };
+    if (out.code !== PROBE_UNWRITABLE && !/read-only file system/i.test(out.stderr)) return { ok: true };
+    const dmesg = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...EXT4_LOG], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+    const lines = dmesg.stdout.split('\n').filter((l) => l.includes('EXT4-fs'));
+    if (lines.length === 0) return { ok: false, reason: SANDBOX_READ_ONLY_REASON };
+    for (const l of lines) opts.log?.(`[sbx ${opts.name}] ${l}`);
+    return { ok: false, reason: damagedReason(opts.name, ticket ? await workIsOnHost(ticket) : false) };
   };
   const runner: SessionRunner = {
     kind: 'sbx',
@@ -232,7 +262,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // sandbox fetches it itself (`sbx exec`); no host git ever runs in the agent clone.
     refresh: async (ticket: SandboxTicketRef, refreshOpts?: RefreshOptions): Promise<SyncResult> => {
       if (!opts.evidenceDir) return { ok: false, reason: 'no bridge dir to hand the host bundle through' };
-      const writable = await ensureWritable();
+      const writable = await ensureWritable(ticket);
       if (!writable.ok) return writable;
       try {
         const xfer = await ensureXferDir(opts.evidenceDir);

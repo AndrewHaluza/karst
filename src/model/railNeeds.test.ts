@@ -241,4 +241,23 @@ describe('railNeeds', () => {
     expect(railNeeds(input({ stage: 'impl' }))).toBeNull();
     expect(railNeeds(input({ stage: null }))).toBeNull();
   });
+
+  it('offers Retry ship on a failed ship, with the first line of the verdict capped', () => {
+    const long = `describe step failed: ${'x'.repeat(100)}\nsecond line`;
+    const needs = railNeeds(input({ stage: 'ship', shipStatus: 'failed', shipReason: long }));
+    expect(needs?.action).toBe('Retry ship');
+    expect(needs?.cta).toEqual({ kind: 'retry-ship' });
+    expect(needs?.detail.startsWith('describe step failed: ')).toBe(true);
+    expect(needs?.detail.length).toBe(60);
+    expect(needs?.detail.endsWith('…')).toBe(true);
+    expect(needs?.detail).not.toContain('second');
+  });
+
+  it('words a failed ship with no reason, and leaves other ship states unchanged', () => {
+    expect(railNeeds(input({ stage: 'ship', shipStatus: 'failed' }))?.detail).toBe('ship failed');
+    expect(railNeeds(input({ stage: 'ship', shipStatus: 'running' }))?.cta).toEqual({ kind: 'ship-confirm' });
+    expect(
+      railNeeds(input({ stage: 'ship', shipStatus: 'failed', shipAwaitingMerge: true, mergeGate: null })),
+    ).toBeNull();
+  });
 });

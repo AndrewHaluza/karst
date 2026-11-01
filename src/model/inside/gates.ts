@@ -214,6 +214,12 @@ const GATES_EVIDENCE_LIMIT = 8;
 /** Cap on finding rows before the remainder row takes over. */
 const FINDINGS_EVIDENCE_LIMIT = 6;
 
+export interface ResolvedGate {
+  name: string;
+  disabled: boolean;
+  repo?: string;
+}
+
 /** Everything both quality stages' process reducers consume, already loaded. */
 export interface QualityProcessesInput {
   cell: StepperCell;
@@ -288,7 +294,7 @@ export interface QualityProcessesInput {
    * that has not resolved them yet passes nothing, and the row falls back to
    * stating that they resolve when the stage runs.
    */
-  resolvedGates?: readonly { name: string; disabled: boolean }[];
+  resolvedGates?: readonly ResolvedGate[];
   /**
    * The manifest repository NAME for a recorded repo value. `gate_runs.repo`
    * is a repository PATH, and a path is not what the settings call this thing
@@ -415,7 +421,7 @@ function gatesProcess(
   runs: readonly GateRun[],
   stageKey: StageKey,
   now: string,
-  resolved: readonly { name: string; disabled: boolean }[] = [],
+  resolved: readonly ResolvedGate[] = [],
   repoNameFor?: (repo: string) => string | undefined,
   processRuns: readonly ProcessRun[] = [],
   eff: EffectiveAttempt = { key: null, empty: false, historical: false },
@@ -508,23 +514,77 @@ function gatesProcess(
   // are listed after the recorded ones. Gates run sequentially, so the first
   // unrecorded enabled gate is the one running now; the rest are queued.
   const liveGates = running && !gatesDone;
-  const recordedNames = new Set(batch.map((r) => stripRepoDecoration(r.gateName)));
+  const usedBatchIndices = new Set<number>();
+  const isAnswered = (entry: ResolvedGate): boolean => {
+    for (let i = 0; i < batch.length; i++) {
+      if (usedBatchIndices.has(i)) continue;
+      const r = batch[i]!;
+      if (stripRepoDecoration(r.gateName) !== entry.name) continue;
+      if (r.repo !== null && r.repo !== undefined && entry.repo && r.repo === entry.repo) {
+        usedBatchIndices.add(i);
+        return true;
+      }
+    }
+    for (let i = 0; i < batch.length; i++) {
+      if (usedBatchIndices.has(i)) continue;
+      const r = batch[i]!;
+      if (stripRepoDecoration(r.gateName) !== entry.name) continue;
+      if (r.repo === null || r.repo === undefined || !entry.repo) {
+        usedBatchIndices.add(i);
+        return true;
+      }
+    }
+    return false;
+  };
+  const latestEndedAt = batch.reduce<string | null>(
+    (max, r) => (!r.endedAt ? max : max === null || r.endedAt > max ? r.endedAt : max),
+    null,
+  );
+  const start = (batch.length === 0 ? cell.startedAt : latestEndedAt ?? cell.startedAt) ?? null;
   let runAssigned = false;
-  const waitingRows = liveGates
-    ? resolved
-        .filter((g) => !recordedNames.has(g.name))
-        .map((g): EvidenceRow => {
-          if (g.disabled) return { status: 'skip', label: g.name, detail: 'disabled for this ticket' };
-          if (runAssigned) return { status: 'pending', label: g.name, detail: 'queued' };
-          runAssigned = true;
-          return { status: 'run', label: g.name, detail: 'running…' };
-        })
-    : [];
+  const waitingRows: EvidenceRow[] = [];
+  if (liveGates) {
+    for (const g of resolved) {
+      if (isAnswered(g)) continue;
+      const repo = g.repo ? repoLabel(g.repo) : undefined;
+      if (g.disabled) {
+        waitingRows.push({
+          status: 'skip',
+          label: g.name,
+          detail: 'disabled for this ticket',
+          ...(repo ? { repo } : {}),
+        });
+      } else if (!runAssigned) {
+        runAssigned = true;
+        waitingRows.push({
+          status: 'run',
+          label: g.name,
+          detail: 'running…',
+          ...(repo ? { repo } : {}),
+          ...(start
+            ? {
+                time: formatTime(start),
+                duration: formatDuration(start, now),
+                durationExact: formatExactDuration(start, now),
+              }
+            : {}),
+        });
+      } else {
+        waitingRows.push({
+          status: 'pending',
+          label: g.name,
+          detail: 'queued',
+          ...(repo ? { repo } : {}),
+        });
+      }
+    }
+  }
   const allRows = forecast
     ? resolved.map((g): EvidenceRow => ({
         status: g.disabled ? 'skip' : 'pending',
         label: g.name,
         detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
+        ...(g.repo ? { repo: repoLabel(g.repo) } : {}),
       }))
     : [...recordedRows, ...waitingRows];
   const runIndex = allRows.findIndex((r) => r.status === 'run' && r.detail === 'running…');

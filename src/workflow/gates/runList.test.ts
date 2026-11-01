@@ -406,4 +406,25 @@ describe('runGateList port slot — review fixes', () => {
     const host = calls.find((c) => c.who === 'host')!;
     expect(host.args[0]).toMatch(/^KARST_TEST_PORT_OFFSET=\d+$/);
   });
+
+  it('hands each gate its name when registering the spawned pid', async () => {
+    const seen: string[] = [];
+    let disposed = 0;
+    await runGateList(
+      [
+        { name: 'a', command: 'node', args: ['-e', ''], script: null, required: true },
+        { name: 'b', command: 'node', args: ['-e', 'process.exit(1)'], script: null, required: true },
+      ],
+      process.cwd(),
+      {
+        now,
+        onGateSpawned: (name) => {
+          seen.push(name);
+          return () => void disposed++;
+        },
+      },
+    );
+    expect(seen).toEqual(['a', 'b']);
+    expect(disposed).toBe(2);
+  });
 });

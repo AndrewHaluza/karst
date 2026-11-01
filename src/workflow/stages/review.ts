@@ -126,6 +126,8 @@ export interface RunReviewOpts {
    * `GateConsole` sink). Absent → no live chunks.
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
+  /** Registers a gate process pid (returns its disposer); see `RunGatesOptions.onGateSpawned`. */
+  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
   /**
    * Live-output hook for the findings lane's headless calls (Task 13):
    * forwarded verbatim into `planAndRunFindingsLane`. RAW untrusted CLI prose —
@@ -566,6 +568,7 @@ export async function runReview(
         : {}),
       onGateStart: opts.onGateStart,
       onGateOutput: opts.onGateOutput,
+      onGateSpawned: opts.onGateSpawned,
       onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts, so a host death between
