@@ -283,6 +283,30 @@ describe('adapter end to end (fake executors)', () => {
     expect(seen.fixture.tickets[0].description).toBe('T\n\nB');
     expect(existsSync(join(out, 'attempts', '001', 'patch.diff'))).toBe(true);
   });
+  it('fake-core run settles at the terminal point and reports its cores', async () => {
+    const up = toyUpstream();
+    const row = { org: 'toy', repo: 'repo', number: 3, base: { sha: 'abc' }, resolved_issues: [{ title: 'T', body: 'B' }], fix_patch: 'G', test_patch: TEST_PATCH, f2p_tests: {}, p2p_tests: {} };
+    const out = join(ROOT, 'eval-results', `test-${process.pid}-c`);
+    tmps.push(out);
+    const o = parseArgs(['--instances', 'x', '--fake-core']);
+    const seen = {};
+    const exec = {
+      uat: async ({ args }) => {
+        const at = (flag) => args[args.indexOf(flag) + 1];
+        seen.fixture = JSON.parse(readFileSync(join(ROOT, at('--fixture-file')), 'utf8'));
+        makeDb(join(ROOT, at('--db-out')));
+        return { timedOut: false, code: 0 };
+      },
+      stats: () => STATS,
+    };
+    const { runAttempt } = await import('./run.mjs');
+    const item = { set: 'multi-swe-bench', row, task: SETS['multi-swe-bench'].normalize(row) };
+    const rec = await runAttempt({ item, variant: loadVariant('default', '/x'), run: 1, o, attemptDir: join(out, 'a'), exec, elapsedMs: 0, fetchTree: treeOf(up) });
+    expect(seen.fixture.tickets[0].stageCurrent).toBe('ship');
+    expect(() => parseFixtureFile(seen.fixture)).not.toThrow();
+    expect(rec).toMatchObject({ end: 'terminal', stage: 'ship' });
+    expect(JSON.parse(readFileSync(join(out, 'a', 'run-record.json'), 'utf8'))).toMatchObject({ core: 'fake' });
+  });
   it('records a failed install as blocked(setup-failed) and writes no prediction', async () => {
     const up = toyUpstream();
     writeFileSync(join(up, 'package-lock.json'), '{}');

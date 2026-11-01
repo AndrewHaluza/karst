@@ -143,12 +143,14 @@ export async function runAttempt({ item, variant, run, o, attemptDir, exec, elap
         if (!inst.ok) return excluded('setup-failed', `install (${argv.join(' ')}): ${inst.detail}`);
       }
     }
-    writeFileSync(dirs.fixture, `${JSON.stringify(buildFixture({ task, variant }), null, 2)}\n`);
+    writeFileSync(dirs.fixture, `${JSON.stringify(buildFixture({ task, variant, settled: o.fakeCore }), null, 2)}\n`);
     const budgetMs = attemptBudgetMs({ perInstanceMin: o.perInstanceMin, budgetMin: o.budgetMin, elapsedMs });
     writeFileSync(dirs.steps, `${JSON.stringify(buildSteps({ waitMs: Math.max(budgetMs - 200_000, 10_000) }), null, 2)}\n`);
     const evalCore = o.core ?? variant.provider;
     const ran = await exec.uat({ args: uatArgs({ o, variant, dirs, taskDir, budgetMs, evalCore }), budgetMs });
     const wallMs = Date.now() - started;
+    // The fake core has no preflight, so the container writes no run record; name it so the report shows its cores.
+    if (o.fakeCore && !existsSync(dirs.record)) writeFileSync(dirs.record, `${JSON.stringify({ core: 'fake', version: 'KARST_FAKE_CORE' })}\n`);
     const probeTimedOut = existsSync(join(dirs.probe, 'summary.json')) && JSON.parse(readFileSync(join(dirs.probe, 'summary.json'), 'utf8')).results.some((r) => r.status === 'timeout');
     if (existsSync(dirs.db)) {
       const state = await readRunState(dirs.db, { timedOut: ran.timedOut || probeTimedOut });

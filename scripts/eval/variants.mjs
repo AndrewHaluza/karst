@@ -28,8 +28,15 @@ export function loadVariant(name, dir, read = (p) => (existsSync(p) ? readFileSy
   return parseVariant(name, JSON.parse(text));
 }
 
-/** The fixture file (parseFixtureFile shape) for one attempt: the brief ONLY, one ticket at scope. */
-export function buildFixture({ task, variant, key = 'EVAL-1', baseRef = 'main', repoPath = '/task/repo', worktreePath = '/task/wt' }) {
+// The fake core never reports a verdict and a null verdict never transitions (stages-and-gates), so a
+// fake-core smoke cannot drive a ticket out of scope. It seeds the ticket AT the terminal point instead.
+const PRE_SHIP = ['scope', 'impl', 'uat', 'review', 'fix'];
+
+/**
+ * The fixture file (parseFixtureFile shape) for one attempt: the brief ONLY, one ticket at scope.
+ * `settled` (fake-core smoke only) seeds it entering ship with every earlier stage passed.
+ */
+export function buildFixture({ task, variant, key = 'EVAL-1', baseRef = 'main', repoPath = '/task/repo', worktreePath = '/task/wt', settled = false }) {
   return {
     provider: variant.provider,
     taskRepo: { name: 'task', repoPath, baseRef, gates: variant.gates },
@@ -38,7 +45,8 @@ export function buildFixture({ task, variant, key = 'EVAL-1', baseRef = 'main', 
       title: task.id.slice(0, 120),
       description: task.brief,
       repo: { repoPath, baseRef, worktreePath },
-      stageCurrent: 'scope',
+      stageCurrent: settled ? 'ship' : 'scope',
+      ...(settled ? { stages: [...PRE_SHIP.map((stageKey) => ({ stageKey, status: 'passed' })), { stageKey: 'ship', status: 'pending' }] } : {}),
       worktree: true,
     }],
   };
