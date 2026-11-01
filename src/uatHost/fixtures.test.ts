@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error plain .mjs module without types
+import { overlayRaisesUserGate } from '../../scripts/uat-host/evalPolicy.mjs';
 import { FIXTURE_NAMES, fixtureSpec, isFixtureName, manifestText, taskManifestText } from './fixtures.js';
 
 describe('fixtures', () => {
@@ -42,5 +44,12 @@ describe('fixtures', () => {
   });
   it('taskManifestText omits uat gates when none declared', () => {
     expect(taskManifestText({ name: 'toy', repoPath: '/task', baseRef: 'main', gates: [] })).not.toContain('uat:');
+  });
+});
+
+describe('eval overlay policy (@arch:UATHOST-04)', () => {
+  it('never declares a key that raises a user-decided gate', () => {
+    const text = taskManifestText({ name: 't', repoPath: '/task', baseRef: 'main', gates: [{ name: 'test', command: 'npm', args: ['test'] }] });
+    expect(overlayRaisesUserGate(text)).toBe(false);
   });
 });

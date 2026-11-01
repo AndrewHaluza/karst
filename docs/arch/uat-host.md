@@ -96,3 +96,15 @@ Opt-in: `npm run uat:host:docker -- --eval <claude|codex> --eval-task <dir> [--e
 - **Not verified end to end.** Unit tests cover the pure parts and the proxy; the Docker image build and the lockdown script were not run in CI (no Docker in the authoring environment).
 
 END_DOC_BLOCK: [@arch:UATHOST-03]
+
+## [@arch:UATHOST-04] Eval runs end when the ticket enters ship; every human gate has a fixed resolution
+covers: scripts/uat-host/evalPolicy.mjs, src/uatHost/fixtures.ts#taskManifestText
+
+**Terminal point (single definition, used by the runner).** The ticket ENTERS `ship` with every earlier stage passed or bypassed: `ship` is a confirm stage (`needsConfirm`), so it parks `pending`. The confirm click is never given. Ship's own steps (commit, push, PR, GH-03 probe) never run: done means merged (@arch:DONE) and an offline run has no remote. The runner takes the worktree as-is, uncommitted changes included. Rejected: running ship with push/PR stubbed (needs ship-internal code).
+
+**Gate table** (`GATE_TABLE`): `pending-confirm` → never clicked, it is the terminal point; `awaiting-impl-marker` and `baseline-review` → not raised, because the eval overlay (`taskManifestText`, eval layer, never a user profile) declares no `approaches` and no `uat.baselineReview` (Resume refuses both kinds, so a raised one would only time out; `overlayRaisesUserGate` and a fixtures test pin this); `boot-failed`, `capability-missing` → out of scope, recorded blocked; `awaiting-merge`, `stopServersOnDone: ask` → unreachable (inside ship / done). A newly found gate adds a row.
+
+**Run end** (`classifyEnd`): `terminal | blocked | timeout | failed | incomplete`, each with `{stage, blockedKind, reason}`, reported apart from test failure. A user-decided block is `blocked`, never a silent timeout. Scoring never reads stage state, only the SWE-bench harness result.
+
+**Command gates.** A task repo with no declared gate is recorded `skipped (no-command)` (`commandGateRecord`), never a pass for scoring.
+END_DOC_BLOCK: [@arch:UATHOST-04]

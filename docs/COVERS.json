@@ -64,6 +64,9 @@
   "scripts/uat-host/evalMode.mjs": [
     "arch:UATHOST-03"
   ],
+  "scripts/uat-host/evalPolicy.mjs": [
+    "arch:UATHOST-04"
+  ],
   "scripts/uat-host/evalProxy.mjs": [
     "arch:UATHOST-03"
   ],
@@ -680,7 +683,8 @@
     "arch:UATHOST-02"
   ],
   "src/uatHost/fixtures.ts#taskManifestText": [
-    "arch:UATHOST-03"
+    "arch:UATHOST-03",
+    "arch:UATHOST-04"
   ],
   "src/uatHost/probe/*.ts": [
     "arch:UATHOST-00"
