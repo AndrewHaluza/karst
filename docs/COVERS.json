@@ -38,6 +38,9 @@
   "scripts/eval/stats.mjs": [
     "arch:UATHOST-05"
   ],
+  "scripts/evalForm/**": [
+    "arch:FORMEVAL"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"

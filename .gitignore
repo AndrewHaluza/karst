@@ -130,3 +130,6 @@ evals/reports
 
 # Eval runner output (npm run eval): reports, predictions, per-attempt evidence
 eval-results/
+
+# Private ticket content sampled for the form eval (npm run eval:form:export)
+evals/form/local/

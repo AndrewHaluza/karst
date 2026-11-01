@@ -72,3 +72,17 @@ Notes and caveats:
 - **Row size.** Upstream rows carry the dataset builder's three result logs (`run_result`,
   `test_patch_result`, `fix_patch_result`), which the harness validates as non-null. Rows over 3 MB were not
   selected to keep the pinned file small.
+
+## Ticket-form improve eval (`eval:form`)
+
+Offline, no Docker: scores the ticket form's description-improve pass (`improveDescription`) under one or more prompt sources. See `@arch:FORMEVAL` in `docs/arch/prompt-metrics.md`.
+
+```sh
+npm run eval:form:export -- --db <karst.db> --sample 20 --seed 1   # optional: private own tickets -> evals/form/local/ (gitignored)
+npm run eval:form -- --prompt builtin --prompt .karst/agents/description-improver.md \
+  --model <id> --judge-model <other-id> --runs 3 \
+  [--cases evals/form/improve-cases.jsonl --cases evals/form/local/own-tickets.jsonl] [--only id,id] [--provider claude|codex]
+```
+
+Output: `eval-results/form-<ts>/report.md` and `results.json`. Edit a candidate prompt file and rerun to compare columns.
+
