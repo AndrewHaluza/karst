@@ -3512,6 +3512,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // console as it arrives.
           onGateOutput: (id, stage, gateName, chunk) =>
             gateConsole.append(id, stage, gateName, chunk),
+          // Gate processes join the live-pid registry for their lifetime (every outcome).
+          onGateSpawned: (id, gateName, pid) =>
+            resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName }),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
