@@ -319,7 +319,7 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
 
   it('a host ticket (no sandbox core) runs nothing', async () => {
     const proc = fakeSbxProcess(LISTED);
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: 'antigravity' })).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: 'host-only-core' })).resolves.toEqual({ ok: true });
     await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toEqual({ ok: true });
     expect(proc.calls).toEqual([]);
   });
