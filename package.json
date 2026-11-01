@@ -46,6 +46,7 @@
     "docs:check": "node scripts/docsKeys.mjs lint && node scripts/docsKeys.mjs index --check && node scripts/docsKeys.mjs covers --check",
     "docs:mermaid": "node scripts/docsMermaid.mjs",
     "docs:graph": "node scripts/archGraph.mjs",
+    "docs:gate": "node scripts/docsGate.mjs",
     "docs:schema": "tsx scripts/archSchema.ts",
     "pretest:mutation": "npm run rebuild:node",
     "test:mutation": "stryker run",
