@@ -6,6 +6,7 @@ import { openImplementationRun } from './implementationRuns.js';
 import {
   BULLETIN_BODY_MAX,
   BULLETIN_TITLE_MAX,
+  contextNoteIndex,
   hostOverlaps,
   listNotes,
   markNotesRead,
@@ -440,5 +441,33 @@ describe('unreadNotesByTicket (push relevance + session-start cutoff)', () => {
     // When stage_current is 'done', it must not be included
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(reader);
     expect(row(reader)).toBeUndefined();
+  });
+
+  describe('unread count matches the notes list', () => {
+    it('counts exactly the notes `notes` would print (host facts, shown, read)', () => {
+      const reader = createTicket(store, { key: 'R', title: 'r', projectId });
+      const poster = createTicket(store, { key: 'P', title: 'p', projectId });
+      seedWorktree(store, reader.id, 'api');
+      seedWorktree(store, poster.id, 'api');
+      const insertHost = store.db.prepare(
+        `INSERT INTO bulletin_notes (project_id, source, from_ticket_id, merge_sha, title, body, repos, paths)
+         VALUES (?, 'host', ?, ?, ?, 'b', '["api"]', '["src/other.ts"]')`,
+      );
+      for (let i = 0; i < 5; i++) insertHost.run(projectId, poster.id, `sha${i}`, `merged ${i}`);
+      const agent = [1, 2, 3].map((i) =>
+        postAgentNote(store, { projectId, fromTicketId: poster.id, title: `learn ${i}`, body: 'x' }),
+      );
+      markNotesRead(store, reader.id, [agent[0]!.id]);
+      contextNoteIndex(store, reader.id, { markShown: true });
+
+      const listed = listNotes(store, {
+        readerTicketId: reader.id,
+        projectId,
+        scope: ticketNoteScope(store, reader.id),
+        all: false,
+      });
+      expect(contextNoteIndex(store, reader.id).count).toBe(listed.length);
+      expect(listed.length).toBe(7);
+    });
   });
 });

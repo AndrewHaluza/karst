@@ -118,13 +118,22 @@ export interface NotesCommandOptions {
 }
 
 /** Header + quoted body for one printed note. Agent prose is always untrusted. */
+/** `notes` prints at most this many notes per call; the rest stay unread. */
+export const NOTES_LIST_MAX = 20;
+/** Text mode prints only this many body chars per note. */
+export const NOTE_BODY_EXCERPT_MAX = 400;
+
+function excerpt(body: string): string {
+  return body.length <= NOTE_BODY_EXCERPT_MAX ? body : `${body.slice(0, NOTE_BODY_EXCERPT_MAX)}…`;
+}
+
 function renderNote(note: Pick<BulletinNoteView, 'source' | 'title' | 'body'>, fromKey: string): string {
   const key = sanitizeInline(fromKey);
   const title = sanitizeInline(note.title);
   if (note.source === 'host') {
-    return `karst fact: ${key} — ${title}:\n${note.body}`;
+    return `karst fact: ${key} — ${title}:\n${excerpt(note.body)}`;
   }
-  return `from ticket ${key} (untrusted) — ${title}:\n${quoteUntrusted(note.body)}`;
+  return `from ticket ${key} (untrusted) — ${title}:\n${quoteUntrusted(excerpt(note.body))}`;
 }
 
 function runPost(store: Store, sender: Ticket, parsed: Extract<ParsedNotesArgs, { verb: 'post' }>): string {
@@ -158,10 +167,13 @@ function renderNoteList(
   keys: Map<number, string>,
   json: boolean,
   emptyText: string,
+  more = 0,
+  moreText = '',
 ): string {
   if (json) {
     return JSON.stringify({
       ok: true,
+      ...(more > 0 ? { truncated: true, remaining: more } : {}),
       notes: notes.map((n) => ({
         id: n.id,
         source: n.source,
@@ -177,7 +189,8 @@ function renderNoteList(
     });
   }
   if (notes.length === 0) return emptyText;
-  return notes.map((n) => renderNote(n, keys.get(n.fromTicketId)!)).join('\n\n');
+  const text = notes.map((n) => renderNote(n, keys.get(n.fromTicketId)!)).join('\n\n');
+  return more > 0 ? `${text}\n\n+${more} more — ${moreText}` : text;
 }
 
 function runList(store: Store, me: Ticket, parsed: Extract<ParsedNotesArgs, { verb: 'list' }>): string {
@@ -188,14 +201,17 @@ function runList(store: Store, me: Ticket, parsed: Extract<ParsedNotesArgs, { ve
     scope,
     all: parsed.all,
   });
-  // Only what was printed is marked: a note landing after the listing stays
-  // unread for the next call.
-  markNotesRead(store, me.id, notes.map((n) => n.id));
+  // Only what was printed is marked: notes past the cap or landing after the
+  // listing stay unread for the next call.
+  const printed = notes.slice(0, NOTES_LIST_MAX);
+  markNotesRead(store, me.id, printed.map((n) => n.id));
   return renderNoteList(
-    notes,
-    fromKeys(store, notes),
+    printed,
+    fromKeys(store, printed),
     parsed.json,
     parsed.all ? 'No notes.' : 'No unread notes.',
+    notes.length - printed.length,
+    parsed.all ? 'not shown' : 'run notes again (they are now marked read) or --all',
   );
 }
 

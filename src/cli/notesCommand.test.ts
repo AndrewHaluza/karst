@@ -3,7 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, findTicketById } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { recordTicketMerged } from '../store/bulletinNotes.js';
-import { parseNotesArgs, runNotesCommand, runNotesReposCommand } from './notesCommand.js';
+import { NOTES_LIST_MAX, NOTE_BODY_EXCERPT_MAX, parseNotesArgs, runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string): void {
   store.db
@@ -52,6 +52,22 @@ describe('runNotesCommand', () => {
   afterEach(() => store.close());
 
   const sender = (id: number) => findTicketById(store, id)!;
+
+  it('caps the list, excerpts bodies, and leaves the rest unread', () => {
+    const post = store.db.prepare(
+      `INSERT INTO bulletin_notes (project_id, source, from_ticket_id, title, body, repos)
+       VALUES (?, 'agent', ?, ?, ?, '["api"]')`,
+    );
+    const total = NOTES_LIST_MAX + 3;
+    for (let i = 0; i < total; i++) post.run(projectId, otherId, `n${i}`, 'x'.repeat(NOTE_BODY_EXCERPT_MAX + 50));
+    const opts = { sessionTicketKey: 'K-1' };
+    const first = runNotesCommand(store, sender(meId), ['notes'], opts);
+    expect(first).toContain('+3 more — run notes again (they are now marked read) or --all');
+    expect(first).not.toContain('x'.repeat(NOTE_BODY_EXCERPT_MAX + 1));
+    const json = JSON.parse(runNotesCommand(store, sender(meId), ['notes', '--json'], opts));
+    expect(json.notes).toHaveLength(3);
+    expect(json.truncated).toBeUndefined();
+  });
 
   it('posts an agent note as the caller, never a host note', () => {
     const out = runNotesCommand(store, sender(meId), ['notes', 'post', '--title', 'T', '--body', 'B'], {

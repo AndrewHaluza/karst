@@ -1395,7 +1395,7 @@ describe('renderTicketContext', () => {
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Project notes');
       expect(md).toContain('1 unread project note');
-      expect(md).toContain('karst notes');
+      expect(md).toContain('run `notes`');
       expect(md).toContain('- Auth tokens rotate');
       expect(md).not.toContain('DISTINCTIVE-SECRET-BODY-XYZ');
     });

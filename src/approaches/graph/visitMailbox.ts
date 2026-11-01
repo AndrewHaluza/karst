@@ -28,7 +28,7 @@ export function composeVisitMailbox(facts: VisitMailboxFacts): string {
   }
   if (facts.unreadNotes > 0) {
     const n = facts.unreadNotes;
-    lines.push(`${n} unread project note${n === 1 ? '' : 's'} match this ticket — run \`karst notes\` to read them.`);
+    lines.push(`${n} unread project note${n === 1 ? '' : 's'} match this ticket — run \`notes\` to list them.`);
     for (const title of facts.noteTitles) lines.push(`- ${title}`);
   }
   if (facts.completing) {

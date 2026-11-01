@@ -478,18 +478,25 @@ function toIndex(notes: readonly BulletinNote[]): NoteIndex {
   };
 }
 
-/** The ticket's UNREAD matching notes as an index. Read-only: marks nothing. */
-export function unreadNoteIndex(store: Store, ticketId: number): NoteIndex {
+/**
+ * THE unread predicate: what `karst notes` prints and what every "N unread"
+ * count reports. One query, so the count and the list cannot drift.
+ */
+export function unreadNotesFor(store: Store, ticketId: number): BulletinNoteView[] {
   const row = store.db.prepare('SELECT project_id FROM tickets WHERE id = ?').get(ticketId) as
     | { project_id: number | null }
     | undefined;
-  const notes = listNotes(store, {
+  return listNotes(store, {
     readerTicketId: ticketId,
     projectId: row?.project_id ?? null,
     scope: ticketNoteScope(store, ticketId),
     all: false,
   });
-  return toIndex(notes);
+}
+
+/** The ticket's UNREAD matching notes as an index. Read-only: marks nothing. */
+export function unreadNoteIndex(store: Store, ticketId: number): NoteIndex {
+  return toIndex(unreadNotesFor(store, ticketId));
 }
 
 /** Context-only index: host merge facts need known path overlap; agent notes retain normal relevance. */
@@ -517,7 +524,7 @@ export function contextNoteIndex(
     .filter(({ note }) => note.repos.some((repo) => scope.repos.includes(repo)))
     .filter(({ note }) => note.source === 'host' || noteMatchesScope(note, scope));
   const newCandidates = candidates.filter(({ wasShown, wasRead }) => !wasShown && !wasRead);
-  const listed = pushableNotes(candidates, scope);
+  const listed = unreadNotesFor(store, ticketId);
   const collapsed = newCandidates.filter(({ note }) => note.source === 'host' && !hostOverlaps(note, scope));
   if (opts.markShown === true) {
     const mark = store.db.prepare(
