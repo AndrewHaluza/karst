@@ -23,6 +23,9 @@ const READY_SCRIPT = [
 /** Runs in the sandbox: every object name any ref points at. */
 const LIST_REFS = ['sh', '-c', `git -c 'safe.directory=*' for-each-ref --format='%(objectname)'`] as const;
 
+/** Runs in the sandbox: uncommitted or untracked work (empty output = clean). */
+const DIRTY_CHECK = ['sh', '-c', `git -c 'safe.directory=*' status --porcelain`] as const;
+
 const SHA = /^[0-9a-f]{40,64}$/;
 
 export interface CloneReadyOptions {
@@ -55,7 +58,7 @@ export async function waitForCloneReady(
 
 /**
  * May the sandbox be removed and rebuilt from the host branch without losing work? Only when every commit
- * any sandbox ref points at is already on the host branch or on the sandbox sync ref. Anything unreadable refuses.
+ * any sandbox ref points at is already on the host branch or on the sandbox sync ref. Uncommitted or untracked changes refuse too, as does anything unreadable.
  */
 export async function assertRebuildSafe(
   proc: SbxProcess,
@@ -64,6 +67,9 @@ export async function assertRebuildSafe(
 ): Promise<StepOutcome> {
   const listed = await proc.run(SBX_BIN, ['exec', input.name, '--', ...LIST_REFS], input.cloneDir ? { cwd: input.cloneDir } : undefined);
   if (listed.code !== 0) return { ok: false, reason: `cannot verify the sandbox commits, so it was not rebuilt: ${listed.stderr.trim()}` };
+  const dirty = await proc.run(SBX_BIN, ['exec', input.name, '--', ...DIRTY_CHECK], input.cloneDir ? { cwd: input.cloneDir } : undefined);
+  if (dirty.code !== 0) return { ok: false, reason: `cannot verify the sandbox working tree, so it was not rebuilt: ${dirty.stderr.trim()}` };
+  if (dirty.stdout.trim() !== '') return { ok: false, reason: 'sandbox has uncommitted or untracked changes, so it was not rebuilt: commit or stash them in the sandbox, or use Stash Sandbox Changes and Update' };
   const shas = [...new Set(listed.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== ''))];
   const syncRef = sandboxHeadRef(input.branch);
   const syncRefPresent = (await hostGit(['rev-parse', '--verify', '--quiet', `${syncRef}^{commit}`])).code === 0;
