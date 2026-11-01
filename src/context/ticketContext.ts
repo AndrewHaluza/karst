@@ -672,7 +672,7 @@ function renderNotesSection(ctx: TicketContext): string {
   const lines = [`## Project notes`];
   if (unread > 0) {
     lines.push(
-      `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`karst notes\` to read them.`,
+      `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`notes\` to list them.`,
       ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
     );
   }

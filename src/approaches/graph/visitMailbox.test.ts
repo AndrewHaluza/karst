@@ -60,7 +60,7 @@ describe('composeVisitMailbox', () => {
   it('points at inbox and notes with titles only', () => {
     const text = composeVisitMailbox({ unreadMail: 2, unreadNotes: 1, noteTitles: ['T1'], completing: false });
     expect(text).toContain('2 unread messages — run `karst inbox`');
-    expect(text).toContain('1 unread project note match this ticket — run `karst notes`');
+    expect(text).toContain('1 unread project note match this ticket — run `notes`');
     expect(text).toContain('- T1');
     expect(text).not.toContain('karst notes post');
   });
