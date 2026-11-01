@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import {
+  AGY_CONVERSATION_ID_PATTERN,
+  AGY_LAST_CONVERSATIONS_RELATIVE,
   AGY_SUMMARIES_DB,
   AGY_STEP_STATUS_RUNNING,
   AGY_STEP_STATUS_DONE,
@@ -48,6 +50,18 @@ function fixtureDb(
   }
   db.close();
   return dbPath;
+}
+
+function writeLastConversationsCache(dir: string, content: string | object): string {
+  const cacheDir = join(dir, 'cache');
+  mkdirSync(cacheDir, { recursive: true });
+  const cachePath = join(cacheDir, 'last_conversations.json');
+  writeFileSync(
+    cachePath,
+    typeof content === 'string' ? content : JSON.stringify(content),
+    'utf8',
+  );
+  return cachePath;
 }
 
 describe('agyConversationWatch', () => {
@@ -115,6 +129,134 @@ describe('agyConversationWatch', () => {
     utimesSync(newer, new Date(later), new Date(later));
     const found = findConversationForWorktree(dir, '/wt/shared');
     expect(found?.conversationId).toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  });
+
+  it('falls back to cache/last_conversations.json when no conversation blob matches', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const id = '0e960497-1111-4111-8111-111111111111';
+    // DB exists but has no file:// URI in trajectory_metadata_blob (like agy 1.4.6 in docker)
+    const expected = fixtureDb(dir, id, '', false);
+    writeLastConversationsCache(dir, { '/work/repo': id });
+
+    const found = findConversationForWorktree(dir, ['/host/worktree/path', '/work/repo']);
+    expect(found).toEqual({
+      dbPath: expected,
+      conversationId: id,
+    });
+  });
+
+  it('blob match takes priority over cache/last_conversations.json', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const blobDb = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/work/repo', false);
+    fixtureDb(dir, '22222222-2222-4222-8222-222222222222', '', false);
+    writeLastConversationsCache(dir, { '/work/repo': '22222222-2222-4222-8222-222222222222' });
+
+    const found = findConversationForWorktree(dir, ['/host/path', '/work/repo']);
+    expect(found).toEqual({
+      dbPath: blobDb,
+      conversationId: '11111111-1111-4111-8111-111111111111',
+    });
+  });
+
+  it('matches worktree paths in order with exact string match and ignores prefix match', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const idHost = 'host-id-1111';
+    const idContainer = 'container-id-2222';
+    const hostDb = fixtureDb(dir, idHost, '', false);
+    const containerDb = fixtureDb(dir, idContainer, '', false);
+
+    writeLastConversationsCache(dir, {
+      '/Users/nd/Work/projects/karst': 'parent-dir-id',
+      '/Users/nd/Work/projects/karst/wt1': idHost,
+      '/work/repo': idContainer,
+    });
+
+    // Exact match on first candidate (/Users/nd/Work/projects/karst/wt1)
+    const found1 = findConversationForWorktree(dir, [
+      '/Users/nd/Work/projects/karst/wt1',
+      '/work/repo',
+    ]);
+    expect(found1).toEqual({ dbPath: hostDb, conversationId: idHost });
+
+    // Host path not in cache, container path matches
+    const found2 = findConversationForWorktree(dir, [
+      '/Users/nd/Work/projects/karst/wt2',
+      '/work/repo',
+    ]);
+    expect(found2).toEqual({ dbPath: containerDb, conversationId: idContainer });
+
+    // Prefix does not match: '/Users/nd/Work/projects/karst/other' does NOT match '/Users/nd/Work/projects/karst'
+    const found3 = findConversationForWorktree(dir, ['/Users/nd/Work/projects/karst/other']);
+    expect(found3).toBeNull();
+  });
+
+  it('returns null when the conversation db referenced in cache does not exist', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    writeLastConversationsCache(dir, { '/work/repo': 'non-existent-id' });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+  });
+
+  it('skips cache entry if db file is missing and checks subsequent candidates', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const validId = 'valid-id-1234';
+    const containerDb = fixtureDb(dir, validId, '', false);
+    writeLastConversationsCache(dir, {
+      '/host/missing': 'missing-db-id',
+      '/work/repo': validId,
+    });
+    const found = findConversationForWorktree(dir, ['/host/missing', '/work/repo']);
+    expect(found).toEqual({ dbPath: containerDb, conversationId: validId });
+  });
+
+  it('returns null safely on invalid cache input (bad json, non-object, non-string, traversal)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+    const validId = 'valid-id-5555';
+    fixtureDb(dir, validId, '', false);
+
+    // Bad JSON
+    writeLastConversationsCache(dir, '{ invalid json');
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Array instead of object
+    writeLastConversationsCache(dir, ['/work/repo']);
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Null
+    writeLastConversationsCache(dir, 'null');
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Number
+    writeLastConversationsCache(dir, '42');
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Non-string value for the path
+    writeLastConversationsCache(dir, { '/work/repo': 12345 });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Path traversal attempt in conversation id
+    writeLastConversationsCache(dir, { '/work/repo': '../conversations/escape' });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Invalid characters (spaces, special chars)
+    writeLastConversationsCache(dir, { '/work/repo': 'bad id with spaces!' });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // Empty string id
+    writeLastConversationsCache(dir, { '/work/repo': '' });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+
+    // ID too long (> 64 chars)
+    writeLastConversationsCache(dir, { '/work/repo': 'a'.repeat(65) });
+    expect(findConversationForWorktree(dir, '/work/repo')).toBeNull();
+  });
+
+  it('exports expected constants for last_conversations cache and id pattern', () => {
+    expect(AGY_LAST_CONVERSATIONS_RELATIVE).toBe(join('cache', 'last_conversations.json'));
+    expect(AGY_CONVERSATION_ID_PATTERN.test('0e960497-1111-4111-8111-111111111111')).toBe(true);
+    expect(AGY_CONVERSATION_ID_PATTERN.test('simple-id-123')).toBe(true);
+    expect(AGY_CONVERSATION_ID_PATTERN.test('../traversal')).toBe(false);
+    expect(AGY_CONVERSATION_ID_PATTERN.test('has/slash')).toBe(false);
+    expect(AGY_CONVERSATION_ID_PATTERN.test('')).toBe(false);
   });
 
   it('reads pendingApproval from a status=9 step', () => {

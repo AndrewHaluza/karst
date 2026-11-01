@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -29,6 +29,13 @@ import { aggregateConversationUsage, type AgyConversationUsage } from './agyUsag
 
 /** Relative path of the per-conversation DBs under the app-data dir. */
 export const AGY_CONVERSATIONS_RELATIVE = join('conversations');
+
+/** Relative path of the CLI's workspace-to-conversation mapping cache file. */
+export const AGY_LAST_CONVERSATIONS_RELATIVE = join('cache', 'last_conversations.json');
+export const AGY_LAST_CONVERSATIONS_FILE = AGY_LAST_CONVERSATIONS_RELATIVE;
+
+/** Strict pattern for conversation IDs accepted from foreign cache files (e.g. preventing path traversal). */
+export const AGY_CONVERSATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 
 /**
  * The CLI's cross-conversation summary DB (beside the `conversations/` dir).
@@ -227,11 +234,12 @@ function conversationIdOf(dbPath: string): string {
 }
 
 /**
- * Locate the conversation DB whose workspace blob names `worktreePath`. When
- * several conversations share a worktree (a session ended and a new one began),
- * the NEWEST db file wins — a live session writes its DB continuously, so its
- * file is the freshest. Returns null when nothing matches. Pure over the
- * injected seams; `openDb`/`listDbs` default to the real filesystem.
+ * Locate the conversation DB for `worktreePath`. Matches the workspace blob
+ * first (newest DB wins when multiple match). When no DB matches by blob
+ * (e.g. agy 1.4.6 in docker sandboxes writes no URI into the blob), falls back
+ * to `<appDataDir>/cache/last_conversations.json` matching the worktree path
+ * exactly. Returns null when nothing matches. Pure over the injected seams;
+ * `openDb`/`listDbs` default to the real filesystem.
  */
 export function findConversationForWorktree(
   appDataDir: string,
@@ -274,7 +282,45 @@ export function findConversationForWorktree(
       db.close();
     }
   }
-  return best === null ? null : { dbPath: best.dbPath, conversationId: best.conversationId };
+  if (best !== null) {
+    return { dbPath: best.dbPath, conversationId: best.conversationId };
+  }
+  return findConversationFromLastConversationsCache(appDataDir, worktreePath);
+}
+
+function findConversationFromLastConversationsCache(
+  appDataDir: string,
+  worktreePath: string | readonly string[],
+): { dbPath: string; conversationId: string } | null {
+  const cachePath = join(appDataDir, AGY_LAST_CONVERSATIONS_RELATIVE);
+  let parsed: unknown;
+  try {
+    if (!existsSync(cachePath)) return null;
+    const content = readFileSync(cachePath, 'utf8');
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const map = parsed as Record<string, unknown>;
+  const paths = typeof worktreePath === 'string' ? [worktreePath] : worktreePath;
+  for (const p of paths) {
+    if (!Object.prototype.hasOwnProperty.call(map, p)) continue;
+    const id = map[p];
+    if (typeof id !== 'string') continue;
+    if (!AGY_CONVERSATION_ID_PATTERN.test(id)) continue;
+    const dbPath = join(appDataDir, AGY_CONVERSATIONS_RELATIVE, `${id}.db`);
+    try {
+      if (existsSync(dbPath)) {
+        return { dbPath, conversationId: id };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /** One observed conversation state, diffed against `AgyWatchState`. */
