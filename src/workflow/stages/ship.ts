@@ -1465,6 +1465,10 @@ export async function shipTicket(
           // git facts (commit bullets + diffstat) — a ship with no AI process
           // still carries what changed rather than just the title. A failed read
           // degrades to a title-only body and never fails ship.
+          // Template body used when the AI describe call fails: deterministic
+          // branch facts under the ticket key, so ship still opens the PR.
+          const templateBody = (diffContext: PrDiffContext): string =>
+            `Ticket: ${key} — ${title}\n\n${deterministicDescription(diffContext)}`;
           const deterministicDescription = (diffContext: PrDiffContext): string =>
             renderPrDescription({
               title: prTitle,
@@ -1497,6 +1501,7 @@ export async function shipTicket(
                 onProgress,
                 onInsideProgress,
                 process.assignment,
+                () => templateBody(ctx),
               );
             }
             if (process === null) {
@@ -1525,6 +1530,7 @@ export async function shipTicket(
                 onProgress,
                 onInsideProgress,
                 undefined,
+                () => templateBody(ctx),
               );
             }
             opts.debug?.(
@@ -1627,6 +1633,7 @@ export async function shipTicket(
               buildBody,
               onProgress,
               { store, run },
+              () => templateBody({}),
             );
             markShipOperationApplied(store, prOp.intentId, {
               appliedAt: nowIso(),

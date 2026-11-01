@@ -2187,6 +2187,47 @@ setTimeout(() => {
       expect(open[0]).toMatchObject({ kind: 'op', stage: 'ship', provider: 'codex', model: 'sol' });
     });
 
+    it('a failed pr-description call falls back to a template body, notes the step, and ship still opens the PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingCreateGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          throw new Error("Claude rate limited — You've hit your 5-hour limit");
+        },
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'log') {
+          return { stdout: '* abc1234 add search\n* def5678 fix ranking\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(
+        store,
+        { ticketId: id, prDescriptionProcess: { assignment: { agentName: 'PR Scribe', provider: 'claude' as const, model: 'm' }, adapter } },
+        gh,
+        undefined,
+        git,
+      );
+
+      expect(creates).toHaveLength(1);
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('PROJ-1');
+      expect(body).toContain('add search');
+      expect(body).toContain('fix ranking');
+      const run = listProcessRuns(store, id).find((r) => r.processId === 'pr-description')!;
+      expect(run.status).toBe('failed');
+      const describeStep = listShipEvidence(store, id).repos['/repo/frontend']!.steps.describe!;
+      expect(describeStep.status).toBe('note');
+      expect(describeStep.detail).toBe(
+        "AI description unavailable (Claude rate limited — You've hit your 5-hour limit) — template body used",
+      );
+      const t = getTicket(store, id);
+      expect(t.stages.find((s) => s.stageKey === 'ship')?.blockedKind).toBe('awaiting-merge');
+    });
+
     it('a null pr-description process performs no model call, opens no process run, and falls back to the deterministic branch-facts body', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const { gh, creates } = recordingCreateGh();
