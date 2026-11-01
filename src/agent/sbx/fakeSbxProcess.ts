@@ -11,14 +11,17 @@ export function fakeSbxProcess(
   answers: Record<string, Partial<ProcessResult>> = {},
   /** `keepListing`: a removed name keeps showing in `ls`/`ps` (a daemon that swallowed the rm). */
   opts: { readonly keepListing?: boolean } = {},
-): SbxProcess & { readonly calls: FakeCall[] } {
+): SbxProcess & { readonly calls: FakeCall[]; readonly probes: FakeCall[] } {
   const calls: FakeCall[] = [];
+  /** The sandbox write probes (`ensureWritable`), kept apart so call-order assertions on the real work stay stable. */
+  const probes: FakeCall[] = [];
   // A successful (or already-gone) `rm` drops the name from later listings, like the real inventory.
   const gone = new Set<string>();
   return {
     calls,
+    probes,
     run: (command, args, runOpts) => {
-      calls.push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
+      (args.some((a) => a.includes('.karst-write-probe')) ? probes : calls).push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
       const line = [command, ...args].join(' ');
       // Host git runs with `-c k=v` isolation flags; keys may omit them.
       const bare = line.replace(/^git (?:-c \S+ )+/, 'git ');

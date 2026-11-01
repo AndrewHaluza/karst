@@ -7,6 +7,7 @@ import type {
   SandboxTicketRef,
   SandboxProbe,
   SessionRunner,
+  StepOutcome,
   SyncResult,
   RefreshOptions,
   DiffResult,
@@ -53,6 +54,18 @@ const BUNDLE_OUT = [
   + 'if [ "$($g rev-parse "$1")" = "$2" ]; then set -- "$1" "^$2^@"; else set -- "$1" "^$2"; fi; else set -- "$1"; fi; '
   + '$g bundle create -q "$t" "$@"; base64 < "$t"',
   'karst-bundle',
+] as const;
+
+/** The block reason when the sandbox cannot write: stopping it is safe (uncommitted work survives), Open AI Session restarts it writable. */
+export const SANDBOX_READ_ONLY_REASON = 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session';
+
+/** Exit code the probe script uses for "a write failed", so other `sbx exec` failures are not misread as read-only. */
+const PROBE_UNWRITABLE = 73;
+
+/** Runs in the sandbox: create and remove a file in $HOME and /tmp (EROFS can hit while /proc/mounts shows rw). */
+const WRITE_PROBE = [
+  'sh', '-c',
+  `for d in "$HOME" /tmp; do f="$d/.karst-write-probe.$$"; { : > "$f" && unlink "$f"; } || exit ${PROBE_UNWRITABLE}; done`,
 ] as const;
 
 const SHA = /^[0-9a-f]{40,64}$/;
@@ -103,6 +116,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
    */
   const fetchSandbox = (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> =>
     withXfer(async (xfer) => {
+      const writable = await ensureWritable();
+      if (!writable.ok) return writable;
       const head = await git(wt, ['rev-parse', 'HEAD']);
       const have = head.code === 0 && SHA.test(head.stdout.trim()) ? head.stdout.trim() : '';
       const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch, have], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
@@ -114,6 +129,15 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const fetched = await opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...fetchSandboxBundleArgs(path, branch)], { env: HARDENED_ENV });
       return fetched.code === 0 ? { ok: true as const } : { ok: false as const, reason: `git fetch of the sandbox bundle failed: ${fetched.stderr.trim()}` };
     }).catch((err: unknown) => ({ ok: false as const, reason: `sbx sync failed: ${err instanceof Error ? err.message : String(err)}` }));
+  /**
+   * Cheap write probe before a launch, reattach or sync. Only a failed write blocks; any other `sbx exec`
+   * failure (sandbox absent, CLI down) is left to the step that follows, which already reports it.
+   */
+  const ensureWritable = async (): Promise<StepOutcome> => {
+    const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WRITE_PROBE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+    if (out.code === 0) return { ok: true };
+    return out.code === PROBE_UNWRITABLE || /read-only file system/i.test(out.stderr) ? { ok: false, reason: SANDBOX_READ_ONLY_REASON } : { ok: true };
+  };
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -141,6 +165,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // on abort ends the command.
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
+    ensureWritable,
     hasSandbox: listed,
     probeSandbox: probe,
     // `sbx exec` starts a stopped sandbox, so an existing one can host a service.
@@ -198,6 +223,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // sandbox fetches it itself (`sbx exec`); no host git ever runs in the agent clone.
     refresh: async (ticket: SandboxTicketRef, refreshOpts?: RefreshOptions): Promise<SyncResult> => {
       if (!opts.evidenceDir) return { ok: false, reason: 'no bridge dir to hand the host bundle through' };
+      const writable = await ensureWritable();
+      if (!writable.ok) return writable;
       try {
         const xfer = await ensureXferDir(opts.evidenceDir);
         const file = join(xfer.dir, 'in.bundle');

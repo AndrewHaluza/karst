@@ -135,6 +135,8 @@ export interface SessionRunner {
    * failed closed to the host has none, so its gates and services stay on the host.
    */
   hasSandbox?(): Promise<boolean>;
+  /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
+  ensureWritable?(): Promise<StepOutcome>;
   /** Sandbox runners only: the tri-state behind `hasSandbox` (a CLI that cannot run is `unknown`, not `absent`). */
   probeSandbox?(): Promise<SandboxProbe>;
   /**

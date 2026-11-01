@@ -342,3 +342,35 @@ describe('createSbxSessionRunner.probeSandbox (arch:AC-39)', () => {
     await expect(runner({ 'sbx ls': { code: 1, stderr: 'not signed in' } }).probeSandbox!()).resolves.toEqual({ state: 'unknown', reason: '`sbx ls` exited 1: not signed in' });
   });
 });
+
+describe('createSbxSessionRunner read-only sandbox (EROFS)', () => {
+  const probeKey = `sbx exec ${NAME} -- sh -c for d in`;
+  const erofs = { [probeKey]: { code: 73, stderr: 'sh: 1: cannot create /tmp/x: Read-only file system' } };
+
+  it('ensureWritable probes $HOME and /tmp through sbx exec', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+    const call = proc.probes[0]!;
+    expect(call.args.slice(0, 3)).toEqual(['exec', NAME, '--']);
+    expect(call.args.at(-1)).toContain('"$HOME" /tmp');
+  });
+
+  it('blocks with the recovery steps on EROFS', async () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(erofs), core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
+  });
+
+  it('sync refuses before bundling and never touches the host branch', async () => {
+    const proc = fakeSbxProcess(erofs);
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    const res = await runner.sync!(ticket);
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining('read-only') });
+    expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
+  });
+
+  it('an unrelated exec failure is not read as read-only', async () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess({ [probeKey]: { code: 1, stderr: 'no such sandbox' } }), core: 'claude', name: NAME, existing: [] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+  });
+});
