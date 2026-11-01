@@ -29,6 +29,7 @@ function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSand
   const gone = new Set<string>();
   const stateful = (inner: ReturnType<typeof fakeSbxProcess>): ReturnType<typeof fakeSbxProcess> => ({
     calls: inner.calls,
+    probes: inner.probes,
     run: async (command, args, opts) => {
       const out = await inner.run(command, args, opts);
       if ((out.code === 0 || /no such/i.test(out.stderr)) && args[0] === 'rm') for (const n of args.filter((x) => !x.startsWith('-'))) if (n !== 'rm') gone.add(n);

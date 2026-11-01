@@ -119,6 +119,11 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
   const placement = placementOfResolved(resolved, input.core);
   if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement };
+  const existing = resolved.runner.ensureWritable ? await resolved.runner.hasSandbox?.() : false;
+  if (existing) {
+    const writable = await resolved.runner.ensureWritable!();
+    if (!writable.ok) throw new Error(`Karst: ${input.ticketLabel} ${writable.reason}`);
+  }
   if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
     const synced = await input.syncExisting();
     if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
