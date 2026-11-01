@@ -135,6 +135,7 @@ describe('makeHookReply — fix delivery', () => {
     return {
       ...deps({ unread: () => 0, unreadWatermark: () => 0 }),
       fixEligible: () => 9,
+      ticketStage: () => 'fix',
       claimFixPointed: (_t, id) => {
         claimed.push(id);
         return true;
@@ -144,6 +145,13 @@ describe('makeHookReply — fix delivery', () => {
       ...over,
     };
   }
+
+  it('fix pointer at a gate stage names no marker', () => {
+    const d = fixDeps({ ticketStage: () => 'uat' });
+    const r = makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    expect(r?.reason).toContain('the ticket is at uat');
+    expect(r?.reason).not.toContain('done marker');
+  });
 
   it('blocks with the fix pointer and claims pointed_at', () => {
     const d = fixDeps();

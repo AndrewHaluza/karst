@@ -67,6 +67,7 @@ export interface MailDeliveryWiringDeps {
    * point at, and the conditional `pointed_at` claim. Absent → mail only.
    */
   fixEligible?: (ticketId: number) => number | null;
+  ticketStage?: (ticketId: number) => string | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
   /** The marker-nudge snapshot `dispatchHook` took at the last turn end (in memory). */
   nudgeEligible?: (ticketId: number) => MarkerNudgeCandidate | null;
@@ -178,6 +179,7 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     ...(deps.fixEligible !== undefined && deps.claimFixPointed !== undefined
       ? {
           fixEligible: deps.fixEligible,
+          ...(deps.ticketStage !== undefined ? { ticketStage: deps.ticketStage } : {}),
           claimFixPointed: (ticketId: number, deliveryId: number) => {
             const claimed = deps.claimFixPointed!(ticketId, deliveryId);
             if (claimed) fixBlocked.add(ticketId);

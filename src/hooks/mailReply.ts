@@ -89,6 +89,8 @@ export interface MailReplyDeps {
    * for the next fresh turn end. `blockedAtFix` is separate from `blockedAt`.
    */
   fixEligible?: (ticketId: number) => number | null;
+  /** The ticket's current stage, so the fix pointer names a marker only where one exists. */
+  ticketStage?: (ticketId: number) => string | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
   blockedAtFix?: Map<number, BlockedAtFix>;
   /**
@@ -132,7 +134,7 @@ function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | unde
   }
   const prev = deps.blockedAtFix.get(ticketId);
   if (prev !== undefined && prev.launchId === launchId && prev.deliveryId === deliveryId) return null;
-  const line = messagePointer(fixPointer(deliveryId), deps.sessionChannel(ticketId));
+  const line = messagePointer(fixPointer(deliveryId, deps.ticketStage?.(ticketId) ?? null), deps.sessionChannel(ticketId));
   if (!deps.claimFixPointed(ticketId, deliveryId)) return null;
   deps.blockedAtFix.set(ticketId, { launchId, deliveryId });
   deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: fix pointer #${deliveryId}`);

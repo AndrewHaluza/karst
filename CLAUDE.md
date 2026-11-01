@@ -2,18 +2,15 @@
 
 ## Commands
 **Output discipline (binding — ~700 test files; keep command output small):**
-- Run `npm run -s <script>` (silences the npm banner and pre-script echo).
-- vitest auto-picks its compact `agent` reporter from `AI_AGENT`/`CLAUDECODE` (failures only, ~10 lines). Never pass `--reporter=default|verbose|dot`. Both vitest configs set `silent: 'passed-only'`: console output of passing tests is hidden, a failing test still prints its own. A new test that leaks stderr outside the worker (child process, `process.stderr.write`) must spy it.
-- Scope first: run the single changed file, or `npx vitest related <files>` (`--changed` exits non-zero when no test is affected). Run the full suite once, at the end.
+- Run `npm run -s <script>` (silences the npm banner and pre-script echo). Scripts: `package.json`.
+- vitest picks its compact reporter from `AI_AGENT`/`CLAUDECODE` (see `vitest.config.ts`). Never pass `--reporter=default|verbose|dot`. Passing tests' console output is hidden; a new test that leaks stderr outside the worker (child process, `process.stderr.write`) must spy it.
+- Scope first: run the single changed file (`npx vitest run src/path/to.test.ts`), or `npx vitest related <files>`. Run the full suite once, at the end.
 - On failure, rerun only the failing file. Do not rerun the whole suite to re-read the error.
-- Coverage: `npm run -s test:coverage -- --coverage.reporter=text-summary`. The default `text` reporter prints a row per source file.
-- Mutation: `stryker.config.json` is silent by design (reporters `html`+`json`, `logLevel: warn`; only a score-under-break error prints; CI overrides to `clear-text` + `logLevel info` so its log keeps the per-file table). Use `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` for the score, worst files and top survivors (markdown on stdout). Details of one file: `reports/mutation/mutation.html`.
+- Coverage: `npm run -s test:coverage -- --coverage.reporter=text-summary` (default `text` prints a row per file).
+- Mutation: `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` (config: `stryker.config.json`, silent by design).
 - Never dump logs or reports whole: pipe through `tail -n`/`grep`.
 - After editing or adding tests, also run `npm run -s typecheck` (vitest does not typecheck).
-
-`test:unit`, `test:integration`, `test:coverage`, `test:mutation` each `pretest:*`-rebuild better-sqlite3 for the Node ABI. Other scripts (`typecheck`, `lint:react`, `build`, `compile`, `inventory:extension`, `typecheck:visual`): see `package.json`; CI runs `lint:react` too.
-- Unit config `vitest.config.ts` excludes `*.integration.test.*` and `*.e2e.test.*`; those run via `--config vitest.integration.config.ts`. Unit stores use `openStore(':memory:')`.
-- Single test: `npx vitest run src/path/to.test.ts` (render tests `*.render.test.ts` too). Bypasses `pretest`, so the Node ABI must already be built — if not, `npm run -s rebuild:node` first.
+- `test:*` scripts `pretest:*`-rebuild better-sqlite3 for the Node ABI; a bare `npx vitest run` bypasses that, so if the ABI is not built run `npm run -s rebuild:node` first. Unit vs integration split: `vitest.config.ts` / `vitest.integration.config.ts`. Unit stores use `openStore(':memory:')`.
 - **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.** Use `npm run -s test:coverage`.
 
 ## Gates and CI (binding)

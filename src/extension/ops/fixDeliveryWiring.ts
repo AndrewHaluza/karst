@@ -145,7 +145,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       if (deps.agyBusy(id)) return 'held';
       const channel = deps.sessionChannel(id);
       if (isSandboxChannel(channel) && !writeFixBrief(deps, id, deliveryId)) return 'unavailable';
-      const line = messagePointer(fixPointer(deliveryId), channel);
+      const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent), channel);
       return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
     },
     needsYou: (id, reason) => {

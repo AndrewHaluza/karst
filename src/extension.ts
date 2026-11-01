@@ -1990,6 +1990,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
     fixEligible: fixDelivery.eligible,
+    ticketStage: (id) => getTicket(localStore, id).stageCurrent,
     claimFixPointed: fixDelivery.claimPointed,
     nudgeEligible: (id) => turnTracker.nudge(id),
     onNudged: (_id, c) => { if (c.processRunId !== null) setProcessRunPromptTelemetry(localStore, c.processRunId, { markerNudged: true }); },
