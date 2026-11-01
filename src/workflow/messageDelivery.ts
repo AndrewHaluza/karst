@@ -1,5 +1,7 @@
 import { envRef, karstCliRefs, KARST_TICKET_ID_ENV } from '../agent/cliEnv.js';
 import { sandboxMarkerCommand } from '../agent/sandboxInstructions.js';
+import { markerStageFor } from '../agent/markerStage.js';
+import type { StageKey } from '../model/types.js';
 
 /**
  * Mailbox delivery seam (vscode-free). The sweep decides WHEN a recipient is
@@ -40,7 +42,7 @@ export type DeliveryResult = 'delivered' | 'armed' | 'deferred';
 export type MessagePointer =
   | { kind: 'mail'; unread: number }
   | { kind: 'notes'; unread: number }
-  | { kind: 'fix'; deliveryId: number };
+  | { kind: 'fix'; deliveryId: number; stage: string | null };
 
 /** The mail pointer; a helper so callers never spell the kind. */
 export function mailPointer(unread: number): MessagePointer {
@@ -53,8 +55,8 @@ export function notesPointer(unread: number): MessagePointer {
 }
 
 /** The fix-brief pointer (@arch:V77): names the stored snapshot by its row id, never a body. */
-export function fixPointer(deliveryId: number): MessagePointer {
-  return { kind: 'fix', deliveryId };
+export function fixPointer(deliveryId: number, stage: string | null = null): MessagePointer {
+  return { kind: 'fix', deliveryId, stage };
 }
 
 export interface MessageDelivery {
@@ -131,8 +133,12 @@ export function markerNudgeText(stage: 'impl' | 'fix', channel: DeliveryChannel)
 const FIX_MARKER_LEAD = '; when the fix is committed and checks pass, fire the done marker: ';
 
 /** The fix pointer's done-marker clause in the recipient's channel form (arch:AC-34 for the sandbox). */
-function fixMarkerFollow(channel: DeliveryChannel): string {
-  return `${FIX_MARKER_LEAD}${markerFireCommand('fix', channel)}`;
+function fixMarkerFollow(channel: DeliveryChannel, stage: string | null): string {
+  // Same predicate as the seed side: only impl/fix have a marker; a gate stage is decided by exit codes.
+  const marker = markerStageFor(stage as StageKey | null);
+  if (marker !== null) return `${FIX_MARKER_LEAD}${markerFireCommand(marker, channel)}`;
+  if (stage === null) return '';
+  return `; the ticket is at ${printable(stage)}, which gate exit codes decide - commit and push the fix; there is no marker to fire.`;
 }
 
 /**
@@ -147,13 +153,13 @@ const POINTER_TEXT = {
     lead: (p: { unread: number }) => `${p.unread} new message(s)`,
     command: 'inbox',
     ack: false,
-    follow: () => '',
+    follow: (_c: DeliveryChannel, _s: string | null) => '',
   },
   notes: {
     lead: (p: { unread: number }) => `${p.unread} new project note(s)`,
     command: 'notes',
     ack: false,
-    follow: () => '; informational, then continue your current task - a note never ends your turn',
+    follow: (_c: DeliveryChannel, _s: string | null) => '; informational, then continue your current task - a note never ends your turn',
   },
   fix: {
     lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`,
@@ -186,7 +192,7 @@ function pointerLead(pointer: MessagePointer): string {
  */
 export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
   const { command, ack } = POINTER_TEXT[pointer.kind];
-  const follow = POINTER_TEXT[pointer.kind].follow(channel);
+  const follow = POINTER_TEXT[pointer.kind].follow(channel, pointer.kind === 'fix' ? pointer.stage : null);
   const lead = pointerLead(pointer);
   if (isSandboxChannel(channel)) {
     const ref = inboxRef(pointer);

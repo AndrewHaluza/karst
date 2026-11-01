@@ -19,7 +19,7 @@ describe('messagePointer', () => {
     expect(messagePointer(notesPointer(2), 'mcp')).toBe(
       'karst: 2 new project note(s) - call the karst MCP tool "notes"; informational, then continue your current task - a note never ends your turn',
     );
-    expect(messagePointer(fixPointer(12), 'mcp')).toBe(
+    expect(messagePointer(fixPointer(12, 'fix'), 'mcp')).toBe(
       'karst: fix brief #12 ready - call the karst MCP tool "fix-brief" with ack: true; when the fix is committed and checks pass, fire the done marker: call the karst MCP tool "stage" with { stage: "fix" }',
     );
   });
@@ -29,15 +29,28 @@ describe('messagePointer', () => {
     expect(messagePointer(notesPointer(2), 'cli-env')).toBe(
       `karst: 2 new project note(s) - ${CLI('notes')}; informational, then continue your current task - a note never ends your turn`,
     );
-    expect(messagePointer(fixPointer(12), 'cli-env')).toBe(
+    expect(messagePointer(fixPointer(12, 'fix'), 'cli-env')).toBe(
       'karst: fix brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"; when the fix is committed and checks pass, fire the done marker: run node "$KARST_CLI" stage fix pass --db "$KARST_DB" --ticket "$KARST_TICKET_ID"',
     );
   });
 
   it('sandbox: the fix pointer names emit-marker, never the host CLI or MCP', () => {
-    const line = messagePointer(fixPointer(12), { kind: 'sandbox', runDir: '/run/7', core: 'claude' });
+    const line = messagePointer(fixPointer(12, 'fix'), { kind: 'sandbox', runDir: '/run/7', core: 'claude' });
     expect(line).toContain('fire the done marker: run node /run/7/claude/emit-marker.cjs /run/7/events.ndjson fix');
     expect(line).not.toMatch(/KARST_CLI|MCP tool/);
+  });
+
+  it.each(['uat', 'review', 'ship'])('fix pointer at gate stage %s: no marker command', (stage) => {
+    for (const ch of ['mcp', 'cli-env', { kind: 'sandbox', runDir: '/run/7', core: 'claude' }] as const) {
+      const line = messagePointer(fixPointer(12, stage), ch);
+      expect(line).toContain(`the ticket is at ${stage}, which gate exit codes decide - commit and push the fix; there is no marker to fire.`);
+      expect(line).not.toMatch(/done marker|stage fix|emit-marker|"stage"/);
+    }
+  });
+
+  it('fix pointer at fix/impl keeps the marker clause', () => {
+    expect(messagePointer(fixPointer(12, 'fix'), 'mcp')).toContain('{ stage: "fix" }');
+    expect(messagePointer(fixPointer(12, 'impl'), 'mcp')).toContain('{ stage: "impl" }');
   });
 
   it.each(['mcp', 'cli-env'] as const)('%s: the notes pointer tells the agent to keep working', (channel) => {
