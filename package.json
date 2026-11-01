@@ -21,6 +21,8 @@
     "onStartupFinished"
   ],
   "scripts": {
+    "eval:setup": "bash scripts/evalSetupHarness.sh",
+    "eval:check-set": "node scripts/evalCheckSet.mjs",
     "uat:host": "node scripts/uat-host/run.mjs",
     "uat:host:docker": "node scripts/uat-host/docker.mjs",
     "lint": "tsc --noEmit",
