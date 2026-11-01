@@ -177,7 +177,7 @@ describe('brief card', () => {
       { author: 'Jana Lind', text: 'one', date: '2026-10-24T14:02:00Z' },
       { author: 'Marek Kral', text: 'two', date: '2026-10-25T09:41:00Z' },
     ] }) });
-    v.click('#briefCollapse');
+    v.click('#briefToggle');
     expect(v.query('#briefToggle')!.getAttribute('aria-expanded')).toBe('false');
     expect(text(v, '#briefCard')).toContain('line 6');
     expect(text(v, '#briefCard')).not.toContain('line 7');
@@ -185,6 +185,14 @@ describe('brief card', () => {
     v.click('#briefMore');
     expect(text(v, '#briefCard')).toContain('line 10');
     expect(v.query('#briefMore')).toBeNull();
+  });
+
+  it('expanded: no footer Collapse button; assignee is muted text, not a pill', () => {
+    const v = open(baseState({ mode: 'create', sourceRef: null }));
+    v.receive({ type: 'brief', brief: fetched({ people: [{ name: 'A. Haluza', role: 'assignee' }] }) });
+    expect(v.query('#briefCollapse')).toBeNull();
+    expect(text(v, '.brief-person')).toBe('· assignee A. Haluza');
+    expect(text(v, '#briefCard')).toContain('Read-only. Reply in ClickUp.');
   });
 
   it('excerpt and comment caps are the mirrored constants', () => {
