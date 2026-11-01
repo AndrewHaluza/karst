@@ -33,6 +33,8 @@ flowchart LR
   F --> G[step-NNN.json + summary.json]
 ```
 
+The `wait` step (`parseSteps`) takes one of `ticketStage`, `ticketSettled` (the ticket entered `ship`, or its current stage is blocked), `notification`, `log`, `launch` or `webviewMessage`; a wait that is not met in its `timeoutMs` is a reported `timeout`, not a throw.
+
 ### Tradeoffs
 | Chosen | Rejected | Why |
 |---|---|---|
@@ -108,3 +110,18 @@ covers: scripts/uat-host/evalPolicy.mjs, src/uatHost/fixtures.ts#taskManifestTex
 
 **Command gates.** A task repo with no declared gate is recorded `skipped (no-command)` (`commandGateRecord`), never a pass for scoring.
 END_DOC_BLOCK: [@arch:UATHOST-04]
+
+## [@arch:UATHOST-05] The eval runner scores karst as a SWE-bench-style agent; only the harness verdict is a score
+covers: scripts/eval/run.mjs, scripts/eval/instances.mjs, scripts/eval/snapshot.mjs, scripts/eval/endState.mjs, scripts/eval/stats.mjs, scripts/eval/report.mjs, src/uatHost/probe/runner.ts#conditionMet
+
+`npm run eval -- --instances <file.jsonl> --variant <name>... --runs N [--eval-env NAME]... [--eval-auth-dir <dir>] [--only <id,...>] [--per-instance-minutes M] [--budget-minutes M]` (default variant `default`; others are `evals/variants/<name>.json`, keys `provider` and `gates` only, so an overlay can never declare `approaches` / `uat.baselineReview`, UATHOST-04). Strictly sequential (UATHOST-01). Output under `eval-results/<ts>/` (gitignored, inside the checkout because the container bind-mounts only the checkout): `report.md`, `attempts.json`, `predictions-<variant>-<run>.jsonl`, and per attempt the fixture, steps, probe evidence, `karst.db`, run record and `patch.diff`.
+
+- **Input is the upstream format.** One normalizer per set (`instances.mjs`) maps a row to `{id, repoUrl, baseSha, brief, testPatch, f2p, p2p}`; one prediction writer per set. Multi-SWE-bench predictions are `{org, repo, number, fix_patch}`; SWE-PolyBench's are `{instance_id, model_patch}` (keys confirmed from the upstream README; its F2P/P2P column spelling was not checkable offline, the normalizer accepts `F2P`/`f2p` and JSON strings). The brief is the issue text only; the test patch, F2P and P2P never enter the fixture.
+- **Per attempt.** (a) `snapshot.mjs` builds `<task>/repo` from a depth-1 fetch of only `baseSha` exported with `git archive` and re-initialised as ONE commit on `main` (no remote, no tags), asserts `rev-list --all` is 1, refuses top-level `evals/`, `eval-results/`, `hidden/` and a tree where the test patch is already applied, then `git worktree add --relative-paths` at `<task>/wt` (relative links resolve at `/task` in the container). The base for the patch is the snapshot commit, not `baseSha`, which is deliberately absent. (b) The eval layer runs the lockfile-detected frozen install (`install.mjs`: pnpm, yarn, npm ci) in the eval image on `/task/wt`; failure is `blocked(setup-failed)`, recorded and excluded from the rate. (c) The UAT container runs the ticket (`scripts/uat-host/docker.mjs --eval ...`) until the `ticketSettled` probe wait: the ticket entered `ship` or its current stage is blocked. (d) The patch is `git add -A; git diff --cached --binary <snapshot>` of the worktree, uncommitted and new files included, taken also after a timeout.
+- **Scoring is on the host.** After all attempts, `score.mjs` runs the official harness (`evalCheckSet`'s config) once per predictions file; `resolved` (F2P flipped and P2P kept) is the only score. An empty patch is unresolved without a run; a harness error excludes the attempt (`harness-error`). The container never gets the Docker socket or DinD (that would be host root, against UATHOST-02). `--fake-core` and `--no-score` skip scoring and mark attempts `excluded (unscored)`: no quality claim.
+- **Ends are reported apart from test failure.** `scoring` (`scored` | `excluded`) and `end` (`evalPolicy.classifyEnd`) are separate fields; blocked/timeout counts by `end:blockedKind` are their own report table.
+- **Karst metrics** come from the attempt's `karst.db` (copied out by `run.mjs --db-out`, WAL included): `karst stats --db <db> --json` (`collectMetrics`, read-only, CLI-07) plus a read-only `node:sqlite` read of `tickets`/`stages` for the end state. A metric whose source table has no rows for the run is `pending` (null), never 0 (PM-00). Dollar cost is always `pending`: `token_usage` has no price column and none is invented. Tokens are reported and estimated apart.
+- **Time limits.** Per-step wait is the attempt budget; the probe's 60s step / 120s script defaults are lifted only by the runner's flags (`--probe-max-step-ms`, `--probe-total-ms`); `run.mjs` keeps its process-group SIGKILL backstop (`--hard-timeout-ms`, attempt budget + 60s) and the runner SIGTERMs, then SIGKILLs the whole `docker.mjs` group and `docker rm -f`s the container. `--per-instance-minutes` (45) and `--budget-minutes` (480) cap one attempt and the whole run. Evidence (probe steps, `karst.db`, run record) is written on timeout too.
+- **Not verified end to end.** No Docker or real core was available where this was written: the pure parts and the adapter (with injected executors) are tested, the container drive command (`karst.openSession <ticketId=1>`, in `variants.mjs#buildSteps`) is the part to confirm on first real run. The install step runs in the eval image but NOT behind the egress allowlist, so a git-URL dependency only fails if the registry is the sole reachable source.
+
+END_DOC_BLOCK: [@arch:UATHOST-05]

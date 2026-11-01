@@ -21,6 +21,7 @@
     "onStartupFinished"
   ],
   "scripts": {
+    "eval": "node scripts/eval/run.mjs",
     "eval:setup": "bash scripts/evalSetupHarness.sh",
     "eval:check-set": "node scripts/evalCheckSet.mjs",
     "uat:host": "node scripts/uat-host/run.mjs",

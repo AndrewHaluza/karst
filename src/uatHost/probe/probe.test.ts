@@ -202,3 +202,23 @@ describe('runSteps', () => {
     expect(results[0]).toMatchObject({ status: 'timeout', detail: 'restart exceeded 20ms' });
   });
 });
+
+describe('ticketSettled wait and raised step cap (eval runs)', () => {
+  const snap = (stage: string, blockedKind: string | null) => ({
+    tickets: [{ key: 'A', title: 't', stage, stages: [{ stage, status: 'running', blockedKind }] }],
+    sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [],
+  });
+  it('is met on ship or on a blocked current stage, not on a running one', () => {
+    const c = { ticketSettled: { key: 'A' } };
+    expect(conditionMet(c, snap('impl', null))).toBe(false);
+    expect(conditionMet(c, snap('ship', null))).toBe(true);
+    expect(conditionMet(c, snap('uat', 'boot-failed'))).toBe(true);
+    expect(conditionMet({ ticketSettled: { key: 'B' } }, snap('ship', null))).toBe(false);
+  });
+  it('parses, and only a caller-given cap lifts the 60s clamp', () => {
+    const raw = { steps: [{ type: 'wait', for: { ticketSettled: { key: 'A' } }, timeoutMs: 600_000 }] };
+    expect(parseSteps(raw)[0]).toMatchObject({ timeoutMs: 60_000 });
+    expect(parseSteps(raw, 900_000)[0]).toMatchObject({ timeoutMs: 600_000 });
+    expect(() => parseSteps({ steps: [{ type: 'wait', for: { ticketSettled: {} } }] })).toThrow('string key');
+  });
+});

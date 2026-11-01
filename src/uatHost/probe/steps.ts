@@ -1,5 +1,7 @@
 export type WaitCondition =
   | { ticketStage: { key: string; stage: string } }
+  /** The ticket entered `ship` (eval terminal point) or its current stage is blocked: nothing more will happen unattended. */
+  | { ticketSettled: { key: string } }
   | { notification: string }
   | { log: string }
   | { webviewMessage: string }
@@ -29,6 +31,10 @@ function parseCondition(v: unknown, at: string): WaitCondition {
     }
     return { ticketStage: { key: val['key'], stage: val['stage'] } };
   }
+  if (k === 'ticketSettled') {
+    if (!isObj(val) || typeof val['key'] !== 'string') throw new Error(`${at}: ticketSettled needs a string key`);
+    return { ticketSettled: { key: val['key'] } };
+  }
   if (k === 'notification' || k === 'log' || k === 'webviewMessage') {
     if (typeof val !== 'string' || val === '') throw new Error(`${at}: ${k} needs a non-empty string`);
     return { [k]: val } as WaitCondition;
@@ -44,21 +50,21 @@ function parseCondition(v: unknown, at: string): WaitCondition {
   throw new Error(`${at}: unknown wait condition "${k}"`);
 }
 
-function parseTimeout(raw: Record<string, unknown>, at: string): number | undefined {
+function parseTimeout(raw: Record<string, unknown>, at: string, maxMs: number): number | undefined {
   const t = raw['timeoutMs'];
   if (t === undefined) return undefined;
   if (typeof t !== 'number' || !Number.isFinite(t) || t <= 0) throw new Error(`${at}: timeoutMs must be a positive number`);
-  return Math.min(t, MAX_STEP_TIMEOUT_MS);
+  return Math.min(t, maxMs);
 }
 
 /** Steps are data, never code: every field is validated and unknown step types are refused. */
-export function parseSteps(json: unknown): Step[] {
+export function parseSteps(json: unknown, maxStepMs: number = MAX_STEP_TIMEOUT_MS): Step[] {
   const list = isObj(json) ? json['steps'] : json;
   if (!Array.isArray(list) || list.length === 0) throw new Error('steps file must hold a non-empty steps array');
   return list.map((raw, i): Step => {
     const at = `step ${i}`;
     if (!isObj(raw)) throw new Error(`${at}: must be an object`);
-    const timeoutMs = parseTimeout(raw, at);
+    const timeoutMs = parseTimeout(raw, at, maxStepMs);
     const withTimeout = timeoutMs === undefined ? {} : { timeoutMs };
     switch (raw['type']) {
       case 'command': {

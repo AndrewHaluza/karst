@@ -50,6 +50,11 @@ export function conditionMet(c: WaitCondition, s: Snapshot): boolean {
   if ('ticketStage' in c) {
     return s.tickets.some((t) => t.key === c.ticketStage.key && t.stage === c.ticketStage.stage);
   }
+  if ('ticketSettled' in c) {
+    const t = s.tickets.find((x) => x.key === c.ticketSettled.key);
+    if (!t) return false;
+    return t.stage === 'ship' || t.stages.some((x) => x.stage === t.stage && x.blockedKind !== null);
+  }
   if ('notification' in c) return s.notifications.some((n) => n.message.includes(c.notification));
   if ('log' in c) return s.logTail.some((l) => l.includes(c.log));
   if ('launch' in c) return s.launches.some((l) => c.launch.provider === undefined || l.provider === c.launch.provider);
@@ -85,7 +90,7 @@ async function runStep(step: Step, opts: RunOptions, budgetMs: number): Promise<
   }
   const deadline = Date.now() + timeoutMs;
   // Only a ticketStage wait can be moved by the store, so only it pays for the read.
-  const scope: SnapshotScope = { tickets: 'ticketStage' in step.for, launches: 'launch' in step.for };
+  const scope: SnapshotScope = { tickets: 'ticketStage' in step.for || 'ticketSettled' in step.for, launches: 'launch' in step.for };
   for (;;) {
     if (conditionMet(step.for, opts.host.snapshot(scope))) return { status: 'pass' };
     if (Date.now() >= deadline) return { status: 'timeout', detail: `wait ${stringify(step.for)} not met in ${timeoutMs}ms` };
