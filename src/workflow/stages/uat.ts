@@ -38,6 +38,7 @@ import { declaredCheckGates } from '../review/declaredGates.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import {
+  blockingObservationLines,
   runUatTester,
   type TesterRunningService,
   type TesterTarget,
@@ -69,6 +70,7 @@ import { SpinCancelledError, type SpinResult } from '../../runtime/spin.js';
 import { gateEntriesFrom } from '../review/aggregate.js';
 import { targetTree, unresolvedTargets, manifestNamesFor } from '../rerunTargets.js';
 import { mergeUatKeptOutcome, type UatKeptTarget } from '../uat/keptOutcome.js';
+import { listUatFindings } from '../../store/uatFindings.js';
 import { combinedBlocking, persistSiblingObservations } from '../uat/rerunObservations.js';
 import type { UatFindingInput } from '../../store/uatFindings.js';
 
@@ -1097,7 +1099,15 @@ export async function runUat(
         ? testerResult
         : { blocking: 0, blockingSummary: undefined };
     if (counted.blocking > 0) {
-      const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${counted.blockingSummary ?? `${counted.blocking} blocking`}`;
+      // The fix agent reads only the brief (the reason), never the DB: list each
+      // blocking observation in it, and in the log artifact.
+      const lines = blockingObservationLines(
+        listUatFindings(store, opts.ticketId).filter((f) => testerRunId !== null && f.processRunId === testerRunId),
+        opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
+      );
+      const head = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${counted.blockingSummary ?? `${counted.blocking} blocking`}`;
+      const reason = lines.length > 0 ? `${head}\n${lines.join('\n')}` : head;
+      if (lines.length > 0) sections.push(`Blocking tester observations:\n${lines.join('\n')}`);
       opts.debug?.(
         `[gate] uat ticket ${opts.ticketId}: gates passed but ${counted.blocking} tester ` +
           `observation(s) are at or above the configured blocking severity — failing uat`,
