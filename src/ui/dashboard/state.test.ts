@@ -1882,6 +1882,37 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(rows).toEqual([expect.objectContaining({ label: 'test' })]);
   });
 
+  it('threads runOrder from resolvedGates to the gates process before the uat stage runs', () => {
+    const ticketId = ticketAt('uat');
+    const state = buildDashboardState(
+      store,
+      ticketId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        uat: [{ name: 'test', disabled: false }],
+        review: [],
+        runOrder: {
+          uat: [{ name: 'test', repo: '/repos/web', disabled: false }],
+          review: [],
+        },
+      },
+      undefined,
+      (r) => (r === '/repos/web' ? 'web' : undefined),
+    );
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    const rows = (gates.evidence as { kind: 'gates'; rows: readonly { label: string; repo?: string }[] }).rows;
+    expect(rows).toEqual([expect.objectContaining({ label: 'test', repo: 'web' })]);
+  });
+
   it('renders ship and done from the same current PR read', () => {
     const ticketId = ticketAt('ship');
     store.db

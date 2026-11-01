@@ -2,7 +2,7 @@ import type { StepperCell } from '../../model/stepper.js';
 import type { StageKey, StageStatus } from '../../model/types.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
-import type { ServiceStatusView } from '../../model/inside/gates.js';
+import type { ResolvedGate, ServiceStatusView } from '../../model/inside/gates.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { ProcessRun } from '../../store/processRuns.js';
@@ -38,7 +38,7 @@ export interface CaseFacts {
   uatFindings?: readonly UatFinding[];
   services?: readonly ServiceStatusView[];
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
-  resolvedGates?: { uat: readonly { name: string; disabled: boolean }[]; review: readonly { name: string; disabled: boolean }[] };
+  resolvedGates?: { uat: readonly ResolvedGate[]; review: readonly ResolvedGate[] };
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   reviewBlockingSeverity?: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'none';
 }
