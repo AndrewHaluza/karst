@@ -53,6 +53,40 @@ describe('sandboxLaunchFailureOptions', () => {
     expect(notified[0]).toContain('Retry');
   });
 
+  describe('stale resume id (T896)', () => {
+    const tail = 'No conversation found with session ID: f5dadfcf-d1bb-4fc5-beff-0a81b3fb9c8e\n';
+
+    it('drops the id, logs it and relaunches once, without the failure notice or sandbox removal', () => {
+      const dropped: number[] = [];
+      const retried: number[] = [];
+      let removed = 0;
+      const { warns, notified, marked, opts } = setup(async () => { removed += 1; }, {
+        dropStaleResume: (id) => { dropped.push(id); },
+        retrySandbox: (id) => { retried.push(id); },
+      });
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail });
+      expect(dropped).toEqual([4]);
+      expect(retried).toEqual([4]);
+      expect(warns).toHaveLength(1);
+      expect(warns[0]).toContain('dropping the stored session id');
+      expect([notified, marked, removed]).toEqual([[], [], 0]);
+    });
+
+    it('reports a normal failure when no drop handler is wired', () => {
+      const { notified, marked, opts } = setup();
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail });
+      expect(marked).toEqual([4]);
+      expect(notified).toHaveLength(1);
+    });
+
+    it('does not drop the id for an unrelated failure', () => {
+      const dropped: number[] = [];
+      const { marked, opts } = setup(undefined, { dropStaleResume: (id) => { dropped.push(id); } });
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'boom' });
+      expect([dropped, marked]).toEqual([[], [4]]);
+    });
+  });
+
   it('ignores a failure when Karst itself ended the session', () => {
     const { warns, notified, marked, opts } = setup(undefined, { hostEnded: (id) => id === 4 });
     opts.onSandboxLaunchFailed({ runner: 'docker', exitCode: 143, tail: '' });

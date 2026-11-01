@@ -24,7 +24,16 @@ export interface SandboxLaunchFailureInput {
   readonly runOnHost?: (ticketId: number) => Promise<void> | void;
   /** Relaunches the ticket on its configured sandbox backend. */
   readonly retrySandbox?: (ticketId: number) => Promise<void> | void;
+  /**
+   * Clears the ticket's stored session id. When wired, a launch that died on a
+   * `--resume` of a conversation the (recreated) sandbox never had is not a launch
+   * failure: the id is dropped and the ticket relaunches once as a fresh session.
+   */
+  readonly dropStaleResume?: (ticketId: number) => void;
 }
+
+/** The CLI's reply to `--resume <id>` when the sandbox's $HOME holds no such conversation. */
+export const STALE_RESUME_PATTERN = /No conversation found with session ID/i;
 
 export const RUN_ON_HOST_ACTION = 'Run on Host';
 export const RETRY_SANDBOX_ACTION = 'Retry Sandbox';
@@ -60,6 +69,13 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
     onSandboxLaunchFailed: (info) => {
       // Karst itself stopped the container after an accepted stage marker: not a failure.
       if (input.hostEnded?.(input.ticketId)) return;
+      if (input.dropStaleResume && input.retrySandbox && STALE_RESUME_PATTERN.test(info.tail)) {
+        // T896: the conversation lived in a deleted sandbox's $HOME; a retry with the same id can never succeed.
+        input.warn(`[session] ticket ${input.ticketLabel} resume id not found in the sandbox: dropping the stored session id and relaunching as a fresh session`);
+        input.dropStaleResume(input.ticketId);
+        void Promise.resolve(input.retrySandbox(input.ticketId)).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} fresh relaunch failed: ${String(e)}`));
+        return;
+      }
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);
       input.warn(line);
       try {
