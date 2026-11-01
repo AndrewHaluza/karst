@@ -103,4 +103,15 @@ describe('fixBriefForTicket', () => {
     });
     expect(fixBriefForTicket(store, ticket.id)).not.toContain('Redesign hint');
   });
+
+  it('includes the per-region checklist instruction when the ticket links a prototype', () => {
+    const ticket = createTicket(store, {
+      key: 'PROJ-5',
+      title: 'UI work',
+      description: 'The prototype is docs/design/ticket-form-b-prime.html',
+    });
+    setStage(store, ticket.id, 'uat', { status: 'failed', verdict: 'visual diff' });
+    const brief = fixBriefForTicket(store, ticket.id);
+    expect(brief).toContain('@ui:UI-R39-REJECT');
+  });
 });

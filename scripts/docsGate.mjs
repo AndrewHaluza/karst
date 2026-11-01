@@ -1,5 +1,6 @@
 // PR docs-gate (arch:DOC-03): a diff that changes a symbol covered by an @arch block must cite or edit it.
-// Env: BASE_REF (PR base branch), PR_BODY (PR description; read as text, never evaluated). Dependency-free.
+// Env: BASE_REF (PR base branch; defaults to `develop` for the local `npm run docs:gate`), PR_BODY (PR description; read as text, never evaluated). Dependency-free.
+// Reads COMMITTED changes only (BASE_REF...HEAD): an uncommitted block edit still BLOCKs.
 // CLI: node scripts/docsGate.mjs      Exit 1 on any BLOCK or stale covers entry.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -80,7 +81,7 @@ const cites = (body, key) =>
  * Pure core. `diff`: parseDiff result; `covers`: COVERS.json object;
  * `readBase`/`readHead`: path -> text | null. Returns `{ lines, block }`.
  */
-export function evaluate({ diff, covers, body, readBase, readHead, hub = HUB_EXCLUDE }) {
+export function evaluate({ diff, covers, body, readBase, readHead, hub = HUB_EXCLUDE, baseRef = 'develop', locate = () => null }) {
   const lines = [];
   let failed = false;
 
@@ -149,7 +150,8 @@ export function evaluate({ diff, covers, body, readBase, readHead, hub = HUB_EXC
     for (const x of blocked.values()) {
       failed = true;
       const k = x.keys[0];
-      lines.push(`✗ BLOCK diff changes ${x.symbol} in ${file} (covered by @${k}). Cite @${k} in the PR body or edit the block.`);
+      const at = locate(k);
+      lines.push(`✗ BLOCK diff changes ${x.symbol} in ${file} (covered by @${k}${at ? `, block at ${at}` : ''}). Cite @${k} in the PR body or edit the block. The gate reads committed changes — commit the block edit, then rerun: BASE_REF=${baseRef} PR_BODY= node scripts/docsGate.mjs`);
     }
   }
   for (const f of skipped) lines.push(`· skip ${f} (hub exclude)`);
@@ -160,20 +162,35 @@ function git(args, cwd) {
   return execFileSync('git', ['-c', 'core.quotePath=false', ...args], { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
+/** `file:line` of the `## [@key]` heading under docs/, or null. */
+export function locateBlock(cwd, key) {
+  try {
+    const out = git(['grep', '-n', '-F', `## [@${key}] `, '--', 'docs'], cwd).split('\n')[0] ?? '';
+    const m = /^([^:]+):(\d+):/.exec(out);
+    return m ? `${m[1]}:${m[2]}` : null;
+  } catch { return null; }
+}
+
+/** `origin/<base>` when present, else the local branch (a sandbox worktree may have no remote ref). */
+function resolveRef(baseRef, cwd) {
+  try { git(['rev-parse', '--verify', '-q', `origin/${baseRef}^{commit}`], cwd); return `origin/${baseRef}`; } catch { return baseRef; }
+}
+
 /** Full run against a repo: diff `origin/<baseRef>...HEAD`, read covers, evaluate. */
 export function run({ baseRef, body = '', cwd = process.cwd() }) {
   if (!baseRef || baseRef.startsWith('-')) throw new Error('BASE_REF is missing or invalid');
   const covers = JSON.parse(readFileSync(`${cwd}/docs/COVERS.json`, 'utf8'));
-  const diff = parseDiff(git(['diff', '-U0', '--no-color', '--no-renames', `origin/${baseRef}...HEAD`], cwd));
-  const mergeBase = git(['merge-base', `origin/${baseRef}`, 'HEAD'], cwd).trim();
+  const ref = resolveRef(baseRef, cwd);
+  const diff = parseDiff(git(['diff', '-U0', '--no-color', '--no-renames', `${ref}...HEAD`], cwd));
+  const mergeBase = git(['merge-base', ref, 'HEAD'], cwd).trim();
   const show = (rev) => (path) => {
     try { return git(['show', `${rev}:${path}`], cwd); } catch { return null; }
   };
-  return evaluate({ diff, covers, body, readBase: show(mergeBase), readHead: show('HEAD') });
+  return evaluate({ diff, covers, body, readBase: show(mergeBase), readHead: show('HEAD'), baseRef, locate: (key) => locateBlock(cwd, key) });
 }
 
 function main() {
-  const { lines, block } = run({ baseRef: process.env.BASE_REF, body: process.env.PR_BODY ?? '' });
+  const { lines, block } = run({ baseRef: process.env.BASE_REF || 'develop', body: process.env.PR_BODY ?? '' });
   const out = lines.length ? lines : ['✓ docs-gate: no covered symbol changed'];
   console.log(out.join('\n'));
   if (process.env.GITHUB_STEP_SUMMARY) {

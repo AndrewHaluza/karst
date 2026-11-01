@@ -10,6 +10,7 @@ import { capForGate } from '../../workflow/fixAttempts.js';
 import { nowIso } from '../../model/time.js';
 import { formatId } from '../../model/entityId.js';
 import { deriveBaselineEntries } from '../../workflow/gates/baselineReviewTicket.js';
+import { hasLinkedPrototype, PROTOTYPE_REGION_CHECKLIST_RULE } from '../../agent/fixBrief.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -65,8 +66,15 @@ function validIndices(request: BaselineDecisionRequest, count: number): number[]
 }
 
 /** One line per rejected entry — the failed verdict's reason, read by the fix agent. */
-function rejectionReason(rejected: ReadonlyArray<{ path: string; reason: string }>): string {
-  return rejected.map((r) => `Visual baseline rejected: ${r.path}: ${r.reason}`).join('\n');
+function rejectionReason(
+  rejected: ReadonlyArray<{ path: string; reason: string }>,
+  hasPrototype = false,
+): string {
+  const lines = rejected.map((r) => `Visual baseline rejected: ${r.path}: ${r.reason}`);
+  if (hasPrototype) {
+    lines.push(PROTOTYPE_REGION_CHECKLIST_RULE);
+  }
+  return lines.join('\n');
 }
 
 export async function decideBaselines(
@@ -143,8 +151,9 @@ function failUat(
 ): BaselineDecisionResult {
   const { store, ticketId } = deps;
   const run = latestStageRun(store, ticketId, 'uat');
-  const stage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'uat');
-  const detail = rejectionReason(rejected);
+  const ticket = getTicket(store, ticketId);
+  const stage = ticket.stages.find((s) => s.stageKey === 'uat');
+  const detail = rejectionReason(rejected, hasLinkedPrototype(ticket));
   if (!run) return refuse(deps, `${formatId('ticket', ticketId)} has no UAT run to fail.`);
   commitGateOutcome(store, {
     ticketId,

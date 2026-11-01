@@ -58,7 +58,17 @@ describe('docsGate', () => {
     r.commit();
     const out = r.run();
     expect(out.block).toBe(true);
-    expect(out.lines.join('\n')).toContain('✗ BLOCK diff changes alpha in src/a.ts (covered by @arch:T-01)');
+    expect(out.lines.join('\n')).toContain('✗ BLOCK diff changes alpha in src/a.ts (covered by @arch:T-01, block at docs/arch/t.md:3)');
+  });
+
+  it('BLOCK message names symbol, block location and the commit rule', () => {
+    const r = repo(COVERS);
+    r.put('src/a.ts', SRC.replace('return 1', 'return 10'));
+    r.commit();
+    const msg = r.run().lines.join('\n');
+    expect(msg).toContain('alpha in src/a.ts');
+    expect(msg).toContain('@arch:T-01, block at docs/arch/t.md:3');
+    expect(msg).toContain('reads committed changes — commit the block edit, then rerun: BASE_REF=main PR_BODY= node scripts/docsGate.mjs');
   });
 
   it('passes when the key is cited in the PR body', () => {

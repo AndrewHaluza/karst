@@ -477,6 +477,20 @@ const ticketFormVariants = (): Variant[] => {
     stepper: [],
     attachments: [],
   };
+  const editCoreModel = () =>
+    withState({
+      ...edit,
+      agentProviders: ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'],
+      agentPresetNames: ['fast', 'deep'],
+      selectedAgentPreset: null,
+      selectedAgentProvider: 'claude',
+      defaultAgentProvider: 'claude',
+      selectedModel: 'claude-sonnet-5',
+      selectedEffort: 'high',
+      modelCatalog: ROUTED_MODEL_CATALOG,
+      recentModels: {},
+      sessionOpen: false,
+    });
   return [
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
@@ -564,6 +578,10 @@ const ticketFormVariants = (): Variant[] => {
         sessionOpen: false,
       }),
     ),
+    // A1 (T885): edit + core+model at the widest and narrowest tiers — the actions
+    // footer must never cover the settings column.
+    variant('ticketForm', 'edit-core-model-tight', editCoreModel, { width: 1212 }),
+    variant('ticketForm', 'edit-core-model-tight-320', editCoreModel, { width: 320 }),
     // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html).
     variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM)),
     variant('ticketForm', 'realistic-edit', () =>
