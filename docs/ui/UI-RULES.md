@@ -1103,8 +1103,30 @@ was described as illustrative. Colors and markup may differ; the layout may not.
 
 **Check:** VISUAL check (g) asserts the `data-region` landmarks exist in the
 prototype's order at each width tier; REVIEW compares the diff against the linked
-prototype and names any region that moved.
+prototype and names any region that moved. Render the prototype with `npm run -s proto:shot -- <html> --regions` and compare each region with your baseline.
 END_DOC_BLOCK: [@ui:UI-R39]
+
+## [@ui:UI-R39-REJECT] Visual rejections and prototype changes require a per-region checklist
+
+A fix for a visual rejection, or for any change to a view with a linked
+prototype, lists EVERY `data-region` of the prototype with its status:
+`matches`, `changed in this fix`, or `differs` (with reason).
+
+The fixer writes this list into the ticket notes (`karst notes post`) at the
+START of the fix so it survives compaction, and updates it before firing the
+done marker. The reviewer rejects a fix that has no full region list. This is
+a judgement rule (REVIEW), not a lint.
+
+T866 was rejected for not matching its prototype; the agent polished the brief
+card and header, but never compared the bottom attachments strip with the
+prototype. After compaction, the agent lost track of untouched regions and had
+to re-derive it.
+
+**Verification:** REVIEW
+
+**Check:** REVIEW confirms a ticket note exists with every prototype `data-region`
+accounted for before approving the fix.
+END_DOC_BLOCK: [@ui:UI-R39-REJECT]
 
 ## [@ui:UI-R40] Reading order: header and primary action, then main, then secondary
 

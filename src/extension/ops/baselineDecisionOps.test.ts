@@ -71,6 +71,18 @@ describe('decideBaselines', () => {
     expect(redrive).toHaveBeenCalledWith(id);
   });
 
+  it('includes the per-region checklist rule in the rejection verdict when the ticket links a prototype', async () => {
+    store.db.prepare('UPDATE tickets SET description = ? WHERE id = ?').run(
+      'Follow prototype docs/design/ticket-form-b-prime.html',
+      id,
+    );
+    const res = await decideBaselines(deps, { kind: 'reject', index: 1, reason: 'wrong colour' });
+    expect(res).toEqual({ kind: 'rejected' });
+    const ticket = getTicket(store, id);
+    expect(ticket.stages.find((s) => s.stageKey === 'uat')?.verdict).toContain('@ui:UI-R39-REJECT');
+    expect(listRecoveryRounds(store, id)[0]?.triggerDetail).toContain('@ui:UI-R39-REJECT');
+  });
+
   it('refuses a forged index and writes nothing', async () => {
     for (const bad of [[2], [-1], [1.5], [0, 9], []]) {
       expect((await decideBaselines(deps, { kind: 'approve', indices: bad }))).toMatchObject({ kind: 'refused' });
