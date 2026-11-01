@@ -595,7 +595,7 @@ function mountAgentPicker(root, opts) {
         + '<select class="ap-effort" data-ap-preset aria-label="Preset"></select>'
         + '<div class="ap-warn" data-ap-preset-warn role="alert" hidden></div></div>'
       : '')
-    + '<div class="ap-field">'
+    + '<div class="ap-field" data-ap-core-field>'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
     + '<button type="button" class="ap-trigger" id="' + apId + '-core" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'

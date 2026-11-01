@@ -56,7 +56,16 @@
 .ap-effort-field[hidden],.ap-field[hidden]{display:none}
 .ap-seg{display:flex;gap:var(--k-space-2);grid-column:1/-1;justify-self:start;align-items:center}
 .ap-field[data-ap-preset-field]{grid-column:1/-1}
-.ap-seg-btn[aria-checked="true"]{border-color:var(--k-focus);font-weight:600}
+/* Segmented control (prototype .m-seg): one border, dividers, filled accent. Only the
+   opt-in Preset | Core + model mode renders these, so other hosts are unchanged. */
+.ap-seg{display:inline-flex;gap:0;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-xs);overflow:hidden}
+.ap-seg-btn{border:0;border-radius:0;background:transparent;color:var(--k-text)}
+.ap-seg-btn + .ap-seg-btn{border-left:var(--k-border-w) solid var(--k-border)}
+.ap-seg-btn[aria-checked="true"]{background:var(--k-action-bg);color:var(--k-action-fg);font-weight:600}
+/* Preset select matches the Type select: shared chevron, ellipsis, room for it. */
+select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-overflow:ellipsis;
+  padding-right:calc(var(--k-space-8) + var(--k-space-4));background-image:var(--chevron);
+  background-repeat:no-repeat;background-position:right var(--k-space-5) center}
 .ap-warn{font-size:var(--k-text-xs);color:var(--k-warning,var(--k-text-dim))}
 .ap-warn[hidden]{display:none}
 .ap-effort{width:100%;min-height:var(--k-control-h-lg);
