@@ -215,7 +215,10 @@ export interface LatestImplRunRow {
 }
 
 /**
- * The latest impl-stage process_runs row for this ticket, if any.
+ * The core and model of this ticket's latest impl session, if any.
+ * Reads only the canonical `session` process run (never telemetry rows such as
+ * `guide-pull`), and prefers that run's latest implementation segment, so a
+ * provider switch mid-impl names the core that ran last.
  * PR and commit templates use this to name the core and model that actually ran impl.
  */
 export function findLatestImplRun(
@@ -224,9 +227,15 @@ export function findLatestImplRun(
 ): LatestImplRunRow | undefined {
   return store.db
     .prepare(
-      `SELECT provider, model FROM process_runs
-        WHERE ticket_id = ? AND stage_key = 'impl'
-        ORDER BY id DESC LIMIT 1`,
+      `SELECT COALESCE(seg.provider, pr.provider) AS provider,
+              CASE WHEN seg.id IS NULL THEN pr.model ELSE seg.model END AS model
+         FROM process_runs pr
+         LEFT JOIN implementation_runs ir ON ir.process_run_id = pr.id
+         LEFT JOIN implementation_segments seg ON seg.id = (
+           SELECT MAX(s.id) FROM implementation_segments s
+            WHERE s.implementation_run_id = ir.id)
+        WHERE pr.ticket_id = ? AND pr.stage_key = 'impl' AND pr.process_id = 'session'
+        ORDER BY pr.id DESC LIMIT 1`,
     )
     .get(ticketId) as LatestImplRunRow | undefined;
 }
