@@ -49,7 +49,7 @@ describe('fixtures', () => {
 
 describe('eval overlay policy (@arch:UATHOST-04)', () => {
   it('never declares a key that raises a user-decided gate', () => {
-    const text = taskManifestText({ name: 't', repoPath: '/task', baseRef: 'main', gates: [{ name: 'g', command: 'npm', args: ['test'] }] });
+    const text = taskManifestText({ name: 't', repoPath: '/task', baseRef: 'main', gates: [{ name: 'test', command: 'npm', args: ['test'] }] });
     expect(overlayRaisesUserGate(text)).toBe(false);
   });
 });
