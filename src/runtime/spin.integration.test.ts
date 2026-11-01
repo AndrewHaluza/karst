@@ -11,6 +11,7 @@ import { spinTicket, SpinCancelledError } from './spin.js';
 import { worktreeSlug } from './slug.js';
 import { createWorktree } from './worktree.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
+import { shiftBand } from './portSlots.js';
 import type { DependsOn, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
   dependsOn,
@@ -118,7 +119,8 @@ function makeRepo(root: string, name: string, files: Record<string, string>): st
 
 // Rebased onto a window this machine has proven free (see freePortWindow): each
 // case draws default ports AND a 20-30 port allocator range from it.
-let portBase = 28600;
+const spinBand = shiftBand(28600, 29000);
+let portBase = spinBand.from;
 function port(): number {
   return portBase++;
 }
@@ -189,7 +191,7 @@ describe('spinTicket integration', () => {
     // 28100), [28100, 28200) and [28200, 28600); the ceiling keeps a window
     // blocked by a leftover server THROWING loudly ("leaked servers") instead
     // of sliding into a sibling suite's band and drawing the same ports.
-    portBase = await freePortWindow(140, portBase, 29000);
+    portBase = await freePortWindow(140, portBase, spinBand.ceiling);
   });
   beforeEach(() => {
     store = openStore(':memory:');

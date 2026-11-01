@@ -360,3 +360,34 @@ describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
     expect(out.results[0]!.output).toBe('exited 3 with no output (command: node -e process.exit(3))');
   });
 });
+
+describe('runGateList port slot', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  it('runs an integration gate under a leased KARST_TEST_PORT_OFFSET', async () => {
+    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
+    const out = await runGateList(
+      [{ name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true }],
+      process.cwd(),
+      {
+        now,
+        runProcess: async (cmd, args) => {
+          seen.push({ cmd, args });
+          return { kind: 'completed', exitCode: 0, output: '' };
+        },
+      },
+    );
+    expect(out.kind).toBe('ran');
+    expect(seen[0]!.cmd).toBe('env');
+    expect(seen[0]!.args[0]).toMatch(/^KARST_TEST_PORT_OFFSET=\d+$/);
+    expect(seen[0]!.args.slice(1)).toEqual(['npm', 'run', 'test:integration']);
+  });
+  it('leaves a non-integration gate untouched', async () => {
+    const seen: string[] = [];
+    await runGateList(
+      [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: null, required: true }],
+      process.cwd(),
+      { now, runProcess: async (cmd) => (seen.push(cmd), { kind: 'completed', exitCode: 0, output: '' }) },
+    );
+    expect(seen).toEqual(['npm']);
+  });
+});

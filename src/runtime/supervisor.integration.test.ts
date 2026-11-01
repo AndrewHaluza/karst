@@ -14,6 +14,7 @@ import {
   abandonVerdict,
 } from './supervisor.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
+import { shiftBand } from './portSlots.js';
 import { listenerPids, isPortOpen } from './portConflict.js';
 import { killTree } from './processTree.js';
 import { removeContainer, removeContainerAsync, removeContainerVerified } from './dockerContainer.js';
@@ -192,7 +193,8 @@ async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
   }
 }
 
-let portCounter = 28000;
+const supBand = shiftBand(28000, 28100);
+let portCounter = supBand.from;
 function nextPort(): number {
   return portCounter++;
 }
@@ -256,7 +258,7 @@ describe('server supervisor', () => {
     // pre-spawn probe and the child's bind. The ceiling keeps a blocked window
     // THROWING loudly ("leaked servers") rather than sliding into baseline's,
     // portConflict's or spin.integration's band and drawing the same ports.
-    portCounter = await freePortWindow(40, portCounter, 28100);
+    portCounter = await freePortWindow(40, portCounter, supBand.ceiling);
   });
   beforeEach(() => {
     store = openStore(':memory:');
