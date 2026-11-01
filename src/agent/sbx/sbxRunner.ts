@@ -41,14 +41,14 @@ export interface SbxRunnerOptions {
 }
 
 /**
- * Runs in the sandbox: bundle `$1` into a temp file and print it as base64 (no host path crosses).
+ * Runs in the sandbox: bundle `$1` into a temp file (in the clone's git dir: the sandbox /tmp can be read-only) and print it as base64 (no host path crosses).
  * `$2` is the host worktree's HEAD: when the clone has it, the bundle is thin (`^$2`, only what the host
  * lacks) so a big repo stays under MAX_BUNDLE_STDOUT_BYTES. A tip equal to `$2` excludes its parents instead
  * (git refuses an empty bundle). No `$2`, or one the clone lacks: the full bundle.
  */
 const BUNDLE_OUT = [
   'sh', '-c',
-  'set -e; t=$(mktemp); trap \'rm -f "$t"\' EXIT; g="git -c safe.directory=*"; '
+  'set -e; g="git -c safe.directory=*"; t=$(mktemp "$($g rev-parse --git-dir)/karst-bundle.XXXXXX"); trap \'rm -f "$t"\' EXIT; '
   + 'if [ -n "$2" ] && $g cat-file -e "$2^{commit}" 2>/dev/null; then '
   + 'if [ "$($g rev-parse "$1")" = "$2" ]; then set -- "$1" "^$2^@"; else set -- "$1" "^$2"; fi; else set -- "$1"; fi; '
   + '$g bundle create -q "$t" "$@"; base64 < "$t"',

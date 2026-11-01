@@ -90,6 +90,15 @@ describe('createSbxSessionRunner.sync thin bundle', () => {
     expect(script).toContain('"^$2^@"');
   });
 
+  it('creates the bundle temp file in the clone git dir, never in a read-only /tmp', async () => {
+    const script = (await run({ stdout: `${HOST_SHA}\n` })).args.find((a) => a.includes('bundle create'))!;
+    expect(script).not.toMatch(/mktemp\s*\)/);
+    expect(script).toContain('mktemp "$($g rev-parse --git-dir)/karst-bundle.XXXXXX"');
+    expect(script.indexOf('g="git')).toBeLessThan(script.indexOf('mktemp'));
+    expect(script).toContain('set -e');
+    expect(script).toContain('trap \'rm -f "$t"\' EXIT');
+  });
+
   it('falls back to the full bundle (empty exclusion) when the host HEAD is unreadable', async () => {
     expect((await run({ code: 128 })).args.slice(-2)).toEqual(['feat/x', '']);
     expect((await run({ stdout: 'not-a-sha' })).args.slice(-2)).toEqual(['feat/x', '']);
