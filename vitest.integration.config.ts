@@ -15,6 +15,7 @@ export default defineConfig({
       'src/**/*.integration.test.ts',
       'src/**/*.integration.test.tsx',
       'src/**/*.e2e.test.ts',
+      'scripts/**/*.integration.test.mjs',
     ],
     environment: 'node',
     // Render snapshots hold formatted clock times (e.g. the ship preview's "as of 09:41 AM"), recorded in UTC.

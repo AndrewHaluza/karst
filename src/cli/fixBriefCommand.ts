@@ -5,7 +5,7 @@ import { latestFindingBatch } from '../store/reviewFindings.js';
 import { listGateRuns } from '../store/gateRuns.js';
 import { activeRecoverySeries } from '../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../store/prFeedback.js';
-import { renderFixBrief } from '../agent/fixBrief.js';
+import { hasLinkedPrototype, renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { currentFixDelivery, claimRead } from '../store/fixDeliveries.js';
 import { quoteArg } from '../agent/cliEnv.js';
@@ -96,6 +96,7 @@ function liveBrief(store: Store, ticketId: number): string {
     latestFindingBatch(store, t.id),
     listGateRuns(store, t.id),
     shipRound === null ? undefined : listPrFeedbackForRound(store, t.id, shipRound.id),
+    { hasPrototype: hasLinkedPrototype(t) },
   );
   if (brief === null) {
     return 'No failed gate is recorded for this ticket — there is nothing to fix.';

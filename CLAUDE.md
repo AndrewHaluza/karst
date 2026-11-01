@@ -58,6 +58,7 @@ Reference docs under `docs/` (all except `plans/`, `superpowers/` and the genera
 - **Approach packages** (install, enable/uninstall, artifacts, frontmatter sanitization) → `docs/arch/approaches.md` (`@arch:APP-01`..`@arch:APP-07`)
 - **Domain terms** → `docs/glossary.md` (`gloss:GL-*`); **UAT stuck** → `docs/troubleshooting/uat-stuck.md` (`@ts:UAT-03` fix); **test naming / contributor rules** → `CONTRIBUTING.md` §5
 - **Generated, never hand-merged**: `docs/arch/system-map.md` (`@arch:MAP-01`, `@arch:MAP-02`) is regenerated with `npm run -s docs:graph`; CI and the UAT `docs-graph` gate run it with `--check`.
+- Changed a symbol listed in a block's `covers:`? Edit that block in the same change; check after committing with `BASE_REF=develop PR_BODY= node scripts/docsGate.mjs` (it reads committed diff only). UAT runs it as the `docs-gate` gate (`npm run -s docs:gate`).
 - Other arch docs (model/store/workflow layering, impl exit-condition ADR) live in `docs/arch/`: find keys with the grep above. Dated incident and measurement write-ups live in `docs/issues/` (`@issue:` keys; a failure or a snapshot, not a current rule).
 
 ## UI/UX (binding)

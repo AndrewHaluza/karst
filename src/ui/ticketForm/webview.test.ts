@@ -752,7 +752,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
 
   it('.ghost resolves to the real k-btn--ghost primitive, not a ruleless local class (UI-R10)', () => {
     expect(HTML).not.toMatch(/class="ghost"/);
-    expect(HTML).toContain('class="k-btn k-btn--ghost" id="cancelBtn"');
+    expect(HTML).toContain('class="k-btn k-btn--ghost m-btn g" id="cancelBtn"');
   });
 
   it('does not restyle a bare <button> — every button is a `.k-btn`/`.k-iconbtn`/`.k-switch` variant (UI-R07)', () => {

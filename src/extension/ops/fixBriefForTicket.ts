@@ -4,7 +4,7 @@ import { latestFindingBatch } from '../../store/reviewFindings.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
-import { renderFixBrief } from '../../agent/fixBrief.js';
+import { hasLinkedPrototype, renderFixBrief } from '../../agent/fixBrief.js';
 import { reviewStallHint } from '../../store/reviewStallHint.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
@@ -29,6 +29,7 @@ export function fixBriefForTicket(store: Store, ticketId: number, label?: string
     latestFindingBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
+    { hasPrototype: hasLinkedPrototype(t) },
   );
   // A "Redesign hint…" answers a review stall: the user's direction rides the
   // brief (D99 path) so the fix agent rethinks instead of patching again.
