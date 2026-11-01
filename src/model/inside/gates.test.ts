@@ -14,7 +14,7 @@ import {
   type ServiceStatusView,
 } from './gates.js';
 import { attemptKey } from './rounds.js';
-import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
+import { formatDuration, formatExactDuration, formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -1980,5 +1980,139 @@ describe('gates process lists resolved gates while the stage runs', () => {
     );
     expect(rows.some((r) => r.status === 'run' && r.label === 'g10')).toBe(true);
     expect(rows.length).toBeLessThanOrEqual(9);
+  });
+
+  it('running row shows repo, start time, and elapsed duration when batch is empty (from cell.startedAt)', () => {
+    const startedAt = '2026-10-27T10:00:00.000Z';
+    const now = '2026-10-27T10:00:15.000Z';
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', { startedAt }),
+        now,
+        resolvedGates: [{ name: 'test', repo: '/repos/ext', disabled: false }],
+        repoNameFor: (r) => (r === '/repos/ext' ? 'extention' : undefined),
+      }),
+    )[0]!;
+    const row = rowsOf(view)[0]!;
+    expect(row).toMatchObject({
+      status: 'run',
+      label: 'test',
+      repo: 'extention',
+      time: formatTime(startedAt),
+      duration: formatDuration(startedAt, now),
+      durationExact: formatExactDuration(startedAt, now),
+    });
+  });
+
+  it('running row start uses latest endedAt among recorded rows in the batch', () => {
+    const cellStart = '2026-10-27T10:00:00.000Z';
+    const gateEnd = '2026-10-27T10:00:45.000Z';
+    const now = '2026-10-27T10:01:30.000Z';
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', { startedAt: cellStart }),
+        now,
+        gateRuns: [
+          run('uat', 'lint (extention)', 0, {
+            runAt: NOW,
+            repo: '/repos/ext',
+            startedAt: '2026-10-27T10:00:05.000Z',
+            endedAt: gateEnd,
+          }),
+        ],
+        resolvedGates: [
+          { name: 'lint', repo: '/repos/ext', disabled: false },
+          { name: 'test', repo: '/repos/ext', disabled: false },
+        ],
+        repoNameFor: (r) => (r === '/repos/ext' ? 'extention' : undefined),
+      }),
+    )[0]!;
+    const rows = rowsOf(view);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.status).toBe('pass');
+    expect(rows[1]).toMatchObject({
+      status: 'run',
+      label: 'test',
+      repo: 'extention',
+      time: formatTime(gateEnd),
+      duration: formatDuration(gateEnd, now),
+      durationExact: formatExactDuration(gateEnd, now),
+    });
+  });
+
+  it('running row omits time and duration when start is unknown (no recorded end and no cell start)', () => {
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        now: NOW,
+        resolvedGates: [{ name: 'test', repo: '/repos/ext', disabled: false }],
+        repoNameFor: (r) => (r === '/repos/ext' ? 'extention' : undefined),
+      }),
+    )[0]!;
+    const row = rowsOf(view)[0]!;
+    expect(row.status).toBe('run');
+    expect(row.repo).toBe('extention');
+    expect(row.time).toBeUndefined();
+    expect(row.duration).toBeUndefined();
+    expect(row.durationExact).toBeUndefined();
+  });
+
+  it('live gate list works per repo: gate finished in one repo does not hide the same gate in another repo', () => {
+    const cellStart = '2026-10-27T10:00:00.000Z';
+    const gateEnd = '2026-10-27T10:00:20.000Z';
+    const now = '2026-10-27T10:00:50.000Z';
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', { startedAt: cellStart }),
+        now,
+        gateRuns: [
+          run('uat', 'test (api)', 0, {
+            runAt: NOW,
+            repo: '/repos/api',
+            startedAt: '2026-10-27T10:00:00.000Z',
+            endedAt: gateEnd,
+          }),
+        ],
+        resolvedGates: [
+          { name: 'test', repo: '/repos/api', disabled: false },
+          { name: 'test', repo: '/repos/web', disabled: false },
+        ],
+        repoNameFor: (r) => r.replace('/repos/', ''),
+      }),
+    )[0]!;
+    const rows = rowsOf(view);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      status: 'pass',
+      label: 'test',
+      repo: 'api',
+    });
+    expect(rows[1]).toMatchObject({
+      status: 'run',
+      label: 'test',
+      repo: 'web',
+      detail: 'running…',
+      time: formatTime(gateEnd),
+      duration: formatDuration(gateEnd, now),
+      durationExact: formatExactDuration(gateEnd, now),
+    });
+  });
+
+  it('forecast before stage runs carries repo on each row', () => {
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        resolvedGates: [
+          { name: 'lint', repo: '/repos/api', disabled: false },
+          { name: 'test', repo: '/repos/web', disabled: true },
+        ],
+        repoNameFor: (r) => r.replace('/repos/', ''),
+      }),
+    )[0]!;
+    const rows = rowsOf(view);
+    expect(rows).toEqual([
+      { status: 'pending', label: 'lint', repo: 'api', detail: 'will run when the stage runs' },
+      { status: 'skip', label: 'test', repo: 'web', detail: 'disabled for this ticket' },
+    ]);
   });
 });

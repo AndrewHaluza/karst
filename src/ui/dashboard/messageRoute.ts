@@ -73,6 +73,8 @@ export function routeAction(
       return actions.stopDriver();
     case 'ship-ticket':
       return actions.shipTicket();
+    case 'retry-ship':
+      return actions.retryShip();
     case 'resume-ticket':
       return actions.resumeTicket();
     case 'send-back-to-implement':

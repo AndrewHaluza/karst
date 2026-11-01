@@ -67,6 +67,24 @@ describe('Evidence — gates running mid-list', () => {
     withEvidence({ kind: 'gates', rows: [{ status: 'pass', label: 'lint', detail: 'exit 0' }, { status: 'run', label: 'test', detail: 'running…' }, { status: 'pending', label: 'build', detail: 'queued' }], passed: 1, failed: 0, skipped: 0 });
     expect(all('.gate-row').map((r) => r.classList.contains('active'))).toEqual([false, true, false]);
   });
+
+  it('renders repo, start time and duration on the running gate row', () => {
+    withEvidence({
+      kind: 'gates',
+      rows: [
+        { status: 'pass', label: 'lint', repo: 'web', detail: 'exit 0', time: '10:00', duration: '5s' },
+        { status: 'run', label: 'test', repo: 'api', detail: 'running…', time: '10:05', duration: '12s', durationExact: '12.3s' },
+      ],
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+    });
+    const [, b] = all('.gate-row');
+    expect(text(b!.querySelector('.gate-repo'))).toBe('api');
+    expect(text(b!.querySelector('.ev-time'))).toBe('10:05');
+    expect(text(b!.querySelector('.ev-dur'))).toBe('12s');
+    expect(b!.querySelector('.ev-dur')!.getAttribute('title')).toBe('12.3s');
+  });
 });
 
 describe('Evidence — findings', () => {

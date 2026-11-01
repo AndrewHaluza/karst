@@ -51,6 +51,8 @@ export type WebviewMessage =
   | { type: 'open-dependency'; ticketId: number }
   | { type: 'stop-driver' }
   | { type: 'ship-ticket' }
+  // Re-run ship for every repo whose latest ship step failed; payload-free, the host re-derives the repos.
+  | { type: 'retry-ship' }
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
   /**

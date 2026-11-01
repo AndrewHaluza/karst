@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { formatLaunchFailure } from '../../agent/launchCapture.js';
+import { formatLaunchFailure, isSandboxStopped } from '../../agent/launchCapture.js';
 import type { Notify } from './notify.js';
 import { DOCKER_MEMORY_HELP_TEXT } from './sandboxSetupOp.js';
 
@@ -22,12 +22,25 @@ export interface SandboxLaunchFailureInput {
   readonly killContext?: () => Promise<string | undefined>;
   /** Switches only this ticket to the host and relaunches it; offered as a button on the failure notice. */
   readonly runOnHost?: (ticketId: number) => Promise<void> | void;
+  /** Ends the ticket's running implementation run as interrupted ('sandbox stopped'). */
+  readonly interruptRun?: (ticketId: number, detail: string) => void;
   /** Relaunches the ticket on its configured sandbox backend. */
   readonly retrySandbox?: (ticketId: number) => Promise<void> | void;
+  /**
+   * Clears the ticket's stored session id. When wired, a launch that died on a
+   * `--resume` of a conversation the (recreated) sandbox never had is not a launch
+   * failure: the id is dropped and the ticket relaunches once as a fresh session.
+   */
+  readonly dropStaleResume?: (ticketId: number) => void;
 }
+
+/** The CLI's reply to `--resume <id>` when the sandbox's $HOME holds no such conversation. */
+export const STALE_RESUME_PATTERN = /No conversation found with session ID/i;
 
 export const RUN_ON_HOST_ACTION = 'Run on Host';
 export const RETRY_SANDBOX_ACTION = 'Retry Sandbox';
+export const RELAUNCH_ACTION = 'Relaunch';
+export const SANDBOX_STOPPED_DETAIL = 'sandbox stopped';
 
 export const LAUNCH_FAILURE_FILE = 'sandbox-launch-failure.txt';
 
@@ -55,11 +68,43 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       })
       .catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} launch recovery action failed: ${String(e)}`));
   };
+  // The session died because its sandbox was stopped: not a launch failure, no host hint (T906).
+  const reportStopped = (info: { runner: string; exitCode: number }): void => {
+    input.warn(`[session] ticket ${input.ticketLabel} ${info.runner} sandbox was stopped (exit ${info.exitCode}); run interrupted`);
+    try {
+      input.interruptRun?.(input.ticketId, SANDBOX_STOPPED_DETAIL);
+    } catch (e) {
+      input.warn(`[session] ticket ${input.ticketLabel} could not interrupt the run: ${String(e)}`);
+    }
+    input.markNotStarted(input.ticketId);
+    const message = `Karst: ${input.ticketLabel} ${info.runner} sandbox was stopped. The agent is gone; Relaunch to resume.`;
+    if (!input.notify.errorActions) {
+      input.notify.warn(message);
+      return;
+    }
+    void input.notify
+      .errorActions(message, [RELAUNCH_ACTION])
+      .then(async (choice) => {
+        if (choice === RELAUNCH_ACTION) await input.retrySandbox?.(input.ticketId);
+      })
+      .catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} relaunch action failed: ${String(e)}`));
+  };
   return {
     launchCaptureDir: input.captureDir,
     onSandboxLaunchFailed: (info) => {
       // Karst itself stopped the container after an accepted stage marker: not a failure.
       if (input.hostEnded?.(input.ticketId)) return;
+      if (input.dropStaleResume && input.retrySandbox && STALE_RESUME_PATTERN.test(info.tail)) {
+        // T896: the conversation lived in a deleted sandbox's $HOME; a retry with the same id can never succeed.
+        input.warn(`[session] ticket ${input.ticketLabel} resume id not found in the sandbox: dropping the stored session id and relaunching as a fresh session`);
+        input.dropStaleResume(input.ticketId);
+        void Promise.resolve(input.retrySandbox(input.ticketId)).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} fresh relaunch failed: ${String(e)}`));
+        return;
+      }
+      if (isSandboxStopped(info.tail)) {
+        reportStopped(info);
+        return;
+      }
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);
       input.warn(line);
       try {

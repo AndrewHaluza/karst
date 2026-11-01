@@ -350,3 +350,57 @@ describe('runProcess live output', () => {
     expect(chunks.map((c) => c.text).join('')).toContain('live-err');
   });
 });
+
+describe('runProcess onSpawned registration', () => {
+  const track = () => {
+    const events: string[] = [];
+    const onSpawned = (pid: number) => {
+      events.push(`reg:${typeof pid}`);
+      return () => events.push('dispose');
+    };
+    return { events, onSpawned };
+  };
+
+  it('registers the pid and disposes once on a pass', async () => {
+    const { events, onSpawned } = track();
+    const out = await runProcess('node', ['-e', ''], process.cwd(), { onSpawned });
+    expect(out.kind).toBe('completed');
+    expect(events).toEqual(['reg:number', 'dispose']);
+  });
+
+  it('disposes on a failing exit', async () => {
+    const { events, onSpawned } = track();
+    const out = await runProcess('node', ['-e', 'process.exit(3)'], process.cwd(), { onSpawned });
+    expect(out.kind).toBe('completed');
+    expect(events).toEqual(['reg:number', 'dispose']);
+  });
+
+  it('disposes on a timeout', async () => {
+    const { events, onSpawned } = track();
+    const out = await runProcess('node', ['-e', 'setTimeout(()=>{},60000)'], process.cwd(), {
+      onSpawned,
+      timeoutMs: 100,
+    });
+    expect(out.kind).toBe('timedOut');
+    expect(events).toEqual(['reg:number', 'dispose']);
+  });
+
+  it('disposes on a cancel', async () => {
+    const { events, onSpawned } = track();
+    const controller = new AbortController();
+    const run = runProcess('node', ['-e', 'setTimeout(()=>{},60000)'], process.cwd(), {
+      onSpawned,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 100);
+    expect((await run).kind).toBe('aborted');
+    expect(events).toEqual(['reg:number', 'dispose']);
+  });
+
+  it('never registers when the binary is missing', async () => {
+    const { events, onSpawned } = track();
+    const out = await runProcess('karst-no-such-binary-xyz', [], process.cwd(), { onSpawned });
+    expect(out.kind).toBe('spawnFailed');
+    expect(events.filter((e) => e === 'dispose').length).toBe(events.filter((e) => e.startsWith('reg')).length);
+  });
+});

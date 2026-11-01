@@ -40,6 +40,7 @@ function actions(): DashboardActions {
     openDependency: vi.fn(),
     stopDriver: vi.fn(),
     shipTicket: vi.fn(),
+    retryShip: vi.fn(),
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
     resetStage: vi.fn(),
@@ -314,6 +315,8 @@ describe('routeAction', () => {
     routeAction({ type: 'stop-driver' }, a);
     routeAction({ type: 'ship-ticket' }, a);
     routeAction({ type: 'resume-ticket' }, a);
+    routeAction({ type: 'retry-ship' }, a);
+    expect(a.retryShip).toHaveBeenCalledTimes(1);
     expect(a.stopDriver).toHaveBeenCalledTimes(1);
     expect(a.shipTicket).toHaveBeenCalledTimes(1);
     expect(a.resumeTicket).toHaveBeenCalledTimes(1);

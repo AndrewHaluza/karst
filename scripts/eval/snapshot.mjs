@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 /** Top-level paths a task checkout must not contain (they would leak eval material). */
 export const FORBIDDEN_TOP = ['evals', 'eval-results', 'hidden'];
@@ -91,15 +91,19 @@ export function addWorktree({ taskDir }) {
   const res = git(repoDir, ['-c', 'worktree.useRelativePaths=true', 'worktree', 'add', '--relative-paths', '-q', '-b', 'eval/task', wt], { allowFail: true });
   if (res.status !== 0) {
     git(repoDir, ['worktree', 'add', '-q', '-b', 'eval/task', wt]);
-    try {
-      const wtGit = join(wt, '.git');
-      const adminDir = readFileSync(wtGit, 'utf8').replace(/^gitdir:\s*/, '').trim();
-      const relAdmin = relative(wt, adminDir);
-      const relWtGit = relative(adminDir, wtGit);
-      writeFileSync(wtGit, `gitdir: ${relAdmin}\n`);
-      writeFileSync(join(adminDir, 'gitdir'), `${relWtGit}\n`);
-    } catch {
-      // Best-effort manual relativization when git < 2.42 lacks --relative-paths
+    const wtDotGit = join(wt, '.git');
+    if (existsSync(wtDotGit)) {
+      const gitDirMatch = readFileSync(wtDotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+      if (gitDirMatch) {
+        const origGitDir = resolve(wt, gitDirMatch[1].trim());
+        const relToGitDir = relative(wt, origGitDir);
+        writeFileSync(wtDotGit, `gitdir: ${relToGitDir}\n`);
+        const gitdirFile = join(origGitDir, 'gitdir');
+        if (existsSync(gitdirFile)) {
+          const relToWt = relative(origGitDir, wtDotGit);
+          writeFileSync(gitdirFile, `${relToWt}\n`);
+        }
+      }
     }
   }
   return wt;

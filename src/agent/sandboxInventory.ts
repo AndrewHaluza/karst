@@ -40,6 +40,24 @@ export function parseSandboxName(name: string, projectRoot: string): { ticketId:
   return { ticketId: Number(m[1]), core };
 }
 
+export type SandboxContainerSuffix = 'proxy' | 'svc' | `port-${number}`;
+
+/**
+ * Like `parseSandboxName`, but also accepts a detached sandbox container's
+ * `-proxy`, `-svc` and `-port-<N>` suffix. Those have no host pid, so the NAME
+ * is the only handle that ties them to a ticket.
+ */
+export function parseSandboxContainerName(
+  name: string,
+  projectRoot: string,
+): { ticketId: number; core: string; suffix: SandboxContainerSuffix | null } | undefined {
+  const m = /^(.*?)(?:-(proxy|svc|port-[1-9][0-9]*))?$/.exec(name);
+  const base = m?.[1] ?? name;
+  const id = parseSandboxName(base, projectRoot);
+  if (!id) return undefined;
+  return { ...id, suffix: (m?.[2] as SandboxContainerSuffix | undefined) ?? null };
+}
+
 function failure(cmd: string, r: ProcessResult): string {
   return `${cmd} failed: ${(r.stderr.trim() || r.stdout.trim()).split('\n')[0]!.slice(0, 200)}`;
 }

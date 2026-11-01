@@ -23,7 +23,7 @@ import {
   resolveTicketType,
 } from './conventionContext.js';
 import { scanPorcelainForDenied } from './shipDenyScan.js';
-import { findExistingLivePr, hasCompletedShipRun } from './stages/shipStore.js';
+import { findExistingLivePr, findLatestImplRun, hasCompletedShipRun } from './stages/shipStore.js';
 
 /**
  * Advisory preview of what ship's sweep commit and PR will do, computed
@@ -110,6 +110,14 @@ export interface ShipArtifactInput {
   ticket: ShipArtifactTicket;
   /** Direct injection (focused tests); otherwise resolves per-repo conventions. */
   conventions?: ArtifactConventions;
+  /**
+   * The latest impl-stage process run for this ticket, if any (`provider`, `model`).
+   * When present, its non-empty `provider` and `model` outrank the ticket/manifest defaults.
+   */
+  implRun?: {
+    provider?: string | null;
+    model?: string | null;
+  } | null;
 }
 
 /** What ship renders for one repository: both subjects, its excludes and the context. */
@@ -139,6 +147,9 @@ export function resolveTemplateModel(
     agentPreset?: string | null;
   },
   manifest?: Manifest,
+  implRun?: {
+    model?: string | null;
+  } | null,
 ): string | undefined {
   const defaults = manifest
     ? resolvePresetDefaults(manifest, 'implementation', {
@@ -146,7 +157,7 @@ export function resolveTemplateModel(
         explicitProvider: ticket.agentProvider ?? null,
       })
     : undefined;
-  for (const candidate of [ticket.model, defaults?.model ?? manifest?.defaultModel]) {
+  for (const candidate of [implRun?.model, ticket.model, defaults?.model ?? manifest?.defaultModel]) {
     if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
   }
   return undefined;
@@ -161,6 +172,10 @@ export function resolveTemplateModel(
 export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
   const conventions =
     input.conventions ?? resolveRepoConventions(input.manifest, input.repoName);
+  const implProvider =
+    typeof input.implRun?.provider === 'string' && input.implRun.provider.trim() !== ''
+      ? input.implRun.provider.trim()
+      : undefined;
   const context: ArtifactTemplateContext = {
     id: input.ticketId,
     key: input.key,
@@ -169,11 +184,12 @@ export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
     type: resolveTicketType(input.ticket, conventions),
     scope: resolveRepoScope(input.manifest, input.repoName),
     provider:
+      implProvider ??
       input.ticket.sessionProvider ??
       input.ticket.agentProvider ??
       input.manifest?.agentProvider ??
       'claude',
-    model: resolveTemplateModel(input.ticket, input.manifest),
+    model: resolveTemplateModel(input.ticket, input.manifest, input.implRun),
     approach: input.ticket.approach ?? undefined,
     sessionId: input.ticket.sessionId ?? undefined,
   };
@@ -237,6 +253,11 @@ interface RepoContext {
   key: string;
   title: string;
   ticket: ShipArtifactTicket;
+  /**
+   * Latest impl-stage process run for this ticket, if any (`{provider, model}`).
+   * When omitted, loaded from `store`.
+   */
+  implRun?: { provider?: string | null; model?: string | null } | null;
   signal?: AbortSignal;
 }
 
@@ -298,6 +319,7 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
       title: ctx.title,
       repoName,
       ticket: ctx.ticket,
+      implRun: ctx.implRun,
     });
     base.prTitle = artifacts.prTitle;
     base.commitMessage = artifacts.commitMessage;
@@ -383,8 +405,11 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
 
 /** Read the advisory ship preview for a ticket, one repo at a time, fail-soft. */
 export async function loadShipPreview(ctx: RepoContext): Promise<ShipPreview> {
+  const implRun =
+    ctx.implRun !== undefined ? ctx.implRun : findLatestImplRun(ctx.store, ctx.ticketId);
+  const repoCtx: RepoContext = ctx.implRun !== undefined ? ctx : { ...ctx, implRun };
   const worktrees = listWorktreesByTicket(ctx.store, ctx.ticketId);
-  const repos = await Promise.all(worktrees.map((wt) => loadRepo(ctx, wt)));
+  const repos = await Promise.all(worktrees.map((wt) => loadRepo(repoCtx, wt)));
   return { computedAt: nowIso(), repos };
 }
 

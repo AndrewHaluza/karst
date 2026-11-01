@@ -59,6 +59,8 @@ import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
 import { claudeConsoleLine } from './consoleFormat.js';
 import { ensureClaudeWorkspaceTrusted } from './workspaceTrust.js';
+import { resolveClaudeProjectsDir, transcriptPathFor } from './claudeTranscriptWatch.js';
+import { stat } from 'node:fs/promises';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -371,6 +373,31 @@ export class ClaudeAdapter implements AgentAdapter {
     opts?: { debug?: (message: string) => void },
   ): void | Promise<void> {
     return ensureClaudeWorkspaceTrusted(cwd, opts);
+  }
+
+  /**
+   * `claude --resume <id>` exits nonzero when `<id>.jsonl` was never written
+   * (a session that died before its first transcript write). Drop the id up
+   * front so the launch is fresh instead of failing visibly first. Only a
+   * definite ENOENT drops it; any other check failure keeps the resume (the
+   * onResumeFailed fallback still covers it) and is logged.
+   */
+  async resolveResume(
+    sessionId: string,
+    opts: { cwd: string; debug?: (message: string) => void },
+  ): Promise<string | undefined> {
+    const file = transcriptPathFor(resolveClaudeProjectsDir(process.env), opts.cwd, sessionId);
+    try {
+      await stat(file);
+      return sessionId;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        opts.debug?.(`[agent:claude] resume-transcript-missing: ${file} → fresh launch`);
+        return undefined;
+      }
+      opts.debug?.(`[agent:claude] transcript check failed for ${file}: ${String(error)} → keeping resume`);
+      return sessionId;
+    }
   }
 
   /**

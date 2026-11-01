@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
+import { seedAgyAutonomousState, seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
@@ -129,5 +129,48 @@ describe('seedAgyCredentials', () => {
 
     rmSync(bridgeDir, { recursive: true, force: true });
     rmSync(hostHome, { recursive: true, force: true });
+  });
+});
+
+describe('seedAgyAutonomousState', () => {
+  const cli = (b: string) => join(b, 'antigravity', 'gemini', 'antigravity-cli');
+  it('writes onboarding done and autonomous settings, keeping other keys and trust', async () => {
+    const b = mkdtempSync(join(tmpdir(), 'karst-auto-'));
+    mkdirSync(join(cli(b), 'cache'), { recursive: true });
+    writeFileSync(join(cli(b), 'cache', 'onboarding.json'), JSON.stringify({ onboardingComplete: false, enterpriseOnboardingComplete: true, extra: 1 }));
+    writeFileSync(join(cli(b), 'settings.json'), JSON.stringify({ model: 'm', toolPermission: 'ask', trustedWorkspaces: ['/other'] }));
+    expect(await seedAgyAutonomousState({ bridgeDir: b })).toEqual({ ok: true });
+    expect(JSON.parse(readFileSync(join(cli(b), 'cache', 'onboarding.json'), 'utf8'))).toEqual({
+      onboardingComplete: true, consumerOnboardingComplete: true, enterpriseOnboardingComplete: true, extra: 1,
+    });
+    expect(JSON.parse(readFileSync(join(cli(b), 'settings.json'), 'utf8'))).toEqual({
+      model: 'm', toolPermission: 'always-proceed', agentMode: 'auto', artifactReviewPolicy: 'agent-decides',
+      allowNonWorkspaceAccess: true, trustedWorkspaces: ['/other', '/work/repo'],
+    });
+    expect(lstatSync(join(cli(b), 'settings.json')).mode & 0o777).toBe(0o600);
+    rmSync(b, { recursive: true, force: true });
+  });
+  it('creates files from scratch and replaces unparseable JSON', async () => {
+    const b = mkdtempSync(join(tmpdir(), 'karst-auto-'));
+    mkdirSync(cli(b), { recursive: true });
+    writeFileSync(join(cli(b), 'settings.json'), '[1,');
+    const debug = vi.fn();
+    expect(await seedAgyAutonomousState({ bridgeDir: b, debug })).toEqual({ ok: true });
+    const s = JSON.parse(readFileSync(join(cli(b), 'settings.json'), 'utf8'));
+    expect(s.trustedWorkspaces).toEqual(['/work/repo']);
+    expect(JSON.parse(readFileSync(join(cli(b), 'cache', 'onboarding.json'), 'utf8')).enterpriseOnboardingComplete).toBe(false);
+    expect(debug).toHaveBeenCalled();
+    rmSync(b, { recursive: true, force: true });
+  });
+  it('refuses a symlinked cache dir', async () => {
+    const b = mkdtempSync(join(tmpdir(), 'karst-auto-'));
+    const t = mkdtempSync(join(tmpdir(), 'karst-auto-t-'));
+    mkdirSync(cli(b), { recursive: true });
+    symlinkSync(t, join(cli(b), 'cache'));
+    const r = await seedAgyAutonomousState({ bridgeDir: b });
+    expect(r.ok).toBe(false);
+    expect(existsSync(join(t, 'onboarding.json'))).toBe(false);
+    rmSync(b, { recursive: true, force: true });
+    rmSync(t, { recursive: true, force: true });
   });
 });

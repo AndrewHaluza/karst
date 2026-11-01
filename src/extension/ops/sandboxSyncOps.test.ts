@@ -229,7 +229,7 @@ describe('backendSessionOptions worktree', () => {
     const debug = vi.fn();
     const opts = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
     await opts.resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, docker: { debug } });
+    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, log: debug, docker: { debug } });
     const bare = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
     await bare.resolveRunner!();
     expect(resolve).toHaveBeenLastCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7 });
@@ -473,6 +473,19 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
       await resolveLaunchBackend({ ...base, worktree, debug, resolve: async () => ({ runner, line: 'docker' }), bridgeFor: async () => ({ dir: join(dir, 'missing'), runDir: '/r' }) as never });
       expect(debug).toHaveBeenCalledWith(expect.stringContaining('cloned-worktree record failed'));
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('blocks a reattach whose clone never resolves the ticket branch, naming the rebuild action', async () => {
+    const worktree = { path: '/wt/b', branch: 'k/b' };
+    const mk = (ready: { ok: boolean; reason?: string }) => ({
+      kind: 'sbx', enforcesSandbox: true, hasSandbox: async () => true, ensureWritable: async () => ({ ok: true }),
+      ensureCloneReady: vi.fn(async () => ready), bridgeRunDir: (p: { runDir: string }) => p.runDir,
+    }) as never;
+    const ok = mk({ ok: true });
+    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: ok, line: 'sbx' }) });
+    expect((ok as { ensureCloneReady: ReturnType<typeof vi.fn> }).ensureCloneReady).toHaveBeenCalledWith('k/b');
+    const empty = mk({ ok: false, reason: 'sandbox clone is empty: run Karst: Rebuild Sandbox' });
+    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7 sandbox clone is empty.*Rebuild Sandbox/);
   });
 
   it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {

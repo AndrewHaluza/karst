@@ -283,6 +283,10 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'ship-ticket' }], rid: false, pendingSel: '.go[aria-busy="true"]',
   },
   {
+    act: 'retry-ship', variant: 'rail needs-you', state: () => railNeedsState('ship', { kind: 'retry-ship' }), sel: '.go' + act('retry-ship'),
+    posts: [{ type: 'retry-ship' }], rid: true,
+  },
+  {
     act: 'merge-pr', variant: 'rail needs-you', state: () => railNeedsState('ship', { kind: 'merge', repo: REPO }), sel: '.go' + forRepo('merge-pr'),
     posts: [{ type: 'merge-pr', repo: REPO }], rid: false, pendingSel: '.go[aria-busy="true"]',
   },

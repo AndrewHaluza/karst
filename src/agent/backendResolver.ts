@@ -21,6 +21,8 @@ export interface ResolveBackendInput {
   readonly worktree?: SandboxTicketRef;
   readonly bridgeDir?: string;
   readonly docker?: DockerResolveDeps;
+  /** Karst log sink for the sbx runner (damaged-disk EXT4 lines). */
+  readonly log?: (line: string) => void;
 }
 
 export interface ResolvedBackend {
@@ -66,7 +68,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
     if (!cloned.ok) return onHost(cloned.reason);
   }
   return {
-    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir }),
+    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, ...(input.log ? { log: input.log } : {}) }),
     line: `sbx (${name})`,
   };
 }

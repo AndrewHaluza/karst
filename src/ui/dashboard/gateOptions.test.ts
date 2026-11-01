@@ -41,6 +41,10 @@ describe('buildGateOptionsLoader', () => {
       { name: 'test', disabled: false },
       { name: 'e2e', disabled: true },
     ]);
+    expect(options.runOrder?.uat).toEqual([
+      { name: 'test', repo: '/repo/api', disabled: false },
+      { name: 'e2e', repo: '/repo/api', disabled: true },
+    ]);
     expect(options.review.some((o) => o.name === 'lint')).toBe(true);
   });
 
@@ -63,7 +67,8 @@ describe('buildGateOptionsLoader', () => {
     const store = openStore(':memory:');
     const ticketId = seedScopedTicket(store, '/repo/api');
     const load = buildGateOptionsLoader({ store, manifest: () => undefined });
-    expect(await load(ticketId, new AbortController().signal)).toEqual({ uat: [], review: [] });
+    const empty = { uat: [], review: [], runOrder: { uat: [], review: [] } };
+    expect(await load(ticketId, new AbortController().signal)).toEqual(empty);
   });
 
   it('returns empty lists when the repository cannot be probed', async () => {
@@ -75,7 +80,8 @@ describe('buildGateOptionsLoader', () => {
       probe: () => ({ kind: 'io-error', message: 'EACCES' }),
       git: changed,
     });
-    expect(await load(ticketId, new AbortController().signal)).toEqual({ uat: [], review: [] });
+    const empty = { uat: [], review: [], runOrder: { uat: [], review: [] } };
+    expect(await load(ticketId, new AbortController().signal)).toEqual(empty);
   });
 
   it('degrades to empty lists when git is unavailable rather than throwing', async () => {
@@ -90,7 +96,8 @@ describe('buildGateOptionsLoader', () => {
       probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
       git: failingGit,
     });
-    expect(await load(ticketId, new AbortController().signal)).toEqual({ uat: [], review: [] });
+    const empty = { uat: [], review: [], runOrder: { uat: [], review: [] } };
+    expect(await load(ticketId, new AbortController().signal)).toEqual(empty);
   });
 
   // NDL-65: `SupplementalLoaders.pushGateOptions` aborts the previous probe's
@@ -133,7 +140,7 @@ describe('buildGateOptionsLoader', () => {
     await fetching;
     controller.abort();
 
-    expect(await loading).toEqual({ uat: [], review: [] });
+    expect(await loading).toEqual({ uat: [], review: [], runOrder: { uat: [], review: [] } });
     expect(captured.length).toBeGreaterThan(0);
     expect(captured.every((signal) => signal?.aborted === true)).toBe(true);
     store.close();

@@ -28,10 +28,18 @@ export function buildRail({
   mergeableRepos,
   fixCapFor,
 }: RailInput) {
+  // A failed ship parks on the user (Retry ship) even though the ticket-level
+  // glyph/badge keep reading the failure (red), so only the rail widens `blocked`.
+  const shipCell = cellOf('ship');
+  const shipFailed =
+    ticket.stageCurrent === 'ship' &&
+    shipCell.status === 'failed' &&
+    shipCell.blocked?.kind !== 'awaiting-merge';
+  const needsYou = blocked || shipFailed;
   return buildStageRail(stepper, ticket.stages, {
     current: ticket.stageCurrent,
-    needsUser: blocked,
-    needs: blocked
+    needsUser: needsYou,
+    needs: needsYou
       ? railNeeds({
           stage: ticket.stageCurrent,
           blockedKind: currentStage?.blocked?.kind,
@@ -41,7 +49,8 @@ export function buildRail({
           // banner must not outrank it (869ed7bpd). `needsUser` already
           // excludes that case — this is the rail's own guard, belt and
           // braces with the same exception.
-          shipStatus: cellOf('ship').status,
+          shipStatus: shipCell.status,
+          shipReason: shipCell.reason,
           shipAwaitingMerge:
             stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
           mergeGate,
