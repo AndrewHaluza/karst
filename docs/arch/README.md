@@ -75,5 +75,5 @@ END_DOC_BLOCK: [@arch:DOC-02]
 - **skip**: files in `HUB_EXCLUDE` (`src/extension.ts`, `src/**/index.ts`).
 - **Pass** — either: write `@arch:KEY` in the PR description, or edit that key's block (`## [@arch:KEY]` … `END_DOC_BLOCK`) in the same diff. Citing any one of the keys covering a hunk passes it.
 
-The PR body is read from the `PR_BODY` env var and treated as text only.
+The PR body is read from the `PR_BODY` env var and treated as text only. `PR_BODY` is the only waiver (cite `@arch:KEY`); there is no marker. The BLOCK line names the symbol, the covering key, the block's `file:line` and the rerun command. The gate reads COMMITTED changes only, so commit the block edit before rerunning. UAT runs it as a `docs-gate` command gate (`npm run -s docs:gate`; `BASE_REF` defaults to `develop`, `origin/<base>` is used when present, else the local branch) with an empty body.
 END_DOC_BLOCK: [@arch:DOC-03]
