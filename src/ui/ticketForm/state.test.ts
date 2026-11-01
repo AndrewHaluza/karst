@@ -704,6 +704,22 @@ describe('applyPrefill — approved-draft base picks', () => {
     expect(applyPrefill(built, { ...prefill, draftId: 88 }).refLabel).toBe('D88');
   });
 
+  it('sets briefSource: draft for a planning prefill, manual otherwise', () => {
+    const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    expect(built.briefSource).toEqual({ kind: 'manual' });
+    expect(applyPrefill(built, { ...prefill, draftId: 7 }).briefSource).toEqual({ kind: 'draft', draftId: 7 });
+    expect(applyPrefill(built, prefill).briefSource).toEqual({ kind: 'manual' });
+  });
+
+  it('edit mode: provider only when the ticket has a sourceRef', () => {
+    const fetched = createTicket(store, { key: 'F-1', title: 'f' });
+    updateTicketFields(store, fetched.id, { sourceRef: 'abc' });
+    const drafted = createTicket(store, { key: 'D-1', title: 'd' });
+    const b = (id: number) => buildTicketFormState(store, MANIFEST, () => [], () => [], id).briefSource;
+    expect(b(fetched.id).kind).toBe('provider');
+    expect(b(drafted.id)).toEqual({ kind: 'manual' });
+  });
+
   it('names the sub-task parent as T<n> on create, and the ticket as T<n> · KEY on edit', () => {
     const parent = createTicket(store, { key: 'P-1', title: 'p' });
     const child = createTicket(store, { key: 'P-1-s1', title: 'c', subtaskParentId: parent.id });

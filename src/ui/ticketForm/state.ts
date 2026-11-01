@@ -111,6 +111,12 @@ export interface DesignConstraintsView {
   warnings: string[];
 }
 
+/** Origin of the brief shown in the form (host-decided, never inferred from the project's provider). */
+export type BriefSource =
+  | { kind: 'provider'; provider: string }
+  | { kind: 'draft'; draftId: number }
+  | { kind: 'manual' };
+
 export interface TicketFormState {
   mode: 'create' | 'edit';
   ticketId?: number;
@@ -128,6 +134,8 @@ export interface TicketFormState {
   sourceRef: string;
   /** Synthesized context brief, or null before a fetch. */
   brief: string | null;
+  /** Where `brief` came from; drives the brief header label. */
+  briefSource: BriefSource;
   /** ISO time of the last fetch (`tickets.source_fetched_at`), or null before one. */
   briefFetchedAt: string | null;
   /** Stored analysis intent (black-box test charter), or null before an analysis. */
@@ -420,6 +428,7 @@ export function buildTicketFormState(
       description: '',
       sourceRef: '',
       brief: null,
+      briefSource: { kind: 'manual' },
       briefFetchedAt: null,
       intent: null,
       codePointers: null,
@@ -487,6 +496,7 @@ export function buildTicketFormState(
     description: ticket.description ?? '',
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
+    briefSource: ticket.sourceRef ? { kind: 'provider', provider } : { kind: 'manual' },
     briefFetchedAt: ticket.sourceFetchedAt,
     intent: ticket.intent,
     codePointers: ticket.codePointers,
@@ -560,6 +570,7 @@ export function applyPrefill(
     title: p.title,
     description: p.description,
     brief: p.summary || null,
+    briefSource: p.draftId !== undefined ? { kind: 'draft', draftId: p.draftId } : { kind: 'manual' },
     repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,
     repoBases: state.repoBases.map((rb) => {
       const override = baseRefs[rb.repo];
