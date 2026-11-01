@@ -75,6 +75,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const out = await resolve({
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
+      ...(input.debug ? { log: input.debug } : {}),
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
@@ -121,7 +122,7 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement };
   const existing = resolved.runner.ensureWritable ? await resolved.runner.hasSandbox?.() : false;
   if (existing) {
-    const writable = await resolved.runner.ensureWritable!();
+    const writable = await resolved.runner.ensureWritable!(input.worktree?.branch ? { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } : undefined);
     if (!writable.ok) throw new Error(`Karst: ${input.ticketLabel} ${writable.reason}`);
   }
   if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
