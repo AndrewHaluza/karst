@@ -9,6 +9,7 @@ import { parkGateStage } from '../../store/stageBlocks.js';
 import {
   InsideActionRegistry,
   dispatchInsideAction,
+  planRetryShip,
   resolveOpenFileTarget,
   type InsideActionTarget,
   type InsideFileFs,
@@ -1028,6 +1029,42 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'ticket is not at ship',
+    });
+  });
+
+  describe('planRetryShip (stage-rail Retry ship)', () => {
+    function failedStep(repo: string): void {
+      const run = openShipRun(store, { ticketId: 1, attempt: 1, startedAt: '2026-08-08T10:00:00.000Z' });
+      const step = openShipRepoStep(store, {
+        shipRunId: run.id,
+        repo,
+        step: 'describe',
+        detail: 'running',
+        startedAt: '2026-08-08T10:00:00.000Z',
+      });
+      finishShipRepoStep(store, step.id, { status: 'failed', detail: 'boom', endedAt: '2026-08-08T10:01:00.000Z' });
+    }
+
+    it('rejects a ticket that is not at ship', () => {
+      failedStep('/web');
+      expect(planRetryShip(store, 1)).toEqual({ reason: 'ticket is not at ship' });
+    });
+
+    it('rejects an unknown ticket', () => {
+      expect(planRetryShip(store, 999)).toEqual({ reason: 'ticket not found' });
+    });
+
+    it('rejects when no step failed', () => {
+      store.db.prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 1`).run();
+      expect(planRetryShip(store, 1)).toEqual({ reason: 'no failed ship step to retry' });
+    });
+
+    it('returns every repo whose step failed', () => {
+      store.db.prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 1`).run();
+      failedStep('/web');
+      failedStep('/api');
+      const plan = planRetryShip(store, 1);
+      expect('repos' in plan && [...plan.repos].sort()).toEqual(['/api', '/web']);
     });
   });
 });

@@ -2911,7 +2911,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // is declared with the activation sweep, read only once a panel is open
         // (or the sweep fires). The click asks for the status-push warning
         // toast; the sweep's own call logs instead.
-        (id) => runShipSaga(id, true),
+        (id, warn, opts) => runShipSaga(id, warn ?? true, opts),
         // The inside-action seam: the panel posts only an opaque id; the
         // manager resolves it through the ticket's CURRENT snapshot registry
         // and dispatches the stored host-only target.

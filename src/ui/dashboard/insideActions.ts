@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getProcessRunById } from '../../store/processRuns.js';
 import { getPrById } from '../../store/prs.js';
 import { getFindingById } from '../../store/reviewFindings.js';
-import { getShipCommitById, getShipRepoStepById } from '../../store/shipRuns.js';
+import { getShipCommitById, getShipRepoStepById, listShipEvidence } from '../../store/shipRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
@@ -339,6 +339,30 @@ export function resolveOpenFileTarget(
   const resolved = missing.length === 0 ? canonicalBase : `${canonicalBase}/${missing.join('/')}`;
   if (!isPathUnder(resolved, root)) return { error: 'path escapes the recorded worktree' };
   return { path: resolved, line: row.line ?? null };
+}
+
+/** The rail's `retry-ship` guard result: the repos to re-run, or why not. */
+export type RetryShipPlan = { repos: string[] } | { reason: string };
+
+/**
+ * The repos a stage-rail "Retry ship" re-runs: every repo whose latest recorded
+ * ship step failed. Same guards as the `retry-ship-repo` target — the ticket must
+ * be at ship and a failed step must exist — re-read from the store, because the
+ * message carries no payload a stale panel could aim.
+ */
+export function planRetryShip(store: Store, ticketId: number): RetryShipPlan {
+  let stageCurrent: string | null;
+  try {
+    stageCurrent = getTicket(store, ticketId).stageCurrent;
+  } catch {
+    return { reason: 'ticket not found' };
+  }
+  if (stageCurrent !== 'ship') return { reason: 'ticket is not at ship' };
+  const repos = Object.entries(listShipEvidence(store, ticketId).repos)
+    .filter(([, ev]) => Object.values(ev.steps).some((s) => s?.status === 'failed'))
+    .map(([repo]) => repo);
+  if (repos.length === 0) return { reason: 'no failed ship step to retry' };
+  return { repos };
 }
 
 /**

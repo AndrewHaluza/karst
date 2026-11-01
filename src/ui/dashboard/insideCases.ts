@@ -1,6 +1,7 @@
 import type { DashboardState } from './state.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
+import { buildStageRail } from '../../model/stageRail.js';
 import { populatedStateFor, renderFixtures, shipPreviewStateFor } from './renderFixtures.js';
 import {
   buildCaseViews,
@@ -344,6 +345,19 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   // ship — HAND-WRITTEN rows from the legacy matrix; the preview cases alias the dashboard ones
   { stage: 'ship', id: 'pending', state: fromFacts('ship', { cells: { ship: { status: 'running' } } }) },
   { stage: 'ship', id: 'running', state: legacy('ship') },
+  {
+    // A failed ship offers Retry ship on the stage rail (same needs-you segment as Confirm ship).
+    stage: 'ship',
+    id: 'failed',
+    state: fromFacts('ship', { cells: { ship: { status: 'failed' } } }, (s) => ({
+      ...s,
+      rail: buildStageRail(s.stepper, s.stepper, {
+        current: 'ship',
+        needsUser: true,
+        needs: { detail: 'describe step failed for web', action: 'Retry ship', cta: { kind: 'retry-ship' } },
+      }),
+    })),
+  },
   { stage: 'ship', id: 'passed', state: fromFacts('ship', { cells: { ship: { status: 'passed' } } }) },
   {
     stage: 'ship',
