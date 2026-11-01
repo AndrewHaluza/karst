@@ -36,7 +36,7 @@ export interface RailNeeds {
 /**
  * The rail's needs-you control's BEHAVIOUR, decided host-side.
  *
- * `ship-confirm`, `merge` and `resolve-conflicts` ACT: they post the same
+ * `ship-confirm`, `retry-ship`, `merge` and `resolve-conflicts` ACT: they post the same
  * message the header's Confirm ship button, the PR panel's Merge button and
  * its Resolve conflicts button post. The host's confirmation still guards the
  * irreversible merge (it keeps its modal), and `resolve-conflicts` re-derives
@@ -47,6 +47,7 @@ export interface RailNeeds {
  */
 export type RailCta =
   | { kind: 'ship-confirm' }
+  | { kind: 'retry-ship' }
   | { kind: 'merge'; repo: string }
   | { kind: 'merge-panel' }
   | { kind: 'resolve-conflicts'; repo: string }
@@ -78,6 +79,8 @@ export interface RailNeedsInput {
    * `stage === 'ship'`; an awaiting-merge ship reads `passed`, never `running`.
    */
   shipStatus: StageStatus;
+  /** The ship stage row's verdict reason; worded (one line, capped) when ship failed. */
+  shipReason?: string;
   /**
    * True when `stage` is `ship` because it is blocked on the merge gate
    * (`stages.blocked_kind === 'awaiting-merge'`), rather than parked pending its
@@ -96,6 +99,15 @@ export interface RailNeedsInput {
    * disabled Merge button would refuse.
    */
   mergeableRepos: readonly string[];
+}
+
+/** Longest failure detail the segment shows; the full text stays in the Ship panel. */
+const MAX_FAILURE_DETAIL_CHARS = 60;
+
+function failureDetail(reason: string | undefined): string {
+  const line = (reason ?? '').split('\n')[0]!.trim();
+  if (line === '') return 'ship failed';
+  return line.length > MAX_FAILURE_DETAIL_CHARS ? `${line.slice(0, MAX_FAILURE_DETAIL_CHARS - 1)}…` : line;
 }
 
 const count = (repos: readonly string[]): string =>
@@ -170,6 +182,15 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   }
 
   if (input.stage === 'ship') {
+    // A FAILED ship (a repo's describe/push step failed) has its Retry only on the
+    // failed row inside the Ship panel; the rail is where the user looks.
+    if (!input.shipAwaitingMerge && input.shipStatus === 'failed') {
+      return {
+        detail: failureDetail(input.shipReason),
+        action: 'Retry ship',
+        cta: { kind: 'retry-ship' },
+      };
+    }
     if (!input.shipAwaitingMerge) {
       return {
         detail: 'ready to open the PRs',
