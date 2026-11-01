@@ -33,6 +33,8 @@ flowchart LR
   F --> G[step-NNN.json + summary.json]
 ```
 
+The `wait` step (`parseSteps`) takes one of `ticketStage`, `ticketSettled` (the ticket entered `ship`, or its current stage is blocked), `notification`, `log`, `launch` or `webviewMessage`; a wait that is not met in its `timeoutMs` is a reported `timeout`, not a throw.
+
 ### Tradeoffs
 | Chosen | Rejected | Why |
 |---|---|---|
