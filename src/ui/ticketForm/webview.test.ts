@@ -1173,8 +1173,18 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
     expect(rule('label')).toContain('color:var(--k-text-dim)');
   });
 
+  it('D379 layout: clip frame, sticky bar, popover focus without scroll, constraints gap', () => {
+    expect(rule('.frame')).toContain('overflow:clip');
+    expect(rule('.actionbar')).toContain('position:sticky');
+    expect(rule('.actionbar')).toContain('bottom:0');
+    expect(rule('#designConstraintsCard')).toContain('margin-top:var(--k-space-7)');
+    expect(HTML).toContain("el('approachListbox').focus({ preventScroll: true })");
+  });
+
   it('wraps the key/fetch and filter rows', () => {
-    expect(rule('.searchfilter')).toContain('flex-wrap:wrap');
+    expect(rule('.searchfilter')).toContain('display:flex');
+    expect(rule('.searchfilter select')).toContain('flex:1');
+    expect(rule('.searchfilter select')).toContain('min-height:var(--k-control-h-lg)');
     expect(css).toMatch(/\.row\{[^}]*flex-wrap:wrap/);
   });
 
