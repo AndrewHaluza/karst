@@ -6775,6 +6775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
     }),
+    vscode.commands.registerCommand('karst.sandbox.rebuild', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'rebuild'); if (id !== undefined) await sandboxLife.rebuild(id); }),
     vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'sync'); if (id !== undefined) await sandboxLife.sync(id); }),
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),

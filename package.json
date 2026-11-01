@@ -204,6 +204,10 @@
         "icon": "$(repo-pull)"
       },
       {
+        "command": "karst.sandbox.rebuild",
+        "title": "Karst: Rebuild Sandbox"
+      },
+      {
         "command": "karst.sandbox.stashUpdate",
         "title": "Karst: Stash Sandbox Changes and Update"
       },

@@ -475,6 +475,19 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
+  it('blocks a reattach whose clone never resolves the ticket branch, naming the rebuild action', async () => {
+    const worktree = { path: '/wt/b', branch: 'k/b' };
+    const mk = (ready: { ok: boolean; reason?: string }) => ({
+      kind: 'sbx', enforcesSandbox: true, hasSandbox: async () => true, ensureWritable: async () => ({ ok: true }),
+      ensureCloneReady: vi.fn(async () => ready), bridgeRunDir: (p: { runDir: string }) => p.runDir,
+    }) as never;
+    const ok = mk({ ok: true });
+    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: ok, line: 'sbx' }) });
+    expect((ok as { ensureCloneReady: ReturnType<typeof vi.fn> }).ensureCloneReady).toHaveBeenCalledWith('k/b');
+    const empty = mk({ ok: false, reason: 'sandbox clone is empty: run Karst: Rebuild Sandbox' });
+    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7 sandbox clone is empty.*Rebuild Sandbox/);
+  });
+
   it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {
     const mk = (has: boolean) => ({ kind: 'docker', enforcesSandbox: true, hasSandbox: async () => has, bridgeRunDir: (p: { runDir: string }) => p.runDir }) as never;
     const syncExisting = vi.fn(async () => ({ ok: true as const }));

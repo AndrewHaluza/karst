@@ -21,6 +21,7 @@ import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refre
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
 import { listSbx } from './sbxList.js';
+import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
@@ -39,6 +40,8 @@ export interface SbxRunnerOptions {
   readonly evidenceDir?: string;
   /** Standalone clone of the ticket branch (`sbxClone.ts`): the `--clone` source, since sbx refuses a linked worktree. */
   readonly cloneDir?: string;
+  /** Clone-readiness polling overrides (tests). */
+  readonly cloneReady?: CloneReadyOptions;
   /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
   readonly log?: (line: string) => void;
 }
@@ -196,6 +199,12 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
     ensureWritable,
+    ensureCloneReady: (branch) => waitForCloneReady(opts.proc, { name: opts.name, branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, opts.cloneReady),
+    rebuild: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
+      const safe = await assertRebuildSafe(opts.proc, { name: opts.name, branch: ticket.branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, (args) => git(ticket.hostWorktreePath, args));
+      if (!safe.ok) return disposeResult([{ step: 'rebuild guard', status: 'failed', stderr: safe.reason }]);
+      return runner.dispose!(ticket);
+    },
     hasSandbox: listed,
     probeSandbox: probe,
     // `sbx exec` starts a stopped sandbox, so an existing one can host a service.
