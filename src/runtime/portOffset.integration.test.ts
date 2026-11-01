@@ -1,18 +1,24 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PORT_OFFSET_ENV, leasePortSlot, readPortOffset, type PortSlotLease } from './portSlots.js';
 
 function runSpinSuite(offset: number): Promise<{ code: number | null; out: string }> {
-  return new Promise((resolve) => {
+  return new Promise((done) => {
+    const localVitest = resolve(process.cwd(), 'node_modules', '.bin', 'vitest');
+    const [cmd, args] = existsSync(localVitest)
+      ? [localVitest, ['run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts']]
+      : ['npx', ['vitest', 'run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts']];
     const child = spawn(
-      'npx',
-      ['vitest', 'run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts'],
+      cmd,
+      args,
       { env: { ...process.env, [PORT_OFFSET_ENV]: String(offset) } },
     );
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => done({ code, out }));
   });
 }
 
@@ -46,8 +52,8 @@ describe('concurrent spin suites with distinct port offsets', () => {
     if (!leased) return ctx.skip();
     try {
       const [a, b] = await Promise.all(leased.offsets.map(runSpinSuite));
-      expect(a!.code).toBe(0);
-      expect(b!.code).toBe(0);
+      expect(a!.code, `spin suite a output:\n${a!.out}`).toBe(0);
+      expect(b!.code, `spin suite b output:\n${b!.out}`).toBe(0);
     } finally {
       await Promise.all(leased.held.map((l) => l.release()));
     }
