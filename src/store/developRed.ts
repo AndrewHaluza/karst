@@ -2,7 +2,18 @@ import type { Store } from './db.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX } from './bulletinNotes.js';
 
 /** `scripts/vitestGate.mjs` prints this line when a gate failure also fails at the merge base. */
-const ALERT_RE = /^KARST-ALERT: develop-red base=([0-9a-f]{7,40}) tests=(.+)$/m;
+const ALERT_RE = /^KARST-ALERT: develop-red base=([0-9a-f]{40}) tests=(.+)$/m;
+
+/**
+ * Gate output is untrusted (any test can print this line), so the alert is only
+ * accepted in the exact shape vitestGate.mjs emits: a full 40-hex sha and test ids
+ * shaped `<test file> > <name>`, bounded in count and length, control characters dropped.
+ */
+const TEST_ID_RE = /^(?:\|[^|]*\|\s*)?[\w./@+-]+\.[cm]?[jt]sx?(?: > [^\n]+)+$/;
+const MAX_ALERT_TESTS = 20;
+const MAX_TEST_ID_LEN = 300;
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 export interface DevelopRedAlert {
   sha: string;
@@ -13,7 +24,12 @@ export interface DevelopRedAlert {
 export function parseDevelopRedAlert(output: string): DevelopRedAlert | null {
   const m = ALERT_RE.exec(output.replace(/\r/g, ''));
   if (!m) return null;
-  return { sha: m[1]!, tests: m[2]!.split('; ').map((t) => t.trim()).filter(Boolean) };
+  const tests = m[2]!
+    .split('; ')
+    .map((t) => t.replace(CONTROL_CHARS, '').trim().slice(0, MAX_TEST_ID_LEN))
+    .filter((t) => TEST_ID_RE.test(t))
+    .slice(0, MAX_ALERT_TESTS);
+  return tests.length === 0 ? null : { sha: m[1]!, tests };
 }
 
 /**

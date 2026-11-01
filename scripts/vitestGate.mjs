@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { alertLine, allFailuresParsed, cacheKey, classifyFailures, failingTestIds, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
+import { alertLine, allFailuresParsed, cacheKey, classifyFailures, failingTestIds, fileOfId, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
 
 const exec = promisify(execFile);
 const git = async (cwd, args) => {
@@ -104,7 +104,7 @@ async function judge(cwd, args, output) {
   const slot = (id) => join(cacheDir, `${cacheKey(common, sha, id)}.json`);
   const cached = new Map(ids.map((id) => [id, readJson(slot(id))]));
   const missing = ids.filter((id) => cached.get(id) === null);
-  const redNow = missing.length > 0 ? await redAtBase(cwd, sha, args, [...new Set(missing.map((id) => id.split(' > ')[0].replace(/^\|[^|]*\|\s*/, '').trim()))]) : new Set();
+  const redNow = missing.length > 0 ? await redAtBase(cwd, sha, args, [...new Set(missing.map(fileOfId))]) : new Set();
   if (redNow === null) return false;
   const red = new Set(ids.filter((id) => (cached.get(id) ? cached.get(id).red : redNow.has(id))));
   for (const id of missing) writeFileSync(slot(id), JSON.stringify({ red: redNow.has(id) }));
