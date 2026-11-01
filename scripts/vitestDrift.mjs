@@ -6,6 +6,8 @@
 
 import { createHash } from 'node:crypto';
 
+const DEP_FILES = new Set(['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
+
 /** Most failing test files re-run at the base; above it the base is judged broken wholesale. */
 export const BASE_FILE_CAP = 15;
 
@@ -58,6 +60,8 @@ export function cacheKey(repo, sha, id) {
 export function planBaseCheck(ids, touched, cap = BASE_FILE_CAP) {
   if (ids.length === 0) return { kind: 'skip', reason: 'no parseable failing test ids' };
   const files = [...new Set(ids.map(fileOfId))];
+  const deps = [...touched].filter((f) => DEP_FILES.has(f.split('/').pop()));
+  if (deps.length > 0) return { kind: 'fail', reason: `the ticket changed dependency files (${deps.join(', ')}); the base re-run reuses this checkout's node_modules, so it cannot judge` };
   const own = files.filter((f) => touched.has(f));
   if (own.length > 0) return { kind: 'fail', reason: `the ticket changed failing test file(s), never drift: ${own.join(', ')}` };
   if (files.length > cap) {

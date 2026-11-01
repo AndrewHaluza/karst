@@ -108,3 +108,10 @@ describe('allFailuresParsed', () => {
     expect(allFailuresParsed('boom', [ID_A])).toBe(false);
   });
 });
+
+describe('planBaseCheck dependency changes', () => {
+  it('never drifts when the ticket changed dependency files', () => {
+    expect(planBaseCheck([ID_A], new Set(['package.json'])).kind).toBe('fail');
+    expect(planBaseCheck([ID_A], new Set(['sub/package-lock.json'])).kind).toBe('fail');
+  });
+});

@@ -738,7 +738,12 @@ export async function runUat(
             exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
         }]);
         // A drift-passed gate exits 0 but prints the shared alert line (D360).
-        raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        try {
+          raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        } catch (err) {
+          // The alert is advisory: it must never break a finished gate run.
+          opts.debug?.(`develop-red alert failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         opts.onGateComplete?.(name, exitCode);
       },
     });

@@ -59,12 +59,20 @@ async function redAtBase(cwd, sha, args, files) {
     if ((await git(cwd, ['worktree', 'add', '--detach', dir, sha])) === null) return null;
     if (existsSync(join(cwd, 'node_modules'))) symlinkSync(resolve(cwd, 'node_modules'), join(dir, 'node_modules'), 'dir');
     console.error(`re-running ${files.length} failing test file(s) at the merge base ${sha.slice(0, 12)}`);
-    const base = await run(args[0], [...args.slice(1), ...files], dir);
-    if (!ranTests(base.out)) {
-      console.error('base check inconclusive: vitest did not run the test files at the merge base');
-      return null;
-    }
-    return new Set(failingTestIds(base.out));
+    const once = async () => {
+      const base = await run(args[0], [...args.slice(1), ...files], dir);
+      if (!ranTests(base.out)) {
+        console.error('base check inconclusive: vitest did not run the test files at the merge base');
+        return null;
+      }
+      return new Set(failingTestIds(base.out));
+    };
+    const first = await once();
+    if (first === null || first.size === 0) return first;
+    // A red verdict is cached for every later ticket: confirm it, so a flaky base failure is not frozen in.
+    console.error('re-running the red base tests once to rule out a flake');
+    const second = await once();
+    return second === null ? null : new Set([...first].filter((id) => second.has(id)));
   } finally {
     await git(cwd, ['worktree', 'remove', '--force', dir]);
     rmSync(dir, { recursive: true, force: true });
