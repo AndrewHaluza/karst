@@ -42,7 +42,7 @@ describe('ticket form — regions + title-gated primary', () => {
     const submit = v.query<HTMLButtonElement>('#submitBtn')!;
     expect(submit.disabled).toBe(true);
     expect(submit.title).toMatch(/title/i);
-    expect(v.document.body.textContent).not.toContain('Add a title to continue');
+    expect(v.query('#actionReason')!.textContent).toBe('Add a title to continue');
     expect(v.query<HTMLButtonElement>('#saveBtn')!.disabled).toBe(false);
   });
 
@@ -65,6 +65,16 @@ describe('ticket form — regions + title-gated primary', () => {
     expect(v.document.activeElement).toBe(title);
     expect(v.query('#err')!.classList.contains('hidden')).toBe(true);
     expect(v.posted.some((m) => (m as { type: string }).type === 'save')).toBe(false);
+  });
+});
+
+describe('ticket form — actions footer', () => {
+  it('lives inside the single frame and shows the disabled reason while the title is blank', () => {
+    const v = open(baseState());
+    expect(v.query('.frame')!.contains(v.query('#actionBar'))).toBe(true);
+    expect(v.query('#actionReason')!.textContent).toBe('Add a title to continue');
+    expect(v.query('#submitBtn')!.classList.contains('p')).toBe(true);
+    expect(v.query('#cancelBtn')!.classList.contains('g')).toBe(true);
   });
 });
 
@@ -125,12 +135,10 @@ describe('ticket form — field order and headings', () => {
 });
 
 describe('ticket form — edit header, callout, empty states', () => {
-  it('edit mode: h1 is the title and the ref is a chip', () => {
+  it('edit mode: header strip reads "Edit <ref>", no chip', () => {
     const v = open(baseState({ mode: 'edit', ticketId: 7, refLabel: 'T7 · PROJ-142', key: 'PROJ-142', title: 'Add retry' }));
-    expect(v.query('#heading')!.textContent).toBe('Add retry');
-    const chip = v.query<HTMLElement>('#keyChip')!;
-    expect(chip.classList.contains('hidden')).toBe(false);
-    expect(chip.textContent).toBe('T7 · PROJ-142');
+    expect(v.query('#heading')!.textContent).toBe('Edit T7 · PROJ-142');
+    expect(v.query<HTMLElement>('#keyChip')!.classList.contains('hidden')).toBe(true);
   });
 
   it('draft review page shows the draft id in the chip, and a sub-task names its parent as T<n>', () => {

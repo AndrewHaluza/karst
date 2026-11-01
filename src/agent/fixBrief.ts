@@ -7,7 +7,28 @@ import { lastFailedGate } from '../workflow/fixAttempts.js';
 import { isCoverageRecord } from '../model/coverageRecord.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
-/** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
+export const PROTOTYPE_REGION_CHECKLIST_RULE =
+  'Per @ui:UI-R39-REJECT, post a per-region checklist of the linked prototype (`karst notes post`) at the start of the fix and update it before finishing.';
+
+/**
+ * Returns true when a ticket references a prototype in its description, brief, or title.
+ */
+export function hasLinkedPrototype(ticket: {
+  title?: string | null;
+  description?: string | null;
+  brief?: string | null;
+}): boolean {
+  const text = `${ticket.title ?? ''}\n${ticket.description ?? ''}\n${ticket.brief ?? ''}`;
+  return /\bprototype\b/i.test(text) || /docs\/design\/[^\s)]+\.html/i.test(text);
+}
+
+export interface RenderFixBriefOptions {
+  /** The ticket has a linked prototype (ui:UI-R39-REJECT per-region checklist rule). */
+  readonly hasPrototype?: boolean;
+}
+
+/**
+ * "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
 function findingLocation(f: Finding): string {
   if (!f.file) return '';
   return f.line ? ` (${f.file}:${f.line})` : ` (${f.file})`;
@@ -77,6 +98,7 @@ export function renderFixBrief(
   findings: readonly Finding[] = [],
   gateRuns: readonly GateRun[] = [],
   prFeedback: readonly PrFeedbackRow[] = [],
+  options?: RenderFixBriefOptions,
 ): string | null {
   // Which gate sent this ticket to `fix` — by latest `endedAt`, never by array
   // order. `StepperStageRow[]` carries no ordering contract, so with a `review`
@@ -108,6 +130,9 @@ export function renderFixBrief(
     PROCESS_KILL_RULE,
   ];
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
+  if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {
+    lines.push('', PROTOTYPE_REGION_CHECKLIST_RULE);
+  }
   const failures = latestFailingGates(gate.stageKey, gateRuns);
   // The section exists to carry the ACTIONABLE excerpt; a failing gate that
   // recorded no summary adds nothing the verdict does not already say.

@@ -67,6 +67,7 @@
     "test:ui:docker": "node scripts/uiScopedRun.mjs",
     "install:visual-browsers": "playwright install --with-deps chromium",
     "typecheck:visual": "tsc -p tsconfig.visual.json",
+    "proto:shot": "node scripts/prototypeShot.mjs",
     "verify:ui": "npm run -s docs:graph -- --check && npm run -s test:integration && npm run -s typecheck:visual && npm run -s test:layout:docker"
   },
   "contributes": {

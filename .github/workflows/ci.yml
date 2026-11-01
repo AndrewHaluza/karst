@@ -126,6 +126,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # scripts/prototypeShot.integration.test.mjs launches the repo's own
+      # Playwright chromium; the runner image does not ship it.
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Integration and e2e tests
         run: npm run test:integration
 
