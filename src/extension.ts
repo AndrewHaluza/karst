@@ -449,6 +449,7 @@ import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
 import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { NODE_SBX_PROCESS } from './agent/sbx/sbxProcess.js';
 import { getCpuCoreCount } from './runtime/cpuCores.js';
 import { aiCallSiteLabel } from './agent/aiCallSites.js';
 import { GettingStartedManager } from './ui/gettingStarted/panel.js';
@@ -2657,6 +2658,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
     logError,
     cpuCoreCount: getCpuCoreCount(),
+    docker: NODE_SBX_PROCESS,
+    projectRoot: () => cliEntryAndManifest(context).manifestPath ?? undefined,
   });
   resourceMonitor = resourceMonitorInstance;
   resourceMonitorInstance.start();

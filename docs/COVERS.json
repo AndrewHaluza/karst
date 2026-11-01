@@ -128,6 +128,9 @@
     "arch:UATHOST-00",
     "arch:UATHOST-01"
   ],
+  "src/agent/sandboxInventory.ts#parseSandboxContainerName": [
+    "arch:RESMON-CONTAINERS"
+  ],
   "src/agent/seed.ts": [
     "arch:PM-00"
   ],
@@ -460,6 +463,15 @@
   ],
   "src/runtime/branchName.ts#suffixBranchForCollision": [
     "arch:BRANCH-NAME"
+  ],
+  "src/runtime/containerRows.ts#applyContainers": [
+    "arch:RESMON-CONTAINERS"
+  ],
+  "src/runtime/containerRows.ts#vmProcessCost": [
+    "arch:RESMON-CONTAINERS"
+  ],
+  "src/runtime/containerSampler.ts#sampleContainers": [
+    "arch:RESMON-CONTAINERS"
   ],
   "src/runtime/dockerCommand.ts#renderDockerRun": [
     "arch:CONTAINER"

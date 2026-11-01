@@ -91,6 +91,12 @@ export interface TrendYTick {
   rss: string;
 }
 
+/** The VM host cost left after karst's containers; never part of the totals. */
+export interface VmOverheadView {
+  cpuPctDisplay: string;
+  rssDisplay: string;
+}
+
 /** One row of the Monitor facts lane. */
 export interface MonitorFact {
   label: string;
@@ -129,6 +135,10 @@ export interface ResourcesState {
   /** Last few raw CPU values for the Recent-CPU mini spark (geometry only). */
   recentCpu: number[];
   facts: MonitorFact[];
+  /** 'VM overhead / other' — null/absent when no container VM runs. */
+  vmOverhead?: VmOverheadView | null;
+  /** The last container sample failed; the rows shown are the previous reading. */
+  containersDegraded?: boolean;
 }
 
 export interface BuildResourcesStateOptions {
@@ -326,6 +336,10 @@ export function buildResourcesState(
     cpuTrend: trendWord,
     recentCpu,
     historyMax: RING_CAPACITY,
+    vmOverhead: inventory?.vmOverhead
+      ? { cpuPctDisplay: percent(inventory.vmOverhead.cpuPct), rssDisplay: formatBytes(inventory.vmOverhead.rssBytes) }
+      : null,
+    containersDegraded: reading.containersDegraded ?? false,
     facts: [
       { label: 'Sampling lane', value: reading.fastLane ? 'Fast · 2s' : 'Slow · 30s' },
       { label: 'Snapshot cost', value: '1 × ps' },
