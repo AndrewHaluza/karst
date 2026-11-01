@@ -64,6 +64,9 @@
   "scripts/uat-host/evalMode.mjs": [
     "arch:UATHOST-03"
   ],
+  "scripts/uat-host/evalPolicy.mjs": [
+    "arch:UATHOST-04"
+  ],
   "scripts/uat-host/evalProxy.mjs": [
     "arch:UATHOST-03"
   ],
