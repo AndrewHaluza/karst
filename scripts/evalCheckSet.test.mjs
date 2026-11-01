@@ -7,6 +7,7 @@ import {
   isDrifted,
   parseArgs,
   patchLine,
+  selectRows,
   summarize,
 } from './evalCheckSet.mjs';
 
@@ -70,5 +71,13 @@ describe('evalCheckSet', () => {
     expect(() => parseArgs(['--runs', '0'])).toThrow('positive integer');
     expect(() => parseArgs(['--runs'])).toThrow('needs a value');
     expect(() => parseArgs(['--nope'])).toThrow('unknown argument');
+  });
+
+  it('selects rows by id and rejects ids that match nothing', () => {
+    const rows = [row, { ...row, number: 1 }];
+    expect(selectRows(rows, [])).toEqual(rows);
+    expect(selectRows(rows, ['vuejs/core:pr-1'])).toEqual([rows[1]]);
+    expect(() => selectRows(rows, ['nope:pr-1'])).toThrow('no instance matches: nope:pr-1');
+    expect(() => selectRows(rows, ['vuejs/core:pr-1', 'x:pr-2', 'y:pr-3'])).toThrow('x:pr-2, y:pr-3');
   });
 });

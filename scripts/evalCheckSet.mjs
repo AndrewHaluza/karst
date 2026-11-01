@@ -99,6 +99,15 @@ export function parseArgs(argv) {
   return opts;
 }
 
+/** Rows named by `only` (all rows when empty); an id that matches nothing is an error, never a silent 0/0 pass. */
+export function selectRows(rows, only) {
+  if (only.length === 0) return rows;
+  const known = new Set(rows.map(harnessId));
+  const unknown = only.filter((id) => !known.has(id));
+  if (unknown.length > 0) throw new Error(`no instance matches: ${unknown.join(', ')}`);
+  return rows.filter((r) => only.includes(harnessId(r)));
+}
+
 function findSet(explicit) {
   if (explicit) return resolve(explicit);
   const sets = readdirSync(INSTANCES_DIR).filter((f) => f.endsWith('.jsonl')).sort();
@@ -142,8 +151,7 @@ export function main(argv) {
   }
   const file = findSet(opts.set);
   const kind = opts.control ? 'control' : 'gold';
-  let rows = readRows(file);
-  if (opts.only.length > 0) rows = rows.filter((r) => opts.only.includes(harnessId(r)));
+  const rows = selectRows(readRows(file), opts.only);
   const results = [];
   for (const row of rows) {
     const outcomes = [];
