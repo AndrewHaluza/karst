@@ -525,14 +525,20 @@ export function contextNoteIndex(
     .filter(({ note }) => note.source === 'host' || noteMatchesScope(note, scope));
   const newCandidates = candidates.filter(({ wasShown, wasRead }) => !wasShown && !wasRead);
   const listed = unreadNotesFor(store, ticketId);
-  const collapsed = newCandidates.filter(({ note }) => note.source === 'host' && !hostOverlaps(note, scope));
+  // `notes` prints every unread match, so a merge it lists is never ALSO an "other merge".
+  const listedIds = new Set(listed.map((n) => n.id));
+  const collapsed = newCandidates.filter(
+    ({ note }) => note.source === 'host' && !hostOverlaps(note, scope) && !listedIds.has(note.id),
+  );
   if (opts.markShown === true) {
     const mark = store.db.prepare(
       'INSERT OR IGNORE INTO bulletin_context_shown (note_id, reader_ticket_id) VALUES (?, ?)',
     );
     for (const { note } of newCandidates) mark.run(note.id, ticketId);
   }
-  const index = toIndex(listed);
+  // The count is the unread list; titles skip notes an earlier context already showed.
+  const shownIds = new Set(candidates.filter(({ wasShown }) => wasShown).map(({ note }) => note.id));
+  const index = { ...toIndex(listed), titles: toIndex(listed.filter((n) => !shownIds.has(n.id))).titles };
   return {
     ...index,
     otherMerges: collapsed.length,

@@ -211,7 +211,7 @@ function runList(store: Store, me: Ticket, parsed: Extract<ParsedNotesArgs, { ve
     parsed.json,
     parsed.all ? 'No notes.' : 'No unread notes.',
     notes.length - printed.length,
-    parsed.all ? 'not shown' : 'run notes again (they are now marked read) or --all',
+    parsed.all ? `not shown (--all prints the oldest ${NOTES_LIST_MAX})` : 'run notes again (they are now marked read) or --all',
   );
 }
 
