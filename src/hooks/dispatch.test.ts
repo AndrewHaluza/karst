@@ -1425,3 +1425,74 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     expect(tracker.lastToolName(id)).toBe('Bash');
   });
 });
+
+describe('dispatchHook — background-wait turn end', () => {
+  let store: Store;
+  const WT = '/repo/.karst/worktrees/x';
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function setup(): { id: number; tracker: TurnTracker; send: (p: Record<string, unknown>, provider?: 'claude' | 'codex') => void } {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedWorktree(store, t.id, WT);
+    openImplementationRun(store, { ticketId: t.id, attempt: 0, provider: 'claude', startedAt: '2026-09-07T01:18:00.000Z' });
+    const tracker = new TurnTracker();
+    const send = (p: Record<string, unknown>, provider: 'claude' | 'codex' = 'claude'): void => {
+      const parsed = parseHookPayload({ cwd: WT, ...p });
+      dispatchHook(store, parsed!, undefined, undefined, () => provider, undefined, undefined, tracker);
+    };
+    return { id: t.id, tracker, send };
+  }
+
+  const bgBash = { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { run_in_background: true } };
+
+  it('parseHookPayload forwards run_in_background only when boolean', () => {
+    expect(parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { run_in_background: true } })?.run_in_background).toBe(true);
+    expect(parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { run_in_background: 'yes' } })?.run_in_background).toBeUndefined();
+  });
+
+  it('bg Bash then Stop -> running, no nudge, background-wait telemetry', () => {
+    const { id, tracker, send } = setup();
+    send(bgBash);
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(tracker.nudge(id)).toBeNull();
+    expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+  });
+
+  it('bg Agent tool then Stop -> running', () => {
+    const { id, send } = setup();
+    send({ ...bgBash, tool_name: 'Agent' });
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('zero-tool Stop -> waiting', () => {
+    const { id, send } = setup();
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('foreground work then Stop -> waiting + nudge', () => {
+    const { id, tracker, send } = setup();
+    send({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { run_in_background: false } });
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(tracker.nudge(id)).not.toBeNull();
+  });
+
+  it('new turn after bg Stop resets', () => {
+    const { id, send } = setup();
+    send(bgBash);
+    send({ hook_event_name: 'Stop' });
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('non-claude core ignores the flag', () => {
+    const { id, send } = setup();
+    send(bgBash, 'codex');
+    send({ hook_event_name: 'Stop' }, 'codex');
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+});
