@@ -60,7 +60,7 @@ describe('leasePortSlot', () => {
     const a = await leasePortSlot({ dir });
     const b = await leasePortSlot({ dir });
     expect(a.offset).not.toBe(b.offset);
-    a.release();
+    await a.release();
     const c = await leasePortSlot({ dir });
     expect(c.offset).toBe(a.offset);
   });
@@ -68,8 +68,8 @@ describe('leasePortSlot', () => {
   it('release is idempotent and removes the claim', async () => {
     const dir = tmp();
     const a = await leasePortSlot({ dir });
-    a.release();
-    a.release();
+    await a.release();
+    await a.release();
     expect(readdirSync(dir)).toEqual([]);
   });
 
@@ -91,7 +91,7 @@ describe('leasePortSlot', () => {
     const logs: string[] = [];
     const pending = leasePortSlot({ dir, pollMs: 5, onDebug: (m) => logs.push(m) });
     await new Promise((r) => setTimeout(r, 30));
-    held[1]!.release();
+    await held[1]!.release();
     const got = await pending;
     expect(got.offset).toBe(PORT_SLOT_STRIDE);
     expect(logs.some((m) => /waiting/.test(m))).toBe(true);

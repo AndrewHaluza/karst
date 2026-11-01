@@ -212,7 +212,7 @@ export async function runGateList(
       }
     }
     } finally {
-      lease?.release();
+      await lease?.release();
     }
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };

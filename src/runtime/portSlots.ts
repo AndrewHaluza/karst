@@ -1,4 +1,3 @@
-import { mkdirSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,7 +42,7 @@ export function shiftBand(
 export interface PortSlotLease {
   slot: number;
   offset: number;
-  release: () => void;
+  release: () => Promise<void>;
 }
 
 export interface LeaseOptions {
@@ -54,6 +53,7 @@ export interface LeaseOptions {
   isAlive?: (pid: number) => boolean;
 }
 
+/** Owner is the extension-host pid: slots are per HOST process, so a slot a live host leaks stays held until the host exits. */
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -133,7 +133,7 @@ export async function leasePortSlot(opts: LeaseOptions = {}): Promise<PortSlotLe
   const dir = opts.dir ?? DEFAULT_LOCK_DIR;
   const isAlive = opts.isAlive ?? pidAlive;
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
-  mkdirSync(dir, { recursive: true });
+  await mkdir(dir, { recursive: true });
   let logged = false;
   for (;;) {
     if (opts.signal?.aborted) throw new Error('port slot lease aborted');
@@ -144,10 +144,10 @@ export async function leasePortSlot(opts: LeaseOptions = {}): Promise<PortSlotLe
       return {
         slot,
         offset: slot * PORT_SLOT_STRIDE,
-        release: () => {
+        release: async () => {
           if (released) return;
           released = true;
-          rmSync(join(dir, `slot-${slot}`), { recursive: true, force: true });
+          await rm(join(dir, `slot-${slot}`), { recursive: true, force: true });
         },
       };
     }
