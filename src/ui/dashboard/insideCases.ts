@@ -349,6 +349,8 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // A failed ship offers Retry ship on the stage rail (same needs-you segment as Confirm ship).
     stage: 'ship',
     id: 'failed',
+    // Same rail segment markup as Confirm ship: adds no layout of its own, so it stays out of the ledger.
+    skipLayout: true,
     state: fromFacts('ship', { cells: { ship: { status: 'failed' } } }, (s) => ({
       ...s,
       rail: buildStageRail(s.stepper, s.stepper, {
