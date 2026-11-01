@@ -245,7 +245,10 @@ describe('fixDeliveryWiring', () => {
   describe('sandboxed session (inbox file + ack line, arch:AC-34)', () => {
     const CH = { kind: 'sandbox' as const, runDir: '/karst-bridge/7', core: 'opencode2' };
     let root: string;
-    beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'karst-fixsbx-')); });
+    const debug = vi.fn();
+    const needsYouLogs = (d: typeof debug): string[] =>
+      d.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('needs you'));
+    beforeEach(() => { debug.mockClear(); root = mkdtempSync(join(tmpdir(), 'karst-fixsbx-')); });
     afterEach(() => rmSync(root, { recursive: true, force: true }));
     const sandboxed = (over: Partial<FixDeliveryWiringDeps> = {}) => {
       const paths = bridgePaths(root, 7);
@@ -318,7 +321,7 @@ describe('fixDeliveryWiring', () => {
 
     it('no conversation (agy never idle): the inbox file is written at creation, the pointer is unsendable, Needs you is raised once', () => {
       state.agy = true;
-      const { paths, w } = sandboxed();
+      const { paths, w } = sandboxed({ debug });
       setAgentState(store, ticketId, 'none');
       w.deliver(ticketId, null);
       const row = currentFixDelivery(store, ticketId)!;
@@ -326,9 +329,27 @@ describe('fixDeliveryWiring', () => {
       expect(nudge).not.toHaveBeenCalled();
       store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', row.id);
       w.sweep.sweep();
+      const failedAt = getFixDelivery(store, row.id)!.pointerFailedAt;
+      w.sweep.sweep();
+      expect(failedAt).not.toBeNull();
+      expect(getFixDelivery(store, row.id)!.pointerFailedAt).toBe(failedAt);
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+      expect(needsYouLogs(debug)).toHaveLength(1);
+      expect(needsYouLogs(debug)[0]).toContain(`inbox/fix-${row.id}.md`);
+    });
+
+    it('a pointer escalated to Needs you is still typed once the agent is idle again', () => {
+      state.agy = true;
+      const { w } = sandboxed({ debug });
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', row.id);
       w.sweep.sweep();
       expect(getFixDelivery(store, row.id)!.pointerFailedAt).not.toBeNull();
-      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+      expect(nudge).not.toHaveBeenCalled();
+      state.agy = false;
+      w.sweep.sweep();
+      expect(nudge).toHaveBeenCalledTimes(1);
     });
 
     it('a session id known and live: unchanged — pointer typed, ack marks it read', () => {

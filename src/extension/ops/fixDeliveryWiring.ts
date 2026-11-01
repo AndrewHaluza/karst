@@ -160,6 +160,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       if (!stuck || !writeFixBrief(deps, id, deliveryId)) return null;
       return `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
     },
+    retryAfterFailure: (id) => isSandboxChannel(deps.sessionChannel(id)),
     needsYou: (id, reason) => {
       // Only a quiet or idle agent is flagged: `running`/`waiting` are live
       // hook state that must never be overwritten with needs-you.

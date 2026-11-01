@@ -59,7 +59,9 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
   /** The gates every row passes before any rule applies. */
   function gated(row: FixDelivery): boolean {
     const { store } = deps;
-    if (row.pointerFailedAt !== null) return false;
+    // A sandboxed row escalated to Needs you stays deliverable: a briefly stuck
+    // pointer must still reach the agent once it is live/idle again.
+    if (row.pointerFailedAt !== null && !(deps.retryAfterFailure?.(row.ticketId) === true && row.pointedAt === null && row.readAt === null)) return false;
     if (deps.isGraphTicket(row.ticketId)) return false;
     if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
     // A tracked row is live only while its round is: a settled/parked round is
