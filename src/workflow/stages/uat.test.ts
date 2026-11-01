@@ -1316,7 +1316,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
       sourceStage: 'uat',
       sourceProcessId: 'tester',
       triggerKind: 'blocking-tester-observations',
-      triggerDetail: 'uat tester observations: 1 high',
+      triggerDetail: 'uat tester observations: 1 high\n- [high] login is broken',
       status: 'pending',
     });
     expect(rounds[0]!.sourceProcessRunId).toBe(listProcessRuns(store, id)[0]!.id);

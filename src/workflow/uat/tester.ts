@@ -505,6 +505,26 @@ const SEVERITIES_BY_RANK = (Object.keys(SEVERITY_RANK) as Severity[]).sort(
 );
 
 /**
+ * One `- [severity] title (file:line)` line per observation at or above
+ * `threshold`, most severe first — the text a fix brief carries so the fix
+ * agent never needs the DB. Same filter as `countBlockingObservations`.
+ */
+export function blockingObservationLines(
+  observations: readonly { severity: Severity; title: string; filePath: string | null; line: number | null }[],
+  threshold: Severity | 'none',
+): string[] {
+  if (threshold === 'none') return [];
+  const limit = SEVERITY_RANK[threshold];
+  return observations
+    .filter((o) => !isCoverageRecord(o) && SEVERITY_RANK[o.severity] <= limit)
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
+    .map((o) => {
+      const where = o.filePath === null ? '' : ` (${o.filePath}${o.line === null ? '' : `:${o.line}`})`;
+      return `- [${o.severity}] ${o.title}${where}`;
+    });
+}
+
+/**
  * The observations at or above `threshold`, summarized. `'none'` (the default)
  * yields zero and no summary — the advisory behavior. Pure, and applied to the
  * FINAL capped list so a truncated observation never counts.
