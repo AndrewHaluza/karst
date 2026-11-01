@@ -30,6 +30,8 @@ export function loadVariant(name, dir, read = (p) => (existsSync(p) ? readFileSy
 
 // The fake core never reports a verdict and a null verdict never transitions (stages-and-gates), so a
 // fake-core smoke cannot drive a ticket out of scope. It seeds the ticket AT the terminal point instead.
+// Ship is seeded 'running' (it carries a startedAt): boot reconcile heals it to pending-with-startedAt, and
+// deriveStageCurrent skips a pending row with none, which walked the ticket back to the last passed stage.
 const PRE_SHIP = ['scope', 'impl', 'uat', 'review', 'fix'];
 
 /**
@@ -46,7 +48,7 @@ export function buildFixture({ task, variant, key = 'EVAL-1', baseRef = 'main', 
       description: task.brief,
       repo: { repoPath, baseRef, worktreePath },
       stageCurrent: settled ? 'ship' : 'scope',
-      ...(settled ? { stages: [...PRE_SHIP.map((stageKey) => ({ stageKey, status: 'passed' })), { stageKey: 'ship', status: 'pending' }] } : {}),
+      ...(settled ? { stages: [...PRE_SHIP.map((stageKey) => ({ stageKey, status: 'passed' })), { stageKey: 'ship', status: 'running' }] } : {}),
       worktree: true,
     }],
   };
