@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { alertLine, cacheKey, classifyFailures, failingTestIds, planBaseCheck, reportLines } from './vitestDrift.mjs';
+import { alertLine, cacheKey, classifyFailures, failingTestIds, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
 
 const exec = promisify(execFile);
 const git = async (cwd, args) => {
@@ -60,6 +60,10 @@ async function redAtBase(cwd, sha, args, files) {
     if (existsSync(join(cwd, 'node_modules'))) symlinkSync(resolve(cwd, 'node_modules'), join(dir, 'node_modules'), 'dir');
     console.error(`re-running ${files.length} failing test file(s) at the merge base ${sha.slice(0, 12)}`);
     const base = await run(args[0], [...args.slice(1), ...files], dir);
+    if (!ranTests(base.out)) {
+      console.error('base check inconclusive: vitest did not run the test files at the merge base');
+      return null;
+    }
     return new Set(failingTestIds(base.out));
   } finally {
     await git(cwd, ['worktree', 'remove', '--force', dir]);

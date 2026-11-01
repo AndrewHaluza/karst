@@ -23,6 +23,9 @@ export function failingTestIds(output) {
   return ids;
 }
 
+/** Whether vitest actually ran test files (printed its summary); a base run that did not says nothing about the tests. */
+export const ranTests = (output) => /^\s*Test Files\s.*\b(?:passed|failed)\b/m.test(output.replace(ANSI, ''));
+
 /** The test file of an id (project prefixes like `|unit|` are dropped). */
 export const fileOfId = (id) => id.split(' > ')[0].replace(/^\|[^|]*\|\s*/, '').trim();
 

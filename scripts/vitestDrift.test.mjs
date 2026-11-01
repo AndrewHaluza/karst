@@ -8,6 +8,7 @@ import {
   failingTestIds,
   fileOfId,
   planBaseCheck,
+  ranTests,
   reportLines,
 } from './vitestDrift.mjs';
 
@@ -76,5 +77,16 @@ describe('report', () => {
   });
   it('lists the ticket breaks', () => {
     expect(reportLines({ drift: [], breaks: [ID_B] }).join('\n')).toContain('ticket breaks');
+  });
+});
+
+describe('ranTests', () => {
+  it('is true when vitest printed its summary, even for a failing run', () => {
+    expect(ranTests('\u001b[2m Test Files \u001b[22m \u001b[31m1 failed\u001b[39m (1)\n')).toBe(true);
+    expect(ranTests(' Test Files  2 passed (2)\n')).toBe(true);
+  });
+  it('is false when vitest never ran the files (startup error, no test files found)', () => {
+    expect(ranTests('No test files found, exiting with code 1\nStartup Error\n')).toBe(false);
+    expect(ranTests('')).toBe(false);
   });
 });
