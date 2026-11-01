@@ -70,6 +70,11 @@ describe('sampleContainers', () => {
     expect(await sampleContainers({ ...base, docker: statsFail, serverContainers: [] })).toEqual({ ok: false, reason: 'daemon-down' });
   });
 
+  it('reports no-docker (not daemon-down) when the binary is missing', async () => {
+    const docker = fakeDocker(() => ({ code: 127, stdout: '', stderr: '' }));
+    expect(await sampleContainers({ ...base, docker, serverContainers: [] })).toEqual({ ok: false, reason: 'no-docker' });
+  });
+
   it('times out a hung docker without waiting for it', async () => {
     const docker = fakeDocker(() => new Promise<ProcessResult>(() => {}));
     expect(await sampleContainers({ ...base, docker, serverContainers: [], timeoutMs: 10 })).toEqual({ ok: false, reason: 'timeout' });

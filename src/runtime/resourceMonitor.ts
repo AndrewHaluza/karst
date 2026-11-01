@@ -39,6 +39,8 @@ import type { RunningServerRow } from '../store/runningServers.js';
 export const SLOW_LANE_INTERVAL_MS = 30_000;
 export const FAST_LANE_INTERVAL_MS = 2_000;
 export const RING_CAPACITY = 150;
+/** A container reading older than this (3 slow ticks) is dropped rather than shown as current. */
+export const CONTAINER_STALE_MS = 3 * SLOW_LANE_INTERVAL_MS;
 
 export interface ResourceSample {
   takenMs: number;
@@ -109,6 +111,7 @@ export class ResourceMonitor {
   private vm: VmOverhead | null = null;
   private containerStats: ContainerStat[] | null = null;
   private containersDegraded = false;
+  private containersOkMs = 0;
   private sampling = false;
   private readonly registry = new Map<number, KnownPid>();
   private readonly listeners = new Set<(reading: ResourceReading) => void>();
@@ -363,8 +366,14 @@ export class ResourceMonitor {
       });
       if (sample.ok) {
         this.containerStats = sample.stats;
+        this.containersOkMs = this.now();
+        this.containersDegraded = false;
+      } else if (sample.reason === 'no-docker') {
+        // Not installed is a state, not a failure: no banner, no stale rows.
+        this.containerStats = null;
         this.containersDegraded = false;
       } else {
+        if (this.now() - this.containersOkMs > CONTAINER_STALE_MS) this.containerStats = null;
         this.containersDegraded = true;
         this.debug(`[resources] container sample failed (${sample.reason}) — keeping the previous reading`);
       }

@@ -80,4 +80,36 @@ describe('ResourceMonitor containers', () => {
     expect(m.reading().inventory?.vmOverhead).toBeUndefined();
     m.dispose();
   });
+
+  it('shows no banner and no rows when docker is not installed', async () => {
+    const m = make({ run: async () => ({ code: 127, stdout: '', stderr: '' }) });
+    await m.refreshNow();
+    await m.refreshContainers();
+    expect(m.reading().containersDegraded).toBe(false);
+    expect(m.reading().inventory!.attributed.some((r) => r.kind === 'container')).toBe(false);
+    m.dispose();
+  });
+
+  it('drops a stale container reading after repeated failures', async () => {
+    let t = 1_000_000;
+    let down = false;
+    const run = async (_c: string, a: readonly string[]): Promise<ProcessResult> =>
+      down ? { code: 1, stdout: '', stderr: 'x' } : ok(a[0] === 'ps' ? `${P}7-claude` : STATS);
+    const m = new ResourceMonitor({
+      store, projectId: () => undefined, worktreeRoots: () => [], now: () => t,
+      readSnapshot: async () => ({ supported: true, snapshot: parseProcTable(SNAP, 1000) }),
+      docker: { run }, projectRoot: () => ROOT, cpuCoreCount: 4,
+    });
+    await m.refreshNow();
+    await vi.waitFor(() => expect(m.reading().inventory?.attributed.some((r) => r.kind === 'container')).toBe(true));
+    down = true;
+    t += 60_000;
+    await m.refreshContainers();
+    expect(m.reading().inventory!.attributed.some((r) => r.kind === 'container')).toBe(true);
+    t += 60_000;
+    await m.refreshContainers();
+    expect(m.reading().inventory!.attributed.some((r) => r.kind === 'container')).toBe(false);
+    expect(m.reading().containersDegraded).toBe(true);
+    m.dispose();
+  });
 });

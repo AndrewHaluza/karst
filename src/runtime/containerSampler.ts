@@ -19,7 +19,7 @@ export interface ContainerStat {
 
 export type ContainerSample =
   | { ok: true; stats: ContainerStat[] }
-  | { ok: false; reason: 'daemon-down' | 'timeout' };
+  | { ok: false; reason: 'daemon-down' | 'timeout' | 'no-docker' };
 
 const UNIT_BYTES: Record<string, number> = {
   b: 1,
@@ -67,6 +67,8 @@ export function parseDockerStats(stdout: string, cpuCoreCount: number): Containe
   return stats;
 }
 
+/** `NODE_SBX_PROCESS` resolves a spawn failure (ENOENT) to this code. */
+const NOT_INSTALLED = 127;
 const TIMED_OUT = Symbol('timeout');
 
 async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
@@ -101,6 +103,7 @@ export async function sampleContainers(deps: {
       ['ps', '--filter', `name=${projectPrefix(projectRoot)}`, '--format', '{{.Names}}'],
       { signal },
     );
+    if (ps.code === NOT_INSTALLED) return NOT_INSTALLED;
     if (ps.code !== 0) return null;
     const sandboxNames = ps.stdout
       .split('\n')
@@ -116,6 +119,7 @@ export async function sampleContainers(deps: {
     return out.code === 0 ? parseDockerStats(out.stdout, cpuCoreCount) : null;
   }, deps.timeoutMs ?? CONTAINER_SAMPLE_TIMEOUT_MS);
   if (result === TIMED_OUT) return { ok: false, reason: 'timeout' };
+  if (result === NOT_INSTALLED) return { ok: false, reason: 'no-docker' };
   if (result === null) return { ok: false, reason: 'daemon-down' };
   return { ok: true, stats: result };
 }
