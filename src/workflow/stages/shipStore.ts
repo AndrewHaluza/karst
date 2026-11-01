@@ -208,3 +208,26 @@ export function countShipRuns(store: Store, ticketId: number): number {
     .get(ticketId) as { n: number };
   return row.n;
 }
+
+export interface LatestImplRunRow {
+  provider: string | null;
+  model: string | null;
+}
+
+/**
+ * The latest impl-stage process_runs row for this ticket, if any.
+ * PR and commit templates use this to name the core and model that actually ran impl.
+ */
+export function findLatestImplRun(
+  store: Store,
+  ticketId: number,
+): LatestImplRunRow | undefined {
+  return store.db
+    .prepare(
+      `SELECT provider, model FROM process_runs
+        WHERE ticket_id = ? AND stage_key = 'impl'
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId) as LatestImplRunRow | undefined;
+}
+
