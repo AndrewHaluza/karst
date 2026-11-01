@@ -6,7 +6,8 @@ import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
-import { containerXdgEnv, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
+import { CONTAINER_REPO, containerXdgEnv, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
+import { mergeAntigravityTrust } from '../workspaceTrust.js';
 
 export interface SeedInput {
   readonly proc: DockerProcess;
@@ -137,4 +138,94 @@ export async function seedAgyCredentials(input: SeedAgyInput): Promise<SeedResul
   }
 
   return { ok: true };
+}
+
+/** Settings karst forces on a sandboxed agy: the sandbox is the boundary (@arch:AC-31), so no prompts. */
+export const AGY_SANDBOX_SETTINGS = {
+  toolPermission: 'always-proceed',
+  agentMode: 'auto',
+  artifactReviewPolicy: 'agent-decides',
+  allowNonWorkspaceAccess: true,
+} as const;
+
+/** onboarding.json flags that skip agy's first-run wizard. */
+export const AGY_ONBOARDING_DONE = { onboardingComplete: true, consumerOnboardingComplete: true } as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJsonObject(path: string, debug: (m: string) => void): Promise<Record<string, unknown>> {
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') debug(`[docker] agy autonomous seed: cannot read ${path}, replacing`);
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    // fall through to replace
+  }
+  debug(`[docker] agy autonomous seed: ${path} is not a JSON object, replacing`);
+  return {};
+}
+
+async function assertPlainTarget(path: string): Promise<void> {
+  try {
+    const st = await lstat(path);
+    if (st.isSymbolicLink()) throw new Error(`${path} is a symbolic link`);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
+async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await rename(tmp, path);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function ensurePlainDir(dir: string): Promise<void> {
+  try {
+    const st = await lstat(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${dir} is not a plain directory or is a symbolic link`);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    await mkdir(dir, { mode: 0o700, recursive: true });
+  }
+}
+
+/**
+ * Rewrites, every launch, the agy state that makes a sandboxed session start with no
+ * prompts: onboarding done, autonomous settings, and the container repo trusted. Other keys
+ * agy wrote are kept. Host files are never read or touched (@arch:AC-51).
+ */
+export async function seedAgyAutonomousState(input: { readonly bridgeDir: string; readonly debug?: (message: string) => void }): Promise<SeedResult> {
+  const debug = input.debug ?? (() => undefined);
+  const cliDir = join(input.bridgeDir, 'antigravity', 'gemini', 'antigravity-cli');
+  const cacheDir = join(cliDir, 'cache');
+  try {
+    await ensurePlainDir(cliDir);
+    await ensurePlainDir(cacheDir);
+    const onboardingPath = join(cacheDir, 'onboarding.json');
+    const settingsPath = join(cliDir, 'settings.json');
+    await assertPlainTarget(onboardingPath);
+    await assertPlainTarget(settingsPath);
+    const onboarding = await readJsonObject(onboardingPath, debug);
+    await writeJsonAtomic(onboardingPath, { enterpriseOnboardingComplete: false, ...onboarding, ...AGY_ONBOARDING_DONE });
+    const settings = await readJsonObject(settingsPath, debug);
+    const trusted = mergeAntigravityTrust(settings, CONTAINER_REPO).next;
+    await writeJsonAtomic(settingsPath, { ...(isRecord(trusted) ? trusted : settings), ...AGY_SANDBOX_SETTINGS });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: `antigravity autonomous seed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
