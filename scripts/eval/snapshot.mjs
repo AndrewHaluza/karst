@@ -5,9 +5,9 @@
 //   <task>/wt    a worktree of it, where karst works (its path is relative-linked so the same
 //                tree resolves on the host and at /task)
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 /** Top-level paths a task checkout must not contain (they would leak eval material). */
 export const FORBIDDEN_TOP = ['evals', 'eval-results', 'hidden'];
@@ -88,7 +88,20 @@ export const copyTreeFetcher = (srcDir) => ({ dest }) => cpSync(srcDir, dest, { 
 export function addWorktree({ taskDir }) {
   const repoDir = join(taskDir, 'repo');
   const wt = join(taskDir, 'wt');
-  git(repoDir, ['-c', 'worktree.useRelativePaths=true', 'worktree', 'add', '--relative-paths', '-q', '-b', 'eval/task', wt]);
+  const res = git(repoDir, ['-c', 'worktree.useRelativePaths=true', 'worktree', 'add', '--relative-paths', '-q', '-b', 'eval/task', wt], { allowFail: true });
+  if (res.status !== 0) {
+    git(repoDir, ['worktree', 'add', '-q', '-b', 'eval/task', wt]);
+    try {
+      const wtGit = join(wt, '.git');
+      const adminDir = readFileSync(wtGit, 'utf8').replace(/^gitdir:\s*/, '').trim();
+      const relAdmin = relative(wt, adminDir);
+      const relWtGit = relative(adminDir, wtGit);
+      writeFileSync(wtGit, `gitdir: ${relAdmin}\n`);
+      writeFileSync(join(adminDir, 'gitdir'), `${relWtGit}\n`);
+    } catch {
+      // Best-effort manual relativization when git < 2.42 lacks --relative-paths
+    }
+  }
   return wt;
 }
 
