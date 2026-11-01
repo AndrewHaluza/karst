@@ -182,9 +182,16 @@ describe('ticket form — edit header, callout, empty states', () => {
     expect(v.query('#gateMsg')!.textContent).toContain('2 repositories need signal words');
   });
 
+  it('empty states are one muted line with a Settings link, no dashed box (C6)', () => {
+    const v = open(baseState({ title: 'x' }));
+    expect(v.query('#repoList .setempty a[data-act="open-settings"]')).not.toBeNull();
+    expect(v.query('#approachList .setempty a[data-act="open-settings"]')).not.toBeNull();
+    expect(v.query('#repoList .k-empty')).toBeNull();
+  });
+
   it('empty states carry actionable copy', () => {
     const v = open(baseState({ title: 'x' }));
-    expect(v.query('#repoList')!.textContent).toContain('karst.yml');
+    expect(v.query('#repoList')!.textContent).toContain('Settings → Repositories');
     expect(v.query('#approachList')!.textContent).toContain('Settings');
   });
 });
@@ -227,7 +234,7 @@ describe('ticket form — F3 split repo chips (group 4)', () => {
   it('a selected repo shows repo:branch (default dim) plus a caret with aria-label/haspopup', () => {
     const v = open(st());
     const api = v.query<HTMLElement>('[data-repo="api"]')!;
-    expect(api.textContent!.replace(/\s/g, '')).toBe('api:main');
+    expect(api.textContent!.replace(/\s/g, '')).toBe('apimain');
     expect(api.querySelector('.repo-branch.is-overridden')).toBeNull();
     const caret = v.query<HTMLElement>('[data-base-caret="api"]')!;
     expect(caret.getAttribute('aria-label')).toBe('Change base branch for api');
@@ -312,7 +319,7 @@ describe('ticket form — F3 split repo chips (group 4)', () => {
       ],
     }));
     const api = v.query<HTMLElement>('[data-repo="api"]')!;
-    expect(api.textContent!.replace(/\s/g, '')).toBe('api:karst/feat/par-1(parent)');
+    expect(api.textContent!.replace(/\s/g, '')).toBe('apikarst/feat/par-1(parent)');
     expect(api.querySelector('.repo-branch.is-overridden')).toBeNull();
 
     v.click('[data-base-caret="api"]');

@@ -127,7 +127,8 @@
   /*KARST_AGENT_PICKER_CSS*/
 
   /* Core + model + effort on ONE row; auto-fit wraps the fields at narrow widths. */
-  #agentIdentityPicker .ap{grid-template-columns:repeat(auto-fit,minmax(min(100%,calc(var(--k-space-8) * 5)),1fr))}
+  #agentIdentityPicker .ap{grid-template-columns:repeat(auto-fit,minmax(min(100%,calc(var(--k-space-8) * 7)),1fr))}
+  #agentIdentityPicker .ap-field[data-ap-core-field]{grid-column:1/-1}
 
   /* Agent provider custom select (icon + name inside dropdown) */
   .agentselect{position:relative;width:100%}
@@ -382,6 +383,27 @@
   .field{display:block}
   .pullrow{margin:var(--k-space-0)}
 
+  /* Settings region (prototype .side): quiet sentence-case labels, muted,
+     one space-7 gap between sections. Overrides the global uppercase h2 for this region only. */
+  .settings h2,.settings label{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);text-transform:none;
+    letter-spacing:normal;color:var(--k-text-dim);margin:var(--k-space-0) var(--k-space-0) var(--k-space-3)}
+  .settings .stcount{margin-left:var(--k-space-3)}
+  .setblock{margin-bottom:var(--k-space-7)}
+  /* Selects share one height (prototype .m-sel); the chevron rule is the shared one at the top. */
+  .settings select.k-input{min-height:var(--k-control-h-lg);text-overflow:ellipsis}
+  /* Source row: Re-fetch right-aligned. */
+  .srchead #refetchBtn{margin-left:auto}
+  /* Repo chips (prototype .m-chip): name + branch (dim, not mono) + divider + caret. */
+  .repo-branch{font-family:inherit;font-size:var(--k-text-xs)}
+  .repo-caret{border-left:var(--k-border-w) solid var(--k-border)}
+  .chip-hint{margin:var(--k-space-3) var(--k-space-0) var(--k-space-0);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  /* Compact empty state (C6): one muted line + link, no dashed box. */
+  .setempty{margin:var(--k-space-0);font-size:var(--k-text-md);color:var(--k-text-dim)}
+  .setempty a{display:inline-flex;align-items:center;min-height:var(--k-space-8);color:var(--k-link);text-decoration:none}
+  .setempty a:hover{color:var(--k-link-active);text-decoration:underline}
+  /* Pull base (prototype .m-sw): switch row + muted hint, last item. */
+  .pullrow .pullhint{margin:var(--k-space-2) var(--k-space-0) var(--k-space-0);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+
   /* Content-region labels (prototype .m-lbl): always ABOVE a full-width field at
      every tier, small gap. One stacked layout — no label grid. */
   .content label{font-size:var(--k-text-sm);margin:var(--k-space-6) var(--k-space-0) var(--k-space-2)}
@@ -539,6 +561,7 @@
   <div class="setblock">
     <h2>Repositories<span class="stcount" id="repoCount"></span></h2>
     <div class="chips" id="repoList"></div>
+    <p class="chip-hint" id="repoHint">▾ on a chip picks its base branch</p>
   </div>
 
   <div class="setblock">
@@ -575,6 +598,7 @@
             title="Fetch each selected repository's base branch before its worktree is created">
       <span class="k-switch-track" aria-hidden="true"></span>Pull base first
     </button>
+    <p class="pullhint">Fetches each repository's base branch before the worktree is cut.</p>
   </div>
 
   <div class="setblock" id="dependenciesCard" hidden>
@@ -900,7 +924,7 @@
         html += '<button type="button" class="k-iconbtn" id="srcOpen" data-act="open-ticket-link" data-url="' + esc(url) + '"'
           + ' aria-label="Open in ' + esc(label) + '" title="Open in ' + esc(label) + '">' + karstIcon('external-link', 16) + '</button>';
       }
-      html += '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="refetchBtn" data-id="' + esc(id) + '"'
+      html += '<button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refetchBtn" data-id="' + esc(id) + '"'
         + (fetchInFlight ? ' aria-busy="true" disabled' : '') + '>Re-fetch</button>';
     }
     header.innerHTML = html;
@@ -1229,7 +1253,7 @@
     // The manifest default is the norm, so it carries no tag; an override or the
     // parent branch (sub-task default) is named.
     const sourceSuffix = source && source !== 'manifest' ? ` (${esc(source)})` : '';
-    const branch = shown ? `<span class="repo-branch${changed ? ' is-overridden' : ''}">:${esc(shown)}${sourceSuffix}</span>` : '';
+    const branch = shown ? `<small class="repo-branch${changed ? ' is-overridden' : ''}">${esc(shown)}${sourceSuffix}</small>` : '';
     const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(repo)}" aria-pressed="true"${attrs}>`
       + `<span>${esc(repo)}</span>${branch}</button>`;
     if (!row) return chip;
@@ -1254,8 +1278,7 @@
     lastRepos = repos || [];
     lastRepoBases = repoBases || [];
     if (!repos || !repos.length) {
-      el('repoList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories</div>'
-        + '<div class="k-empty-hint">Add a repository to karst.yml (Settings → Repositories) to pick it here.</div></div>';
+      el('repoList').innerHTML = '<p class="setempty">No repositories. Add one in <a href="#" data-act="open-settings" data-section="repositories">Settings → Repositories</a>.</p>';
       syncStepper();
       return;
     }
@@ -1355,8 +1378,7 @@
   function renderApproaches(approaches, selected) {
     syncAnalyzeBtn();
     if (!approaches || !approaches.length) {
-      el('approachList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No approaches installed</div>'
-        + '<div class="k-empty-hint">Install an approach package in Settings → Approaches, then reopen this form.</div></div>';
+      el('approachList').innerHTML = '<p class="setempty">No approaches installed. Install one in <a href="#" data-act="open-settings" data-section="approaches">Settings → Approaches</a>.</p>';
       syncStepper();
       return;
     }
@@ -2396,6 +2418,7 @@
     }
     // The link's label is a nested provider badge, so the click target is
     // usually a child span/svg — resolve the acting element, never e.target.
+    if (t.closest && t.closest('[data-act="open-settings"]')) { e.preventDefault(); post({ type: 'open-settings' }); return; }
     const act = t.closest && t.closest('[data-act="open-ticket-link"]');
     if (act && act.dataset.url) {
       e.preventDefault();
