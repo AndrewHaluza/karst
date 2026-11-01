@@ -2,7 +2,7 @@
 useDefault = true
 
 [allowlist]
-description = "Fake credentials used as test fixtures and doc examples; generated and vendored trees"
+description = "Fake credentials used as test fixtures and doc examples; generated and vendored trees; pinned upstream eval rows (test names like provide/inject trip generic-api-key) and the cloned eval harness"
 paths = [
   '''(^|/)node_modules/''',
   '''(^|/)dist/''',
@@ -15,4 +15,6 @@ paths = [
   '''^src/diagnostics/fixtures/''',
   '''\.test\.tsx?$''',
   '''^docs/superpowers/plans/''',
+  '''^evals/instances/.*\.jsonl$''',
+  '''^evals/\.harness/''',
 ]

@@ -123,3 +123,7 @@ test-results/
 # UAT probe evidence (scripts/uat-host --out)
 .uat-out/
 .karst/sbx-clones/
+
+# Eval harness checkout + venv (npm run eval:setup); reports are local run output
+evals/.harness
+evals/reports
