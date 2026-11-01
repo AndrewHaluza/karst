@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck every tracked *.sh at info severity (SC2086 is info); spikes/** only get `bash -n`
+# Lint every tracked *.sh at info severity (SC2086 is info); spikes/** only get `bash -n`
 # (throwaway scripts that source each other, so shellcheck flags cross-file
 # variables). Locally a missing shellcheck is a notice (exit 0); CI=true makes
 # it a failure.
