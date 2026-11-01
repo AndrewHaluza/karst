@@ -26,6 +26,23 @@ export function failingTestIds(output) {
 /** Whether vitest actually ran test files (printed its summary); a base run that did not says nothing about the tests. */
 export const ranTests = (output) => /^\s*Test Files\s.*\b(?:passed|failed)\b/m.test(output.replace(ANSI, ''));
 
+/**
+ * Whether the parsed ids cover EVERY failure vitest reported (summary counts, no
+ * file-level or unhandled errors). If not, a drift verdict on the ids must not pass the gate.
+ */
+export function allFailuresParsed(output, ids) {
+  const text = output.replace(ANSI, '');
+  const count = (label) => {
+    const m = new RegExp(`^\\s*${label}\\s+(?:(\\d+) failed)?`, 'm').exec(text);
+    return m ? Number(m[1] ?? 0) : null;
+  };
+  const tests = count('Tests');
+  const files = count('Test Files');
+  if (tests === null || files === null) return false;
+  if (/^\s*(?:Unhandled )?Errors?\s+\d+/m.test(text) || /Unhandled (?:Rejection|Error)/.test(text)) return false;
+  return tests === ids.length && files <= new Set(ids.map(fileOfId)).size;
+}
+
 /** The test file of an id (project prefixes like `|unit|` are dropped). */
 export const fileOfId = (id) => id.split(' > ')[0].replace(/^\|[^|]*\|\s*/, '').trim();
 

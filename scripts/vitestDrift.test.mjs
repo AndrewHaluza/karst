@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   BASE_FILE_CAP,
   alertLine,
+  allFailuresParsed,
   cacheKey,
   classifyFailures,
   driftNotice,
@@ -88,5 +89,22 @@ describe('ranTests', () => {
   it('is false when vitest never ran the files (startup error, no test files found)', () => {
     expect(ranTests('No test files found, exiting with code 1\nStartup Error\n')).toBe(false);
     expect(ranTests('')).toBe(false);
+  });
+});
+
+describe('allFailuresParsed', () => {
+  const sum = (files, tests, extra = '') => ` Test Files  ${files}\n      Tests  ${tests}\n${extra}`;
+  it('accepts when every counted failure has an id', () => {
+    expect(allFailuresParsed(sum('1 failed | 2 passed (3)', '1 failed | 5 passed (6)'), [ID_A])).toBe(true);
+  });
+  it('rejects more failed tests than parsed ids', () => {
+    expect(allFailuresParsed(sum('1 failed (1)', '2 failed (2)'), [ID_A])).toBe(false);
+  });
+  it('rejects a failed file with no failed test (suite error)', () => {
+    expect(allFailuresParsed(sum('2 failed (2)', '1 failed (1)'), [ID_A])).toBe(false);
+  });
+  it('rejects unhandled errors and missing summaries', () => {
+    expect(allFailuresParsed(sum('1 failed (1)', '1 failed (1)', '     Errors  1 error\n'), [ID_A])).toBe(false);
+    expect(allFailuresParsed('boom', [ID_A])).toBe(false);
   });
 });

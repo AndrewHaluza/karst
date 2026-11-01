@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { alertLine, cacheKey, classifyFailures, failingTestIds, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
+import { alertLine, allFailuresParsed, cacheKey, classifyFailures, failingTestIds, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
 
 const exec = promisify(execFile);
 const git = async (cwd, args) => {
@@ -74,6 +74,10 @@ async function redAtBase(cwd, sha, args, files) {
 
 async function judge(cwd, args, output) {
   const ids = failingTestIds(output);
+  if (!allFailuresParsed(output, ids)) {
+    console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
+    return false;
+  }
   const sha = await mergeBase(cwd);
   if (sha === null) return false;
   const changed = await git(cwd, ['diff', '--name-only', '-z', sha]);
