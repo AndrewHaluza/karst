@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +49,11 @@ const outArg = argValue('--out');
 // run record (core name + version, credential NAMES only) goes to `--eval-result <file>`.
 const evalCore = argValue('--eval');
 const evalResultArg = argValue('--eval-result');
+// `--db-out <file>`: copy the run's karst.db there before the scratch root is deleted (eval metrics).
+const dbOutArg = argValue('--db-out');
+// Real-core runs outlast the probe's 60s step / 120s script defaults. The docker wrapper passes flags, not env.
+const probeTotalMs = argValue('--probe-total-ms');
+const probeMaxStepMs = argValue('--probe-max-step-ms');
 const NETWORK_STATUS = process.env.UAT_EVAL_NETWORK_STATUS ?? '/run/karst-eval/network.json';
 if (evalCore && (launchMode || !fixtureFileArg || !evalResultArg)) {
   console.error('uat-host: --eval needs --fixture-file and --eval-result, and cannot combine with --launch-mode');
@@ -62,6 +67,15 @@ if (Boolean(fixture) === Boolean(fixtureFileArg) || (fixture && !FIXTURES.includ
 // Both paths must stay inside the checkout: the Docker harness bind-mounts only
 // the repo root, so a path outside it is discarded with the container and leaves
 // nothing to cite. Resolve (and refuse) before the env below is built.
+let dbOutPath;
+if (dbOutArg) {
+  try {
+    dbOutPath = resolveInsideCheckout(dbOutArg, repoRoot);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(2);
+  }
+}
 let probeScriptPath;
 let probeOutPath;
 let fixtureFilePath;
@@ -83,10 +97,12 @@ if (scriptArg) {
   }
 }
 const probeEnv = scriptArg
-  ? { KARST_UAT_PROBE: '1', UAT_PROBE_SCRIPT: probeScriptPath, UAT_PROBE_OUT: probeOutPath }
+  ? { KARST_UAT_PROBE: '1', UAT_PROBE_SCRIPT: probeScriptPath, UAT_PROBE_OUT: probeOutPath,
+      ...(probeTotalMs ? { UAT_PROBE_TOTAL_MS: probeTotalMs } : {}),
+      ...(probeMaxStepMs ? { UAT_PROBE_MAX_STEP_MS: probeMaxStepMs } : {}) }
   : {};
 // runTests has no timeout of its own: this is the backstop so a wedged host can never hang the run.
-const hardTimeoutMs = Number(process.env.UAT_PROBE_HARD_TIMEOUT_MS ?? 300_000);
+const hardTimeoutMs = Number(argValue('--hard-timeout-ms') ?? process.env.UAT_PROBE_HARD_TIMEOUT_MS ?? 300_000);
 
 // Loaded after arg validation so a bad fixture exits 2 without loading the module.
 const { downloadAndUnzipVSCode } = await import('@vscode/test-electron');
@@ -188,6 +204,17 @@ try {
     ],
   }));
 
+  // Evidence that must survive the scratch-root cleanup: the run record and the db, also after a timeout.
+  const collect = () => {
+    if (evalPreflight) writeFileSync(resolveInsideCheckout(evalResultArg, repoRoot), runRecord(evalPreflight, readNetworkStatus(NETWORK_STATUS)));
+    if (dbOutPath) {
+      try {
+        copyFileSync(dbPath, dbOutPath);
+        // A killed host leaves committed pages in the WAL; without it the copy misses the tail of the run.
+        for (const ext of ['-wal', '-shm']) if (existsSync(dbPath + ext)) copyFileSync(dbPath + ext, dbOutPath + ext);
+      } catch (err) { console.error(`uat-host: could not save karst.db — ${err instanceof Error ? err.message : err}`); }
+    }
+  };
   const { child, exit } = startRun(optionsPath);
   let timer;
   const deadline = new Promise((r) => { timer = setTimeout(() => r({ timedOut: true }), hardTimeoutMs); });
@@ -196,12 +223,11 @@ try {
   if (outcome.timedOut) {
     killGroup(child.pid);
     await exit; // reap so the inherited stdout flushes before we exit
+    collect();
     throw new Error(`hard timeout after ${hardTimeoutMs}ms`);
   }
-  if (evalPreflight) {
-    // Written before the exit-code check so a failed run still records which core ran.
-    writeFileSync(resolveInsideCheckout(evalResultArg, repoRoot), runRecord(evalPreflight, readNetworkStatus(NETWORK_STATUS)));
-  }
+  // Before the exit-code check so a failed run still records which core ran.
+  collect();
   if (outcome.code !== 0) throw new Error(`tests failed (${outcome.code ?? outcome.signal})`);
   code = 0;
 } catch (err) {

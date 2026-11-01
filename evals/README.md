@@ -22,6 +22,17 @@ exits 1 when any instance drifted. A drifted instance (gold patch not resolved
 on every run) is **excluded from scoring** and must be listed in the D293 report.
 Images are removed after each instance (`--keep-images` to keep them).
 
+## Run the eval
+
+```sh
+npm run eval -- --instances evals/instances/multi-swe-bench-ts-v1.jsonl --variant default --runs 3 --eval-env ANTHROPIC_API_KEY
+npm run eval -- --instances <file.jsonl> --fake-core --only <id>   # adapter smoke, KARST_FAKE_CORE=1, no scoring
+```
+
+Needs the harness (`npm run eval:setup`), a built `dist/` (`npm run build`), Docker, and credentials by env-var NAME or `--eval-auth-dir`. Output lands in `eval-results/<ts>/report.md`
+(resolved rate, pass@k, spread, pairwise deltas, cost/time per resolved task, blocked and timeout counts, set version, core versions); see `docs/arch/uat-host.md` UATHOST-05.
+Variants are `evals/variants/<name>.json` (`provider`, `gates`); `default` is built in. Runs are sequential and slow: budget hours, not minutes.
+
 ## Spike: which set (decided 2026-10-31)
 
 Both upstream harnesses were run directly (no karst runner) on an arm64 Mac,

@@ -7,6 +7,12 @@ import { runProbeScript, type ProbeRunArgs } from './session.js';
 import { readTickets } from './storeEvidence.js';
 import { readLaunches } from './launchEvidence.js';
 
+/** Eval runs outlast the 60s step / 120s script defaults; the caller opts in with these (ms) env vars. */
+const envMs = (name: string): number | undefined => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
 // Thin vscode binding (not loadable under vitest). Logic lives in the sibling
 // vscode-free modules. Every entry point is a no-op unless KARST_UAT_PROBE=1.
 
@@ -125,6 +131,6 @@ export function registerProbeCommand(
     },
   };
   context.subscriptions.push(
-    vscode.commands.registerCommand(PROBE_COMMAND, (args: ProbeRunArgs) => runProbeScript(args, host)),
+    vscode.commands.registerCommand(PROBE_COMMAND, (args: ProbeRunArgs) => runProbeScript(args, host, envMs('UAT_PROBE_TOTAL_MS'), envMs('UAT_PROBE_MAX_STEP_MS'))),
   );
 }

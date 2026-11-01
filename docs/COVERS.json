@@ -20,6 +20,24 @@
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
   ],
+  "scripts/eval/endState.mjs": [
+    "arch:UATHOST-05"
+  ],
+  "scripts/eval/instances.mjs": [
+    "arch:UATHOST-05"
+  ],
+  "scripts/eval/report.mjs": [
+    "arch:UATHOST-05"
+  ],
+  "scripts/eval/run.mjs": [
+    "arch:UATHOST-05"
+  ],
+  "scripts/eval/snapshot.mjs": [
+    "arch:UATHOST-05"
+  ],
+  "scripts/eval/stats.mjs": [
+    "arch:UATHOST-05"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"
@@ -688,6 +706,9 @@
   ],
   "src/uatHost/probe/*.ts": [
     "arch:UATHOST-00"
+  ],
+  "src/uatHost/probe/runner.ts#conditionMet": [
+    "arch:UATHOST-05"
   ],
   "src/uatHost/probe/steps.ts#parseSteps": [
     "arch:UATHOST-00",

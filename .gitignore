@@ -127,3 +127,6 @@ test-results/
 # Eval harness checkout + venv (npm run eval:setup); reports are local run output
 evals/.harness
 evals/reports
+
+# Eval runner output (npm run eval): reports, predictions, per-attempt evidence
+eval-results/
