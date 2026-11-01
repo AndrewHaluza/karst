@@ -12,11 +12,11 @@ const ROOT = join(HERE, '..', '..');
  * If a rule is added or reclassified, these numbers must be updated.
  */
 const CHECKED_IN_COUNTS = {
-  total: 63,
+  total: 64,
   static: 41,
   runtime: 19,
   visual: 33,
-  review: 8,
+  review: 9,
 };
 
 /**
@@ -64,9 +64,9 @@ test.describe('VISUAL rule coverage ratchet', () => {
     const rules = readFileSync(join(ROOT, 'docs', 'ui', 'UI-RULES.md'), 'utf8');
     const verificationLines = (rules.match(/\*\*Verification:\*\*.*/g) || []);
     const ruleIds: string[] = [];
-    const ruleHeaders = (rules.match(/^## (?:\[@ui:)?(UI-R\d+\w?)(?:\]|\s)/gm) || []);
+    const ruleHeaders = (rules.match(/^## (?:\[@ui:)?(UI-R[^\s\]]+)(?:\]|\s)/gm) || []);
     for (const header of ruleHeaders) {
-      const match = header.match(/UI-R\d+\w?/);
+      const match = header.match(/UI-R[^\s\]]+/);
       if (match) ruleIds.push(match[0]);
     }
 
