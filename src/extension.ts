@@ -312,6 +312,7 @@ import { sweepArtifactRetention } from './artifacts/retention.js';
 import { wireArtifactCapture } from './extension/artifactCaptureWiring.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
+import { snapshotFixRoundHeads } from './workflow/fixRoundGuard.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
@@ -3616,6 +3617,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // function only runs once a resume has been granted, so reaching it IS the
   // decision.
   function resumeFixSession(
+    ticketId: number,
+    gate: GateStageKey,
+    attempts: number,
+    roundId: number | null,
+    process: DriveProcessBundle | null,
+  ): void {
+    // Snapshot each worktree's HEAD BEFORE the brief reaches the agent, so the
+    // `stage fix pass` marker can refuse a round with no new commit. A failed
+    // snapshot never blocks the fix (the guard then lets the marker through).
+    const snapshot =
+      roundId === null || process === null
+        ? Promise.resolve()
+        : snapshotFixRoundHeads(localStore, ticketId, roundId, defaultGitRunner);
+    void snapshot
+      .catch((err) => logError(`karst: fix-round HEAD snapshot for ticket ${ticketId} failed`, err))
+      .then(() => resumeFixSessionNow(ticketId, gate, attempts, roundId, process));
+  }
+
+  function resumeFixSessionNow(
     ticketId: number,
     gate: GateStageKey,
     attempts: number,

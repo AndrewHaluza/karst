@@ -11,6 +11,7 @@ import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
 import { USAGE_LIMIT_PARKS_DDL } from './usageLimitParks.js';
 import { CLOUD_SESSION_LINKS_DDL } from './cloudSessionLinks.js';
+import { FIX_ROUND_HEADS_DDL } from './fixRoundHeads.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2771,6 +2772,13 @@ function migrateLocked(db: Database): void {
     // scan wrote ('pr' | 'branch' | 'key', or NULL = unlinked by scan): a local
     // Remote-Control URL is indistinguishable from a cloud one. Manual rows stay.
     db.exec("DELETE FROM cloud_session_links WHERE link_source IS NOT 'manual'");
+  }
+
+  if (current < 93) {
+    // v93: `fix_round_heads` — each target's HEAD sha when a fix round opened, so
+    // `stage fix pass` can refuse a marker with no new commit. Additive; no backfill
+    // (a round opened before v93 has no rows and the guard lets its marker through).
+    db.exec(FIX_ROUND_HEADS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
