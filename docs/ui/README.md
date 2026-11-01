@@ -15,7 +15,9 @@ read a whole file.
 ## [@ui:README-ORDER] Read order
 
 0. **Prototype linked?** Open it and list its regions (`data-region` names), their
-   order and stacking. They are binding (`ui:UI-R39`).
+   order and stacking. They are binding (`ui:UI-R39`). Render the prototype with
+   `npm run -s proto:shot -- <html> --regions` (Docker is not needed; view aid,
+   not a gate) and compare each region with your baseline.
 1. **Group L** — `UI-RULES.md` `ui:UI-R39`..`ui:UI-R48`: layout and placement.
    Below 700 px (split editor groups, down to the 320 px floor) also read **group E**
    (`ui:UI-R49`..`ui:UI-R56`) and `RESPONSIVE-DENSITY.md` (tiers `ui:RD-TIERS`, ladders `ui:RD-LADDERS`).
@@ -24,9 +26,10 @@ read a whole file.
 3. **Layout primitives** — `DESIGN-SYSTEM.md` `ui:LAYOUT-PRIMITIVES`, then the
    token and primitive blocks you use.
 4. **Variants** — add or extend the view's variants in `tests/visual/variants.ts` (`ui:UI-R57`, `ui:VISUAL-VARIANTS`) and record baselines. A change under `src/ui/<view>/**` that touches neither that view's variants nor its baselines gets a review warning (`tests/visual/variantTouch.ts`).
-5. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the `visual` job: a PR's own added/changed baseline that fails is blocking, pre-existing diffs stay advisory; judge visual failures only from the docker run, never host `test:visual`). A host without Docker prints `SKIPPED` and exits 0 — that is NOT a visual pass; run the wrapper on a Docker host. `npm run test:layout` is advisory and fast on the host; the final
+5. **Verify** — for one webview run `npm run -s test:ui:docker -- <view>` (scoped screenshots plus the FULL authoritative layout run; a grep-scoped `test:visual:docker` run is NOT a layout pass, and `npm run -s verify:ui` is the full pre-UAT set). Otherwise run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the `visual` job: a PR's own added/changed baseline that fails is blocking, pre-existing diffs stay advisory; judge visual failures only from the docker run, never host `test:visual`). A host without Docker prints `SKIPPED` and exits 0 — that is NOT a visual pass; run the wrapper on a Docker host. `npm run test:layout` is advisory and fast on the host; the final
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
+   Known drift: the `settings--route-agents-agents-profiles-builtin-3AuatTester.png` baseline can re-render differently after an update (cause not yet found). After a scoped `:update`, `git status` must show only in-scope PNGs: `git checkout` that one if it appears.
 6. **Screenshot changes need user approval.** Never edit baselines or the layout
    ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
    shrinks only via `npm run test:layout:docker:prune`. After a DOM structure
