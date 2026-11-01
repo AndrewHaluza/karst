@@ -431,6 +431,7 @@ Split out of `arch:AC-32`; the backend itself is defined there.
 - **Multi-window** (`arch:GLOBAL`): stop / remove / adopt / session-drop act only on tickets this window controls: it holds the session (`ownedSessionTickets`), or the ticket is in this window's project and no window runs its session (`agent_state` not `running`). A closed terminal therefore never blocks archive or idle stop.
 
 - **Placement writes follow `controls()`** (T772): only the controlling window records placement (`recordLaunchPlacement`) or flips it to host after a verified removal (provider switch, done+merged, archive); a window that does not control the ticket writes nothing.
+- **Empty clone** (T908): a reattach (`resolveLaunchBackend`, existing sbx sandbox) polls `ensureCloneReady` (`sbx/sbxCloneReady.ts`, bounded 30 s) until `refs/heads/<ticket branch>` resolves; a fresh clone is briefly `.invalid` (normal). If it never resolves the launch blocks with `sandbox clone is empty` and names `karst.sandbox.rebuild` (`rebuildSandboxOp`), which removes the sandbox (next open recreates it from the host branch) ONLY when every commit any sandbox ref holds is on the host branch or `refs/karst/sandbox/<branch>`; unreadable or unsynced commits refuse. Never an automatic rm.
 END_DOC_BLOCK: [@arch:AC-37]
 
 ## [@arch:AC-38] Sandbox stage contract — instructions, marker, inbox, ack, reattach, palette

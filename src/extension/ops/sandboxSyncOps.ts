@@ -123,6 +123,11 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   if (existing) {
     const writable = await resolved.runner.ensureWritable!();
     if (!writable.ok) throw new Error(`Karst: ${input.ticketLabel} ${writable.reason}`);
+    const branch = input.worktree?.branch;
+    if (branch && resolved.runner.ensureCloneReady) {
+      const ready = await resolved.runner.ensureCloneReady(branch);
+      if (!ready.ok) throw new Error(`Karst: ${input.ticketLabel} ${ready.reason}`);
+    }
   }
   if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
     const synced = await input.syncExisting();
@@ -411,6 +416,34 @@ export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: Sandbox
     return false;
   }
   deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed.`);
+  return true;
+}
+
+/**
+ * `karst.sandbox.rebuild`: remove a sandbox whose clone is empty so the next Open AI Session recreates it from
+ * the host branch. The runner refuses unless the host branch and the sync ref hold all of the sandbox's commits.
+ */
+export async function rebuildSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<boolean> {
+  if (!target.worktree?.branch) {
+    await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch.`);
+    return false;
+  }
+  const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+  if (!runner?.rebuild) {
+    await deps.notify.error(`Karst: ${target.ticketLabel} has no rebuildable sandbox (core ${target.core ?? 'unknown'}).`);
+    return false;
+  }
+  try {
+    const removal = await runner.rebuild({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+    if (!removal.ok) {
+      await deps.notify.error(`Karst: rebuilding the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}).`);
+      return false;
+    }
+  } catch (err) {
+    await deps.notify.error(`Karst: rebuilding the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    return false;
+  }
+  deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed; Karst: Open AI Session recreates it from the host branch.`);
   return true;
 }
 

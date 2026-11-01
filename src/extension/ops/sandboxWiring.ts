@@ -16,7 +16,7 @@ import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { rebuildSandboxOp, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import type { QueuedMarker } from '../../agent/bridge/markerFlow.js';
@@ -292,6 +292,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     sync: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
       await syncSandboxOp({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+    },
+    /** `karst.sandbox.rebuild`: remove an empty-clone sandbox (guarded: only when no commit would be lost). */
+    rebuild: async (ticketId: number): Promise<void> => {
+      const { t, projectRoot } = await manual(ticketId);
+      await rebuildSandboxOp({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
