@@ -179,30 +179,33 @@ export async function runGateList(
     if (isIntegrationGate(gate)) {
       try {
         lease = await leasePortSlot({ signal: opts.signal, onDebug });
-      } catch {
-        return { kind: 'stopped', results };
+      } catch (err) {
+        // Only a Stop is a stop; any other lease failure is an environment fault
+        // and must surface, not masquerade as the user cancelling.
+        if (opts.signal?.aborted) return { kind: 'stopped', results };
+        throw err;
       }
     }
     let outcome: ProcessOutcome;
     let resourceKilled: string | undefined;
     try {
     const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
-    outcome = await (onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess))(
-      offsetEnv.length > 0 ? 'env' : gate.command,
-      [...offsetEnv, ...(offsetEnv.length > 0 ? [gate.command] : []), ...gate.args],
-      cwd,
-      runOpts,
-    );
+    // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
+    const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
+      extraEnv.length + offsetEnv.length > 0
+        ? run('env', [...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
+        : run(gate.command, gate.args, cwd, runOpts);
+    outcome = await launch(onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess));
     if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
       // SIGKILL with no failing test: memory pressure, an environment fault (arch:GATE-CAPABILITY).
       const policy = gate.onResourceKill ?? 'retry-then-park';
       const sandboxed = opts.sandboxed === true && !onHost;
       onDebug?.(`[gate] ${gate.name}: killed (exit 137, no failing test) — onResourceKill=${policy}`);
       if (policy === 'host' && opts.hostProcess && !onHost) {
-        outcome = await opts.hostProcess(gate.command, gate.args, cwd, runOpts);
+        outcome = await launch(opts.hostProcess);
       } else if (policy !== 'park') {
         const run = onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess);
-        outcome = await run('env', [`${GATE_MAX_WORKERS_ENV}=1`, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts);
+        outcome = await launch(run, [`${GATE_MAX_WORKERS_ENV}=1`]);
       }
       if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
         resourceKilled = resourceKillReason(gate.name, sandboxed);

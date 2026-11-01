@@ -106,3 +106,19 @@ describe('leasePortSlot', () => {
     await expect(pending).rejects.toThrow(/abort/i);
   });
 });
+
+describe('leasePortSlot stale-reclaim race', () => {
+  it('two concurrent reclaimers of one dead slot never both win it', async () => {
+    const dir = tmp();
+    for (let s = 0; s < PORT_SLOT_COUNT; s++) {
+      mkdirSync(join(dir, `slot-${s}`));
+      writeFileSync(join(dir, `slot-${s}`, 'owner'), '99999999');
+    }
+    const live = new Set<number>();
+    const isAlive = (pid: number): boolean => pid === process.pid && live.size > 0;
+    live.add(1);
+    // All four are dead except none: reclaim with 4 concurrent leasers → 4 distinct slots.
+    const got = await Promise.all(Array.from({ length: PORT_SLOT_COUNT }, () => leasePortSlot({ dir, pollMs: 5, isAlive })));
+    expect(new Set(got.map((g) => g.slot)).size).toBe(PORT_SLOT_COUNT);
+  });
+});

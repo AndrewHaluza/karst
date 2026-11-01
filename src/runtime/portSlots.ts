@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -64,34 +65,63 @@ function pidAlive(pid: number): boolean {
 }
 
 const NO_OWNER_STALE_MS = 60_000;
+/** The reclaim mutex guards a few fs calls; one older than this belongs to a dead holder. */
+const RECLAIM_LOCK_STALE_MS = 10_000;
 
-function isStale(path: string, isAlive: (pid: number) => boolean): boolean {
+async function isStale(path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
   try {
-    return !isAlive(Number(readFileSync(join(path, 'owner'), 'utf8').trim()));
+    return !isAlive(Number(((await readFile(join(path, 'owner'), 'utf8')) as string).trim()));
   } catch {
     // Claim dir exists but its owner file is not written yet (mid-claim) or never was.
     try {
-      return Date.now() - statSync(path).mtimeMs > NO_OWNER_STALE_MS;
+      return Date.now() - (await stat(path)).mtimeMs > NO_OWNER_STALE_MS;
     } catch {
       return true;
     }
   }
 }
 
-function tryClaim(dir: string, slot: number, isAlive: (pid: number) => boolean): boolean {
-  const path = join(dir, `slot-${slot}`);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      mkdirSync(path);
-      writeFileSync(join(path, 'owner'), String(process.pid));
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      if (!isStale(path, isAlive)) return false;
-      rmSync(path, { recursive: true, force: true });
-    }
+async function claimFresh(path: string): Promise<boolean> {
+  try {
+    await mkdir(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
   }
-  return false;
+  await writeFile(join(path, 'owner'), String(process.pid));
+  return true;
+}
+
+/**
+ * Take over a stale claim. Check-then-remove-then-mkdir is not atomic: two
+ * reclaimers could both see it stale, and the second `rm` would delete the
+ * first's brand-new claim. A short mutex dir serialises the whole sequence; a
+ * loser just reports "busy" and the lease loop polls again.
+ */
+async function reclaimStale(dir: string, path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
+  const lock = join(dir, 'reclaim.lock');
+  try {
+    await mkdir(lock);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    const age = await stat(lock).then((st) => Date.now() - st.mtimeMs, () => 0);
+    if (age > RECLAIM_LOCK_STALE_MS) await rm(lock, { recursive: true, force: true });
+    return false;
+  }
+  try {
+    if (!(await isStale(path, isAlive))) return false;
+    await rm(path, { recursive: true, force: true });
+    return await claimFresh(path);
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
+}
+
+async function tryClaim(dir: string, slot: number, isAlive: (pid: number) => boolean): Promise<boolean> {
+  const path = join(dir, `slot-${slot}`);
+  if (await claimFresh(path)) return true;
+  if (!(await isStale(path, isAlive))) return false;
+  return reclaimStale(dir, path, isAlive);
 }
 
 /**
@@ -108,7 +138,7 @@ export async function leasePortSlot(opts: LeaseOptions = {}): Promise<PortSlotLe
   for (;;) {
     if (opts.signal?.aborted) throw new Error('port slot lease aborted');
     for (let slot = 0; slot < PORT_SLOT_COUNT; slot++) {
-      if (!tryClaim(dir, slot, isAlive)) continue;
+      if (!(await tryClaim(dir, slot, isAlive))) continue;
       let released = false;
       opts.onDebug?.(`[gate] port slot ${slot} leased (offset ${slot * PORT_SLOT_STRIDE})`);
       return {

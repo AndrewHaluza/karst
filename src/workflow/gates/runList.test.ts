@@ -391,3 +391,19 @@ describe('runGateList port slot', () => {
     expect(seen).toEqual(['npm']);
   });
 });
+
+describe('runGateList port slot — review fixes', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gate = { name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true, onResourceKill: 'host' as const };
+  it('keeps the leased offset on the resource-kill host fallback', async () => {
+    const calls: Array<{ who: string; args: readonly string[] }> = [];
+    const kill = { kind: 'completed' as const, exitCode: 137, output: '' };
+    await runGateList([gate], process.cwd(), {
+      now,
+      runProcess: async (_c, args) => (calls.push({ who: 'run', args }), kill),
+      hostProcess: async (_c, args) => (calls.push({ who: 'host', args }), { kind: 'completed' as const, exitCode: 0, output: '' }),
+    });
+    const host = calls.find((c) => c.who === 'host')!;
+    expect(host.args[0]).toMatch(/^KARST_TEST_PORT_OFFSET=\d+$/);
+  });
+});
