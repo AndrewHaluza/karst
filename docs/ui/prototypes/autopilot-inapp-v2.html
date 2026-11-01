@@ -1,0 +1,121 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Autopilot in karst v2</title>
+<style>
+:root{--bg:#1f1f1f;--surf:#252526;--surf2:#2b2b2c;--line:#3c3c3c;--tx:#cccccc;--dim:#9d9d9d;--blue:#3794ff;--btn:#0e639c;--ok:#3fb950;--warn:#d7ba1f;--warnbg:#3a3416;--bad:#f14c4c;--badbg:#3d1f1e;--run:#3794ff;--runbg:#16304a;--mono:ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.cap{font:600 11px var(--mono);color:var(--blue);letter-spacing:.08em;text-transform:uppercase;padding:22px 26px 6px}
+.cap small{display:block;color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;margin-top:3px}
+.page{padding:8px 26px 20px;display:grid;gap:16px;max-width:1280px}
+.hd{display:flex;align-items:center;gap:12px}.hd .id{font:12px var(--mono);color:var(--dim)}.chip{border:1px solid var(--line);border-radius:10px;padding:1px 8px;font-size:12px}
+.hd h1{font-size:17px;margin:0 0 0 10px;font-weight:600}.hd .r{margin-left:auto;color:var(--dim);font-size:12px}
+.box{border:1px solid var(--line);border-radius:6px;background:var(--surf);padding-bottom:14px}
+.phead{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-weight:600;flex-wrap:wrap}
+.phead .meta{font:12px var(--mono);color:var(--dim);font-weight:400}.sp{margin-left:auto}
+.stages{display:flex;margin:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.stg{padding:10px 16px;font-size:12px;letter-spacing:.05em;color:var(--dim)}.stg.d{color:#4ec9b0}.stg.cur{flex:1;background:#4a2a4f;color:#fff;font-weight:600;border:1px solid #b180d7}
+.inside{margin:0 14px;border:1px solid var(--line);border-radius:6px}
+.row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.ic{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--ok);display:inline-grid;place-items:center;font-size:9px;color:var(--ok);flex:none}
+.ic.w{border-color:var(--warn);color:var(--warn)}.ic.x{border-color:var(--bad);color:var(--bad)}
+.ic.r{border-color:var(--run);border-top-color:transparent;animation:sp 1.2s linear infinite}
+@media(prefers-reduced-motion:reduce){.ic.r{animation:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
+.row .lb{width:110px}.row.run{background:var(--runbg)}.row.run .msg{color:var(--tx)}.row.wait{background:var(--warnbg)}.row.wait .msg{color:var(--warn)}.row.err{background:var(--badbg)}.row.err .msg{color:var(--bad)}
+.steps{display:flex;gap:6px;font:11px var(--mono);color:var(--dim);flex-basis:100%;padding-left:134px;flex-wrap:wrap}
+.steps .s.done{color:var(--ok)}.steps .s.now{color:var(--run);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;font-weight:400;font-size:12px}
+.seg span.l{padding:3px 8px;color:var(--dim);background:var(--surf)}
+.seg button{border:0;border-left:1px solid var(--line);border-radius:0;background:var(--surf2);padding:3px 10px}
+.seg button[aria-pressed=true]{background:var(--btn);color:#fff}
+button{font:inherit;font-size:12px;border-radius:3px;padding:4px 10px;border:1px solid var(--line);background:var(--surf2);color:var(--tx);cursor:pointer}
+button.p{background:var(--btn);border-color:var(--btn);color:#fff}button.link{border:0;background:none;color:var(--blue);padding:0;text-decoration:underline}
+button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.acts{display:flex;gap:8px;margin-left:auto;align-items:center}
+.banner{margin:12px 14px 0;border:1px solid var(--warn);background:var(--warnbg);border-radius:6px;padding:10px 12px;display:grid;gap:8px}
+.banner .t{color:var(--warn);font-weight:600}.banner .acts{margin-left:0}
+details{color:var(--dim);font-size:12px}details pre{font:11px var(--mono);margin:6px 0 0;color:var(--dim)}
+.log{font:12px var(--mono);color:var(--dim);padding:10px 14px 0;display:grid;gap:3px}.log b{color:var(--tx);font-weight:400}
+code{font:12px var(--mono);color:var(--tx)}
+.note{margin:10px 14px 0;font-size:12px;color:var(--dim)}
+.pr{display:flex;align-items:center;gap:10px;padding:12px 14px 0}.open{background:#238636;color:#fff;border-radius:10px;padding:1px 8px;font:600 11px var(--mono)}
+.set{display:grid;grid-template-columns:180px 1fr;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.nav{background:var(--surf);border-right:1px solid var(--line);padding:16px 10px}.nav h4{font-size:11px;color:var(--dim);letter-spacing:.08em;margin:14px 8px 4px;font-weight:500}
+.nav div{padding:5px 10px;border-radius:4px}.nav .on{background:#04395e;color:#fff}
+.mh{display:flex;align-items:center;padding:12px 24px;border-bottom:1px solid var(--line);font-size:17px}.mh .r{margin-left:auto;display:flex;gap:8px;font-size:12px;color:var(--dim);align-items:center}
+.intro{padding:16px 24px;border-bottom:1px solid var(--line)}.intro h2{margin:0 0 6px;font-size:22px;font-weight:500}.intro p{margin:0;color:var(--dim)}
+.sec{padding:16px 24px;border-bottom:1px solid var(--line)}.sec h3{margin:0 0 4px;font-size:15px}.sec>p{margin:0 0 12px;color:var(--dim)}
+.f{display:grid;grid-template-columns:240px 1fr;gap:10px;align-items:center;padding:6px 0}.f .h{grid-column:2;color:var(--dim);font-size:12px;margin-top:-4px}
+select,input{background:#313131;border:1px solid var(--line);color:var(--tx);border-radius:3px;padding:5px 8px;font:inherit;width:100%}
+.big{display:flex;gap:10px;align-items:flex-start}.big input{width:16px;height:16px;margin-top:2px}.big .h{color:var(--dim);font-size:12px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;background:#313131;border:1px solid var(--line);border-radius:3px;padding:4px}.tag{font:12px var(--mono);border:1px solid var(--line);border-radius:3px;padding:1px 6px}
+.ro{color:var(--dim)}
+</style></head><body>
+
+<div class="cap">1 · Ship panel · auto-fix running a conflict round<small>Tri-state control shows the source. Status lives on the existing Merge row; steps spelled out.</small></div>
+<div class="page">
+ <div class="hd"><span class="id">T942017</span><span class="chip">Idle</span><span class="id">FEAT-142</span><h1>Add per-repo base branch override to the worktree picker</h1><div class="r">Claude Code · Agent default ⌄ ⋯</div></div>
+ <div class="box">
+  <div class="stages"><div class="stg d">✓ SCOPE</div><div class="stg d">✓ IMPL</div><div class="stg d">✓ UAT</div><div class="stg d">✓ REVIEW</div><div class="stg cur">◌ SHIP</div><div class="stg">· DONE</div></div>
+  <div class="inside" data-region="inside-ship">
+   <div class="phead">Inside ship <span class="meta">09:40:02 · 6m 12s</span><span class="sp"></span>
+    <div class="seg" role="group" aria-label="Auto-fix for this ticket"><span class="l">Auto-fix</span><button aria-pressed="true">Project default (on)</button><button aria-pressed="false">On</button><button aria-pressed="false">Off</button></div></div>
+   <div class="row"><span class="ic" aria-label="passed">✓</span><span class="lb">Commit</span></div>
+   <div class="row"><span class="ic" aria-label="passed">✓</span><span class="lb">Push</span></div>
+   <div class="row"><span class="ic" aria-label="passed">✓</span><span class="lb">Pull request</span></div>
+   <div class="row run" aria-busy="true"><span class="ic r" role="img" aria-label="Auto-fix running"></span><span class="lb">Merge</span>
+    <span class="msg">Auto-fix: conflict on <code>web #421</code> · round 1 of 2</span>
+    <div class="acts"><button>Stop after this round</button><button>Stop now…</button></div>
+    <div class="steps"><span class="s done">✓ agent resolving</span>→<span class="s now">● running gates</span>→<span class="s">karst delivers to PR #421</span>→<span class="s">re-probe</span></div></div>
+  </div>
+  <div class="log" data-region="autofix-log"><div>09:41 <b>web #421</b> conflicts with main @ 4f2a91c → round 1/2 armed</div><div>09:44 agent resolved 2 files · gates started</div></div>
+  <div class="pr"><span class="open">OPEN</span> web <span style="color:var(--dim)">fixture-org/web/pull/421</span><span class="sp"></span><button>Merge</button></div>
+  <p class="note">Autopilot never merges. Merge stays your click.</p>
+ </div>
+</div>
+
+<div class="cap">2 · CI round, ticket overridden On (project default off)</div>
+<div class="page"><div class="box" style="padding-top:12px">
+ <div class="inside"><div class="phead">Inside ship <span class="meta">10:02:11 · 12m</span><span class="sp"></span>
+  <div class="seg" role="group" aria-label="Auto-fix for this ticket"><span class="l">Auto-fix</span><button aria-pressed="false">Project default (off)</button><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+  <div class="row run" aria-busy="true"><span class="ic r" role="img" aria-label="Auto-fix running"></span><span class="lb">Merge</span><span class="msg">Auto-fix: CI <code>lint</code> failed on <code>api #88</code> · attempt 2 of 3</span><div class="acts"><button>Stop after this round</button><button>Stop now…</button></div>
+   <div class="steps"><span class="s done">✓ host fetched log (gh)</span>→<span class="s now">● agent fixing</span>→<span class="s">gates</span>→<span class="s">push</span>→<span class="s">wait for CI</span></div></div>
+ </div></div></div>
+
+<div class="cap">3 · Budget spent → back to human approval<small>Same parked state as today (amber, Needs you). One primary action.</small></div>
+<div class="page"><div class="box" style="padding-top:12px">
+ <div class="inside"><div class="phead">Inside ship <span class="meta">10:40:40 · 38m</span><span class="sp"></span>
+  <div class="seg" role="group" aria-label="Auto-fix for this ticket"><span class="l">Auto-fix</span><button aria-pressed="true">Project default (on)</button><button aria-pressed="false">On</button><button aria-pressed="false">Off</button></div></div>
+  <div class="row wait"><span class="ic w" role="img" aria-label="Needs you">⏸</span><span class="lb">Merge</span><span class="msg">Auto-fix stopped: CI failed 3 of 3 attempts on <code>api #88</code></span></div></div>
+ <div class="banner" data-region="blocked-banner">
+  <div class="t">CI check <button class="link">test:unit</button> still fails after 3 auto attempts</div>
+  <div style="color:var(--dim)">Same failure each time. Each attempt changed <code>src/picker/base.ts</code>.</div>
+  <div class="acts"><button class="p">Approve 1 more attempt</button><button>Send CI failure with a note…</button></div>
+  <details><summary>Attempt history</summary><pre>10:05  attempt 1  edit base.ts      → test:unit fail (same)
+10:18  attempt 2  edit base.ts      → test:unit fail (same)
+10:31  attempt 3  edit base.test.ts → test:unit fail (same)</pre></details>
+ </div></div></div>
+
+<div class="cap">4 · Error: host could not fetch CI log<small>Never moves the ticket; never treated as pass.</small></div>
+<div class="page"><div class="box" style="padding-top:12px"><div class="inside">
+ <div class="row err"><span class="ic x" role="img" aria-label="Error">!</span><span class="lb">Merge</span><span class="msg">Auto-fix paused: could not read CI for <code>api #88</code> (gh: HTTP 502)</span><div class="acts"><button class="p">Retry</button></div></div>
+ <div class="row wait"><span class="ic w" role="img" aria-label="Waiting">⏸</span><span class="lb">Merge</span><span class="msg">CI status unknown for <code>web #421</code>. Auto-fix waits; not counted as pass.</span></div>
+</div></div></div>
+
+<div class="cap">5 · Settings › Workflow › Autopilot</div>
+<div class="page"><div class="set">
+ <div class="nav"><div style="font-weight:600;padding:0 8px 8px">⬡ Karst settings</div><h4>PROJECT</h4><div>General</div><div>Git</div><div>Repositories</div><h4>WORKFLOW</h4><div>Approaches</div><div>Agents</div><div>Quality</div><div class="on">Autopilot</div><h4>INTEGRATIONS</h4><div>Ticketing</div></div>
+ <div>
+  <div class="mh">Settings <span style="color:var(--dim)">&nbsp;› Autopilot</span><div class="r">All changes saved <button>Discard</button><button class="p">Save Autopilot</button></div></div>
+  <div class="intro"><h2>Autopilot</h2><p>What karst does when a shipped PR hits a problem it knows how to fix. Autopilot never merges a PR. Each ticket can override this from its ship panel.</p></div>
+  <div class="sec"><h3>Processing mode</h3><p>Project default for every ticket and its sub-tasks.</p>
+   <div class="big"><input type="checkbox" id="m" checked><div><label for="m"><b>Auto-fix mode</b></label><div class="h">On: karst runs the fix with the ticket's agent, up to the limit, then asks you. Off: every problem waits for your approval.</div></div></div></div>
+  <div class="sec"><h3>Merge conflicts</h3><p>The PR no longer merges cleanly into its base.</p>
+   <div class="f"><label for="c1">When it happens</label><select id="c1"><option>Fix automatically</option><option>Ask me</option></select></div>
+   <div class="f"><label for="c2">Max rounds per PR</label><input id="c2" type="number" value="2"><div class="h">Resets when the base branch moves.</div></div></div>
+  <div class="sec"><h3>CI failures</h3><p>A check failed on the PR.</p>
+   <div class="f"><label for="i1">When it happens</label><select id="i1"><option>Fix automatically</option><option>Ask me</option></select></div>
+   <div class="f"><label for="i2">Max attempts per PR</label><input id="i2" type="number" value="3"><div class="h">Resets when a different check fails.</div></div>
+   <div class="f"><span>Checks karst may fix</span><div class="tags"><span class="tag">lint ×</span><span class="tag">typecheck ×</span><span class="tag">test:unit ×</span><span class="tag" style="color:var(--dim)">+ add</span></div><div class="h">Any other check always asks.</div></div></div>
+  <div class="sec"><h3>Push diverged</h3><p>Someone else pushed to the ticket branch.</p>
+   <div class="f"><span>When it happens</span><span class="ro">Always asks. Another person's commits are on origin, so you choose Integrate or Overwrite remote. <button class="link">How Fix push works</button></span></div></div>
+ </div></div></div>
+</body></html>
