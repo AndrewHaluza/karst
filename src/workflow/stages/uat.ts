@@ -55,6 +55,7 @@ import { getDisabledGates, getHostGates } from '../../store/ticketGates.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import { getTicket } from '../../store/tickets.js';
+import { raiseDevelopRedAlert } from '../../store/developRed.js';
 import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
 import { unapprovedBaselines } from '../gates/baselineReview.js';
 import { detectTicketBaselines, fingerprintTicket } from '../gates/baselineReviewTicket.js';
@@ -738,6 +739,13 @@ export async function runUat(
           summary:
             exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
         }]);
+        // A drift-passed gate exits 0 but prints the shared alert line (D360).
+        try {
+          raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        } catch (err) {
+          // The alert is advisory: it must never break a finished gate run.
+          opts.debug?.(`develop-red alert failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         opts.onGateComplete?.(name, exitCode);
       },
     });

@@ -17,6 +17,7 @@ import { escalatedRefusalReason, hostRefusalRepeats } from '../gates/hostRefusal
 import { nowIso } from '../../model/time.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
+import { raiseDevelopRedAlert } from '../../store/developRed.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { baseDefinesScript } from '../gates/npmScript.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
@@ -589,6 +590,12 @@ export async function runReview(
           summary:
             exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
         }]);
+        try {
+          raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        } catch (err) {
+          // The alert is advisory: it must never break a finished gate run.
+          opts.debug?.(`develop-red alert failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         opts.onGateComplete?.(name, exitCode);
       },
     });
