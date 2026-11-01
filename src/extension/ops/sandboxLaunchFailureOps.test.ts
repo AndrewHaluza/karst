@@ -202,4 +202,31 @@ describe('sandboxLaunchFailureOptions', () => {
       expect(asked[1]!.message).toContain(DOCKER_MEMORY_HELP_TEXT);
     });
   });
+
+  it('treats a "was stopped" exit as a sandbox stop: interrupts the run, parks, names the stop, no host hint', () => {
+    const interrupted: Array<[number, string]> = [];
+    const { warns, notified, marked, opts, captureDir } = setup(undefined, {
+      interruptRun: (id, d) => interrupted.push([id, d]),
+    });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'error: sandbox "karst-x-claude" was stopped\n' });
+    expect(interrupted).toEqual([[4, 'sandbox stopped']]);
+    expect(marked).toEqual([4]);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain('sandbox was stopped');
+    expect(notified[0]).not.toContain('agentBackends');
+    expect(notified[0]).not.toContain('launch failed');
+    expect(warns.join()).not.toContain('launch failed');
+    expect(existsSync(join(captureDir, LAUNCH_FAILURE_FILE))).toBe(false);
+  });
+
+  it('offers Relaunch on a sandbox stop and runs the open-session path', async () => {
+    const relaunched: number[] = [];
+    const { opts } = setup(undefined, {
+      notify: { info: () => undefined, warn: () => undefined, error: () => Promise.resolve(), errorActions: (_m: string, a: string[]) => { expect(a).toEqual(['Relaunch']); return Promise.resolve('Relaunch'); } },
+      retrySandbox: (id) => { relaunched.push(id); },
+    });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'error: sandbox "n" was stopped' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(relaunched).toEqual([4]);
+  });
 });

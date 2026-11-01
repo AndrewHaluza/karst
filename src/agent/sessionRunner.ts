@@ -136,7 +136,7 @@ export interface SessionRunner {
    */
   hasSandbox?(): Promise<boolean>;
   /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
-  ensureWritable?(): Promise<StepOutcome>;
+  ensureWritable?(ticket?: SandboxTicketRef): Promise<StepOutcome>;
   /** Sandbox runners only: the tri-state behind `hasSandbox` (a CLI that cannot run is `unknown`, not `absent`). */
   probeSandbox?(): Promise<SandboxProbe>;
   /**

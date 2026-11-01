@@ -2,7 +2,7 @@ import type { LogError } from '../../logging/logger.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import type { BranchCandidatesLoader, DashboardPanel } from './panelTypes.js';
 import type { DashboardState } from './state.js';
-import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
+import type { GateOptions, GateOptionsLoader, GateRunOrderEntry } from './gateOptions.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { BaselineReviewRow, BaselineRowsLoader } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
@@ -13,7 +13,24 @@ export type StoredArtifactsLoader = (ticketId: number) => Promise<StoredArtifact
 
 /** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
 function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
-  return sameOptions(a.uat, b.uat) && sameOptions(a.review, b.review);
+  return (
+    sameOptions(a.uat, b.uat) &&
+    sameOptions(a.review, b.review) &&
+    sameRunOrder(a.runOrder?.uat, b.runOrder?.uat) &&
+    sameRunOrder(a.runOrder?.review, b.runOrder?.review)
+  );
+}
+
+function sameRunOrder(
+  a: readonly GateRunOrderEntry[] | undefined,
+  b: readonly GateRunOrderEntry[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.name === b[i]!.name && x.repo === b[i]!.repo && x.disabled === b[i]!.disabled)
+  );
 }
 
 function sameOptions(

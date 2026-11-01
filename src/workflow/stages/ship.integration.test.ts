@@ -9,11 +9,12 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence, openShipRun, closeShipRun, openShipRepoStep, beginShipOperationPreparation, finalizeShipOperationIntent } from '../../store/shipRuns.js';
-import { listProcessRuns } from '../../store/processRuns.js';
+import { listProcessRuns, openProcessRun } from '../../store/processRuns.js';
 import { listOpenParks } from '../../store/usageLimitParks.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { transition } from '../machine.js';
-import { shipTicket, hasCompletedShipRun, type ShipStepEvent } from './ship.js';
+import { shipTicket, hasCompletedShipRun, findLatestImplRun, type ShipStepEvent } from './ship.js';
+import { nowIso } from '../../model/time.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
@@ -1886,6 +1887,36 @@ setTimeout(() => {
       expect(body).toContain('Model: claude-sonnet-5');
       expect(body).toContain('Approach: rpi');
       expect(body).toContain('Session: sess-42');
+    });
+
+    it('PR metadata reports the core and model that actually ran impl over manifest default', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      openProcessRun(store, {
+        ticketId: id,
+        stageKey: 'impl',
+        processId: 'session',
+        attempt: 1,
+        provider: 'claude',
+        model: 'claude-sonnet-5-5',
+        startedAt: nowIso(),
+      });
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo() }, { agentProvider: 'opencode2' }),
+        },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('## Metadata');
+      expect(body).toContain('Agent: claude');
+      expect(body).toContain('Model: claude-sonnet-5-5');
     });
 
     it('a custom description template replaces the default — metadata only when the template asks for it', async () => {
@@ -3777,5 +3808,54 @@ describe('hasCompletedShipRun', () => {
     const passed = openShipRun(store, { ticketId: id, attempt: 2, pid: 1, startedAt: 't2' });
     closeShipRun(store, passed.id, 'passed', 't3');
     expect(hasCompletedShipRun(store, id)).toBe(true);
+  });
+});
+
+describe('findLatestImplRun', () => {
+  let store: Store;
+  let id: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'PROJ-3', title: 'find-impl' }).id;
+  });
+  afterEach(() => store.close());
+
+  it('is undefined when no impl process runs exist', () => {
+    expect(findLatestImplRun(store, id)).toBeUndefined();
+  });
+
+  it('returns the provider and model of the latest impl process run', () => {
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'impl',
+      processId: 'session',
+      attempt: 1,
+      provider: 'codex',
+      model: 'codex-mini',
+      startedAt: 't0',
+    });
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'impl',
+      processId: 'session',
+      attempt: 2,
+      provider: 'claude',
+      model: 'claude-sonnet-5-5',
+      startedAt: 't1',
+    });
+    // Another stage run should not be picked
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      processId: 'findings',
+      attempt: 1,
+      provider: 'opencode2',
+      model: 'opencode-default',
+      startedAt: 't2',
+    });
+
+    const run = findLatestImplRun(store, id);
+    expect(run).toEqual({ provider: 'claude', model: 'claude-sonnet-5-5' });
   });
 });

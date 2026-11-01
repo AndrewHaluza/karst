@@ -75,6 +75,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'stop-driver' };
     case 'ship-ticket':
       return { type: 'ship-ticket' };
+    case 'retry-ship':
+      return { type: 'retry-ship' };
     case 'resume-ticket':
       return { type: 'resume-ticket' };
     case 'pause-execution':

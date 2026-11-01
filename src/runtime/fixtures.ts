@@ -163,7 +163,11 @@ export function claimPortBand(base: number, span: number, dir: string): boolean 
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return false;
       if (!claimIsStale(path)) return false;
-      rmSync(path, { recursive: true, force: true });
+      try {
+        rmSync(path, { recursive: true, force: true });
+      } catch {
+        // A concurrent runner may have reclaimed or unlinked the stale path.
+      }
     }
   }
   return false;
@@ -171,7 +175,11 @@ export function claimPortBand(base: number, span: number, dir: string): boolean 
 
 /** Give a claimed window back (it was probed and found occupied). */
 export function releasePortBand(base: number, span: number, dir: string): void {
-  rmSync(join(dir, `${base}-${span}`), { recursive: true, force: true });
+  try {
+    rmSync(join(dir, `${base}-${span}`), { recursive: true, force: true });
+  } catch {
+    // Best effort
+  }
 }
 
 /**

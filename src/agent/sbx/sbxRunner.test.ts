@@ -374,3 +374,42 @@ describe('createSbxSessionRunner read-only sandbox (EROFS)', () => {
     expect(await runner.ensureWritable!()).toEqual({ ok: true });
   });
 });
+
+describe('createSbxSessionRunner damaged disk (EXT4 errors)', () => {
+  const SHA = 'a'.repeat(40);
+  const probe = { [`sbx exec ${NAME} -- sh -c for d in`]: { code: 73, stderr: 'Read-only file system' } };
+  const dmesg = { [`sbx exec ${NAME} -- sh -c dmesg`]: { stdout: 'EXT4-fs (vdj): ext4_journal_check_start: Detected aborted journal\nEXT4-fs (vde): Remounting filesystem read-only\n' } };
+  const state = (stdout: string) => ({ [`sbx exec ${NAME} -- sh -c g=`]: { stdout } });
+  const both = { 'git -C /wt/a for-each-ref': { stdout: 'refs/heads/feat/x\nrefs/karst/sandbox/feat/x\n' } };
+  const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>, log = vi.fn()) =>
+    ({ log, runner: createSbxSessionRunner({ proc: fakeSbxProcess({ ...probe, ...answers }), core: 'claude', name: NAME, existing: [NAME], log }) });
+
+  it('says remove when ext4 errors are present and all work is on the host; logs the EXT4 lines', async () => {
+    const { runner, log } = make({ ...dmesg, ...state(`${SHA}\n`), ...both });
+    const res = await runner.ensureWritable!(ticket);
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining('the sandbox disk is damaged: remove and recreate it') });
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('ext4_journal_check_start'));
+  });
+
+  it('withholds the remove advice when the tree is dirty', async () => {
+    const res = await make({ ...dmesg, ...state(`${SHA}\n M a.ts\n`), ...both }).runner.ensureWritable!(ticket);
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining('not on the host yet') });
+  });
+
+  it('withholds the remove advice when the sandbox sync ref lacks HEAD', async () => {
+    const res = await make({ ...dmesg, ...state(`${SHA}\n`), 'git -C /wt/a for-each-ref': { stdout: 'refs/heads/feat/x\n' } }).runner.ensureWritable!(ticket);
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining('not on the host yet') });
+  });
+
+  it('withholds the remove advice without a ticket to check against', async () => {
+    const res = await make({ ...dmesg }).runner.ensureWritable!();
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining('not on the host yet') });
+  });
+
+  it('keeps the plain read-only reason when dmesg has no EXT4 lines', async () => {
+    const { runner, log } = make({});
+    expect(await runner.ensureWritable!(ticket)).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
+    expect(log).not.toHaveBeenCalled();
+  });
+});

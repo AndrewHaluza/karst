@@ -59,6 +59,7 @@ import { type LogError } from '../logging/logger.js';
 import { buildTicketArtifacts } from '../model/artifacts.js';
 import { formatId } from '../model/entityId.js';
 import { type CapabilityGuard } from './insideActionHost.js';
+import { planRetryShip } from '../ui/dashboard/insideActions.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -102,7 +103,7 @@ export function makeDashboardActions(
   // with the stranded-ship recovery at activation (a ship killed by a dead
   // host resumes through the same path as the click that started it): the
   // click owns only the capability guard and the failure toast.
-  runShipSaga: (ticketId: number) => Promise<void>,
+  runShipSaga: (ticketId: number, warn?: boolean, shipOpts?: { repos?: readonly string[] }) => Promise<void>,
   // Dispatch one opaque inside action id: the panel posts only the id; the
   // dashboard manager resolves it through the ticket's current registry.
   onInsideAction: (actionId: string) => void,
@@ -285,6 +286,24 @@ export function makeDashboardActions(
         // toast lands.
         afterServerChange();
         onInsideProgress(shipClearedEvent(ticketId));
+        void vscode.window.showErrorMessage(
+          `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      });
+    },
+    // The rail's "Retry ship": re-run ship for every repo whose latest step failed,
+    // through the same per-repo saga path the Ship panel's Retry uses.
+    retryShip: () => {
+      if (!guardCapability('ship')) return;
+      const plan = planRetryShip(store, ticketId);
+      if ('reason' in plan) {
+        void vscode.window.showInformationMessage(`Retry ship: ${plan.reason}.`);
+        afterServerChange();
+        return;
+      }
+      void runShipSaga(ticketId, true, { repos: plan.repos }).catch((e) => {
+        logError('retry ship failed', e);
+        afterServerChange();
         void vscode.window.showErrorMessage(
           `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
         );

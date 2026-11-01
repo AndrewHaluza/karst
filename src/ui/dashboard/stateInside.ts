@@ -23,6 +23,7 @@ import {
   uatProcesses,
   reviewProcesses,
   type QualityProcessesInput,
+  type ResolvedGate,
   type ServiceStatusView,
 } from '../../model/inside/gates.js';
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
@@ -83,8 +84,8 @@ export interface InsideViewsInput {
   /** The ticket's server rows, projected for UAT's Services process. */
   services: readonly ServiceStatusView[];
   resolvedGates?: {
-    uat: readonly { name: string; disabled: boolean }[];
-    review: readonly { name: string; disabled: boolean }[];
+    uat: readonly ResolvedGate[];
+    review: readonly ResolvedGate[];
   };
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   repoNameFor: (repo: string) => string | undefined;

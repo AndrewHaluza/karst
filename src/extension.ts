@@ -288,6 +288,7 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
+import { interruptImplementationRun } from './store/implementationRuns.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
@@ -448,6 +449,7 @@ import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
 import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { NODE_SBX_PROCESS } from './agent/sbx/sbxProcess.js';
 import { getCpuCoreCount } from './runtime/cpuCores.js';
 import { aiCallSiteLabel } from './agent/aiCallSites.js';
 import { GettingStartedManager } from './ui/gettingStarted/panel.js';
@@ -2656,6 +2658,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
     logError,
     cpuCoreCount: getCpuCoreCount(),
+    docker: NODE_SBX_PROCESS,
+    projectRoot: () => cliEntryAndManifest(context).manifestPath ?? undefined,
   });
   resourceMonitor = resourceMonitorInstance;
   resourceMonitorInstance.start();
@@ -2910,7 +2914,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // is declared with the activation sweep, read only once a panel is open
         // (or the sweep fires). The click asks for the status-push warning
         // toast; the sweep's own call logs instead.
-        (id) => runShipSaga(id, true),
+        (id, warn, opts) => runShipSaga(id, warn ?? true, opts),
         // The inside-action seam: the panel posts only an opaque id; the
         // manager resolves it through the ticket's CURRENT snapshot registry
         // and dispatches the stored host-only target.
@@ -3511,6 +3515,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // console as it arrives.
           onGateOutput: (id, stage, gateName, chunk) =>
             gateConsole.append(id, stage, gateName, chunk),
+          // Gate processes join the live-pid registry for their lifetime (every outcome).
+          onGateSpawned: (id, gateName, pid) =>
+            resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName }),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
@@ -6533,7 +6540,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), interruptRun: (id, detail) => { interruptImplementationRun(localStore, id, new Date().toISOString(), detail); }, hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

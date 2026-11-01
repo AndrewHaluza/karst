@@ -40,6 +40,12 @@ export interface RunCommandOptions {
    * prose — every consumer sanitizes it at its own boundary.
    */
   onOutput?: (chunk: GateOutputChunk) => void;
+  /**
+   * Called once with the child's pid right after it spawns. The returned
+   * disposer runs exactly once when the process settles (completed, failed,
+   * timed out or aborted) — the host binds it to the live-pid registry.
+   */
+  onSpawned?: (pid: number) => (() => void) | void;
 }
 
 /** One decoded chunk of a gate process's live output. */
@@ -139,6 +145,8 @@ export function runProcess(
       return;
     }
 
+    const disposeRegistration =
+      child.pid !== undefined ? options.onSpawned?.(child.pid) : undefined;
     let settled = false;
     let timedOut = false;
     let aborted = false;
@@ -149,6 +157,7 @@ export function runProcess(
     const settle = (outcome: ProcessOutcome): void => {
       if (settled) return;
       settled = true;
+      if (typeof disposeRegistration === 'function') disposeRegistration();
       if (deadline !== undefined) clearTimeout(deadline);
       if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
       options.signal?.removeEventListener('abort', onAbort);

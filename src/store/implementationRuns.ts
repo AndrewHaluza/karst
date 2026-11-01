@@ -308,7 +308,7 @@ export function completeImplementationRun(store: Store, ticketId: number, endedA
  * session that ended without the marker. NEVER a pass: the run's verdict stays
  * the marker's alone. No-op (returns false) when no run is running.
  */
-export function interruptImplementationRun(store: Store, ticketId: number, at: string): boolean {
+export function interruptImplementationRun(store: Store, ticketId: number, at: string, failureDetail?: string): boolean {
   const row = store.db
     .prepare(
       `${RUN_SELECT} WHERE ticket_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1`,
@@ -329,7 +329,7 @@ export function interruptImplementationRun(store: Store, ticketId: number, at: s
           WHERE implementation_run_id = ? AND status = 'running'`,
       )
       .run(at, run.id);
-    finishProcessRun(store, run.processRunId, 'interrupted', at);
+    finishProcessRun(store, run.processRunId, 'interrupted', at, null, null, failureDetail);
   });
   apply();
   return true;

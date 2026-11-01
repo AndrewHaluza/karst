@@ -130,6 +130,8 @@ export interface RunUatOpts {
    * `GateConsole` sink). Absent → no live chunks.
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
+  /** Registers a gate process pid (returns its disposer); see `RunGatesOptions.onGateSpawned`. */
+  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
   /**
    * Live-output hook for the Tester's headless calls (Task 13): forwarded
    * verbatim into `runUatTester`. RAW untrusted CLI prose — the host that
@@ -714,6 +716,7 @@ export async function runUat(
         : {}),
       onGateStart: opts.onGateStart,
       onGateOutput: opts.onGateOutput,
+      onGateSpawned: opts.onGateSpawned,
       onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts. A host death between

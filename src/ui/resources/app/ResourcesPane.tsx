@@ -36,7 +36,7 @@ const ATTR_COLS: readonly Column<ResourceRowView>[] = [
       ),
   },
   { key: 'label', label: 'Repo / label', num: false, cellCls: 'ellipsis', sortValue: (r) => (r.label || '').toLowerCase(), cell: (r) => r.label || '—' },
-  { key: 'pid', label: 'PID', num: true, sortValue: (r) => r.pid, cell: (r) => r.pid },
+  { key: 'pid', label: 'PID', num: true, sortValue: (r) => r.pid, cell: (r) => r.pid || '—' },
   { key: 'cpu', label: 'CPU', num: true, sortValue: (r) => r.cpuPct ?? -1, cell: (r) => r.cpuPctDisplay },
   { key: 'rss', label: 'RSS', num: true, sortValue: (r) => r.rssBytes, cell: (r) => r.rssDisplay },
   { key: 'procs', label: 'Procs', num: true, sortValue: (r) => r.procCount, cell: (r) => r.procCount },
@@ -179,6 +179,18 @@ export function ResourcesPane({ state }: { state: ResourcesState }) {
         </div>
         <Panel title="Attributed to karst" count={state.rows.length}>
           <SortableTable rows={state.rows} columns={ATTR_COLS} rowKey={(r) => `${r.pid}:${r.label}:${r.ticketKey}`} ids={{ head: 'attrHead', body: 'attrBody' }} />
+          {(state.vmOverhead || state.containersDegraded) && (
+            <div className="pbody">
+              {state.vmOverhead && (
+                <div className="meta" id="vmOverhead">
+                  {`VM overhead / other · CPU ${state.vmOverhead.cpuPctDisplay} · RSS ${state.vmOverhead.rssDisplay} — container VM host cost beyond the containers above; not counted in totals.`}
+                </div>
+              )}
+              {state.containersDegraded && (
+                <div className="meta" id="containersDegraded">Container stats unavailable (docker not answering) — showing the previous reading.</div>
+              )}
+            </div>
+          )}
         </Panel>
         <Panel title="Unattributed (top 5)" count={state.unknown.length}>
           <SortableTable rows={state.unknown} columns={UNK_COLS} rowKey={(r) => String(r.pid)} tableCls="utable" ids={{ head: 'unkHead', body: 'unknownBody' }} />

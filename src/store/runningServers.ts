@@ -19,6 +19,8 @@ export interface RunningServerRow {
   startedAt: string | null;
   host: string | null;
   port: number | null;
+  /** Docker container a service runs in (`servers.container`), else null. */
+  container?: string | null;
 }
 
 /**
@@ -31,7 +33,7 @@ export interface RunningServerRow {
  */
 export function listRunningServers(store: Store, projectId?: number): RunningServerRow[] {
   let sql =
-    'SELECT s.id, s.ticket_id AS ticketId, s.repo, s.pid, s.cwd, s.started_at AS startedAt, s.host, s.port FROM servers s WHERE s.status = \'running\'';
+    'SELECT s.id, s.ticket_id AS ticketId, s.repo, s.pid, s.cwd, s.started_at AS startedAt, s.host, s.port, s.container FROM servers s WHERE s.status = \'running\'';
   const params: unknown[] = [];
   if (projectId !== undefined) {
     sql +=
