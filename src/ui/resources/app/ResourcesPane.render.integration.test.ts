@@ -123,3 +123,31 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     expect(page.text()).toContain('A & B "quoted" <b>');
   });
 });
+
+describe('Resources tab — container rows and the VM overhead row', () => {
+  const containerRow = {
+    ticketKey: 'T7', ticketTitle: 'sandboxed', label: 'sandbox claude proxy', pid: 0, cpuPct: 3,
+    cpuPctDisplay: '3%', rssBytes: 52_428_800, rssDisplay: '50.0 MB', procCount: 1, uptimeMs: null,
+    uptimeDisplay: '', attribution: 'attributable' as const,
+  };
+  async function mountWith(extra: Record<string, unknown>): Promise<RenderedResources> {
+    const page = await renderResourcesApp({ hash: '#resources' });
+    const base = fixture('busy').state;
+    await page.receive({ type: 'state', state: { ...base, rows: [...base.rows, containerRow], ...extra } } as never);
+    return page;
+  }
+
+  it('shows a container row without a pid or a Kill, and the VM row outside the totals', async () => {
+    const page = await mountWith({ vmOverhead: { cpuPctDisplay: '12%', rssDisplay: '3.0 GB' } });
+    expect(page.text()).toContain('sandbox claude proxy');
+    expect(rows(page, '#attrBody tr').some((tr) => tr.textContent!.includes('sandbox claude proxy') && tr.textContent!.includes('—') && !tr.querySelector('button'))).toBe(true);
+    expect(rows(page, '#vmOverhead')[0]!.textContent).toContain('VM overhead / other · CPU 12% · RSS 3.0 GB');
+    expect(rows(page, '#vmOverhead')[0]!.textContent).toContain('not counted in totals');
+  });
+
+  it('says so when docker stopped answering, and omits the VM row without a VM', async () => {
+    const page = await mountWith({ vmOverhead: null, containersDegraded: true });
+    expect(rows(page, '#containersDegraded')).toHaveLength(1);
+    expect(rows(page, '#vmOverhead')).toHaveLength(0);
+  });
+});

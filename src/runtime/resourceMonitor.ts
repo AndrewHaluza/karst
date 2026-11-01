@@ -15,6 +15,11 @@ import { markServerStopped } from './supervisor.js';
 import type { Store } from '../store/db.js';
 import type { LogError } from '../logging/logger.js';
 import { getCpuCoreCount } from './cpuCores.js';
+import type { SbxProcess } from '../agent/sbx/sbxProcess.js';
+import { sampleContainers, type ContainerStat } from './containerSampler.js';
+import { applyContainers, vmProcessCost } from './containerRows.js';
+import type { VmOverhead } from './resourceInventory.js';
+import type { RunningServerRow } from '../store/runningServers.js';
 
 /**
  * The single host-agnostic object that owns the two sampling lanes, the ring
@@ -51,6 +56,8 @@ export interface ResourceReading {
   skipped: number;
   /** Whether the fast lane is live right now (panel visible). */
   fastLane: boolean;
+  /** True when the last container sample failed (daemon down / timeout); the previous reading is kept. */
+  containersDegraded?: boolean;
 }
 
 export interface ResourceMonitorDeps {
@@ -65,6 +72,9 @@ export interface ResourceMonitorDeps {
   debug?: (message: string) => void;
   logError?: LogError;
   cpuCoreCount?: number;
+  /** Docker seam for the container sampler; with `projectRoot`, enables it. */
+  docker?: SbxProcess;
+  projectRoot?: () => string | undefined;
 }
 
 const noop = (): void => {};
@@ -80,6 +90,8 @@ export class ResourceMonitor {
   private readonly debug: (message: string) => void;
   private readonly logError: LogError;
   private readonly cpuCoreCount: number;
+  private readonly docker: SbxProcess | undefined;
+  private readonly projectRoot: () => string | undefined;
 
   private slowTimer: ReturnType<typeof setInterval> | undefined;
   private fastTimer: ReturnType<typeof setInterval> | undefined;
@@ -92,6 +104,12 @@ export class ResourceMonitor {
   private history: ResourceSample[] = [];
   private inventory: Inventory | null = null;
   private waste: WasteFinding[] = [];
+  private baseInventory: Inventory | null = null;
+  private servers: RunningServerRow[] = [];
+  private vm: VmOverhead | null = null;
+  private containerStats: ContainerStat[] | null = null;
+  private containersDegraded = false;
+  private sampling = false;
   private readonly registry = new Map<number, KnownPid>();
   private readonly listeners = new Set<(reading: ResourceReading) => void>();
 
@@ -106,6 +124,8 @@ export class ResourceMonitor {
     this.debug = deps.debug ?? noop;
     this.logError = deps.logError ?? noop;
     this.cpuCoreCount = deps.cpuCoreCount ?? getCpuCoreCount();
+    this.docker = deps.docker;
+    this.projectRoot = deps.projectRoot ?? (() => undefined);
   }
 
   /**
@@ -164,6 +184,7 @@ export class ResourceMonitor {
       history: [...this.history],
       skipped: this.skipped,
       fastLane: this.fastTimer !== undefined,
+      containersDegraded: this.containersDegraded,
     };
   }
 
@@ -276,32 +297,83 @@ export class ResourceMonitor {
         debug: this.debug,
       });
 
-      const ticketIds = [
-        ...new Set(
-          servers.map((s) => s.ticketId).filter((id): id is number => id !== null),
-        ),
-      ];
-      const waste = findWaste({
-        inventory,
-        servers,
-        lifecycle: listTicketLifecycle(this.store, ticketIds),
-        worktreeRoots: this.worktreeRoots(),
-        dirs: this.dirs,
-      });
-
-      this.inventory = inventory;
-      this.waste = waste;
-      this.history.push({ takenMs: snapshot.takenMs, totals: inventory.totals });
+      this.baseInventory = inventory;
+      this.servers = servers;
+      this.vm = vmProcessCost(snapshot, this.previous, this.cpuCoreCount);
+      this.compose();
+      this.history.push({ takenMs: snapshot.takenMs, totals: this.inventory!.totals });
       if (this.history.length > RING_CAPACITY) this.history.shift();
       this.previous = snapshot;
       this.debug(
-        `[resources] tick: ${inventory.attributed.length} attributed, ${waste.length} waste findings`,
+        `[resources] tick: ${this.inventory!.attributed.length} attributed, ${this.waste.length} waste findings`,
       );
       this.notify();
+      // Slow lane only: `docker stats` takes ~2 s, so it never rides the fast tick,
+      // and it is never awaited here — a slow daemon must not hold a tick.
+      if (confirmCwd) void this.refreshContainers();
     } catch (err) {
       this.logError('resource monitor tick failed', err);
     } finally {
       this.ticking = false;
+    }
+  }
+
+  /** Fold the base inventory, the last container reading and the VM cost into the published reading. */
+  private compose(): void {
+    if (this.baseInventory === null) return;
+    const root = this.projectRoot();
+    const inventory =
+      root === undefined
+        ? this.baseInventory
+        : applyContainers({
+            inventory: this.baseInventory,
+            stats: this.containerStats,
+            servers: this.servers,
+            projectRoot: root,
+            vm: this.vm,
+          });
+    const ticketIds = [
+      ...new Set(
+        [...this.servers.map((s) => s.ticketId), ...inventory.attributed.map((r) => r.ticketId)].filter(
+          (id): id is number => id !== null,
+        ),
+      ),
+    ];
+    this.inventory = inventory;
+    this.waste = findWaste({
+      inventory,
+      servers: this.servers,
+      lifecycle: listTicketLifecycle(this.store, ticketIds),
+      worktreeRoots: this.worktreeRoots(),
+      dirs: this.dirs,
+    });
+  }
+
+  /** Single-flight, bounded container sample. A failure keeps the previous reading. Never throws. */
+  async refreshContainers(): Promise<void> {
+    const root = this.projectRoot();
+    if (this.disposed || this.sampling || this.docker === undefined || root === undefined) return;
+    this.sampling = true;
+    try {
+      const sample = await sampleContainers({
+        docker: this.docker,
+        projectRoot: root,
+        serverContainers: this.servers.map((s) => s.container).filter((c): c is string => !!c),
+        cpuCoreCount: this.cpuCoreCount,
+      });
+      if (sample.ok) {
+        this.containerStats = sample.stats;
+        this.containersDegraded = false;
+      } else {
+        this.containersDegraded = true;
+        this.debug(`[resources] container sample failed (${sample.reason}) — keeping the previous reading`);
+      }
+      this.compose();
+      this.notify();
+    } catch (err) {
+      this.logError('resource monitor container sample failed', err);
+    } finally {
+      this.sampling = false;
     }
   }
 }
