@@ -479,6 +479,8 @@
         <span class="synctag hidden" id="syncTag">in sync</span>
         <span class="delta hidden" id="deltaBadge"></span>
       </span>
+      <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="revertBtn" hidden
+              title="Restore the form to how it was before the last Improve with AI">Revert</button>
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn"
               title="Improve the prompt with AI — also suggests the approach and repositories"><span aria-hidden="true">✦</span> <span id="analyzeLbl">Improve with AI</span></button>
     </span>
@@ -803,6 +805,7 @@
 
     renderGate(state.unclassified, state.repos);
     briefPersisted = state.brief ? String(state.brief) : '';
+    briefSourceState = state.briefSource || { kind: 'manual' };
     lastTicketUrl = state.ticketUrl || '';
     // A fresh fetch in this panel keeps its local timestamp over a state push
     // that has none yet.
@@ -986,6 +989,8 @@
   // Structured brief from this panel's fetch (wins over the persisted markdown).
   let briefData = null;
   let briefPersisted = '';
+  // Host-decided origin of the persisted brief (provider | draft | manual).
+  let briefSourceState = { kind: 'manual' };
   let briefFetchedAt = null;
   let briefOpen = false;
   // The #desc value before "Use as prompt"; null once #desc is edited.
@@ -1034,6 +1039,16 @@
   }
 
   // Muted hint by the comments (replaces the old footer row + its Collapse button).
+  // A brief fetched in this panel always came from the project's provider;
+  // otherwise the host-sent origin decides.
+  function effectiveBriefSource() {
+    return briefData ? { kind: 'provider', provider: currentProvider } : briefSourceState;
+  }
+  function briefFromHtml(src) {
+    if (src.kind === 'provider') return '<span class="brief-from">from</span>' + providerBadgeHtml(src.provider || currentProvider);
+    if (src.kind === 'draft') return '<span class="brief-from">from planning draft D' + esc(String(src.draftId)) + '</span>';
+    return '';
+  }
   function readOnlyHint(label) { return 'Read-only. Reply in ' + esc(label) + '.'; }
   function briefCommentsHtml(comments, label) {
     return '<div id="briefComments"><h3 class="brief-sub">Comments · ' + comments.length + '</h3>'
@@ -1059,11 +1074,13 @@
 
   function briefHeadHtml(label) {
     const fetched = briefFetchedAt ? relativeTime(briefFetchedAt) : '';
-    const url = (briefData && briefData.url) || lastTicketUrl || (srcFetched && srcFetched.url) || '';
+    const src = effectiveBriefSource();
+    const isProvider = src.kind === 'provider';
+    const url = isProvider ? ((briefData && briefData.url) || lastTicketUrl || (srcFetched && srcFetched.url) || '') : '';
     return '<div class="brief-head">'
       + '<button type="button" class="k-iconbtn" id="briefToggle" aria-expanded="' + briefOpen + '" aria-controls="briefBody"'
       + ' aria-label="Toggle brief" title="Toggle brief">' + karstIcon('chevron-down', 16) + '</button>'
-      + '<span class="brief-label">Brief</span><span class="brief-from">from</span>' + providerBadgeHtml(currentProvider)
+      + '<span class="brief-label">Brief</span>' + briefFromHtml(src)
       + (fetched ? '<span class="brief-fetched" id="briefFetched">fetched ' + esc(fetched) + '</span>' : '')
       + '<span class="grow"></span>'
       + (promptUndo ? '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefUndo">Undo</button>' : '')
@@ -1077,7 +1094,8 @@
     if (briefOpen) {
       return '<div class="brief-body" id="briefBody"><div class="brief-desc">' + esc(desc) + '</div>'
         + (atts.length ? briefAttachmentsHtml(atts) : '')
-        + (comments.length ? briefCommentsHtml(comments, label) : '<p class="brief-ro">' + readOnlyHint(label) + '</p>') + '</div>';
+        + (comments.length ? briefCommentsHtml(comments, label)
+          : effectiveBriefSource().kind === 'provider' ? '<p class="brief-ro">' + readOnlyHint(label) + '</p>' : '') + '</div>';
     }
     const all = desc.split('\n');
     const more = Math.max(0, all.length - BRIEF_EXCERPT_LINES);
@@ -1650,6 +1668,44 @@
   // on the next fetch (the one-time auto-improve) or a fresh page, exactly
   // like every other Settings value the form reads.
   let lastAnalyzed = null;
+  // Pre-Improve snapshots (newest last); each Improve pushes one, Revert pops one.
+  let improveUndo = [];
+  function syncRevertBtn() { el('revertBtn').hidden = improveUndo.length === 0; }
+  function snapshotForm() {
+    return {
+      desc: el('desc').value,
+      intent: el('intent').value,
+      codePointers: el('codePointers').value,
+      pointersHidden: el('codePointersRow').hidden,
+      repos: { ...draft.repos },
+      ticketType: draft.ticketType ?? null,
+    };
+  }
+  function revertImprove() {
+    const snap = improveUndo[improveUndo.length - 1];
+    if (!snap) return;
+    improveUndo = improveUndo.slice(0, -1);
+    el('desc').value = snap.desc;
+    el('intent').value = snap.intent;
+    el('codePointers').value = snap.codePointers;
+    el('codePointersRow').hidden = snap.pointersHidden;
+    draft.repos = { ...snap.repos };
+    draft.ticketType = snap.ticketType;
+    renderRepos(lastRepos, lastRepoBases);
+    renderTypePicker(lastTicketTypes, snap.ticketType, lastDefaultType);
+    const repos = lastRepos.filter(repoSelected).map((r) => r.service);
+    const repoReq = karstRequestId();
+    karstBeginPending(el('repoList'), repoReq);
+    post({ type: 'set-repos', repos, requestId: repoReq });
+    const typeReq = karstRequestId();
+    karstBeginPending(el('typeSelect'), typeReq);
+    post({ type: 'set-type', id: snap.ticketType ?? '', requestId: typeReq });
+    syncRevertBtn();
+    syncSubmitGate();
+    syncAnalyzeBtn();
+    el('desc').focus();
+  }
+  el('revertBtn').addEventListener('click', revertImprove);
   function currentParts() {
     return {
       brief: briefText,
@@ -1858,6 +1914,7 @@
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
     const baseRefs = collectBaseRefs();
+    improveUndo = []; syncRevertBtn();
     post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn, ...changedAnalysisFields() });
   });
 
@@ -1888,6 +1945,7 @@
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
     const baseRefs = collectBaseRefs();
+    improveUndo = []; syncRevertBtn();
     post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, ...changedAnalysisFields() });
   });
 
@@ -2602,6 +2660,8 @@
         break;
       }
       case 'analysis': {
+        improveUndo = [...improveUndo, snapshotForm()];
+        syncRevertBtn();
         // The analyzer result: the improved prompt is authoritative (it
         // replaces the raw description / the prompt the user asked to
         // analyze) and repos are preselected. The approach is a SUGGESTION only —

@@ -13,7 +13,7 @@ function baseState(over: Record<string, unknown> = {}): Record<string, unknown> 
     mode: 'edit', provider: 'clickup', title: 'Add override', key: 'T42', description: '',
     repos: [], approaches: [], agents: [], unclassified: [], attachments: [],
     sourceRef: '86c2f9qke', ticketUrl: 'https://app.clickup.com/t/86c2f9qke',
-    brief: '', briefFetchedAt: null,
+    brief: '', briefSource: { kind: 'provider', provider: 'clickup' }, briefFetchedAt: null,
     ...over,
   };
 }
@@ -373,5 +373,71 @@ describe('approach picker', () => {
     v.click('#approachBtn');
     expect(text(v, '[data-approach="quick"]')).toContain('small change');
     expect(v.query('#approachBtn')!.textContent).toContain('Superpowers');
+  });
+});
+
+describe('brief origin header (T923)', () => {
+  const head = (v: RenderHandle): string => text(v, '.brief-head');
+
+  it('names the provider for a provider brief', () => {
+    const v = open(baseState({ brief: 'ctx', briefSource: { kind: 'provider', provider: 'clickup' } }));
+    expect(head(v)).toContain('from');
+    expect(v.query('.brief-head svg')).not.toBeNull();
+    expect(v.query('#briefOpen')).not.toBeNull();
+  });
+
+  it('names the planning draft, with no provider badge, hint or Open link', () => {
+    const v = open(baseState({ mode: 'create', sourceRef: '', ticketUrl: '', brief: 'ctx', briefSource: { kind: 'draft', draftId: 7 } }));
+    expect(head(v)).toContain('from planning draft D7');
+    expect(head(v)).not.toContain('ClickUp');
+    expect(v.query('#briefOpen')).toBeNull();
+    expect(v.query('.brief-ro')).toBeNull();
+  });
+
+  it('prints a plain Brief for a manual origin', () => {
+    const v = open(baseState({ sourceRef: '', ticketUrl: '', brief: 'ctx', briefSource: { kind: 'manual' } }));
+    expect(head(v)).not.toContain('from');
+    expect(v.query('#briefOpen')).toBeNull();
+  });
+});
+
+describe('Revert after Improve with AI (T923)', () => {
+  const analysis = (prompt: string, over: Record<string, unknown> = {}) =>
+    ({ type: 'analysis', prompt, intent: 'new intent', repos: [], ...over });
+
+  it('is hidden until an analysis lands, then restores the pre-run fields', () => {
+    const v = open(baseState({ mode: 'create', sourceRef: '', description: 'original', intent: 'old intent' }));
+    const btn = v.query<HTMLButtonElement>('#revertBtn')!;
+    expect(btn.hidden).toBe(true);
+    v.query<HTMLTextAreaElement>('#desc')!.value = 'original';
+    v.receive(analysis('improved'));
+    expect(btn.hidden).toBe(false);
+    expect(v.query<HTMLTextAreaElement>('#desc')!.value).toBe('improved');
+    btn.click();
+    expect(v.query<HTMLTextAreaElement>('#desc')!.value).toBe('original');
+    expect(btn.hidden).toBe(true);
+  });
+
+  it('pops one snapshot per click across several runs', () => {
+    const v = open(baseState({ mode: 'create', sourceRef: '' }));
+    const desc = v.query<HTMLTextAreaElement>('#desc')!;
+    desc.value = 'v0';
+    v.receive(analysis('v1'));
+    v.receive(analysis('v2'));
+    const btn = v.query<HTMLButtonElement>('#revertBtn')!;
+    btn.click();
+    expect(desc.value).toBe('v1');
+    expect(btn.hidden).toBe(false);
+    btn.click();
+    expect(desc.value).toBe('v0');
+    expect(btn.hidden).toBe(true);
+  });
+
+  it('posts set-repos and set-type so an edit persists', () => {
+    const v = open(baseState({ mode: 'create', sourceRef: '' }));
+    v.receive(analysis('x', { ticketType: 'fix' }));
+    v.query<HTMLButtonElement>('#revertBtn')!.click();
+    expect(postedOfType(v, 'set-repos').length).toBeGreaterThan(0);
+    expect(postedOfType(v, 'set-type').length).toBeGreaterThan(0);
   });
 });
