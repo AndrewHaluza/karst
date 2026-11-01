@@ -246,6 +246,7 @@ export function buildFindingsPrompt(
           conformance.length > 0
             ? `Report findings about the DIFF and about what the ticket requires that the diff fails to deliver.`
             : `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
+          `Shell scripts that set up egress or a sandbox: check them against arch:AC-53 (docs/arch/agent-cores.md).`,
           ``,
         ];
   return [

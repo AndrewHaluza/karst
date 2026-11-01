@@ -4,6 +4,7 @@
 if [ -n "$HOST_UID" ] && [ "$HOST_UID" != 0 ]; then
   trap 'find /work -mindepth 1 -maxdepth 1 ! -name node_modules -exec chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" {} +' EXIT
 fi
+# shellcheck disable=SC1090 # the hook path is operator-supplied at run time
 npm ci && npm run -s build \
   && KARST_TARGET_APP_BINARY="$(npm run -s uat:host -- --print-vscode | tail -1)" npm run -s rebuild:electron \
   && { [ -z "$UAT_PRE_HOST_HOOK" ] || . "$UAT_PRE_HOST_HOOK"; } \

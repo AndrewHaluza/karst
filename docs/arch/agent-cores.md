@@ -547,3 +547,14 @@ The UI for `arch:AC-32`/`AC-33`. Opt-in: the default stays `host`; nothing here 
 - **Sync diff**: `SessionRunner.diff` fetches and runs `git diff HEAD...<sandbox ref>` (sbx: `sandbox-<name>/<branch>`; docker: the resolved sandbox sha, from the private `refs/karst/sandbox/<branch>`), merging nothing. `ops/sandboxDiffOp.ts` opens it in the read-only artifact scheme. The ST8 guard's *Open sync diff* choice now opens this instead of re-running sync.
 - **Visible fallback**: when a chosen sandbox backend resolves to host, session start warns `Karst: <ticket> running prompted on host: <reason>` (`backendSessionOptions.warn`). It stays the fail-closed host run; an explicit ticket opt-out or a host project says nothing.
 END_DOC_BLOCK: [@arch:AC-35]
+
+## [@arch:AC-53] REVIEW rule — egress and sandbox shell scripts fail closed
+
+REVIEW (judgement) rule: the review agent checks it; no linter can (`npm run lint:sh` only catches shell mistakes, not egress semantics). Applies to any script that installs network rules, drops privileges or starts a proxy for agent code (`docker/uat-host/*.sh`, sandbox entrypoints). Origin: T883 needed two review rounds to find NET_ADMIN kept, IPv6 left open, a root-to-proxy-uid setuid bypass and a premature "enforced".
+
+- **(a) Fail closed.** Any setup error leaves traffic blocked, never open. Install the deny rule first; a failed step exits non-zero or reports `enforced:false`, it never falls through to a working network.
+- **(b) IPv4 AND IPv6.** Every rule is applied to both families (`iptables` and `ip6tables`, or nftables `inet`). A family that cannot be configured is blocked, not skipped.
+- **(c) Drop undo-capabilities.** Before agent code runs, drop every capability that can undo the rule: NET_ADMIN, NET_RAW, and SETUID/SETGID wherever a uid switch would reach an exempt uid (e.g. the proxy's). Use a bounding-set drop plus no-new-privs so they cannot be regained.
+- **(d) Verify before reporting enforced.** Report `enforced` only after probing it: a blocked destination really fails (IPv4 and IPv6) and the proxy pid is alive and listening. A status written before the proxy starts is a bug.
+
+END_DOC_BLOCK: [@arch:AC-53]

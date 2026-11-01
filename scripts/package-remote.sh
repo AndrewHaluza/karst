@@ -98,7 +98,7 @@ echo "Fetching better-sqlite3 prebuild for node $NODE_VERSION $PLATFORM-$ARCH...
 # prebuild-install exits 0 whether it downloaded or reused cache, and `file` only
 # proves platform, never ABI. The cache filename carries both — assert on it.
 CACHE_TAG="node-v$ABI-$PLATFORM-$ARCH"
-if ! ls "$HOME"/.npm/_prebuilds/ 2>/dev/null | grep -q -- "$CACHE_TAG"; then
+if ! compgen -G "$HOME/.npm/_prebuilds/*$CACHE_TAG*" >/dev/null; then
   echo "No prebuild matching $CACHE_TAG in ~/.npm/_prebuilds — refusing to package." >&2
   exit 1
 fi

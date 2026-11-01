@@ -46,6 +46,7 @@ if [ "$v4_locked" = 1 ]; then
   # The host runs as root. Without this it could `iptables -F`, or setuid to the proxy's uid 65534 (which the
   # rule lets out) and reach any host. The entrypoint launches the host through this prefix, so those
   # capabilities are gone from the bounding set and cannot be regained, even through a setuid binary.
+  # shellcheck disable=SC2034 # read by entrypoint.sh, which sources this file
   HOST_LAUNCH_PREFIX="setpriv --no-new-privs --bounding-set=-net_admin,-net_raw,-setuid,-setgid"
 else
   write_status '{"enforced":false,"knownLeak":"no egress rules could be installed (iptables unavailable); github.com and other hosts were reachable"}'

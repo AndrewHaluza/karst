@@ -59,6 +59,12 @@ jobs:
       - name: Lint React app
         run: npm run lint:react
 
+      # shellcheck (info+, so SC2086 fails) on every tracked *.sh; spikes/** only get `bash -n`
+      # (throwaway scripts that source each other). CI=true makes a missing
+      # shellcheck a hard failure; the ubuntu runner preinstalls it.
+      - name: Shell lint
+        run: npm run -s lint:sh
+
       - name: Docs keyed-block lint and index
         run: npm run -s docs:check
 

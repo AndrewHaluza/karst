@@ -1,0 +1,5 @@
+# Info-level notes accepted repo-wide (the existing findings; each is noise here):
+# SC2153 env vars (HOST_GID) are assigned by the container runtime
+# SC2317 functions invoked indirectly via trap
+# SC2295, SC2012, SC2029 pre-existing in scripts/package-remote.sh, reviewed, intentional
+disable=SC2153,SC2317,SC2295,SC2012,SC2029
