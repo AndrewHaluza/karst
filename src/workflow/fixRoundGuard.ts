@@ -49,3 +49,20 @@ export async function assertFixHasNewCommit(store: Store, ticketId: number, git:
   }
   throw new Error(`cannot mark this stage done: ${NO_NEW_COMMIT_REASON}`);
 }
+
+/**
+ * Snapshot BEFORE `next` (which delivers the brief), so the agent cannot commit
+ * ahead of the snapshot. A failed snapshot is reported and never blocks the fix.
+ * `roundId` null = untracked fix, nothing to snapshot.
+ */
+export function snapshotThenResume(
+  store: Store,
+  ticketId: number,
+  roundId: number | null,
+  git: GitRunner,
+  onError: (err: unknown) => void,
+  next: () => void,
+): void {
+  const snapshot = roundId === null ? Promise.resolve() : snapshotFixRoundHeads(store, ticketId, roundId, git);
+  void snapshot.catch(onError).then(next);
+}
