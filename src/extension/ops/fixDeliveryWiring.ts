@@ -5,6 +5,7 @@ import { fixPointer, inboxRef, isSandboxChannel, messagePointer, type DeliveryCh
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
+  currentFixDelivery,
   getFixDelivery,
   openFixDeliveryForLaunch,
   supersedeFixDeliveries,
@@ -23,6 +24,7 @@ import { fixBriefForTicket } from './fixBriefForTicket.js';
 import {
   deliverLiveFix,
   eligibleFixDelivery,
+  hasPendingFixIntent,
   type FixDeliveryHost,
   type TypedSendResult,
 } from './fixDeliveryOps.js';
@@ -148,6 +150,16 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent), channel);
       return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
     },
+    writeBrief: (id, deliveryId) => {
+      return !isSandboxChannel(deps.sessionChannel(id)) || writeFixBrief(deps, id, deliveryId);
+    },
+    unsendableInbox: (id, deliveryId) => {
+      if (!isSandboxChannel(deps.sessionChannel(id))) return null;
+      const row = getFixDelivery(deps.store, deliveryId);
+      const stuck = !deps.isLive(id) || deps.agyBusy(id) || (row !== null && hasPendingFixIntent(deps.store, row.launchId));
+      if (!stuck || !writeFixBrief(deps, id, deliveryId)) return null;
+      return `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
+    },
     needsYou: (id, reason) => {
       // Only a quiet or idle agent is flagged: `running`/`waiting` are live
       // hook state that must never be overwritten with needs-you.
@@ -173,6 +185,8 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
         truncatedFooter: footer,
         at: now(),
       });
+      const row = currentFixDelivery(deps.store, ticketId);
+      if (row !== null && isSandboxChannel(deps.sessionChannel(ticketId))) writeFixBrief(deps, ticketId, row.id);
     },
     supersedeUnread: (ticketId) => {
       supersedeFixDeliveries(deps.store, ticketId, now());

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, setAgentState, setStageCurrent, updateTicketFields } from '../../store/tickets.js';
+import { createTicket, getTicket, setAgentState, setStageCurrent, updateTicketFields } from '../../store/tickets.js';
 import { upsertProject } from '../../store/projects.js';
 import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
@@ -314,6 +314,31 @@ describe('fixDeliveryWiring', () => {
       const row = store.db.prepare('SELECT id FROM fix_deliveries').get() as { id: number };
       expect(nudge).not.toHaveBeenCalled();
       expect(debug).toHaveBeenCalledWith(expect.stringContaining(`fix delivery #${row.id}: inbox write refused (bridge: inbox was a symlink`));
+    });
+
+    it('no conversation (agy never idle): the inbox file is written at creation, the pointer is unsendable, Needs you is raised once', () => {
+      state.agy = true;
+      const { paths, w } = sandboxed();
+      setAgentState(store, ticketId, 'none');
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(readFileSync(join(paths.inboxDir, `fix-${row.id}.md`), 'utf8')).toBe(row.body);
+      expect(nudge).not.toHaveBeenCalled();
+      store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', row.id);
+      w.sweep.sweep();
+      w.sweep.sweep();
+      expect(getFixDelivery(store, row.id)!.pointerFailedAt).not.toBeNull();
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+    });
+
+    it('a session id known and live: unchanged — pointer typed, ack marks it read', () => {
+      const { w } = sandboxed();
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(nudge).toHaveBeenCalledTimes(1);
+      nudge.mock.calls[0]![2]!.onTyped?.();
+      expect(ackFixDeliveryRef(store, ticketId, `fix-${row.id}`, '2026-10-19T10:00:00Z')).toBe(true);
+      expect(getFixDelivery(store, row.id)!.pointerFailedAt).toBeNull();
     });
 
     it('a host session still gets the host CLI pointer (the sandbox branch is exact)', () => {

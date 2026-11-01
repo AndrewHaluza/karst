@@ -59,6 +59,17 @@ export interface FixDeliveryHost {
   sendPointer: (ticketId: number, deliveryId: number, hooks: NudgeHooks) => TypedSendResult;
   /** Surface the ticket as needing a human; idempotent. */
   needsYou: (ticketId: number, reason: string) => void;
+  /**
+   * Sandboxed ticket: write the brief to `inbox/fix-<id>.md` now, whether or not
+   * any session is known (@arch:AC-38). False = the write was refused (the sweep retries); true when written or not sandboxed.
+   */
+  writeBrief?: (ticketId: number, deliveryId: number) => boolean;
+  /**
+   * The inbox file (relative, e.g. `inbox/fix-7.md`) a human can point a sandboxed
+   * agent at, when the typed pointer cannot be sent now (no live terminal / agy not
+   * idle); null when the ticket is not sandboxed or the pointer is sendable.
+   */
+  unsendableInbox?: (ticketId: number, deliveryId: number) => string | null;
 }
 
 /** True when the route pushes through the core's turn-end reply channel. */
@@ -151,6 +162,8 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
   });
   const row = currentFixDelivery(host.store, input.ticketId);
   if (row === null || row.id !== id) return false;
+  // A refused write (tampered inbox) leaves the row for the sweep; nothing is typed this round.
+  if (host.writeBrief?.(input.ticketId, id) === false) return true;
   const route = host.routeFor(input.ticketId);
   host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: stored for ticket ${input.ticketId}, route ${route}`);
   if (isPushRoute(route)) {

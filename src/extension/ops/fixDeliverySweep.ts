@@ -6,6 +6,8 @@ import {
   rearmFixDelivery,
   type FixDelivery,
 } from '../../store/fixDeliveries.js';
+import { DELIVERY_CHECK_MS } from './fixWatchdog.js';
+import { claimPointerFailed } from '../../store/fixDeliveries.js';
 import { activeFixRound } from '../../store/recoveryRoundsRead.js';
 import { getTicket } from '../../store/tickets.js';
 import {
@@ -35,6 +37,8 @@ export const FIX_POINTER_RESEND_MS = 5 * 60_000;
 export const FIX_UNREAD_NEEDS_YOU_MS = 15 * 60_000;
 /** A typed line claimed in flight but never typed (lost with a reload) is freed after this. */
 export const FIX_ENQUEUE_STALE_MS = 2 * 60_000;
+/** A sandboxed pointer still unsendable after this raises Needs you once (the delivery-guard window). */
+export const FIX_POINTER_UNSENDABLE_MS = DELIVERY_CHECK_MS;
 /** Minimum gap between two resend attempts for one row, in this window. */
 const RESEND_RETRY_MS = 60_000;
 
@@ -65,6 +69,27 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     }
     if (!deps.isLive(row.ticketId)) return false;
     return !hasPendingFixIntent(store, row.launchId);
+  }
+
+  /**
+   * A sandboxed brief whose typed pointer cannot be sent (no session / conversation,
+   * so `isLive` or the pending-intent gate below would skip the row for ever): after
+   * the delivery-guard window claim `pointer_failed_at` once and raise Needs you,
+   * naming the inbox file. Runs BEFORE `gated` for exactly that reason.
+   */
+  function escalateUnsendable(row: FixDelivery): void {
+    const { store } = deps;
+    if (deps.unsendableInbox === undefined) return;
+    if (row.pointerFailedAt !== null || row.pointedAt !== null || row.readAt !== null) return;
+    if (deps.isGraphTicket(row.ticketId)) return;
+    if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return;
+    if (row.recoveryRoundId !== null && activeFixRound(store, row.ticketId)?.id !== row.recoveryRoundId) return;
+    if (ageMs(row.createdAt) < FIX_POINTER_UNSENDABLE_MS) return;
+    const file = deps.unsendableInbox(row.ticketId, row.id);
+    if (file === null) return;
+    if (!claimPointerFailed(store, row.id, deps.now())) return;
+    deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unsendable — brief is in ${file}`);
+    deps.needsYou(row.ticketId, `the fix pointer could not be sent; the brief is in ${file} — paste a pointer to it`);
   }
 
   function apply(row: FixDelivery): void {
@@ -142,6 +167,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
       if (projectId === undefined) return;
       for (const row of listOpenFixDeliveries(deps.store, projectId)) {
         try {
+          escalateUnsendable(row);
           if (gated(row)) apply(row);
         } catch (err) {
           // One bad row must never starve the rest; the next tick retries.
