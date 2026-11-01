@@ -91,7 +91,7 @@
   #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
-  .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3);margin-top:var(--k-space-5)}
+  .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3);margin-top:var(--k-space-4)}
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
      secondary-text treatment `.sub` gives page-level notes, without its
      bottom margin (this rides a flex row). */
@@ -319,8 +319,6 @@
   .brief-head .k-btn--link,.brief-foot .k-btn--link,.brief-more{min-height:var(--k-control-h-sm)}
   .brief-label{font-weight:var(--k-weight-semibold)}
   .brief-from{color:var(--k-text-dim)}
-  .brief-person{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
-    padding:var(--k-space-1) var(--k-space-3)}
   .brief-body{max-height:var(--k-brief-max-h);overflow:auto;padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-excerpt{padding:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-excerpt,.brief-desc,.brief-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--k-text-md);
@@ -328,10 +326,11 @@
   .brief-more{margin:var(--k-space-0) var(--k-space-6) var(--k-space-4)}
   .brief-sub{margin:var(--k-space-6) var(--k-space-0) var(--k-space-3);font-size:var(--k-text-sm);
     color:var(--k-text-dim);font-weight:var(--k-weight-semibold)}
-  .brief-att{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;margin-bottom:var(--k-space-3);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);padding:var(--k-space-2) var(--k-space-4)}
+  /* Compact chip (prototype .m-att): icon + name + link-style Attach action. */
+  .brief-att{display:inline-flex;align-items:center;gap:var(--k-space-3);max-width:100%;margin:var(--k-space-0) var(--k-space-3) var(--k-space-3) var(--k-space-0);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-0) var(--k-space-1) var(--k-space-0) var(--k-space-3);font-size:var(--k-text-sm)}
   .brief-att svg{flex:none;color:var(--k-text-dim)}
-  .brief-att .attname{flex:1;min-width:0;overflow-wrap:anywhere}
+  .brief-att .attname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .brief-comment{display:flex;gap:var(--k-space-4);margin-bottom:var(--k-space-5)}
   .brief-avatar{flex:none;width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);
     display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-xs);
@@ -341,8 +340,7 @@
   .brief-cmain .k-btn{min-height:var(--k-control-h-sm)}
   .brief-author{font-weight:var(--k-weight-semibold)}
   .brief-date{color:var(--k-text-dim)}
-  .brief-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
-    padding:var(--k-space-4) var(--k-space-6);border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .brief-ro{margin:var(--k-space-4) var(--k-space-0) var(--k-space-0);font-size:var(--k-text-sm);color:var(--k-text-dim)}
   /* ── Layout B′ shell (prototype: docs/design/ticket-form-b-prime.html) ──────
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
@@ -383,14 +381,20 @@
   .field{display:block}
   .pullrow{margin:var(--k-space-0)}
 
-  /* Content-region label placement (RD-LADDERS2): labels sit LEFT of their field
-     only when the content region is wide enough, otherwise above. The settings
-     panel always keeps labels above. */
-  @container content (min-width: 700px){
-    .field{display:grid;grid-template-columns:minmax(0,calc(var(--k-space-8) * 7)) minmax(0,1fr);column-gap:var(--k-space-6);align-items:start}
-    .field > label{margin-top:var(--k-space-4)}
-    .field > .err{grid-column:2}
-  }
+  /* Content-region labels (prototype .m-lbl): always ABOVE a full-width field at
+     every tier, small gap. One stacked layout — no label grid. */
+  .content label{font-size:var(--k-text-sm);margin:var(--k-space-6) var(--k-space-0) var(--k-space-2)}
+  .content .field > label{margin-top:var(--k-space-6)}
+  /* Prototype .m-ta: no resize grip, tall floor; field-sizing grows it to a cap. */
+  .content textarea.k-input{resize:none;field-sizing:content;min-height:calc(var(--k-space-8) * 2.8);overflow-y:auto;
+    max-height:calc(var(--k-space-8) * 12)}
+  #desc{min-height:calc(var(--k-space-8) * 4)}
+  #codePointers{min-height:var(--k-space-9)}
+  /* Prototype .m-title: heading input, transparent, bottom border only. */
+  input.k-input#title{font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);background:transparent;
+    border:0;border-bottom:var(--k-border-w) solid var(--k-border);border-radius:0;
+    padding:var(--k-space-2) var(--k-space-0)}
+  input.k-input#title:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   @container (max-width: 999px){
     .cols{grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 14)}
@@ -433,9 +437,8 @@
   <div class="err hidden" id="err" role="alert"></div>
 
   <div class="field">
-    <label for="title" class="firstlabel">Title <span class="req">(required)</span></label>
     <div>
-      <input type="text" class="k-input" id="title" aria-label="Title" placeholder="Short summary" />
+      <input type="text" class="k-input" id="title" aria-label="Title" placeholder="Title (required)" />
       <div class="err fielderr hidden" id="titleErr" role="alert"></div>
     </div>
   </div>
@@ -454,7 +457,7 @@
         <span class="delta hidden" id="deltaBadge"></span>
       </span>
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn"
-              title="Improve the prompt with AI — also suggests the approach and repositories"><span id="analyzeLbl">Improve with AI</span></button>
+              title="Improve the prompt with AI — also suggests the approach and repositories"><span aria-hidden="true">✦</span> <span id="analyzeLbl">Improve with AI</span></button>
     </span>
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
@@ -993,17 +996,21 @@
     const b = briefData;
     if (!b) return '';
     const parts = [];
-    ['status', 'priority', 'milestone'].forEach((k) => {
+    ['status', 'priority'].forEach((k) => {
       if (b[k]) parts.push('<span class="k-chip">' + esc(clip(b[k], BRIEF_NAME_MAX_CHARS)) + '</span>');
     });
     (b.tags || []).forEach((t) => parts.push('<span class="k-chip">' + esc(clip(t, BRIEF_NAME_MAX_CHARS)) + '</span>'));
     const people = b.people || [];
-    people.slice(0, BRIEF_PEOPLE_MAX).forEach((pp) => parts.push('<span class="brief-person">' + esc(clip(pp.name, BRIEF_NAME_MAX_CHARS)) + '</span>'));
+    // Muted inline text after the pills, never pills (prototype: "· assignee X · cycle N").
+    people.slice(0, BRIEF_PEOPLE_MAX).forEach((pp) => parts.push('<span class="brief-person">· ' + (pp.role ? esc(pp.role) + ' ' : '') + esc(clip(pp.name, BRIEF_NAME_MAX_CHARS)) + '</span>'));
     if (people.length > BRIEF_PEOPLE_MAX) parts.push('<span class="brief-fact">+' + (people.length - BRIEF_PEOPLE_MAX) + '</span>');
+    if (b.milestone) parts.push('<span class="brief-fact">· ' + esc(clip(b.milestone, BRIEF_NAME_MAX_CHARS)) + '</span>');
     return parts.length ? '<div class="brief-meta" id="briefMeta">' + parts.join('') + '</div>' : '';
   }
 
-  function briefCommentsHtml(comments) {
+  // Muted hint by the comments (replaces the old footer row + its Collapse button).
+  function readOnlyHint(label) { return 'Read-only. Reply in ' + esc(label) + '.'; }
+  function briefCommentsHtml(comments, label) {
     return '<div id="briefComments"><h3 class="brief-sub">Comments · ' + comments.length + '</h3>'
       + comments.map((c, i) => {
         const full = String(c.text || '');
@@ -1016,13 +1023,13 @@
           + '<div class="brief-text">' + esc(shown) + '</div>'
           + (long ? '<button type="button" class="k-btn k-btn--link k-btn--sm" data-comment-more="' + i + '">' + (open ? 'less' : 'more') + '</button>' : '')
           + '</div></div>';
-      }).join('') + '</div>';
+      }).join('') + '<p class="brief-ro">' + readOnlyHint(label) + '</p></div>';
   }
 
   function briefAttachmentsHtml(atts) {
     return '<div id="briefAttachments"><h3 class="brief-sub">Attachments · ' + atts.length + '</h3>'
       + atts.map((a, i) => '<div class="brief-att">' + karstIcon('paperclip', 14) + '<span class="attname">' + esc(clip(a.name, BRIEF_NAME_MAX_CHARS)) + '</span>'
-        + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-brief-attach="' + i + '">Attach to ticket</button></div>').join('') + '</div>';
+        + '<button type="button" class="k-btn k-btn--link k-btn--sm" data-brief-attach="' + i + '" title="Attach to ticket">Attach</button></div>').join('') + '</div>';
   }
 
   function briefHeadHtml(label) {
@@ -1045,9 +1052,7 @@
     if (briefOpen) {
       return '<div class="brief-body" id="briefBody"><div class="brief-desc">' + esc(desc) + '</div>'
         + (atts.length ? briefAttachmentsHtml(atts) : '')
-        + (comments.length ? briefCommentsHtml(comments) : '') + '</div>'
-        + '<div class="brief-foot"><button type="button" class="k-btn k-btn--link k-btn--sm" id="briefCollapse">Collapse</button>'
-        + '<span>Read-only. Reply in ' + esc(label) + '.</span></div>';
+        + (comments.length ? briefCommentsHtml(comments, label) : '<p class="brief-ro">' + readOnlyHint(label) + '</p>') + '</div>';
     }
     const all = desc.split('\n');
     const more = Math.max(0, all.length - BRIEF_EXCERPT_LINES);
@@ -1089,8 +1094,8 @@
   function setBriefOpen(open) {
     briefOpen = open;
     renderBrief();
-    const t = open ? el('briefCollapse') : el('briefToggle');
-    if (t && !open) t.focus();
+    const t = el('briefToggle');
+    if (t) t.focus();
   }
 
   function useBriefAsPrompt() {
@@ -1107,7 +1112,6 @@
     if (!t) return;
     if (t.closest('#briefToggle')) { setBriefOpen(!briefOpen); return; }
     if (t.closest('#briefMore')) { briefOpen = true; renderBrief(); const tg = el('briefToggle'); if (tg) tg.focus(); return; }
-    if (t.closest('#briefCollapse')) { setBriefOpen(false); return; }
     if (t.closest('#briefUse')) { useBriefAsPrompt(); return; }
     if (t.closest('#briefUndo')) {
       el('desc').value = promptUndo ? promptUndo.prev : el('desc').value;

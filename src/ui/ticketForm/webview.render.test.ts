@@ -108,7 +108,8 @@ describe('ticket form — field order and headings', () => {
     const title = v.query('#title')!;
     const ref = v.query('#ref')!;
     expect(title.compareDocumentPosition(ref) & 4).toBe(4); // ref follows title
-    expect(v.query('label[for="title"]')!.textContent).toContain('(required)');
+    expect(title.getAttribute('placeholder')).toBe('Title (required)');
+    expect(v.query('label[for="title"]')).toBeNull();
     expect(v.query('label[for="ref"]')!.textContent).toContain('(optional)');
     expect(ref.getAttribute('placeholder')).toBe('e.g. PROJ-142');
     expect(v.query('[data-region="content"] #title')).toBeTruthy();
