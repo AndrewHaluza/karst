@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classifyFailure, failureText, isTimedOutFailure, type FailureClass } from './failureClass.js';
-import { UsageLimitError } from './cliFailure.js';
+import { headlessFailureError, UsageLimitError } from './cliFailure.js';
 
 describe('failureText', () => {
   it('returns String(error) when error is not an Error', () => {
@@ -151,5 +151,18 @@ describe('classifyFailure', () => {
   it('returns fatal when the 503 is past the 8 KB bound', () => {
     const msg = 'x'.repeat(20000) + ' 503 ';
     expect(classifyFailure(new Error(msg))).toBe('fatal');
+  });
+});
+
+describe('classifyFailure — Claude allowance-window limit', () => {
+  it("'hit your 5-hour limit' stderr classifies usage-limited (never retried)", () => {
+    const error = headlessFailureError({
+      tool: 'Claude',
+      provider: 'claude',
+      exitCode: 1,
+      stdout: '',
+      stderr: "You've hit your 5-hour limit · resets 8:50pm (Europe/Warsaw)",
+    });
+    expect(classifyFailure(error)).toBe('usage-limited');
   });
 });

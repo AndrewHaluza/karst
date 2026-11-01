@@ -253,6 +253,10 @@ describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
       'out of credits',
       'payment required',
       'credit balance',
+      "You've hit your 5-hour limit · resets 8:50pm (Europe/Warsaw)",
+      "You've hit your weekly limit",
+      "You've hit your Opus weekly limit",
+      "You've hit your session limit",
     ]) {
       expect(QUOTA_PHRASES.test(phrase), phrase).toBe(true);
     }
@@ -413,5 +417,41 @@ describe('isPermissionDenialDetail', () => {
     // describePermissionDenial produced.
     expect(isPermissionDenialDetail(AGY_DENIAL)).toBe(false);
     expect(isPermissionDenialDetail('')).toBe(false);
+  });
+});
+
+const FIVE_HOUR = "You've hit your 5-hour limit · resets 8:50pm (Europe/Warsaw)";
+const FIVE_HOUR_ENVELOPE = JSON.stringify({
+  is_error: true,
+  api_error_status: 429,
+  type: 'result',
+  subtype: 'success',
+  result: FIVE_HOUR,
+});
+
+describe('Claude allowance-window limit ("hit your 5-hour limit")', () => {
+  it('envelope with is_error + 429 is quota, typed UsageLimitError keeping the resets clause', () => {
+    const failure = { tool: 'Claude', provider: 'claude', exitCode: 1, stdout: FIVE_HOUR_ENVELOPE, stderr: '' };
+    expect(isQuotaExhausted(failure)).toBe(true);
+    const error = headlessFailureError(failure);
+    expect(error).toBeInstanceOf(UsageLimitError);
+    expect(error.message).toContain('Claude usage limit reached');
+    expect((error as UsageLimitError).detail).toContain('resets 8:50pm (Europe/Warsaw)');
+  });
+
+  it('plain stderr is quota too', () => {
+    const failure = { tool: 'Claude', provider: 'claude', exitCode: 1, stdout: '', stderr: FIVE_HOUR };
+    expect(isQuotaExhausted(failure)).toBe(true);
+    expect(headlessFailureError(failure)).toBeInstanceOf(UsageLimitError);
+  });
+
+  it('a bare 429 with no prose stays a plain rate limit', () => {
+    const failure = { tool: 'Claude', exitCode: 1, stdout: JSON.stringify({ is_error: true, api_error_status: 429 }), stderr: '' };
+    expect(isQuotaExhausted(failure)).toBe(false);
+    expect(headlessFailureError(failure)).not.toBeInstanceOf(UsageLimitError);
+  });
+
+  it('model stdout mentioning the phrase is not quota', () => {
+    expect(isQuotaExhausted({ tool: 'Claude', exitCode: 1, stdout: FIVE_HOUR, stderr: '' })).toBe(false);
   });
 });
