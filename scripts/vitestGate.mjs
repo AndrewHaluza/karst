@@ -110,14 +110,9 @@ async function judge(cwd, args, output) {
   for (const id of missing) writeFileSync(slot(id), JSON.stringify({ red: redNow.has(id) }));
   const verdict = classifyFailures(ids, red);
   for (const line of reportLines(verdict)) console.error(line);
-  if (verdict.drift.length > 0) {
-    try {
-      writeFileSync(join(cacheDir, 'alert.json'), JSON.stringify({ ids: verdict.drift }), { flag: 'wx' });
-      console.error(alertLine(sha, verdict.drift));
-    } catch {
-      // already alerted for this base sha
-    }
-  }
+  // Printed on every drift pass: the host dedupes per (project, base sha) when it writes the bulletin note,
+  // so a note that failed to land is retried by the next ticket instead of being lost.
+  if (verdict.drift.length > 0) console.error(alertLine(sha, verdict.drift));
   return verdict.breaks.length === 0;
 }
 

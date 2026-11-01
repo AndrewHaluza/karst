@@ -39,10 +39,10 @@ describe('vitestGate base drift', () => {
     expect(run.stderr).toContain('NOTICE: develop is red:');
     expect(run.stderr).toContain('is red on develop');
     expect(run.stderr).toContain('KARST-ALERT: develop-red');
-    // second run: cached verdict, alert deduped per base sha
+    // second run: cached verdict; the alert line repeats (the host dedupes per base sha)
     const again = gate();
     expect(again.status).toBe(0);
-    expect(again.stderr).not.toContain('KARST-ALERT');
+    expect(again.stderr).toContain('KARST-ALERT: develop-red');
     expect(again.stderr).not.toContain('re-running');
   }, 120_000);
 

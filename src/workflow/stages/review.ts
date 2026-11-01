@@ -590,7 +590,12 @@ export async function runReview(
           summary:
             exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
         }]);
-        raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        try {
+          raiseDevelopRedAlert(store, opts.ticketId, output ?? '');
+        } catch (err) {
+          // The alert is advisory: it must never break a finished gate run.
+          opts.debug?.(`develop-red alert failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         opts.onGateComplete?.(name, exitCode);
       },
     });
