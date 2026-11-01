@@ -29,17 +29,29 @@ export function captureFilesFor(dir: string, ticketId: number, eventsFile?: stri
 // $1 stderr file, $2 fast-fail marker, $3 events file, rest: the launcher. stderr is teed (still
 // reaches the terminal); on a fast non-zero exit the terminal stays open with a
 // hint until Enter, so the output does not vanish with the tab.
+/** The text sbx prints when the sandbox a session runs in was stopped: `sandbox "<name>" was stopped`. */
+export const SANDBOX_STOPPED_TEXT = 'was stopped';
+
+/** True when a launcher stderr tail reports a stopped sandbox (shown as text only, arch:AC-32). */
+export function isSandboxStopped(tail: string): boolean {
+  return /sandbox "[^"]*" was stopped/.test(tail);
+}
+
 const SCRIPT = [
   'f=$1; m=$2; e=$3; shift 3',
   'rm -f "$f" "$m"',
   // stderr still reaches the terminal; only the first MAX_CAPTURE_BYTES are kept
   // (head, then drain so the launcher never sees a broken pipe).
   `"$@" 2> >(tee >(head -c ${MAX_CAPTURE_BYTES} > "$f"; cat > /dev/null) >&2); rc=$?`,
-  // A fast failure, a pre-SessionStart exit, or a mid-session SIGKILL/OOM kill (137), is recorded in the marker.
-  `if [ "$rc" -ne 0 ] && { [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q '"SessionStart"' "$e" 2>/dev/null; }; }; then`,
+  // sbx reports a stopped sandbox on stderr; that exit is recorded even mid-session (T906).
+  'stopped=0',
+  `if [ "$rc" -ne 0 ]; then sleep 0.2; grep -q '${SANDBOX_STOPPED_TEXT}' "$f" 2>/dev/null && stopped=1; fi`,
+  // A fast failure, a pre-SessionStart exit, a mid-session SIGKILL/OOM kill (137), or a stopped sandbox, is recorded in the marker.
+  `if [ "$rc" -ne 0 ] && { [ "$stopped" -eq 1 ] || [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q '"SessionStart"' "$e" 2>/dev/null; }; }; then`,
   '  sleep 0.2', // let the capture pipe flush
   '  printf "%s\\n" "$rc" > "$m"',
-  '  printf "\\nkarst: sandbox launch failed (exit %s). Retry, or set agentBackends.<core>=host. Press Enter to close.\\n" "$rc" >&2',
+  '  if [ "$stopped" -eq 1 ]; then printf "\\nkarst: sandbox was stopped (exit %s). Relaunch from Karst. Press Enter to close.\\n" "$rc" >&2;',
+  '  else printf "\\nkarst: sandbox launch failed (exit %s). Retry, or set agentBackends.<core>=host. Press Enter to close.\\n" "$rc" >&2; fi',
   '  read -r _',
   'fi',
   // Always 0: a non-zero bash exit makes VS Code toast the whole script as argv.

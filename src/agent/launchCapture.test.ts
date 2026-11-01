@@ -9,6 +9,7 @@ import {
   formatLaunchFailure,
   readLaunchFailure,
   wrapWithStderrCapture,
+  isSandboxStopped,
 } from './launchCapture.js';
 
 const dirs: string[] = [];
@@ -47,9 +48,14 @@ describe('wrapWithStderrCapture', () => {
     expect(script).not.toContain('exit "$rc"');
   });
 
-  it('records the marker for a fast failure, a pre-SessionStart failure, and for a mid-session 137 kill', () => {
+  it('detects a stopped sandbox from stderr', () => {
+    expect(isSandboxStopped('error: sandbox "karst-0ea-claude" was stopped\n')).toBe(true);
+    expect(isSandboxStopped('--clone is not supported')).toBe(false);
+  });
+
+  it('records the marker for a fast failure, a pre-SessionStart failure, for a mid-session 137 kill, and for a stopped sandbox', () => {
     const script = wrapWithStderrCapture(placed, captureFilesFor('/art', 7)).shellArgs[1]!;
-    expect(script).toContain('if [ "$rc" -ne 0 ] && { [ "$SECONDS" -lt 10 ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q \'"SessionStart"\' "$e" 2>/dev/null; }; }; then');
+    expect(script).toContain('if [ "$rc" -ne 0 ] && { [ "$stopped" -eq 1 ] || [ "$SECONDS" -lt 10 ] || [ "$rc" -eq 137 ] || { [ -n "$e" ] && ! grep -q \'"SessionStart"\' "$e" 2>/dev/null; }; }; then');
   });
 
   it('keeps the window and tail constants bounded', () => {
