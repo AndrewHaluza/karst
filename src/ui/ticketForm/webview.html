@@ -1809,7 +1809,7 @@
     if (e.key === 'ArrowDown' && menuOpen) {
       e.preventDefault();
       const opt = el('searchMenu').querySelector('.searchopt');
-      if (opt) opt.focus({ preventScroll: true });
+      if (opt) opt.focus();
       return;
     }
     if (e.key !== 'Enter') return;
