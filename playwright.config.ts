@@ -27,11 +27,16 @@ import { defineConfig, devices } from '@playwright/test';
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
+// A project-level grep overrides the global one. The layout chain must never be
+// filtered: a scoped run would drop the teardown and its ledger verdict (false green).
+const ALL_TITLES = /.*/;
+
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
 
-  // Local gates narrow the sweep to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
+  // Local gates narrow the screenshot projects to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
+  // The layout projects ignore it (ALL_TITLES).
   ...(process.env['KARST_UI_GREP'] ? { grep: new RegExp(process.env['KARST_UI_GREP']) } : {}),
 
   snapshotPathTemplate:
@@ -105,17 +110,20 @@ export default defineConfig({
     // writes them (never fails on geometry), teardown renders the ledger verdict.
     {
       name: 'layout-setup',
+      grep: ALL_TITLES,
       testMatch: '**/layout.setup.ts',
       teardown: 'layout-teardown',
     },
     {
       name: 'layout',
+      grep: ALL_TITLES,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'layout-teardown',
+      grep: ALL_TITLES,
       testMatch: '**/layout.teardown.ts',
     },
   ],
