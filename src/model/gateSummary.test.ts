@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   summarizeGateFailure,
+  failingTestIds,
   MAX_GATE_SUMMARY_LINES,
   MAX_GATE_SUMMARY_CHARS,
 } from './gateSummary.js';
@@ -44,5 +45,33 @@ describe('summarizeGateFailure', () => {
   it('returns the whole output when it fits within the bounds', () => {
     const out = 'one\ntwo';
     expect(summarizeGateFailure(out)).toBe('one\ntwo');
+  });
+});
+
+describe('vitest output', () => {
+  const E = '\u001b';
+  const out = [
+    `${E}[31m FAIL ${E}[39m src/a.test.ts > suite > does a thing`,
+    `${E}[31m FAIL ${E}[39m src/a.test.ts > suite > does a thing`,
+    ...Array.from({ length: 30 }, (_, i) => `${E}[2mnoise ${i}${E}[22m`),
+    `${E}[2m  324|${E}[22m expect(proc.calls).toEqual([])`,
+    ' Test Files  1 failed (1)',
+  ].join('\n');
+
+  it('extracts deduped failing ids without ESC', () => {
+    expect(failingTestIds(out)).toEqual(['src/a.test.ts > suite > does a thing']);
+  });
+
+  it('leads with FAIL lines, strips ESC, respects the cap', () => {
+    const s = summarizeGateFailure(out)!;
+    expect(s.startsWith('FAIL src/a.test.ts > suite > does a thing\n')).toBe(true);
+    expect(s).toContain('Test Files');
+    expect(s).not.toContain(E);
+    expect(s.length).toBeLessThanOrEqual(MAX_GATE_SUMMARY_CHARS);
+  });
+
+  it('leaves non-vitest output as a plain tail', () => {
+    expect(failingTestIds('FAIL x > y\nboom')).toEqual(['x > y']);
+    expect(summarizeGateFailure('FAIL x > y\nboom')).toBe('FAIL x > y\nboom');
   });
 });
