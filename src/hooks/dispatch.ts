@@ -636,7 +636,7 @@ export function dispatchHook(
       tracker.recordToolUse(ticketId, payload.tool_name);
       if (
         payload.run_in_background === true &&
-        lifecycleProvider !== undefined &&
+        lifecycleProvider !== null &&
         BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name)
       ) {
         tracker.markBackgroundWork(ticketId);
