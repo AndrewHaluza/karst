@@ -60,6 +60,90 @@ function stringField(record: Record<string, unknown>, key: string): string {
   return typeof record[key] === 'string' ? (record[key] as string) : '';
 }
 
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
+const FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/;
+
+interface DisplayFinding {
+  readonly severity: string;
+  readonly title: string;
+  readonly file: string;
+  readonly line: string;
+  readonly detail: string;
+}
+
+function toDisplayFinding(value: unknown): DisplayFinding | null {
+  const rec = asRecord(value);
+  if (rec === null) return null;
+  const severity = stringField(rec, 'severity').trim().toLowerCase();
+  const title = stringField(rec, 'title').trim();
+  if (severity.length === 0 || title.length === 0) return null;
+  const rawLine = rec['line'];
+  const line =
+    typeof rawLine === 'number' && Number.isFinite(rawLine)
+      ? String(rawLine)
+      : typeof rawLine === 'string'
+        ? rawLine.trim()
+        : '';
+  return { severity, title, file: stringField(rec, 'file').trim(), line, detail: stringField(rec, 'detail').trim() };
+}
+
+/** The valid findings of a JSON document that is a findings container, or [] when it is not one. */
+function findingsOf(json: string): DisplayFinding[] {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    const list = Array.isArray(parsed) ? parsed : asRecord(parsed)?.['findings'];
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((item) => {
+      const f = toDisplayFinding(item);
+      return f === null ? [] : [f];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function renderFindings(findings: readonly DisplayFinding[]): string {
+  const counts = new Map<string, number>();
+  for (const f of findings) counts.set(f.severity, (counts.get(f.severity) ?? 0) + 1);
+  const rank = (sev: string): number => {
+    const i = (SEVERITY_ORDER as readonly string[]).indexOf(sev);
+    return i < 0 ? SEVERITY_ORDER.length : i;
+  };
+  const header = [...counts.entries()]
+    .sort((a, b) => rank(a[0]) - rank(b[0]))
+    .map(([sev, n]) => `${n} ${sev}`)
+    .join(', ');
+  const blocks = findings.map((f) => {
+    const rows = [`[${f.severity.toUpperCase()}] ${f.title}`];
+    if (f.file.length > 0) rows.push(`  at ${f.file}${f.line.length > 0 ? `:${f.line}` : ''}`);
+    if (f.detail.length > 0) rows.push(`  ${f.detail.replace(/\r?\n/g, '\n  ')}`);
+    return rows.join('\n');
+  });
+  return `── Findings: ${header} ──\n\n${blocks.join('\n\n')}`;
+}
+
+/**
+ * Render an agent message that is (or contains, in a ```json fence) a findings
+ * container as a readable block; any other text is returned unchanged. Display
+ * only: it shares no code with the findings parser (agent/ must not import
+ * workflow/ — MAP-03). Total, never throws.
+ */
+export function renderAgentMessage(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const findings = findingsOf(trimmed);
+    if (findings.length > 0) return renderFindings(findings);
+  }
+  const fence = FENCE.exec(text);
+  if (fence !== null) {
+    const findings = findingsOf((fence[1] ?? '').trim());
+    if (findings.length > 0) {
+      return `${text.slice(0, fence.index)}${renderFindings(findings)}${text.slice(fence.index + fence[0].length)}`;
+    }
+  }
+  return text;
+}
+
 /**
  * Provider-agnostic streaming line splitter. `append` renders every COMPLETE
  * line of the chunk and returns the concatenation ('' when nothing rendered);
@@ -111,7 +195,7 @@ export function opencodeConsoleLine(line: string): string {
     case 'text': {
       const part = asRecord(event!['part']);
       const text = part === null ? '' : stringField(part, 'text');
-      return text.length === 0 ? '' : `${text}\n`;
+      return text.length === 0 ? '' : `${renderAgentMessage(text)}\n`;
     }
     case 'tool_use': {
       const part = asRecord(event!['part']);
@@ -167,7 +251,7 @@ export function codexConsoleLine(line: string): string {
       const itemType = stringField(item, 'type');
       if (itemType === 'agent_message' || itemType === 'message') {
         const text = stringField(item, 'text');
-        return text.length === 0 ? '' : `${text}\n`;
+        return text.length === 0 ? '' : `${renderAgentMessage(text)}\n`;
       }
       if (itemType === 'local_shell_call') {
         const command = stringField(item, 'command');
@@ -211,7 +295,8 @@ export function claudeConsoleLine(line: string): string {
     if (envelope !== null) {
       const result = envelope['result'];
       if (typeof result !== 'string' || result.length === 0) return '';
-      return result.endsWith('\n') ? result : `${result}\n`;
+      const rendered = renderAgentMessage(result);
+      return rendered.endsWith('\n') ? rendered : `${rendered}\n`;
     }
   } catch {
     // Unstructured CLI output remains useful diagnostic evidence.
