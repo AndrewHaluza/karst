@@ -32,7 +32,18 @@ async function mergeBase(cwd) {
 function run(cmd, args, cwd) {
   return new Promise((done) => {
     let out = '';
-    const child = spawn(cmd, args, { cwd, env: process.env });
+    const binDir = join(cwd, 'node_modules', '.bin');
+    const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+    let execCmd = cmd;
+    let execArgs = args;
+    if (cmd === 'npx' && args.length > 0) {
+      const localBin = resolve(cwd, 'node_modules', '.bin', args[0]);
+      if (existsSync(localBin)) {
+        execCmd = localBin;
+        execArgs = args.slice(1);
+      }
+    }
+    const child = spawn(execCmd, execArgs, { cwd, env });
     const sink = (stream) => (chunk) => {
       out += chunk;
       stream.write(chunk);
