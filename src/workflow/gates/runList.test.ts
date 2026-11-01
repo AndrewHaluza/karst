@@ -360,3 +360,50 @@ describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
     expect(out.results[0]!.output).toBe('exited 3 with no output (command: node -e process.exit(3))');
   });
 });
+
+describe('runGateList port slot', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  it('runs an integration gate under a leased KARST_TEST_PORT_OFFSET', async () => {
+    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
+    const out = await runGateList(
+      [{ name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true }],
+      process.cwd(),
+      {
+        now,
+        runProcess: async (cmd, args) => {
+          seen.push({ cmd, args });
+          return { kind: 'completed', exitCode: 0, output: '' };
+        },
+      },
+    );
+    expect(out.kind).toBe('ran');
+    expect(seen[0]!.cmd).toBe('env');
+    expect(seen[0]!.args[0]).toMatch(/^KARST_TEST_PORT_OFFSET=\d+$/);
+    expect(seen[0]!.args.slice(1)).toEqual(['npm', 'run', 'test:integration']);
+  });
+  it('leaves a non-integration gate untouched', async () => {
+    const seen: string[] = [];
+    await runGateList(
+      [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: null, required: true }],
+      process.cwd(),
+      { now, runProcess: async (cmd) => (seen.push(cmd), { kind: 'completed', exitCode: 0, output: '' }) },
+    );
+    expect(seen).toEqual(['npm']);
+  });
+});
+
+describe('runGateList port slot — review fixes', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gate = { name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true, onResourceKill: 'host' as const };
+  it('keeps the leased offset on the resource-kill host fallback', async () => {
+    const calls: Array<{ who: string; args: readonly string[] }> = [];
+    const kill = { kind: 'completed' as const, exitCode: 137, output: '' };
+    await runGateList([gate], process.cwd(), {
+      now,
+      runProcess: async (_c, args) => (calls.push({ who: 'run', args }), kill),
+      hostProcess: async (_c, args) => (calls.push({ who: 'host', args }), { kind: 'completed' as const, exitCode: 0, output: '' }),
+    });
+    const host = calls.find((c) => c.who === 'host')!;
+    expect(host.args[0]).toMatch(/^KARST_TEST_PORT_OFFSET=\d+$/);
+  });
+});

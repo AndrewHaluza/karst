@@ -3,7 +3,8 @@ import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
 import { runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
-import { runProcess, type GateOutputChunk, type GateProcessRunner } from './run.js';
+import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
+import { runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
 /**
  * Run a resolved gate list sequentially in one worktree.
@@ -172,22 +173,46 @@ export async function runGateList(
       onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
-    let outcome = await (onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess))(gate.command, gate.args, cwd, runOpts);
+    // Integration suites own fixed port bands; concurrent gates (other tickets'
+    // worktrees) must not share one, so each leases a slot and runs shifted.
+    let lease: PortSlotLease | undefined;
+    if (isIntegrationGate(gate)) {
+      try {
+        lease = await leasePortSlot({ signal: opts.signal, onDebug });
+      } catch (err) {
+        // Only a Stop is a stop; any other lease failure is an environment fault
+        // and must surface, not masquerade as the user cancelling.
+        if (opts.signal?.aborted) return { kind: 'stopped', results };
+        throw err;
+      }
+    }
+    let outcome: ProcessOutcome;
     let resourceKilled: string | undefined;
+    try {
+    const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
+    // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
+    const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
+      extraEnv.length + offsetEnv.length > 0
+        ? run('env', [...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
+        : run(gate.command, gate.args, cwd, runOpts);
+    outcome = await launch(onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess));
     if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
       // SIGKILL with no failing test: memory pressure, an environment fault (arch:GATE-CAPABILITY).
       const policy = gate.onResourceKill ?? 'retry-then-park';
       const sandboxed = opts.sandboxed === true && !onHost;
       onDebug?.(`[gate] ${gate.name}: killed (exit 137, no failing test) — onResourceKill=${policy}`);
       if (policy === 'host' && opts.hostProcess && !onHost) {
-        outcome = await opts.hostProcess(gate.command, gate.args, cwd, runOpts);
+        outcome = await launch(opts.hostProcess);
       } else if (policy !== 'park') {
         const run = onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess);
-        outcome = await run('env', [`${GATE_MAX_WORKERS_ENV}=1`, gate.command, ...gate.args], cwd, runOpts);
+        outcome = await launch(run, [`${GATE_MAX_WORKERS_ENV}=1`]);
       }
       if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
         resourceKilled = resourceKillReason(gate.name, sandboxed);
       }
+    }
+    } finally {
+      await lease?.release();
     }
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };
@@ -232,4 +257,9 @@ export async function runGateList(
     opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output);
   }
   return { kind: 'ran', results };
+}
+
+/** Gates running the `*.integration.test.*` suites, whose fixed port bands must not be shared across worktrees. */
+function isIntegrationGate(gate: ResolvedGate): boolean {
+  return /integration/.test([gate.name, gate.script ?? '', ...gate.args].join(' '));
 }

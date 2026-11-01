@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { freePortWindow, removeTempDir } from './fixtures.js';
+import { shiftBand } from './portSlots.js';
 import { stopServer } from './supervisor.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import { worktreeRegisteredAt } from './worktree.js';
@@ -36,7 +37,8 @@ createServer((req, res) => {
 }).listen(port);
 `;
 
-let portCounter = 28100;
+const baseBand = shiftBand(28100, 28200);
+let portCounter = baseBand.from;
 
 /** Build a `develop`-then-`feature` repo. `origin` null → a repo with NO remote. */
 function buildRepo(dir: string, origin: string | null): void {
@@ -149,7 +151,7 @@ describe('baseline pool', () => {
     // a parallel worker — and the service then dies of EADDRINUSE. The ceiling
     // keeps a blocked window THROWING loudly ("leaked servers") rather than
     // sliding into supervisor's, portConflict's or spin.integration's band.
-    portCounter = await freePortWindow(20, portCounter, 28200);
+    portCounter = await freePortWindow(20, portCounter, baseBand.ceiling);
   });
   beforeEach(() => {
     store = openStore(':memory:');

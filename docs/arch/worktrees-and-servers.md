@@ -148,7 +148,7 @@ Health for a container defaults to `tcp://<host>:<port>` rather than `/health` (
 END_DOC_BLOCK: [@arch:CONTAINER]
 
 ## [@arch:PORTS] A port is allocated only if nothing karst cannot reclaim is on it, and readiness can be made to prove IDENTITY
-covers: src/runtime/portProbe.ts#portsToAvoid, src/runtime/health.ts#waitForHealth, src/runtime/health.ts#HealthForeignInstanceError, src/resolver/allocator.ts#makePortAllocator
+covers: src/runtime/portProbe.ts#portsToAvoid, src/runtime/health.ts#waitForHealth, src/runtime/health.ts#HealthForeignInstanceError, src/resolver/allocator.ts#makePortAllocator, src/runtime/portSlots.ts#leasePortSlot, src/runtime/portSlots.ts#shiftBand
 
 `port_allocations` answers what karst handed out, never what is BOUND, so a leaked server (or anything started outside karst) held a port the allocator called free and the spin that drew it died of EADDRINUSE inside the child — surfacing only as a health check that never passed. `runtime/portProbe.ts` probes every window the allocator may draw from (`allocationRanges`: the manifest range plus each hot service's own override) and `portsToAvoid` seeds `makePortAllocator`'s used-set with the occupied ports karst could NOT reclaim. The distinction is the design: a dev server of a hot repository stays ALLOCATABLE, because `startHot` attributes and kills it and the service starts on that same port — steering around it instead would leave the leak holding a port of the range for as long as it lives. Strangers, baseline servers, and unidentifiable listeners are steered around, via the same `decideReclaim` rule that will run at spawn. Every part of it is best-effort — bounded concurrency, an overall budget, every failure read as "allocatable" — because a probe that cannot answer must never be the reason a spin does not start.
 
@@ -157,6 +157,21 @@ A health gate that fails says what the PORT showed, not only what karst watched:
 Reachability is not identity. Without `service.healthIdentity`, ANY 2xx on the port passes — including one from another worktree's service that holds it, which is a wrong PASS: the stack comes up green wired to another branch's process, and `dependsOn` then binds the peers to it too. With the flag, `startHot` mints one token per START (never per service or ticket — a restart must not be satisfiable by the process the previous run left on the port), passes it as `KARST_INSTANCE_TOKEN` in the spawn env, and `waitForHealth` accepts only a response echoing it in `X-Karst-Instance`. A DIFFERENT token fails immediately (`HealthForeignInstanceError` — waiting cannot make another process go away); an ABSENT one keeps polling, because a service still booting has not read the env var yet and a bare 200 must never be read as ours.
 
 The same probe/allocator pair backs a dashboard row Start whose target has NO `port_allocations` row — a spin rollback wiped it, or the service was added after the spin. Rather than refuse, `startTicketService` draws ONLY the missing slots, records them, starts the target, then restarts every RUNNING hot unit that transitively dependsOn it, in `startOrder`, so each dependent's env carries the new peer URL. A recorded port never moves, and a stopped dependent keeps its recorded port for its next start. The recorded path — every port present — never probes, never moves a port, and never restarts a dependent.
+### Integration-suite port bands and per-gate offsets
+
+The `*.integration.test.*` suites each own a fixed fixture band below Linux' ephemeral range (32768). Bands separate sibling suites inside ONE vitest run, but every worktree on the host used the same bands, and karst runs several tickets' integration gates at once: `freePortWindow` probes, the child binds later, and two processes on one band race (the spin/supervisor "flakes").
+
+`runtime/portSlots.ts` fixes it. Suites take their band from `shiftBand(from, ceiling)`, which adds `KARST_TEST_PORT_OFFSET` (default 0, so CI and local runs are unchanged; an invalid value throws; a shift into 32768+ throws). The gate runner (`runGateList`) leases a slot via `leasePortSlot` for any integration gate and runs it as `env KARST_TEST_PORT_OFFSET=<offset> …`. A slot is a claim directory in `$TMPDIR/karst-gate-port-slots` naming the owner pid; a dead owner (kill, OOM, crash) is reclaimed, a live one is never shared. When all slots are held the gate WAITS (logged) and stops cleanly on abort. The slot is released in a `finally`.
+
+| suite | offset 0 band | width |
+| --- | --- | --- |
+| supervisor | [28000, 28100) | 100 |
+| baseline | [28100, 28200) | 100 |
+| portConflict | [28200, 28600) (uses `listen(0)`) | 400 |
+| spin | [28600, 29000) | 400 |
+
+One slot is 1000 ports wide (`PORT_SLOT_STRIDE`), so 4 slots fit under 32768: offsets 0, 1000, 2000, 3000 (top band ends 32000). More concurrent gates wait rather than share.
+
 END_DOC_BLOCK: [@arch:PORTS]
 
 ## [@arch:ORPHANS] An orphaned process holding a karst port is reaped from the process, not from a row

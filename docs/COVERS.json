@@ -479,6 +479,12 @@
   "src/runtime/portProbe.ts#portsToAvoid": [
     "arch:PORTS"
   ],
+  "src/runtime/portSlots.ts#leasePortSlot": [
+    "arch:PORTS"
+  ],
+  "src/runtime/portSlots.ts#shiftBand": [
+    "arch:PORTS"
+  ],
   "src/runtime/pullBase.ts#pullBaseRef": [
     "arch:BASE-PULL"
   ],
