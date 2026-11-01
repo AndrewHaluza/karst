@@ -80,6 +80,22 @@ describe('ensureClone', () => {
     expect(temp.removed).toEqual(['/tmp/k1']);
   });
 
+  it('ships the base ref in the first bundle and pins it as refs/karst/base/<base>', async () => {
+    const proc = fakeDockerProcess({ [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C /work/repo rev-parse`]: { code: 128 } });
+    await expect(ensureClone(ctx(proc), { ...input, baseRef: 'develop' })).resolves.toEqual({ ok: true });
+    expect(proc.calls.map((c) => c.args)).toContainEqual(['-C', WT, 'bundle', 'create', '/tmp/k1/in.bundle', 'feat/x', 'refs/remotes/origin/develop']);
+    expect(lines(proc).at(-1)).toContain('git -C /work/repo fetch -q /bundle/in.bundle +refs/remotes/origin/develop:refs/karst/base/develop');
+  });
+
+  it('bundles only the branch when the host has no base ref', async () => {
+    const proc = fakeDockerProcess({
+      [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C /work/repo rev-parse`]: { code: 128 },
+      'git -C /w t rev-parse --verify': { code: 1 },
+    });
+    await ensureClone(ctx(proc), { ...input, baseRef: 'develop' });
+    expect(proc.calls.map((c) => c.args)).toContainEqual(['-C', WT, 'bundle', 'create', '/tmp/k1/in.bundle', 'feat/x']);
+  });
+
   it('omits an unset identity', async () => {
     const proc = fakeDockerProcess({ [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 } });
     await ensureClone(ctx(proc), input);

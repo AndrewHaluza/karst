@@ -18,15 +18,26 @@ const git = async (cwd, args) => {
   }
 };
 
-const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main'];
+const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main', 'refs/karst/base/develop', 'refs/karst/base/main'];
+
+/** KARST_BASE_REF=X → X, the sandbox clone's refs/karst/base/X, then origin/X; unset → the fixed candidates. */
+function baseRefCandidates(baseRef) {
+  return baseRef ? [baseRef, `refs/karst/base/${baseRef}`, `origin/${baseRef}`] : BASE_CANDIDATES;
+}
 
 async function mergeBase(cwd) {
-  for (const ref of process.env.KARST_BASE_REF ? [process.env.KARST_BASE_REF] : BASE_CANDIDATES) {
+  const tried = baseRefCandidates(process.env.KARST_BASE_REF);
+  for (const ref of tried) {
     const out = await git(cwd, ['merge-base', ref, 'HEAD']);
-    if (out) return out.trim();
+    if (out) return { sha: out.trim(), tried };
   }
-  return null;
+  return { sha: null, tried };
 }
+
+const skip = (reason) => {
+  console.error(`base check skipped: ${reason}`);
+  return false;
+};
 
 /** Run a command, teeing its output to ours while capturing it. */
 function run(cmd, args, cwd) {
@@ -97,11 +108,11 @@ async function judge(cwd, args, output) {
     console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
     return false;
   }
-  const sha = await mergeBase(cwd);
-  if (sha === null) return false;
+  const { sha, tried } = await mergeBase(cwd);
+  if (sha === null) return skip(`no merge base for ${tried.join(', ')}`);
   const changed = await git(cwd, ['diff', '--name-only', '-z', sha]);
   const untracked = await git(cwd, ['ls-files', '-o', '--exclude-standard', '-z']);
-  if (changed === null || untracked === null) return false;
+  if (changed === null || untracked === null) return skip('git diff failed');
   const touched = new Set(`${changed}\0${untracked}`.split('\0').filter(Boolean));
   const plan = planBaseCheck(ids, touched);
   if (plan.kind !== 'run') {
@@ -109,14 +120,14 @@ async function judge(cwd, args, output) {
     return false;
   }
   const common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim();
-  if (!common) return false;
+  if (!common) return skip('no git common dir');
   const cacheDir = join(common, 'karst-base-red', sha);
   mkdirSync(cacheDir, { recursive: true });
   const slot = (id) => join(cacheDir, `${cacheKey(common, sha, id)}.json`);
   const cached = new Map(ids.map((id) => [id, readJson(slot(id))]));
   const missing = ids.filter((id) => cached.get(id) === null);
   const redNow = missing.length > 0 ? await redAtBase(cwd, sha, args, [...new Set(missing.map(fileOfId))]) : new Set();
-  if (redNow === null) return false;
+  if (redNow === null) return skip('could not re-run the failing tests at the merge base');
   const red = new Set(ids.filter((id) => (cached.get(id) ? cached.get(id).red : redNow.has(id))));
   for (const id of missing) writeFileSync(slot(id), JSON.stringify({ red: redNow.has(id) }));
   const verdict = classifyFailures(ids, red);
