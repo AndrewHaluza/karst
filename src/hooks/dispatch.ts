@@ -66,6 +66,12 @@ export interface HookPayload {
    */
   file_path?: string;
   /**
+   * `tool_input.run_in_background` of a `PostToolUse`, forwarded only when it
+   * is a boolean (anything else is dropped at the boundary, never coerced).
+   * True means the tool launched work that outlives the turn.
+   */
+  run_in_background?: boolean;
+  /**
    * Claude's `Stop` re-entry flag, forwarded by the shared bridge. True means
    * the agent is CONTINUING from a prior block, so the mail reply must not fire
    * (and must not spend the batch's one-block budget).
@@ -145,6 +151,12 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     typeof (toolInput as Record<string, unknown>).file_path === 'string'
       ? ((toolInput as Record<string, unknown>).file_path as string)
       : undefined;
+  const runInBackground =
+    typeof toolInput === 'object' &&
+    toolInput !== null &&
+    typeof (toolInput as Record<string, unknown>).run_in_background === 'boolean'
+      ? ((toolInput as Record<string, unknown>).run_in_background as boolean)
+      : undefined;
   return {
     hook_event_name: o.hook_event_name as string | undefined,
     cwd: o.cwd as string | undefined,
@@ -154,6 +166,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     ...(usage !== undefined ? { usage } : {}),
     ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
     ...(filePath !== undefined ? { file_path: filePath } : {}),
+    ...(runInBackground !== undefined ? { run_in_background: runInBackground } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
   };
 }
@@ -177,6 +190,23 @@ const SHELL_TOOL_NAME: Record<AgentProvider, string | null> = {
   opencode: null,
   opencode2: 'shell',
   antigravity: null,
+};
+
+/**
+ * The tools whose `run_in_background:true` input means "this turn launched
+ * work that will re-invoke the agent when it finishes". Only claude has a
+ * VERIFIED flag (T885 transcript: Bash with run_in_background, then a turn end
+ * while the completion notice was pending). codex, opencode, opencode2 and
+ * antigravity stay empty per @arch:AC-08: their bridges forward native tool
+ * names/inputs verbatim and none has a verified background flag, so reading
+ * one would be a guess. Closing an entry means verifying that core's real input.
+ */
+const BACKGROUND_TOOL_NAMES: Record<AgentProvider, ReadonlySet<string>> = {
+  claude: new Set(['Bash', 'Agent']),
+  codex: new Set(),
+  opencode: new Set(),
+  opencode2: new Set(),
+  antigravity: new Set(),
 };
 
 /**
@@ -241,6 +271,17 @@ export class TurnTracker {
   private readonly toolCounts = new Map<number, number>();
   private readonly lastToolNames = new Map<number, string>();
   private readonly nudges = new Map<number, MarkerNudgeCandidate>();
+  private readonly backgroundTurns = new Set<number>();
+
+  /** The current turn launched background work that will re-invoke the agent. */
+  markBackgroundWork(ticketId: number): void {
+    this.backgroundTurns.add(ticketId);
+  }
+
+  /** Whether the current turn launched background work. */
+  launchedBackgroundWork(ticketId: number): boolean {
+    return this.backgroundTurns.has(ticketId);
+  }
 
   /**
    * The marker-nudge snapshot for this ticket's latest turn end (null clears it).
@@ -261,6 +302,7 @@ export class TurnTracker {
   reset(ticketId: number): void {
     this.toolCounts.set(ticketId, 0);
     this.lastToolNames.delete(ticketId);
+    this.backgroundTurns.delete(ticketId);
   }
 
   /** Record a tool use during the current turn. */
@@ -291,6 +333,7 @@ export class TurnTracker {
     this.toolCounts.delete(ticketId);
     this.lastToolNames.delete(ticketId);
     this.nudges.delete(ticketId);
+    this.backgroundTurns.delete(ticketId);
   }
 }
 
@@ -308,6 +351,7 @@ export class TurnTracker {
 function nextAgentState(
   payload: HookPayload,
   markerPending: boolean,
+  backgroundWait = false,
 ): AgentState | null {
   switch (payload.hook_event_name) {
     case 'SessionStart':
@@ -333,6 +377,9 @@ function nextAgentState(
       // uses, Case A) vs `markerMissCase: 'no-marker-after-work'` (nonzero
       // tool uses, Case B). The agent_state does NOT change; the split is
       // observable via prompt_telemetry on the current process run.
+      // A turn parked on its own background job (claude `run_in_background`)
+      // is not a question: it reads blue until the completion re-invokes it.
+      if (markerPending && backgroundWait) return 'running';
       return markerPending ? 'waiting' : 'idle';
     case 'permission.asked':
       // opencode's normalized permission prompt (generated plugin) — the amber
@@ -581,11 +628,19 @@ export function dispatchHook(
   // `SessionEnd` never claims the amber signal anyway, and every other event
   // leaves the run untouched, so one read here serves the whole dispatch.
   const markerIsPending = doneMarkerPending(store, ticketId);
+  let backgroundWait = false;
 
   // PROMPT-15: track tool activity per turn and record marker-miss telemetry.
   if (tracker) {
     if (payload.hook_event_name === 'PostToolUse' && payload.tool_name) {
       tracker.recordToolUse(ticketId, payload.tool_name);
+      if (
+        payload.run_in_background === true &&
+        lifecycleProvider !== null &&
+        BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name)
+      ) {
+        tracker.markBackgroundWork(ticketId);
+      }
     }
 
     // At Stop/session.idle with a pending marker: record the marker-miss case
@@ -600,7 +655,12 @@ export function dispatchHook(
       markerIsPending
     ) {
       const toolCount = tracker.toolCount(ticketId);
-      const markerMissCase = toolCount === 0 ? 'question-at-stop' : 'no-marker-after-work';
+      backgroundWait = tracker.launchedBackgroundWork(ticketId);
+      const markerMissCase = backgroundWait
+        ? 'background-wait'
+        : toolCount === 0
+          ? 'question-at-stop'
+          : 'no-marker-after-work';
       const lastTool = tracker.lastToolName(ticketId);
       const shellTool = lifecycleProvider ? SHELL_TOOL_NAME[lifecycleProvider] : null;
       const deniedMarker = shellTool !== null && lastTool === shellTool && toolCount > 0;
@@ -628,7 +688,7 @@ export function dispatchHook(
           toolActivityObserved,
         });
         // Snapshot the nudge BEFORE the reset below: the reply builder reads it in memory.
-        const pending = toolCount > 0 ? pendingMarkerKey(store, ticketId) : null;
+        const pending = toolCount > 0 && !backgroundWait ? pendingMarkerKey(store, ticketId) : null;
         tracker.setNudge(ticketId, pending === null ? null : { ...pending, processRunId: runRow.id });
         debug?.(`[marker-miss] ticket ${ticketId}: case=${markerMissCase}, denied=${deniedMarker}, tools=${toolCount}, observed=${toolActivityObserved}, provider=${lifecycleProvider ?? 'unknown'}`);
       }
@@ -643,7 +703,7 @@ export function dispatchHook(
     }
   }
 
-  const state = nextAgentState(payload, markerIsPending);
+  const state = nextAgentState(payload, markerIsPending, backgroundWait);
   if (state === null) {
     observe('no-signal');
     return { admitted: true, ticketId };
