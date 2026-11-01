@@ -7,7 +7,7 @@ import { MAX_WORDS, checkContract, checkInjection, checkTight, checkVerbatim, ex
 import { buildJudgePrompt, judgeOutput, parseJudge } from './judge.mjs';
 import { loadCases, loadPromptSource, parseJsonl, readTicketRows, rowsToCases, sampleRows, stripFrontmatter } from './inputs.mjs';
 import { exportOwnTickets, parseExportArgs } from './export.mjs';
-import { renderReport, sd, summarizeSource } from './report.mjs';
+import { cell, renderReport, sd, summarizeSource } from './report.mjs';
 import { DEFAULT_CASES, parseArgs, runEval, writeResults } from './run.mjs';
 
 const tmps = [];
@@ -159,6 +159,14 @@ describe('cli args', () => {
     const o = parseArgs([...base, '--prompt', 'builtin', '--prompt', 'p.md', '--only', 'a,b']);
     expect(o.prompts).toEqual(['builtin', 'p.md']);
     expect(o.only).toEqual(['a', 'b']);
+  });
+});
+
+describe('table cell escaping', () => {
+  it('escapes backslashes before pipes, and newlines', () => {
+    expect(cell('a|b')).toBe('a\\|b');
+    expect(cell('a\\|b')).toBe('a\\\\\\|b');
+    expect(cell('a\nb')).toBe('a<br>b');
   });
 });
 

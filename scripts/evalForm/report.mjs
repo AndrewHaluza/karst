@@ -7,7 +7,7 @@ export const sd = (xs) => {
 };
 const num = (v, d = 2) => (v === null || v === undefined ? 'pending' : v.toFixed(d));
 const pct = (v) => (v === null || v === undefined ? 'pending' : `${(v * 100).toFixed(1)}%`);
-const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/\n/g, '<br>');
+export const cell = (s) => String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, '<br>');
 const table = (head, rows) => [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
 
 export const failureList = (a) => {
