@@ -41,6 +41,14 @@ const PATHLIKE = new RegExp(`(?:/?[\\w.-]+(?:/[\\w.-]+){2,}|[\\w./-]*[\\w-]\\.${
 // Capitalized product names (Node.js, Next.js) look like files but are prose.
 const PRODUCT_NAME = /^[A-Z][a-z]+\.js$/;
 
+// Mirrors the built-in prompt's "already a structured spec" rule: N+ heading/list lines.
+export const SPEC_MIN_STRUCTURED_LINES = 3;
+const STRUCTURED_LINE = /^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s)/;
+
+/** A structured spec keeps its own form: the shape sections and word cap do not apply. */
+export const isStructuredSpec = (input) =>
+  input.split('\n').filter((l) => STRUCTURED_LINE.test(l)).length >= SPEC_MIN_STRUCTURED_LINES;
+
 /** Path-like tokens in the model's own wording: not product names, not copied from the source. */
 function ownPaths(body, input) {
   return [...body.matchAll(PATHLIKE)].map((m) => m[0]).filter((p) => !PRODUCT_NAME.test(p) && !input.includes(p));
@@ -51,10 +59,12 @@ export function checkContract(output, { type, tokens = [], input = '' }) {
   const violations = [];
   const body = stripVerbatim(output, tokens);
   const has = (re) => re.test(output);
-  if (type === 'fix') {
-    for (const k of ['Actual', 'Expected', 'Repro']) if (!has(new RegExp(`\\*\\*${k}:\\*\\*`))) violations.push(`missing ${k}`);
-  } else if (!has(/\*\*Why:\*\*/)) violations.push('missing Why');
-  if (countWords(body) > MAX_WORDS) violations.push(`over ${MAX_WORDS} words (${countWords(body)})`);
+  if (!isStructuredSpec(input)) {
+    if (type === 'fix') {
+      for (const k of ['Actual', 'Expected', 'Repro']) if (!has(new RegExp(`\\*\\*${k}:\\*\\*`))) violations.push(`missing ${k}`);
+    } else if (!has(/\*\*Why:\*\*/)) violations.push('missing Why');
+    if (countWords(body) > MAX_WORDS) violations.push(`over ${MAX_WORDS} words (${countWords(body)})`);
+  }
   if (ownPaths(body, input).length > 0) violations.push('path/file-like token');
   const lower = body.toLowerCase();
   for (const p of BOILERPLATE_PHRASES) if (lower.includes(p)) violations.push(`boilerplate "${p}"`);

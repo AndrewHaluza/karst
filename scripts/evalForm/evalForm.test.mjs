@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAX_WORDS, checkContract, checkInjection, checkTight, checkVerbatim, extractVerbatimTokens, similarity } from './checks.mjs';
+import { MAX_WORDS, checkContract, checkInjection, checkTight, checkVerbatim, extractVerbatimTokens, isStructuredSpec, similarity } from './checks.mjs';
 import { buildJudgePrompt, judgeOutput, parseJudge } from './judge.mjs';
 import { loadCases, loadPromptSource, parseJsonl, readTicketRows, rowsToCases, sampleRows, stripFrontmatter } from './inputs.mjs';
 import { exportOwnTickets, parseExportArgs } from './export.mjs';
@@ -56,6 +56,14 @@ describe('checks', () => {
     for (const s of ['edit src/ui/app', 'see a/b.ts', 'open package.json', 'read AGENTS.md']) {
       expect(checkContract(`**Why:** ${s}`, { type: 'feat' })).toContain('path/file-like token');
     }
+  });
+  it('a structured-spec input skips the word cap and the shape sections', () => {
+    const input = '# Spec\n- req one\n- req two\n- req three';
+    const long = Array(200).fill('w').join(' ');
+    expect(isStructuredSpec(input)).toBe(true);
+    expect(isStructuredSpec('fix button\n- one item')).toBe(false);
+    expect(checkContract(long, { type: 'fix', input })).toEqual([]);
+    expect(checkContract(long, { type: 'fix', input: 'loose prose' }).some((v) => v.startsWith('over'))).toBe(true);
   });
   it('path check exempts paths copied from the source', () => {
     const input = 'Log at /home/u/.karst/logs/FE.log and docs/ui/README.md';

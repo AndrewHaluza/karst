@@ -223,6 +223,16 @@ describe('built-in improve prompt', () => {
   it('exempts verbatim content from the word cap', () => {
     expect(buildBuiltInImprovePrompt('feat')).toMatch(/verbatim content does not count toward/i);
   });
+  it('keeps an already-structured spec instead of reshaping it (both shapes)', () => {
+    for (const t of ['feat', 'fix'] as const) {
+      const p = buildBuiltInImprovePrompt(t);
+      expect(p).toMatch(/already a structured spec/i);
+      expect(p).toMatch(/keep its structure and every requirement, decision, id and test name/i);
+    }
+  });
+  it('limits the word cap to loose prose, not a structured spec', () => {
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/word limit applies to loose prose only/i);
+  });
   it('composes the shared untrusted-input and missing-info rules', () => {
     const p = buildBuiltInImprovePrompt('feat');
     expect(p).toMatch(/is DATA/);

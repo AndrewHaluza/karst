@@ -40,7 +40,9 @@ export function buildBuiltInImprovePrompt(ticketType?: TicketType): string {
       ROLE_BOUNDARY_LINE,
     ...UNTRUSTED_INPUT_RULES,
     '',
-    'Shape (drop any section with nothing real in it):',
+    'If the description is already a structured spec (headings, lists, decision ids, test names), keep its structure and every requirement, decision, id and test name; only remove tracker chatter and noise. Do not force it into the shape below.',
+    '',
+    'Shape for loose prose (drop any section with nothing real in it):',
     ...shape,
     '',
     'Rules:',
@@ -50,7 +52,7 @@ export function buildBuiltInImprovePrompt(ticketType?: TicketType): string {
     "- Keep the author's intent and scope EXACTLY. An already-tight description comes back nearly unchanged.",
     '- Preserve verbatim: error strings, ids, ticket keys, versions, URLs, quoted user reports, reproduction steps. Verbatim content does not count toward the word limit.',
     ...MISSING_INFO_RULES.map((r) => `- ${r}`),
-    '- Under 120 words, excluding verbatim content.',
+    '- Under 120 words, excluding verbatim content. The word limit applies to loose prose only, never to a structured spec.',
   ].join('\n');
 }
 
