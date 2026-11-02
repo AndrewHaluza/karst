@@ -1122,6 +1122,16 @@ describe('buildTicketFormActions', () => {
     expect(startTicket).toHaveBeenCalledWith(tickets[0]!.id, { pullBase: true });
   });
 
+  it('submit in create mode writes the host opt-out before launch; absent leaves it untouched', async () => {
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    let seen: string | null | undefined;
+    startTicket.mockImplementation(async (id: number) => { seen = getTicket(store, id).agentBackend; return { ok: true }; });
+    await buildTicketFormActions(deps)(ctx).submit({ key: 'BK-1', title: 'a', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, createInProvider: false, agentBackend: 'host' });
+    expect(seen).toBe('host');
+    await buildTicketFormActions(deps)(ctx).submit({ key: 'BK-2', title: 'b', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, createInProvider: false });
+    expect(seen).toBeNull();
+  });
+
   it('submit generates a unique key when the key field is left blank (manual creation)', async () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);

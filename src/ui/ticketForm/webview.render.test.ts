@@ -378,8 +378,20 @@ describe('ticket form — sandbox backend opt-out', () => {
     expect(select(v).value).toBe('');
   });
 
-  it('is hidden in create mode and for a host project', () => {
-    expect(picker(open(baseState({ mode: 'create', projectBackend: 'sbx' }))).classList.contains('hidden')).toBe(true);
+  it('shows in create mode for sbx/docker projects and keeps the pick in the draft payload', () => {
+    for (const projectBackend of ['sbx', 'docker']) {
+      const v = open(baseState({ mode: 'create', projectBackend }));
+      expect(picker(v).classList.contains('hidden')).toBe(false);
+      v.close?.();
+    }
+    const v = open(baseState({ mode: 'create', projectBackend: 'sbx' }));
+    select(v).value = 'host';
+    select(v).dispatchEvent(new Event('change', { bubbles: true }));
+    expect(v.posted.some((m) => (m as { type: string }).type === 'set-backend')).toBe(false);
+  });
+
+  it('is hidden for a host project', () => {
+    expect(picker(open(baseState({ mode: 'create', projectBackend: null }))).classList.contains('hidden')).toBe(true);
     h?.close();
     expect(picker(open(baseState({ mode: 'edit', projectBackend: null }))).classList.contains('hidden')).toBe(true);
   });
