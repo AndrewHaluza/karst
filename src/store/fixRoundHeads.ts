@@ -31,3 +31,8 @@ export function listFixRoundHeads(store: Store, roundId: number): FixRoundHead[]
     .all(roundId) as { worktree_path: string; head_sha: string }[];
   return rows.map((r) => ({ worktreePath: r.worktree_path, headSha: r.head_sha }));
 }
+
+/** Record the HEAD the fix round ended on. Last write wins: the marker may be retried after another commit. */
+export function recordFixCommitSha(store: Store, roundId: number, sha: string): void {
+  store.db.prepare('UPDATE recovery_rounds SET fix_commit_sha = ? WHERE id = ?').run(sha, roundId);
+}

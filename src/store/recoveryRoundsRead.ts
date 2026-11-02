@@ -58,6 +58,8 @@ export interface RecoveryRound {
    *  consumes no round, so this is the only thing that advances on a crash —
    *  the driver's reopen bound). */
   interruptCount: number;
+  /** v95: the HEAD the fix round committed; null = not recorded. */
+  fixCommitSha: string | null;
 }
 
 interface RecoveryRoundRow {
@@ -79,6 +81,7 @@ interface RecoveryRoundRow {
   started_at: string;
   ended_at: string | null;
   interrupt_count: number;
+  fix_commit_sha: string | null;
 }
 
 const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review', 'pr-review'];
@@ -129,6 +132,7 @@ function rowToRound(r: RecoveryRoundRow): RecoveryRound {
     startedAt: r.started_at,
     endedAt: r.ended_at,
     interruptCount: r.interrupt_count,
+    fixCommitSha: r.fix_commit_sha,
   };
 }
 
@@ -136,7 +140,7 @@ const ROUND_SELECT =
   `SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
           source_process_run_id, trigger_kind, trigger_detail, episode, round, max_rounds,
           fix_process_run_id, uat_revalidation_stage_run_id,
-          review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count
+          review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count, fix_commit_sha
      FROM recovery_rounds`;
 
 export function roundById(store: Store, id: number): RecoveryRound | undefined {

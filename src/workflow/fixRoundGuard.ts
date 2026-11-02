@@ -2,7 +2,7 @@ import type { GitRunner } from '../integrations/git.js';
 import type { Store } from '../store/db.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
 import { activeFixRound } from '../store/recoveryRounds.js';
-import { listFixRoundHeads, recordFixRoundHeads, type FixRoundHead } from '../store/fixRoundHeads.js';
+import { listFixRoundHeads, recordFixCommitSha, recordFixRoundHeads, type FixRoundHead } from '../store/fixRoundHeads.js';
 
 export const NO_NEW_COMMIT_REASON =
   'no new commit since this fix round started — fix what the brief reports, commit, then fire the marker';
@@ -45,7 +45,11 @@ export async function assertFixHasNewCommit(store: Store, ticketId: number, git:
   if (recorded.length === 0) return;
   for (const r of recorded) {
     const now = await headOf(git, r.worktreePath);
-    if (now === null || now !== r.headSha) return;
+    if (now === null) return;
+    if (now !== r.headSha) {
+      recordFixCommitSha(store, round.id, now);
+      return;
+    }
   }
   throw new Error(`cannot mark this stage done: ${NO_NEW_COMMIT_REASON}`);
 }

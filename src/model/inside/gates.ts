@@ -243,11 +243,6 @@ export interface QualityProcessesInput {
   uatFindings: readonly UatFinding[];
   /** Every process run recorded for the ticket, ticket-wide. */
   processRuns: readonly ProcessRun[];
-  /**
-   * The commit a fix process run made, when the host knows it (a full or short
-   * sha). Absent or undefined → the gates caption names the fix round instead.
-   */
-  fixCommitSha?: (fixProcessRunId: number) => string | undefined;
   /** Every recovery round recorded for the ticket; filtered to the stage here. */
   rounds: readonly RecoveryRound[];
   /**
@@ -441,10 +436,9 @@ function priorGateStageRun(
   return best;
 }
 
-/** What the gates process needs to explain a re-run: the recovery rounds, the sha lookup and the lane's AI process. */
+/** What the gates process needs to explain a re-run: the recovery rounds and the lane's AI process. */
 interface GatesCaptionInput {
   rounds: readonly RecoveryRound[];
-  fixCommitSha?: (fixProcessRunId: number) => string | undefined;
 }
 
 /** The revalidation caption for a stage run that a recovery round opened, or undefined on any other run. */
@@ -458,8 +452,7 @@ function revalidationCaption(
     stageKey === 'uat' ? r.uatRevalidationStageRunId === stageRunId : r.reviewRevalidationStageRunId === stageRunId,
   );
   if (!round) return undefined;
-  const sha =
-    round.fixProcessRunId === null ? undefined : input.fixCommitSha?.(round.fixProcessRunId)?.slice(0, SHORT_SHA_LENGTH);
+  const sha = round.fixCommitSha?.slice(0, SHORT_SHA_LENGTH);
   const prior = priorGateStageRun(runs, stageKey, stageRunId);
   const why = sha ? `fix ${sha}` : 'the fix round';
   return `Gates re-run: ${why} changed the code after the last pass${prior === null ? '' : ` (run ${prior})`}`;
