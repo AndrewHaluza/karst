@@ -3,12 +3,15 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
 import { openRecoveryRound, activeFixRound, roundById } from '../store/recoveryRounds.js';
 import { recordGateRun } from '../store/gateRuns.js';
+import { hasFixingRound } from '../store/recoveryRoundsRead.js';
+import { resetStageState } from './resetStage.js';
 import { getStage, setStage } from '../store/stages.js';
 import { setStageCurrent, getTicket } from '../store/tickets.js';
 import {
   hostRerunFailedGates,
   describeHostRerun,
   HOST_RERUN_PASSED_REASON,
+  HOST_RERUN_WAY_OUT,
   type FailedGate,
   type HostRerunDeps,
 } from './fixHostRerun.js';
@@ -89,6 +92,26 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(fix?.verdict).toContain('e2e (api)');
     expect(fix?.verdict).toContain('port 3000 busy');
     expect(roundById(store, roundId)?.status).toBe('pending');
+    expect(fix?.verdict).toContain('Reset stage');
+  });
+
+  it('moves a fixing round out of the in-flight set: reset available, no pending marker', async () => {
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
+    await hostRerunFailedGates(store, ticketId, deps(() => ({ exitCode: 1, summary: 'x' })));
+    const row = store.db.prepare('SELECT status, end_reason FROM recovery_rounds WHERE id = ?').get(roundId) as Record<string, string>;
+    expect(row.status).not.toBe('fixing');
+    expect(row.end_reason).toContain('Reset stage');
+    expect(hasFixingRound(store, ticketId)).toBe(false);
+    expect(resetStageState(store, ticketId)).toEqual({ available: true, stage: 'uat' });
+  });
+
+  it('the already-used path also leaves the fixing state', async () => {
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing', host_rerun_at = ? WHERE id = ?").run(AT, roundId);
+    const out = await hostRerunFailedGates(store, ticketId, deps(() => ok));
+    expect(out).toEqual({ kind: 'already-used' });
+    expect(hasFixingRound(store, ticketId)).toBe(false);
+    expect(resetStageState(store, ticketId)).toEqual({ available: true, stage: 'uat' });
+    expect(describeHostRerun(out)?.message).toContain('Reset stage');
   });
 
   it('never re-runs a second time in the same round', async () => {
@@ -134,7 +157,7 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     });
     expect(describeHostRerun({ kind: 'already-used' })).toEqual({
       ok: false,
-      message: 'the host already re-ran the failed gates once this fix round — the refusal stands',
+      message: `the host already re-ran the failed gates once this fix round — the refusal stands — ${HOST_RERUN_WAY_OUT}`,
     });
     const failed = describeHostRerun({ kind: 'failed', failures: [{ gateName: 'unit (web)', summary: 'flaky' }] });
     expect(failed?.ok).toBe(false);
