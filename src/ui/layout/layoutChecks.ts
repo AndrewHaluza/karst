@@ -115,6 +115,7 @@ function intersection(a: Rect, b: Rect): { w: number; h: number } {
   };
 }
 
+/** A sticky element floats over its siblings by design while the page is taller than the viewport. */
 function siblingOverlap(s: LayoutSnapshot): Found[] {
   const groups = new Map<number | null, ElementSnap[]>();
   for (const e of s.elements) {
@@ -127,6 +128,7 @@ function siblingOverlap(s: LayoutSnapshot): Found[] {
       for (let j = i + 1; j < siblings.length; j += 1) {
         const a = siblings[i]!;
         const b = siblings[j]!;
+        if (a.position === 'sticky' || b.position === 'sticky') continue;
         const hit = intersection(a.rect, b.rect);
         if (hit.w <= TOLERANCE || hit.h <= TOLERANCE) continue;
         out.push({
@@ -367,6 +369,7 @@ function regionOrder(s: LayoutSnapshot, expected: RegionExpectation | undefined)
   for (let i = 1; i < present.length; i += 1) {
     const a = present[i - 1]!;
     const b = present[i]!;
+    if (a.position === 'sticky' || b.position === 'sticky') continue;
     const ok = expected.layout === 'stacked'
       ? b.rect.y >= a.rect.y + a.rect.h - TOLERANCE
       : b.rect.x >= a.rect.x + a.rect.w - TOLERANCE && Math.abs(a.rect.y - b.rect.y) <= a.rect.h;

@@ -80,9 +80,10 @@ describe('source header', () => {
     expect(v.query('#copyIdBtn')).toBeNull();
   });
 
-  it('puts the status filter next to Fetch only when search is enabled', () => {
+  it('puts the status filter on its own row under the key row only when search is enabled', () => {
     const on = open(baseState({ mode: 'create', sourceRef: null, ticketUrl: null, ticketSearchEnabled: true }));
-    expect(on.query('#fetchBtn')!.parentElement!.contains(on.query('#searchFilterRow'))).toBe(true);
+    expect(on.query('#fetchBtn')!.parentElement!.contains(on.query('#searchFilterRow'))).toBe(false);
+    expect(on.query('#keyRow')!.contains(on.query('#searchFilterRow'))).toBe(true);
     expect(on.query('#searchFilterRow')!.classList.contains('hidden')).toBe(false);
     on.close();
     const off = open(baseState({ mode: 'create', sourceRef: null, ticketUrl: null }));

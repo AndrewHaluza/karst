@@ -91,6 +91,7 @@
   #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
+  #designConstraintsCard{margin-top:var(--k-space-7)}
   .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3);margin-top:var(--k-space-4)}
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
      secondary-text treatment `.sub` gives page-level notes, without its
@@ -201,9 +202,10 @@
   .searchopt .searchprio{font-size:var(--k-text-2xs);color:var(--k-text-dim);text-transform:capitalize;flex:none}
   /* Status filter row under the key field: the label/select stay small and
      the hint rides the same row (the filter is secondary to the search box). */
-  .searchfilter{margin-top:var(--k-space-3);flex-wrap:wrap}
+  .searchfilter{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  .searchfilter.hidden{display:none}
   .searchfilter label{margin:var(--k-space-0);flex:none}
-  .searchfilter select{width:auto;flex:none}
+  .searchfilter select{flex:1;min-width:0;width:auto;min-height:var(--k-control-h-lg)}
   .searchfilter .searchhint{margin:var(--k-space-0);font-size:var(--k-text-xs)}
 
   /* ── Phase 2 sections + gate ─────────────────────────────────────────── */
@@ -348,12 +350,14 @@
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
      viewport. Tier CSS follows the base rules (UI-R49, R50). */
+  html{scroll-padding-bottom:calc(var(--k-space-8) * 3)}
   .shell{container-type:inline-size;min-width:0}
   /* One frame (prototype .mock): hairline border, small radius, header strip on top,
      content | settings in the middle, the actions bar as its footer. The bar is
-     in flow (not sticky), so no field can ever sit under it (UI-R44). */
+     sticky at the bottom of the viewport (D379, reverses D355); overflow:clip keeps
+     the frame a non-scroller so sticky binds to the page and focus never scrolls it. */
   .frame{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
-    background:var(--k-bg);overflow:hidden;min-width:0;margin-inline:var(--k-space-7)}
+    background:var(--k-bg);overflow:clip;min-width:0;margin-inline:var(--k-space-7)}
   .pghead{background:var(--k-surface);border-bottom:var(--k-border-w) solid var(--k-border);
     padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch}
@@ -374,7 +378,8 @@
   .settings .chips,.settings .repo-split{min-width:0;max-width:100%}
   .repochip{max-width:100%;overflow-wrap:anywhere}
   .k-switch,.repochip,.repo-caret{min-height:var(--k-space-8)}
-  .actionbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
+  .actionbar{position:sticky;bottom:0;z-index:calc(var(--k-z-drawer) - 1);
+    display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
     padding:var(--k-space-5) var(--k-space-9);background:var(--k-surface);border-top:var(--k-border-w) solid var(--k-border)}
   .actionbar .sp{flex:1}
   .actionbar .reason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
@@ -530,12 +535,12 @@
           <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
         </div>
         <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
-        <div class="searchfilter hidden" id="searchFilterRow">
-          <label for="searchStatus">Status</label>
-          <select class="k-input" id="searchStatus" title="Filters search results">
-            <option value="to do" selected>to do</option>
-          </select>
-        </div>
+      </div>
+      <div class="searchfilter hidden" id="searchFilterRow">
+        <label for="searchStatus">Status</label>
+        <select class="k-input" id="searchStatus" title="Filters search results">
+          <option value="to do" selected>to do</option>
+        </select>
       </div>
     </div>
     <div class="row2">
@@ -1329,7 +1334,7 @@
     openBasePop = repo;
     renderRepos(lastRepos, lastRepoBases);
     const f = el('repoList').querySelector('[data-base-filter]');
-    if (f) f.focus();
+    if (f) f.focus({ preventScroll: true });
   }
 
   function closeBase() {
@@ -1377,7 +1382,7 @@
   function openApproach() {
     approachOpen = true;
     renderApproaches(lastApproaches, lastSelectedApproach);
-    el('approachListbox').focus();
+    el('approachListbox').focus({ preventScroll: true });
   }
   function closeApproach(refocus) {
     approachOpen = false;

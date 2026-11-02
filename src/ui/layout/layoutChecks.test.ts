@@ -72,6 +72,30 @@ describe('sibling-overlap', () => {
   });
 });
 
+describe('sticky exemption', () => {
+  const parent = el({ rect: { w: 400, h: 100 } });
+  const mk = (over: Omit<Partial<ElementSnap>, 'rect'>) =>
+    el({ parentId: parent.id, rect: { x: 0, y: 10, w: 100, h: 20 }, ...over });
+  it('sibling-overlap ignores a sticky sibling floating over content', () => {
+    const f = checksOf(snap([parent, mk({}), mk({ position: 'sticky' })]), 'sibling-overlap');
+    expect(f).toEqual([]);
+  });
+  it('sibling-overlap still fails two overlapping relative siblings', () => {
+    const f = checksOf(snap([parent, mk({ position: 'relative' }), mk({})]), 'sibling-overlap');
+    expect(f).toHaveLength(1);
+  });
+  it('region-order skips a sticky region but still fails a non-sticky one', () => {
+    const stacked: RegionExpectation = { layout: 'stacked', order: ['content', 'actions'] };
+    const content = el({ region: 'content', rect: { x: 0, y: 0, w: 200, h: 100 } });
+    const run = (position: string) => runChecks(
+      snap([content, el({ region: 'actions', position, rect: { x: 0, y: 50, w: 200, h: 40 } })]),
+      stacked,
+    ).filter((f) => f.check === 'region-order');
+    expect(run('sticky')).toEqual([]);
+    expect(run('static')).toHaveLength(1);
+  });
+});
+
 describe('containment', () => {
   const parent = el({ rect: { x: 0, y: 0, w: 200, h: 50 } });
   it('fails when a child pokes out of a visible-overflow parent', () => {
