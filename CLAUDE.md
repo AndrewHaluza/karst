@@ -15,6 +15,7 @@
 
 ## Gates and CI (binding)
 - **Naming rule (binding):** a test file that spawns a real child/git process, binds or connects a real network port, or renders a full settings/dashboard jsdom document is named `*.integration.test.*`; a headless end-to-end file is `*.e2e.test.*`; everything else stays `*.test.*`. A file must never match two suites — the unit config excludes both suffixes.
+- **A gate passes only when its exact command (`npm run -s <script>`, as the gate runs it) exits 0 in the ticket worktree.** Never substitute another invocation (absolute `tsc` path, `npx`, a parent checkout) and report it as passing. If the gate command itself is broken (MODULE_NOT_FOUND, command not found), say so in the done report or a note; do not route around it.
 - **Mutation gate:** any change under `src/extension/**` (minus the `mutate` excludes) must keep the Stryker score ≥ 85. Run `npm run -s test:mutation` (or `npx stryker run --mutate <changed files>` for speed) before opening a PR; new/changed code needs tests that kill its mutants. Never lower `thresholds.break`, add `mutate` excludes, or use `// Stryker disable` without a per-line reason.
 - **Before UAT of any `src/ui/**` change run `npm run -s verify:ui`** (docs:graph, ui integration, typecheck:visual, layout docker): UAT fails them together. One view: `npm run -s test:ui:docker -- <view>` (scoped screenshots + FULL layout); a grep-scoped `test:visual:docker` is NOT a layout pass. Run docker scripts with `run_in_background`, redirect to a log, read `tail` (foreground hits the 600 s limit). One variant: `KARST_UI_GREP=<id> npm run -s test:visual:docker:update`.
 - `npm run -s test:visual:docker 2>&1 | tail -40` (pinned image; `:update` re-records; Playwright `list` prints a line per test) — **run it after any webview change**; CI runs it only as the advisory `visual` job (test failures don't block; a sweep that ran zero tests fails). Never judge a visual failure from the host `test:visual` run. Ratchet raises (`focus.visual.ts`, `a11y.visual.ts`) need a justification comment.
@@ -71,9 +72,8 @@ Ticket-form migration exceptions (T690, T862, T926): `@ui:TICKET-FORM-MIGRATION-
 - `.stryker-tmp/` and `.karst/worktrees/` hold generated copies of the repo (including stale `CLAUDE.md` files). Ignore them in searches and edits.
 
 ## Workflow
-- Strict TDD (RED→GREEN). Conventional commits. Keep files small (<400 lines typical — stricter than the global 800 max).
+- Strict TDD (RED→GREEN). Conventional commits.
 - Project gates override global rules: the Stryker mutation gate replaces the global 80% coverage minimum, and `npm run -s test:coverage` is the only coverage entry point.
-- Do not overengineer: build only what is required for the task. Avoid speculative abstractions, unnecessary configurability, premature generalizations, or unused helper layers. Keep solutions simple, direct, and pragmatic.
 - Manifest validation tested via `loadManifest` in `manifest/load.test.ts` (no `src/manifest/schema.test.ts`).
 - `vscode`-importing modules don't load under vitest (no mock). Put testable logic in a vscode-free module (e.g. `secretStore.ts`), keep the `vscode` binding a thin wrapper (`secrets.ts`).
 - Command logic belongs in `src/extension/ops/` with a `Notify` seam; `extension.ts` handlers are bindings only (enforced by `src/extension/ops/ratchet.test.ts`).
