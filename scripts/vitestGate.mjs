@@ -18,6 +18,9 @@ const git = async (cwd, args) => {
   }
 };
 
+// No output for this long means a hung test file: kill the run and name the last output, not wait for the gate wall.
+const IDLE_MS = Number(process.env.KARST_GATE_IDLE_MS) || 10 * 60_000;
+
 const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main', 'refs/karst/base/develop', 'refs/karst/base/main'];
 
 /** KARST_BASE_REF=X → X, the sandbox clone's refs/karst/base/X, then origin/X; unset → the fixed candidates. */
@@ -55,14 +58,28 @@ function run(cmd, args, cwd) {
       }
     }
     const child = spawn(execCmd, execArgs, { cwd, env });
+    let timer;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const last = out.trimEnd().split('\n').slice(-3).join(' | ');
+        console.error(`gate hang: no output for ${Math.round(IDLE_MS / 1000)}s; killing vitest. Last output: ${last}`);
+        child.kill('SIGKILL');
+      }, IDLE_MS);
+    };
     const sink = (stream) => (chunk) => {
+      arm();
       out += chunk;
       stream.write(chunk);
     };
+    arm();
     child.stdout.on('data', sink(process.stdout));
     child.stderr.on('data', sink(process.stderr));
-    child.on('error', () => done({ status: 127, out }));
-    child.on('close', (status) => done({ status: status ?? 1, out }));
+    child.on('error', () => (clearTimeout(timer), done({ status: 127, out })));
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      done({ status: status ?? 1, out });
+    });
   });
 }
 
