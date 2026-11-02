@@ -52,6 +52,10 @@ describe('intent judge', () => {
   it('parses fenced JSON and orders by expected tests', () => {
     expect(parseIntentJudge('```json\n' + good + '\n```', ['b', 'a'])).toMatchObject({ ok: true, tests: [{ test: 'b' }, { test: 'a' }] });
   });
+  it('matches leaf test titles when judge shortens the test path', () => {
+    const leafGood = JSON.stringify({ tests: [{ test: 'leaf', coverage: 'covered', why: 'matched leaf' }], unsupported: [] });
+    expect(parseIntentJudge(leafGood, ['suite > leaf'])).toMatchObject({ ok: true, tests: [{ test: 'suite > leaf', coverage: 'covered' }] });
+  });
   it('rejects bad replies as judge-error', () => {
     expect(parseIntentJudge('nope', ['a']).error).toMatch(/no JSON/);
     expect(parseIntentJudge('{bad}', ['a']).error).toMatch(/invalid/);
