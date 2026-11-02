@@ -47,6 +47,17 @@ describe('Evidence — the generic rows', () => {
 });
 
 describe('Evidence — gates', () => {
+  it('lays the host-built caption out above the gate rows, and draws none without one', () => {
+    const rows = [{ status: 'pass', label: 'lint' }];
+    withEvidence({ kind: 'gates', rows, passed: 1, failed: 0, skipped: 0, caption: 'Gates re-run: fix 72a3de0 changed the code after the last pass (run 5)' });
+    const cap = must('.gates-caption');
+    expect(text(cap)).toBe('Gates re-run: fix 72a3de0 changed the code after the last pass (run 5)');
+    expect(cap.nextElementSibling).toBe(must('.gates'));
+    cleanupInside();
+    withEvidence({ kind: 'gates', rows, passed: 1, failed: 0, skipped: 0 });
+    expect(q('.gates-caption')).toBeNull();
+  });
+
   it('shows the recorded repository as its own column, only when some row names one', () => {
     withEvidence({ kind: 'gates', rows: [{ status: 'pass', label: 'lint', repo: 'web', detail: 'exit 0' }, { status: 'run', label: 'test', repo: 'api' }], passed: 1, failed: 0, skipped: 0 });
     expect(must('.gates').classList.contains('no-repo')).toBe(false);

@@ -111,9 +111,14 @@ describe('BlockedBanner — usage-limit park actions (D159, re-homed from the va
 
   it('says why the stage stopped and carries no Resume', () => {
     mountRail(parked());
-    expect(text('.ftitle')).toBe('Provider out of quota');
+    expect(text('.ftitle')).toBe('Provider out of quota — UAT Tester');
     expect(text('.freason')).toBe(' · Provider quota exhausted until 5pm');
     expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+  });
+
+  it('names the review lane in the title when the park hit review', () => {
+    mountRail(railState({ stageCurrent: 'review', currentStage: { stageKey: 'review', status: 'running', blocked: block('usage-limit', { resumable: false }) } }));
+    expect(text('.ftitle')).toBe('Provider out of quota — Review findings');
   });
 
   it('offers Pick agent/model…, Retry same and Dismiss, in that order and treatment', () => {
