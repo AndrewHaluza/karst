@@ -84,7 +84,7 @@ function loadProjectSlug(
  *
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
- *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--json]`
+ *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--planning] [--json]`
  *             the orchestration effectiveness report (read-only, node:sqlite):
  *             first-pass rate, rework loops, gate kills, cycle time, spend, and
  *             what a human still had to catch (see stats.ts).

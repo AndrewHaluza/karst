@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
+import { createPlanningSession } from '../store/planningSessions.js';
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { UNAVAILABLE_METRICS } from '../store/metrics/index.js';
 
@@ -16,6 +17,10 @@ describe('karst stats — parse', () => {
       projectSlug: 'p',
       since: '2026-01-01',
     });
+  });
+
+  it('accepts --planning', () => {
+    expect(parseStatsArgs(['stats', '--planning', '--json'])).toEqual({ format: 'json', planning: true });
   });
 
   it('rejects a wrong command, an unknown flag and a flag with no value', () => {
@@ -103,5 +108,20 @@ describe('karst stats — report', () => {
       runStatsCommand(store, parseStatsArgs(['stats', '--json', '--since', '2026-01-01']), undefined),
     );
     expect(parsed.scope.since).toBe('2026-01-01');
+  });
+
+  it('renders the planning sections, marking LOW buckets and pending values', () => {
+    const p = upsertProject(store, { slug: 'demo' });
+    const sid = createPlanningSession(store, { projectId: p.id, title: 's', core: 'claude', model: null }).id;
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: p.id });
+    store.db
+      .prepare("INSERT INTO planning_proposals (session_id, payload_json, status, ticket_id) VALUES (?, ?, 'accepted', ?)")
+      .run(sid, JSON.stringify({ title: 'My draft', description: 'SECRET', summary: 's', repos: ['a'] }), t.id);
+    const out = runStatsCommand(store, parseStatsArgs(['stats', '--planning']), 'demo');
+    for (const h of ['Funnel:', 'Outcome of draft-born tickets', 'Split by core/model', 'Split by repos', 'Stuck', 'My draft', 'LOW', 'pending']) {
+      expect(out).toContain(h);
+    }
+    expect(out).not.toContain('SECRET');
+    expect(JSON.parse(runStatsCommand(store, parseStatsArgs(['stats', '--planning', '--json']), 'demo')).funnel.total.accepted).toBe(1);
   });
 });
