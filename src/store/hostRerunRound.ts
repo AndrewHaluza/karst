@@ -24,3 +24,18 @@ export function closeRoundPassed(store: Store, roundId: number, reason: string, 
     .prepare("UPDATE recovery_rounds SET status = 'passed', end_reason = ?, ended_at = ? WHERE id = ?")
     .run(reason, at, roundId);
 }
+
+/**
+ * Move a still-`fixing` round out of the in-flight set when the host decides the
+ * failure is not fixable from the session: `interrupted` (the same resting state
+ * as a fix that died without its marker). Stamps `end_reason` with the park
+ * verdict; the row stays as history. A round in any other status is left alone.
+ */
+export function parkRoundOutOfFixing(store: Store, roundId: number, reason: string, at: string): boolean {
+  const result = store.db
+    .prepare(
+      "UPDATE recovery_rounds SET status = 'interrupted', end_reason = ?, ended_at = ? WHERE id = ? AND status = 'fixing'",
+    )
+    .run(reason, at, roundId);
+  return Number(result.changes) === 1;
+}

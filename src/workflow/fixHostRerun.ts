@@ -2,7 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
-import { claimHostRerun, closeRoundPassed } from '../store/hostRerunRound.js';
+import { claimHostRerun, closeRoundPassed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
@@ -30,6 +30,10 @@ export interface HostRerunDeps {
   runGate: (ticketId: number, gate: FailedGate) => Promise<GateRerunResult>;
   now?: () => string;
 }
+
+/** The one-sentence way out, named in the marker reply and the park verdict. */
+export const HOST_RERUN_WAY_OUT =
+  'a code change from this session cannot fix this failure — stop the session; the user resets the stage (Reset stage) or fixes the environment and retries the gate';
 
 export interface RerunFailure {
   gateName: string;
@@ -80,6 +84,14 @@ function returnToSource(store: Store, ticketId: number, roundId: number, stage: 
   })();
 }
 
+/** Park the fix stage and move the round out of `fixing`, in one transaction. */
+function parkRound(store: Store, ticketId: number, roundId: number, verdict: string, at: string): void {
+  store.db.transaction(() => {
+    parkFixStage(store, ticketId, verdict, at);
+    parkRoundOutOfFixing(store, roundId, verdict, at);
+  })();
+}
+
 /**
  * A `stage fix pass` marker was refused for "no new commit": re-run ONLY the
  * source stage's failed gates, once per fix round. All green closes the round
@@ -93,7 +105,10 @@ export async function hostRerunFailedGates(store: Store, ticketId: number, deps:
   const failed = failedGatesOf(listGateRuns(store, ticketId), round.sourceStage);
   if (failed.length === 0) return { kind: 'not-applicable' };
   const now = deps.now ?? nowIso;
-  if (!claimHostRerun(store, round.id, now())) return { kind: 'already-used' };
+  if (!claimHostRerun(store, round.id, now())) {
+    parkRound(store, ticketId, round.id, `no new commit, and the host already re-ran the failed gates — ${HOST_RERUN_WAY_OUT}`, now());
+    return { kind: 'already-used' };
+  }
 
   const results = await Promise.all(failed.map((g) => rerunOne(deps, ticketId, g)));
   const failures = results.filter((r): r is RerunFailure => r !== null);
@@ -102,7 +117,7 @@ export async function hostRerunFailedGates(store: Store, ticketId: number, deps:
     return { kind: 'passed', stage: round.sourceStage };
   }
   const detail = failures.map((f) => `${f.gateName}: ${f.summary}`).join('; ');
-  parkFixStage(store, ticketId, `no new commit, and the host re-run still fails — ${detail}`, now());
+  parkRound(store, ticketId, round.id, `no new commit, and the host re-run still fails — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };
 }
 
@@ -114,10 +129,10 @@ export function describeHostRerun(outcome: HostRerunOutcome): HostRerunReply | u
     case 'passed':
       return { ok: true, message: `${HOST_RERUN_PASSED_REASON} — the ticket returned to ${outcome.stage}` };
     case 'already-used':
-      return { ok: false, message: 'the host already re-ran the failed gates once this fix round — the refusal stands' };
+      return { ok: false, message: `the host already re-ran the failed gates once this fix round — the refusal stands — ${HOST_RERUN_WAY_OUT}` };
     case 'failed': {
       const detail = outcome.failures.map((f) => `${f.gateName}: ${f.summary}`).join('; ');
-      return { ok: false, message: `the host re-ran the failed gates and they still fail — the refusal stands (${detail})` };
+      return { ok: false, message: `the host re-ran the failed gates and they still fail — the refusal stands (${detail}). ${HOST_RERUN_WAY_OUT}` };
     }
   }
 }
