@@ -313,4 +313,6 @@ covers: scripts/evalForm/**
 
 | deterministic checks + judge | judge alone | outputs must also be readable by the user |
 
+- **Intent pass.** `--pass intent [--source raw|improved]... [--improve-prompt builtin|<file.md>] [--instances <jsonl>] [--cases <jsonl>]` runs the REAL `generateIntent` (call site `ticket-intent`, empty temp dir) on the pinned `evals/instances/multi-swe-bench-ts-v1.jsonl` issue text via `scripts/eval/instances.mjs`. `improved` runs `improveDescription` first and feeds `improvedDescription`, like `runAnalysis`; each mode is a report column. Only `brief` reaches the agent; `testPatch` and `f2p` go to the judge alone (UATHOST-05 leak rule). The judge returns per F2P test `covered|partial|missing|not-in-issue` (the last leaves the denominator) plus `unsupported` scenarios; unparsable is `judge-error`. Deterministic checks (`intentChecks.mjs`): parse outcome via a counting adapter wrapper (first try / nudged / degraded), scenario count and Given/when/then, path-like tokens, F2P path or test-name leaks, API identifiers as info only. `--cases` rows get no coverage score (no ground truth), only format and unsupported.
+
 END_DOC_BLOCK: [@arch:FORMEVAL]
