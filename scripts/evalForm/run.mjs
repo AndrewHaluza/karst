@@ -12,17 +12,22 @@ import { renderIntentReport } from './intentReport.mjs';
 import { caseItem, instanceItem, runIntentEval } from './intentRun.mjs';
 import { loadInstances } from '../eval/instances.mjs';
 import { readFileSync } from 'node:fs';
+import { renderDraftReport } from './draftReport.mjs';
+import { runDraftEval } from './draftRun.mjs';
+import { gitRunner } from './draftChecks.mjs';
+import { parseJsonl } from './inputs.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEFAULT_CASES = join(ROOT, 'evals/form/improve-cases.jsonl');
 export const DEFAULT_INSTANCES = join(ROOT, 'evals/instances/multi-swe-bench-ts-v1.jsonl');
 export const DEFAULT_RUNS = 3;
-const PASSES = ['improve', 'intent'];
+export const DEFAULT_DRAFTS = join(ROOT, 'evals/form/local/drafts.jsonl');
+const PASSES = ['improve', 'intent', 'draft'];
 const SOURCES = ['raw', 'improved'];
 const PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {} };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -35,6 +40,9 @@ export function parseArgs(argv) {
     else if (a === '--source') o.sources.push(need(i));
     else if (a === '--improve-prompt') o.improvePrompt = need(i);
     else if (a === '--instances') o.instances = need(i);
+    else if (a === '--drafts') o.drafts = need(i);
+    else if (a === '--repo') { const [n, ...p] = need(i).split('='); if (!n || p.length === 0) throw new Error('--repo needs <name>=<path>'); o.repos[n] = p.join('='); }
+    else if (a === '--db') o.db = need(i);
     else if (a === '--model') o.model = need(i);
     else if (a === '--judge-model') o.judgeModel = need(i);
     else if (a === '--effort') o.effort = need(i);
@@ -44,6 +52,11 @@ export function parseArgs(argv) {
   if (!PASSES.includes(o.pass)) throw new Error(`--pass must be one of ${PASSES.join('|')}`);
   if (o.sources.some((x) => !SOURCES.includes(x))) throw new Error(`--source must be ${SOURCES.join('|')}`);
   if (!PROVIDERS.includes(o.provider)) throw new Error(`--provider must be one of ${PROVIDERS.join('|')}`);
+  if (o.pass === 'draft') {
+    if (!o.judgeModel) throw new Error('--judge-model is required');
+    if (!o.db) throw new Error('--db <karst.db> is required for --pass draft');
+    return o;
+  }
   if (!o.model) throw new Error('--model is required');
   if (!o.judgeModel) throw new Error('--judge-model is required');
   if (o.judgeModel === o.model) throw new Error('--judge-model must differ from --model');
@@ -145,8 +158,37 @@ async function mainIntent(opts) {
   console.log(`report: ${join(dir, 'report.md')}`);
 }
 
+async function mainDraft(opts) {
+  const [{ resolveAdapter }, { openReadonlyStore }, { collectDraftOutcomes }] = await Promise.all([
+    import('../../src/agent/registry.ts'), import('../../src/cli/readonlyStore.ts'), import('../../src/store/metrics/planning.ts'),
+  ]);
+  if (!existsSync(opts.drafts)) throw new Error(`drafts file not found: ${opts.drafts} (run eval:form:export -- --pass draft first)`);
+  let rows = parseJsonl(readFileSync(opts.drafts, 'utf8'), opts.drafts);
+  if (opts.only) rows = rows.filter((r) => opts.only.includes(String(r.id)));
+  if (rows.length === 0) throw new Error('no drafts selected');
+  const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
+  const startedAt = new Date().toISOString();
+  const meta = { startedAt, pass: 'draft', judgeModel: opts.judgeModel, provider: opts.provider };
+  const cwd = mkdtempSync(join(tmpdir(), 'eval-form-'));
+  const store = openReadonlyStore(opts.db);
+  try {
+    const results = await runDraftEval({
+      opts, rows, judgeAdapter: adapter, cwd,
+      gitFor: (repo) => (opts.repos[repo] ? gitRunner(opts.repos[repo]) : null),
+      onProgress: (r) => console.error(`D${r.id}: ${r.error ? 'ERROR ' + r.error : r.unavailable ? `unavailable(${r.unavailable})` : 'done'}`),
+    });
+    const outcomes = collectDraftOutcomes(store, {});
+    const dir = join(ROOT, 'eval-results', `form-${startedAt.replace(/[:.]/g, '-')}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'report.md'), renderDraftReport({ meta, results, outcomes }));
+    writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, results, outcomes: Object.fromEntries(outcomes) }, null, 2));
+    console.log(`report: ${join(dir, 'report.md')}`);
+  } finally { store.close(); rmSync(cwd, { recursive: true, force: true }); }
+}
+
 export async function main(argv) {
   const opts = parseArgs(argv);
+  if (opts.pass === 'draft') return mainDraft(opts);
   if (opts.pass === 'intent') return mainIntent(opts);
   const [{ improveDescription }, { resolveAdapter }] = await Promise.all([
     import('../../src/workflow/classify/improve.ts'), import('../../src/agent/registry.ts'),

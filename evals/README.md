@@ -86,3 +86,12 @@ npm run eval:form -- --prompt builtin --prompt .karst/agents/description-improve
 
 Output: `eval-results/form-<ts>/report.md` and `results.json`. Edit a candidate prompt file and rerun to compare columns.
 
+Draft pass (accepted planning drafts vs the diff that landed; private input, gitignored):
+
+```sh
+npm run eval:form:export -- --pass draft --db <karst.db> --sample 30 --seed 1 [--project <slug>]
+npm run eval:form -- --pass draft --db <karst.db> --judge-model <id> --repo <manifest-repo>=<clone path> [--only draftId,draftId]
+```
+
+Reports notDone / unrequested per draft, static defect rate by kind, truncation count, split by planning core/model, and per-draft downstream outcome (n < 10 = LOW, no correlation claim).
+

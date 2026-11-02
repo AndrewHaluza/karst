@@ -623,6 +623,9 @@
   "src/store/metrics/index.ts#UNAVAILABLE_METRICS": [
     "arch:CLI-07"
   ],
+  "src/store/metrics/planning.ts#collectDraftOutcomes": [
+    "arch:FORMEVAL"
+  ],
   "src/store/metrics/planning.ts#collectPlanning": [
     "arch:CLI-07"
   ],

@@ -3,7 +3,7 @@ import { openStore, type Store } from '../db.js';
 import { upsertProject } from '../projects.js';
 import { createTicket } from '../tickets.js';
 import { createPlanningSession } from '../planningSessions.js';
-import { collectPlanning, LOW_SAMPLE_THRESHOLD } from './planning.js';
+import { collectDraftOutcomes, collectPlanning, LOW_SAMPLE_THRESHOLD } from './planning.js';
 import { scopeSql } from './scope.js';
 
 const NOW = new Date('2026-02-01T00:00:00Z');
@@ -57,6 +57,17 @@ describe('collectPlanning', () => {
       );
     return { proposalId: Number(lastInsertRowid), ticketId };
   }
+
+  it('collectDraftOutcomes keys one outcome per accepted draft-born ticket and skips pending/discarded', () => {
+    draft({ status: 'pending' });
+    draft({ status: 'discarded' });
+    const merged = draft({ status: 'accepted', ticketKey: 'M', merged: '2026-01-01T10:00:00Z' });
+    const open = draft({ status: 'accepted', ticketKey: 'O' });
+    const out = collectDraftOutcomes(store, {});
+    expect([...out.keys()].sort()).toEqual([merged.proposalId, open.proposalId].sort());
+    expect(out.get(merged.proposalId)).toMatchObject({ tickets: 1, merged: 1, medianHoursToMerge: 10 });
+    expect(out.get(open.proposalId)).toMatchObject({ tickets: 1, merged: 0, medianHoursToMerge: null, reworkRounds: null });
+  });
 
   it('counts the funnel per session and in total, and names the unreadable revise signal', () => {
     const other = createPlanningSession(store, { projectId, title: 'o', core: 'codex', model: null }).id;
