@@ -1,4 +1,8 @@
 // Deterministic checks for the ticket-form improve eval. All thresholds and phrase lists live here.
+import { isStructuredSpec } from '../../src/workflow/classify/specShape.ts';
+
+// The built-in prompt picks its spec form from this same rule; re-exported for tests.
+export { isStructuredSpec };
 
 export const MAX_WORDS = 120;
 export const TIGHT_SIMILARITY = 0.85;
@@ -40,14 +44,6 @@ const FILE_EXT = '(?:ts|tsx|js|mjs|json|md|py|go|rs|yml|yaml|log)';
 const PATHLIKE = new RegExp(`(?:/?[\\w.-]+(?:/[\\w.-]+){2,}|[\\w./-]*[\\w-]\\.${FILE_EXT})\\b`, 'g');
 // Capitalized product names (Node.js, Next.js) look like files but are prose.
 const PRODUCT_NAME = /^[A-Z][a-z]+\.js$/;
-
-// Mirrors the built-in prompt's "already a structured spec" rule: N+ heading/list lines.
-export const SPEC_MIN_STRUCTURED_LINES = 3;
-const STRUCTURED_LINE = /^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s)/;
-
-/** A structured spec keeps its own form: the shape sections and word cap do not apply. */
-export const isStructuredSpec = (input) =>
-  input.split('\n').filter((l) => STRUCTURED_LINE.test(l)).length >= SPEC_MIN_STRUCTURED_LINES;
 
 /** Path-like tokens in the model's own wording: not product names, not copied from the source. */
 function ownPaths(body, input) {

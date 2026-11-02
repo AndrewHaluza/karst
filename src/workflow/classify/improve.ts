@@ -9,6 +9,7 @@
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { TicketType } from '../../store/ticketTypes.js';
 import { ROLE_BOUNDARY_LINE, UNTRUSTED_INPUT_RULES, MISSING_INFO_RULES } from './promptRules.js';
+import { isStructuredSpec } from './specShape.js';
 
 const FEATURE_SHAPE: readonly string[] = [
   "<one sentence: the change, in the project's own words>",
@@ -28,31 +29,58 @@ const BUG_SHAPE: readonly string[] = [
   '**Repro:** <steps, verbatim when given; "unknown" when not>',
 ];
 
+const PRESERVE_VERBATIM_RULE =
+  '- Preserve verbatim: error strings, ids, ticket keys, versions, URLs, quoted user reports, reproduction steps.';
+const BOILERPLATE_RULE =
+  '- No boilerplate: "this ticket aims to", "as a user I want", "Background", "Overview", tracker/status/date chatter.';
+
+export interface BuiltInImproveOptions {
+  /** The description is already a structured spec (see `isStructuredSpec`): keep its form. */
+  spec?: boolean;
+}
+
+/** A structured spec keeps its structure; only noise is removed. No type shape, no word cap. */
+function buildSpecImprovePrompt(): string {
+  return [
+    'Clean up ONE ticket description that is already a structured spec. ' + ROLE_BOUNDARY_LINE,
+    ...UNTRUSTED_INPUT_RULES,
+    '',
+    'Keep its structure and every requirement, decision, id and test name. Remove only tracker chatter, template headings with nothing under them, and duplicated text. Do not reshape it into sections or shorten it to a word limit.',
+    '',
+    'Rules:',
+    '- Do not restate the title. Paths and names already in the spec stay; do not add new ones or cite files you consulted.',
+    BOILERPLATE_RULE,
+    "- Keep the author's intent and scope EXACTLY.",
+    PRESERVE_VERBATIM_RULE,
+    ...MISSING_INFO_RULES.map((r) => `- ${r}`),
+  ].join('\n');
+}
+
 /**
  * Built-in description-rewriter prompt used when no profile body is configured.
- * A bug (`fix`) gets the Actual/Expected/Repro shape; everything else gets
- * Why / Done when. A profile body REPLACES this prompt entirely (user ruling).
+ * A structured spec keeps its form; otherwise a bug (`fix`) gets the
+ * Actual/Expected/Repro shape and everything else gets Why / Done when.
+ * A profile body REPLACES this prompt entirely (user ruling).
  */
-export function buildBuiltInImprovePrompt(ticketType?: TicketType): string {
+export function buildBuiltInImprovePrompt(ticketType?: TicketType, opts: BuiltInImproveOptions = {}): string {
+  if (opts.spec) return buildSpecImprovePrompt();
   const shape = ticketType === 'fix' ? BUG_SHAPE : FEATURE_SHAPE;
   return [
     'Improve ONE ticket description into a short, precise statement of WHAT to achieve and WHY. ' +
       ROLE_BOUNDARY_LINE,
     ...UNTRUSTED_INPUT_RULES,
     '',
-    'If the description is already a structured spec (headings, lists, decision ids, test names), keep its structure and every requirement, decision, id and test name; only remove tracker chatter and noise. Do not force it into the shape below.',
-    '',
-    'Shape for loose prose (drop any section with nothing real in it):',
+    'Shape (drop any section with nothing real in it):',
     ...shape,
     '',
     'Rules:',
     '- Say WHAT and WHY, not HOW. No phases, step ordering, or research/plan/approve gates.',
     '- Do not restate the title. Do not name repos, services, file paths, modules or functions.',
-    '- No boilerplate: "this ticket aims to", "as a user I want", "Background", "Overview", tracker/status/date chatter.',
+    BOILERPLATE_RULE,
     "- Keep the author's intent and scope EXACTLY. An already-tight description comes back nearly unchanged.",
-    '- Preserve verbatim: error strings, ids, ticket keys, versions, URLs, quoted user reports, reproduction steps. Verbatim content does not count toward the word limit.',
+    `${PRESERVE_VERBATIM_RULE} Verbatim content does not count toward the word limit.`,
     ...MISSING_INFO_RULES.map((r) => `- ${r}`),
-    '- Under 120 words, excluding verbatim content. The word limit applies to loose prose only, never to a structured spec.',
+    '- Under 120 words, excluding verbatim content.',
   ].join('\n');
 }
 
@@ -92,7 +120,7 @@ export async function improveDescription(
 
   const instruction = input.instructions.trim()
     ? input.instructions.trim()
-    : buildBuiltInImprovePrompt(input.ticketType);
+    : buildBuiltInImprovePrompt(input.ticketType, { spec: isStructuredSpec(source) });
 
   const titleLine = input.title.trim() || '(untitled)';
   const repoLine = input.repoPath
