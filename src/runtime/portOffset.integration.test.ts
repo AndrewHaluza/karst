@@ -1,18 +1,17 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PORT_OFFSET_ENV, leasePortSlot, readPortOffset, type PortSlotLease } from './portSlots.js';
 
+/** The repo's own vitest entry: `npx vitest` can resolve a different (cached) vitest and crash the child at startup. */
+const VITEST_ENTRY = join(dirname(createRequire(import.meta.url).resolve('vitest/package.json')), 'vitest.mjs');
+
 function runSpinSuite(offset: number): Promise<{ code: number | null; out: string }> {
   return new Promise((done) => {
-    const localVitest = resolve(process.cwd(), 'node_modules', '.bin', 'vitest');
-    const [cmd, args] = existsSync(localVitest)
-      ? [localVitest, ['run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts']]
-      : ['npx', ['vitest', 'run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts']];
     const child = spawn(
-      cmd,
-      args,
+      process.execPath,
+      [VITEST_ENTRY, 'run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts'],
       { env: { ...process.env, [PORT_OFFSET_ENV]: String(offset) } },
     );
     let out = '';

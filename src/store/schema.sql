@@ -1455,3 +1455,12 @@ CREATE TABLE IF NOT EXISTS cloud_session_links (
   UNIQUE (project_id, provider, url)
 );
 CREATE INDEX IF NOT EXISTS idx_cloud_session_links_ticket ON cloud_session_links(ticket_id);
+
+-- v93 fix-round HEAD snapshots (kept in sync with FIX_ROUND_HEADS_DDL in fixRoundHeads.ts).
+-- One row per (fix round, worktree): the branch HEAD when the round opened.
+CREATE TABLE IF NOT EXISTS fix_round_heads (
+  recovery_round_id INTEGER NOT NULL REFERENCES recovery_rounds(id) ON DELETE CASCADE,
+  worktree_path     TEXT NOT NULL,
+  head_sha          TEXT NOT NULL,
+  PRIMARY KEY (recovery_round_id, worktree_path)
+);
