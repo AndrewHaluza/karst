@@ -46,10 +46,10 @@ export function coverageScore(tests) {
   return { covered: c('covered'), partial: c('partial'), missing: c('missing'), notInIssue: c('not-in-issue'), den, pct: den === 0 ? null : (c('covered') + 0.5 * c('partial')) / den };
 }
 
-export async function judgeIntent(adapter, { issue, charter, tests, model, cwd }) {
+export async function judgeIntent(adapter, { issue, charter, tests, model, cwd, effort }) {
   try {
     const res = await adapter.runHeadless({
-      prompt: buildIntentJudgePrompt({ issue, charter, tests }), cwd, model, trustCwd: false,
+      prompt: buildIntentJudgePrompt({ issue, charter, tests }), cwd, model, trustCwd: false, ...(effort ? { effort } : {}),
       tracking: { callSite: 'eval-form-judge', ticketId: null, processRunId: null },
     });
     return parseIntentJudge(res.raw, tests.map((t) => t.test));
