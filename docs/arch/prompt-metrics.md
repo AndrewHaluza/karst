@@ -29,7 +29,7 @@ Prompt wording was tuned by intuition and never measured. This file fixes which 
 - out: @arch:CLI-00 (`karst guide` argv-only content, `karst stats --prompts`)
 
 ### Flow
-Facts ride `openProcessRun`; late facts merge once via `setProcessRunPromptTelemetry`; one read path serves baseline and CLI.
+Facts ride `openProcessRun` (seed length, core-specific tester directives); late facts merge once via `setProcessRunPromptTelemetry`; one read path serves baseline and CLI.
 
 ```mermaid
 flowchart TD
@@ -87,6 +87,7 @@ is never a metric input.
 | findings parse-failure rate | `process_runs(prompt_telemetry).parseTiers` on the `review` run | how often the salvage parser fell back, and to which tier (whole-doc → JSONL → fenced → balanced; the tail-suffix scan reports as `balanced`) | `review/findings.ts` → `findingsLane.ts` |
 | tester re-ask rate | `process_runs(prompt_telemetry).silenceNudges` on the `tester` run | `TESTER_SILENCE_NUDGE` fire count — output-contract compliance | `uat/tester.ts` |
 | tester reformat-nudge rate | `process_runs(prompt_telemetry).reformatNudges` on the `tester` run | reformat-nudge fire count, kept SEPARATE from `silenceNudges` — how often a target answered in prose and needed a reshape (UAT-19); this is the rate the park's rollback trigger below reads | `uat/tester.ts` |
+| tester core hint | `process_runs(prompt_telemetry).coreHint` on the `tester` run | core-specific directive (agy terminal sandbox bypass for `uat:host:docker` and scratch dir) | `uat/tester.ts` |
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
 | **guide-pull rate, per core** | `process_runs('guide-pull')` pulls ÷ `process_runs('session')` seeded with the pointer | **gates ticket 12 — see below** | `cli/guideTelemetry.ts` + launch env |
 | seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent. Since the launch split, `seedChars` is the TOTAL resident context: the kickoff (first user message) PLUS the instruction body (written to disk and delivered through the core's own channel); `instructionsChars`/`instructionsHash` carry the instruction layer's own size and digest |
@@ -108,7 +109,7 @@ Every new fact rides the existing `openProcessRun` append-only evidence path
 (schema v57, `docs/arch/store-and-schema.md`). `process_runs.prompt_telemetry` is a
 single nullable JSON column — one column, not one-per-metric, because these facts
 are read together as one rollup and never filtered per-metric in SQL. `openProcessRun`
-remains the only opener; the findings tier and the tester nudge count (known only
+remains the only opener (it captures seed facts and core-specific prompt directives such as agy's sandbox bypass); the findings tier and the tester nudge count (known only
 AFTER their calls finish) merge onto the run through `setProcessRunPromptTelemetry`,
 which carries the same single-late-fact allowance as `setProcessRunResultKind`. A
 guide pull is its OWN attributed row (`process_id='guide-pull'`), never a mutation
@@ -305,11 +306,11 @@ covers: scripts/evalForm/**
 
 `npm run eval:form` measures `improveDescription` (call site `ticket-improve`) without the pipeline, Docker or the SWE-bench harness. It imports the REAL function and `resolveAdapter` through tsx (never a copy of the prompt), runs strictly sequentially, and uses the host CLI login. This only MEASURES: it changes no prompt text (@arch:PRE-BASELINE).
 
-- **Sources.** `--prompt builtin` is `buildBuiltInImprovePrompt(type)`; `--prompt <file.md>` is a profile body with frontmatter stripped. Each source is one report column. `--judge-model` is required and must differ from `--model`.
+- **Sources.** `--prompt builtin` is `buildBuiltInImprovePrompt(type)`; `--prompt <file.md>` is a profile body with frontmatter stripped. Each source is one report column. `--provider` accepts `claude|codex|antigravity|opencode|opencode2` with optional `--effort <level>`. `--judge-model` is required and must differ from `--model`.
 - **Inputs.** `evals/form/improve-cases.jsonl` (committed, handwritten) and `evals/form/local/own-tickets.jsonl` (gitignored; `npm run eval:form:export -- --db <karst.db> --sample 20 --seed <n>`). Own-ticket input is the stored `brief`, never the already-improved `description`; the export reads the DB read-only through `node:sqlite`.
 - **Deterministic checks** (constants in `scripts/evalForm/checks.mjs`): verbatim tokens kept, built-in contract (applied to every source because improve has NO prompt floor; @arch:FLOOR covers only analyze and tester), canary not obeyed plus a `**Note:**` line, tight input stays near-unchanged.
 - **Judge.** Pinned model, source + output only, empty cwd, JSON `{lost, invented}`. An unparsable reply is a `judge-error`: counted and excluded, never scored 0 (@arch:PM-00).
-- **Report.** `eval-results/form-<ts>/report.md` (per-source summary, then source | output per source | judge items | check failures per input) and `results.json`. Tokens come from the adapter result when reported, else `pending`.
+- **Report & References.** `eval-results/form-<ts>/report.md` (scratch runs) and committed benchmark reference runs in `evals/form/references/`. Cross-model ratings, leaderboards, and effort comparisons are tracked in `evals/form/MODEL-RATINGS.md` (improve pass) and `evals/form/INTENT-MODEL-RATINGS.md` (intent pass). Tokens come from the adapter result when reported, else `pending`.
 
 | deterministic checks + judge | judge alone | outputs must also be readable by the user |
 
@@ -319,5 +320,7 @@ covers: scripts/evalForm/**
 - **Glossary lookup (rejected).** Telling the built-in to look up project terms first added 0 terms and cost about +33% tokens; reverted.
 
 - **Intent pass.** `--pass intent [--source raw|improved]... [--improve-prompt builtin|<file.md>] [--instances <jsonl>] [--cases <jsonl>]` runs the REAL `generateIntent` (call site `ticket-intent`, empty temp dir) on the pinned `evals/instances/multi-swe-bench-ts-v1.jsonl` issue text via `scripts/eval/instances.mjs`. `improved` runs `improveDescription` first and feeds `improvedDescription`, like `runAnalysis`; each mode is a report column. Only `brief` reaches the agent; `testPatch` and `f2p` go to the judge alone (UATHOST-05 leak rule). The judge returns per F2P test `covered|partial|missing|not-in-issue` (the last leaves the denominator) plus `unsupported` scenarios; unparsable is `judge-error`. Deterministic checks (`intentChecks.mjs`): parse outcome via a counting adapter wrapper (first try / nudged / degraded), scenario count and Given/when/then, path-like tokens, F2P path or test-name leaks, API identifiers as info only. `--cases` rows get no coverage score (no ground truth), only format and unsupported.
+
+- **Rejudge.** `--rejudge <results.json|dir>... --judge-model <id> [--judge-model <id2>] [--judge-provider <p>] [--judge-effort low] [--seed n] [--dry-run] [--max-calls n]` (`rejudge.mjs`, `rejudgeReport.mjs`) re-scores saved improve/intent attempts with ONE shared judge so cross-model rows are comparable; no producer is called. Blind: the prompt is the unchanged rubric + source (+ hidden tests) + output, no producer meta; each call is a fresh headless call in an empty cwd; attempts are pooled, hashed and judged in seeded shuffled order. Self-identifying output text is flagged in the report, never edited; a judge of the producer's vendor marks the row `self-family`. Checks are recomputed with the current checkers. Writes `eval-results/rejudge-<ts>/report.md` (old judge numbers beside new).
 
 END_DOC_BLOCK: [@arch:FORMEVAL]

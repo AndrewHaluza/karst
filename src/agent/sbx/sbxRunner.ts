@@ -1,3 +1,4 @@
+import { checkSandboxGit } from './sbxGitVersion.js';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runProcess } from '../../workflow/gates/run.js';
@@ -161,9 +162,14 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
    * A failed write with ext4 errors in the kernel log is a damaged disk: restart reuses it, so the reason says remove
    * (and only says it is safe when `ticket` shows all work on the host).
    */
+  /** Fail closed on a sandbox git older than the minimum; a failing `sbx exec` is left to the step that follows. */
+  const checkGit = async (): Promise<StepOutcome> => {
+    const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'git', '--version'], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+    return out.code === 0 ? checkSandboxGit(out.stdout) : { ok: true };
+  };
   const ensureWritable = async (ticket?: SandboxTicketRef): Promise<StepOutcome> => {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WRITE_PROBE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
-    if (out.code === 0) return { ok: true };
+    if (out.code === 0) return checkGit();
     if (out.code !== PROBE_UNWRITABLE && !/read-only file system/i.test(out.stderr)) return { ok: true };
     const dmesg = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...EXT4_LOG], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
     const lines = dmesg.stdout.split('\n').filter((l) => l.includes('EXT4-fs'));

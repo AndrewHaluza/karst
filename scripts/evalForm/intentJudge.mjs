@@ -34,8 +34,9 @@ export function parseIntentJudge(raw, expected) {
   const okUns = Array.isArray(uns) && uns.every((x) => x && Number.isInteger(x.scenario));
   if (!okTests || !okUns) return { ok: false, error: 'judge-error: wrong shape' };
   const byName = new Map(tests.map((x) => [x.test, x]));
-  if (!expected.every((n) => byName.has(n))) return { ok: false, error: 'judge-error: test missing from reply' };
-  return { ok: true, tests: expected.map((n) => ({ ...byName.get(n), why: String(byName.get(n).why ?? '') })), unsupported: uns };
+  const findMatch = (n) => byName.get(n) ?? tests.find((x) => x.test === n || n.endsWith(x.test) || x.test.endsWith(n) || n.endsWith(`> ${x.test}`));
+  if (!expected.every((n) => Boolean(findMatch(n)))) return { ok: false, error: 'judge-error: test missing from reply' };
+  return { ok: true, tests: expected.map((n) => { const hit = findMatch(n); return { ...hit, test: n, why: String(hit.why ?? '') }; }), unsupported: uns };
 }
 
 /** F2P coverage over the issue-stated tests: covered=1, partial=0.5; not-in-issue leaves the denominator. */
@@ -45,10 +46,10 @@ export function coverageScore(tests) {
   return { covered: c('covered'), partial: c('partial'), missing: c('missing'), notInIssue: c('not-in-issue'), den, pct: den === 0 ? null : (c('covered') + 0.5 * c('partial')) / den };
 }
 
-export async function judgeIntent(adapter, { issue, charter, tests, model, cwd }) {
+export async function judgeIntent(adapter, { issue, charter, tests, model, cwd, effort }) {
   try {
     const res = await adapter.runHeadless({
-      prompt: buildIntentJudgePrompt({ issue, charter, tests }), cwd, model, trustCwd: false,
+      prompt: buildIntentJudgePrompt({ issue, charter, tests }), cwd, model, trustCwd: false, ...(effort ? { effort } : {}),
       tracking: { callSite: 'eval-form-judge', ticketId: null, processRunId: null },
     });
     return parseIntentJudge(res.raw, tests.map((t) => t.test));

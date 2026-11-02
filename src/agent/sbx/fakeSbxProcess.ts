@@ -6,6 +6,9 @@ export interface FakeCall {
   readonly opts?: ProcessRunOptions;
 }
 
+/** The in-sandbox git version probe of `ensureWritable` (`sbx exec <name> -- git --version`). */
+const isGitVersion = (command: string, args: readonly string[]): boolean => command === 'sbx' && args.at(-1) === '--version' && args.at(-2) === 'git';
+
 /** Test double: answers by `"<command> <first args>"` prefix; unmatched → code 0, empty output. */
 export function fakeSbxProcess(
   answers: Record<string, Partial<ProcessResult>> = {},
@@ -21,7 +24,7 @@ export function fakeSbxProcess(
     calls,
     probes,
     run: (command, args, runOpts) => {
-      (args.some((a) => a.includes('.karst-write-probe')) ? probes : calls).push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
+      (args.some((a) => a.includes('.karst-write-probe')) || isGitVersion(command, args) ? probes : calls).push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
       const line = [command, ...args].join(' ');
       // Host git runs with `-c k=v` isolation flags; keys may omit them.
       const bare = line.replace(/^git (?:-c \S+ )+/, 'git ');
@@ -32,7 +35,8 @@ export function fakeSbxProcess(
       const bundleOut = command === 'sbx' && args.includes('karst-bundle') ? ({ stdout: 'YnVuZGxl' } as Partial<ProcessResult>) : ({} as Partial<ProcessResult>);
       // `rev-parse … refs/karst/sandbox/<b>^{commit}` (sync resolves the fetched private ref) answers a sha unless a test says otherwise.
       const sandboxHead = command === 'git' && args.some((x) => x.startsWith('refs/karst/sandbox/')) ? ({ stdout: `${'f'.repeat(40)}\n` } as Partial<ProcessResult>) : bundleOut;
-      const hit = key === undefined ? sandboxHead : answers[key]!;
+      const modernGit = isGitVersion(command, args) ? ({ stdout: 'git version 2.54.0\n' } as Partial<ProcessResult>) : sandboxHead;
+      const hit = key === undefined || (isGitVersion(command, args) && !key.includes('--version')) ? modernGit : answers[key]!;
       const res = { code: hit.code ?? 0, stdout: hit.stdout ?? '', stderr: hit.stderr ?? '' };
       if (opts.keepListing) return Promise.resolve(res);
       if (args[0] === 'rm' && (res.code === 0 || /no such/i.test(res.stderr))) for (const n of args.slice(1)) if (!n.startsWith('-')) gone.add(n);

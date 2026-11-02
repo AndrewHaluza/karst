@@ -35,7 +35,7 @@ import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
-import type { Severity } from '../../manifest/types.js';
+import type { Severity, AgentProvider } from '../../manifest/types.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { openProcessRun, finishProcessRun, setProcessRunPromptTelemetry } from '../../store/processRuns.js';
@@ -701,10 +701,35 @@ export interface TesterPromptExtra {
   ticketKey?: string | null;
   /** The composed `karst context` prefix (§ context loader). Absent → no pointer line. */
   contextCommand?: string;
+  /** Core or provider key (e.g. 'antigravity' | 'agy' | 'claude' | 'codex'). */
+  core?: string | null;
+  /** Core or provider key alias. */
+  provider?: AgentProvider | string | null;
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
 export const TESTER_SCRATCH_DIR = '.karst/uat-scratch';
+
+/**
+ * Core-specific directives for the UAT Tester prompt.
+ *
+ * An agy/antigravity Tester's terminal sandbox denies access to docker.sock and
+ * `.karst/uat-scratch/` by default. Karst must not modify agy's user-global sandbox
+ * settings (AC-17), so we instruct agy to pass `BypassSandbox: true` on the first call.
+ * Other cores pay nothing.
+ */
+export const AGY_SANDBOX_BYPASS_HINT =
+  'Run `npm run uat:host:docker …` and commands that write under `.karst/uat-scratch` with `BypassSandbox: true` on the first call.';
+
+export const TESTER_CORE_HINTS: Readonly<Record<string, string>> = {
+  antigravity: AGY_SANDBOX_BYPASS_HINT,
+  agy: AGY_SANDBOX_BYPASS_HINT,
+};
+
+export function testerCoreHint(core?: string | null): string | undefined {
+  if (!core) return undefined;
+  return TESTER_CORE_HINTS[core];
+}
 
 /** Three-dot form: a two-dot diff reads newer base work as deletions. */
 export function testerMergeBaseRule(baseRef: string | null | undefined): string {
@@ -753,6 +778,7 @@ export function buildTesterPrompt(
     ...intentBlock,
     ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey),
   ];
+  const coreHint = testerCoreHint(extra?.core ?? extra?.provider);
   return [
     ...strategy,
     // Never displaced by `instructions` and never part of the strict output
@@ -764,6 +790,7 @@ export function buildTesterPrompt(
     testerMergeBaseRule(target.baseRef),
     COVERAGE_RULE_UAT,
     `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
+    ...(coreHint ? [coreHint] : []),
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
@@ -829,6 +856,7 @@ async function runTesterBody(
   skippedTitles: Record<string, string>,
 ): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
+  const coreHint = testerCoreHint(opts.assignment.provider);
   const run = openProcessRun(store, {
     ticketId: opts.ticketId,
     stageKey: 'uat',
@@ -840,6 +868,7 @@ async function runTesterBody(
     model: opts.assignment.model ?? null,
     pid: process.pid,
     startedAt: now(),
+    promptTelemetry: coreHint ? { coreHint } : null,
   });
   const close = (
     status: 'passed' | 'failed' | 'interrupted',
@@ -992,6 +1021,8 @@ async function runTesterBody(
           ticketKey: opts.ticketKey,
           contextCommand: opts.contextCommand,
           debug: opts.debug,
+          core: opts.assignment.provider,
+          provider: opts.assignment.provider,
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
@@ -1208,7 +1239,11 @@ async function runTesterBody(
     // the run the tester opened — a late fact written before every close path, so
     // a Stop mid-loop still records what fired. The re-ask RATE is the
     // output-contract-compliance signal prompt-metrics.md reads.
-    setProcessRunPromptTelemetry(store, run.id, { silenceNudges, reformatNudges });
+    setProcessRunPromptTelemetry(store, run.id, {
+      silenceNudges,
+      reformatNudges,
+      ...(coreHint ? { coreHint } : {}),
+    });
     if (opts.signal?.aborted) {
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');

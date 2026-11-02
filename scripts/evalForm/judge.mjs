@@ -34,10 +34,10 @@ export function parseJudge(raw) {
 }
 
 /** Run the judge via an adapter. Never throws: an adapter failure is a judge-error too. */
-export async function judgeOutput(adapter, { source, output, model, cwd }) {
+export async function judgeOutput(adapter, { source, output, model, cwd, effort }) {
   try {
     const res = await adapter.runHeadless({
-      prompt: buildJudgePrompt(source, output), cwd, model, trustCwd: false,
+      prompt: buildJudgePrompt(source, output), cwd, model, trustCwd: false, ...(effort ? { effort } : {}),
       tracking: { callSite: 'eval-form-judge', ticketId: null, processRunId: null },
     });
     return parseJudge(res.raw);

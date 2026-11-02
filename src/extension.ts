@@ -312,6 +312,7 @@ import { sweepArtifactRetention } from './artifacts/retention.js';
 import { wireArtifactCapture } from './extension/artifactCaptureWiring.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
+import { snapshotThenResume } from './workflow/fixRoundGuard.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
@@ -3531,7 +3532,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
           resumeFix: (id, gate, attempts, roundId, process) =>
-            resumeFixSession(id, gate, attempts, roundId, process),
+            snapshotThenResume(localStore, id, process === null ? null : roundId, defaultGitRunner,
+              (err) => logError(`karst: fix-round HEAD snapshot for ticket ${id} failed`, err),
+              () => resumeFixSession(id, gate, attempts, roundId, process)),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row

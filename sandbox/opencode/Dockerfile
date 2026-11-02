@@ -14,6 +14,20 @@
 # rendering environment and the browser cannot drift apart.
 ARG PW=1.63.0
 FROM mcr.microsoft.com/playwright:v${PW}-noble AS baseline
+# bookworm's own git is 2.39 and bookworm-backports carries none, but
+# `git worktree add --relative-paths` (scripts/eval/snapshot.mjs) needs 2.42.
+# Pulling git from trixie would upgrade base-files, so playwright's installer
+# would read the distro as Debian 13 and fail. Build it from source on bookworm
+# instead; the final stage overlays it in /usr/local (ahead of the apt git on PATH).
+# The sandbox preflight (src/agent/sbx/sbxGitVersion.ts) blocks a launch on an older image.
+FROM node:22-bookworm-slim AS gitbuild
+ARG GIT=2.47.3
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl xz-utils \
+    libcurl4-gnutls-dev libssl-dev libexpat1-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://www.kernel.org/pub/software/scm/git/git-${GIT}.tar.xz" | tar -xJ -C /tmp \
+    && make -C "/tmp/git-${GIT}" -j"$(nproc)" prefix=/usr/local NO_GETTEXT=1 NO_TCLTK=1 install
+
 FROM node:22-bookworm-slim
 ARG PW
 ARG OC1=1.19.0
@@ -26,6 +40,7 @@ ARG AGY=1.4.6
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps lsof \
     build-essential python3 fontconfig curl \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=gitbuild /usr/local /usr/local
 # A commit must work in ANY repository here, not only in the ticket clone (which
 # gets the host's identity from `git clone --config user.name=…`): a gate that
 # builds a scratch repo in /tmp, or an agent committing its own work, otherwise

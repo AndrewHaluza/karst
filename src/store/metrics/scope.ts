@@ -13,6 +13,8 @@ export interface MetricsScope {
   readonly projectId?: number;
   /** ISO timestamp; rows stamped strictly before it are excluded. */
   readonly since?: string;
+  /** Restrict to these tickets (e.g. the draft-born set); `[]` matches nothing. */
+  readonly ticketIds?: readonly number[];
 }
 
 export type SqlParam = string | number;
@@ -33,7 +35,12 @@ export interface ScopeSql {
  */
 export function scopeSql(
   scope: MetricsScope,
-  columns: { readonly projectColumn: string; readonly sinceColumn?: string },
+  columns: {
+    readonly projectColumn: string;
+    readonly sinceColumn?: string;
+    /** Qualified ticket id; defaults to `t.id` when the query joins `tickets t`. */
+    readonly ticketColumn?: string;
+  },
 ): ScopeSql {
   const parts: string[] = [];
   const params: SqlParam[] = [];
@@ -44,6 +51,16 @@ export function scopeSql(
   if (scope.since !== undefined && columns.sinceColumn !== undefined) {
     parts.push(` AND ${columns.sinceColumn} >= ?`);
     params.push(scope.since);
+  }
+  if (scope.ticketIds !== undefined) {
+    if (scope.ticketIds.length === 0) {
+      parts.push(' AND 0');
+    } else {
+      const column = columns.ticketColumn ?? (columns.projectColumn.startsWith('t.') ? 't.id' : undefined);
+      if (column === undefined) throw new Error('ticketIds scope needs a ticketColumn');
+      parts.push(` AND ${column} IN (${scope.ticketIds.map(() => '?').join(', ')})`);
+      params.push(...scope.ticketIds);
+    }
   }
   return { clause: parts.join(''), params };
 }

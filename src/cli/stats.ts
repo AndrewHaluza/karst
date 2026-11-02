@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { collectMetrics, type EffectivenessMetrics } from '../store/metrics/index.js';
+import { collectPlanning, type PlanningOutcome, type PlanningReport } from '../store/metrics/planning.js';
 
 /**
  * `karst stats [--project <slug>] [--since <iso>] [--json]` — the orchestration
@@ -20,6 +21,8 @@ export interface ParsedStats {
   /** `--project`; absent = fall back to the manifest's project, else unscoped. */
   readonly projectSlug?: string;
   readonly since?: string;
+  /** `--planning`: the draft funnel / downstream-outcome report instead of the effectiveness one. */
+  readonly planning?: true;
 }
 
 function requireValue(flag: string, value: string | undefined): string {
@@ -29,23 +32,26 @@ function requireValue(flag: string, value: string | undefined): string {
   return value;
 }
 
-/** Parse `['stats', ('--json')?, ('--project' <slug>)?, ('--since' <iso>)?]`. */
+/** Parse `['stats', ('--json')?, ('--planning')?, ('--project' <slug>)?, ('--since' <iso>)?]`. */
 export function parseStatsArgs(argv: string[]): ParsedStats {
   const [cmd, ...rest] = argv;
   if (cmd !== 'stats') throw new Error(`expected 'stats' command, got '${cmd ?? ''}'`);
   let format: StatsFormat = 'text';
   let projectSlug: string | undefined;
   let since: string | undefined;
+  let planning = false;
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i]!;
     if (flag === '--json') format = 'json';
     else if (flag === '--text') format = 'text';
+    else if (flag === '--planning') planning = true;
     else if (flag === '--project') projectSlug = requireValue('--project', rest[++i]);
     else if (flag === '--since') since = requireValue('--since', rest[++i]);
-    else throw new Error(`unknown flag '${flag}' (want --json, --project <slug> or --since <iso>)`);
+    else throw new Error(`unknown flag '${flag}' (want --json, --planning, --project <slug> or --since <iso>)`);
   }
   return {
     format,
+    ...(planning ? { planning: true as const } : {}),
     ...(projectSlug === undefined ? {} : { projectSlug }),
     ...(since === undefined ? {} : { since }),
   };
@@ -159,16 +165,90 @@ function findProjectId(store: Store, slug: string): number | undefined {
   return row?.id;
 }
 
+const pending = (value: number | null, unit = ''): string =>
+  value === null ? 'pending' : `${number(value)}${unit}`;
+
+const OUTCOME_HEADERS = ['tickets', 'merged', 'h→merge', 'first-pass', 'rework', 'findings', 'fix', 'gate-kills', 'tok(rep)', 'tok(est)', 'active-h'];
+
+function outcomeCells(o: PlanningOutcome): string[] {
+  return [
+    String(o.tickets),
+    o.mergedRate === null ? 'pending' : `${o.merged} (${rate(o.mergedRate)})`,
+    pending(o.medianHoursToMerge),
+    o.firstPassRate === null ? 'pending' : rate(o.firstPassRate),
+    pending(o.reworkRounds),
+    pending(o.reviewFindings),
+    pending(o.fixRounds),
+    pending(o.gateKills),
+    pending(o.reportedTokens),
+    pending(o.estimatedTokens),
+    pending(o.agentActiveHours),
+  ];
+}
+
+function table(headers: readonly string[], rows: readonly (readonly string[])[]): string[] {
+  const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
+  const line = (cells: readonly string[]): string =>
+    '  ' + cells.map((c, i) => c.padEnd(widths[i]!)).join('  ').trimEnd();
+  return [line(headers), ...rows.map(line)];
+}
+
+function renderPlanning(r: PlanningReport): string {
+  const f = r.funnel;
+  const lines: string[] = [
+    `karst planning drafts — ${r.scope.projectId === null ? 'all projects' : `project id ${r.scope.projectId}`}, ${r.scope.since === null ? 'all time' : `since ${r.scope.since}`}`,
+    '',
+    `Funnel: ${f.total.total} proposals — pending=${f.total.pending}, accepted=${f.total.accepted}, discarded=${f.total.discarded}`,
+  ];
+  for (const s of f.bySession) {
+    lines.push(`  session ${s.sessionId} (${s.core}/${s.model ?? 'unknown'}): pending=${s.pending}, accepted=${s.accepted}, discarded=${s.discarded}`);
+  }
+  lines.push(`  revised before accept: pending — ${f.revisedBeforeAccept.missing}`);
+  lines.push('', 'Outcome of draft-born tickets:');
+  lines.push(...table(OUTCOME_HEADERS, [outcomeCells(r.outcome)]));
+  for (const split of r.splits) {
+    lines.push('', `Split by ${split.name}:`);
+    lines.push(
+      ...table(
+        ['bucket', 'n', ...OUTCOME_HEADERS.slice(1)],
+        split.buckets.map((b) => [
+          b.low ? `${b.bucket} LOW` : b.bucket,
+          String(b.drafts),
+          ...outcomeCells(b.outcome).slice(1),
+        ]),
+      ),
+    );
+  }
+  lines.push('', 'Stuck (accepted, ticket not done or archived):');
+  if (r.stuck.length === 0) lines.push('  none');
+  for (const s of r.stuck) {
+    lines.push(`  ticket ${s.ticketId}: ${s.title} — stage ${s.stage ?? 'unknown'}, age ${pending(s.ageHours === null ? null : Math.round(s.ageHours), 'h')}`);
+  }
+  return lines.join('\n');
+}
+
 export function runStatsCommand(
   store: Store,
   parsed: ParsedStats,
   fallbackProjectSlug: string | undefined,
+  now: Date = new Date(),
 ): string {
   const slug = parsed.projectSlug ?? fallbackProjectSlug;
   let projectId: number | undefined;
   if (slug !== undefined) {
     projectId = findProjectId(store, slug);
     if (projectId === undefined) throw new Error(`no project found for slug '${slug}'`);
+  }
+  if (parsed.planning) {
+    const report = collectPlanning(
+      store,
+      {
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(parsed.since === undefined ? {} : { since: parsed.since }),
+      },
+      now,
+    );
+    return parsed.format === 'json' ? JSON.stringify(report, null, 2) : renderPlanning(report);
   }
   const metrics = collectMetrics(store, {
     ...(projectId === undefined ? {} : { projectId }),
