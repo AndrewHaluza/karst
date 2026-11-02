@@ -76,6 +76,9 @@
   "scripts/stage-vsix.mjs#placeAddon": [
     "arch:ABI-01"
   ],
+  "scripts/tsc.mjs": [
+    "arch:GATE-CAPABILITY"
+  ],
   "scripts/uat-host/*": [
     "arch:UATHOST-00"
   ],
@@ -812,6 +815,9 @@
     "arch:GH-06"
   ],
   "src/workflow/gates/capabilityGap.ts": [
+    "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/gates/capabilityGap.ts#launcherModuleNotFound": [
     "arch:GATE-CAPABILITY"
   ],
   "src/workflow/merge*.ts": [

@@ -11,7 +11,7 @@ export const GATE_MAX_WORKERS_ENV = 'KARST_GATE_MAX_WORKERS';
 export const EXIT_SIGKILL = 137;
 
 /** What a test runner prints when a test genuinely failed, as opposed to being killed mid-run. */
-const FAILURE_MARKERS = [
+export const FAILURE_MARKERS = [
   /^\s*FAIL\b/m,
   /\bAssertionError\b/,
   /^\s*[×✗✖]\s/m,
