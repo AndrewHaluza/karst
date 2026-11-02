@@ -16,6 +16,9 @@ import { createTicket, getTicket, setStageCurrent } from '../../store/tickets.js
 import { STAGE_GRAPH } from '../../workflow/graph.js';
 import type { StageKey } from '../../model/types.js';
 import { createMarkerRunner } from './markerRunner.js';
+import { assertFixHasNewCommit, snapshotFixRoundHeads, NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
+import { openRecoveryRound } from '../../store/recoveryRounds.js';
+import { defaultGitRunner } from '../../integrations/git.js';
 
 /**
  * F7: the stage contract end to end, minus the container itself. The "agent" is a
@@ -85,6 +88,8 @@ function rig(stage: MarkerStage): Rig {
     // The stage CLI, in process: the same function `karst stage <s> pass` runs.
     async (_cmd, args) => {
       try {
+        // The CLI entry's async pre-check (cli/main.ts assertMarkerHasWork), then the sync marker.
+        if (args[2] === 'fix') await assertFixHasNewCommit(store, ticketId, defaultGitRunner);
         runStageCommand(store, ticketId, [args[1]!, args[2]!, args[3]!]);
         return { stdout: '', stderr: '', exitCode: 0 };
       } catch (err) {
@@ -167,6 +172,23 @@ describe('sandbox stage contract (F7)', () => {
     expect(out.code).toBe(3);
     expect(out.stdout).toContain('queued');
     expect(getTicket(r.store, r.ticketId).stageCurrent).toBe('impl');
+  });
+
+  it('fix: a marker after sync with no new commit since the round opened exits 1 with ok:false', async () => {
+    const r = await prepare('fix');
+    const round = openRecoveryRound(r.store, {
+      ticketId: r.ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure',
+      triggerDetail: 'x', maxRounds: 3, startedAt: '2026-01-01T00:00:00Z',
+    } as never);
+    await snapshotFixRoundHeads(r.store, r.ticketId, round.id, defaultGitRunner);
+    r.attach();
+    const out = await r.runMarkerCommand();
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain(NO_NEW_COMMIT_REASON);
+    expect(getTicket(r.store, r.ticketId).stageCurrent).toBe('fix');
+    const reply = readFileSync(join(r.paths.resultsDir, `${String(events(r.paths)[0]!['seq'])}.json`), 'utf8');
+    expect(JSON.parse(reply)).toMatchObject({ ok: false, stage: 'fix', retrying: false });
+    expect(JSON.parse(reply).reason).toContain(NO_NEW_COMMIT_REASON);
   });
 
   it('exit 1: a permanent host refusal carries its reason on stderr', async () => {

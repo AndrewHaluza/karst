@@ -29,22 +29,21 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..', '..');
 
-function findNodeModulesDir(start: string): string {
+/**
+ * Directory of an installed package, walking up from `start`. Resolved per
+ * package: a git worktree keeps a private `better-sqlite3` build (ABI-03) while
+ * the rest (`js-yaml`, `bindings`, ...) is inherited from the main checkout, so
+ * no single `node_modules` holds them all.
+ */
+function findPackageDir(start: string, name: string): string {
   let curr = start;
   while (curr !== dirname(curr)) {
-    const candidate = join(curr, 'node_modules');
-    if (
-      existsSync(candidate) &&
-      existsSync(join(candidate, 'better-sqlite3')) &&
-      existsSync(join(candidate, 'js-yaml'))
-    ) {
-      return candidate;
-    }
+    const candidate = join(curr, 'node_modules', name);
+    if (existsSync(candidate)) return candidate;
     curr = dirname(curr);
   }
-  return join(start, 'node_modules');
+  return join(start, 'node_modules', name);
 }
-const NODE_MODULES = findNodeModulesDir(ROOT);
 
 type StageCopyList = {
   required: string[];
@@ -66,7 +65,7 @@ type PackageJson = {
 };
 
 function readPackageJson(name: string): PackageJson | null {
-  const manifestPath = join(NODE_MODULES, name, 'package.json');
+  const manifestPath = join(findPackageDir(ROOT, name), 'package.json');
   return existsSync(manifestPath)
     ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageJson)
     : null;
@@ -102,7 +101,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
 
   while (queue.length > 0) {
     const pkgName = queue.pop()!;
-    const packageDir = join(NODE_MODULES, pkgName);
+    const packageDir = findPackageDir(ROOT, pkgName);
     const manifest = readPackageJson(pkgName);
     if (manifest === null) continue;
     closure.add(pkgName);
@@ -130,7 +129,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
       // every name here is a bare specifier that leaves this package.
       for (const required of requiredPackages(readFileSync(file, 'utf8'))) {
         if (readPackageJson(required) === null) continue;
-        if (closure.has(required) && visitedFiles.has(join(NODE_MODULES, required, 'index.js'))) {
+        if (closure.has(required) && visitedFiles.has(join(findPackageDir(ROOT, required), 'index.js'))) {
           continue;
         }
         queue.push(required);
@@ -208,7 +207,7 @@ describe('stage-vsix copy list packaging', () => {
       // directory the closure walk above uses, not raw ROOT — otherwise this
       // guard fails on every worktree and proves nothing.
       const resolved = entry.startsWith('node_modules/')
-        ? join(NODE_MODULES, entry.slice('node_modules/'.length))
+        ? findPackageDir(ROOT, entry.slice('node_modules/'.length))
         : join(ROOT, entry);
       expect(existsSync(resolved), `required stage entry is missing: ${entry}`).toBe(true);
     }
