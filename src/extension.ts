@@ -3828,7 +3828,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath,
-    rerunFailedGates: hostRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess }), // D403: one host gate re-run for a refused no-commit fix marker debug: (m) => logger.debug(m),
+    rerunFailedGates: hostRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess }), // D403: one host gate re-run for a refused no-commit fix marker
+    debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
