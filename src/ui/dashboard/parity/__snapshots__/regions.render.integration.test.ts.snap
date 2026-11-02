@@ -1086,8 +1086,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.agent-model> "Claude Opus 4.1"
             <span.live.token-stat title="12,435 fresh tokens"> "12.4k tok"
               <span.sigma> "Σ"
-            <span.duration> "<dur> <dur>"
             <button.k-btn.k-btn--secondary.k-btn--sm data-act="inside-action" data-action-id="fixture:open-full-evidence:1" title="Show every recorded row" type="button"> "Show all"
+          <span.op-time>
+          <span.duration> "<dur> <dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.session-segments>
@@ -1167,7 +1168,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.agent-model> "Sonnet"
             <span.token-stat title="58,300 fresh tokens"> "58.3k tok"
               <span.sigma> "Σ"
-            <span.duration> "<dur>"
+          <span.op-time>
+          <span.duration> "<dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.session-segments>
@@ -1290,6 +1292,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1324,6 +1328,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1331,13 +1337,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1345,6 +1357,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1380,6 +1394,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1387,13 +1403,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview loading > inside · ship preview loading 1`] = `
@@ -1432,6 +1454,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1466,6 +1490,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1473,13 +1499,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1487,6 +1519,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1522,6 +1556,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1529,13 +1565,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview ready > inside · ship preview ready 1`] = `
@@ -1599,6 +1641,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1633,6 +1677,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1640,13 +1686,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1654,6 +1706,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1689,6 +1743,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1696,13 +1752,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > logsView #logsView · closed > logsView · closed 1`] = `"<div#logsView.hidden.logsview tabindex="-1">"`;
