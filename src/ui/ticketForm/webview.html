@@ -648,6 +648,8 @@
 
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
+  // Live title/description, so a draft row minted by an action seeds from what the user typed.
+  const liveDraft = () => ({ title: el('title').value, description: el('desc').value });
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
 
@@ -1181,7 +1183,7 @@
     if (att) {
       const requestId = karstRequestId();
       karstBeginPending(att, requestId);
-      post({ type: 'attach-brief-attachment', index: Number(att.dataset.briefAttach), requestId });
+      post({ type: 'attach-brief-attachment', index: Number(att.dataset.briefAttach), requestId, draft: liveDraft() });
     }
   });
   // Editing #desc ends the Undo window.
@@ -1772,7 +1774,7 @@
     // profile body / inline instructions), resolved host-side — the page
     // carries no agent; the ticket's own single-subagent pick drives the
     // SESSION, never this headless analysis.
-    post({ type: 'analyze', prompt: el('desc').value });
+    post({ type: 'analyze', prompt: el('desc').value, draft: liveDraft() });
   }
 
   // Auto-improve (default on): run the analyzer exactly once after a fetch, only
@@ -2204,7 +2206,7 @@
   // state — both are "the attach machinery" from the user's point of view,
   // and only one can usefully run at a time.
   el('attachBtn').innerHTML = karstIcon('paperclip', 14);
-  karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
+  karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId, draft: liveDraft() }));
 
   // Delegated: the strip is re-rendered on every state push, so per-tile
   // listeners would be re-bound each time and leak. Uses the runtime's pending
@@ -2268,7 +2270,7 @@
       if (!karstIsPending(el('attachBtn'))) {
         const requestId = karstRequestId();
         karstBeginPending(el('attachBtn'), requestId);
-        post({ type: 'attach-bytes', name, base64: payload, requestId });
+        post({ type: 'attach-bytes', name, base64: payload, requestId, draft: liveDraft() });
       }
     };
     try {
@@ -2300,7 +2302,7 @@
     if (!karstIsPending(el('attachBtn'))) {
       const requestId = karstRequestId();
       karstBeginPending(el('attachBtn'), requestId);
-      post({ type: 'attach-bytes', name, base64, requestId });
+      post({ type: 'attach-bytes', name, base64, requestId, draft: liveDraft() });
     }
   }
 

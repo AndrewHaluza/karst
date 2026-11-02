@@ -195,7 +195,7 @@ describe('buildTicketFormActions', () => {
       // Default resolver: the CURRENT deps.adapter under the approved default
       // assignment, read at CALL time so per-test `deps.adapter` swaps apply.
       // Individual tests override this with a configured bundle.
-      resolveAnalysisProcess: vi.fn<(id: number) => DriveProcessBundle | null>(() => ({
+      resolveAnalysisProcess: vi.fn<(id: number | undefined) => DriveProcessBundle | null>(() => ({
         assignment: { agentName: 'Ticket Analysis Agent', provider: 'claude' },
         adapter: deps.adapter,
       })),
@@ -2954,4 +2954,61 @@ describe('buildTicketFormActions', () => {
     });
   });
 
+  describe('ensureTicket on a prefilled review page', () => {
+    const SEED = { title: 'Draft title', description: 'Draft body' };
+    const prefillCtx = () => Object.assign(mkCtx(), { prefillSeed: SEED });
+    const only = () => {
+      const rows = listTickets(store);
+      expect(rows).toHaveLength(1);
+      return rows[0]!;
+    };
+
+    it('attachPick seeds title/description/source from the draft', async () => {
+      const ctx = prefillCtx();
+      deps.pickAttachment = async () => [sourceImage('shot.png')];
+      await buildTicketFormActions(deps)(ctx).attachPick();
+      expect(only()).toMatchObject({ title: 'Draft title', description: 'Draft body', source: 'planning' });
+    });
+
+    it('attachPick and attachBytes seed from the live form values over the draft', async () => {
+      const live = { title: 'Edited title', description: 'Edited body' };
+      const a = prefillCtx();
+      deps.pickAttachment = async () => [sourceImage('shot.png')];
+      await buildTicketFormActions(deps)(a).attachPick(live);
+      expect(only()).toMatchObject({ title: 'Edited title', description: 'Edited body', source: 'planning' });
+    });
+
+    it('a blank live title falls back to the draft title', async () => {
+      const ctx = prefillCtx();
+      await buildTicketFormActions(deps)(ctx).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'), { title: '  ', description: '' });
+      expect(only()).toMatchObject({ title: 'Draft title', description: 'Draft body' });
+    });
+
+    it('attachBytes seeds from the draft', async () => {
+      const ctx = prefillCtx();
+      await buildTicketFormActions(deps)(ctx).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'));
+      expect(only()).toMatchObject({ title: 'Draft title', description: 'Draft body', source: 'planning' });
+    });
+
+    it('analyze seeds from the draft when analysis is enabled', async () => {
+      const ctx = prefillCtx();
+      await buildTicketFormActions(deps)(ctx).analyze('improve me');
+      // The pass then rewrites the description, so only title/source pin the seed.
+      expect(only()).toMatchObject({ title: 'Draft title', source: 'planning' });
+    });
+
+    it('a disabled analysis mints no row (prefilled and plain panels)', async () => {
+      deps.resolveAnalysisProcess = () => null;
+      for (const ctx of [prefillCtx(), mkCtx()]) {
+        await buildTicketFormActions(deps)(ctx).analyze('improve me');
+        expect(ctx.ticketId).toBeUndefined();
+      }
+      expect(listTickets(store)).toHaveLength(0);
+    });
+
+    it('a plain create panel keeps the Untitled/manual placeholder', async () => {
+      await buildTicketFormActions(deps)(mkCtx()).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'));
+      expect(only()).toMatchObject({ title: 'Untitled ticket', source: 'manual' });
+    });
+  });
 });

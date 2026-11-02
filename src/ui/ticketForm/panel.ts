@@ -1,9 +1,10 @@
 import type { Store } from '../../store/db.js';
-import { getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
+import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
 import { applyPrefill, buildTicketFormState, type DesignConstraintsView, type TicketFormState } from './state.js';
+import { reapAttachments } from '../../attachments/reap.js';
 import { appendConstraintsToBrief } from '../../planning/constraintBrief.js';
 import {
   parseTicketFormMessage,
@@ -85,6 +86,11 @@ export interface TicketFormActionsCtx {
    * text is persisted as the draft's `brief` and read from the store instead.
    */
   readonly prefillSummary?: string;
+  /**
+   * Title/description to seed a draft row minted on a prefilled review page
+   * (undefined on a plain create panel, which keeps the placeholder).
+   */
+  readonly prefillSeed?: { title: string; description: string };
   /**
    * Persist-on-fetch hook: bind this (create) panel to a freshly-created draft
    * ticket. After this, `ticketId`/`mode` report edit mode and the next
@@ -237,6 +243,8 @@ export class TicketFormManager {
      * never fetched up front for every manifest repository.
      */
     private readonly branchCandidates: () => Record<string, string[]> = () => ({}),
+    /** Called after an uncommitted minted draft row is discarded on close (sidebar refresh). */
+    private readonly onDiscarded?: () => void,
   ) {}
 
   /**
@@ -288,6 +296,10 @@ export class TicketFormManager {
     // prefill's `onCreated` fires exactly once — and only on that explicit
     // action, never on a fetch/attach that merely bound a draft.
     let prefillCommitted = false;
+    // The row THIS prefilled panel minted (bind from unbound). Deleted on
+    // dispose unless the user's Save/Submit committed it; a pre-existing row
+    // (edit panel) is never recorded here.
+    let mintedId: number | undefined;
     // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
     // in-flight action resolving after the tab is gone is silently dropped.
     let disposed = false;
@@ -360,7 +372,11 @@ export class TicketFormManager {
       get prefillSummary() {
         return prefill?.summary;
       },
+      get prefillSeed() {
+        return prefill ? { title: prefill.title, description: prefill.description } : undefined;
+      },
       bindTicket: (id: number) => {
+        if (prefill && boundId === undefined) mintedId = id;
         boundId = id;
         this.ticketByPanel.set(panel, id);
         // A prefilled review page owns the proposal summary as the draft's
@@ -457,6 +473,21 @@ export class TicketFormManager {
     });
     panel.onDidDispose(() => {
       disposed = true;
+      if (prefill && !prefillCommitted && mintedId !== undefined) {
+        try {
+          const discardedId = mintedId;
+          deleteTicket(this.store, discardedId);
+          // The rows are gone; remove the minted ticket's attachment files too.
+          if (this.storageDir !== undefined) {
+            void reapAttachments(this.storageDir, discardedId).catch((e: unknown) =>
+              this.logError('karst: could not remove the discarded draft attachments', e),
+            );
+          }
+        } catch (e) {
+          this.logError('karst: could not discard the uncommitted draft row', e);
+        }
+        this.onDiscarded?.();
+      }
       this.panels.delete(panelKey);
       this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);

@@ -13,6 +13,20 @@ import type { AnalysisPass } from '../../workflow/classify/runAnalysis.js';
  * filesystem or spawn the agent). Mirrors dashboard/messages.ts.
  */
 
+/** The form's live title/description, sent with an action that may mint a draft row. */
+export interface FormDraft {
+  readonly title: string;
+  readonly description: string;
+}
+
+function parseDraft(v: unknown): FormDraft | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const d = v as Record<string, unknown>;
+  return typeof d.title === 'string' && typeof d.description === 'string'
+    ? { title: d.title, description: d.description }
+    : undefined;
+}
+
 export interface TicketDraftFields {
   key: string;
   title: string;
@@ -114,7 +128,7 @@ export type TicketFormMessage =
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
   | { type: 'set-type'; id: string }
   | { type: 'set-backend'; id: 'host' | '' }
-  | { type: 'analyze'; prompt: string }
+  | { type: 'analyze'; prompt: string; draft?: FormDraft }
   // D159: resolve an op (classify/suggest/…) usage-limit park from its error
   // notification — the same three actions the dashboard offers for a stage
   // block. `parkId` identifies the open `usage_limit_parks` row.
@@ -123,16 +137,16 @@ export type TicketFormMessage =
   | { type: 'usage-limit-park-dismiss'; parkId: number }
   // Open the native file picker. Carries nothing — the host owns the dialog, so
   // a crafted message can neither choose a path nor pre-fill one.
-  | { type: 'attach-pick' }
+  | { type: 'attach-pick'; draft?: FormDraft }
   // Bytes pasted from the clipboard, base64-encoded (postMessage is JSON, so a
   // Buffer cannot cross it). Capped at both ends; see the parse guard.
-  | { type: 'attach-bytes'; name: string; base64: string }
+  | { type: 'attach-bytes'; name: string; base64: string; draft?: FormDraft }
   | { type: 'detach-attachment'; id: number }
   | { type: 'open-attachment'; id: number }
   // Copy one attachment of the LAST fetched brief into the ticket's attachments.
   // Carries an index, never a URL: the host resolves it against the brief it
   // fetched, so a crafted message cannot make it download an arbitrary host.
-  | { type: 'attach-brief-attachment'; index: number }
+  | { type: 'attach-brief-attachment'; index: number; draft?: FormDraft }
   | { type: 'open-ticket-link'; url: string }
   // The approach picker's "Manage approaches…" row: opens the Settings panel.
   | { type: 'open-settings' }
@@ -249,18 +263,18 @@ export interface TicketFormActions {
   setType: (id: string) => void | Promise<void>;
   /** `'host'` opts the ticket out of the project's sandbox backend; `''` inherits. Never opts in. */
   setBackend: (id: 'host' | '') => void | Promise<void>;
-  analyze: (prompt: string) => void | Promise<void>;
+  analyze: (prompt: string, draft?: FormDraft) => void | Promise<void>;
   /** D159: pick an agent/model and re-run the parked op (the analysis). */
   usageLimitParkPick: (parkId: number) => void | Promise<void>;
   /** D159: re-run the parked op with the parked agent/model. */
   usageLimitParkRetry: (parkId: number) => void | Promise<void>;
   /** D159: resolve a parked op without re-running it. */
   usageLimitParkDismiss: (parkId: number) => void | Promise<void>;
-  attachPick: () => Promise<void>;
-  attachBytes: (name: string, base64: string) => Promise<void>;
+  attachPick: (draft?: FormDraft) => Promise<void>;
+  attachBytes: (name: string, base64: string, draft?: FormDraft) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
   openAttachment: (id: number) => Promise<void>;
-  attachBriefAttachment: (index: number) => Promise<void>;
+  attachBriefAttachment: (index: number, draft?: FormDraft) => Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
   openSettings: () => void | Promise<void>;
   /**
@@ -449,7 +463,9 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
-      return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
+      return typeof m.prompt === 'string'
+        ? { type: 'analyze', prompt: m.prompt, draft: parseDraft(m.draft) }
+        : null;
     case 'usage-limit-park-pick':
       return isRowId(m.parkId) ? { type: 'usage-limit-park-pick', parkId: m.parkId } : null;
     case 'usage-limit-park-retry':
@@ -457,7 +473,7 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     case 'usage-limit-park-dismiss':
       return isRowId(m.parkId) ? { type: 'usage-limit-park-dismiss', parkId: m.parkId } : null;
     case 'attach-pick':
-      return { type: 'attach-pick' };
+      return { type: 'attach-pick', draft: parseDraft(m.draft) };
     case 'attach-bytes': {
       // The name drives the whitelist check and the stored extension; the
       // payload is capped here as well as in the webview, because a webview
@@ -469,7 +485,7 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       // 1 mod 3, cap and cap+1 have the same base64 length and differ only in
       // padding. Keep the cheap character ceiling above, then inspect padding.
       if (decodedBase64ByteLength(m.base64) > MAX_PASTE_BYTES) return null;
-      return { type: 'attach-bytes', name: m.name, base64: m.base64 };
+      return { type: 'attach-bytes', name: m.name, base64: m.base64, draft: parseDraft(m.draft) };
     }
     case 'detach-attachment':
       return isRowId(m.id) ? { type: 'detach-attachment', id: m.id } : null;
@@ -477,7 +493,7 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return isRowId(m.id) ? { type: 'open-attachment', id: m.id } : null;
     case 'attach-brief-attachment':
       return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0
-        ? { type: 'attach-brief-attachment', index: m.index }
+        ? { type: 'attach-brief-attachment', index: m.index, draft: parseDraft(m.draft) }
         : null;
     case 'open-settings':
       return { type: 'open-settings' };
@@ -570,7 +586,7 @@ export function routeTicketFormAction(
       actions.setBackend(msg.id);
       return;
     case 'analyze':
-      actions.analyze(msg.prompt);
+      actions.analyze(msg.prompt, msg.draft);
       return;
     case 'usage-limit-park-pick':
       void actions.usageLimitParkPick(msg.parkId);
@@ -582,15 +598,15 @@ export function routeTicketFormAction(
       void actions.usageLimitParkDismiss(msg.parkId);
       return;
     case 'attach-pick':
-      return actions.attachPick();
+      return actions.attachPick(msg.draft);
     case 'attach-bytes':
-      return actions.attachBytes(msg.name, msg.base64);
+      return actions.attachBytes(msg.name, msg.base64, msg.draft);
     case 'detach-attachment':
       return actions.detachAttachment(msg.id);
     case 'open-attachment':
       return actions.openAttachment(msg.id);
     case 'attach-brief-attachment':
-      return actions.attachBriefAttachment(msg.index);
+      return actions.attachBriefAttachment(msg.index, msg.draft);
     case 'open-ticket-link':
       actions.openTicketLink(msg.url);
       return;
