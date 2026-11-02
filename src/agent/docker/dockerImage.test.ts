@@ -56,6 +56,11 @@ describe('dockerImage', () => {
     );
     // The port-conflict/server-identity path cannot name a listener without it.
     expect(dockerfile).toMatch(/apt-get install[^\n]*\blsof\b/);
+    // bookworm's own git is 2.39; `--relative-paths` needs 2.42, so a newer git is built from source and overlaid.
+    const gitPin = /ARG GIT=(\d+)\.(\d+)/.exec(dockerfile);
+    expect(gitPin).not.toBeNull();
+    expect(Number(gitPin![1]) * 1000 + Number(gitPin![2])).toBeGreaterThanOrEqual(2 * 1000 + 42);
+    expect(dockerfile).toContain('COPY --from=gitbuild /usr/local /usr/local');
     // A scratch repo a gate commits into has no identity of its own.
     expect(dockerfile).toContain('git config --system user.name');
     expect(dockerfile).toContain('git config --system user.email');

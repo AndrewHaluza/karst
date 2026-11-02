@@ -356,6 +356,16 @@ describe('createSbxSessionRunner read-only sandbox (EROFS)', () => {
     expect(call.args.at(-1)).toContain('"$HOME" /tmp');
   });
 
+  it('blocks a launch when the sandbox git is older than the minimum, naming both versions', async () => {
+    const gitKey = `sbx exec ${NAME} -- git --version`;
+    const old = createSbxSessionRunner({ proc: fakeSbxProcess({ [gitKey]: { stdout: 'git version 2.39.5\n' } }), core: 'claude', name: NAME, existing: [NAME] });
+    expect(await old.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox git 2.39.5 is older than 2.42; rebuild the sandbox image' });
+    const ok = createSbxSessionRunner({ proc: fakeSbxProcess({ [gitKey]: { stdout: 'git version 2.42.0\n' } }), core: 'claude', name: NAME, existing: [NAME] });
+    expect(await ok.ensureWritable!()).toEqual({ ok: true });
+    const junk = createSbxSessionRunner({ proc: fakeSbxProcess({ [gitKey]: { stdout: 'weird' } }), core: 'claude', name: NAME, existing: [NAME] });
+    expect(await junk.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox git version unreadable (weird); rebuild the sandbox image' });
+  });
+
   it('blocks with the recovery steps on EROFS', async () => {
     const runner = createSbxSessionRunner({ proc: fakeSbxProcess(erofs), core: 'claude', name: NAME, existing: [NAME] });
     expect(await runner.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
