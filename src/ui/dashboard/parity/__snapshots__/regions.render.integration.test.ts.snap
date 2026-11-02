@@ -1279,9 +1279,6 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.sp-row>
             <span.sp-label> "PR title"
             <span.sp-value> "feat(web): land the change"
-          <div.sp-row>
-            <span.sp-label> "Commit"
-            <span.sp-value> "feat(web): land the change"
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
