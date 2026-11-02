@@ -43,7 +43,7 @@ export function exportOwnTickets(argv, out = OWN_TICKETS_PATH) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const argv = process.argv.slice(2);
-    const { out, count } = argv.includes('draft') ? exportDrafts(argv) : exportOwnTickets(argv);
+    const { out, count } = parseExportArgs(argv).pass === 'draft' ? exportDrafts(argv) : exportOwnTickets(argv);
     console.log(`wrote ${count} tickets to ${out}`);
   } catch (e) { console.error(e instanceof Error ? e.message : e); process.exit(1); }
 }

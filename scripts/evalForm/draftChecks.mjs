@@ -51,7 +51,7 @@ export function staticChecks({ git, commits, files, payload, refs, docKeys }) {
   const ctext = constraints.join('\n');
   for (const k of new Set([...ctext.matchAll(ARCH_KEY)].map((m) => m[1]))) if (!docKeys.has(k)) defects.push({ kind: 'arch-key', item: `@arch:${k}` });
   for (const h of new Set(ctext.match(HASH) ?? [])) {
-    if (/^[0-9]+$/.test(h)) continue; // pure digits are numbers, not hashes
+    if (!/[0-9]/.test(h) || !/[a-f]/.test(h)) continue; // a hash mixes digits and letters; plain numbers and words like `defaced` are not hashes
     if (!ok(git, ['cat-file', '-e', `${h}^{commit}`])) defects.push({ kind: 'commit', item: h });
   }
   for (const [ref, exists] of Object.entries(refs ?? {})) if (exists === false) defects.push({ kind: 'id-ref', item: ref });

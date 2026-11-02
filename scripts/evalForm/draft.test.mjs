@@ -46,7 +46,7 @@ describe('draft static checks', () => {
   });
   it('reports each kind: arch key, commit, id ref, path, shape', () => {
     const r = makeRepo(); const c = resolveCommits(r.git, r.sha); const files = changedFiles(r.git, c);
-    const payload = { summary: 'touch src/ghost.ts', constraints: ['@arch:NOPE', 'abcdef1234567', 'D99'] };
+    const payload = { summary: 'touch src/ghost.ts', constraints: ['@arch:NOPE', 'abcdef1234567', 'D99', 'defaced', '20260101'] };
     const d = staticChecks({ git: r.git, commits: c, files, payload, refs: { D99: false }, docKeys: archKeys(r.git, c.parent) });
     expect(d.map((x) => x.kind).sort()).toEqual(['arch-key', 'commit', 'id-ref', 'path', 'shape', 'shape']);
   });
@@ -139,7 +139,8 @@ describe('run + report', () => {
     const outcomes = new Map([[1, { reworkRounds: 2, reviewFindings: 3, fixRounds: 1, medianHoursToMerge: 4.5 }]]);
     const md = renderDraftReport({ meta: { provider: 'claude', judgeModel: 'judge', startedAt: 'now' }, results, outcomes });
     expect(md).toContain('unavailable(missing-commit)');
-    expect(md).toContain('claude/opus LOW');
+    expect(md).toContain('claude/opus LOW'); // 1 scored of 5 drafts: LOW follows scored n
+    expect(md).toContain('truncated (1 dropped, 0 cut)');
     expect(md).toContain('2.0 / 3.0 / 1.0 / 4.5');
     expect(md).toContain('pending / pending / pending / pending');
   });

@@ -51,17 +51,19 @@ export function renderDraftReport({ meta, results, outcomes }) {
       const os = rs.map((r) => outcomes.get(r.id)).filter(Boolean);
       const m = (key) => mean(os.map((o) => o[key]).filter((v) => typeof v === 'number'));
       const defects = mean(rs.filter((r) => r.defects).map((r) => r.defects.length));
-      return [rs.length < LOW_N ? `${k} LOW` : k, rs.length, g.scored, num(g.notDonePerDraft, 2), num(g.unrequestedPerDraft, 2), num(defects, 2), g.truncated, num(m('reworkRounds')), num(m('reviewFindings')), num(m('fixRounds')), num(m('medianHoursToMerge'))];
+      return [g.scored < LOW_N ? `${k} LOW` : k, rs.length, g.scored, num(g.notDonePerDraft, 2), num(g.unrequestedPerDraft, 2), num(defects, 2), g.truncated, num(m('reworkRounds')), num(m('reviewFindings')), num(m('fixRounds')), num(m('medianHoursToMerge'))];
     })), '');
-  out.push('## Per draft', '', table(['draft', 'title', 'notDone', 'unrequested', 'static defects', 'rework / findings / fix rounds / h to merge'],
+  out.push('## Per draft', '', table(['draft', 'title', 'notDone', 'unrequested', 'static defects', 'diff', 'rework / findings / fix rounds / h to merge'],
     results.map((r) => {
       const title = cell(r.title);
-      if (r.unavailable) return [`D${r.id}`, title, `unavailable(${r.unavailable})`, '', '', ''];
-      if (r.error) return [`D${r.id}`, title, `error: ${cell(r.error)}`, '', '', ''];
+      if (r.unavailable) return [`D${r.id}`, title, `unavailable(${r.unavailable})`, '', '', '', ''];
+      if (r.error) return [`D${r.id}`, title, `error: ${cell(r.error)}`, '', '', '', ''];
       const defects = r.defects.map((d) => `${d.kind}: ${cell(d.item)}`).join('<br>') || 'none';
+      const t = r.truncation;
+      const diff = t?.wasTruncated ? `truncated (${t.dropped.length} dropped, ${t.truncated.length} cut)` : 'full';
       const oc = outcomeCells(outcomes.get(r.id)).join(' / ');
-      if (!r.judge.ok) return [`D${r.id}`, title, r.judge.error, '', defects, oc];
-      return [`D${r.id}`, title, r.judge.notDone.map((x) => cell(x.item)).join('<br>') || '0', r.judge.unrequested.map((x) => `${cell(x.change)} (${cell(x.file ?? '')})`).join('<br>') || '0', defects, oc];
+      if (!r.judge.ok) return [`D${r.id}`, title, r.judge.error, '', defects, diff, oc];
+      return [`D${r.id}`, title, r.judge.notDone.map((x) => cell(x.item)).join('<br>') || '0', r.judge.unrequested.map((x) => `${cell(x.change)} (${cell(x.file ?? '')})`).join('<br>') || '0', defects, diff, oc];
     })), '');
   return out.join('\n');
 }
