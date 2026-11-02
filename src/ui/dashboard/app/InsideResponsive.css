@@ -91,3 +91,15 @@
   white-space:nowrap;text-overflow:ellipsis}
 #inside .alive .adetail,#inside .alive .adur{color:var(--p-muted2);margin-left:var(--p-s1);
   font-family:var(--p-mono);font-size:var(--p-xs)}
+
+/* The tail carries identity, tokens, counts and the action ahead of two fixed timing columns, so the model name drops from 760px down (UI-R41). */
+@container (max-width: 760px){
+  #inside .op-tail .agent-model,#inside .op-tail .agent-sep:has(+ .agent-model){display:none}
+}
+/* From 520px down the start time drops first; the duration column stays (UI-R41). */
+@container (max-width: 520px){
+  #inside .op-time,#inside .ev-time{display:none}
+  #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
+  #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
+  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,110px) minmax(0,1fr) auto var(--inside-dur-w) 16px}
+}
