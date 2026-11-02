@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
+import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
 const exec = promisify(execFile);
 const git = async (cwd, args) => {
@@ -175,6 +175,7 @@ async function flakeCheck(cwd, args, ids) {
 
 const args = process.argv.slice(2);
 const first = await run(args[0], args.slice(1), process.cwd());
+for (const line of slowestLines(first.out)) console.error(line);
 if (first.status === 0) process.exit(0);
 const remaining = await judge(process.cwd(), args, first.out).catch(() => null);
 if (remaining === null || remaining.length === 0) process.exit(remaining === null ? first.status : 0);
