@@ -3,10 +3,15 @@ import { manifest, repo } from '../manifest/fixtures.js';
 import type { PorcelainEntry } from '../integrations/git.js';
 import {
   partitionPorcelainByExclude,
+  parseBranchCommits,
+  BRANCH_COMMITS_CAP,
+  loadShipPreview,
   resolveShipArtifacts,
   resolveTemplateModel,
   type ShipArtifactTicket,
 } from './shipPreview.js';
+import type { GitRunner } from '../integrations/git.js';
+import type { Store } from '../store/db.js';
 
 const ticket: ShipArtifactTicket = {
   type: null,
@@ -166,5 +171,158 @@ describe('resolveTemplateModel', () => {
     ).toBe('sonnet');
     expect(resolveTemplateModel({ model: null }, manifest({}))).toBeUndefined();
     expect(resolveTemplateModel({ model: '   ' }, undefined)).toBeUndefined();
+  });
+});
+
+describe('parseBranchCommits', () => {
+  it('parses null-delimited sha and subject lines into commit objects', () => {
+    const raw = ['abc1234\0feat: first commit', 'def5678\0fix: second commit'].join('\n');
+    expect(parseBranchCommits(raw)).toEqual([
+      { sha: 'abc1234', subject: 'feat: first commit' },
+      { sha: 'def5678', subject: 'fix: second commit' },
+    ]);
+  });
+
+  it('handles empty output cleanly', () => {
+    expect(parseBranchCommits('')).toEqual([]);
+    expect(parseBranchCommits('   \n  \n')).toEqual([]);
+  });
+});
+
+describe('loadShipPreview branchCommits', () => {
+  const makeMockStore = (): Store => {
+    return {
+      db: {
+        prepare: (sql: string) => ({
+          all: () => {
+            if (sql.includes('FROM worktrees')) {
+              return [
+                {
+                  ticket_id: 1,
+                  repo: 'extention',
+                  path: '/mock/repo',
+                  branch: 'karst/feature',
+                  base_ref: 'develop',
+                  deps_mode: 'inherited',
+                  created_at: '2026-01-01T00:00:00Z',
+                },
+              ];
+            }
+            return [];
+          },
+          get: () => {
+            if (sql.includes('base_ref FROM worktrees')) {
+              return { base_ref: 'develop' };
+            }
+            return undefined;
+          },
+          run: () => ({ changes: 0, lastInsertRowid: 0 }),
+        }),
+      },
+    } as unknown as Store;
+  };
+
+  it('lists branchCommits for an agent-committed branch', async () => {
+    const store = makeMockStore();
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'rev-parse') {
+        return { exitCode: 0, stdout: 'deadbeef\n', stderr: '' };
+      }
+      if (args[0] === 'diff') {
+        return { exitCode: 1, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'log') {
+        expect(args).toEqual(['log', '--format=%h%x00%s', 'develop..HEAD']);
+        return {
+          exitCode: 0,
+          stdout: ['111aaaa\0feat: agent commit 1', '222bbbb\0fix: agent commit 2'].join('\n'),
+          stderr: '',
+        };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const preview = await loadShipPreview({
+      store,
+      manifest: manifest({ extention: repo({ repoPath: '/mock/repo' }) }),
+      git,
+      ticketId: 1,
+      key: 'T1',
+      title: 'Test preview',
+      ticket,
+      implRun: null,
+    });
+
+    expect(preview.repos).toHaveLength(1);
+    const r = preview.repos[0]!;
+    expect(r.status).toBe('nothing-to-commit');
+    expect(r.changedFromBase).toBe(true);
+    expect(r.branchCommits).toEqual([
+      { sha: '111aaaa', subject: 'feat: agent commit 1' },
+      { sha: '222bbbb', subject: 'fix: agent commit 2' },
+    ]);
+    expect(r.branchCommitsMore).toBe(0);
+  });
+
+  it('caps branchCommits at BRANCH_COMMITS_CAP and computes branchCommitsMore', async () => {
+    const store = makeMockStore();
+    const commits = Array.from({ length: 25 }, (_, i) => `${i.toString(16).padStart(7, '0')}\0commit ${i}`);
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse') return { exitCode: 0, stdout: 'deadbeef\n', stderr: '' };
+      if (args[0] === 'diff') return { exitCode: 1, stdout: '', stderr: '' };
+      if (args[0] === 'log') {
+        return { exitCode: 0, stdout: commits.join('\n'), stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const preview = await loadShipPreview({
+      store,
+      manifest: manifest({ extention: repo({ repoPath: '/mock/repo' }) }),
+      git,
+      ticketId: 1,
+      key: 'T1',
+      title: 'Test preview',
+      ticket,
+      implRun: null,
+    });
+
+    const r = preview.repos[0]!;
+    expect(r.branchCommits).toHaveLength(BRANCH_COMMITS_CAP);
+    expect(r.branchCommits[0]).toEqual({ sha: '0000000', subject: 'commit 0' });
+    expect(r.branchCommitsMore).toBe(5);
+  });
+
+  it('routes git log failure to repo error without rejecting the preview', async () => {
+    const store = makeMockStore();
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse') return { exitCode: 0, stdout: 'deadbeef\n', stderr: '' };
+      if (args[0] === 'log') {
+        return { exitCode: 128, stdout: '', stderr: 'fatal: ambiguous argument develop..HEAD' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const preview = await loadShipPreview({
+      store,
+      manifest: manifest({ extention: repo({ repoPath: '/mock/repo' }) }),
+      git,
+      ticketId: 1,
+      key: 'T1',
+      title: 'Test preview',
+      ticket,
+      implRun: null,
+    });
+
+    const r = preview.repos[0]!;
+    expect(r.error).toBe('fatal: ambiguous argument develop..HEAD');
+    expect(r.status).toBe('nothing-to-commit');
+    expect(r.branchCommits).toEqual([]);
+    expect(r.branchCommitsMore).toBe(0);
   });
 });

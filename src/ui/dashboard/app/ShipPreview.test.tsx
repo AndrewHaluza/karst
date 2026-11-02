@@ -50,7 +50,7 @@ describe('Ship preview — what it states', () => {
     expect(first.querySelector('.sp-badge--ok')).not.toBeNull();
     expect(text(first.querySelector('.sp-badge span'))).toBe('will commit');
     const labels = all('.sp-row .sp-label', first).map((l) => l.textContent);
-    expect(labels).toEqual(expect.arrayContaining(['PR title', 'Commit', 'Commits']));
+    expect(labels).toEqual(expect.arrayContaining(['PR title', 'Commit', 'Files']));
     expect(first.textContent).toContain('src/app.ts');
     expect(first.querySelector('details.sp-files summary')!.textContent).toMatch(/^\d+ files?$/);
     expect(section().querySelector('.sp-meta')!.textContent).toMatch(/^as of /);
@@ -70,12 +70,63 @@ describe('Ship preview — what it states', () => {
     expect(danger.querySelector('.sp-label svg.k-icon')).not.toBeNull();
     expect(text(danger.querySelector('.sp-value'))).toMatch(/^ship refuses .*\.env.* — commit them deliberately or ignore them$/);
     expect(all('.sp-label').map((l) => l.textContent)).not.toContain('Commits');
+    expect(all('.sp-label').map((l) => l.textContent)).not.toContain('Files');
   });
 
-  it('nothing to commit: says the agent already committed its work, or that nothing changed from base', () => {
+  it('nothing to commit with changes from base: badge says agent committed, no status row, no commit row, and shows branch commits', () => {
     mount('nothing-to-commit');
-    expect(section().textContent).toContain('nothing to commit — agent committed its work');
-    expect(text(must('.sp-badge span'))).toBe('nothing to commit');
+    expect(text(must('.sp-badge span'))).toBe('agent committed');
+    expect(must('.sp-badge svg.k-icon')).not.toBeNull();
+    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
+    expect(labels).not.toContain('Status');
+    expect(labels).not.toContain('Commit');
+    expect(labels).toContain('Commits');
+    expect(section().textContent).not.toContain('nothing to commit — agent committed its work');
+    expect(section().textContent).toContain('feat(web): agent did this work');
+    expect(section().textContent).toContain('a1b2c3d');
+  });
+
+  it('nothing to commit with capped commits shows and N more', () => {
+    const base = shipPreviewStateFor('nothing-to-commit');
+    const repo = base.shipPreview!.repos[0]!;
+    mountInside({
+      ...base,
+      shipPreview: {
+        ...base.shipPreview!,
+        repos: [
+          {
+            ...repo,
+            branchCommits: Array.from({ length: 20 }, (_, i) => ({
+              sha: `sha${i}`,
+              subject: `commit ${i}`,
+            })),
+            branchCommitsMore: 5,
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof mountInside>[0]);
+    expect(must('.sp-commit.sp-more').textContent).toBe('and 5 more');
+  });
+
+  it('will-commit with branchCommits shows Commit, Commits and Files rows', () => {
+    const base = shipPreviewStateFor('ready');
+    const repo = base.shipPreview!.repos[0]!;
+    mountInside({
+      ...base,
+      shipPreview: {
+        ...base.shipPreview!,
+        repos: [
+          {
+            ...repo,
+            branchCommits: [{ sha: 'c123456', subject: 'feat: prior agent commit' }],
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof mountInside>[0]);
+    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
+    expect(labels).toContain('Commit');
+    expect(labels).toContain('Commits');
+    expect(labels).toContain('Files');
   });
 
   it('every repository unchanged: warns that ship will fail (arch:SHIP-UNCHANGED)', () => {
@@ -84,6 +135,9 @@ describe('Ship preview — what it states', () => {
     expect(warn.textContent).toBe('ship will fail — no repo has changes');
     expect(warn.querySelector('svg.k-icon')).not.toBeNull();
     expect(section().textContent).toContain('no changes from base');
+    expect(all('.sp-badge span').map((b) => b.textContent)).toEqual(['nothing to commit', 'nothing to commit']);
+    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
+    expect(labels).not.toContain('Commit');
   });
 
   it('read failure: names the error and never claims a verdict', () => {

@@ -79,6 +79,13 @@ export interface ShipPreviewRepo {
    * "every repo unchanged" warning (`arch:SHIP-UNCHANGED`).
    */
   changedFromBase: boolean;
+  /**
+   * Agent's commits between baseRef and HEAD (`<baseRef>..HEAD`), capped.
+   * Empty when unchanged or unresolvable.
+   */
+  branchCommits: { sha: string; subject: string }[];
+  /** How many additional commits exist beyond the cap. */
+  branchCommitsMore: number;
   status: ShipPreviewRepoStatus;
   /** Per-repo read failure; the preview never blocks ship. Absent on success. */
   error?: string;
@@ -88,6 +95,24 @@ export interface ShipPreviewRepo {
 export interface ShipPreview {
   computedAt: string;
   repos: ShipPreviewRepo[];
+}
+
+/** The maximum number of branch commits shown in the preview before truncation. */
+export const BRANCH_COMMITS_CAP = 20;
+
+/** Parse the null-delimited stdout of `git log --format=%h%x00%s`. */
+export function parseBranchCommits(stdout: string): { sha: string; subject: string }[] {
+  const lines = stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const commits: { sha: string; subject: string }[] = [];
+  for (const line of lines) {
+    const idx = line.indexOf('\0');
+    if (idx === -1) {
+      commits.push({ sha: line, subject: '' });
+    } else {
+      commits.push({ sha: line.slice(0, idx), subject: line.slice(idx + 1) });
+    }
+  }
+  return commits;
 }
 
 /** The ticket facts the artifact templates interpolate. */
@@ -307,6 +332,8 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     deny: [],
     prNumber: null,
     changedFromBase: false,
+    branchCommits: [],
+    branchCommitsMore: 0,
     status: 'nothing-to-commit',
   };
   try {
@@ -392,6 +419,15 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
           specs,
         ).catch(() => [] as string[]);
       }
+    }
+    if (baseRef) {
+      const log = await git(['log', '--format=%h%x00%s', `${baseRef}..HEAD`], wt.path, opts);
+      if (log.exitCode !== 0) {
+        throw new Error(log.stderr.trim() || `git log exited ${log.exitCode}`);
+      }
+      const commits = parseBranchCommits(log.stdout);
+      base.branchCommits = commits.slice(0, BRANCH_COMMITS_CAP);
+      base.branchCommitsMore = Math.max(0, commits.length - BRANCH_COMMITS_CAP);
     }
     if (base.status === 'nothing-to-commit' && baseRef) {
       base.changedFromBase = await hasLocalChangesFrom(ctx, wt, baseRef);
