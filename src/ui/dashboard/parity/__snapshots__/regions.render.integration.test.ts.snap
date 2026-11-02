@@ -2282,6 +2282,78 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · runnable b
         <div.esub> "Start the services in scope to get their local addresses here.""
 `;
 
+exports[`dashboard region parity (DOM contract) > servers .svpanel · two running services > servers · runnable but stopped (no rows) 1`] = `
+"<div.panel.svpanel>
+  <div.phead> "Servers"
+    <span#srvCount.count> "2"
+    <span#srvOps.pops>
+      <button.ib.k-iconbtn.t-start aria-label="Every ticket service is already running" data-act="spin-servers" disabled title="Every ticket service is already running" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-restart aria-label="Restart all ticket services" data-act="restart-servers" title="Restart all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-stop aria-label="Stop all ticket services" data-act="stop-servers" title="Stop all ticket services" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
+        <svg.k-icon aria-hidden="true">
+      <button.ib.k-iconbtn.t-open aria-label="Configure environment variables" data-act="env-overrides-open" title="Configure environment variables" type="button">
+        <svg.k-icon aria-hidden="true">
+  <div#servers.pbody>
+    <div.scroll>
+      <table>
+        <thead>
+          <tr>
+            <th>
+              <span.sr> "Status"
+            <th> "Service"
+            <th> "Address"
+            <th> "Actions"
+        <tbody>
+          <tr.srvgroup>
+            <th>
+              <div.gwrap>
+                <span.gname> "Ticket services"
+                <span.gcount> "2"
+                <span.gnote> "run from this ticket's worktrees"
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="web"> "web"
+            <td.c-addr title="localhost:5173">
+              <span.full> "localhost:5173"
+              <span.short> ":5173"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="1" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">
+          <tr>
+            <td.c-dot>
+              <span.glyph.on aria-label="running" role="img" title="running">
+            <td.c-name title="api"> "api"
+            <td.c-addr title="localhost:4000">
+              <span.full> "localhost:4000"
+              <span.short> ":4000"
+            <td.c-addrops>
+              <span.g>
+                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="2" title="Open in browser" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
+                  <svg.k-icon aria-hidden="true">
+            <td.c-acts>
+              <span.g>
+                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
+                  <svg.k-icon aria-hidden="true">
+                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
+                  <svg.k-icon aria-hidden="true">"
+`;
+
 exports[`dashboard region parity (DOM contract) > servers .svpanel · two running services > servers · two running services 1`] = `
 "<div.panel.svpanel>
   <div.phead> "Servers"
