@@ -286,6 +286,12 @@ interface RepoContext {
   signal?: AbortSignal;
 }
 
+/** The base to compare/log against: remote-tracking ref when present, else local branch. */
+async function resolveBaseSpec(git: GitRunner, cwd: string, baseRef: string, opts?: { signal?: AbortSignal }): Promise<string> {
+  const remote = await git(['rev-parse', '--verify', `origin/${baseRef}^{commit}`], cwd, opts);
+  return remote.exitCode === 0 ? `origin/${baseRef}` : baseRef;
+}
+
 /**
  * Whether the branch holds an effective change from its base, read LOCALLY (no
  * fetch — the preview repaints on demand and must not spend a network round
@@ -409,19 +415,20 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     const baseRef = manifest
       ? resolveTicketBaseRef(store, ctx.ticketId, wt.repo, manifest)
       : (wt.baseRef ?? '');
+    const baseSpec = baseRef ? await resolveBaseSpec(git, wt.path, baseRef, opts) : '';
     if (specs.length > 0) {
       const head = await headCommit(git, wt.path);
-      if (head !== null && baseRef) {
+      if (head !== null && baseSpec) {
         base.committedExcludedWarning = await changedPathsMatching(
           git,
           wt.path,
-          `${baseRef}...${head}`,
+          `${baseSpec}...${head}`,
           specs,
         ).catch(() => [] as string[]);
       }
     }
-    if (baseRef) {
-      const log = await git(['log', '--format=%h%x00%s', `${baseRef}..HEAD`], wt.path, opts);
+    if (baseSpec) {
+      const log = await git(['log', '--format=%h%x00%s', `${baseSpec}..HEAD`], wt.path, opts);
       if (log.exitCode !== 0) {
         throw new Error(log.stderr.trim() || `git log exited ${log.exitCode}`);
       }

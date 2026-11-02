@@ -734,12 +734,12 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
 
 /**
  * Whether ship ran past the pull request phase, opening none.
- * The stage cell is terminal, or at least one recorded PR step completed.
+ * The stage cell is terminal, or every recorded repository has completed its PR step.
  */
 function prRanPast(input: ShipProcessesInput): boolean {
   if (input.cell.status === 'passed' || input.cell.status === 'failed') return true;
   const repos = Object.values(input.evidence.repos);
-  if (repos.length > 0 && repos.some((r) => r.steps.pr && r.steps.pr.status !== 'running')) {
+  if (repos.length > 0 && repos.every((r) => r.steps.pr && r.steps.pr.status !== 'running')) {
     return true;
   }
   return false;

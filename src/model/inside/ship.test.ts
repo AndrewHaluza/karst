@@ -548,7 +548,7 @@ describe('shipProcesses', () => {
     expect(merge.detail).toBe('nothing to merge — no pull request opened');
   });
 
-  it('says nothing to merge when ship is running and PR step completed with no PR', () => {
+  it('says nothing to merge when ship is running and all PR steps completed with no PR', () => {
     const views = shipProcesses(
       shipInput({
         cell: cell('ship', 'running', { startedAt: NOW }),
@@ -564,6 +564,27 @@ describe('shipProcesses', () => {
     );
     const merge = views[3]!;
     expect(merge.detail).toBe('nothing to merge — no pull request opened');
+  });
+
+  it('states resolved when ship runs while PR steps are still running in multi-repo ship', () => {
+    const views = shipProcesses(
+      shipInput({
+        cell: cell('ship', 'running', { startedAt: NOW }),
+        evidence: evidence({
+          repos: {
+            web: repoEvidence('web', {
+              steps: { pr: step('pr', { status: 'note' }) },
+            }),
+            api: repoEvidence('api', {
+              steps: { pr: step('pr', { status: 'running' }) },
+            }),
+          },
+        }),
+        prs: [],
+      }),
+    );
+    const merge = views[3]!;
+    expect(merge.detail).toBe('no recorded evidence for this ship');
   });
 
   it('renders absence honestly when no ship evidence was ever recorded', () => {

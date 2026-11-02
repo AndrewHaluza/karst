@@ -235,7 +235,7 @@ describe('loadShipPreview branchCommits', () => {
         return { exitCode: 1, stdout: '', stderr: '' };
       }
       if (args[0] === 'log') {
-        expect(args).toEqual(['log', '--format=%h%x00%s', 'develop..HEAD']);
+        expect(args).toEqual(['log', '--format=%h%x00%s', 'origin/develop..HEAD']);
         return {
           exitCode: 0,
           stdout: ['111aaaa\0feat: agent commit 1', '222bbbb\0fix: agent commit 2'].join('\n'),
@@ -295,6 +295,39 @@ describe('loadShipPreview branchCommits', () => {
     expect(r.branchCommits).toHaveLength(BRANCH_COMMITS_CAP);
     expect(r.branchCommits[0]).toEqual({ sha: '0000000', subject: 'commit 0' });
     expect(r.branchCommitsMore).toBe(5);
+  });
+
+  it('uses origin/<baseRef> when baseRef is remote-only for branchCommits', async () => {
+    const store = makeMockStore();
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse') {
+        if (args[2] === 'origin/develop^{commit}') return { exitCode: 0, stdout: 'deadbeef\n', stderr: '' };
+        if (args[2] === 'develop^{commit}') return { exitCode: 128, stdout: '', stderr: 'unknown revision' };
+        return { exitCode: 0, stdout: 'deadbeef\n', stderr: '' };
+      }
+      if (args[0] === 'diff') return { exitCode: 1, stdout: '', stderr: '' };
+      if (args[0] === 'log') {
+        expect(args[2]).toBe('origin/develop..HEAD');
+        return { exitCode: 0, stdout: '111aaaa\0remote base commit', stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    const preview = await loadShipPreview({
+      store,
+      manifest: manifest({ extention: repo({ repoPath: '/mock/repo' }) }),
+      git,
+      ticketId: 1,
+      key: 'T1',
+      title: 'Test preview',
+      ticket,
+      implRun: null,
+    });
+
+    const r = preview.repos[0]!;
+    expect(r.error).toBeUndefined();
+    expect(r.branchCommits).toEqual([{ sha: '111aaaa', subject: 'remote base commit' }]);
   });
 
   it('routes git log failure to repo error without rejecting the preview', async () => {
