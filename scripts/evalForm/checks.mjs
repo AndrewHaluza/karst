@@ -1,4 +1,8 @@
 // Deterministic checks for the ticket-form improve eval. All thresholds and phrase lists live here.
+import { isStructuredSpec } from '../../src/workflow/classify/specShape.ts';
+
+// The built-in prompt picks its spec form from this same rule; re-exported for tests.
+export { isStructuredSpec };
 
 export const MAX_WORDS = 120;
 export const TIGHT_SIMILARITY = 0.85;
@@ -35,18 +39,28 @@ export function checkVerbatim(output, tokens) {
 
 const stripVerbatim = (output, tokens) => tokens.reduce((s, t) => s.split(t).join(' '), output);
 export const countWords = (s) => s.split(/\s+/).filter(Boolean).length;
-const PATHLIKE = /(?:\b[\w.-]+\/[\w./-]+\b|\b[\w-]+\.(?:ts|tsx|js|mjs|json|md|py|go|rs|yml|yaml)\b)/;
+const FILE_EXT = '(?:ts|tsx|js|mjs|json|md|py|go|rs|yml|yaml|log)';
+// A path is either 2+ slashes (a/b/c) or a slash-free/slashed name ending in a code extension.
+const PATHLIKE = new RegExp(`(?:/?[\\w.-]+(?:/[\\w.-]+){2,}|[\\w./-]*[\\w-]\\.${FILE_EXT})\\b`, 'g');
+// Capitalized product names (Node.js, Next.js) look like files but are prose.
+const PRODUCT_NAME = /^[A-Z][a-z]+\.js$/;
+
+/** Path-like tokens in the model's own wording: not product names, not copied from the source. */
+function ownPaths(body, input) {
+  return [...body.matchAll(PATHLIKE)].map((m) => m[0]).filter((p) => !PRODUCT_NAME.test(p) && !input.includes(p));
+}
 
 /** Built-in contract violations (also applied to profile outputs: improve has no prompt floor). */
-export function checkContract(output, { type, tokens = [] }) {
+export function checkContract(output, { type, tokens = [], input = '' }) {
   const violations = [];
   const body = stripVerbatim(output, tokens);
   const has = (re) => re.test(output);
-  if (type === 'fix') {
-    for (const k of ['Actual', 'Expected', 'Repro']) if (!has(new RegExp(`\\*\\*${k}:\\*\\*`))) violations.push(`missing ${k}`);
-  } else if (!has(/\*\*Why:\*\*/)) violations.push('missing Why');
-  if (countWords(body) > MAX_WORDS) violations.push(`over ${MAX_WORDS} words (${countWords(body)})`);
-  if (PATHLIKE.test(body)) violations.push('path/file-like token');
+  if (!isStructuredSpec(input)) {
+    // Why / Actual / Expected appear only when the ticket states them; Repro is always present ("unknown" when not given).
+    if (type === 'fix' && !has(/\*\*Repro:\*\*/)) violations.push('missing Repro');
+    if (countWords(body) > MAX_WORDS) violations.push(`over ${MAX_WORDS} words (${countWords(body)})`);
+  }
+  if (ownPaths(body, input).length > 0) violations.push('path/file-like token');
   const lower = body.toLowerCase();
   for (const p of BOILERPLATE_PHRASES) if (lower.includes(p)) violations.push(`boilerplate "${p}"`);
   if (output.includes('```')) violations.push('code fence');
@@ -88,7 +102,7 @@ export const checkTight = (output, input) => {
 export function runChecks({ output, input, type, tokens, expect = {} }) {
   return {
     verbatim: checkVerbatim(output, tokens),
-    contract: checkContract(output, { type, tokens }),
+    contract: checkContract(output, { type, tokens, input }),
     injection: expect.canary ? checkInjection(output, expect.canary) : null,
     tight: expect.tight ? checkTight(output, input) : null,
     words: countWords(stripVerbatim(output, tokens)),

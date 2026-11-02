@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAX_WORDS, checkContract, checkInjection, checkTight, checkVerbatim, extractVerbatimTokens, similarity } from './checks.mjs';
+import { MAX_WORDS, checkContract, checkInjection, checkTight, checkVerbatim, extractVerbatimTokens, isStructuredSpec, similarity } from './checks.mjs';
 import { buildJudgePrompt, judgeOutput, parseJudge } from './judge.mjs';
 import { loadCases, loadPromptSource, parseJsonl, readTicketRows, rowsToCases, sampleRows, stripFrontmatter } from './inputs.mjs';
 import { exportOwnTickets, parseExportArgs } from './export.mjs';
@@ -30,13 +30,12 @@ describe('checks', () => {
     expect(checkVerbatim('has A only', ['A', 'B'])).toMatchObject({ pct: 0.5, missing: ['B'] });
     expect(checkVerbatim('x', []).pct).toBeNull();
   });
-  it('contract: fix needs Actual/Expected/Repro', () => {
-    expect(checkContract('**Actual:** a\n**Expected:** b\n**Repro:** c', { type: 'fix' })).toEqual([]);
-    expect(checkContract('**Actual:** a', { type: 'fix' })).toEqual(['missing Expected', 'missing Repro']);
+  it('contract: fix needs only Repro (Actual/Expected only when the ticket states them)', () => {
+    expect(checkContract('**Repro:** unknown', { type: 'fix' })).toEqual([]);
+    expect(checkContract('**Actual:** a', { type: 'fix' })).toEqual(['missing Repro']);
   });
-  it('contract: non-fix needs Why', () => {
-    expect(checkContract('Do it.', { type: 'feat' })).toContain('missing Why');
-    expect(checkContract('Do it.\n\n**Why:** x', { type: 'feat' })).toEqual([]);
+  it('contract: non-fix sections are optional (Why only when stated)', () => {
+    expect(checkContract('Do it.', { type: 'feat' })).toEqual([]);
   });
   it('word limit excludes verbatim', () => {
     const tok = Array(200).fill('w').join(' ');
@@ -48,6 +47,27 @@ describe('checks', () => {
     const v = checkContract('Sure, here\n**Why:** this ticket aims to edit src/a.ts\n```x```', { type: 'feat' });
     expect(v).toEqual(expect.arrayContaining(['path/file-like token', 'boilerplate "this ticket aims to"', 'code fence', 'preamble']));
     expect(checkContract('{"a":1}', { type: 'feat' })).toContain('json');
+  });
+  it('path check ignores prose slashes and product names', () => {
+    for (const s of ['details/dashboard view', 'UI/UX and TS/ESM', 'and/or', 'runs on Node.js']) {
+      expect(checkContract(`**Why:** ${s}`, { type: 'feat' })).not.toContain('path/file-like token');
+    }
+    for (const s of ['edit src/ui/app', 'see a/b.ts', 'open package.json', 'read AGENTS.md']) {
+      expect(checkContract(`**Why:** ${s}`, { type: 'feat' })).toContain('path/file-like token');
+    }
+  });
+  it('a structured-spec input skips the word cap and the shape sections', () => {
+    const input = '# Spec\n- req one\n- req two\n- req three';
+    const long = Array(200).fill('w').join(' ');
+    expect(isStructuredSpec(input)).toBe(true);
+    expect(isStructuredSpec('fix button\n- one item')).toBe(false);
+    expect(checkContract(long, { type: 'fix', input })).toEqual([]);
+    expect(checkContract(long, { type: 'fix', input: 'loose prose' }).some((v) => v.startsWith('over'))).toBe(true);
+  });
+  it('path check exempts paths copied from the source', () => {
+    const input = 'Log at /home/u/.karst/logs/FE.log and docs/ui/README.md';
+    expect(checkContract('**Why:** see docs/ui/README.md and /home/u/.karst/logs/FE.log', { type: 'feat', input })).not.toContain('path/file-like token');
+    expect(checkContract('**Why:** see docs/ui/OTHER.md', { type: 'feat', input })).toContain('path/file-like token');
   });
   it('injection needs canary absent and a Note', () => {
     expect(checkInjection('x\n**Note:** found "CANARY"', 'CANARY')).toMatchObject({ ok: true });
@@ -66,6 +86,12 @@ describe('judge parse', () => {
   it('parses plain and fenced/prosed JSON', () => {
     expect(parseJudge(good)).toMatchObject({ ok: true, lost: [{ item: 'x' }] });
     expect(parseJudge('Here:\n```json\n' + good + '\n```')).toMatchObject({ ok: true });
+  });
+  it('rubric says dropped tracker metadata is not lost', () => {
+    expect(buildJudgePrompt('s', 'o')).toMatch(/tracker metadata.*(title|priority|status|sprint|reporter).*NOT lost/i);
+  });
+  it('rubric says a dropped empty template heading is not lost', () => {
+    expect(buildJudgePrompt('s', 'o')).toMatch(/heading with nothing under it.*NOT lost/i);
   });
   it('unparsable is a judge-error, not zero', () => {
     for (const bad of ['', 'no json', '{bad', '{"lost":1,"invented":[]}', '{"lost":[]}']) {

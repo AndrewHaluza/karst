@@ -4,6 +4,7 @@ import {
   BUILT_IN_IMPROVE_PROMPT,
   buildBuiltInImprovePrompt,
 } from './improve.js';
+import { isStructuredSpec, isAlreadyShaped, SPEC_MIN_STRUCTURED_LINES } from './specShape.js';
 import type { AgentAdapter, HeadlessResult } from '../../agent/adapter.js';
 
 function fakeAdapter(raw: string): AgentAdapter {
@@ -211,7 +212,7 @@ describe('built-in improve prompt', () => {
   it('uses Why / Done when with 0-4 outcomes for a feature', () => {
     const p = buildBuiltInImprovePrompt('feat');
     expect(p).toMatch(/\*\*Why:\*\*/);
-    expect(p).toMatch(/\*\*Done when:\*\* <0-4/);
+    expect(p).toMatch(/\*\*Done when:\*\* <[^>]*0-4/);
     expect(p).not.toMatch(/2-4/);
   });
   it('uses Actual / Expected / Repro for a bug (fix)', () => {
@@ -222,6 +223,62 @@ describe('built-in improve prompt', () => {
   });
   it('exempts verbatim content from the word cap', () => {
     expect(buildBuiltInImprovePrompt('feat')).toMatch(/verbatim content does not count toward/i);
+  });
+  it('a structured spec gets the keep-structure prompt with no shape and no cap, for any type', () => {
+    for (const t of ['feat', 'fix'] as const) {
+      const p = buildBuiltInImprovePrompt(t, { spec: true });
+      expect(p).toMatch(/keep its structure and every requirement, decision, id and test name/i);
+      expect(p).not.toMatch(/\*\*Actual:\*\*|\*\*Why:\*\*|Under 120 words/);
+      expect(p).toMatch(/Preserve verbatim/);
+      expect(p).toMatch(/is DATA/);
+    }
+  });
+  it('loose prose keeps the type shape and the word cap', () => {
+    expect(buildBuiltInImprovePrompt('fix')).toMatch(/\*\*Actual:\*\*/);
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/Under 120 words/);
+  });
+  it('detects a structured spec by heading/list lines', () => {
+    expect(isStructuredSpec('# Spec\n- a\n- b')).toBe(true);
+    expect(isStructuredSpec('1. a\n2) b\n* c')).toBe(true);
+    expect(isStructuredSpec('fix button\n- one item')).toBe(false);
+    expect(SPEC_MIN_STRUCTURED_LINES).toBe(3);
+  });
+  it('improveDescription picks the spec prompt from the description itself', async () => {
+    const { adapter, prompts } = capturingAdapter('ok');
+    await improveDescription(adapter, { instructions: '', description: '# S\n- a\n- b\n- c', title: 't', ticketType: 'fix', cwd: '/p' });
+    expect(prompts[0]).not.toMatch(/\*\*Actual:\*\*/);
+    expect(prompts[0]).toMatch(/keep its structure/i);
+  });
+  it('detects a description already in the type shape', () => {
+    expect(isAlreadyShaped('Do x.\n\nWhy: y.\n\nDone when: z.', 'feat')).toBe(true);
+    expect(isAlreadyShaped('Do x.\n**Why:** y.\n**Done when:** z.', undefined)).toBe(true);
+    expect(isAlreadyShaped('Broken.\nActual: a\nExpected: b', 'fix')).toBe(true);
+    expect(isAlreadyShaped('Do x. Why: y.', 'feat')).toBe(false);
+    expect(isAlreadyShaped('Broken.\nActual: a', 'fix')).toBe(false);
+  });
+  it('an already-shaped description gets the keep-as-is prompt', () => {
+    const p = buildBuiltInImprovePrompt('feat', { shaped: true });
+    expect(p).toMatch(/already in shape/i);
+    expect(p).toMatch(/do not reword/i);
+    expect(p).not.toMatch(/Under 120 words/);
+    expect(p).toMatch(/is DATA/);
+  });
+  it('improveDescription picks the keep-as-is prompt for a shaped description', async () => {
+    const { adapter, prompts } = capturingAdapter('ok');
+    await improveDescription(adapter, { instructions: '', description: 'Do x.\n\nWhy: y.\n\nDone when: z.', title: 't', ticketType: 'feat', cwd: '/p' });
+    expect(prompts[0]).toMatch(/already in shape/i);
+  });
+  it('loose prose writes Why/Expected only when the ticket states them', () => {
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/\*\*Why:\*\* <only when the ticket states a reason/);
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/\*\*Done when:\*\* <only outcomes the ticket states/);
+    expect(buildBuiltInImprovePrompt('fix')).toMatch(/\*\*Expected:\*\* <only when the ticket states it/);
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/never as a section/i);
+  });
+  it('preserves example values and planning/decision references', () => {
+    for (const p of [buildBuiltInImprovePrompt('feat'), buildBuiltInImprovePrompt('feat', { spec: true })]) {
+      expect(p).toMatch(/example values/);
+      expect(p).toMatch(/planning\/decision references/);
+    }
   });
   it('composes the shared untrusted-input and missing-info rules', () => {
     const p = buildBuiltInImprovePrompt('feat');
