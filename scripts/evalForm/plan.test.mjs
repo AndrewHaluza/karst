@@ -259,3 +259,26 @@ describe('plan tokens and output folder', () => {
     expect(r.usage).toEqual(usage);
   });
 });
+
+describe('plan judge routing', () => {
+  it('uses the judge adapter and judge effort; planner effort stays with the planner', async () => {
+    const r = makeRepo();
+    const calls = { planner: [], judge: [] };
+    const item = { id: 'c', repo: 'core', title: 'T', body: 'B', baseSha: r.base, fixPatch: FIX, testPatch: '', f2p: ['t1'] };
+    await runPlanEval({
+      opts: { judgeModel: 'j', judgeEffort: 'high', effort: 'low', maxDrafts: 3, timeoutMin: 1 }, items: [item], models: ['p'],
+      adapter: { runHeadless: async (o) => { calls.planner.push(o); writeDraft(o.env, 'a.json', GOOD); return { raw: '' }; } },
+      judgeAdapter: { runHeadless: async (o) => { calls.judge.push(o); return { raw: JUDGE_OK }; } },
+      makeWork: () => ({ checkout: r.dir, scratch: tmp(), cleanup: () => {} }),
+      buildPrompt: () => ({ instructions: 'I', kickoff: 'K' }), validate: validateProposal, cliEntry: '/cli.js', cwd: tmp(),
+    });
+    expect(calls.planner).toHaveLength(1);
+    expect(calls.judge).toHaveLength(1);
+    expect(calls.judge[0]).toMatchObject({ model: 'j', effort: 'high' });
+    expect(calls.planner[0]).toMatchObject({ model: 'p', effort: 'low' });
+  });
+  it('shows the judge provider and effort in the report header', () => {
+    const h = renderPlanReport({ meta: { provider: 'antigravity', judgeProvider: 'claude', judgeEffort: 'high', judgeModel: 'j', startedAt: 's' }, results: [] });
+    expect(h).toContain('via claude (effort high)');
+  });
+});

@@ -242,12 +242,15 @@ async function mainPlan(opts) {
   if (opts.only) items = items.filter((c) => opts.only.includes(c.id) || opts.only.includes(c.dir));
   if (items.length === 0) throw new Error('no instances selected');
   const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
+  const judgeProvider = opts.judgeProviders[0] ?? 'claude';
+  if (!PROVIDERS.includes(judgeProvider)) throw new Error(`--judge-provider must be one of ${PROVIDERS.join('|')}`);
+  const judgeAdapter = resolveAdapter(judgeProvider === 'opencode' ? 'opencode2' : judgeProvider);
   const startedAt = new Date().toISOString();
-  const meta = { startedAt, pass: 'plan', models: opts.models, judgeModel: opts.judgeModel, provider: opts.provider };
+  const meta = { startedAt, pass: 'plan', models: opts.models, judgeModel: opts.judgeModel, provider: opts.provider, judgeProvider, judgeEffort: opts.judgeEffort };
   const cwd = mkdtempSync(join(tmpdir(), 'eval-form-'));
   try {
     const results = await runPlanEval({
-      opts, items, models: opts.models, adapter, judgeAdapter: adapter, validate: validateProposal, cwd,
+      opts, items, models: opts.models, adapter, judgeAdapter, validate: validateProposal, cwd,
       cliEntry: join(ROOT, 'dist/cli/main.js'),
       makeWork: (item) => makeWork(item, PLAN_REPOS),
       buildPrompt: (item, w) => ({

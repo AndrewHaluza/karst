@@ -39,7 +39,7 @@ const pct = (v) => (v === null ? 'n/a' : `${(v * 100).toFixed(0)}%`);
 const rank = (a, b) => (a.s.notDone ?? Infinity) - (b.s.notDone ?? Infinity) || (b.s.f2p ?? -1) - (a.s.f2p ?? -1);
 
 export function renderPlanReport({ meta, results }) {
-  const out = ['# Form planner bench', '', `- pass: plan; provider ${meta.provider}; judge \`${meta.judgeModel}\`; started ${meta.startedAt}`];
+  const out = ['# Form planner bench', '', `- pass: plan; provider ${meta.provider}; judge \`${meta.judgeModel}\` via ${meta.judgeProvider ?? meta.provider} (effort ${meta.judgeEffort ?? 'default'}); started ${meta.startedAt}`];
   out.push('- Ground truth is the gold fix patch and the F2P tests, hidden from the planner. The judge is blind to the model and scores the union of the drafts.');
   out.push('- Excluded and counted, never scored 0: judge-errors, runs with no draft, timeouts and call errors.', '');
   out.push('## By model', '', table(['model', 'runs', 'scored', 'judge errors', 'no draft', 'timeouts', 'errors', 'notDone', 'unrequested', 'f2p coverage', 'static defect rate', 'planner tokens (reported)', 'judge tokens (reported)'],

@@ -31,11 +31,11 @@ export function parsePlanJudge(raw) {
   return { ...base, f2pCoverage: cov };
 }
 
-export async function judgePlan(adapter, { model, plannerModel, cwd, ...input }) {
+export async function judgePlan(adapter, { model, plannerModel, cwd, effort, ...input }) {
   if (model === plannerModel) return { ok: false, error: 'judge-wrote-draft' };
   try {
     const res = await adapter.runHeadless({
-      prompt: buildPlanJudgePrompt(input), cwd, model, trustCwd: false,
+      prompt: buildPlanJudgePrompt(input), cwd, model, trustCwd: false, ...(effort ? { effort } : {}),
       tracking: { callSite: 'eval-form-judge', ticketId: null, processRunId: null },
     });
     return { ...parsePlanJudge(res.raw), ...(res.usage ? { usage: res.usage } : {}) };

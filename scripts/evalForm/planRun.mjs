@@ -86,7 +86,7 @@ export async function runPlanEval({ opts, items, models, adapter, judgeAdapter, 
         if (run.drafts.length) {
           r.judge = await judgePlan(judgeAdapter, {
             issue: `${item.title}\n\n${item.body}`, drafts: run.drafts, fixPatch: item.fixPatch, testFiles: [...item.testPatch.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((m) => m[1]),
-            f2p: item.f2p, model: opts.judgeModel, plannerModel: model, cwd,
+            f2p: item.f2p, model: opts.judgeModel, effort: opts.judgeEffort, plannerModel: model, cwd,
           });
         }
       } catch (e) { r.status = 'error'; r.error = msg(e); }
