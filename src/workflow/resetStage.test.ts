@@ -9,7 +9,8 @@ import {
   activeRecoverySeries,
   beginLiveFixExecution,
 } from '../store/recoveryRounds.js';
-import { resetStageState, resetGateStage, type ResetStageState } from './resetStage.js';
+import { resetStageState, resetGateStage, stalledGateStage, type ResetStageState } from './resetStage.js';
+import { openStageRun } from '../store/stageRuns.js';
 
 const T0 = '2026-08-01T10:00:00.000Z';
 const T1 = '2026-08-01T11:00:00.000Z';
@@ -237,5 +238,35 @@ describe('resetGateStage', () => {
 
   it('refuses when no gate stage is failed', () => {
     expect(() => resetGateStage(store, id)).toThrow(/not recoverable/);
+  });
+});
+describe('a gate stage left running with no live run (T939)', () => {
+  let store: Store;
+  let id: number;
+  const LATER = '2026-08-01T10:30:00.000Z';
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'RS-9', title: 't' }).id;
+    walkToUat(store, id);
+    setStage(store, id, 'uat', { status: 'running', startedAt: T0 });
+  });
+
+  it('is a stall: names uat and offers Reset stage', () => {
+    expect(stalledGateStage(store, id, LATER)).toBe('uat');
+    expect(resetStageState(store, id, LATER)).toEqual({ available: true, stage: 'uat' });
+  });
+
+  it('is not a stall inside the grace window (the driver may be about to open its run)', () => {
+    expect(stalledGateStage(store, id, '2026-08-01T10:00:05.000Z')).toBeNull();
+  });
+
+  it('is not a stall while a stage run is running', () => {
+    openStageRun(store, { ticketId: id, stageKey: 'uat', attempt: 0, runAt: T0, startedAt: T0 });
+    expect(stalledGateStage(store, id, LATER)).toBeNull();
+  });
+
+  it('Reset stage re-enters the stage and clears the stall', () => {
+    expect(resetGateStage(store, id, { now: () => LATER }).stage).toBe('uat');
+    expect(getStage(store, id, 'uat')?.startedAt).toBe(LATER);
   });
 });

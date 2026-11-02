@@ -46,6 +46,34 @@ function failedGate(
   return null;
 }
 
+/** A just-entered gate stage may not have opened its run yet; younger than this is not a stall. */
+export const STALL_GRACE_MS = 120_000;
+
+/**
+ * The gate stage that is `running` and current but has no live driver: no
+ * `running` stage run and no `running` process run for it. T939: a host re-run
+ * re-entered uat, the runs ended `blocked`, and nothing drove the ticket again.
+ * A detector only — the way out is "Reset stage", the user's choice.
+ */
+export function stalledGateStage(store: Store, ticketId: number, at: string): StageKey | null {
+  const ticket = getTicket(store, ticketId);
+  for (const stage of RESETTABLE_GATES) {
+    if (ticket.stageCurrent !== stage) continue;
+    const row = getStage(store, ticketId, stage);
+    if (row?.status !== 'running' || row.startedAt === null) continue;
+    if (Date.parse(at) - Date.parse(row.startedAt) < STALL_GRACE_MS) continue;
+    const live = store.db
+      .prepare(
+        `SELECT 1 FROM stage_runs WHERE ticket_id = ? AND stage_key = ? AND status = 'running'
+         UNION ALL
+         SELECT 1 FROM process_runs WHERE ticket_id = ? AND stage_key = ? AND status = 'running' LIMIT 1`,
+      )
+      .get(ticketId, stage, ticketId, stage);
+    if (live === undefined) return stage;
+  }
+  return null;
+}
+
 /**
  * Whether the recovery action may be offered for the ticket RIGHT NOW.
  *
@@ -61,11 +89,10 @@ function failedGate(
  * Pure over the store, exactly like `sendBackState`, so the whole decision is
  * testable against an in-memory DB.
  */
-export function resetStageState(store: Store, ticketId: number): ResetStageState {
-  const ticket = getTicket(store, ticketId);
+export function resetStageState(store: Store, ticketId: number, at: string = nowIso()): ResetStageState {
   const uat = getStage(store, ticketId, 'uat');
   const review = getStage(store, ticketId, 'review');
-  const stage = failedGate(uat, review);
+  const stage = failedGate(uat, review) ?? stalledGateStage(store, ticketId, at);
   if (stage === null) return { available: false, reason: 'stage' };
 
   // A fixing round means the agent is actively working — do not reset underneath it.
@@ -120,7 +147,7 @@ export function resetGateStage(
   const at = (opts?.now ?? nowIso)();
   let stage: StageKey = 'uat';
   const apply = store.db.transaction(() => {
-    const state = resetStageState(store, ticketId);
+    const state = resetStageState(store, ticketId, at);
     if (!state.available) {
       opts?.debug?.(
         `[reset-stage] ticket ${ticketId}: refused — ${state.reason} (no mutation)`,

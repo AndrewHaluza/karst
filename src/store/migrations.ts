@@ -2790,5 +2790,12 @@ function migrateLocked(db: Database): void {
     if (cols94.size > 0 && !cols94.has('host_rerun_at')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_at TEXT');
   }
 
+  if (current < 95) {
+    // v95: `stage_runs.block_reason` — why a run ended `blocked`, kept on the run so a
+    // later retry of the stage (which clears `stages.blocked_*`) cannot erase it. Additive.
+    const cols95 = tableColumns(db, 'stage_runs');
+    if (cols95.size > 0 && !cols95.has('block_reason')) db.exec('ALTER TABLE stage_runs ADD COLUMN block_reason TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

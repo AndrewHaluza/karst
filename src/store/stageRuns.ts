@@ -46,6 +46,8 @@ export interface StageRun {
    */
   pid: number | null;
   startedAt: string;
+  /** Why a `blocked` run stopped (the `finish({kind:'blocked'})` reason). NULL otherwise (v95). */
+  blockReason: string | null;
   /**
    * NULL while running AND on a stale run. When a killed run stopped is
    * genuinely unknown — writing the reconcile's own clock there would claim the
@@ -66,6 +68,7 @@ interface StageRunRow {
   pid: number | null;
   started_at: string;
   ended_at: string | null;
+  block_reason: string | null;
 }
 
 const STATUSES: readonly string[] = ['running', 'finished', 'stale'];
@@ -88,13 +91,14 @@ function rowToStageRun(r: StageRunRow): StageRun {
     manifestHash: r.manifest_hash,
     pid: r.pid,
     startedAt: r.started_at,
+    blockReason: r.block_reason,
     endedAt: r.ended_at,
   };
 }
 
 const SELECT =
   `SELECT id, ticket_id, stage_key, attempt, run_at, status, outcome,
-          manifest_hash, pid, started_at, ended_at
+          manifest_hash, pid, started_at, ended_at, block_reason
      FROM stage_runs`;
 
 export interface OpenStageRunInput {
@@ -168,13 +172,14 @@ export function closeStageRun(
   runId: number,
   outcome: StageRunOutcome,
   endedAt: string,
+  blockReason: string | null = null,
 ): void {
   store.db
     .prepare(
-      `UPDATE stage_runs SET status = 'finished', outcome = ?, ended_at = ?
+      `UPDATE stage_runs SET status = 'finished', outcome = ?, ended_at = ?, block_reason = ?
         WHERE id = ? AND status = 'running'`,
     )
-    .run(outcome, endedAt, runId);
+    .run(outcome, endedAt, blockReason, runId);
 }
 
 /** Every run recorded for a ticket, oldest first (insertion order is run order). */
