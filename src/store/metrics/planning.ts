@@ -341,3 +341,16 @@ export function collectPlanning(
     stuck,
   };
 }
+
+/**
+ * Outcome of each draft-born ticket on its own, keyed by proposal id. The eval
+ * `--pass draft` joins these per draft; `collectPlanning` only reports buckets.
+ * Same shared metric queries as the buckets (`outcomeFor` over one draft).
+ */
+export function collectDraftOutcomes(
+  store: Store,
+  scope: Pick<MetricsScope, 'projectId' | 'since'>,
+): ReadonlyMap<number, PlanningOutcome> {
+  const born = loadDrafts(store, scope).filter((r) => r.status === 'accepted' && r.ticket_exists !== null);
+  return new Map(born.map((r) => [r.id, outcomeFor(store, [r])] as const));
+}

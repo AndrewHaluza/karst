@@ -1,4 +1,5 @@
 import { MAX_GATE_SUMMARY_CHARS, summarizeGateFailure } from '../../model/gateSummary.js';
+import { FAILURE_MARKERS } from './resourceKill.js';
 import type { GateResult } from './result.js';
 
 /**
@@ -11,6 +12,35 @@ import type { GateResult } from './result.js';
  * caller parks instead of returning a test verdict").
  */
 export const EXIT_COMMAND_NOT_FOUND = 127;
+
+const MODULE_NOT_FOUND_RE = /Cannot find module '([^']*[\\/]node_modules[\\/][^']*)'/;
+const SRC_PATH_RE = /[\\/]src[\\/]/;
+const REQUIRE_STACK_ARRAY_RE = /requireStack:\s*\[([^\]]*)\]/;
+const REQUIRE_STACK_LIST_RE = /Require stack:\n((?:- [^\n]*\n?)*)/;
+
+/** The require-stack text of the error block that starts at `from`; empty when Node printed none. */
+function requireStackText(output: string, from: number): string {
+  const block = output.slice(from);
+  const end = block.indexOf('\n}');
+  const scoped = end === -1 ? block : block.slice(0, end);
+  return REQUIRE_STACK_ARRAY_RE.exec(scoped)?.[1] ?? REQUIRE_STACK_LIST_RE.exec(scoped)?.[1] ?? '';
+}
+
+/**
+ * The module path when the output is Node's MODULE_NOT_FOUND for a tool under
+ * node_modules that the gate LAUNCHED (the command never ran), else null.
+ * Null when the output also shows a failing test (the command ran) or when the
+ * error's own require stack names a project source file (the ticket's code
+ * imported it: an ordinary failure).
+ */
+export function launcherModuleNotFound(output: string): string | null {
+  if (!output.includes('MODULE_NOT_FOUND')) return null;
+  if (FAILURE_MARKERS.some((re) => re.test(output))) return null;
+  const m = MODULE_NOT_FOUND_RE.exec(output);
+  if (!m) return null;
+  if (SRC_PATH_RE.test(requireStackText(output, m.index))) return null;
+  return m[1] ?? null;
+}
 
 export interface CapabilityGap {
   /** The gates that exited 127, in the order they ran. */
@@ -33,13 +63,23 @@ export interface CapabilityGap {
  */
 export function capabilityGap(failed: readonly GateResult[]): CapabilityGap | null {
   if (failed.length === 0) return null;
-  if (!failed.every((r) => r.exitCode === EXIT_COMMAND_NOT_FOUND)) return null;
+  const missing = failed.map((r) => (r.exitCode === EXIT_COMMAND_NOT_FOUND ? null : launcherModuleNotFound(r.output)));
+  if (!failed.every((r, i) => r.exitCode === EXIT_COMMAND_NOT_FOUND || missing[i] !== null)) return null;
+  const launcher = missing.filter((m): m is string => m !== null);
   const names = failed.map((r) => r.name);
   const detail = failed
     .map((r) => summarizeGateFailure(r.output) ?? r.name)
     .join(' | ')
     .slice(0, MAX_GATE_SUMMARY_CHARS);
   const many = names.length > 1;
+  if (launcher.length > 0) {
+    return {
+      names,
+      reason:
+        `gate${many ? 's' : ''} ${names.map((n) => `"${n}"`).join(', ')} could not launch ${many ? 'their' : 'its'} tool — ` +
+        `missing module ${launcher.join(', ')} (run \`npm ci\` in the repo root, or check that the worktree's deps resolve): ${detail}`,
+    };
+  }
   return {
     names,
     reason:

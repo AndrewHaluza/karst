@@ -43,6 +43,13 @@ export interface MarkerFlowDeps {
   readonly currentStage: () => string | null;
   /** The marker CLI passed: the stage advanced (arch:AC-34). */
   readonly onAccepted?: (stage: MarkerStage) => void;
+  /**
+   * A permanent refusal may be recoverable by the host (a fix marker refused for
+   * "no new commit": the host re-runs the failed gates once). `ok` closes the
+   * marker as accepted; `!ok` keeps the refusal and appends the message for the
+   * agent. `undefined` = not applicable. A throw keeps the refusal as is.
+   */
+  readonly recoverRefusal?: (stage: MarkerStage, stderr: string) => Promise<{ ok: boolean; message: string } | undefined>;
   /** Warn-level log + user notification; `diverged` becomes a Needs-you blocker. */
   readonly report: (failure: MarkerFailure) => void;
   /** Returns a cancel function. */
@@ -98,6 +105,13 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
       // Best effort: the agent's bounded wait reports "queued" on its own.
     }
   };
+  const recover = async (stage: MarkerStage, stderr: string): Promise<{ ok: boolean; message: string } | undefined> => {
+    try {
+      return await deps.recoverRefusal?.(stage, stderr);
+    } catch {
+      return undefined; // the refusal stands exactly as the CLI worded it
+    }
+  };
   const arm = (): void => {
     cancelTimer?.();
     if (stopped) return;
@@ -128,9 +142,20 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
       deps.onAccepted?.(stage);
       return;
     }
-    const reason = outcome.stderr.trim() || `exited ${outcome.code}`;
+    let reason = outcome.stderr.trim() || `exited ${outcome.code}`;
     const diverged = outcome.diverged === true;
     const transient = outcome.transient === true && !diverged;
+    if (!transient && !diverged && stage === 'fix' && deps.recoverRefusal) {
+      const recovered = await recover(stage, outcome.stderr);
+      if (recovered?.ok) {
+        queued = undefined;
+        await deps.pending.clear();
+        await reply(seq, stage, true, false, recovered.message);
+        deps.onAccepted?.(stage);
+        return;
+      }
+      if (recovered) reason = `${reason} — ${recovered.message}`;
+    }
     if (transient && retry && attempt > maxRetries) {
       // Out of retries: say so once, stop persisting.
       deps.report({ stage, reason: `${reason} (gave up after ${maxRetries} retries)`, diverged, gaveUp: true });
