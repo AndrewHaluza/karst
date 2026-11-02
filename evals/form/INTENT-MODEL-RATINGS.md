@@ -19,8 +19,9 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
 |:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
 | 🥇 | **Gemini 3.8 Flash Medium** | `agy` (Antigravity) | 45.8% | **60.0%** | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | ~30s / ~98s | [`form-14-41-51`](./references/form-2026-11-02T14-41-51-505Z/report.md) |
 | 🥈 | **Gemini 3.8 Flash Low** | `agy` (Antigravity) | **50.0%** | 58.3% | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | **~7.5s / ~15s** | [`form-15-11-26`](./references/form-2026-11-02T15-11-26-170Z/report.md) |
+| 🥉 | **Claude Haiku 5.5 (Medium)** | `claude` (Claude Code) | 37.5% | 37.5% | 3 / 6 (50.0%) | **6 / 0 / 0** | **100%** | 0.83 | ~13s / ~25s | [`form-15-51-52`](./references/form-2026-11-02T15-51-52-246Z/report.md) |
 
-*Judge model for all runs: `gemini-4-argon-low` (Antigravity).*
+*Judge models: `gemini-4-argon-low` for Gemini; `claude-sonnet-5-5` for Claude.*
 
 ---
 
@@ -45,6 +46,16 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
   * **Zero First-Try Parse Failures (6/0/0)**.
 * **Tradeoffs**:
   * Lower reasoning budget on `darkreader:pr-6747` left unstated edge-case tests in the scoring denominator.
+
+### 🥉 Claude Haiku 5.5 (Medium) (`claude`) — *Detailed Scenario Coverage with Strict Validation*
+* **Overall Rating**: 8.7 / 10
+* **Strengths**:
+  * **Detailed, Granular Scenarios (3.3 scenarios/charter)**: Tends to generate separate explicit scenarios for dev vs production and individual event types.
+  * **100% First-Try Parse Cleanliness (6/0/0)** and **100% Given / When / Then adherence**.
+  * **Competitive Latency**: ~13s on `raw` and ~25s on `improved`.
+* **Tradeoffs**:
+  * **Stricter Judge Criteria under Sonnet 5.5**: Sonnet 5.5 docked coverage to `partial` on Vue `pr-8470` and Darkreader `pr-7241` because scenarios focused on runtime observable effects rather than compiler AST output / internal block delimiters.
+  * Minor unsupported scenario on Darkreader `pr-6747` (`0.83 unsupported/charter`) when speculating about an unreferenced dependency PR (#6738).
 
 ---
 
