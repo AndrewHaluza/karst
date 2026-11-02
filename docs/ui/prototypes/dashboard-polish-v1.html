@@ -1,0 +1,1360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard Revamp Variants</title>
+<style>
+:root{
+  --bg:#1f1f1f;--surf:#252526;--surf2:#2b2b2c;--surf3:#323234;--line:#3c3c3c;--line2:#4a4a4a;
+  --tx:#cccccc;--tx2:#e6e6e6;--dim:#9d9d9d;--blue:#3794ff;--btn:#0e639c;--btnh:#1177bb;
+  --ok:#3fb950;--okbg:#1d3324;--warn:#d7ba1f;--warnbg:#3a3416;--bad:#f14c4c;--badbg:#3d1f1e;
+  --run:#3794ff;--runbg:#16304a;--purple:#b48ef0;--purplebg:#2e2440;--s-review:#2aa198;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;--r:6px;--gap-in:8px;--gap-out:16px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button{font:inherit;color:inherit}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+:focus-visible{outline:1px solid var(--blue);outline-offset:1px}
+.mono{font-family:var(--mono);font-size:12px}.dim{color:var(--dim)}.sp{margin-left:auto}
+svg.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.chrome{position:sticky;top:0;z-index:20;background:#181818;border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.chrome h1{font-size:13px;margin:0 10px 0 0;font-weight:600;color:var(--tx2)}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{background:none;border:0;padding:5px 11px;cursor:pointer;color:var(--dim);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}.seg button[aria-pressed=true]{background:var(--btn);color:#fff}
+.note{max-width:1200px;margin:14px auto 0;padding:0 16px;color:var(--dim)}.note b{color:var(--tx2)}.note ul{margin:6px 0 0;padding-left:18px}
+.stage-frame{margin:14px auto 40px;padding:0 16px;transition:max-width .2s}
+.stage-frame[data-w=wide]{max-width:1232px}.stage-frame[data-w=mid]{max-width:852px}.stage-frame[data-w=narrow]{max-width:432px}
+.vp{border:1px dashed var(--line2);border-radius:8px;padding:16px;container-type:inline-size;background:var(--bg)}
+.variant{display:none}.variant.on{display:block}
+.hd{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.hd .ids{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:2px}
+.hd h2{font-size:17px;margin:0;font-weight:600;color:var(--tx2);flex:1 1 280px;min-width:0}
+.hd .sub{flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:var(--dim);font-size:12px}
+.hd .sub .dot::before{content:"·";margin-right:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:10px;padding:0 8px;font-size:11px;font-weight:600;line-height:18px;letter-spacing:.02em;white-space:nowrap;border:1px solid transparent}
+.chip.ok{background:var(--okbg);color:var(--ok)}.chip.run{background:var(--runbg);color:var(--run)}
+.chip.warn{background:var(--warnbg);color:var(--warn)}.chip.bad{background:var(--badbg);color:var(--bad)}
+.chip.mute{border-color:var(--line2);color:var(--dim);font-weight:500}.chip.pur{background:var(--purplebg);color:var(--purple)}
+.chip svg.i{width:12px;height:12px}
+.tag{display:inline-flex;align-items:center;gap:5px;font:12px var(--mono);color:var(--dim);white-space:nowrap}.tag svg.i{width:12px;height:12px}
+.agent{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}.agent b{font-weight:600;color:var(--tx2)}
+.ib{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:4px;border:0;background:none;color:var(--dim);cursor:pointer}
+.ib:hover{background:var(--surf3);color:var(--tx2)}.ib.danger:hover{color:var(--bad)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:4px;border:1px solid var(--line2);background:var(--surf2);cursor:pointer;white-space:nowrap;font-size:12px}
+.btn:hover{background:var(--surf3)}.btn.pri{background:var(--btn);border-color:var(--btn);color:#fff}.btn.pri:hover{background:var(--btnh)}
+.sec{border:1px solid var(--line);border-radius:var(--r);background:var(--surf);min-width:0}
+.sec-h{display:flex;align-items:center;gap:8px;min-height:38px;padding:0 8px 0 12px;border-bottom:1px solid var(--line);min-width:0}
+.sec-h h3{margin:0;font-size:13px;font-weight:600;color:var(--tx2);white-space:nowrap}
+.sec-h .count{font:12px var(--mono);color:var(--dim)}
+.sec-h .sum{color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.sec-h .acts{margin-left:auto;display:flex;gap:2px;align-items:center}
+.sec.collapsed>.sec-b{display:none}.sec.collapsed>.sec-h{border-bottom:0}
+.sec-h .tw{transition:transform .15s}.sec.collapsed .tw{transform:rotate(-90deg)}
+[data-col]>.sec-h{cursor:pointer}
+.sec-b{padding:4px 0}
+.row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:6px 12px;min-height:34px}
+.row+.row{border-top:1px solid #2f2f30}
+.row .lead{display:grid;place-items:center}
+.row .main{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
+.row .main .title{color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.row .trail{display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.row .acts{display:flex;opacity:.55;transition:opacity .12s}.row:hover .acts,.row:focus-within .acts{opacity:1}
+.row .note-line{grid-column:2/-1;font-size:12px}
+.row.alert{background:linear-gradient(90deg,var(--badbg),transparent 70%)}.row.alert .note-line{color:var(--bad)}
+.dot-s{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot-s.ok{background:var(--ok)}.dot-s.run{background:var(--run)}.dot-s.bad{background:var(--bad)}.dot-s.idle{background:none;border:1.5px solid var(--dim)}
+.empty{display:flex;gap:10px;align-items:center;padding:12px;color:var(--dim);font-size:12px}.empty b{color:var(--tx);font-weight:500;display:block}
+.rail{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surf2)}
+.rail .st{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:6px;height:34px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--dim);border-right:1px solid var(--line);white-space:nowrap;min-width:0;padding:0 6px}
+.rail .st:last-child{border-right:0}.rail .st.done{color:var(--tx)}.rail .st.done svg{color:var(--ok)}
+.rail .st.cur{flex-grow:2.2;color:#fff;background:color-mix(in srgb,var(--s-review) 35%,var(--surf2));box-shadow:inset 0 -2px 0 var(--s-review)}
+.rail .st .lbl{overflow:hidden;text-overflow:ellipsis}.rail.thin .st{height:26px}
+.spin{animation:spin 1.1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.gate{display:grid;grid-template-columns:18px 100px minmax(0,1fr) auto 16px;gap:10px;align-items:center;padding:0 12px;min-height:36px;cursor:pointer}
+.gate+.gate{border-top:1px solid #2f2f30}.gate:hover{background:var(--surf2)}
+.gate .what{color:var(--dim);font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gate .when{font:12px var(--mono);color:var(--dim);white-space:nowrap;display:flex;gap:8px;align-items:center}
+.strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surf);font-size:12px}
+.strip.bad{border-color:#6b2a2a;background:var(--badbg)}.strip .sep{width:1px;height:14px;background:var(--line2)}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;padding:8px 12px;font-size:12px;margin:0}
+.kv dt{color:var(--dim)}.kv dd{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stack{display:grid;gap:var(--gap-out)}.stack-in{display:grid;gap:var(--gap-in)}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap-out)}
+@container (max-width:760px){.g2{grid-template-columns:minmax(0,1fr)}}
+@container (max-width:820px){.hide-mid{display:none!important}}
+@container (max-width:420px){.gate{grid-template-columns:18px minmax(0,1fr) auto 16px}.gate .what{display:none}.rail .st:not(.cur) .lbl{display:none}.hide-tight{display:none!important}}
+.cockpit{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--gap-out);align-items:start}
+.cockpit aside{position:sticky;top:64px;display:grid;gap:var(--gap-in)}
+@container (max-width:900px){.cockpit{grid-template-columns:minmax(0,1fr)}.cockpit aside{position:static}}
+.repos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:var(--gap-out)}
+.repo .facet{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 12px;min-height:34px}
+.repo .facet+.facet{border-top:1px solid #2f2f30}
+.repo .facet .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+.repo .facet .v{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;cursor:pointer;color:var(--dim);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tabs button[aria-selected=true]{color:var(--tx2);border-bottom-color:var(--blue)}
+.tabs .badge{font:11px var(--mono);background:var(--surf3);border-radius:8px;padding:0 6px}.tabs .badge.bad{background:var(--badbg);color:var(--bad)}
+.tabpanel{display:none}.tabpanel.on{display:grid;gap:var(--gap-out)}
+.needs{border:1px solid #6b2a2a;border-radius:var(--r);background:var(--surf)}.needs .sec-h{background:var(--badbg)}
+.need{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 12px}
+.need+.need{border-top:1px solid #2f2f30}.need .t{color:var(--tx2)}.need .w{font-size:12px;color:var(--dim)}
+.glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--gap-in)}
+.tile{border:1px solid var(--line);border-radius:var(--r);background:var(--surf);padding:8px 12px;cursor:pointer;text-align:left;display:grid;gap:2px}
+.tile:hover{border-color:var(--line2);background:var(--surf2)}
+.tile .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.tile .v{font-size:15px;font-weight:600;color:var(--tx2);display:flex;gap:6px;align-items:center}.tile .s{font-size:12px;color:var(--dim)}
+.tl{position:relative;padding-left:24px}
+.tl::before{content:"";position:absolute;left:8px;top:10px;bottom:10px;width:1px;background:var(--line2)}
+.tl-item{position:relative;padding:6px 0 8px}
+.tl-item .m{position:absolute;left:-24px;top:7px;width:18px;height:18px;display:grid;place-items:center;background:var(--bg);border-radius:50%}
+.tl-item .head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.tl-item .head b{color:var(--tx2)}
+.tl-item.cur>.card{border-color:var(--s-review);margin-top:6px}.tl-item.fut{opacity:.55}
+.dockbar{position:sticky;bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 12px;background:#181818ee;border:1px solid var(--line);border-radius:var(--r)}
+.kit p{margin:0 0 8px;color:var(--dim);font-size:12px}
+.swatches{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th,.tbl td{text-align:left;padding:6px 10px;border-top:1px solid var(--line);vertical-align:top}.tbl th{color:var(--dim);font-weight:500}
+/* v0 rev2: existing arrow rail */
+.arail{display:flex;gap:0;padding:4px;border:1px solid var(--line);border-radius:var(--r);background:var(--surf2);overflow-x:auto;scrollbar-width:thin}
+.arail .as{position:relative;flex:0 0 auto;display:flex;align-items:center;gap:6px;height:42px;padding:0 22px 0 26px;margin-right:-10px;font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--dim);white-space:nowrap;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%)}
+.arail .as:first-child{padding-left:14px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%);border-radius:4px 0 0 4px}
+.arail .as.done{color:var(--tx)}.arail .as.done svg{width:12px;height:12px}
+.arail .as.d-scope{background:#2c3440;color:#9fb0c4}.arail .as.d-impl{background:#2f2a4a;color:#a99cf5}.arail .as.d-uat{background:#3a311c;color:#d4a72c}
+.arail .as.cur{flex:1 1 auto;color:#fff;font-size:13px;background:#24504c;box-shadow:inset 0 0 0 1px #6a5acd}
+.arail .as.cur::after{content:"";position:absolute;inset:0;clip-path:inherit;border:1px solid #b48ef0;pointer-events:none}
+.arail .as.pend{padding:0 14px;margin-right:0;clip-path:none;background:none}
+.arail .as.pend::before{content:"·";margin-right:6px}
+
+.ins-h{display:flex;align-items:center;gap:8px;padding:0 12px;min-height:36px;border-bottom:1px solid var(--line);font-weight:600;color:var(--tx2);font-size:12px}
+.ins-h .mono{font-weight:400}
+/* v0 rev2: agent + sandbox runtime bar */
+.runbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px 6px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surf);position:relative}
+.runbar .lbl-k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.runbar .sep{width:1px;height:18px;background:var(--line2)}
+.picker{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--line2);border-radius:4px;background:var(--surf2);cursor:pointer;white-space:nowrap}
+.picker:hover{background:var(--surf3)}
+.picker b{color:var(--tx2);font-weight:600}
+.picker .m{font-size:12px;color:var(--dim)}
+.pill-sel{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--line2);border-radius:12px;font-size:12px;background:none;cursor:pointer;white-space:nowrap}
+.pill-sel:hover{background:var(--surf3)}
+.pill-sel svg.i{width:12px;height:12px}
+.runbar .acts{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+.btn.danger{color:var(--bad);border-color:#6b2a2a}
+.menu{position:absolute;top:40px;left:12px;z-index:5;min-width:300px;background:#202021;border:1px solid var(--line2);border-radius:var(--r);box-shadow:0 8px 24px #0008;padding:4px 0;display:none}
+.menu.on{display:block}
+.menu .grp{padding:6px 12px 2px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.menu .it{display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer}
+.menu .it:hover,.menu .it[aria-selected=true]{background:var(--surf3)}
+.menu .it .v{margin-left:auto;font-size:11px;color:var(--dim)}
+.menu .ft{border-top:1px solid var(--line);margin-top:4px;padding:6px 12px;font:11px var(--mono);color:var(--dim)}
+@container (max-width:820px){.runbar .acts .btn .t{display:none}}
+/* v0 rev2: full sub-task row */
+.strow{display:grid;grid-template-columns:14px auto auto minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:7px 12px;min-height:34px}
+.strow+.strow{border-top:1px solid #2f2f30}
+.strow .tid{font:11px var(--mono);color:var(--dim)}
+.strow .key{font:12px var(--mono);color:var(--tx)}
+.strow .ttl{color:var(--tx2);min-width:0}
+.strow .tr{display:flex;align-items:center;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.strow .why{grid-column:2/-1;font-size:12px}
+.strow.alert{background:var(--badbg);background:linear-gradient(90deg,#3d1f1ecc,#3d1f1e55)}
+.strow.alert .why b{color:var(--bad)}
+.prc{font:11px var(--mono);padding:0 6px;border-radius:3px;line-height:16px}
+.prc.merged{background:var(--purplebg);color:var(--purple)}.prc.open{background:var(--okbg);color:var(--ok)}
+.stg{font-size:11px;font-weight:700;letter-spacing:.04em;padding:0 8px;border-radius:9px;line-height:18px}
+.stg.done{background:var(--okbg);color:var(--ok)}.stg.impl{background:var(--purplebg);color:var(--purple)}.stg.queued{background:#26313d;color:#9fb0c4}
+.prog{width:72px;height:4px;border-radius:2px;background:var(--surf3);display:flex;overflow:hidden}
+.prog i{display:block;height:100%}
+@container (max-width:520px){.strow{grid-template-columns:14px auto auto minmax(0,1fr)}.strow .ttl{grid-column:2/-1}.strow .tr{grid-column:2/-1;justify-content:flex-start}}
+/* ===== Runtime card (agent + sandbox) rev3 ===== */
+.rt{border:1px solid var(--line);border-radius:var(--r);background:var(--surf);position:relative}
+.rt-demo{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:11px;color:var(--dim)}
+.rt-demo .seg button{padding:2px 8px;font-size:11px}
+.rt-grid{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1.15fr);align-items:stretch}
+.rt-zone{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:10px 12px;min-width:0}
+.rt-ico{grid-row:1/3;width:32px;height:32px;border-radius:6px;display:grid;place-items:center;background:var(--surf3);color:var(--tx2)}
+.rt-ico svg.i{width:18px;height:18px}
+.rt-ico.sb-docker{background:#16304a;color:#79b8ff}.rt-ico.sb-sbx{background:#1d3324;color:var(--ok)}
+.rt-ico.sb-host-ok{background:#1d3324;color:var(--ok)}.rt-ico.sb-host-warn{background:var(--warnbg);color:var(--warn)}
+.rt-k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);display:flex;gap:6px;align-items:center;min-width:0}
+.rt-name{display:flex;gap:8px;align-items:baseline;min-width:0;flex-wrap:wrap}
+.rt-name b{font-size:14px;color:var(--tx2);font-weight:600;white-space:nowrap}
+.rt-name .m{font:12px var(--mono);color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rt-name .e{font-size:11px;color:var(--dim);border:1px solid var(--line2);border-radius:8px;padding:0 6px;white-space:nowrap}
+.rt-facts{grid-column:2/3;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dim)}
+.rt-facts .f{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.rt-facts .f svg.i{width:12px;height:12px}
+.rt-facts .f+.f::before{content:"·";margin-right:2px}
+.rt-act{grid-row:1/3;grid-column:3;display:flex;gap:4px;align-items:center}
+.rt-link{display:grid;place-items:center;color:var(--dim);position:relative}
+.rt-link::before{content:"";position:absolute;top:12px;bottom:12px;left:50%;width:1px;background:var(--line)}
+.rt-link span{position:relative;background:var(--surf);padding:2px 0;font-size:10px;letter-spacing:.06em;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg)}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--tx);text-transform:none;letter-spacing:0}
+.live .dot-s{width:7px;height:7px}
+.rt-alert{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 12px;border-top:1px solid var(--line);font-size:12px}
+.rt-alert.warn{background:linear-gradient(90deg,var(--warnbg),transparent 80%)}.rt-alert.warn svg{color:var(--warn)}
+.rt-alert.info{background:var(--surf2)}.rt-alert.info svg{color:var(--dim)}
+.rt-alert b{color:var(--tx2);font-weight:600}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.ib[disabled]{opacity:.4;cursor:not-allowed}
+/* popovers */
+.pop{position:absolute;z-index:6;top:calc(100% - 4px);min-width:280px;background:#202021;border:1px solid var(--line2);border-radius:var(--r);box-shadow:0 8px 24px #0008;display:none}
+.pop.on{display:block}
+.pop .ph{padding:8px 12px;border-bottom:1px solid var(--line);font-weight:600;color:var(--tx2);font-size:12px}
+.pop .pb{padding:10px 12px;display:grid;gap:10px}
+.pop .pf{padding:8px 12px;border-top:1px solid var(--line);display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.pop .pf .help{margin-right:auto;font-size:11px;color:var(--dim)}
+.fld{display:grid;gap:4px}.fld label{font-size:11px;color:var(--dim)}
+.fld select{background:var(--surf2);color:var(--tx);border:1px solid var(--line2);border-radius:4px;height:26px;padding:0 6px;font:inherit;font-size:12px}
+.mi{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:12px;background:none;border:0;width:100%;text-align:left}
+.mi:hover,.mi:focus-visible{background:var(--surf3)}
+.mi .d{margin-left:auto;color:var(--dim);font-size:11px}
+.mi.danger{color:var(--bad)}
+.mdiv{height:1px;background:var(--line);margin:4px 0}
+@container (max-width:860px){
+  .rt-grid{grid-template-columns:minmax(0,1fr)}
+  .rt-link{height:18px}.rt-link::before{top:0;bottom:0}.rt-link span{writing-mode:horizontal-tb;transform:none;padding:0 6px}
+}
+@container (max-width:520px){.rt-act .btn .t{display:none}.rt-act .btn{padding:0 6px}}
+/* ===== Runtime options rev4 (quiet) ===== */
+.ro-lab{font-size:11px;color:var(--blue);font-family:var(--mono);margin:0 0 4px}
+.ro-lab span{color:var(--dim);font-family:inherit}
+.ro-wrap{display:grid;gap:14px}
+.qb{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:4px;border:0;background:none;cursor:pointer;color:var(--tx);white-space:nowrap;min-width:0}
+.qb:hover{background:var(--surf3)}
+.qb .n{color:var(--tx2);font-weight:600}
+.qb .s{color:var(--dim);font-size:12px}
+.qb svg.i{color:var(--dim)}
+.qb .cv{width:12px;height:12px}
+.vsep{width:1px;height:16px;background:var(--line2);flex:none}
+.qacts{margin-left:auto;display:flex;gap:2px;align-items:center}
+.qbtn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border-radius:4px;border:0;background:none;color:var(--dim);cursor:pointer;font-size:12px;white-space:nowrap}
+.qbtn:hover{background:var(--surf3);color:var(--tx2)}
+.dotlive{width:6px;height:6px;border-radius:50%;background:var(--run);flex:none}
+/* option 1: single strip */
+.o1{display:flex;align-items:center;gap:4px;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r);background:var(--surf);min-width:0;flex-wrap:wrap}
+.o1-note{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:12px;color:var(--warn);border:1px solid #5c5020;border-top:0;border-radius:0 0 var(--r) var(--r);background:var(--warnbg)}
+.o1-note .qbtn{color:var(--warn);margin-left:auto;text-decoration:underline;text-underline-offset:2px}
+.o1.has-note{border-radius:var(--r) var(--r) 0 0}
+/* option 2: borderless meta row under title */
+.o2{display:flex;align-items:center;gap:4px;padding:2px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;flex-wrap:wrap}
+.o2 .qb{padding:0 6px}
+.o2 .k{font-size:12px;color:var(--dim);padding-left:2px}
+/* option 3: compound pill */
+.o3{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.cpill{display:inline-flex;align-items:stretch;border:1px solid var(--line2);border-radius:16px;overflow:hidden;background:var(--surf);height:30px}
+.cpill .qb{border-radius:0;height:auto;padding:0 12px}
+.cpill .qb+.qb{border-left:1px solid var(--line2)}
+.o3 .meta{font-size:12px;color:var(--dim);display:flex;gap:6px;align-items:center}
+@container (max-width:600px){.qb .s.opt{display:none}.qbtn .t{display:none}}
+/* ===== Runtime strip rev5 (option 1) ===== */
+.ti{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.ti.sm{width:14px;height:14px}
+.core{width:16px;height:16px;flex:none;fill:currentColor;color:var(--tx2)}
+.rs-wrap{position:relative}
+.rs{display:flex;align-items:center;gap:2px;padding:3px 4px;border:1px solid var(--line);border-radius:var(--r);background:var(--surf);min-width:0;flex-wrap:wrap}
+.rs.has-note{border-radius:var(--r) var(--r) 0 0}
+.dd{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 8px;border-radius:4px;border:1px solid transparent;background:none;cursor:pointer;color:var(--tx);white-space:nowrap;min-width:0;max-width:100%}
+.dd:hover{background:var(--surf3)}
+.dd[aria-expanded=true]{background:var(--surf3);border-color:var(--line2)}
+.dd[disabled]{cursor:not-allowed;opacity:.65}.dd[disabled]:hover{background:none}
+.dd .n{color:var(--tx2);font-weight:600}
+.dd .s{color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.dd .cv{color:var(--dim);transition:transform .15s}
+.dd[aria-expanded=true] .cv{transform:rotate(180deg)}
+.ic-badge{position:relative;display:inline-grid;place-items:center}
+.ic-badge .st{position:absolute;right:-3px;bottom:-2px;width:7px;height:7px;border-radius:50%;border:1.5px solid var(--surf);background:var(--run)}
+.ic-badge .st.idle{background:var(--surf);border-color:var(--dim)}
+.rs .vsep{width:1px;height:18px;background:var(--line2);margin:0 4px}
+.rs .acts{margin-left:auto;display:flex;align-items:center;gap:2px}
+.ab{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border-radius:4px;border:1px solid transparent;background:none;color:var(--tx);cursor:pointer;font-size:12px;white-space:nowrap}
+.ab .ti{color:var(--dim)}
+.ab:hover{background:var(--surf3)}.ab:hover .ti{color:var(--tx2)}
+.ab.icon{padding:0;width:28px;justify-content:center}
+.ab[aria-expanded=true]{background:var(--surf3);border-color:var(--line2)}
+.lockline{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--warn);padding-right:4px}
+.rs-note{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r) var(--r)}
+.rs-note.warn{color:var(--warn);border-color:#5c5020;background:var(--warnbg)}
+.rs-note.info{color:var(--dim);background:var(--surf2)}
+.rs-note .ab{margin-left:auto;color:var(--warn);border-color:#5c5020}
+/* popovers */
+.pp{position:absolute;z-index:8;top:calc(100% + 4px);background:#202021;border:1px solid var(--line2);border-radius:var(--r);box-shadow:0 10px 28px #0009;display:none;min-width:260px}
+.pp.on{display:block}
+.pp-h{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--tx2)}
+.pp-b{padding:6px 0}
+.pp-f{display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+.pp-f .help{margin-right:auto;font-size:11px;color:var(--dim)}
+.opt{display:flex;align-items:center;gap:10px;width:100%;padding:7px 12px;border:0;background:none;color:var(--tx);cursor:pointer;text-align:left;font-size:13px}
+.opt:hover,.opt:focus-visible{background:var(--surf3)}
+.opt .d{margin-left:auto;font-size:11px;color:var(--dim)}
+.opt .rad{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line2);flex:none;display:grid;place-items:center}
+.opt[aria-checked=true] .rad{border-color:var(--blue)}
+.opt[aria-checked=true] .rad::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.opt.danger{color:var(--bad)}.opt.danger .ti{color:var(--bad)}
+.opt .ti{color:var(--dim)}
+.pp-sec{padding:6px 12px 4px;font-size:11px;color:var(--dim)}
+.pp-row{display:grid;grid-template-columns:16px 82px minmax(0,1fr);gap:10px;align-items:center;padding:6px 12px;font-size:12px}
+.pp-row .k{color:var(--dim)}.pp-row .ti{color:var(--dim)}
+.segc{display:inline-flex;border:1px solid var(--line2);border-radius:4px;overflow:hidden;margin:2px 12px 8px}
+.segc button{border:0;background:none;color:var(--dim);padding:3px 12px;font-size:12px;cursor:pointer;border-right:1px solid var(--line2)}
+.segc button:last-child{border-right:0}.segc button[aria-pressed=true]{background:var(--surf3);color:var(--tx2)}
+.selx{margin:2px 12px 8px;width:calc(100% - 24px);background:var(--surf2);color:var(--tx);border:1px solid var(--line2);border-radius:4px;height:28px;padding:0 8px;font:inherit;font-size:12px}
+.mdiv{height:1px;background:var(--line);margin:4px 0}
+.cfm{padding:10px 12px;font-size:12px;display:grid;gap:10px}
+.cfm b{color:var(--tx2)}
+@container (max-width:640px){.dd .s.opt2{display:none}.ab .t{display:none}.ab:not(.icon){padding:0 6px}}
+/* ===== Agent picker popover (from shared settings picker) ===== */
+.apx{width:400px;max-width:calc(100cqw - 24px);display:none;flex-direction:column}
+.apx.on{display:flex}
+.apx .cores{display:flex;gap:4px;padding:8px 10px 6px}
+.apx .cores button{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;border:1px solid var(--line2);border-radius:4px;background:none;color:var(--dim);cursor:pointer;font-size:12px;white-space:nowrap;min-width:0}
+.apx .cores button:hover{background:var(--surf3);color:var(--tx2)}
+.apx .cores button[aria-selected=true]{border-color:var(--blue);color:var(--tx2);background:#16304a66}
+.apx .srch{position:relative;margin:2px 10px 6px}
+.apx .srch .ti{position:absolute;left:8px;top:7px;color:var(--dim);width:14px;height:14px}
+.apx .srch input{width:100%;height:28px;padding:0 8px 0 28px;background:var(--surf2);border:1px solid var(--line2);border-radius:4px;color:var(--tx);font:inherit;font-size:12px}
+.apx .srch input:focus{outline:1px solid var(--blue);border-color:var(--blue)}
+.apx .caps{display:flex;gap:0;padding:0 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.apx .caps button{border:0;border-bottom:2px solid transparent;background:none;color:var(--dim);padding:5px 8px;font-size:12px;cursor:pointer;white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
+.apx .caps button:hover{color:var(--tx2)}
+.apx .caps button[aria-selected=true]{color:var(--tx2);border-bottom-color:var(--blue)}
+.apx .caps .c{font:11px var(--mono);color:var(--dim)}.apx .caps button.zero{opacity:.45}
+.apx .list{max-height:300px;overflow-y:auto;padding:4px 0}
+.apx .glab{display:flex;align-items:center;gap:11px;padding:8px 12px 4px;font-size:11px;color:var(--dim)}
+.apx .glab b{color:var(--tx);font-weight:600}
+.apx .vlab{padding:4px 12px 2px 36px;font-size:11px;color:var(--dim)}
+.rmark{position:relative;display:inline-grid;place-items:center;width:16px;height:16px}
+.rmark svg{width:14px;height:14px;fill:currentColor;color:var(--tx)}
+.rmark .bd{position:absolute;right:-7px;bottom:-4px;font:600 8px/10px var(--mono);padding:0 2px;border-radius:2px;background:var(--blue);color:#fff}
+.apx .mrow{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:2px 10px;align-items:center;width:100%;padding:6px 12px 6px 12px;border:0;background:none;color:var(--tx);cursor:pointer;text-align:left}
+.apx .mrow:hover,.apx .mrow:focus-visible{background:var(--surf3)}
+.apx .mrow[aria-selected=true]{background:#16304a88}
+.apx .mrow .ck{color:var(--blue);visibility:hidden}.apx .mrow[aria-selected=true] .ck{visibility:visible}
+.apx .mrow .nm{font-size:13px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.apx .mrow .nm .var{color:var(--dim);font-size:12px;margin-left:4px}
+.apx .mrow .tags{grid-column:2/3;display:flex;gap:4px;flex-wrap:wrap}
+.apx .mrow .tg{font-size:10px;line-height:14px;color:var(--dim);border:1px solid var(--line2);border-radius:3px;padding:0 4px}
+.apx .mrow .mx{display:flex;gap:6px;align-items:center}
+.apx .free{font-size:10px;line-height:14px;padding:0 5px;border-radius:3px;background:var(--okbg);color:var(--ok)}
+.apx .mx .cur{font-size:10px;color:var(--dim);border:0;padding:0;background:none}
+.apx .none{padding:16px 12px;color:var(--dim);font-size:12px;text-align:center}
+.apx .eff{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--dim)}
+.apx .eff .segc{margin:0}
+.apx .fid{font:11px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:auto;min-width:0}
+.apx mark{background:#d7ba1f44;color:inherit;border-radius:2px}
+
+.apx{width:600px}
+.apx-body{display:grid;grid-template-columns:168px minmax(0,1fr);min-height:0}
+.apx .cores{display:flex;flex-direction:column;gap:2px;padding:6px;border-right:1px solid var(--line);max-height:420px;overflow-y:auto}
+.apx .cores button{flex:none;justify-content:flex-start;height:auto;min-height:34px;padding:5px 8px;border:1px solid transparent;text-align:left}
+.apx .cores button .core{width:16px;height:16px}
+.apx .cores .cn{display:grid;min-width:0}
+.apx .cores .cn small{font-size:10px;color:var(--dim)}
+.apx .cores button[aria-selected=true]{border-color:transparent;background:var(--surf3);color:var(--tx2);box-shadow:inset 2px 0 0 var(--blue)}
+.apx .cores button[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+.apx .cores button[aria-disabled=true]:hover{background:none}
+.apx-main{min-width:0;display:flex;flex-direction:column;padding-top:8px}
+.apx .coresel{display:none}
+.apx .coresel select{flex:1;background:var(--surf2);color:var(--tx);border:1px solid var(--line2);border-radius:4px;height:28px;padding:0 6px;font:inherit;font-size:12px}
+@container (max-width:660px){
+  .apx{width:400px}
+  .apx-body{grid-template-columns:minmax(0,1fr)}
+  .apx .cores{flex-direction:row;flex-wrap:wrap;gap:4px;border-right:0;border-bottom:1px solid var(--line);max-height:none;overflow:visible}
+  .apx .cores [data-core]{flex:0 1 auto;width:auto}
+}
+
+/* PR rows (tab 0) — mirrors PrRow.tsx: line, meta, CI line, merge check, comments */
+.prr{display:grid;gap:5px;padding:8px 12px}
+.prr+.prr{border-top:1px solid #2f2f30}
+.prl{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.prl .lead{display:grid;place-items:center}
+.prl .main{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.prl .repo{font-weight:600;color:var(--tx2)}
+.prl .num{display:inline-flex;align-items:center;gap:2px}
+.prl .trail{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+.ib.sm{width:22px;height:22px}.ib.sm svg.i{width:13px;height:13px}
+.btn.ghost{background:none}.btn.ghost:hover{background:var(--surf2)}
+.btn.sm{height:22px;padding:0 8px;font-size:12px}.btn svg.i{width:14px;height:14px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.prm,.prx,.prd{margin-left:28px}
+.prm{display:flex;gap:6px;min-width:0;color:var(--dim);font-size:12px}
+.prm .br{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.prm .st{white-space:nowrap}
+.prx{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:4px 8px;align-items:center;font-size:12px;padding:5px 8px;border-radius:4px;border-left:2px solid var(--line2);background:var(--surf2)}
+.prx>svg.i{width:14px;height:14px}
+.prx.ok>svg.i{color:var(--ok)}.prx.bad{border-left-color:var(--bad);background:linear-gradient(90deg,var(--badbg),transparent 85%)}.prx.bad>svg.i{color:var(--bad)}
+.prx.warn{border-left-color:var(--warn)}.prx.warn>svg.i{color:var(--warn)}
+.prx .t b{font-weight:600}.prx .t .dim{margin-left:4px}
+.prx .fl{grid-column:2/-1;display:flex;gap:4px 12px;flex-wrap:wrap}
+.prx .fl a,.prx .fl span{font:12px var(--mono)}
+.prx details{grid-column:2/-1}.prx summary,.prd summary{cursor:pointer;color:var(--dim);font-size:12px}
+.prx details .fl{margin-top:4px}
+.prd summary{display:inline-flex;gap:6px;align-items:center}.prd summary svg.i{width:13px;height:13px}
+.pcm{margin:6px 0 0 18px;font-size:12px;border-left:2px solid var(--line2);padding-left:8px}.pcm .who{font-weight:600;color:var(--tx2)}.pcm .when{color:var(--dim);margin-left:6px}
+.prr.off .prl .repo,.prr.off .prl .num{color:var(--dim)}
+@container (max-width:520px){.prl{grid-template-columns:18px minmax(0,1fr)}.prl .trail{grid-column:2;justify-content:flex-start}.prm,.prx,.prd{margin-left:0}}
+
+.rt-demo .dl{margin-left:6px;color:var(--tx2)}
+.prm{display:none}
+.num{position:relative}
+.pinfo{color:var(--dim)}.pinfo[aria-expanded="true"]{color:var(--tx);background:var(--surf3)}
+.ppi{left:0;min-width:320px;max-width:min(420px,86vw);padding:10px 12px;font-size:12px;cursor:default}
+.ppi h4{margin:0 0 2px;font-size:13px;font-weight:600;color:var(--tx)}
+.ppi .by{color:var(--dim);margin-bottom:8px}
+.ppi dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 12px;margin:0}
+.ppi dt{color:var(--dim)}.ppi dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.ppi .ft{display:flex;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.ppi .add{color:var(--ok)}.ppi .del{color:var(--bad)}
+.empty{display:flex;gap:10px;align-items:flex-start;padding:14px 12px;font-size:12px}.empty svg.i{color:var(--dim);margin-top:1px}
+.empty .eh{color:var(--tx2);font-weight:600}.empty .es{color:var(--dim);margin-top:2px}.empty .btn{margin-top:8px}
+.sword{font-size:12px}.sword.bad{color:var(--bad)}.sword.off{color:var(--dim)}
+.sgrp{display:flex;gap:8px;align-items:baseline;padding:8px 12px 2px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;border-top:1px solid var(--line)}
+.sgrp b{color:var(--tx2);font-weight:600}
+.row .sub{grid-column:2/-1;font-size:12px;color:var(--dim);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:-2px}
+.row .sub.bad{color:var(--bad)}
+.pill{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line2);border-radius:10px;padding:0 4px 0 8px;font:11px var(--mono);color:var(--tx2);line-height:18px}
+.pill .ib{width:18px;height:18px}.pill .ib svg.i{width:11px;height:11px}
+.wst{font:12px var(--mono)}.wst .a{color:var(--ok)}.wst .d{color:var(--bad)}
+.wbf{grid-column:2/-1;display:grid;gap:8px;margin:4px 0 2px;padding:10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--surf2);font-size:12px}
+.wbf label{color:var(--tx2)}.wbf input[type=text]{height:26px;padding:0 8px;border-radius:4px;border:1px solid var(--line2);background:var(--bg);color:var(--tx);font:12px var(--mono)}
+.wbf .sw{display:flex;gap:8px;align-items:center}.wbf .help{color:var(--dim);line-height:1.45}
+.wbf .ac{display:flex;gap:6px;justify-content:flex-end}
+.tog{width:28px;height:16px;border-radius:8px;background:var(--btn);position:relative;flex:none}.tog::after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+
+.mbx{margin-left:28px;border:1px solid var(--line2);border-radius:4px;font-size:12px;overflow:hidden}
+.mbx.yes{border-color:transparent;background:var(--surf2)}
+.mbh{display:flex;gap:8px;align-items:center;padding:5px 8px}.mbh svg.i{width:14px;height:14px}
+.mbx.yes .mbh svg.i{color:var(--ok)}.mbx.no .mbh{background:var(--badbg)}.mbx.no .mbh svg.i{color:var(--bad)}
+.mbr{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:3px 8px;align-items:center;padding:5px 8px;border-top:1px solid var(--line)}
+.mbr>svg.i{width:14px;height:14px}.mbr.ok>svg.i{color:var(--ok)}.mbr.bad>svg.i{color:var(--bad)}.mbr.warn>svg.i{color:var(--warn)}.mbr.run>svg.i{color:var(--run)}
+.mbr .t .dim{margin-left:6px}.mbr .fl{grid-column:2/-1;display:flex;gap:4px 12px;flex-wrap:wrap}.mbr .fl a,.mbr .fl span{font:12px var(--mono)}
+@container (max-width:520px){.mbx{margin-left:0}.mbr{grid-template-columns:16px minmax(0,1fr)}.mbr>.btn{grid-column:2;justify-self:start}}
+.mock{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-height:72px;padding:12px;border:1px dashed var(--line2);border-radius:var(--r);font-size:12px;background:repeating-linear-gradient(135deg,transparent 0 8px,#ffffff06 8px 16px)}.mock .mk{font-weight:600;color:var(--tx2)}
+
+/* review fixes */
+.dd .stw{font-size:11px;color:var(--dim)}.dd .stw.run{color:var(--run)}
+.prl .stamp{font-size:12px;color:var(--dim);white-space:nowrap}
+.prl .brd{font:12px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:28ch}
+.btn.pri[disabled]{background:var(--surf2);border-color:var(--line2);color:var(--dim)}
+.ib[disabled]{opacity:.4;cursor:not-allowed}
+.mbr .more{font-size:12px;color:var(--dim)}
+.mbr details{grid-column:2/-1}.mbr summary{cursor:pointer;color:var(--dim);font-size:12px}.mbr .why{margin-top:4px;font:12px var(--mono);color:var(--tx2)}
+.filter{padding:6px 12px}.filter input{width:100%;height:26px;padding:0 8px;border-radius:4px;border:1px solid var(--line2);background:var(--bg);color:var(--tx);font-size:12px}
+.wtr{position:relative}
+.wbf{position:absolute;z-index:6;top:calc(100% - 4px);left:28px;width:min(380px,calc(100% - 40px));box-shadow:0 10px 28px #0009;background:#202021}
+.hm-back{position:fixed;inset:0;background:#0008;display:none;place-items:center;z-index:50}.hm-back.on{display:grid}
+.hm{width:min(460px,92vw);background:#252526;border:1px solid var(--line2);border-radius:8px;box-shadow:0 20px 60px #000c;padding:18px 18px 14px;font-size:13px}
+.hm .tag0{font:11px var(--mono);color:var(--dim);margin-bottom:8px}.hm h4{margin:0 0 6px;font-size:14px}.hm .bd{color:var(--tx2);line-height:1.5}
+.hm ul{margin:8px 0;padding-left:18px}.hm li{font:12px var(--mono);margin:2px 0}.hm li .dim{font-family:inherit}
+.hm .ft{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.mbh{flex-wrap:wrap}.mbh b{white-space:nowrap}.sgrp{flex-wrap:wrap}.apx .mrow .nm .rmark{display:inline-flex;vertical-align:middle;margin-right:4px}
+
+/* ---- Ticket details drawer (replaces the raw "Ticket data" text drawer) ---- */
+.td-scrim{position:fixed;inset:0;background:#0007;opacity:0;pointer-events:none;transition:opacity .15s;z-index:40}.td-scrim.on{opacity:1;pointer-events:auto}
+.td{position:fixed;top:0;right:0;bottom:0;width:min(820px,94vw);background:#1f1f20;border-left:1px solid var(--line2);box-shadow:-16px 0 40px #0008;z-index:41;display:flex;flex-direction:column;transform:translateX(102%);transition:transform .18s ease;container-type:inline-size}
+.td.on{transform:none}
+@media (prefers-reduced-motion:reduce){.td,.td-scrim{transition:none}}
+.td-h{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.td-ids{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+.td-h h3{grid-column:1/-1;margin:0;font-size:16px;line-height:1.35;font-weight:600}
+.td-acts{display:flex;gap:4px;align-items:center}
+.prov{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);border-radius:10px;padding:0 8px;line-height:18px;font-size:11px;color:var(--tx2)}
+.prov b{display:inline-grid;place-items:center;width:14px;height:14px;border-radius:3px;background:#2684ff;color:#fff;font-size:9px}
+.td-tabs{display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--line)}
+.td-tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:8px 10px;font-size:12px;cursor:pointer}
+.td-tabs button[aria-selected=true]{color:var(--tx);border-bottom-color:var(--btn)}
+.td-tabs .hint{margin-left:auto;align-self:center;font-size:11px;color:var(--dim)}
+.td-b{flex:1;overflow:auto;display:grid;grid-template-columns:minmax(0,1fr) 230px;align-items:start;align-content:start}
+.td-main{padding:14px 18px 24px;min-width:0;font-size:13px;line-height:1.6;color:var(--tx2)}
+.td-main h4{font-size:13px;color:var(--tx);margin:18px 0 6px}.td-main h4:first-child{margin-top:0}
+.td-main ul{margin:4px 0;padding-left:20px}.td-main li{margin:2px 0}
+.td-main code{font:12px var(--mono);background:var(--surf3);padding:1px 4px;border-radius:3px;color:var(--tx)}
+.td-main pre{font:12px/1.5 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;overflow:auto;color:var(--tx)}
+.td-main a{color:var(--link,#4daafc)}
+.td-main .raw{white-space:pre-wrap;font:12px/1.55 var(--mono);color:var(--tx)}
+.td-main .none{color:var(--dim)}
+.refs{display:flex;gap:6px;flex-wrap:wrap}.refs .chip{font-family:var(--mono);font-weight:500}
+.td-side{position:sticky;top:0;padding:14px 14px 24px;border-left:1px solid var(--line);font-size:12px;display:grid;gap:14px}
+.fg h5{margin:0 0 6px;font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.fg dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0}.fg dt{color:var(--dim)}.fg dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--tx2)}
+.fg .tags{display:flex;gap:4px;flex-wrap:wrap}
+.cmt{border-left:2px solid var(--line2);padding:2px 0 2px 10px;margin:8px 0}.cmt .who{font-weight:600;color:var(--tx)}.cmt .when{color:var(--dim);margin-left:6px;font-size:12px}
+.att{display:flex;gap:8px;align-items:center;padding:4px 0}.att .dim{font-size:12px}
+.td-sidefold{display:none}
+@container (max-width:620px){.td-b{grid-template-columns:minmax(0,1fr)}.td-side{display:none}.td-sidefold{display:block;border-bottom:1px solid var(--line)}
+ .td-sidefold>summary{padding:8px 16px;cursor:pointer;font-size:12px;color:var(--tx2)}.td-sidefold .td-side{display:grid;position:static;border-left:0;padding-top:4px}}
+.td-demo{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 16px;font-size:11px;color:var(--dim);border-bottom:1px dashed var(--line2);background:#ffffff05}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+<symbol id="i-check-c" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M5.2 8.2l2 2 3.8-4.2"/></symbol>
+<symbol id="i-x-c" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/></symbol>
+<symbol id="i-pause-c" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M6.5 5.5v5M9.5 5.5v5"/></symbol>
+<symbol id="i-spin" viewBox="0 0 16 16"><path d="M8 1.8A6.2 6.2 0 1 1 1.8 8"/></symbol>
+<symbol id="i-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/></symbol>
+<symbol id="i-chev" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></symbol>
+<symbol id="i-chev-d" viewBox="0 0 16 16"><path d="M3.5 6L8 10.5 12.5 6"/></symbol>
+<symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></symbol>
+<symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 2.5-4 2.5-6.3 4"/></symbol>
+<symbol id="i-pr" viewBox="0 0 16 16"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M4 5v6M12 11V6.5a2 2 0 0 0-2-2H7.5M9 3l-1.5 1.5L9 6"/></symbol>
+<symbol id="i-server" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/></symbol>
+<symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5z"/></symbol>
+<symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></symbol>
+<symbol id="i-restart" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></symbol>
+<symbol id="i-term" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5"/></symbol>
+<symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.8 4.2a1 1 0 0 1 1-1h3.4l1.4 1.6h5.6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/></symbol>
+<symbol id="i-ext" viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></symbol>
+<symbol id="i-box" viewBox="0 0 16 16"><path d="M8 1.8l5.7 3.1v6.2L8 14.2l-5.7-3.1V4.9zM2.3 4.9L8 8l5.7-3.1M8 8v6.2"/></symbol>
+<symbol id="i-sync" viewBox="0 0 16 16"><path d="M2.5 6.5A5.5 5.5 0 0 1 12.8 5M13.5 9.5A5.5 5.5 0 0 1 3.2 11M12.8 2v3h-3M3.2 14v-3h3"/></symbol>
+<symbol id="i-diff" viewBox="0 0 16 16"><path d="M4.5 2v7M1.5 5.5h6M8.5 11.5h6"/></symbol>
+<symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 1.8L14.6 13.5H1.4z"/><path d="M8 6.2v3.3M8 11.6h.01"/></symbol>
+<symbol id="i-bot" viewBox="0 0 16 16"><rect x="2.5" y="5" width="11" height="8" rx="2"/><path d="M8 2.5V5M6 9h.01M10 9h.01"/></symbol>
+<symbol id="i-doc" viewBox="0 0 16 16"><path d="M4 1.8h5.5L12.5 5v9.2h-8.5zM9.5 1.8V5h3M6 8h4.5M6 10.5h4.5"/></symbol>
+<symbol id="i-msg" viewBox="0 0 16 16"><path d="M2.5 3h11v7.5h-6l-3 2.5v-2.5h-2z"/></symbol>
+<symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></symbol>
+<symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8l5 2v4c0 3-2.2 5.3-5 6.4-2.8-1.1-5-3.4-5-6.4v-4z"/></symbol>
+<symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+<symbol id="c-claude" viewBox="0 0 24 24"><title>Claude Code</title><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></symbol>
+<symbol id="c-codex" viewBox="0 0 24 24"><title>Codex</title><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"></path></symbol>
+<symbol id="c-opencode" viewBox="0 0 24 24"><title>opencode</title><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></symbol>
+<symbol id="t-arrows-exchange" viewBox="0 0 24 24"><path d="M7 10h14l-4 -4"/><path d="M17 14h-14l4 4"/></symbol>
+<symbol id="t-git-compare" viewBox="0 0 24 24"><path d="M6 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M18 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></symbol>
+<symbol id="t-dots" viewBox="0 0 24 24"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></symbol>
+<symbol id="t-trash" viewBox="0 0 24 24"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></symbol>
+<symbol id="t-player-stop" viewBox="0 0 24 24"><path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"/></symbol>
+<symbol id="t-terminal-2" viewBox="0 0 24 24"><path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/></symbol>
+<symbol id="t-stack-2" viewBox="0 0 24 24"><path d="M12 4l-8 4l8 4l8 -4l-8 -4"/><path d="M4 12l8 4l8 -4"/><path d="M4 16l8 4l8 -4"/></symbol>
+<symbol id="t-box" viewBox="0 0 24 24"><path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5"/><path d="M12 12l8 -4.5"/><path d="M12 12l0 9"/><path d="M12 12l-8 -4.5"/></symbol>
+<symbol id="t-device-desktop" viewBox="0 0 24 24"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10z"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></symbol>
+<symbol id="t-shield-check" viewBox="0 0 24 24"><path d="M11.46 20.846a12 12 0 0 1 -7.96 -14.846a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 -.09 7.06"/><path d="M15 19l2 2l4 -4"/></symbol>
+<symbol id="t-alert-triangle" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"/><path d="M12 16h.01"/></symbol>
+<symbol id="t-world" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M3.6 9h16.8"/><path d="M3.6 15h16.8"/><path d="M11.5 3a17 17 0 0 0 0 18"/><path d="M12.5 3a17 17 0 0 1 0 18"/></symbol>
+<symbol id="t-git-branch" viewBox="0 0 24 24"><path d="M7 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M17 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 8l0 8"/><path d="M9 18h6a2 2 0 0 0 2 -2v-5"/><path d="M14 14l3 -3l3 3"/></symbol>
+<symbol id="t-lock" viewBox="0 0 24 24"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z"/><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0"/><path d="M8 11v-4a4 4 0 1 1 8 0v4"/></symbol>
+<symbol id="t-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6"/></symbol>
+<symbol id="t-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></symbol>
+<symbol id="t-git-merge" viewBox="0 0 24 24"><path d="M7 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M17 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 8l0 8"/><path d="M7 8a4 4 0 0 0 4 4h4"/></symbol>
+<symbol id="t-info-circle" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 9h.01"/><path d="M11 12h1v4h1"/></symbol>
+<symbol id="r-opencode" viewBox="0 0 24 24"><title>opencode</title><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></symbol>
+<symbol id="r-openrouter" viewBox="0 0 24 24"><title>OpenRouter</title><path d="M18.654 3.87a5.087 5.087 0 110 10.174L23.7 19.09c.64.641.187 1.737-.72 1.737H8.48a8.479 8.479 0 010-16.958h10.175zM8.479 7.26a5.087 5.087 0 100 10.176 5.087 5.087 0 000-10.175z"></path></symbol>
+<symbol id="t-search" viewBox="0 0 24 24"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></symbol>
+<symbol id="t-git-pr" viewBox="0 0 24 24"><path d="M4 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M6 8l0 8"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/></symbol>
+<symbol id="t-git-pr-closed" viewBox="0 0 24 24"><path d="M4 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M6 8v8"/><path d="M18 11v5"/><path d="M16 4l4 4m0 -4l-4 4"/></symbol>
+<symbol id="t-copy" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></symbol>
+<symbol id="t-circle-x" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M10 10l4 4m0 -4l-4 4"/></symbol>
+<symbol id="t-clock" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 7v5l3 3"/></symbol>
+<symbol id="t-send" viewBox="0 0 24 24"><path d="M10 14l11 -11"/><path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"/></symbol>
+<symbol id="t-undo" viewBox="0 0 24 24"><path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></symbol>
+<symbol id="t-message" viewBox="0 0 24 24"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-5l-5 3v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12z"/></symbol>
+<symbol id="t-git-pr-draft" viewBox="0 0 24 24"><path d="M4 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M6 8v8"/><path d="M18 11h.01"/><path d="M18 6h.01"/></symbol>
+<symbol id="t-player-play" viewBox="0 0 24 24"><path d="M7 4v16l13 -8z"/></symbol>
+<symbol id="t-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></symbol>
+<symbol id="t-external-link" viewBox="0 0 24 24"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></symbol>
+<symbol id="t-pencil" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></symbol>
+<symbol id="t-folder" viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"/></symbol>
+<symbol id="t-server" viewBox="0 0 24 24"><path d="M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"/><path d="M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"/><path d="M7 8v.01"/><path d="M7 16v.01"/></symbol>
+<symbol id="t-file-text" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></symbol>
+<symbol id="t-x" viewBox="0 0 24 24"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></symbol>
+<symbol id="t-paperclip" viewBox="0 0 24 24"><path d="M15 7l-6.5 6.5a1.5 1.5 0 0 0 3 3l6.5 -6.5a3 3 0 0 0 -6 -6l-6.5 6.5a4.5 4.5 0 0 0 9 9l6.5 -6.5"/></symbol>
+<symbol id="t-markdown" viewBox="0 0 24 24"><path d="M3 5m0 2a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z"/><path d="M7 15v-6l2 2l2 -2v6"/><path d="M14 13l2 2l2 -2m-2 2v-6"/></symbol>
+<symbol id="t-edit" viewBox="0 0 24 24"><path d="M7 7h-1a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-1"/><path d="M20.385 6.585a2.1 2.1 0 0 0 -2.97 -2.97l-8.415 8.385v3h3l8.385 -8.415z"/><path d="M16 5l3 3"/></symbol>
+<symbol id="t-user" viewBox="0 0 24 24"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/></symbol>
+<symbol id="t-link" viewBox="0 0 24 24"><path d="M9 15l6 -6"/><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/></symbol>
+ viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol>
+<symbol id="t-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></symbol>
+<symbol id="c-antigravity" viewBox="0 0 24 24"><title>Antigravity CLI</title><path clip-rule="evenodd" d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"></path></symbol>
+<symbol id="c-opencode2" viewBox="0 0 24 24"><title>opencode</title><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></symbol>
+</svg>
+<div class="chrome" role="toolbar" aria-label="Prototype controls">
+  <h1>Karst dashboard — revamp variants</h1>
+  <div class="seg" id="vsel" role="group" aria-label="Variant">
+    <button data-v="v0" aria-pressed="true">0 · Polished</button><button data-v="vA" aria-pressed="false">A · Repo cards</button><button data-v="vB" aria-pressed="false">B · Cockpit</button><button data-v="vC" aria-pressed="false">C · Tabs</button><button data-v="vD" aria-pressed="false">D · Attention</button><button data-v="vE" aria-pressed="false">E · Timeline</button><button data-v="kit" aria-pressed="false">Pattern kit</button>
+  </div>
+  <div class="seg" id="wsel" role="group" aria-label="Width tier">
+    <button data-w="wide" aria-pressed="true">wide ≥1000</button><button data-w="mid" aria-pressed="false">mid 700–999</button><button data-w="narrow" aria-pressed="false">tight ~400</button>
+  </div>
+</div>
+<div class="note" id="note"></div>
+<div class="stage-frame" id="frame" data-w="wide"><div class="vp">
+<!-- ===== 0 · POLISHED EXISTING ===== -->
+<section class="variant on" id="v0" data-note="<b>0 · Polished existing (rev 2).</b> Same regions as today, with these changes:<ul><li><b>Runtime strip</b> (first component under ticket head): agent dropdown (core brand icon + running/idle dot, model · effort; opens staged Switch agent dialog; locked during fix recovery) | sandbox dropdown (backend icon + workspace/network or host protection; opens details) | Sync (arrows-exchange) · Diff (git-compare) · ⋯ (Stash &amp; update, Open shell, Stop, Remove with inline confirm). Warnings as one attached row. Use 'Prototype state' to see every state.</li><li>Rail kept as is (arrow segments, current stage widest), Inside block below it unchanged.</li><li>Sub-tasks kept full: T-id, key, title, PR chip, lock, agent, time-in-stage, stage pill, blocked reason.</li><li>Polish only: Servers / Worktrees / PRs use one Section header (title · count · summary · actions), neutral icon buttons (red only on hover for destructive), branch shown once when identical, one inline empty state.</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span><button class="ib sm" id="tdOpen" data-act="preview-ticket-data" aria-haspopup="dialog" aria-label="Ticket details" title="Ticket details"><svg class="i"><use href="#t-file-text"/></svg></button></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+    <div class="sub"><span>from <a href="#">D88</a> (P17)</span><span class="dot">sub-task of <a href="#">T942001</a></span><span class="dot">FEAT-100</span></div>
+  </header>
+
+  <div data-region="runtime">
+    <div class="rt-demo">Prototype state:
+      <div class="seg" id="roState" role="group" aria-label="Runtime demo state">
+        <button data-s="docker" aria-pressed="true">Docker</button><button data-s="carry" aria-pressed="false">Docker · rewritten</button><button data-s="sbx" aria-pressed="false">sbx</button><button data-s="hostok" aria-pressed="false">Host · native</button><button data-s="hostwarn" aria-pressed="false">Host · prompted</button><button data-s="optout" aria-pressed="false">Host · opted out</button><button data-s="locked" aria-pressed="false">Switch locked</button><button data-s="idle" aria-pressed="false">Agent idle</button><button data-s="codex" aria-pressed="false">Codex core</button>
+      </div>
+    </div>
+    <div class="rs-wrap" id="ro"></div>
+  </div>
+
+  <div class="sec" data-region="stepper">
+    <div style="padding:8px"><div class="arail">
+      <div class="as done d-scope"><svg class="i"><use href="#i-check"/></svg><span class="lbl">SCOPE</span></div>
+      <div class="as done d-impl"><svg class="i"><use href="#i-check"/></svg><span class="lbl">IMPL</span></div>
+      <div class="as done d-uat"><svg class="i"><use href="#i-check"/></svg><span class="lbl">UAT</span></div>
+      <div class="as cur"><svg class="i spin"><use href="#i-spin"/></svg><span>REVIEW</span></div>
+      <div class="as pend"><span class="lbl">SHIP</span></div>
+      <div class="as pend"><span class="lbl">DONE</span></div>
+    </div></div>
+    <div class="mock" data-region="inside" style="margin:0 8px 8px" aria-label="Inside stage panel — out of scope, unchanged">
+      <span class="mk">Inside · current stage</span><span class="dim">out of scope for this revamp — unchanged (gates, review rounds, stage menu)</span>
+    </div>
+  </div>
+
+  <div class="sec" data-region="subtasks">
+    <div class="sec-h"><h3>Sub-tasks</h3><span class="count">1/3 done</span>
+      <div class="acts"><span class="prog" aria-label="1 done, 1 blocked, 1 queued"><i style="width:33%;background:var(--ok)"></i><i style="width:33%;background:var(--bad)"></i></span><button class="btn" style="margin-left:8px"><svg class="i"><use href="#i-plus"/></svg>Add sub-task</button></div></div>
+    <div class="sec-b">
+      <div class="strow"><span class="dot-s ok"></span><span class="tid">T942018</span><span class="key">FEAT-142-s1</span><span class="ttl">Extract the base-branch resolver</span><span class="tr"><span class="prc merged">#418 merged</span><span class="mono dim">0s ago</span><span class="stg done">DONE</span></span></div>
+      <div class="strow alert"><span class="dot-s run"></span><span class="tid">T942019</span><span class="key">FEAT-142-s2</span><span class="ttl">Add per-repo override to the picker</span><span class="tr"><span class="prc open">#422 open +1</span><svg class="i dim" aria-label="blocks others"><use href="#i-alert"/></svg><span class="agent"><svg class="i"><use href="#i-bot"/></svg>Claude · Sonnet 5.5</span><span class="mono dim">0s</span><span class="stg impl">IMPL</span></span><span class="why"><b>Provider out of quota</b> · <span class="mono">anthropic: monthly quota exceeded</span></span></div>
+      <div class="strow"><span class="dot-s idle"></span><span class="tid">T942020</span><span class="key">FEAT-142-s3</span><span class="ttl">Waiting for a free sub-task slot</span><span class="tr"><span class="mono dim">#2</span><span class="stg queued">QUEUED</span></span></div>
+    </div>
+  </div>
+
+  <div class="rt-demo">Prototype state · panels:
+    <span class="dl">Servers</span><div class="seg" id="stSrv" role="group" aria-label="Servers demo state"><button data-s="running">Running</button><button data-s="mixed">Mixed</button><button data-s="fault">Shared fault</button><button data-s="stopped">Stopped</button><button data-s="none">No services</button></div>
+    <span class="dl">Worktrees</span><div class="seg" id="stWt" role="group" aria-label="Worktrees demo state"><button data-s="normal">Normal</button><button data-s="base">Change base</button><button data-s="ext">Extension repo</button><button data-s="empty">Empty</button></div>
+    <span class="dl">PRs</span><div class="seg" id="stPr" role="group" aria-label="Pull requests demo state"><button data-s="mixed">Mixed</button><button data-s="ready">Ready</button><button data-s="rule">Blocked · GitHub rule</button><button data-s="unknown">Check unknown</button><button data-s="merged">Merged</button><button data-s="empty">None</button></div>
+  </div>
+  <div class="g2">
+    <div class="sec" data-region="servers">
+      <div class="sec-h"><h3>Servers</h3><span class="count" id="srvN"></span><span class="sum" id="srvSum"></span><div class="acts" id="srvActs"></div></div>
+      <div class="sec-b" id="srvB"></div>
+    </div>
+    <div class="sec" data-region="worktrees">
+      <div class="sec-h"><h3>Worktrees</h3><span class="count" id="wtN"></span><span class="sum mono" id="wtSum"></span><div class="acts"><button class="ib" data-act="show-changes" aria-label="Show ticket changes" title="Show ticket changes"><svg class="i"><use href="#t-git-compare"/></svg></button></div></div>
+      <div class="sec-b" id="wtB"></div>
+    </div>
+  </div>
+
+  <div class="sec" data-region="prs">
+    <div class="sec-h"><h3>Pull requests</h3><span class="count" id="prN"></span><span class="sum" id="prSum"></span><div class="acts"><span id="prAll"></span><button class="ib" aria-label="Refresh pull requests" title="Refresh"><svg class="i"><use href="#i-sync"/></svg></button></div></div>
+    <div class="sec-b" id="prB"></div>
+  </div>
+</div>
+</section>
+
+<!-- ===== A · REPO CARDS ===== -->
+<section class="variant" id="vA" data-note="<b>A · Repo cards.</b> Today 'web' / 'api' appear in Servers, Worktrees and PRs — three panels keyed by the same repo. A pivots by repo: <b>one card per repo</b> = branch state, server, PR, diff, plus its actions. Servers / Worktrees / PRs panels disappear (3 panels → N cards). Shared branch + sandbox + bulk actions go to one toolbar strip.<ul><li>Pros: removes biggest repetition; scales with repo count; actions next to their facts.</li><li>Cons: shared (non-repo) services need a 'Shared' card; bulk server actions move to toolbar.</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+  </header>
+  <div class="sec" data-region="stepper">
+    <div style="padding:8px"><div class="rail">
+      <div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">SCOPE</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">IMPL</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">UAT</span></div><div class="st cur"><svg class="i spin"><use href="#i-spin"/></svg><span class="lbl">REVIEW</span></div><div class="st"><span class="lbl">SHIP</span></div><div class="st"><span class="lbl">DONE</span></div>
+    </div></div>
+    <div style="border-top:1px solid var(--line)">
+      <div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">1/1 command gates passed</span><span class="when">1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+      <div class="gate"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg><span>Review</span><span class="what">reviewer · claude-opus-4-1</span><span class="when"><span class="chip bad">2 blocking</span>6m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+    </div>
+  </div>
+  <div class="strip" data-region="toolbar">
+    <span class="tag"><svg class="i"><use href="#i-box"/></svg>Docker · isolated · allowlist</span><span class="sep"></span>
+    <span class="tag"><svg class="i"><use href="#i-branch"/></svg>main ← feat/FEAT-142-base-branch-override</span>
+    <span class="sp"></span>
+    <button class="btn"><svg class="i"><use href="#i-play"/></svg>All servers</button><button class="btn"><svg class="i"><use href="#i-sync"/></svg>Sync</button>
+    <button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>
+  </div>
+  <div class="repos" data-region="repos">
+    <div class="sec repo">
+      <div class="sec-h"><h3>web</h3><span class="tag">clean</span><div class="acts"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="Reveal folder"><svg class="i"><use href="#i-folder"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></div>
+      <div class="facet"><span class="k">Server</span><span class="v"><span class="dot-s ok"></span><a class="mono" href="#">localhost:5173</a></span><span style="display:flex"><button class="ib" aria-label="Logs"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="Restart"><svg class="i"><use href="#i-restart"/></svg></button><button class="ib danger" aria-label="Stop"><svg class="i"><use href="#i-stop"/></svg></button></span></div>
+      <div class="facet"><span class="k">PR</span><span class="v"><a class="mono" href="#">#421</a><span class="chip ok">OPEN</span><span class="tag"><svg class="i"><use href="#i-msg"/></svg>2</span><span class="chip ok"><svg class="i"><use href="#i-check"/></svg>checks</span></span><button class="btn">Merge</button></div>
+      <div class="facet"><span class="k">Diff</span><span class="v mono"><span style="color:var(--ok)">+184</span><span style="color:var(--bad)">−27</span><span class="dim">6 files</span></span><button class="ib" aria-label="Open diff"><svg class="i"><use href="#i-diff"/></svg></button></div>
+    </div>
+    <div class="sec repo">
+      <div class="sec-h"><h3>api</h3><span class="tag">2 changed</span><div class="acts"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="Reveal folder"><svg class="i"><use href="#i-folder"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></div>
+      <div class="facet"><span class="k">Server</span><span class="v"><span class="dot-s ok"></span><a class="mono" href="#">localhost:4000</a></span><span style="display:flex"><button class="ib" aria-label="Logs"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="Restart"><svg class="i"><use href="#i-restart"/></svg></button><button class="ib danger" aria-label="Stop"><svg class="i"><use href="#i-stop"/></svg></button></span></div>
+      <div class="facet"><span class="k">PR</span><span class="v dim">none — opens at Ship</span><span></span></div>
+      <div class="facet"><span class="k">Diff</span><span class="v mono"><span style="color:var(--ok)">+52</span><span style="color:var(--bad)">−3</span><span class="dim">2 files</span></span><button class="ib" aria-label="Open diff"><svg class="i"><use href="#i-diff"/></svg></button></div>
+    </div>
+  </div>
+  <div class="sec" data-region="subtasks">
+    <div class="sec-h"><h3>Sub-tasks</h3><span class="count">1/3</span><div class="acts"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add</button></div></div>
+    <div class="sec-b">
+      <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">s1</span><span class="title">Extract the base-branch resolver</span></span><span class="trail"><span class="chip ok">DONE</span></span></div>
+      <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="mono dim">s2</span><span class="title">Add per-repo override to the picker</span></span><span class="trail"><span class="chip pur">IMPL</span></span><span class="note-line">Provider out of quota</span></div>
+      <div class="row"><span class="lead"><span class="dot-s idle"></span></span><span class="main"><span class="mono dim">s3</span><span class="title">Waiting for a free sub-task slot</span></span><span class="trail"><span class="chip mute">QUEUED</span></span></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===== B · COCKPIT ===== -->
+<section class="variant" id="vB" data-note="<b>B · Cockpit.</b> Main column = <i>what is happening</i> (rail, current stage, sub-tasks). Sticky right column (320px) = <i>where it runs</i> (sandbox, repos+servers, PRs) as terse fact sections. Below 900px right column stacks under main.<ul><li>Pros: uses wide editor width (today rows leave most of right side empty); Inside never pushed below infra; env visible while scrolling stage detail.</li><li>Cons: side column must stay terse; long branch names truncate (full text via copy/tooltip, UI-R44).</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+    <div class="sub"><span>from <a href="#">D88</a></span><span class="dot">sub-task of <a href="#">T942001</a></span></div>
+  </header>
+  <div class="cockpit">
+    <main class="stack" data-region="main">
+      <div class="rail">
+        <div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">SCOPE</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">IMPL</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">UAT</span></div><div class="st cur"><svg class="i spin"><use href="#i-spin"/></svg><span class="lbl">REVIEW</span></div><div class="st"><span class="lbl">SHIP</span></div><div class="st"><span class="lbl">DONE</span></div>
+      </div>
+      <div class="sec" data-region="inside">
+        <div class="sec-h"><h3>Review</h3><span class="sum mono">round 1 · 10m</span><div class="acts"><button class="btn"><svg class="i"><use href="#i-term"/></svg>Console</button><button class="ib" aria-label="Stage actions"><svg class="i"><use href="#i-more"/></svg></button></div></div>
+        <div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">1/1 command gates passed</span><span class="when">1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg><span>Review</span><span class="what">reviewer · claude-opus-4-1</span><span class="when"><span class="chip bad">2 blocking</span>6m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i dim"><use href="#i-circle"/></svg><span class="dim">Fix</span><span class="what">waits for review</span><span class="when"></span><span></span></div>
+      </div>
+      <div class="sec" data-region="subtasks">
+        <div class="sec-h"><h3>Sub-tasks</h3><span class="count">1/3</span><div class="acts"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add</button></div></div>
+        <div class="sec-b">
+          <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">s1</span><span class="title">Extract the base-branch resolver</span></span><span class="trail"><span class="chip ok">DONE</span></span></div>
+          <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="mono dim">s2</span><span class="title">Add per-repo override to the picker</span></span><span class="trail"><span class="chip pur">IMPL</span></span><span class="note-line">Provider out of quota</span></div>
+          <div class="row"><span class="lead"><span class="dot-s idle"></span></span><span class="main"><span class="mono dim">s3</span><span class="title">Waiting for a free sub-task slot</span></span><span class="trail"><span class="chip mute">QUEUED</span></span></div>
+        </div>
+      </div>
+    </main>
+    <aside data-region="detail" aria-label="Environment">
+      <div class="sec">
+        <div class="sec-h"><svg class="i dim"><use href="#i-box"/></svg><h3>Sandbox</h3><span class="chip mute">DOCKER</span><div class="acts"><button class="ib" aria-label="Sync"><svg class="i"><use href="#i-sync"/></svg></button><button class="ib" aria-label="Diff"><svg class="i"><use href="#i-diff"/></svg></button><button class="ib" aria-label="More sandbox actions"><svg class="i"><use href="#i-more"/></svg></button></div></div>
+        <dl class="kv"><dt>Git</dt><dd>Isolated clone</dd><dt>Net</dt><dd>Allowlist proxy</dd></dl>
+      </div>
+      <div class="sec">
+        <div class="sec-h"><h3>Repos</h3><span class="count">2</span><div class="acts"><button class="ib" aria-label="Start all"><svg class="i"><use href="#i-play"/></svg></button><button class="ib danger" aria-label="Stop all"><svg class="i"><use href="#i-stop"/></svg></button></div></div>
+        <dl class="kv" style="padding-bottom:0"><dt>branch</dt><dd class="mono">main ← feat/FEAT-142-base-branch-override</dd></dl>
+        <div class="sec-b">
+          <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="title">web</span><a class="mono" href="#">:5173</a></span><span class="trail acts"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span></div>
+          <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="title">api</span><a class="mono" href="#">:4000</a><span class="tag">2 changed</span></span><span class="trail acts"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <div class="sec-h"><h3>Pull requests</h3><span class="count">1</span><div class="acts"><button class="ib" aria-label="Refresh"><svg class="i"><use href="#i-sync"/></svg></button></div></div>
+        <div class="sec-b"><div class="row"><span class="lead"><svg class="i" style="color:var(--ok)"><use href="#i-pr"/></svg></span><span class="main"><a class="mono" href="#">web#421</a><span class="tag"><svg class="i"><use href="#i-msg"/></svg>2</span></span><span class="trail"><button class="btn">Merge</button></span></div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+</section>
+<!-- ===== C · TABS ===== -->
+<section class="variant" id="vC" data-note="<b>C · Tabs.</b> Header + rail + one attention strip pinned on top; rest behind tabs: <b>Stage</b> (Inside) · <b>Sub-tasks</b> · <b>Repos</b> (servers + worktrees + PRs as ONE table) · <b>Sandbox</b> · <b>Artifacts</b>. Extends existing view-pills / hash-route drill pattern (UI-R47) instead of one long scroll.<ul><li>Pros: no page scroll at any tier; each tab = one table/list pattern; tab badges carry attention.</li><li>Cons: hides context — can't see Inside and PRs together; extra click for routine checks.</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+  </header>
+  <div class="rail">
+    <div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">SCOPE</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">IMPL</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">UAT</span></div><div class="st cur"><svg class="i spin"><use href="#i-spin"/></svg><span class="lbl">REVIEW</span></div><div class="st"><span class="lbl">SHIP</span></div><div class="st"><span class="lbl">DONE</span></div>
+  </div>
+  <div class="strip bad"><svg class="i" style="color:var(--bad)"><use href="#i-alert"/></svg><span>Sub-task <b>s2</b> blocked — provider out of quota</span><span class="sp"></span><button class="btn">Switch agent</button></div>
+  <div>
+    <div class="tabs" role="tablist" id="ctabs">
+      <button role="tab" aria-selected="true" data-t="c1">Stage <span class="badge bad">2</span></button>
+      <button role="tab" aria-selected="false" data-t="c2">Sub-tasks <span class="badge">1/3</span></button>
+      <button role="tab" aria-selected="false" data-t="c3">Repos <span class="badge">2</span></button>
+      <button role="tab" aria-selected="false" data-t="c4">Sandbox</button>
+      <button role="tab" aria-selected="false" data-t="c5">Artifacts <span class="badge">4</span></button>
+    </div>
+    <div style="padding-top:var(--gap-out)">
+      <div class="tabpanel on" id="c1"><div class="sec">
+        <div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">1/1 command gates passed</span><span class="when">1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg><span>Review</span><span class="what">reviewer · claude-opus-4-1</span><span class="when"><span class="chip bad">2 blocking</span>6m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i dim"><use href="#i-circle"/></svg><span class="dim">Fix</span><span class="what">waits for review</span><span class="when"></span><span></span></div>
+      </div></div>
+      <div class="tabpanel" id="c2"><div class="sec"><div class="sec-b">
+        <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">s1</span><span class="title">Extract the base-branch resolver</span></span><span class="trail"><span class="chip ok">DONE</span></span></div>
+        <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="mono dim">s2</span><span class="title">Add per-repo override to the picker</span></span><span class="trail"><span class="chip pur">IMPL</span></span><span class="note-line">Provider out of quota</span></div>
+        <div class="row"><span class="lead"><span class="dot-s idle"></span></span><span class="main"><span class="mono dim">s3</span><span class="title">Waiting for a free sub-task slot</span></span><span class="trail"><span class="chip mute">QUEUED</span></span></div>
+      </div></div></div>
+      <div class="tabpanel" id="c3"><div class="sec">
+        <div class="sec-h"><span class="sum mono">main ← feat/FEAT-142-base-branch-override</span><div class="acts"><button class="ib" aria-label="Start all"><svg class="i"><use href="#i-play"/></svg></button><button class="ib danger" aria-label="Stop all"><svg class="i"><use href="#i-stop"/></svg></button></div></div>
+        <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Repo</th><th>Changes</th><th>Server</th><th>PR</th><th></th></tr></thead><tbody>
+          <tr><td><b>web</b></td><td class="mono dim">clean</td><td><span class="dot-s ok"></span> <a class="mono" href="#">:5173</a></td><td><a class="mono" href="#">#421</a> <span class="chip ok">OPEN</span></td><td style="text-align:right;white-space:nowrap"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></td></tr>
+          <tr><td><b>api</b></td><td class="mono dim">2 files</td><td><span class="dot-s ok"></span> <a class="mono" href="#">:4000</a></td><td class="dim">—</td><td style="text-align:right;white-space:nowrap"><button class="ib" aria-label="Terminal"><svg class="i"><use href="#i-term"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></td></tr>
+        </tbody></table></div>
+      </div></div>
+      <div class="tabpanel" id="c4"><div class="sec"><dl class="kv"><dt>Backend</dt><dd>Docker</dd><dt>Core</dt><dd>Claude Code</dd><dt>Git</dt><dd>Isolated clone</dd><dt>Network</dt><dd>Allowlist proxy</dd></dl></div></div>
+      <div class="tabpanel" id="c5"><div class="sec"><div class="empty"><svg class="i"><use href="#i-doc"/></svg><span><b>4 artifacts</b>brief · plan · review report · UAT notes</span></div></div></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===== D · ATTENTION-FIRST ===== -->
+<section class="variant" id="vD" data-note="<b>D · Attention-first.</b> Top block <b>Needs you</b> gathers every actionable item from every panel (blocked sub-task, blocking review findings, merge conflict, failing checks, ship refusal), each with its one fix action. Then glance row (one tile per area; click expands + scrolls). All panels below = <b>collapsible Sections</b> with one-line summary in header — healthy panels start collapsed. Click headers to toggle.<ul><li>Pros: answers 'what do I do now' in one place; healthy infra costs one line each; replaces blocked strip + red rows + ship-waiting row with one list.</li><li>Cons: needs host-side attention-item model (deduped across sources); collapse state persists per ticket.</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+  </header>
+  <div class="rail thin">
+    <div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">SCOPE</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">IMPL</span></div><div class="st done"><svg class="i"><use href="#i-check"/></svg><span class="lbl">UAT</span></div><div class="st cur"><svg class="i spin"><use href="#i-spin"/></svg><span class="lbl">REVIEW · 10m</span></div><div class="st"><span class="lbl">SHIP</span></div><div class="st"><span class="lbl">DONE</span></div>
+  </div>
+  <div class="needs" data-region="attention">
+    <div class="sec-h"><svg class="i" style="color:var(--bad)"><use href="#i-alert"/></svg><h3>Needs you</h3><span class="count">2</span></div>
+    <div class="need"><svg class="i" style="color:var(--bad)"><use href="#i-x-c"/></svg><div><div class="t">Sub-task s2 blocked — provider out of quota</div><div class="w">anthropic: monthly quota exceeded · Sub-tasks</div></div><button class="btn pri">Switch agent</button></div>
+    <div class="need"><svg class="i" style="color:var(--warn)"><use href="#i-pause-c"/></svg><div><div class="t">Review found 2 blocking issues</div><div class="w">Fix round starts when review ends · Review</div></div><button class="btn">Open findings</button></div>
+  </div>
+  <div class="glance" data-region="glance">
+    <button class="tile"><span class="k">Review</span><span class="v"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg>running</span><span class="s">gates 1/1 · 6m</span></button>
+    <button class="tile"><span class="k">Sub-tasks</span><span class="v">1 / 3</span><span class="s" style="color:var(--bad)">1 blocked</span></button>
+    <button class="tile"><span class="k">Servers</span><span class="v"><span class="dot-s ok"></span>2 up</span><span class="s">:5173 · :4000</span></button>
+    <button class="tile"><span class="k">PRs</span><span class="v">1 open</span><span class="s">web#421 · checks ok</span></button>
+  </div>
+  <div class="stack-in">
+    <div class="sec" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="true"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Inside review</h3><span class="sum">gates passed · reviewer running · 2 blocking</span></div>
+      <div class="sec-b" style="padding:0">
+        <div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">1/1 command gates passed</span><span class="when">1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg><span>Review</span><span class="what">reviewer · claude-opus-4-1</span><span class="when"><span class="chip bad">2 blocking</span>6m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+      </div></div>
+    <div class="sec" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="true"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Sub-tasks</h3><span class="count">1/3</span><span class="sum">1 blocked · 1 queued</span><div class="acts"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add</button></div></div>
+      <div class="sec-b">
+        <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">s1</span><span class="title">Extract the base-branch resolver</span></span><span class="trail"><span class="chip ok">DONE</span></span></div>
+        <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="mono dim">s2</span><span class="title">Add per-repo override to the picker</span></span><span class="trail"><span class="chip pur">IMPL</span></span></div>
+        <div class="row"><span class="lead"><span class="dot-s idle"></span></span><span class="main"><span class="mono dim">s3</span><span class="title">Waiting for a free sub-task slot</span></span><span class="trail"><span class="chip mute">QUEUED</span></span></div>
+      </div></div>
+    <div class="sec collapsed" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="false"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Servers</h3><span class="count">2</span><span class="sum">all running · web :5173 · api :4000</span><div class="acts"><button class="ib" aria-label="Restart all"><svg class="i"><use href="#i-restart"/></svg></button></div></div>
+      <div class="sec-b">
+        <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="title">web</span><a class="mono" href="#">localhost:5173</a></span><span class="trail acts"><button class="ib" aria-label="Logs"><svg class="i"><use href="#i-term"/></svg></button></span></div>
+        <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="title">api</span><a class="mono" href="#">localhost:4000</a></span><span class="trail acts"><button class="ib" aria-label="Logs"><svg class="i"><use href="#i-term"/></svg></button></span></div>
+      </div></div>
+    <div class="sec collapsed" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="false"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Worktrees</h3><span class="count">2</span><span class="sum mono">main ← feat/FEAT-142-base-branch-override</span></div>
+      <div class="sec-b">
+        <div class="row"><span class="lead"><svg class="i dim"><use href="#i-folder"/></svg></span><span class="main"><span class="title">web</span><span class="tag">clean</span></span><span></span></div>
+        <div class="row"><span class="lead"><svg class="i dim"><use href="#i-folder"/></svg></span><span class="main"><span class="title">api</span><span class="tag">2 changed</span></span><span></span></div>
+      </div></div>
+    <div class="sec collapsed" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="false"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Pull requests</h3><span class="count">1</span><span class="sum">web#421 open · 2 comments</span></div>
+      <div class="sec-b"><div class="row"><span class="lead"><svg class="i" style="color:var(--ok)"><use href="#i-pr"/></svg></span><span class="main"><a class="mono" href="#">web#421</a><span class="chip ok">OPEN</span></span><span class="trail"><button class="btn">Merge</button></span></div></div></div>
+    <div class="sec collapsed" data-col><div class="sec-h" role="button" tabindex="0" aria-expanded="false"><svg class="i tw dim"><use href="#i-chev-d"/></svg><h3>Sandbox</h3><span class="sum">Docker · isolated clone · allowlist proxy</span></div>
+      <div class="sec-b"><dl class="kv"><dt>Backend</dt><dd>Docker</dd><dt>Git</dt><dd>Isolated clone</dd><dt>Network</dt><dd>Allowlist proxy</dd></dl></div></div>
+  </div>
+</div>
+</section>
+<!-- ===== E · TIMELINE ===== -->
+<section class="variant" id="vE" data-note="<b>E · Timeline.</b> Rail + Inside merge into a <b>vertical stage timeline</b>: past stages collapse to one line (result + duration; click to reopen), current stage expands inline with gate rows, future stages dimmed. Environment (sandbox, repos, servers, PRs, artifacts) moves to <b>sticky bottom dock</b> of chips opening drill views / popovers.<ul><li>Pros: one mental model (ticket = sequence of stages); removes Rail vs 'Inside &lt;stage&gt;' duplication and round tabs; history readable at a glance.</li><li>Cons: biggest change (regions, parity cases, baselines); env one click away; dock needs popover pattern at tight width.</li></ul>">
+<div class="stack">
+  <header class="hd" data-region="ticket-head">
+    <div class="ids"><span class="mono dim">T942017</span><span class="chip mute">Idle</span><span class="mono dim">FEAT-142</span></div>
+    <h2>Add per-repo base branch override to the worktree picker</h2>
+    <span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span>
+    <button class="ib" aria-label="Ticket actions"><svg class="i"><use href="#i-more"/></svg></button>
+  </header>
+  <div class="tl" data-region="timeline">
+    <div class="tl-item"><span class="m"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg></span><div class="head"><b>Scope</b><span class="dim">passed</span><span class="mono dim">4m</span></div></div>
+    <div class="tl-item"><span class="m"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg></span><div class="head"><b>Implementation</b><span class="dim">passed · 3 sub-tasks</span><span class="mono dim">42m</span></div></div>
+    <div class="tl-item"><span class="m"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg></span><div class="head"><b>UAT</b><span class="dim">passed round 2</span><span class="mono dim">11m</span></div></div>
+    <div class="tl-item cur"><span class="m"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg></span><div class="head"><b>Review</b><span class="dim">running</span><span class="mono dim">10m</span><span class="sp"></span><button class="btn"><svg class="i"><use href="#i-term"/></svg>Console</button></div>
+      <div class="sec card">
+        <div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">1/1 command gates passed</span><span class="when">1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i spin" style="color:var(--run)"><use href="#i-spin"/></svg><span>Review</span><span class="what">reviewer · claude-opus-4-1</span><span class="when"><span class="chip bad">2 blocking</span>6m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div>
+        <div class="gate"><svg class="i dim"><use href="#i-circle"/></svg><span class="dim">Fix</span><span class="what">waits for review</span><span class="when"></span><span></span></div>
+      </div>
+    </div>
+    <div class="tl-item fut"><span class="m"><svg class="i dim"><use href="#i-circle"/></svg></span><div class="head"><b>Ship</b><span class="dim">commit · push · PR · merge</span></div></div>
+    <div class="tl-item fut"><span class="m"><svg class="i dim"><use href="#i-circle"/></svg></span><div class="head"><b>Done</b></div></div>
+  </div>
+  <div class="sec" data-region="subtasks">
+    <div class="sec-h"><h3>Sub-tasks</h3><span class="count">1/3</span><div class="acts"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add</button></div></div>
+    <div class="sec-b">
+      <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="mono dim">s2</span><span class="title">Add per-repo override to the picker</span></span><span class="trail"><span class="chip pur">IMPL</span></span><span class="note-line">Provider out of quota</span></div>
+      <div class="row"><span class="lead"><span class="dot-s idle"></span></span><span class="main"><span class="mono dim">s3</span><span class="title">Waiting for a free sub-task slot</span></span><span class="trail"><span class="chip mute">QUEUED</span></span></div>
+      <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">s1</span><span class="title dim">Extract the base-branch resolver</span></span><span class="trail"><span class="chip ok">DONE</span></span></div>
+    </div>
+  </div>
+  <div class="dockbar" data-region="dock">
+    <button class="btn"><svg class="i"><use href="#i-box"/></svg>Docker</button>
+    <button class="btn"><svg class="i"><use href="#i-branch"/></svg>web · api</button>
+    <button class="btn"><span class="dot-s ok"></span>2 servers</button>
+    <button class="btn"><svg class="i" style="color:var(--ok)"><use href="#i-pr"/></svg>#421</button>
+    <span class="sp"></span>
+    <button class="btn"><svg class="i"><use href="#i-doc"/></svg>Artifacts 4</button>
+  </div>
+</div>
+</section>
+
+<!-- ===== PATTERN KIT ===== -->
+<section class="variant kit" id="kit" data-note="<b>Pattern kit.</b> Six primitives every variant is built from. Today dashboard has ~9 panel-specific header / row / empty / strip implementations (Servers table, Worktrees grid, PR row, Sub-task row, Sandbox strip, Ship preview, Blocked strip, Inside ledger, Artifacts shelf). Converging on these is the reusable part — pays off whichever layout wins.">
+<div class="stack">
+  <div class="sec"><div class="sec-h"><h3>1 · Section</h3><span class="count">n</span><span class="sum">one-line summary (always; key info when collapsed)</span><div class="acts"><button class="ib" aria-label="Action"><svg class="i"><use href="#i-play"/></svg></button><button class="ib" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></div>
+    <div style="padding:12px"><p>Title · count · summary · actions (≤3 icons + ⋯, UI-R54). Optional collapse. Replaces <span class="mono">.phead</span> variants of Servers / Worktrees / PRs / Sub-tasks / Artifacts / Inside header.</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>2 · Row</h3></div>
+    <div class="row"><span class="lead"><span class="dot-s ok"></span></span><span class="main"><span class="mono dim">id</span><span class="title">Primary label</span><span class="tag">meta</span></span><span class="trail"><span class="chip ok">STATUS</span><span class="acts"><button class="ib" aria-label="Act"><svg class="i"><use href="#i-term"/></svg></button></span></span></div>
+    <div class="row alert"><span class="lead"><span class="dot-s bad"></span></span><span class="main"><span class="title">Row with a problem</span></span><span class="trail"><span class="chip bad">BLOCKED</span></span><span class="note-line">reason on second line, same grid column</span></div>
+    <div style="padding:12px"><p>lead (status) · main (id, title, tags) · trail (chip, actions). Actions dim until hover/focus. Alert tint carries reason line.</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>3 · Chip / Tag / Agent</h3></div><div style="padding:12px"><div class="swatches"><span class="chip ok">DONE</span><span class="chip run">RUNNING</span><span class="chip pur">IMPL</span><span class="chip warn">WAITING</span><span class="chip bad">2 blocking</span><span class="chip mute">QUEUED</span><span class="tag"><svg class="i"><use href="#i-pr"/></svg>#421</span><span class="tag"><svg class="i"><use href="#i-branch"/></svg>main</span><span class="agent"><svg class="i"><use href="#i-bot"/></svg><b>Claude Code</b></span></div><p style="margin-top:8px">Chip = state (one shape, semantic color + text, never color alone). Tag = fact (mono, dim, icon). Agent = icon + canonical name (UI-R10c).</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>4 · Strip</h3></div><div style="padding:12px" class="stack-in"><div class="strip"><span class="tag"><svg class="i"><use href="#i-box"/></svg>neutral info</span><span class="sp"></span><button class="btn">Action</button></div><div class="strip bad"><svg class="i" style="color:var(--bad)"><use href="#i-alert"/></svg>blocking state + one action<span class="sp"></span><button class="btn">Fix</button></div><p>One-line band. Replaces sandbox strip, blocked banner, ship-waiting row styles.</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>5 · Empty</h3></div><div class="empty"><svg class="i"><use href="#i-server"/></svg><span><b>No runnable services</b>This ticket's repos have no service block.</span></div><div style="padding:0 12px 12px"><p>Icon · bold line · reason. Inline, keeps section height (UI-R46). Replaces dashed boxes.</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>6 · Gate row (Inside)</h3></div><div class="gate"><svg class="i" style="color:var(--ok)"><use href="#i-check-c"/></svg><span>Gates</span><span class="what">summary</span><span class="when"><span class="chip bad">2 blocking</span>1m 0s</span><svg class="i dim"><use href="#i-chev"/></svg></div><div style="padding:12px"><p>Status icon · name · summary · chips + duration · drill chevron. Same grid for every stage step (Gates, Review, Commit, Push, PR, Merge, Tester).</p></div></div>
+  <div class="sec"><div class="sec-h"><h3>Repetition found in current dashboard</h3></div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Repeated</th><th>Where today</th><th>Fix</th></tr></thead><tbody>
+      <tr><td>Repo name (web/api)</td><td>Servers, Worktrees, PRs, Ship preview</td><td>A: one card per repo · C: one table · others: shared Row</td></tr>
+      <tr><td>Branch name</td><td>every worktree row + PR row</td><td>once in section summary when identical</td></tr>
+      <tr><td>Agent / model</td><td>header, Inside session, sub-task rows, sandbox strip</td><td>header only; rows show it only when it differs</td></tr>
+      <tr><td>"Where are we"</td><td>Rail + "Inside &lt;stage&gt;" title + round tabs</td><td>rail current segment carries stage + time; E merges them</td></tr>
+      <tr><td>Status styles</td><td>stage pills, PR badge, "#418 merged", Idle chip, dots</td><td>one chip family + one dot</td></tr>
+      <tr><td>Action buttons</td><td>colored icons (servers), text buttons (sandbox), mixed (PR)</td><td>one neutral icon button; danger tint only on destructive</td></tr>
+      <tr><td>Empty states</td><td>dashed box vs icon + text</td><td>one Empty pattern</td></tr>
+      <tr><td>Blocked reasons</td><td>blocked strip, red sub-task row, ship-waiting row</td><td>D: one Needs-you list · others: Strip + Row alert</td></tr>
+    </tbody></table></div>
+  </div>
+</div>
+</section>
+
+</div></div>
+<script>
+(function(){
+  var note=document.getElementById('note'),frame=document.getElementById('frame');
+  function showV(id){
+    document.querySelectorAll('.variant').forEach(function(s){s.classList.toggle('on',s.id===id)});
+    document.querySelectorAll('#vsel button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.v===id))});
+    var sec=document.getElementById(id);note.innerHTML=sec?sec.dataset.note:'';
+    try{history.replaceState(null,'','#'+id)}catch(e){console.warn('hash not updated',e)}
+  }
+  document.getElementById('vsel').addEventListener('click',function(e){var b=e.target.closest('button');if(b)showV(b.dataset.v)});
+  document.getElementById('wsel').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;frame.dataset.w=b.dataset.w;document.querySelectorAll('#wsel button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))})});
+  document.getElementById('ctabs').addEventListener('click',function(e){var b=e.target.closest('[role=tab]');if(!b)return;document.querySelectorAll('#ctabs [role=tab]').forEach(function(t){t.setAttribute('aria-selected',String(t===b))});document.querySelectorAll('#vC .tabpanel').forEach(function(p){p.classList.toggle('on',p.id===b.dataset.t)})});
+  document.querySelectorAll('[data-col]>.sec-h').forEach(function(h){
+    function toggle(e){if(e.target.closest('.acts'))return;var c=h.parentElement.classList.toggle('collapsed');h.setAttribute('aria-expanded',String(!c))}
+    h.addEventListener('click',toggle);
+    h.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle(e)}});
+  });
+  var RT={
+    docker:{be:'docker',name:'Docker',ico:'sb-docker',facts:['Isolated git clone','Allowlist proxy'],actions:true},
+    carry:{be:'docker',name:'Docker',ico:'sb-docker',facts:['Isolated git clone','Allowlist proxy'],actions:true,alert:['warn','<b>Host branch was rewritten</b> (rebase/amend) — sync refused. Sandbox commits are safe.','Carry commits onto host']},
+    sbx:{be:'sbx',name:'sbx',ico:'sb-sbx',facts:['Isolated git clone','sbx network policy'],actions:true},
+    hostok:{be:'host',name:'Host',ico:'sb-host-ok',facts:['Worktree','Core-native OS sandbox'],actions:false,shield:'ok'},
+    hostwarn:{be:'host',name:'Host',ico:'sb-host-warn',facts:['Worktree','Tool use prompted'],actions:false,shield:'warn'},
+    optout:{be:'host',name:'Host',ico:'sb-host-warn',facts:['Worktree','Tool use prompted'],actions:true,alert:['info','<b>Ticket opted out</b> of the project’s Docker backend. An older sandbox may still exist.',null]},
+    locked:{be:'docker',name:'Docker',ico:'sb-docker',facts:['Isolated git clone','Allowlist proxy'],actions:true,locked:true}
+  };
+  function I(id,cls){return '<svg class="i'+(cls?' '+cls:'')+'" aria-hidden="true"><use href="#'+id+'"/></svg>'}
+  function renderRt(k){
+    var s=RT[k],h='';
+    h+='<div class="rt-grid">';
+    h+='<div class="rt-zone">'+
+       '<span class="rt-ico">'+I('i-bot')+'</span>'+
+       '<span class="rt-k">Agent<span class="live"><span class="dot-s run"></span>running · 4m 12s · Σ 12.4k tok</span></span>'+
+       '<span class="rt-act"><button class="btn" id="swBtn" aria-haspopup="dialog" aria-expanded="false"'+(s.locked?' disabled title="Cannot switch while a fix recovery is running"':'')+'>'+I('i-sync')+'<span class="t">Switch</span></button></span>'+
+       '<span class="rt-name"><b>Claude Code</b><span class="m">claude-opus-4-1</span><span class="e">effort high</span></span>'+
+       (s.locked?'<span class="rt-facts"><span class="f" style="color:var(--warn)">'+I('i-lock')+'locked — fix recovery running</span></span>':'')+
+       '</div>';
+    h+='<div class="rt-link" aria-hidden="true"><span>runs in</span></div>';
+    var shield=s.shield==='ok'?'<span class="chip ok">'+I('i-check')+'protected</span>':s.shield==='warn'?'<span class="chip warn">'+I('i-alert')+'unprotected</span>':'';
+    h+='<div class="rt-zone">'+
+       '<span class="rt-ico '+s.ico+'">'+I(s.be==='host'?'i-shield':'i-box')+'</span>'+
+       '<span class="rt-k">Sandbox '+shield+'</span>'+
+       '<span class="rt-act">'+(s.actions?
+         '<button class="btn" data-act="sandbox-sync">'+I('i-sync')+'<span class="t">Sync</span></button>'+
+         '<button class="btn" data-act="sandbox-diff">'+I('i-diff')+'<span class="t">Diff</span></button>'+
+         '<button class="ib" id="sbMore" aria-label="More sandbox actions" aria-haspopup="menu" aria-expanded="false">'+I('i-more')+'</button>'
+         :'<button class="ib" aria-label="Sandbox settings">'+I('i-gear')+'</button>')+'</span>'+
+       '<span class="rt-name"><b>'+s.name+'</b></span>'+
+       '<span class="rt-facts">'+s.facts.map(function(f){return '<span class="f">'+f+'</span>'}).join('')+'</span>'+
+       '</div>';
+    h+='</div>';
+    if(s.alert){h+='<div class="rt-alert '+s.alert[0]+'">'+I(s.alert[0]==='warn'?'i-alert':'i-doc')+'<span>'+s.alert[1]+'</span>'+(s.alert[2]?'<button class="btn pri">'+s.alert[2]+'</button>':'<span></span>')+'</div>'}
+    h+='<div class="pop" id="swPop" role="dialog" aria-label="Switch active agent" style="left:12px">'+
+       '<div class="ph">Switch agent</div><div class="pb">'+
+       '<div class="fld"><label for="pc">Core</label><select id="pc"><option>Claude Code</option><option>Codex</option><option>OpenCode</option></select></div>'+
+       '<div class="fld"><label for="pm">Model</label><select id="pm"><option>claude-opus-4-1</option><option>Sonnet 5.5</option></select></div>'+
+       '<div class="fld"><label for="pe">Effort</label><select id="pe"><option>high</option><option>medium</option><option>low</option></select></div>'+
+       '</div><div class="pf"><span class="help">Staged — closing takes no action</span><button class="btn" data-close>Cancel</button><button class="btn pri">Switch agent</button></div></div>';
+    h+='<div class="pop" id="sbPop" role="menu" aria-label="Sandbox actions" style="right:8px;min-width:240px">'+
+       '<button class="mi" role="menuitem">'+I('i-folder')+'Stash &amp; update<span class="d">keeps changes</span></button>'+
+       '<button class="mi" role="menuitem">'+I('i-term')+'Open shell in sandbox</button>'+
+       '<button class="mi" role="menuitem">'+I('i-stop')+'Stop sandbox<span class="d">resumable</span></button>'+
+       '<div class="mdiv"></div>'+
+       '<button class="mi danger" role="menuitem">'+I('i-x-c')+'Remove sandbox<span class="d">asks first</span></button></div>';
+    var rt=document.getElementById('rt');rt.innerHTML=h;
+    function wire(btnId,popId){var b=document.getElementById(btnId),p=document.getElementById(popId);if(!b||!p)return;
+      b.addEventListener('click',function(e){e.stopPropagation();closeAll(p);var on=p.classList.toggle('on');b.setAttribute('aria-expanded',String(on))});}
+    wire('swBtn','swPop');wire('sbMore','sbPop');
+    rt.querySelectorAll('[data-close]').forEach(function(c){c.addEventListener('click',function(){closeAll()})});
+  }
+  function closeAll(except){document.querySelectorAll('#rt .pop').forEach(function(p){if(p!==except)p.classList.remove('on')});document.querySelectorAll('#rt [aria-expanded]').forEach(function(b){if(!except)b.setAttribute('aria-expanded','false')})}
+  document.addEventListener('click',function(e){if(!e.target.closest('#rt .pop'))closeAll()});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeAll()});
+  false&&document.getElementById('rtState').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;document.querySelectorAll('#rtState button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});renderRt(b.dataset.s)});
+  var CORES={claude:{n:'Claude Code'},codex:{n:'Codex'},antigravity:{n:'Antigravity CLI'},opencode:{n:'OpenCode'},opencode2:{n:'OpenCode v2',off:'not installed'}};
+  var RO={
+    docker:{be:'Docker',ic:'box',ws:'Isolated git clone',net:'Allowlist proxy',actions:true},
+    carry:{be:'Docker',ic:'box',ws:'Isolated git clone',net:'Allowlist proxy',actions:true,note:['warn','Host branch was rewritten — sync refused. Sandbox commits are safe.','Carry commits onto host']},
+    sbx:{be:'sbx',ic:'box',ws:'Isolated git clone',net:'sbx network policy',actions:true},
+    hostok:{be:'Host',ic:'device-desktop',ws:'Worktree',net:'None (host)',prot:'ok',actions:false},
+    hostwarn:{be:'Host',ic:'device-desktop',ws:'Worktree',net:'None (host)',prot:'warn',actions:false},
+    optout:{be:'Host',ic:'device-desktop',ws:'Worktree',net:'None (host)',prot:'warn',actions:true,note:['info','Ticket opted out of the project’s Docker backend — an older sandbox may still exist.',null]},
+    locked:{be:'Docker',ic:'box',ws:'Isolated git clone',net:'Allowlist proxy',actions:true,locked:true},
+    idle:{be:'Docker',ic:'box',ws:'Isolated git clone',net:'Allowlist proxy',actions:true,idle:true},
+    codex:{be:'Docker',ic:'box',ws:'Isolated git clone',net:'Allowlist proxy',actions:true,core:'codex'}
+  };
+  function T(n,c){return '<svg class="ti'+(c?' '+c:'')+'" aria-hidden="true"><use href="#t-'+n+'"/></svg>'}
+  function C(n){return '<svg class="core" aria-hidden="true"><use href="#c-'+n+'"/></svg>'}
+  var cur;
+  var CAT={
+    claude:[
+      {id:'claude-opus-4-1',n:'Opus 4.1',tags:['vision','multimodal'],eff:['low','medium','high']},
+      {id:'claude-sonnet-5-5',n:'Sonnet 5.5',tags:['vision','multimodal'],eff:['low','medium','high']},
+      {id:'claude-haiku-5-5',n:'Haiku 5.5',tags:['vision'],eff:[]}],
+    codex:[
+      {id:'gpt-5-codex',n:'GPT-5 Codex',tags:['text-only'],eff:['minimal','low','medium','high']},
+      {id:'codex-x',n:'Codex X',tags:['vision'],eff:['low','medium','high']}],
+    opencode:[
+      {id:'opencode/kimi-k3-free',n:'Kimi K3',tags:['text-only'],eff:[]},
+      {id:'opencode/glm-5',n:'GLM 5',tags:['text-only'],eff:[]},
+      {id:'opencode-go/mimo-v2.5',n:'MiMo v2.5',tags:['vision','multimodal'],eff:[]},
+      {id:'opencode-go/qwen3-coder',n:'Qwen3 Coder',tags:['text-only'],eff:[]},
+      {id:'openrouter/anthropic/claude-sonnet-5-5',n:'Claude Sonnet 5.5',tags:['vision','multimodal'],eff:['low','medium','high']},
+      {id:'openrouter/google/gemini-3-pro',n:'Gemini 3 Pro',tags:['vision','multimodal','audio'],eff:['low','high']},
+      {id:'openrouter/deepseek/deepseek-v4',n:'DeepSeek V4',tags:['text-only'],eff:[]},
+      {id:'openrouter/moonshotai/kimi-k3:free',n:'Kimi K3',tags:['text-only'],eff:[]}]
+  };
+  CAT.antigravity=[{id:'gemini-3-pro',n:'Gemini 3 Pro',tags:['vision','multimodal','audio'],eff:['low','high']},{id:'gemini-3-flash',n:'Gemini 3 Flash',tags:['vision','multimodal'],eff:[]}];
+  CAT.opencode2=CAT.opencode;
+  var RECENT={claude:['claude-opus-4-1'],codex:[],antigravity:[],opencode2:[],opencode:['opencode-go/mimo-v2.5','openrouter/google/gemini-3-pro']};
+  var ROUTES={'opencode':{n:'OpenCode Zen',b:'Z',i:'r-opencode'},'opencode-go':{n:'OpenCode Go',b:'Go',i:'r-opencode'},'openrouter':{n:'OpenRouter',i:'r-openrouter'}};
+  var CAPS=[['all','All'],['vision','Vision'],['multimodal','Multimodal'],['audio','Audio'],['text-only','Text-only'],['free','Free']];
+  function parse(id){var seg=id.split('/');if(seg.length<2)return{route:'',vendor:'',free:false};var last=seg[seg.length-1];return{route:seg[0],vendor:seg.slice(1,-1).join('/'),free:/(:|-)free$/.test(last)}}
+  function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function hi(t,q){t=esc(t);if(!q)return t;var i=t.toLowerCase().indexOf(q.toLowerCase());return i<0?t:t.slice(0,i)+'<mark>'+t.slice(i,i+q.length)+'</mark>'+t.slice(i+q.length)}
+  function rmark(r){var m=ROUTES[r];if(!m)return '<span class="rmark">'+esc(r.charAt(0).toUpperCase())+'</span>';return '<span class="rmark" title="'+m.n+'"><svg aria-hidden="true"><use href="#'+m.i+'"/></svg>'+(m.b?'<span class="bd">'+m.b+'</span>':'')+'</span>'}
+  function hasCap(m,c){if(c==='all')return true;if(c==='free')return parse(m.id).free;return m.tags.indexOf(c)>=0}
+  function match(m,q){if(!q)return true;var p=parse(m.id),r=ROUTES[p.route];return (m.n+' '+m.id+' '+p.vendor+' '+(r?r.n:'')).toLowerCase().indexOf(q.toLowerCase())>=0}
+  function row(m,q){var p=parse(m.id),sel=m.id===cur.dmodel,isCur=m.id===cur.model&&cur.dcore===cur.core;
+    return '<button class="mrow" role="option" data-id="'+esc(m.id)+'" aria-selected="'+sel+'"><svg class="ti sm ck" aria-hidden="true"><use href="#t-check"/></svg>'+
+      '<span class="nm">'+hi(m.n,q)+'</span><span class="mx">'+(p.free?'<span class="free">free</span>':'')+(isCur?'<span class="cur">current</span>':'')+'</span>'+
+      (m.tags.length?'<span class="tags">'+m.tags.map(function(t){return '<span class="tg">'+t+'</span>'}).join('')+'</span>':'')+'</button>'}
+  function apList(){
+    var all=CAT[cur.dcore],q=cur.q,cap=cur.cap;
+    var vis=all.filter(function(m){return hasCap(m,cap)&&match(m,q)});
+    var h='';
+    if(!vis.length)return '<div class="none">No models match'+(q?' “'+esc(q)+'”':'')+(cap!=='all'?' in '+cap:'')+'.</div>';
+    var rec=(RECENT[cur.dcore]||[]).filter(function(id){return vis.some(function(m){return m.id===id})});
+    if(rec.length&&!q){h+='<div class="glab"><svg class="ti sm" aria-hidden="true"><use href="#t-history"/></svg>Last used</div>';rec.forEach(function(id){h+=row(vis.filter(function(m){return m.id===id})[0],q).replace('<span class="nm">','<span class="nm">'+rmark(parse(id).route)+' ')})}
+    var groups=[],by={};
+    vis.forEach(function(m){if(rec.indexOf(m.id)>=0&&!q)return;var p=parse(m.id),k=p.route;if(!by[k]){by[k]={route:k,vend:{},order:[]};groups.push(by[k])}var g=by[k];if(!g.vend[p.vendor]){g.vend[p.vendor]=[];g.order.push(p.vendor)}g.vend[p.vendor].push(m)});
+    var named=groups.length>1||(groups[0]&&groups[0].route);
+    groups.forEach(function(g){
+      if(named&&g.route){var r=ROUTES[g.route];h+='<div class="glab">'+rmark(g.route)+'<b>'+(r?r.n:g.route)+'</b>'+(r&&r.b?'<span>subscription</span>':g.route==='openrouter'?'<span>API key</span>':'')+'</div>'}
+      else if(rec.length&&!q){h+='<div class="glab">All models</div>'}
+      g.order.forEach(function(v){if(v)h+='<div class="vlab">'+esc(v)+'</div>';g.vend[v].forEach(function(m){h+=row(m,q)})});
+    });
+    return h;
+  }
+  function apCaps(){var all=CAT[cur.dcore];return CAPS.filter(function(c){return c[0]==='all'||all.some(function(m){return hasCap(m,c[0])})}).map(function(c){var n=all.filter(function(m){return hasCap(m,c[0])&&match(m,cur.q)}).length;return '<button role="tab" class="'+(n?'':'zero')+'" data-cap="'+c[0]+'" aria-selected="'+(cur.cap===c[0])+'">'+c[1]+'<span class="c">'+n+'</span></button>'}).join('')}
+  function apModel(){return CAT[cur.dcore].filter(function(m){return m.id===cur.dmodel})[0]}
+  function apEff(){var m=apModel();if(!m)return '<span>Pick a model</span>';if(!m.eff.length)return '<span>Effort</span><span>— this model has no effort levels</span>';
+    if(m.eff.indexOf(cur.deffort)<0)cur.deffort=m.eff[m.eff.length-1];
+    return '<span>Effort</span><span class="segc" id="segEffort">'+m.eff.map(function(e){return '<button aria-pressed="'+(e===cur.deffort)+'" data-e="'+e+'">'+e+'</button>'}).join('')+'</span>'}
+  function apHtml(){
+    return '<div class="pp apx" id="ppAgent" role="dialog" aria-label="Switch agent">'+
+      '<div class="apx-body"><div class="cores" role="tablist" aria-orientation="vertical" aria-label="Agent core">'+Object.keys(CORES).map(function(c){var o=CORES[c].off;return '<button role="tab" data-core="'+c+'" aria-selected="'+(c===cur.dcore)+'"'+(o?' aria-disabled="true" title="'+CORES[c].n+' — '+o+'"':'')+'>'+C(c)+'<span class="cn">'+CORES[c].n+(o?'<small>'+o+'</small>':c===cur.core?'<small>current</small>':'')+'</span></button>'}).join('')+'</div>'+
+      '<label class="coresel"><span>Core</span><select id="apCoreSel" aria-label="Agent core">'+Object.keys(CORES).map(function(c){return '<option value="'+c+'"'+(c===cur.dcore?' selected':'')+(CORES[c].off?' disabled':'')+'>'+CORES[c].n+(CORES[c].off?' — '+CORES[c].off:'')+'</option>'}).join('')+'</select></label>'+
+      '<div class="apx-main">'+
+      '<div class="srch"><svg class="ti" aria-hidden="true"><use href="#t-search"/></svg><input type="search" id="apQ" placeholder="Search models" aria-label="Search models" autocomplete="off"></div>'+
+      '<div class="caps" role="tablist" aria-label="Model capability" id="apCaps">'+apCaps()+'</div>'+
+      '<div class="list" role="listbox" aria-label="Models" id="apList">'+apList()+'</div></div></div>'+
+      '<div class="eff" id="apEff">'+apEff()+'</div>'+
+      '<div class="pp-f"><span class="fid" id="apFid" title="'+esc(cur.dmodel)+'">'+esc(cur.dmodel)+'</span><button class="ab" data-close>Cancel</button><button class="btn pri" id="swGo" disabled>Switch agent</button></div></div>';
+  }
+  function apRefresh(part){
+    if(!part||part==='caps')document.getElementById('apCaps').innerHTML=apCaps();
+    document.getElementById('apList').innerHTML=apList();
+    document.getElementById('apEff').innerHTML=apEff();
+    var fid=document.getElementById('apFid');fid.textContent=cur.dmodel||'—';fid.title=cur.dmodel;
+    document.getElementById('swGo').disabled=(cur.dcore===cur.core&&cur.dmodel===cur.model&&cur.deffort===cur.effort);
+  }
+  function wireAgentPicker(){
+    var p=document.getElementById('ppAgent');if(!p)return;
+    p.addEventListener('click',function(e){
+      var c=e.target.closest('[data-core]');if(c&&c.getAttribute('aria-disabled')==='true')return;if(c){cur.dcore=c.dataset.core;var cs2=document.getElementById('apCoreSel');if(cs2)cs2.value=cur.dcore;p.querySelectorAll('[data-core]').forEach(function(x){x.setAttribute('aria-selected',String(x===c))});
+        var r=(RECENT[cur.dcore]||[])[0];cur.dmodel=r||CAT[cur.dcore][0].id;cur.cap='all';apRefresh();return}
+      var t=e.target.closest('[data-cap]');if(t){cur.cap=t.dataset.cap;apRefresh();return}
+      var m=e.target.closest('.mrow');if(m){cur.dmodel=m.dataset.id;apRefresh('list');return}
+      var ef=e.target.closest('#segEffort [data-e]');if(ef){cur.deffort=ef.dataset.e;apRefresh('list');return}
+    });
+    var cs=document.getElementById('apCoreSel');cs.addEventListener('change',function(){var t=p.querySelector('[data-core="'+cs.value+'"]');if(t)t.click()});
+    var q=document.getElementById('apQ');
+    q.addEventListener('input',function(){cur.q=q.value.trim();apRefresh()});
+    q.addEventListener('keydown',function(e){if(e.key==='Escape'&&q.value){e.stopPropagation();q.value='';cur.q='';apRefresh()}if(e.key==='ArrowDown'){var f=document.querySelector('#apList .mrow');if(f){e.preventDefault();f.focus()}}});
+    document.getElementById('apList').addEventListener('keydown',function(e){var rows=[].slice.call(document.querySelectorAll('#apList .mrow')),i=rows.indexOf(document.activeElement);
+      if(e.key==='ArrowDown'&&i<rows.length-1){e.preventDefault();rows[i+1].focus()}if(e.key==='ArrowUp'){e.preventDefault();(i>0?rows[i-1]:q).focus()}});
+  }
+  function roRender(k){
+    var s=RO[k],core=s.core||'claude',cm=CORES[core],mm=CAT[core][core==='codex'?1:0],model=mm.id,eff=mm.eff.length?'high':'';
+    cur={s:s,core:core,model:model,effort:eff,dcore:core,dmodel:model,deffort:eff,q:'',cap:'all'};
+    var protTxt=s.prot==='ok'?'protected':s.prot==='warn'?'unprotected':'';
+    var h='<div class="rs'+(s.note?' has-note':'')+'" data-region="runtime">';
+    h+='<button class="dd" id="ddAgent" aria-haspopup="dialog" aria-expanded="false"'+(s.locked?' disabled title="Cannot switch while a fix recovery is running"':' title="Switch agent — '+model+'"')+'>'+
+       '<span class="ic-badge">'+C(core)+'<span class="st'+(s.idle?' idle':'')+'" aria-hidden="true"></span></span>'+
+       '<span class="n">'+cm.n+'</span><span class="stw'+(s.idle?'':' run')+'">'+(s.idle?'idle':'running')+'</span><span class="s">'+mm.n+(eff?' · '+eff:'')+'</span>'+(s.locked?T('lock','sm'):T('chevron-down','sm cv'))+'</button>';
+    if(s.locked)h+='<span class="lockline">fix recovery running</span>';
+    h+='<span class="vsep"></span>';
+    h+='<button class="dd" id="ddSandbox" aria-haspopup="dialog" aria-expanded="false" title="Sandbox details">'+T(s.ic)+'<span class="n">'+s.be+'</span>'+
+       '<span class="s opt2">'+(s.prot?(s.prot==='ok'?'<span style="color:var(--ok)">protected</span>':'<span style="color:var(--warn)">unprotected</span>')+' · '+s.ws.toLowerCase():s.ws.toLowerCase()+' · '+s.net.toLowerCase())+'</span>'+T('chevron-down','sm cv')+'</button>';
+    h+='<span class="acts">';
+    if(s.actions){
+      h+='<button class="ab" data-act="sandbox-sync" aria-label="Sync sandbox and host branches" title="Sync sandbox and host branches">'+T('arrows-exchange')+'<span class="t">Sync</span></button>'+
+         '<button class="ab" data-act="sandbox-diff" aria-label="Show sandbox changes" title="Show sandbox changes">'+T('git-compare')+'<span class="t">Diff</span></button>'+
+         '<button class="ab icon" id="ddMore" aria-label="More sandbox actions" aria-haspopup="menu" aria-expanded="false">'+T('dots')+'</button>';
+    }
+    h+='</span></div>';
+    if(s.note){var w=s.note[0]==='warn';h+='<div class="rs-note '+s.note[0]+'">'+T(w?'alert-triangle':'info-circle','sm')+'<span>'+s.note[1]+'</span>'+(s.note[2]?'<button class="ab">'+T('git-merge','sm')+s.note[2]+'</button>':'')+'</div>'}
+    // agent popover (shared settings picker pattern)
+    h+=apHtml();
+    // sandbox popover
+    h+='<div class="pp" id="ppSandbox" role="dialog" aria-label="Sandbox details" style="min-width:300px"><div class="pp-h">'+T(s.ic)+s.be+(s.prot?'<span class="sp"></span><span class="chip '+(s.prot==='ok'?'ok':'warn')+'">'+T(s.prot==='ok'?'shield-check':'alert-triangle','sm')+protTxt+'</span>':'')+'</div><div class="pp-b">'+
+       '<div class="pp-row">'+T('git-branch','sm')+'<span class="k">Workspace</span><span>'+s.ws+'</span></div>'+
+       '<div class="pp-row">'+T('world','sm')+'<span class="k">Network</span><span>'+s.net+'</span></div>'+
+       '<div class="pp-row">'+C(core)+'<span class="k">Core</span><span>'+cm.n+'</span></div>'+
+       (s.prot?'<div class="pp-row">'+T(s.prot==='ok'?'shield-check':'alert-triangle','sm')+'<span class="k">Protection</span><span>'+(s.prot==='ok'?'Core-native OS sandbox':'None — tool use is prompted')+'</span></div>':'')+
+       '</div><div class="pp-f"><span class="help">Backend is set per project</span><button class="ab">'+T('settings','sm')+'Sandbox settings</button></div></div>';
+    // more menu
+    if(s.actions){
+      h+='<div class="pp" id="ppMore" role="menu" aria-label="Sandbox actions" style="right:4px;min-width:250px"><div class="pp-b" id="moreBody">'+
+         '<button class="opt" role="menuitem">'+T('stack-2')+'Stash &amp; update<span class="d">keeps changes</span></button>'+
+         '<button class="opt" role="menuitem" data-act="sandbox-shell" title="Open a terminal inside the sandbox container to inspect it">'+T('terminal-2')+'Open shell in sandbox<span class="d">new</span></button>'+
+         '<button class="opt" role="menuitem">'+T('player-stop')+'Stop sandbox<span class="d">resumable</span></button>'+
+         '<div class="mdiv"></div>'+
+         '<button class="opt danger" role="menuitem" id="rmBtn" data-act="sandbox-remove">'+T('trash')+'Remove sandbox</button></div></div>';
+    }
+    var ro=document.getElementById('ro');ro.innerHTML=h;wireRo();
+  }
+  window.hostModal=function(title,body,list,primary,danger,ret){var bk=document.getElementById('hmBack');
+    bk.innerHTML='<div class="hm" role="alertdialog" aria-modal="true" aria-labelledby="hmT"><div class="tag0">VS Code modal · shown by the extension host (UI-R33)</div><h4 id="hmT">'+title+'</h4><div class="bd">'+body+'</div>'+(list||'')+'<div class="ft"><button class="btn" id="hmNo">Cancel</button><button class="btn'+(danger?'':' pri')+'" id="hmGo"'+(danger?' style="color:var(--bad);border-color:#6b2a2a"':'')+'>'+primary+'</button></div></div>';
+    bk.classList.add('on');var no=document.getElementById('hmNo');no.focus();
+    function shut(){bk.classList.remove('on');if(ret)ret.focus()}
+    no.onclick=shut;document.getElementById('hmGo').onclick=shut;bk.onkeydown=function(e){if(e.key==='Escape')shut()}};
+  function closePops(except){document.querySelectorAll('#ro .pp').forEach(function(p){if(p!==except)p.classList.remove('on')});document.querySelectorAll('#ro [aria-expanded]').forEach(function(b){if(!except||b.dataset.pp!==except.id)b.setAttribute('aria-expanded','false')})}
+  function pop(btnId,ppId,alignRight){var b=document.getElementById(btnId),p=document.getElementById(ppId);if(!b||!p||b.disabled)return;b.dataset.pp=ppId;
+    b.addEventListener('click',function(e){e.stopPropagation();var open=!p.classList.contains('on');closePops();if(open){if(!alignRight)p.style.left=b.offsetLeft+'px';p.classList.add('on');b.setAttribute('aria-expanded','true');var f=p.querySelector('#apQ')||p.querySelector('button,select');if(f)f.focus()}})}
+  function wireRo(){
+    pop('ddAgent','ppAgent');pop('ddSandbox','ppSandbox');pop('ddMore','ppMore',true);
+    var ro=document.getElementById('ro');
+    ro.querySelectorAll('.pp').forEach(function(p){p.addEventListener('click',function(e){e.stopPropagation()})});
+    ro.querySelectorAll('[data-close]').forEach(function(c){c.addEventListener('click',function(){closePops()})});
+    wireAgentPicker();
+    var rm=document.getElementById('rmBtn');
+    if(rm)rm.addEventListener('click',function(){closePops();hostModal('Remove the sandbox?','Its clone and any commits not synced to the host branch are deleted.','',' Remove sandbox',true,rm)});
+  }
+  document.addEventListener('click',function(){closePops()});
+  document.addEventListener('keydown',function(e){
+    var open=document.querySelector('#ro .pp.on');
+    if(e.key==='Escape'&&open){var tr=document.querySelector('#ro [data-pp="'+open.id+'"]');closePops();if(tr)tr.focus();return}
+    if(!open||(e.key!=='ArrowDown'&&e.key!=='ArrowUp'&&e.key!=='ArrowLeft'&&e.key!=='ArrowRight'))return;
+    var grp=document.activeElement&&document.activeElement.closest('#moreBody,#apCaps,.cores');if(!grp)return;
+    var items=[].slice.call(grp.querySelectorAll('button:not([disabled]):not([aria-disabled="true"])')),i=items.indexOf(document.activeElement);if(i<0)return;
+    e.preventDefault();var d=(e.key==='ArrowDown'||e.key==='ArrowRight')?1:-1;items[(i+d+items.length)%items.length].focus()});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closePops()});
+  document.getElementById('roState').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;document.querySelectorAll('#roState button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});roRender(b.dataset.s)});
+  var qs=new URLSearchParams(location.search);var rs=RO[qs.get('rt')]?qs.get('rt'):'docker';roRender(rs);if(qs.get('open')){var ob=document.getElementById(qs.get('open'));if(ob)setTimeout(function(){ob.click();var pc=qs.get('core');if(pc){var t=document.querySelector('#ppAgent [data-core="'+pc+'"]');if(t)t.click()}var pq=qs.get('q');if(pq){var qi=document.getElementById('apQ');qi.value=pq;qi.dispatchEvent(new Event('input'))}},50)}document.querySelectorAll('#roState button').forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.s===rs))});
+  if(qs.get('w'))frame.dataset.w=qs.get('w');
+  var start=(location.hash||'#v0').slice(1);showV(document.getElementById(start)?start:'v0');
+})();
+</script>
+
+<script>
+(function(){
+var CP='<button class="ib sm" aria-label="Copy pull request URL" title="Copy URL"><svg class="i"><use href="#t-copy"/></svg></button>';
+function ic(id,c){return '<svg class="i'+(c?' '+c:'')+'"><use href="#'+id+'"/></svg>'}
+function ib(id,label,act,cls){return '<button class="ib'+(cls?' '+cls:'')+'" data-act="'+act+'" aria-label="'+label+'" title="'+label+'">'+ic(id)+'</button>'}
+var BR='feat/FEAT-142-base-branch-override';
+/* ---------- Servers ---------- */
+var SRV={
+ running:{own:[['web','running','localhost:5173'],['api','running','localhost:4000']],shared:[['postgres','running','localhost:5432','main','shared with T942011, T942015','log']]},
+ mixed:{own:[['web','running','localhost:5173'],['api','failed','localhost:4000'],['worker','offline','localhost:7070'],['admin','running','localhost:5174'],['docs','running','localhost:3000'],['mailer','offline','localhost:8025']],shared:[['postgres','running','localhost:5432','main','shared with T942011','log']]},
+ fault:{own:[['web','running','localhost:5173']],shared:[['postgres','missing','','main','compose service “db” not found in infra/docker-compose.yml'],['redis','failed','localhost:6379','main','shared with T942011','log']]},
+ stopped:{own:[],shared:[],empty:'stopped'},none:{own:[],shared:[],empty:'none'}};
+function srvRow(r){var on=r[1]==='running',bad=r[1]==='failed';
+ var dot='<span class="dot-s '+(on?'ok':bad?'bad':'idle')+'" aria-hidden="true"></span>';
+ var addr=on?'<a class="mono" href="#" data-act="open-server" title="Open in browser">'+r[2]+'</a>'+ib('t-copy','Copy URL','copy-server-url','sm'):'<span class="sword '+(bad?'bad':'off')+'">'+r[1]+'</span>'+(bad?'<span class="mono dim">'+r[2]+'</span>':'');
+ var acts=on?ib('t-refresh','Restart','restart-server')+ib('t-player-stop','Stop','stop-server','danger'):(bad?ib('t-terminal-2','View server logs','server-logs-request'):'')+ib('t-player-play','Start service','start-server');
+ return '<div class="row"><span class="lead">'+dot+'</span><span class="main"><span class="title">'+r[0]+'</span>'+addr+'</span><span class="trail acts">'+acts+'</span></div>'}
+function shRow(r){var on=r[1]==='running',fault=r[1]==='failed'||r[1]==='missing';
+ var dot='<span class="dot-s '+(on?'ok':fault?'bad':'idle')+'" aria-hidden="true"></span>';
+ var addr=on?'<a class="mono" href="#" data-act="open-server" title="Open in browser">'+r[2]+'</a>':'<span class="sword '+(fault?'bad':'off')+'">'+r[1]+'</span>';
+ return '<div class="row"><span class="lead">'+dot+'</span><span class="main"><span class="title">'+r[0]+'</span><span class="pill" style="padding-right:8px">'+r[3]+'</span>'+addr+'</span><span class="trail acts">'+(r[5]?ib('t-terminal-2','View server logs','server-logs-request'):'')+ib('t-settings','Manage shared services','open-resources')+'</span><span class="sub'+(r[1]==='missing'?' bad':'')+'">'+r[4]+'</span></div>'}
+function renderSrv(k){var d=SRV[k],h='';
+ var own=d.own,run=own.filter(function(r){return r[1]==='running'}).length,bad=own.filter(function(r){return r[1]==='failed'}).length;
+ var shBad=d.shared.filter(function(r){return r[1]!=='running'}).length,total=own.length+d.shared.length;
+ document.getElementById('srvN').textContent=total||'';
+ var sum=!total?'':[own.length?(run===own.length?'ticket: all running':[run?run+' running':'',bad?bad+' failed':'',own.length-run-bad?(own.length-run-bad)+' offline':''].filter(Boolean).join(' · ')):'',d.shared.length?('shared: '+(shBad?shBad+' failing':'ok')):''].filter(Boolean).join(' · ');
+ var se=document.getElementById('srvSum');se.textContent=sum;se.title=sum;
+ function hb(id,label,act,why,cls){return '<button class="ib'+(cls?' '+cls:'')+'" data-act="'+act+'" aria-label="'+label+(why?' — '+why:'')+'" title="'+(why||label)+'"'+(why?' disabled':'')+'>'+ic(id)+'</button>'}
+ document.getElementById('srvActs').innerHTML=d.empty==='none'?ib('t-settings','Configure environment variables','env-overrides-open'):
+  hb('t-player-play','Start all ticket services','spin-servers',own.length&&run===own.length?'Every ticket service is already running':'')+
+  hb('t-refresh','Restart all ticket services','restart-servers',own.length?'':'No ticket services to restart')+
+  hb('t-player-stop','Stop all ticket services','stop-servers',run?'':'No ticket service is running','danger')+
+  hb('t-terminal-2','View server logs','server-logs-request',total?'':'No services to show logs for')+
+  ib('t-settings','Configure environment variables','env-overrides-open');
+ if(d.empty==='stopped')h='<div class="empty">'+ic('t-server')+'<div><div class="eh">No servers running.</div><div class="es">Start the services in scope (header ▷) to get their local addresses here.</div></div></div>';
+ else if(d.empty==='none')h='<div class="empty">'+ic('t-server')+'<div><div class="eh">No runnable services in scope.</div><div class="es">This ticket scopes only repositories without a service block, so there is nothing here to run.</div></div></div>';
+ else{if(total>6)h+='<div class="filter"><label class="sr" for="srvFilter" style="position:absolute;left:-9999px">Filter services</label><input id="srvFilter" type="search" placeholder="Filter '+total+' services…"></div>';
+  if(d.shared.length)h+='<div class="sgrp" style="border-top:0"><b>Ticket services</b><span>'+own.length+'</span></div>';
+  h+=own.length?own.map(srvRow).join(''):'<div class="row"><span class="lead"></span><span class="main dim" style="font-size:12px">No ticket services — only shared ones are in scope.</span></div>';
+  if(d.shared.length)h+='<div class="sgrp"><b>Shared services</b><span>'+d.shared.length+'</span><span>reused across tickets · not touched by header actions</span></div>'+d.shared.map(shRow).join('')}
+ document.getElementById('srvB').innerHTML=h}
+/* ---------- Worktrees ---------- */
+var WT={normal:[['web','main',BR,184,27],['api','main',BR,12,3]],base:[['web','main',BR,184,27],['api','main',BR,12,3,'form']],ext:[['web','main',BR,184,27],['karst','develop','feat/FEAT-142-picker-ext',41,8,'ext']],empty:[]};
+function wtRow(w,same){var h='<div class="row wtr"><span class="lead">'+ic('t-folder','dim')+'</span><span class="main"><span class="title">'+w[0]+'</span><span class="pill" title="Base branch">'+w[1]+'<button class="ib" data-act="toggle-base-form" aria-label="Change base branch" title="Change base branch" aria-expanded="'+(w[5]==='form')+'">'+ic('t-pencil')+'</button></span>'+(same?'':'<span class="mono dim" title="'+w[2]+'">'+w[2]+'</span>'+ib('t-copy','Copy branch name','copy-worktree-branch','sm'))+'<span class="wst"><span class="a">+'+w[3]+'</span> <span class="d">−'+w[4]+'</span></span></span><span class="trail acts">'+(w[5]==='ext'?ib('t-player-play','Launch dev host','launch-worktree-extension'):'')+ib('t-terminal-2','Open terminal','open-worktree-terminal')+ib('t-external-link','Reveal in file explorer','open-worktree-folder')+'</span>';
+ if(w[5]==='form')h+='<div class="wbf" role="dialog" aria-label="Change base branch"><label for="wbin">New base branch for '+w[0]+'</label><input id="wbin" type="text" value="release/2.4"><div class="sw"><span class="tog" role="switch" aria-checked="true" data-act="toggle-rebase-switch"></span>Rebase the branch onto the new base</div><div class="help">Rebasing rewrites the ticket branch’s commits. Karst arms the force-push automatically at ship time. Turning this off only re-targets the pull request — useful when the branch was already cut from the right commit.</div><div class="ac"><button class="btn" data-act="toggle-base-form">Cancel</button><button class="btn pri" data-act="change-base-ref">Change base</button></div></div>';
+ return h+'</div>'}
+function renderWt(k){var d=WT[k];document.getElementById('wtN').textContent=d.length||'';
+ var same=d.length>0&&d.every(function(w){return w[2]===d[0][2]});
+ var wsm=document.getElementById('wtSum');wsm.title=same?d[0][2]:'';wsm.innerHTML=same?d[0][2]+' '+ib('t-copy','Copy branch name','copy-worktree-branch','sm'):'';
+ document.getElementById('wtB').innerHTML=d.length?d.map(function(w){return wtRow(w,same)}).join(''):'<div class="empty">'+ic('t-folder')+'<div><div class="eh">No worktrees.</div><div class="es">Implement creates one per repository in scope.</div></div></div>'}
+/* ---------- PRs ---------- */
+function prInfo(p){return '<div class="pp ppi" role="dialog" aria-label="Pull request '+p.repo+' #'+p.n+' details"><h4>'+p.title+'</h4><div class="by">'+p.repo+' #'+p.n+' · by '+p.author+'</div><dl>'+
+ '<dt>Branch</dt><dd class="mono">'+(p.br||BR)+' → '+(p.base||'main')+'</dd>'+
+ '<dt>Opened</dt><dd>'+p.openedFull+'</dd>'+(p.mergedFull?'<dt>Merged</dt><dd>'+p.mergedFull+'</dd>':'')+(p.dismissed?'<dt>Dismissed</dt><dd>'+p.dismissed+'</dd>':'')+
+ '<dt>Changes</dt><dd><span class="add">+'+p.add+'</span> <span class="del">−'+p.del+'</span> · '+p.files+' files · '+p.commits+' commits</dd>'+
+ '<dt>Review</dt><dd>'+p.review+'</dd>'+(p.checksT?'<dt>Checks</dt><dd>'+p.checksT+'</dd>':'')+(p.mergeWhy?'<dt>Merge</dt><dd>'+p.mergeWhy+'</dd>':'')+
+ '</dl><div class="ft"><button class="btn sm" data-act="open-pr">'+ic('t-external-link')+'Open on GitHub</button><button class="btn sm ghost" data-act="copy-pr-url">'+ic('t-copy')+'Copy URL</button></div></div>'}
+function prRow(p){var lead={open:['t-git-pr','var(--ok)'],draft:['t-git-pr-draft','var(--dim)'],closed:['t-git-pr-closed','var(--bad)'],merged:['t-git-merge','var(--purple)']}[p.st];
+ var chips='<span class="chip '+({open:'ok',draft:'mute',closed:'mute',merged:'pur'})[p.st]+'">'+p.st+'</span>'+(p.ck?'<span class="chip '+p.ck[0]+'" title="'+p.checksT+'">'+ic(p.ck[1],p.ck[1]==='i-spin'?'spin':'')+p.ck[2]+'</span>':'')+(p.block?'<span class="chip warn" title="'+p.mergeWhy+'">'+p.block+'</span>':'')+(p.br&&p.br!==BR?'<span class="brd" title="'+p.br+' → '+(p.base||'main')+'">'+p.br+' → '+(p.base||'main')+'</span>':'')+'<span class="stamp" title="'+(p.mergedFull?'merged '+p.mergedFull:p.dismissed?'dismissed '+p.dismissed:'opened '+p.openedFull)+'">'+(p.stamp||('opened '+(p.openedRel||'2d ago')))+'</span>';
+ var tr=p.st==='merged'?'':p.dismissed?'<button class="btn ghost" data-act="undismiss-pr" title="Wait on this pull request again">'+ic('t-undo')+'Undo dismiss</button>':'<button class="btn ghost" data-act="dismiss-pr" title="Stop waiting on this pull request — it will never land">Dismiss</button><button class="btn pri" data-act="merge-pr"'+(p.canMerge?'':' disabled title="'+p.mergeWhy+'"')+'>'+ic('t-git-merge')+'Merge</button>';
+ var h='<div class="prr'+(p.dismissed?' off':'')+'" data-pr="'+p.repo+' #'+p.n+'"><div class="prl"><span class="lead"><svg class="i" style="color:'+lead[1]+'"><use href="#'+lead[0]+'"/></svg></span><span class="main"><span class="repo">'+p.repo+'</span><span class="num"><a class="mono" href="#" title="Open this pull request">#'+p.n+'</a>'+CP+'<button class="ib sm pinfo" data-prinfo aria-haspopup="dialog" aria-expanded="false" aria-label="Pull request details" title="Details">'+ic('t-info-circle')+'</button>'+prInfo(p)+'</span>'+chips+'</span><span class="trail">'+tr+'</span></div>';
+ (p.x||[]).forEach(function(x){h+=x});
+ if(p.comments)h+='<details class="prd"><summary>'+ic('t-message')+p.comments+' comments</summary><div class="pcm"><span class="who">octo-reviewer</span><span class="when">1h ago</span><div>Can the override fall back to the manifest default when the branch is gone?</div></div><div class="pcm"><span class="who">nd</span><span class="when">40m ago</span><div>Yes — added in the last push.</div></div></details>';
+ return h+'</div>'}
+var T='Add per-repo base branch override to the worktree picker';
+var base={title:T,author:'karst-bot',openedFull:'Oct 31, 2026, 14:02',add:184,del:27,files:6,commits:4,review:'approved by octo-reviewer'};
+function P(o){var r={};for(var k in base)r[k]=base[k];for(var k2 in o)r[k2]=o[k2];return r}
+function why(rows,head){/* merge-readiness list: one line per reason, each with its own action */
+ var bad=rows.filter(function(r){return r[0]!=='ok'}).length;/* r: [kind,label,detail,actionHtml,listHtml] */
+ var h='<div class="mbx'+(bad?' no':' yes')+'"><div class="mbh">'+ic(bad?'t-lock':'t-check')+'<b>'+head[0]+'</b><span class="dim">'+head[1]+'</span></div>';
+ rows.forEach(function(r){var icn={ok:'t-check',bad:'t-circle-x',warn:'t-alert-triangle',run:'i-spin'}[r[0]];
+  h+='<div class="mbr '+r[0]+'">'+ic(icn,r[0]==='run'?'spin':'')+'<span class="t"><b>'+r[1]+'</b>'+(r[2]?'<span class="dim">'+r[2]+'</span>':'')+'</span>'+(r[3]||'')+(r[4]?'<div class="fl">'+r[4]+'</div>':'')+'</div>'});
+ return h+'</div>'}
+var OPEN_GH='<button class="btn sm ghost" data-act="open-pr" title="Open this pull request on GitHub">'+ic('t-external-link')+'Open on GitHub</button>';
+var READY=why([],['Ready to merge','approved · 6 checks passed · GitHub: clean · karst: no conflicts vs main, checked 3m ago']);
+var web=P({repo:'web',n:421,st:'open',ck:['ok','t-check','6 passed'],checksT:'6 checks: 6 passed, 0 failed, 0 pending',canMerge:true,comments:2,x:[READY]});
+var apiWhy='Review required · 3 required checks failing · conflicts with main';
+var api=P({repo:'api',n:88,st:'open',add:12,del:3,files:2,commits:2,review:'review required — 0 of 1 approvals',ck:['bad','t-circle-x','3 failing · 1 pending · 3 passed'],checksT:'7 checks: 3 passed, 3 failed, 1 pending',block:'blocked · 3 reasons',mergeWhy:apiWhy,canMerge:false,
+ x:[why([
+  ['bad','Review required','0 of 1 approving reviews · requested from octo-reviewer',OPEN_GH],
+  ['bad','Required checks failing','3 of 5 required failing · 1 optional pending','<button class="btn sm" data-act="send-ci-failure" title="Send the failing CI log to the agent — UAT and Review will run again">'+ic('t-send')+'Send CI failure to agent</button>','<a href="#" title="Open this check run">lint (ubuntu-latest)</a><a href="#" title="Open this check run">test / unit (node 22)</a><span class="more">— first 2 of 3 shown</span>'],
+  ['warn','Conflicts with main','2 files · checked 1m ago','<button class="btn sm" data-act="resolve-conflicts" title="Ask the agent to resolve the merge conflict">'+ic('t-git-merge')+'Resolve</button>','<span>src/worktree/picker.ts</span><span>src/worktree/baseBranch.test.ts</span>']
+ ],['Merge blocked','3 reasons'])]});
+var infra=P({repo:'infra',n:7,st:'draft',add:9,del:1,files:1,commits:1,review:'no review yet',ck:['run','i-spin','3 pending · 2 passed'],checksT:'5 checks: 2 passed, 0 failed, 3 pending',mergeWhy:'Draft pull request · 3 checks still running',canMerge:false,
+ x:[why([['bad','Draft','mark it ready for review on GitHub',OPEN_GH],['run','Checks running','3 of 5 pending']],['Merge blocked','2 reasons'])]});
+var docs=P({repo:'docs',n:12,st:'closed',add:30,del:0,files:2,commits:1,review:'no review',dismissed:'Nov 2, 2026, 09:40',stamp:'dismissed 1h ago'});
+var apiOk=P({repo:'api',n:88,st:'open',add:12,del:3,files:2,commits:2,ck:['ok','t-check','7 passed'],checksT:'7 checks: 7 passed, 0 failed, 0 pending',canMerge:true,x:[why([],['Ready to merge','approved · 7 checks passed · GitHub: clean'])]});
+var rule=P({repo:'api',n:88,st:'open',add:12,del:3,files:2,commits:2,ck:['ok','t-check','7 passed'],checksT:'7 checks: 7 passed, 0 failed, 0 pending',block:'blocked · GitHub rule',mergeWhy:'GitHub blocks the merge, but review, checks and conflicts are all clear — a branch rule karst cannot read',canMerge:false,
+ x:[why([['ok','Approved','by octo-reviewer'],['ok','Checks passed','7 of 7'],['ok','No conflicts','vs main · checked 2m ago'],['bad','Blocked by a GitHub rule','not review, checks or conflicts — e.g. signed commits, merge queue, required deployment, or branch must be up to date',OPEN_GH]],['Merge blocked','1 reason'])]});
+function merged(p){return P({repo:p.repo,n:p.n,st:'merged',add:p.add,del:p.del,files:p.files,commits:p.commits,mergedFull:'Nov 2, 2026, 08:55',stamp:'merged 2h ago',comments:p.comments})}
+var unk=P({repo:'api',n:88,st:'open',add:12,del:3,files:2,commits:2,ck:['bad','t-circle-x','1 failing · 6 passed'],checksT:'7 checks: 6 passed, 1 failed, 0 pending',block:'blocked · 2 reasons',mergeWhy:'1 required check failing · karst could not check for conflicts',canMerge:false,
+ x:[why([['ok','Approved','by octo-reviewer'],['bad','Required check failing','1 of 5 required · sending CI logs is not available for this repo','','<a href="#" title="Open this check run">e2e (chromium)</a>'],
+  ['warn','Conflicts unknown','vs main · checked 4m ago','<details><summary>why karst could not tell</summary><div class="why">git merge-tree failed: base ref origin/main is not fetched in this clone</div></details>']],['Merge blocked','2 reasons'])]});
+var PR={unknown:[web,unk],mixed:[web,api,infra,docs],ready:[web,apiOk],rule:[web,rule],merged:[merged(web),merged(apiOk)],empty:[]};
+function renderPr(k){var d=PR[k];document.getElementById('prN').textContent=d.length||'';
+ var c={};d.forEach(function(p){var key=p.st==='merged'?'merged':p.dismissed?'dismissed':!p.canMerge?'blocked':p.canMerge?'ready':p.st;c[key]=(c[key]||0)+1});
+ var ready=d.filter(function(p){return p.canMerge}),open=d.filter(function(p){return p.st!=='merged'&&!p.dismissed});
+ var lbl=ready.length===open.length?'Merge all':'Merge '+ready.length+' ready';
+ var tip=ready.length?('Merge '+ready.map(function(p){return p.repo+' #'+p.n}).join(', ')+' — you confirm the list first'+(open.length>ready.length?'. Skipped (blocked): '+open.filter(function(p){return !p.canMerge}).map(function(p){return p.repo+' #'+p.n}).join(', '):'')):'No pull request is ready to merge';
+ document.getElementById('prAll').innerHTML=open.length>1?'<button class="btn sm'+(ready.length?' pri':'')+'" data-act="merge-all-prs"'+(ready.length?'':' disabled')+' title="'+tip+'">'+ic('t-git-merge')+(ready.length?lbl:'Merge all')+'</button>':'';
+ var ps=Object.keys(c).map(function(k){return c[k]+' '+k}).join(' · '),pe=document.getElementById('prSum');pe.textContent=ps;pe.title=ps;
+ document.getElementById('prB').innerHTML=d.length?d.map(prRow).join(''):'<div class="empty">'+ic('t-git-pr')+'<div><div class="eh">No pull requests.</div><div class="es">Ship opens one per repository with changes.</div></div></div>'}
+/* ---------- wiring ---------- */
+var qs=new URLSearchParams(location.search);
+function seg(id,fn,param,def){var g=document.getElementById(id),v=qs.get(param);if(!g)return;var cur=g.querySelector('[data-s="'+v+'"]')?v:def;
+ function set(k){fn(k);g.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.s===k))})}
+ g.addEventListener('click',function(e){var b=e.target.closest('button[data-s]');if(b)set(b.dataset.s)});set(cur)}
+seg('stSrv',renderSrv,'srv','running');seg('stWt',renderWt,'wt','normal');seg('stPr',renderPr,'pr','mixed');
+document.addEventListener('click',function(e){var t=e.target.closest('[data-prinfo]');var inPop=e.target.closest('.ppi');if(inPop)return;
+ document.querySelectorAll('.ppi.on').forEach(function(pp){if(!t||pp.previousElementSibling!==t){pp.classList.remove('on');pp.previousElementSibling.setAttribute('aria-expanded','false')}});
+ if(t){e.stopPropagation();var pp=t.nextElementSibling,on=!pp.classList.contains('on');pp.classList.toggle('on',on);t.setAttribute('aria-expanded',String(on))}},true);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')document.querySelectorAll('.ppi.on').forEach(function(pp){pp.classList.remove('on');var t=pp.previousElementSibling;t.setAttribute('aria-expanded','false');t.focus()})});
+document.addEventListener('click',function(e){var b=e.target.closest('#v0 [data-act="merge-all-prs"],#v0 [data-act="merge-pr"],#v0 [data-act="dismiss-pr"]');if(!b||b.disabled)return;
+ var d=PR[document.querySelector('#stPr [aria-pressed="true"]').dataset.s],row=b.closest('[data-pr]');
+ if(b.dataset.act==='merge-all-prs'){var ok=d.filter(function(p){return p.canMerge}),skip=d.filter(function(p){return !p.canMerge&&p.st!=='merged'&&!p.dismissed});
+  hostModal('Merge '+ok.length+' pull request'+(ok.length>1?'s':'')+'?','Each merges into its own base, one after another. If one fails, the rest stop and the failure is shown on its row.','<ul>'+ok.map(function(p){return '<li>'+p.repo+' #'+p.n+' <span class="dim">→ '+(p.base||'main')+'</span></li>'}).join('')+'</ul>'+(skip.length?'<div class="dim" style="font-size:12px">Skipped (blocked): '+skip.map(function(p){return p.repo+' #'+p.n}).join(', ')+'</div>':''),'Merge '+ok.length,false,b)}
+ else if(b.dataset.act==='merge-pr')hostModal('Merge '+row.dataset.pr+' pull request?','It merges into main on GitHub.','','Merge',false,b);
+ else hostModal('Dismiss this pull request?','Karst stops waiting on it — the ship gate treats it as never landing. You can undo this.','','Dismiss',false,b)});
+if(qs.get('info')){var t=document.querySelector('#prB [data-prinfo]');if(t)t.click()}
+})();
+</script>
+<div class="td-scrim" id="tdScrim"></div>
+<aside class="td" id="td" role="dialog" aria-modal="true" aria-labelledby="tdTitle" aria-hidden="true">
+  <div class="td-demo">Prototype state: <div class="seg" id="stTd" role="group" aria-label="Ticket details demo state"><button data-s="rich">Jira brief</button><button data-s="draft">Planner draft</button><button data-s="plain">Description only</button><button data-s="empty">Empty</button></div></div>
+  <div class="td-h"><div class="td-ids" id="tdIds"></div><div class="td-acts" id="tdActs"></div><h3 id="tdTitle"></h3></div>
+  <div class="td-tabs" role="tablist" id="tdTabs"></div>
+  <div class="td-b" id="tdBody"></div>
+</aside>
+<div class="hm-back" id="hmBack"></div>
+
+<script>
+(function(){
+function ic(id,c){return '<svg class="i'+(c?' '+c:'')+'" aria-hidden="true"><use href="#'+id+'"/></svg>'}
+function ib(id,l,act){return '<button class="ib" data-act="'+act+'" aria-label="'+l+'" title="'+l+'">'+ic(id)+'</button>'}
+var KARST={origin:'<a href="#">D88</a> (planning P17)',parent:'<a href="#">T942001</a> · Worktree picker overhaul',approach:'plan → implement · phases: resolver, picker, tests',repos:'web, api'};
+var TD={
+ rich:{prov:'Jira',key:'FEAT-142',title:'Add per-repo base branch override to the worktree picker',
+  brief:'<h4>Context</h4><p>Teams with release branches need each repository in a ticket to branch from its own base. Today the picker applies the manifest default to every repo.</p><h4>Acceptance</h4><ul><li>Each repo row shows its base branch and lets you change it before the worktree is created.</li><li>The override is stored per ticket and survives a reload.</li><li>Falls back to the manifest default when the branch no longer exists.</li></ul><h4>Notes</h4><p>Resolver lives in <code>src/worktree/baseBranch.ts</code>; see the <a href="#">design doc</a>.</p><pre>karst worktree create --base web=release/2.4 --base api=main</pre>',
+  desc:'<p>Need per-repo base branch in the picker — release/2.4 for web, main for api. See design doc.</p>',
+  comments:[['octo-pm','Oct 30','Can we default to the last base used for this repo?'],['nd','Oct 31','Out of scope here — filed FEAT-150.']],
+  att:[['picker-mock.png','240 KB'],['base-branch-spec.pdf','1.1 MB']],
+  facts:{Details:[['Status','In Progress'],['Priority','High'],['Type','Story'],['Sprint','Sprint 42']],People:[['Assignee','nd'],['Reporter','octo-pm']],Relations:[['Parent','<a href="#">FEAT-100</a>'],['Blocked by','<a href="#">FEAT-139</a> ✓ done'],['Related','<a href="#">FEAT-150</a>']],Dates:[['Created','Oct 28, 2026'],['Updated','Nov 1, 2026'],['Due','Nov 8, 2026']]},
+  tags:['worktrees','ux'],links:['Design doc · figma.com']},
+ draft:{prov:null,key:null,title:'Add per-repo base branch override to the worktree picker',
+  brief:'<h4>Summary</h4><p>Let each repo in a ticket pick its own base branch in the worktree picker; store the override per ticket.</p><h4>Decisions</h4><ul><li>Override lives on the ticket, not the manifest.</li><li>Missing branch → fall back to the manifest default, with a warning row.</li></ul><h4>Rejected</h4><ul><li>Global per-repo default in settings — hides the choice from the ticket.</li></ul><h4>Constraints</h4><div class="refs"><span class="chip mute" title="docs/arch/worktrees-and-servers.md">@arch:WT-03</span><span class="chip mute" title="docs/arch/manifest-and-settings.md">@arch:MS-04</span><span class="chip mute" title="commit">d7281e2845d</span><span class="chip mute" title="draft">D88</span></div>',
+  desc:null,comments:[],att:[],facts:{},tags:[],links:[]},
+ plain:{prov:'GitHub',key:'#57',title:'Base branch per repo',brief:null,desc:'<p>picker should let me choose base branch for every repo, not just one</p>',comments:[],att:[],facts:{},tags:[],links:[]},
+ empty:{prov:null,key:null,title:'Untitled ticket',brief:null,desc:null,comments:[],att:[],facts:{},tags:[],links:[]}
+};
+var RAW='# FEAT-142 — Add per-repo base branch override to the worktree picker\n\n## Context\nTeams with release branches need each repository …\n\n## Details\n- Status: In Progress\n- Priority: High\n…\n\n## Comments\n- octo-pm: Can we default to the last base used for this repo?\n…';
+var cur='rich',tab='brief';
+function side(d){var h='';
+ h+='<div class="fg"><h5>Karst</h5><dl><dt>From</dt><dd>'+KARST.origin+'</dd><dt>Sub-task of</dt><dd>'+KARST.parent+'</dd><dt>Approach</dt><dd>'+KARST.approach+'</dd><dt>Repos</dt><dd>'+KARST.repos+'</dd></dl></div>';
+ Object.keys(d.facts).forEach(function(g){h+='<div class="fg"><h5>'+g+'</h5><dl>'+d.facts[g].map(function(r){return '<dt>'+r[0]+'</dt><dd>'+r[1]+'</dd>'}).join('')+'</dl></div>'});
+ if(d.tags.length)h+='<div class="fg"><h5>Tags</h5><div class="tags">'+d.tags.map(function(t){return '<span class="chip mute">'+t+'</span>'}).join('')+'</div></div>';
+ if(d.links.length)h+='<div class="fg"><h5>Links</h5>'+d.links.map(function(l){return '<div><a href="#">'+ic('t-link')+' '+l+'</a></div>'}).join('')+'</div>';
+ return '<aside class="td-side" aria-label="Ticket facts">'+h+'</aside>'}
+function main(d){var h='';
+ if(tab==='raw')return '<div class="raw">'+RAW.replace(/</g,'&lt;')+'</div>';
+ var body=tab==='desc'?d.desc:(d.brief||d.desc);
+ h+=body||'<p class="none">No brief or description yet. Add one in the ticket form, or link a ticket from your tracker.</p>';
+ if(tab!=='desc'&&d.comments.length)h+='<h4>Comments · '+d.comments.length+'</h4>'+d.comments.map(function(c){return '<div class="cmt"><span class="who">'+c[0]+'</span><span class="when">'+c[1]+'</span><div>'+c[2]+'</div></div>'}).join('');
+ if(tab!=='desc'&&d.att.length)h+='<h4>Attachments · '+d.att.length+'</h4>'+d.att.map(function(a){return '<div class="att">'+ic('t-paperclip','dim')+'<a href="#" data-act="open-attachment">'+a[0]+'</a><span class="dim">'+a[1]+'</span></div>'}).join('');
+ return h}
+function render(){var d=TD[cur];
+ document.getElementById('tdIds').innerHTML='<span class="mono dim">T942017</span>'+(d.key?'<span class="mono">'+d.key+'</span>'+ib('t-copy','Copy ticket key','copy-ticket-key'):'')+(d.prov?'<a class="prov" href="#" data-act="open-ticket-link" title="Open in '+d.prov+'"><b>'+d.prov[0]+'</b>'+d.prov+' '+ic('t-external-link')+'</a>':'<span class="prov">karst ticket</span>');
+ document.getElementById('tdTitle').textContent=d.title;
+ document.getElementById('tdActs').innerHTML=ib('t-copy','Copy as Markdown','copy-ticket-markdown')+ib('t-markdown','Open as Markdown in the editor','open-ticket-markdown')+ib('t-edit','Edit ticket','edit-ticket')+'<button class="ib" id="tdClose" aria-label="Close ticket details" title="Close (Esc)">'+ic('t-x')+'</button>';
+ var tabs=[];if(d.brief||d.desc)tabs.push(['brief',d.brief?'Brief':'Description']);if(d.brief&&d.desc)tabs.push(['desc','Original description']);if(d.brief||d.desc)tabs.push(['raw','As sent to agent']);
+ if(!tabs.some(function(t){return t[0]===tab}))tab='brief';
+ document.getElementById('tdTabs').innerHTML=tabs.map(function(t){return '<button role="tab" data-tab="'+t[0]+'" aria-selected="'+(t[0]===tab)+'">'+t[1]+'</button>'}).join('')+(tab==='raw'?'<span class="hint">exact Markdown in the agent’s launch context</span>':'');
+ var sd=side(d);
+ document.getElementById('tdBody').innerHTML='<details class="td-sidefold"><summary>Details · status, people, relations, dates</summary>'+sd+'</details><div class="td-main" role="tabpanel">'+main(d)+'</div>'+sd;
+ document.getElementById('tdClose').onclick=close}
+var trig=null;
+function open(){trig=document.activeElement;document.getElementById('td').classList.add('on');document.getElementById('td').setAttribute('aria-hidden','false');document.getElementById('tdScrim').classList.add('on');render();document.getElementById('tdClose').focus({preventScroll:true})}
+function close(){document.getElementById('td').classList.remove('on');document.getElementById('td').setAttribute('aria-hidden','true');document.getElementById('tdScrim').classList.remove('on');if(trig)trig.focus()}
+document.getElementById('tdOpen').addEventListener('click',function(e){e.stopPropagation();open()});
+document.getElementById('tdScrim').addEventListener('click',close);
+document.getElementById('td').addEventListener('click',function(e){e.stopPropagation();var t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;render()}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.getElementById('td').classList.contains('on'))close()});
+var g=document.getElementById('stTd');function setS(k){cur=k;g.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.s===k))});render()}
+g.addEventListener('click',function(e){var b=e.target.closest('[data-s]');if(b)setS(b.dataset.s)});
+var qs=new URLSearchParams(location.search);if(qs.get('td')){setS(TD[qs.get('td')]?qs.get('td'):'rich');if(qs.get('tdtab'))tab=qs.get('tdtab');open()}else setS('rich');
+})();
+</script>
+</body>
+</html>
