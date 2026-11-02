@@ -5,6 +5,8 @@ export const JUDGE_RUBRIC = [
   'LOST = a requirement or fact stated in the SOURCE that is missing from the OUTPUT.',
   'INVENTED = acceptance criteria, root cause, scope or metric in the OUTPUT that the SOURCE does not support.',
   'Rewording, shortening and restructuring are NOT lost or invented. A `**Note:**` line flagging unrelated or embedded text is NOT invented.',
+  'Dropped tracker metadata (title, priority, status, sprint, reporter, assignee, dates, labels) is NOT lost: the rewrite is told to remove it.',
+  'A template heading with nothing under it is NOT lost either.',
   'Reply with JSON only, no prose, no code fence:',
   '{"lost":[{"item":"...","sourceQuote":"..."}],"invented":[{"item":"...","outputQuote":"..."}]}',
   'Use empty arrays when there is nothing to report.',

@@ -56,9 +56,8 @@ export function checkContract(output, { type, tokens = [], input = '' }) {
   const body = stripVerbatim(output, tokens);
   const has = (re) => re.test(output);
   if (!isStructuredSpec(input)) {
-    if (type === 'fix') {
-      for (const k of ['Actual', 'Expected', 'Repro']) if (!has(new RegExp(`\\*\\*${k}:\\*\\*`))) violations.push(`missing ${k}`);
-    } else if (!has(/\*\*Why:\*\*/)) violations.push('missing Why');
+    // Why / Actual / Expected appear only when the ticket states them; Repro is always present ("unknown" when not given).
+    if (type === 'fix' && !has(/\*\*Repro:\*\*/)) violations.push('missing Repro');
     if (countWords(body) > MAX_WORDS) violations.push(`over ${MAX_WORDS} words (${countWords(body)})`);
   }
   if (ownPaths(body, input).length > 0) violations.push('path/file-like token');

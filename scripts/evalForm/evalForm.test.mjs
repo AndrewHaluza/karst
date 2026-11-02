@@ -30,13 +30,12 @@ describe('checks', () => {
     expect(checkVerbatim('has A only', ['A', 'B'])).toMatchObject({ pct: 0.5, missing: ['B'] });
     expect(checkVerbatim('x', []).pct).toBeNull();
   });
-  it('contract: fix needs Actual/Expected/Repro', () => {
-    expect(checkContract('**Actual:** a\n**Expected:** b\n**Repro:** c', { type: 'fix' })).toEqual([]);
-    expect(checkContract('**Actual:** a', { type: 'fix' })).toEqual(['missing Expected', 'missing Repro']);
+  it('contract: fix needs only Repro (Actual/Expected only when the ticket states them)', () => {
+    expect(checkContract('**Repro:** unknown', { type: 'fix' })).toEqual([]);
+    expect(checkContract('**Actual:** a', { type: 'fix' })).toEqual(['missing Repro']);
   });
-  it('contract: non-fix needs Why', () => {
-    expect(checkContract('Do it.', { type: 'feat' })).toContain('missing Why');
-    expect(checkContract('Do it.\n\n**Why:** x', { type: 'feat' })).toEqual([]);
+  it('contract: non-fix sections are optional (Why only when stated)', () => {
+    expect(checkContract('Do it.', { type: 'feat' })).toEqual([]);
   });
   it('word limit excludes verbatim', () => {
     const tok = Array(200).fill('w').join(' ');
@@ -87,6 +86,12 @@ describe('judge parse', () => {
   it('parses plain and fenced/prosed JSON', () => {
     expect(parseJudge(good)).toMatchObject({ ok: true, lost: [{ item: 'x' }] });
     expect(parseJudge('Here:\n```json\n' + good + '\n```')).toMatchObject({ ok: true });
+  });
+  it('rubric says dropped tracker metadata is not lost', () => {
+    expect(buildJudgePrompt('s', 'o')).toMatch(/tracker metadata.*(title|priority|status|sprint|reporter).*NOT lost/i);
+  });
+  it('rubric says a dropped empty template heading is not lost', () => {
+    expect(buildJudgePrompt('s', 'o')).toMatch(/heading with nothing under it.*NOT lost/i);
   });
   it('unparsable is a judge-error, not zero', () => {
     for (const bad of ['', 'no json', '{bad', '{"lost":1,"invented":[]}', '{"lost":[]}']) {
