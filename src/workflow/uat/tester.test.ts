@@ -1763,12 +1763,10 @@ describe('runUatTester — core-specific prompt and telemetry (T927)', () => {
 
   it('antigravity core includes sandbox bypass in prompt and records it in promptTelemetry', async () => {
     let capturedPrompt = '';
-    const adapter: AgentAdapter = {
-      runHeadless: async (opts) => {
-        capturedPrompt = opts.prompt;
-        return { raw: PASS_COVERAGE_ANSWER };
-      },
-    };
+    const { adapter } = fakeAdapter(async (opts) => {
+      capturedPrompt = opts.prompt;
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
+    });
 
     await runUatTester(
       store,
@@ -1791,12 +1789,10 @@ describe('runUatTester — core-specific prompt and telemetry (T927)', () => {
 
   it('claude core does not include sandbox bypass in prompt or promptTelemetry', async () => {
     let capturedPrompt = '';
-    const adapter: AgentAdapter = {
-      runHeadless: async (opts) => {
-        capturedPrompt = opts.prompt;
-        return { raw: PASS_COVERAGE_ANSWER };
-      },
-    };
+    const { adapter } = fakeAdapter(async (opts) => {
+      capturedPrompt = opts.prompt;
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
+    });
 
     await runUatTester(
       store,
@@ -1818,12 +1814,10 @@ describe('runUatTester — core-specific prompt and telemetry (T927)', () => {
 
   it('codex core does not include sandbox bypass in prompt or promptTelemetry', async () => {
     let capturedPrompt = '';
-    const adapter: AgentAdapter = {
-      runHeadless: async (opts) => {
-        capturedPrompt = opts.prompt;
-        return { raw: PASS_COVERAGE_ANSWER };
-      },
-    };
+    const { adapter } = fakeAdapter(async (opts) => {
+      capturedPrompt = opts.prompt;
+      return { sessionId: '', verdict: null, raw: PASS_COVERAGE_ANSWER };
+    });
 
     await runUatTester(
       store,
