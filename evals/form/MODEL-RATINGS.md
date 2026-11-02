@@ -13,15 +13,17 @@ Evaluated on the 12 standard cases (6 synthetic + 6 sampled own tickets):
 | Rank | Model | Provider / CLI | Lost / Case (mean) | Invented / Case (mean) | Verbatim Kept | Contract Violations | Prompt Injection Handled | Tight Brief Kept | Avg Latency / Case | Reference Run |
 |:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
 | 🥇 | **Gemini 3.8 Flash High** | `agy` (Antigravity) | **0.00** | **0.00** | 81.0% | **0** | **100%** | **100%** | ~151s | [`form-12-04-39`](./references/form-2026-11-02T12-04-39-650Z/report.md) |
-| 🥈 | **Mimo v2.6 Flash Free (Default)** | `opencode` (OpenCode) | **0.00** | 0.08 | **85.0%** | 1 | **100%** | **100%** | ~39s | [`form-13-01-46`](./references/form-2026-11-02T13-01-46-302Z/report.md) |
-| 🥉 | **Gemini 3.8 Flash Medium** | `agy` (Antigravity) | 0.08 | **0.00** | 82.2% | **0** | **100%** | **100%** | ~64s | [`form-11-48-28`](./references/form-2026-11-02T11-48-28-762Z/report.md) |
-| 4 | **Claude Sonnet 5.5 (Low)** | `claude` (Claude Code) | **0.00** | **0.00** | 69.9% | 1 | **100%** | **100%** | **~5.6s** | [`form-11-20-56`](./references/form-2026-11-02T11-20-56-255Z/report.md) |
-| 5 | **Gemini 3.8 Flash Low** | `agy` (Antigravity) | 0.08 | **0.00** | 69.9% | 1 | **100%** | **100%** | ~9.6s | [`form-11-41-53`](./references/form-2026-11-02T11-41-53-144Z/report.md) |
-| 6 | **GPT-6 Luna (Medium)** | `codex` (Codex CLI) | 0.17 | 0.25 | 64.9% | **0** | **100%** | **100%** | ~6.8s | [`form-13-44-54`](./references/form-2026-11-02T13-44-54-729Z/report.md) |
-| 7 | **GPT-6 Luna (Low)** | `codex` (Codex CLI) | 0.25 | 0.08 | 64.3% | 2 | **100%** | **100%** | ~6.0s | [`form-13-37-23`](./references/form-2026-11-02T13-37-23-773Z/report.md) |
-| 8 | **Claude Haiku 5.5 (Low)** | `claude` (Claude Code) | 0.17 | 0.17 | 82.2% | 7 | **100%** | **100%** | ~9.1s | [`form-11-14-09`](./references/form-2026-11-02T11-14-09-822Z/report.md) |
+| 🥈 | **Gemini 3.8 Flash Medium** | `agy` (Antigravity) | **0.00** | **0.00** | 82.2% | **0** | **100%** | **100%** | ~64s | [`form-11-48-28`](./references/form-2026-11-02T11-48-28-762Z/report.md) |
+| 🥉 | **Claude Sonnet 5.5 (Low)** | `claude` (Claude Code) | **0.00** | **0.00** | 69.9% | 1 | **100%** | **100%** | **~5.6s** | [`form-11-20-56`](./references/form-2026-11-02T11-20-56-255Z/report.md) |
+| 4 | **Claude Haiku 5.5 (Low)** | `claude` (Claude Code) | **0.00** | **0.00** | 82.2% | 2 | **100%** | **100%** | ~9.1s | [`form-11-14-09`](./references/form-2026-11-02T11-14-09-822Z/report.md) |
+| 5 | **Mimo v2.6 Flash Free (Default)** | `opencode` (OpenCode) | 0.08 | **0.00** | **85.0%** | 1 | **100%** | **100%** | ~39s | [`form-13-01-46`](./references/form-2026-11-02T13-01-46-302Z/report.md) |
+| 6 | **Gemini 3.8 Flash Low** | `agy` (Antigravity) | 0.08 | **0.00** | 69.9% | 1 | **100%** | **100%** | ~9.6s | [`form-11-41-53`](./references/form-2026-11-02T11-41-53-144Z/report.md) |
+| 7 | **GPT-6 Luna (Medium)** | `codex` (Codex CLI) | 0.17 | 0.25 | 64.9% | **0** | **100%** | **100%** | ~6.8s | [`form-13-44-54`](./references/form-2026-11-02T13-44-54-729Z/report.md) |
+| 8 | **GPT-6 Luna (Low)** | `codex` (Codex CLI) | 0.25 | 0.08 | 64.3% | 2 | **100%** | **100%** | ~6.0s | [`form-13-37-23`](./references/form-2026-11-02T13-37-23-773Z/report.md) |
 | *Partial* | **GPT-6 Luna (High)** | `codex` (Codex CLI) | **0.00\*** | **0.00\*** | — | 1\* | — | — | ~6.2s\* | [`form-13-51-36`](./references/form-2026-11-02T13-51-36-906Z/report.md) |
 | *Partial* | **DeepSeek v4.1 Flash Free (Default)** | `opencode` (OpenCode) | **0.00\*** | **0.00\*** | **100.0%\*** | **0\*** | **100%\*** | **100%\*** | **~7.3s\*** | [`form-13-10-45`](./references/form-2026-11-02T13-10-45-346Z/report.md) |
+
+Lost / Case, Invented / Case, Verbatim and Contract Violations for the six Claude, Gemini and Mimo rows are re-scored with ONE blind judge (`claude-opus-5-5`, low effort, `eval:form --rejudge`) and the current checker, so they compare directly. The Luna rows keep their original judge's figures and the DeepSeek and Luna High partial rows are still pending a rejudge. Sonnet and Haiku rows are `self-family` (Anthropic judge, Anthropic producer): treat their gain as an upper bound.
 
 *\* GPT-6 Luna (High) completed case 1 (`thin-button`) with 0 lost and 0 invented before hitting the account's Codex usage limit.*
 *\* DeepSeek v4.1 Flash completed all 6 synthetic cases with 0 lost, 0 invented, and 0 contract violations before reaching OpenCode's hourly free-tier quota (429 free-limit).*
