@@ -467,6 +467,7 @@ erDiagram
   bulletin_reads
   cloud_session_links
   fix_deliveries
+  fix_round_heads
   gate_runs
   implementation_runs
   implementation_segments
@@ -531,6 +532,7 @@ erDiagram
   projects ||--o{ fix_deliveries : project_id
   recovery_rounds ||--o{ fix_deliveries : recovery_round_id
   tickets ||--o{ fix_deliveries : ticket_id
+  recovery_rounds ||--o{ fix_round_heads : recovery_round_id
   process_runs ||--o{ implementation_runs : process_run_id
   tickets ||--o{ implementation_runs : ticket_id
   implementation_runs ||--o{ implementation_segments : implementation_run_id
