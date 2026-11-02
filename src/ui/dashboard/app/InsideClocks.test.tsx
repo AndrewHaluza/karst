@@ -172,7 +172,9 @@ describe('a live push re-renders only the clock and token leaves (A4)', () => {
     expect(all('.inside-live .duration')).toHaveLength(0);
     // Only the detail's separator remains: the duration's went with it.
     expect(all('.inside-live .sep')).toHaveLength(1);
-    expect(all('[data-proc-id="impl:session"] > summary .duration, [data-proc-id="impl:session"] > summary .op-time, [data-proc-id="impl:session"] > summary .token-stat')).toHaveLength(0);
+    // The timing cells stay as empty columns; only the token pill goes.
+    expect(all('[data-proc-id="impl:session"] > summary .token-stat')).toHaveLength(0);
+    expect(all('[data-proc-id="impl:session"] > summary .duration, [data-proc-id="impl:session"] > summary .op-time').every((c) => c.textContent === '')).toBe(true);
     push(h, at(5), { live: true });
     expect(text(must('.inside-live .duration'))).toBe('5s');
     expect(all('.inside-live .sep')).toHaveLength(2);

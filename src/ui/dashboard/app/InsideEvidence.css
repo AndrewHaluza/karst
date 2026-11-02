@@ -1,13 +1,15 @@
 /** The per-kind evidence bodies, the implementation graph and the session timeline. Imported after Inside.css: same specificity, original source order. */
 /* Generic evidence rows */
-#inside .evidence-row{display:grid;grid-template-columns:18px minmax(74px,100px) minmax(0,1fr) auto;
+#inside .evidence-row{display:grid;grid-template-columns:18px minmax(74px,100px) minmax(0,1fr) auto var(--ev-timing-w);
   gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
 #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #inside .ev-detail{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-size:var(--p-sm);line-height:18px}
-#inside .ev-state,#inside .gate-state{min-height:18px;display:inline-flex;align-items:center;
-  justify-content:flex-end;line-height:18px;text-transform:lowercase;white-space:nowrap;
+#inside{--ev-timing-w:calc(var(--inside-time-w) + var(--inside-dur-w) + var(--p-s2))}
+#inside .ev-state,#inside .gate-state{min-height:18px;display:grid;align-items:center;
+  grid-template-columns:var(--inside-time-w) var(--inside-dur-w);column-gap:var(--p-s2);
+  justify-items:end;line-height:18px;white-space:nowrap;font-variant-numeric:tabular-nums;
   font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2)}
 #inside .ev-state.pass,#inside .gate-state.pass{color:var(--p-passed)}
 #inside .ev-state.run,#inside .gate-state.run{color:var(--p-running)}
@@ -17,8 +19,6 @@
 /* The timing cell is now the row's LAST item — the glyph it used to hold
    moved to the leading `.ev-glyph` cell — so it aligns to the row's right
    edge like every other trailing fact. */
-#inside .ev-state{justify-content:flex-end;gap:var(--p-s2)}
-#inside .gate-state{gap:var(--p-s2)}
 #inside .ev-dur{color:var(--p-muted2)}
 #inside .ev-time{color:var(--p-muted2)}
 #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
@@ -64,7 +64,7 @@
    control's track is `auto` sized to its content and never shrunk, so the
    button always lands inside the row at the right end. */
 #inside .graph-node{display:grid;
-  grid-template-columns:18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto;
+  grid-template-columns:18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto var(--ev-timing-w);
   gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
 #inside .graph-entry{border-bottom:var(--k-border-w) solid var(--p-border)}
 #inside .graph-entry:last-child{border-bottom:0}
@@ -94,14 +94,14 @@
 /* Gates */
 #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
   overflow:hidden;background:var(--p-surface)}
-#inside .gate-row{display:grid;grid-template-columns:18px minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
+#inside .gate-row{display:grid;grid-template-columns:18px minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) var(--ev-timing-w);
   gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
   border-bottom:var(--k-border-w) solid var(--p-border)}
 #inside .gate-row:last-child{border-bottom:0}
 /* A gates body whose rows name no repository (pre-v21 rows) drops the column
    rather than drawing an empty one — a blank cell reads as a repo with no
    name instead of a row that names none. */
-#inside .gates.no-repo .gate-row{grid-template-columns:18px minmax(110px,150px) minmax(0,1fr) auto}
+#inside .gates.no-repo .gate-row{grid-template-columns:18px minmax(110px,150px) minmax(0,1fr) var(--ev-timing-w)}
 #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
 #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -19,7 +19,7 @@ describe('Evidence — the generic rows', () => {
   it('leads every row with its glyph and trails it with the timing, as two separate cells', () => {
     withEvidence(ev);
     const [a, b] = all('.evidence-row');
-    expect([...a!.children].map((c) => c.className.split(' ')[0])).toEqual(['ev-glyph', 'ev-key', 'ev-detail', 'ev-state']);
+    expect([...a!.children].map((c) => c.className.split(' ')[0])).toEqual(['ev-glyph', 'ev-key', 'ev-detail', 'ev-tail', 'ev-state']);
     expect(a!.querySelector('.ev-glyph .glyph')!.getAttribute('aria-label')).toBe('passed');
     expect(a!.querySelector('.ev-glyph')!.textContent).toBe('');
     expect(a!.querySelector('.ev-state')!.className).toBe('ev-state pass');
@@ -31,13 +31,17 @@ describe('Evidence — the generic rows', () => {
     // A statusless row keeps the grid's columns: both cells exist, empty.
     expect(b!.querySelector('.ev-glyph')!.childElementCount).toBe(0);
     expect(b!.querySelector('.ev-state')!.className).toBe('ev-state');
-    expect(b!.querySelector('.ev-state')!.childElementCount).toBe(0);
+    expect([...b!.querySelector('.ev-state')!.children].map((c) => c.className)).toEqual(['ev-time', 'ev-dur']);
+    expect(b!.querySelector('.ev-state')!.textContent).toBe('');
   });
 
-  it('puts an action in the trailing cell instead of the timing', () => {
-    withEvidence({ kind: 'rows', rows: [{ label: 'more', detail: '+3 more', action: { actionId: 'x:1', kind: 'open-full-evidence', label: 'Show 3 more' } }] });
+  it('puts an action BEFORE the timing and keeps both timing cells (UI-R41)', () => {
+    withEvidence({ kind: 'rows', rows: [{ label: 'more', detail: '+3 more', status: 'pass', time: '10:00:01 AM', duration: '2s', action: { actionId: 'x:1', kind: 'open-full-evidence', label: 'Show 3 more' } }] });
+    const row = must('.evidence-row');
     expect(text(must('.evidence-row > .ev-tail > button'))).toBe('Show 3 more');
-    expect(q('.evidence-row .ev-state')).toBeNull();
+    expect([...row.children].map((c) => c.className.split(' ')[0]).slice(-2)).toEqual(['ev-tail', 'ev-state']);
+    expect(text(must('.evidence-row .ev-state .ev-time'))).toBe('10:00:01 AM');
+    expect(text(must('.evidence-row .ev-state .ev-dur'))).toBe('2s');
   });
 
   it('falls back to this body for a kind it does not know, and never throws', () => {

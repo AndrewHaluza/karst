@@ -15,20 +15,23 @@
   #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
   #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
   #inside .inside-meta{grid-column:2}
-  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px;
+  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
   #inside .attempt-tabs-label,#inside .attempt-tab-tail{display:none}
-  #inside .duration,#inside .op-time{display:none}
+  /* The duration stays, the start time drops (it is still the duration cell's title); both timing columns keep one grid item each. */
+  #inside .op-time,#inside .ev-time{display:none}
+  #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
+  #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
   #inside .op-tail .agent-model{display:none}
   #inside .op-body{margin-left:20px}
   /* Four rendered children at this width — glyph, name, detail, state —
      get four named tracks, not three: an item left to auto-place wraps to
      an implicit new row instead of sharing one (UI-R04/R05). The repo is
      the cell that drops, never the status. */
-  #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
+  #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) var(--ev-timing-w)}
   #inside .gate-repo{display:none}
-  #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
-  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto}
+  #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) var(--ev-timing-w)}
+  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto var(--ev-timing-w)}
   #inside .finding{grid-template-columns:56px minmax(0,1fr)}
   #inside .finding-loc{grid-column:2}
   #inside .finding-time{display:none}
