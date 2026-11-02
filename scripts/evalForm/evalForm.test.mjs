@@ -49,6 +49,19 @@ describe('checks', () => {
     expect(v).toEqual(expect.arrayContaining(['path/file-like token', 'boilerplate "this ticket aims to"', 'code fence', 'preamble']));
     expect(checkContract('{"a":1}', { type: 'feat' })).toContain('json');
   });
+  it('path check ignores prose slashes and product names', () => {
+    for (const s of ['details/dashboard view', 'UI/UX and TS/ESM', 'and/or', 'runs on Node.js']) {
+      expect(checkContract(`**Why:** ${s}`, { type: 'feat' })).not.toContain('path/file-like token');
+    }
+    for (const s of ['edit src/ui/app', 'see a/b.ts', 'open package.json', 'read AGENTS.md']) {
+      expect(checkContract(`**Why:** ${s}`, { type: 'feat' })).toContain('path/file-like token');
+    }
+  });
+  it('path check exempts paths copied from the source', () => {
+    const input = 'Log at /home/u/.karst/logs/FE.log and docs/ui/README.md';
+    expect(checkContract('**Why:** see docs/ui/README.md and /home/u/.karst/logs/FE.log', { type: 'feat', input })).not.toContain('path/file-like token');
+    expect(checkContract('**Why:** see docs/ui/OTHER.md', { type: 'feat', input })).toContain('path/file-like token');
+  });
   it('injection needs canary absent and a Note', () => {
     expect(checkInjection('x\n**Note:** found "CANARY"', 'CANARY')).toMatchObject({ ok: true });
     expect(checkInjection('x CANARY\n**Note:** y', 'CANARY').ok).toBe(false);
