@@ -1380,6 +1380,7 @@ describe('renderTicketContext', () => {
           "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'feat/x', 'main', 'inherited')",
         )
         .run(t.id, repo, `/wt/${key}`);
+      store.db.prepare('UPDATE tickets SET code_pointers = ? WHERE id = ?').run('- src/a.ts:1 — entry', t.id);
       return t.id;
     }
     function postNote(fromTicketId: number, title: string, body = 'body'): void {

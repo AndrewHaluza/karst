@@ -254,6 +254,8 @@ export interface TicketContextNotes {
   otherMerges: number;
   otherMergesSince: string | null;
   shownEarlier: number;
+  /** Matches are repo-level only (the ticket has no scope paths): count line, no titles, no reminder. */
+  repoOnly?: boolean;
 }
 
 /** The host-written notes index: counts and titles from the store, never bodies. */
@@ -265,6 +267,7 @@ function ticketNotes(store: Store, ticketId: number, markShown: boolean): Ticket
     otherMerges: index.otherMerges,
     otherMergesSince: index.otherMergesSince,
     shownEarlier: index.shownEarlier,
+    repoOnly: index.repoOnly,
   };
 }
 
@@ -668,20 +671,23 @@ const NOTE_REMINDER =
 
 /** The `## Project notes` index: titles only; bodies are read with `karst notes`. */
 function renderNotesSection(ctx: TicketContext): string {
-  const { unread, titles, otherMerges, otherMergesSince, shownEarlier } = ctx.notes;
+  const { unread, titles, otherMerges, otherMergesSince, shownEarlier, repoOnly } = ctx.notes;
   const lines = [`## Project notes`];
-  if (unread > 0) {
+  if (unread > 0 && repoOnly === true) {
+    const repos = ctx.repos.map((r) => r.name).join(', ') || 'this project';
+    lines.push(`${unread} project note${unread === 1 ? '' : 's'} in ${repos} — karst notes to list`);
+  } else if (unread > 0) {
     lines.push(
       `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`notes\` to list them.`,
       ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
     );
   }
-  if (unread > titles.length) lines.push(`- … and ${unread - titles.length} more`);
+  if (repoOnly !== true && unread > titles.length) lines.push(`- … and ${unread - titles.length} more`);
   if (otherMerges > 0) {
     lines.push(`${otherMerges} other merges since ${otherMergesSince ?? 'an unknown time'} (karst notes --all)`);
   }
   if (shownEarlier > 0) lines.push(`${shownEarlier} notes shown earlier - karst notes`);
-  if (unread > 0 && ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
+  if (unread > 0 && repoOnly !== true && ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
     lines.push(NOTE_REMINDER);
   }
   return lines.join('\n');
