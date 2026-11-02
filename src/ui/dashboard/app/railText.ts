@@ -19,9 +19,15 @@ export const STAGE_TITLE: Readonly<Record<string, string>> = {
   done: 'Done',
 };
 
+/** The lane a usage-limit park hit, by stage key: the park lane is the stage that ran the model. */
+const USAGE_LIMIT_LANE: Readonly<Record<string, string>> = { uat: 'UAT Tester', review: 'Review findings' };
+
 /** The strip's headline for a block: shared by the blocked banner and the sub-task rows, so they never drift. */
 export function blockFaultTitle(kind: string, stageKey: string): string {
-  if (kind === 'usage-limit') return 'Provider out of quota';
+  if (kind === 'usage-limit') {
+    const lane = USAGE_LIMIT_LANE[stageKey];
+    return lane ? `Provider out of quota — ${lane}` : 'Provider out of quota';
+  }
   if (kind === 'resource-killed') return 'Gate ran out of memory';
   if (kind === 'review-stalled') return 'Review is stalled';
   return `${STAGE_TITLE[stageKey] ?? stageKey} is blocked`;

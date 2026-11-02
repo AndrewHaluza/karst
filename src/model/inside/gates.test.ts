@@ -2116,3 +2116,91 @@ describe('gates process lists resolved gates while the stage runs', () => {
     ]);
   });
 });
+
+describe('gates caption: why the gates re-ran, or whose results they are (T938)', () => {
+  const R1 = '2026-09-18T10:00:00.000Z';
+  const R2 = '2026-09-18T13:00:00.000Z';
+  const gatesOf = (ps: InsideProcessView[]) => ps.find((p) => p.id === 'gates')!;
+  const captionOf = (p: InsideProcessView) => (p.evidence?.kind === 'gates' ? p.evidence.caption : undefined);
+  const reval = (extra: Partial<QualityProcessesInput> = {}) =>
+    qualityInput({
+      cell: cell('uat', 'running', { startedAt: R2 }),
+      gateRuns: [
+        run('uat', 'test (web)', 0, { stageRunId: 5, runAt: R1 }),
+        run('uat', 'test (web)', 0, { stageRunId: 7, runAt: R2 }),
+      ],
+      rounds: [round({ fixProcessRunId: 30, uatRevalidationStageRunId: 7 })],
+      currentAttempt: 'sr:7',
+      ...extra,
+    });
+
+  it('names the fix commit on a revalidation run', () => {
+    const p = gatesOf(uatProcesses(reval({ fixCommitSha: (id) => (id === 30 ? '72a3de0aaaa' : undefined) })));
+    expect(captionOf(p)).toBe('Gates re-run: fix 72a3de0 changed the code after the last pass (run 5)');
+  });
+
+  it('falls back to the fix round wording without a sha', () => {
+    const p = gatesOf(uatProcesses(reval()));
+    expect(captionOf(p)).toBe('Gates re-run: the fix round changed the code after the last pass (run 5)');
+  });
+
+  it('uses the review revalidation slot for the review stage', () => {
+    const p = gatesOf(
+      reviewProcesses(
+        reval({
+          cell: cell('review', 'running', { startedAt: R2 }),
+          gateRuns: [
+            run('review', 'lint', 0, { stageRunId: 5, runAt: R1 }),
+            run('review', 'lint', 0, { stageRunId: 7, runAt: R2 }),
+          ],
+          rounds: [round({ sourceStage: 'review', fixProcessRunId: 30, reviewRevalidationStageRunId: 7 })],
+        }),
+      ),
+    );
+    expect(captionOf(p)).toContain('Gates re-run: the fix round changed the code after the last pass (run 5)');
+  });
+
+  it('has no caption on a first run', () => {
+    const p = gatesOf(
+      uatProcesses(qualityInput({ gateRuns: [run('uat', 'test (web)', 0, { stageRunId: 5, runAt: R1 })], currentAttempt: 'sr:5' })),
+    );
+    expect(captionOf(p)).toBeUndefined();
+  });
+
+  it('shows the parked run gate rows with a reuse caption when the re-run recorded none', () => {
+    const p = gatesOf(
+      uatProcesses(
+        qualityInput({
+          cell: cell('uat', 'running', { startedAt: R2 }),
+          gateRuns: [run('uat', 'test (web)', 0, { stageRunId: 5, runAt: R1 })],
+          processRuns: [processRun({ id: 40, stageRunId: 9, startedAt: R2, endedAt: null, status: 'running' })],
+          currentAttempt: 'sr:9',
+        }),
+      ),
+    );
+    expect(captionOf(p)).toBe('Gate results reused from run 5 — only the Tester re-ran');
+    expect(rowsOf(p)).toHaveLength(1);
+  });
+
+  it('says AI review for the review lane reuse', () => {
+    const p = gatesOf(
+      reviewProcesses(
+        qualityInput({
+          cell: cell('review', 'running', { startedAt: R2 }),
+          gateRuns: [run('review', 'lint', 0, { stageRunId: 5, runAt: R1 })],
+          processRuns: [processRun({ id: 40, stageKey: 'review', processId: 'review', stageRunId: 9, endedAt: null, status: 'running' })],
+          currentAttempt: 'sr:9',
+        }),
+      ),
+    );
+    expect(captionOf(p)).toBe('Gate results reused from run 5 — only the AI review re-ran');
+  });
+
+  it('keeps a fresh invocation with no AI run and no rows empty and uncaptioned', () => {
+    const p = gatesOf(
+      uatProcesses(qualityInput({ cell: cell('uat', 'running', { startedAt: R2 }), gateRuns: [run('uat', 'test (web)', 0, { stageRunId: 5, runAt: R1 })], currentAttempt: 'sr:9' })),
+    );
+    expect(captionOf(p)).toBeUndefined();
+    expect(rowsOf(p)).toHaveLength(0);
+  });
+});

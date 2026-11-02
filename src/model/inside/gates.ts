@@ -25,6 +25,7 @@ import {
   latestAttemptKey,
   processRunForAttempt,
   roundsForAttempt,
+  attemptKey,
   type AttemptKey,
 } from './rounds.js';
 import type { CurrentAttempt } from './currentAttempt.js';
@@ -242,6 +243,11 @@ export interface QualityProcessesInput {
   uatFindings: readonly UatFinding[];
   /** Every process run recorded for the ticket, ticket-wide. */
   processRuns: readonly ProcessRun[];
+  /**
+   * The commit a fix process run made, when the host knows it (a full or short
+   * sha). Absent or undefined → the gates caption names the fix round instead.
+   */
+  fixCommitSha?: (fixProcessRunId: number) => string | undefined;
   /** Every recovery round recorded for the ticket; filtered to the stage here. */
   rounds: readonly RecoveryRound[];
   /**
@@ -410,6 +416,57 @@ function effectiveAttempt(input: QualityProcessesInput): EffectiveAttempt {
   return { key: current, empty: false, historical: false };
 }
 
+const SHORT_SHA_LENGTH = 7;
+
+/** The stage run id inside an `sr:<id>` attempt key; null for a legacy `ra:` key. */
+function stageRunIdOfKey(key: AttemptKey | null): number | null {
+  if (key === null || !key.startsWith('sr:')) return null;
+  const id = Number(key.slice(3));
+  return Number.isInteger(id) ? id : null;
+}
+
+/** The newest stage run BEFORE `before` that recorded gate rows for the stage (and the same attempt, when given). */
+function priorGateStageRun(
+  runs: readonly GateRun[],
+  stageKey: StageKey,
+  before: number,
+  attempt?: number,
+): number | null {
+  let best: number | null = null;
+  for (const r of runs) {
+    if (r.stageKey !== stageKey || r.stageRunId === null || r.stageRunId >= before) continue;
+    if (attempt !== undefined && r.attempt !== attempt) continue;
+    if (best === null || r.stageRunId > best) best = r.stageRunId;
+  }
+  return best;
+}
+
+/** What the gates process needs to explain a re-run: the recovery rounds, the sha lookup and the lane's AI process. */
+interface GatesCaptionInput {
+  rounds: readonly RecoveryRound[];
+  fixCommitSha?: (fixProcessRunId: number) => string | undefined;
+}
+
+/** The revalidation caption for a stage run that a recovery round opened, or undefined on any other run. */
+function revalidationCaption(
+  input: GatesCaptionInput,
+  runs: readonly GateRun[],
+  stageKey: StageKey,
+  stageRunId: number,
+): string | undefined {
+  const round = input.rounds.find((r) =>
+    stageKey === 'uat' ? r.uatRevalidationStageRunId === stageRunId : r.reviewRevalidationStageRunId === stageRunId,
+  );
+  if (!round) return undefined;
+  const sha =
+    round.fixProcessRunId === null ? undefined : input.fixCommitSha?.(round.fixProcessRunId)?.slice(0, SHORT_SHA_LENGTH);
+  const prior = priorGateStageRun(runs, stageKey, stageRunId);
+  const why = sha ? `fix ${sha}` : 'the fix round';
+  return `Gates re-run: ${why} changed the code after the last pass${prior === null ? '' : ` (run ${prior})`}`;
+}
+
+const AI_LANE_WORD: Readonly<Record<string, string>> = { uat: 'Tester', review: 'AI review' };
+
 /**
  * The gates process: the latest recorded batch, counted and bounded. Rows
  * keep the flat renderer's distinctions — `skip` for a gate the user disabled,
@@ -425,14 +482,35 @@ function gatesProcess(
   repoNameFor?: (repo: string) => string | undefined,
   processRuns: readonly ProcessRun[] = [],
   eff: EffectiveAttempt = { key: null, empty: false, historical: false },
+  captionInput: GatesCaptionInput = { rounds: [] },
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
   // would read as two different repositories.
   const repoLabel = (repo: string): string => repoNameFor?.(repo) ?? repo;
-  const batch = eff.empty
+  const ownBatch = eff.empty
     ? []
     : batchForAttempt(runs, stageKey, eff.key).filter((r) => r.gateName !== CHANGES_GATE);
+  // A usage-limit re-run opens its own stage run and records NO gate rows (it
+  // stands in for the AI lane only). Its AI process run proves it ran; the
+  // gates it did not repeat are the earlier run's, shown with that run named.
+  const curSr = stageRunIdOfKey(eff.key);
+  const aiLaneId = stageKey === 'review' ? 'review' : 'tester';
+  const reusedFrom =
+    ownBatch.length === 0 && !eff.empty && !eff.historical && curSr !== null &&
+    processRuns.some((p) => p.stageRunId === curSr && p.processId === aiLaneId)
+      ? priorGateStageRun(runs, stageKey, curSr, processRuns.find((p) => p.stageRunId === curSr)?.attempt)
+      : null;
+  const batch =
+    reusedFrom === null
+      ? ownBatch
+      : batchForAttempt(runs, stageKey, attemptKey(reusedFrom, '')).filter((r) => r.gateName !== CHANGES_GATE);
+  const caption =
+    reusedFrom !== null
+      ? `Gate results reused from run ${reusedFrom} — only the ${AI_LANE_WORD[stageKey] ?? 'AI lane'} re-ran`
+      : curSr === null
+        ? undefined
+        : revalidationCaption(captionInput, runs, stageKey, curSr);
   // A SETTLED (non-latest, or unmatched) selection can never be running,
   // waiting or blocked, and never forecasts gates that "would run": a past
   // attempt already happened, in full, or it did not happen at all — there is
@@ -707,7 +785,7 @@ function gatesProcess(
           time: formatTime(firstStart),
         }
       : {}),
-    evidence: { kind: 'gates', rows, passed, failed, skipped },
+    evidence: { kind: 'gates', rows, passed, failed, skipped, ...(caption ? { caption } : {}) },
   };
 }
 
@@ -1074,6 +1152,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       input.repoNameFor,
       input.processRuns,
       eff,
+      input,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -1097,6 +1176,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.repoNameFor,
       input.processRuns,
       eff,
+      input,
     ),
     reviewProcess(input),
   ];
