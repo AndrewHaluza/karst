@@ -84,3 +84,39 @@ describe('vitestGate in a sandbox clone (only the ticket branch)', () => {
     expect(run.stderr).toContain('refs/karst/base/develop');
   }, 120_000);
 });
+
+describe('vitestGate flake re-run', () => {
+  const flakyRepo = (body) => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-vgate-flake-'));
+    const sh = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    symlinkSync(NODE_MODULES, join(dir, 'node_modules'), 'dir');
+    writeFileSync(join(dir, '.gitignore'), 'node_modules\nmarker\n');
+    writeFileSync(join(dir, 'flaky.test.mjs'), body);
+    sh('init', '-q', '-b', 'develop');
+    sh('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A');
+    sh('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base');
+    sh('checkout', '-qb', 'ticket');
+    return dir;
+  };
+  // fails on its first run (writes a marker), passes on every later run
+  const FLAKY = "import {it,expect} from 'vitest';\nimport {existsSync,writeFileSync} from 'node:fs';\nit('flips', () => { const seen = existsSync('marker'); writeFileSync('marker', '1'); expect(seen).toBe(true); });\n";
+
+  it('passes with a flaky NOTICE when the failing file passes alone', () => {
+    const dir = flakyRepo(FLAKY);
+    const run = gate(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).toContain('NOTICE: flaky:');
+    expect(run.stderr).toContain('(passed when re-run alone)');
+    expect(run.status).toBe(0);
+  }, 120_000);
+
+  it('fails when the file fails again alone', () => {
+    const dir = flakyRepo("import {it,expect} from 'vitest';\nit('always red', () => expect(1).toBe(2));\n");
+    // touched by the ticket, so the base check cannot call it drift
+    writeFileSync(join(dir, 'flaky.test.mjs'), "import {it,expect} from 'vitest';\nit('always red', () => expect(1).toBe(3));\n");
+    const run = gate(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).not.toContain('NOTICE: flaky:');
+    expect(run.status).not.toBe(0);
+  }, 120_000);
+});
