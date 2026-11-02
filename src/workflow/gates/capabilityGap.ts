@@ -1,4 +1,5 @@
 import { MAX_GATE_SUMMARY_CHARS, summarizeGateFailure } from '../../model/gateSummary.js';
+import { FAILURE_MARKERS } from './resourceKill.js';
 import type { GateResult } from './result.js';
 
 /**
@@ -13,20 +14,31 @@ import type { GateResult } from './result.js';
 export const EXIT_COMMAND_NOT_FOUND = 127;
 
 const MODULE_NOT_FOUND_RE = /Cannot find module '([^']*[\\/]node_modules[\\/][^']*)'/;
-const SRC_STACK_RE = /[\\/]src[\\/]/;
+const SRC_PATH_RE = /[\\/]src[\\/]/;
+const REQUIRE_STACK_ARRAY_RE = /requireStack:\s*\[([^\]]*)\]/;
+const REQUIRE_STACK_LIST_RE = /Require stack:\n((?:- [^\n]*\n?)*)/;
+
+/** The require-stack text of the error block that starts at `from`; empty when Node printed none. */
+function requireStackText(output: string, from: number): string {
+  const block = output.slice(from);
+  const end = block.indexOf('\n}');
+  const scoped = end === -1 ? block : block.slice(0, end);
+  return REQUIRE_STACK_ARRAY_RE.exec(scoped)?.[1] ?? REQUIRE_STACK_LIST_RE.exec(scoped)?.[1] ?? '';
+}
 
 /**
  * The module path when the output is Node's MODULE_NOT_FOUND for a tool under
- * node_modules that the gate LAUNCHED (the command never ran), else null. A
- * requireStack naming a project source file means the ticket's own code
- * imported it: an ordinary failure.
+ * node_modules that the gate LAUNCHED (the command never ran), else null.
+ * Null when the output also shows a failing test (the command ran) or when the
+ * error's own require stack names a project source file (the ticket's code
+ * imported it: an ordinary failure).
  */
 export function launcherModuleNotFound(output: string): string | null {
   if (!output.includes('MODULE_NOT_FOUND')) return null;
+  if (FAILURE_MARKERS.some((re) => re.test(output))) return null;
   const m = MODULE_NOT_FOUND_RE.exec(output);
   if (!m) return null;
-  const stack = output.slice(output.indexOf('requireStack'));
-  if (SRC_STACK_RE.test(stack) || /Require stack:[\s\S]*[\\/]src[\\/]/.test(output)) return null;
+  if (SRC_PATH_RE.test(requireStackText(output, m.index))) return null;
   return m[1] ?? null;
 }
 

@@ -83,6 +83,18 @@ describe('capabilityGap', () => {
       expect(capabilityGap([result('typecheck', 1, out), result('unit', 1, 'assertion failed')])).toBeNull();
     });
 
+    it('is not a gap when a test failed and the error is only mentioned in its output', () => {
+      const out = `FAIL src/a.test.ts\nAssertionError: expected\n${launcher('/repo/node_modules/typescript/bin/tsc')}`;
+      expect(capabilityGap([result('unit', 1, out)])).toBeNull();
+    });
+
+    it('reads only the stack of the error block, and a stack-less block is a gap', () => {
+      const noStack = `Error: Cannot find module '/repo/node_modules/x/bin.js'\n  code: 'MODULE_NOT_FOUND'\n}\nlater: /repo/src/a.ts`;
+      expect(capabilityGap([result('g', 1, noStack)])).not.toBeNull();
+      const listed = `Error: Cannot find module '/repo/node_modules/x/bin.js'\nRequire stack:\n- /repo/src/a.test.ts\n  code: 'MODULE_NOT_FOUND'`;
+      expect(capabilityGap([result('g', 1, listed)])).toBeNull();
+    });
+
     it('parks a mix of exit 127 and a launcher gap', () => {
       const out = launcher('/repo/node_modules/typescript/bin/tsc');
       expect(capabilityGap([result('a', 127, 'x'), result('typecheck', 1, out)])?.names).toEqual(['a', 'typecheck']);
