@@ -578,6 +578,8 @@ export type ProcessEvidenceView =
   | {
       kind: 'gates';
       rows: readonly EvidenceRow[];
+      /** One host-built line above the rows: why the gates re-ran, or whose results these are. Absent on a first run. */
+      caption?: string;
       passed: number;
       failed: number;
       skipped: number;

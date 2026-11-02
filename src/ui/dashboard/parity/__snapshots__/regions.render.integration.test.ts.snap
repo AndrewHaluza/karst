@@ -216,7 +216,7 @@ exports[`dashboard region parity (DOM contract) > blocked #blocked · usage-limi
 "<div#blocked.blocked.fault>
   <span.fdot aria-hidden="true">
   <span.ftext>
-    <span.ftitle> "Provider out of quota"
+    <span.ftitle> "Provider out of quota — UAT Tester"
     <span.freason> "· Claude quota exhausted until 5pm"
   <div.facts>
     <button.k-btn.k-btn--primary.k-btn--sm data-act="usage-limit-pick" data-stagekey="uat" type="button"> "Pick agent/model…"

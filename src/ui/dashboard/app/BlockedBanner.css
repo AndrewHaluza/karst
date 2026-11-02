@@ -10,7 +10,8 @@
 .fault > :not(.fdot):not(.ftext):not(.facts){flex:1 1 100%;min-width:0}
 .fault .fdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);
   background:var(--k-failed);flex:none}
-.fault .ftext{flex:1;min-width:220px}
+.fault .ftext{flex:1;min-width:220px;display:flex;flex-wrap:wrap;align-items:baseline}
+.fault .ftitle{min-width:0;overflow-wrap:anywhere}
 .fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-failed)}
 .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);
   white-space:pre-wrap;word-break:break-word}

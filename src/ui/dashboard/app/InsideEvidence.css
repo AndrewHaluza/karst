@@ -92,6 +92,7 @@
 #inside .graph-node-reason{color:var(--p-attention);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Gates */
+#inside .gates-caption{margin:0 0 var(--k-space-1);font-size:var(--k-text-sm);color:var(--k-text-dim);overflow-wrap:anywhere;white-space:normal}
 #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
   overflow:hidden;background:var(--p-surface)}
 #inside .gate-row{display:grid;grid-template-columns:18px minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;

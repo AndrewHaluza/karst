@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS stage_runs (
   pid            INTEGER,              -- the process that opened it; NULL = unknown, never guessed
   started_at     TEXT NOT NULL,
   ended_at       TEXT,                 -- NULL while running AND on a stale run: when it died is unknown
-  block_reason   TEXT                  -- v95: 'blocker: reason' of a blocked run; NULL otherwise
+  block_reason   TEXT                  -- v96: 'blocker: reason' of a blocked run; NULL otherwise
 );
 CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id);
 
@@ -351,6 +351,7 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   interrupt_count INTEGER NOT NULL DEFAULT 0,
   end_reason TEXT,        -- v94: why the round closed, when the status alone does not say
   host_rerun_at TEXT,     -- v94: stamp of the one host re-run of the failed gates for a refused no-commit fix marker
+  fix_commit_sha TEXT,    -- v95: the HEAD the fix round committed (first worktree whose HEAD moved); NULL = unknown
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round

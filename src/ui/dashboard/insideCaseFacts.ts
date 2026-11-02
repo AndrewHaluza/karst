@@ -125,6 +125,7 @@ export function caseRound(
     startedAt: at(21),
     endedAt: at(30),
     interruptCount: 0,
+    fixCommitSha: null,
     ...over,
   };
 }

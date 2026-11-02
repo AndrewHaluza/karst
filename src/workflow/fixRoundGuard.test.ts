@@ -47,6 +47,21 @@ describe('fix-round no-new-commit guard', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('records the new HEAD of the repo that moved as the round fix commit sha', async () => {
+    await snapshotFixRoundHeads(store, ticketId, roundId, gitAt({ '/wt/api': 'a1', '/wt/web': 'w1' }));
+    await assertFixHasNewCommit(store, ticketId, gitAt({ '/wt/api': 'a1', '/wt/web': 'w2' }));
+    const row = store.db.prepare('SELECT fix_commit_sha AS s FROM recovery_rounds WHERE id = ?').get(roundId) as { s: string | null };
+    expect(row.s).toBe('w2');
+  });
+
+  it('leaves the fix commit sha null when no HEAD moved', async () => {
+    const git = gitAt({ '/wt/api': 'a1', '/wt/web': 'w1' });
+    await snapshotFixRoundHeads(store, ticketId, roundId, git);
+    await expect(assertFixHasNewCommit(store, ticketId, git)).rejects.toThrow();
+    const row = store.db.prepare('SELECT fix_commit_sha AS s FROM recovery_rounds WHERE id = ?').get(roundId) as { s: string | null };
+    expect(row.s).toBeNull();
+  });
+
   it('allows the marker without a snapshot or when HEAD cannot be read', async () => {
     await expect(assertFixHasNewCommit(store, ticketId, gitAt({}))).resolves.toBeUndefined();
     await snapshotFixRoundHeads(store, ticketId, roundId, gitAt({ '/wt/api': 'a1' }));

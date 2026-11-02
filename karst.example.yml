@@ -773,6 +773,16 @@ uat:
 # conventions:
 #   pullRequestTitle: "[{key}] {title}"
 #
+# To give the PR title and the fallback commit a conventional type, use
+# "{type}: {title}" for both. A ticket title that already starts with a known
+# type prefix ("fix: Foo", "fix(sbx): Foo") loses that prefix before it renders,
+# so the result is "fix: Foo", never "fix: fix: Foo". A title with an unknown
+# prefix ("Ticket form: Foo") is kept whole.
+#
+# conventions:
+#   pullRequestTitle: "{type}: {title}"
+#   commitMessage: "{type}: {title}"
+#
 # The same transforms work in the two label templates below. Shortening a
 # 9-character tracker id to its distinguishing tail buys back five columns in
 # every sidebar row and terminal tab:

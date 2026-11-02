@@ -120,3 +120,23 @@ export function classifyRerun(ids, alone) {
 
 /** The one-line flake notice. */
 export const flakeNotice = (ids) => `NOTICE: flaky: ${ids.join('; ')} (passed when re-run alone)`;
+
+/** Most entries in the slowest-tests summary. */
+export const SLOWEST_CAP = 5;
+const TIMED_LINE = /^[✓✔×]\s+(\S.*?)\s+(\d+)ms$/;
+
+/** The slowest timed vitest result lines (`name — Nms`), slowest first; [] when none is timed. */
+export function slowestTests(output, cap = SLOWEST_CAP) {
+  const seen = new Map();
+  for (const raw of output.replace(ANSI, '').split(/\r?\n/)) {
+    const m = TIMED_LINE.exec(raw.trim());
+    if (m) seen.set(m[1], Math.max(seen.get(m[1]) ?? 0, Number(m[2])));
+  }
+  return [...seen].sort((a, b) => b[1] - a[1]).slice(0, cap).map(([name, ms]) => `${name} — ${ms}ms`);
+}
+
+/** The gate-summary lines for the slowest tests; [] when none is timed. */
+export const slowestLines = (output, cap = SLOWEST_CAP) => {
+  const rows = slowestTests(output, cap);
+  return rows.length === 0 ? [] : ['Slowest tests:', ...rows.map((r) => `  ${r}`)];
+};

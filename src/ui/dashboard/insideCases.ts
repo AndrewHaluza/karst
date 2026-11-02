@@ -232,6 +232,16 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     }),
   },
   { stage: 'uat', id: 'fix-running', state: fromFacts('uat', loopFacts('uat', 'live')) },
+  {
+    // T938: round 2 is the recovery revalidation, so its gates carry the "why they re-ran" caption.
+    stage: 'uat',
+    id: 'gates-revalidation',
+    skipLayout: true,
+    state: fromFacts('uat', {
+      ...loopFacts('uat', 'passed'),
+      rounds: [caseRound({ id: 1, sourceStage: 'uat', round: 1, sourceStageRunId: 1, uatRevalidationStageRunId: 2, endedAt: t(30) })],
+    }),
+  },
   { stage: 'uat', id: 'passed-round-2', state: fromFacts('uat', loopFacts('uat', 'passed')) },
   {
     stage: 'uat',
