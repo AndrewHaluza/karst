@@ -7,6 +7,7 @@ import { renderBrief } from '../../integrations/briefMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import {
+  createTicket,
   getTicket,
   updateTicketCore,
   updateTicketFields,
@@ -131,7 +132,8 @@ export interface TicketFormActionsDeps {
    * `adapter` above stays the panel-wide default for the signal-word suggestion.
    */
   resolveAnalysisProcess: (
-    ticketId: number,
+    /** Undefined on an unbound create panel: the pre-mint "is analysis enabled" probe. */
+    ticketId: number | undefined,
     /**
      * D159: a ONE-SHOT agent/model override for a usage-limit op re-run. Absent
      * → the configured ticket-analysis identity; a pick threads the chosen
@@ -492,11 +494,23 @@ export function buildTicketFormActions(
 
     const ensureTicket = (): number => {
       if (ctx.ticketId !== undefined) return ctx.ticketId;
-      const draft = createTicketFlow(deps.store, {
-        key: '',
-        title: 'Untitled ticket',
-        projectId: deps.projectId,
-      });
+      // A prefilled review page seeds the row from the draft (never the
+      // placeholder) and tags it 'planning'; the panel deletes it again if the
+      // page closes without the user's Save/Submit.
+      const seed = ctx.prefillSeed;
+      const draft = seed
+        ? createTicket(deps.store, {
+            key: '',
+            title: seed.title || 'Untitled ticket',
+            source: 'planning',
+            description: seed.description || undefined,
+            projectId: deps.projectId,
+          })
+        : createTicketFlow(deps.store, {
+            key: '',
+            title: 'Untitled ticket',
+            projectId: deps.projectId,
+          });
       ctx.bindTicket(draft.id);
       deps.onChange(); // sidebar shows the new draft
       return draft.id;
@@ -1208,9 +1222,11 @@ export function buildTicketFormActions(
         // ticket-analysis process and attributes the call's spend to its run
         // (`tracking.processRunId`). The draft is re-keyed and retitled at
         // submit.
-        const ticketId = ensureTicket();
-        const process = deps.resolveAnalysisProcess(ticketId, override);
-        if (process === null) {
+        // Probe BEFORE minting: a disabled analysis must leave no row behind.
+        const enabled = deps.resolveAnalysisProcess(ctx.ticketId, override) !== null;
+        const ticketId = enabled ? ensureTicket() : undefined;
+        const process = ticketId === undefined ? null : deps.resolveAnalysisProcess(ticketId, override);
+        if (ticketId === undefined || process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),
           // exactly like every other disabled inside process: the analyzer
           // performs no model call and opens no run. The page gets a reason it

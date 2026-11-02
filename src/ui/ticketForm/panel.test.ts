@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, updateTicketFields } from '../../store/tickets.js';
+import { createTicket, getTicket, listTickets, updateTicketFields } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { TicketFormManager } from './panel.js';
 import type { TicketFormPanel, TicketFormPanelHost, TicketFormActionsCtx } from './panel.js';
@@ -766,5 +766,60 @@ describe('TicketFormManager — create prefill (planning proposal review)', () =
     const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
     mgr.openCreate({ title: 'T', description: '', summary: 's', repos: [], onCreated: () => {} });
     expect((panels[0]!.posted[0] as { state: TicketFormState }).state).not.toHaveProperty('designConstraints');
+  });
+
+  describe('discarding a minted row on close', () => {
+    const prefill = (created: number[] = []) => ({
+      title: 'T', description: 'D', summary: 'S', repos: [] as string[], onCreated: (id: number) => created.push(id),
+    });
+
+    it('deletes a row this panel minted when closed without Save, notifying the sidebar', () => {
+      const { host, panels } = fakeHost();
+      const { factory, seen } = recordingFactory();
+      const discarded = vi.fn();
+      const created: number[] = [];
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, discarded);
+      mgr.openCreate(prefill(created));
+      const minted = createTicket(store, { key: '', title: 'x' });
+      seen[0]!.bindTicket(minted.id);
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(0);
+      expect(discarded).toHaveBeenCalledOnce();
+      expect(created).toEqual([]);
+    });
+
+    it('keeps the row after Save and fires onCreated once', () => {
+      const { host, panels } = fakeHost();
+      const { factory, seen } = recordingFactory();
+      const created: number[] = [];
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+      mgr.openCreate(prefill(created));
+      const minted = createTicket(store, { key: '', title: 'x' });
+      seen[0]!.bindTicket(minted.id);
+      seen[0]!.commitPrefill();
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(1);
+      expect(created).toEqual([minted.id]);
+    });
+
+    it('never deletes a row that already existed (edit panel)', () => {
+      const existing = createTicket(store, { key: 'E-1', title: 'e' });
+      const { host, panels } = fakeHost();
+      const { factory } = recordingFactory();
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+      mgr.openEdit(existing.id);
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(1);
+    });
+
+    it('a plain create panel keeps its minted row on close', () => {
+      const { host, panels } = fakeHost();
+      const { factory, seen } = recordingFactory();
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+      mgr.openCreate();
+      seen[0]!.bindTicket(createTicket(store, { key: '', title: 'x' }).id);
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(1);
+    });
   });
 });

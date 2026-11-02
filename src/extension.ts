@@ -1275,20 +1275,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // renders a different explanation per group and must not carry its own copy.
   const promptBearingRoles = new Set<ProcessRole>(PROMPT_BEARING_ROLES);
   const processFor = (
-    ticketId: number,
+    // Undefined = no ticket yet (a create panel's pre-mint "is it enabled" probe):
+    // resolves the role's configured assignment with no ticket picks.
+    ticketId: number | undefined,
     role: ProcessRole,
     // D159: a one-shot provider/model override for a usage-limit op re-run.
     override?: { provider: AgentProvider; model: string | null },
   ): DriveProcessBundle | null => {
-    const t = getTicket(localStore, ticketId);
+    const t = ticketId === undefined ? undefined : getTicket(localStore, ticketId);
     const assignment = resolveProcessAssignment(
       currentManifest() ?? emptyManifest(),
       role,
       {
-        provider: override?.provider ?? t.agentProvider ?? undefined,
-        model: override ? (override.model ?? undefined) : t.model || undefined,
-        effort: t.effort || undefined,
-        preset: t.agentPreset ?? undefined,
+        provider: override?.provider ?? t?.agentProvider ?? undefined,
+        model: override ? (override.model ?? undefined) : t?.model || undefined,
+        effort: t?.effort || undefined,
+        preset: t?.agentPreset ?? undefined,
       },
       modelCatalog,
     );
@@ -1312,7 +1314,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : undefined;
     if (instructions !== undefined) {
       logger.debug(
-        `[process] ${role} for ticket ${formatId('ticket', ticketId)} runs through Settings profile ` +
+        `[process] ${role} for ticket ${ticketId === undefined ? '(none yet)' : formatId('ticket', ticketId)} runs through Settings profile ` +
           `"${assignment.agent}" (profile body is the prompt)`,
       );
     }
@@ -1372,7 +1374,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * The ticket's own `single-subagent` pick drives the SESSION, never this
    * headless analysis.
    */
-  const analysisProcess = (ticketId: number, override?: { provider: AgentProvider; model: string | null }): DriveProcessBundle | null => processFor(ticketId, 'ticket-analysis', override);
+  const analysisProcess = (ticketId: number | undefined, override?: { provider: AgentProvider; model: string | null }): DriveProcessBundle | null => processFor(ticketId, 'ticket-analysis', override);
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -2100,6 +2102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
     // Same cache `setRepos` warms above, read fresh on every state push.
     () => Object.fromEntries(baseBranchCandidates),
+    () => provider.refresh(),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
