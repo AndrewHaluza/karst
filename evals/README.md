@@ -86,3 +86,5 @@ npm run eval:form -- --prompt builtin --prompt .karst/agents/description-improve
 
 Output: `eval-results/form-<ts>/report.md` and `results.json`. Edit a candidate prompt file and rerun to compare columns.
 
+Re-score saved runs with one blind judge (no producer call): `npm run eval:form -- --rejudge evals/form/references --judge-model claude-opus-5-5 [--dry-run] [--max-calls N]`; output `eval-results/rejudge-<ts>/report.md`.
+
