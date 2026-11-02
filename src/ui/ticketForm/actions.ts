@@ -430,6 +430,7 @@ function persistDraft(
     agentProvider: input.agentProvider ?? '',
     agentPreset: input.agentPreset ?? '',
     type: input.ticketType ?? '',
+    ...(input.agentBackend !== undefined ? { agentBackend: input.agentBackend } : {}),
     baseRefs: input.baseRefs ?? {},
     // Absent = untouched: a plain save/submit never rewrites analysis output.
     ...(input.intent !== undefined ? { intent: input.intent } : {}),

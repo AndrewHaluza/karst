@@ -255,6 +255,17 @@ describe('parseTicketFormMessage', () => {
     expect(parseTicketFormMessage({ type: 'set-type', id: 7 })).toBeNull();
   });
 
+  it('carries agentBackend on submit/save only as host or empty; rejects others', () => {
+    const base = { key: 'P-1', title: 't', description: 'd' };
+    for (const type of ['submit', 'save']) {
+      expect(parseTicketFormMessage({ type, ...base, agentBackend: 'host' })).toMatchObject({ agentBackend: 'host' });
+      expect(parseTicketFormMessage({ type, ...base, agentBackend: '' })).toMatchObject({ agentBackend: '' });
+      expect(parseTicketFormMessage({ type, ...base, agentBackend: 'sbx' })).toBeNull();
+      expect(parseTicketFormMessage({ type, ...base, agentBackend: 7 })).toBeNull();
+      expect(parseTicketFormMessage({ type, ...base })).not.toHaveProperty('agentBackend');
+    }
+  });
+
   it('accepts set-backend only as host or the empty inherit choice', () => {
     expect(parseTicketFormMessage({ type: 'set-backend', id: 'host' })).toEqual({ type: 'set-backend', id: 'host' });
     expect(parseTicketFormMessage({ type: 'set-backend', id: '' })).toEqual({ type: 'set-backend', id: '' });

@@ -34,6 +34,11 @@ export interface TicketDraftFields {
    */
   ticketType: string | null;
   /**
+   * Create-mode sandbox opt-out (arch:AC-32): 'host' or '' (inherit). Absent =
+   * untouched. A ticket can never opt INTO a backend, so nothing else is valid.
+   */
+  agentBackend?: 'host' | '';
+  /**
    * Analysis outputs. Present ONLY when the user edited the field since the last
    * analysis; absent = leave the stored value alone ('' clears it).
    */
@@ -348,6 +353,8 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   // or malformed reads as "local ticket only" — a stale page must never mint
   // an unrequested remote task (the host re-checks capability + binding too).
   const createInProvider = m.createInProvider === true;
+  if (m.agentBackend !== undefined && m.agentBackend !== 'host' && m.agentBackend !== '') return null;
+  const agentBackend = m.agentBackend as 'host' | '' | undefined;
   const intent = typeof m.intent === 'string' ? m.intent : undefined;
   const codePointers = typeof m.codePointers === 'string' ? m.codePointers : undefined;
   return {
@@ -362,6 +369,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     agentProvider,
     agentPreset,
     ticketType,
+    ...(agentBackend !== undefined ? { agentBackend } : {}),
     createInProvider,
     ...(intent !== undefined ? { intent } : {}),
     ...(codePointers !== undefined ? { codePointers } : {}),
