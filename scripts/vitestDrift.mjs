@@ -91,3 +91,32 @@ export function reportLines({ drift, breaks }) {
 
 /** The one project-level alert line, deduped by the caller per base sha. */
 export const alertLine = (sha, ids) => `KARST-ALERT: develop-red base=${sha} tests=${ids.join('; ')}`;
+
+/** Most failing test files re-run alone for the flake check; above it the failure is a real break. */
+export const FLAKE_FILE_CAP = 3;
+
+/** Whether the remaining failing ids may be re-run file by file; a skip carries its printed reason. */
+export function planFlakeRerun(ids, cap = FLAKE_FILE_CAP) {
+  const files = [...new Set(ids.map(fileOfId))];
+  if (files.length === 0) return { kind: 'skip', reason: 'flake re-run skipped: no failing test files' };
+  if (files.length > cap) return { kind: 'skip', reason: `flake re-run skipped: ${files.length} files fail (cap ${cap}), a real break` };
+  return { kind: 'run', files };
+}
+
+/**
+ * Split the ids by the alone re-runs. `alone` maps file -> { status, failed: Set of ids that failed again }.
+ * A file that passed alone (status 0) is flaky; otherwise its ids that fail again (all of them when none parse) are breaks.
+ */
+export function classifyRerun(ids, alone) {
+  const flaky = [];
+  const breaks = [];
+  for (const id of ids) {
+    const r = alone.get(fileOfId(id));
+    const again = r && r.status !== 0 && (r.failed.size === 0 || r.failed.has(id));
+    (again || !r ? breaks : flaky).push(id);
+  }
+  return { flaky, breaks };
+}
+
+/** The one-line flake notice. */
+export const flakeNotice = (ids) => `NOTICE: flaky: ${ids.join('; ')} (passed when re-run alone)`;

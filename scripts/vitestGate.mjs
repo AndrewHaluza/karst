@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { alertLine, allFailuresParsed, cacheKey, classifyFailures, failingTestIds, fileOfId, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
+import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines } from './vitestDrift.mjs';
 
 const exec = promisify(execFile);
 const git = async (cwd, args) => {
@@ -34,9 +34,9 @@ async function mergeBase(cwd) {
   return { sha: null, tried };
 }
 
-const skip = (reason) => {
+const skip = (reason, ids) => {
   console.error(`base check skipped: ${reason}`);
-  return false;
+  return ids;
 };
 
 /** Run a command, teeing its output to ours while capturing it. */
@@ -106,28 +106,28 @@ async function judge(cwd, args, output) {
   const ids = failingTestIds(output);
   if (!allFailuresParsed(output, ids)) {
     console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
-    return false;
+    return null;
   }
   const { sha, tried } = await mergeBase(cwd);
-  if (sha === null) return skip(`no merge base for ${tried.join(', ')}`);
+  if (sha === null) return skip(`no merge base for ${tried.join(', ')}`, ids);
   const changed = await git(cwd, ['diff', '--name-only', '-z', sha]);
   const untracked = await git(cwd, ['ls-files', '-o', '--exclude-standard', '-z']);
-  if (changed === null || untracked === null) return skip('git diff failed');
+  if (changed === null || untracked === null) return skip('git diff failed', ids);
   const touched = new Set(`${changed}\0${untracked}`.split('\0').filter(Boolean));
   const plan = planBaseCheck(ids, touched);
   if (plan.kind !== 'run') {
     console.error(`base check skipped: ${plan.reason}`);
-    return false;
+    return ids;
   }
   const common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim();
-  if (!common) return skip('no git common dir');
+  if (!common) return skip('no git common dir', ids);
   const cacheDir = join(common, 'karst-base-red', sha);
   mkdirSync(cacheDir, { recursive: true });
   const slot = (id) => join(cacheDir, `${cacheKey(common, sha, id)}.json`);
   const cached = new Map(ids.map((id) => [id, readJson(slot(id))]));
   const missing = ids.filter((id) => cached.get(id) === null);
   const redNow = missing.length > 0 ? await redAtBase(cwd, sha, args, [...new Set(missing.map(fileOfId))]) : new Set();
-  if (redNow === null) return skip('could not re-run the failing tests at the merge base');
+  if (redNow === null) return skip('could not re-run the failing tests at the merge base', ids);
   const red = new Set(ids.filter((id) => (cached.get(id) ? cached.get(id).red : redNow.has(id))));
   for (const id of missing) writeFileSync(slot(id), JSON.stringify({ red: redNow.has(id) }));
   const verdict = classifyFailures(ids, red);
@@ -135,11 +135,31 @@ async function judge(cwd, args, output) {
   // Printed on every drift pass: the host dedupes per (project, base sha) when it writes the bulletin note,
   // so a note that failed to land is retried by the next ticket instead of being lost.
   if (verdict.drift.length > 0) console.error(alertLine(sha, verdict.drift));
-  return verdict.breaks.length === 0;
+  return verdict.breaks;
+}
+
+/** Re-run each remaining failing file once, alone, at the ticket HEAD; true when none of them still fails. */
+async function flakeCheck(cwd, args, ids) {
+  const plan = planFlakeRerun(ids);
+  if (plan.kind !== 'run') {
+    console.error(plan.reason);
+    return false;
+  }
+  const alone = new Map();
+  for (const file of plan.files) {
+    console.error(`re-running ${file} alone to rule out a flake`);
+    const r = await run(args[0], [...args.slice(1), file], cwd);
+    alone.set(file, { status: r.status, failed: new Set(failingTestIds(r.out)) });
+  }
+  const { flaky, breaks } = classifyRerun(ids, alone);
+  if (flaky.length > 0) console.error(flakeNotice(flaky));
+  return breaks.length === 0;
 }
 
 const args = process.argv.slice(2);
 const first = await run(args[0], args.slice(1), process.cwd());
 if (first.status === 0) process.exit(0);
-const drift = await judge(process.cwd(), args, first.out).catch(() => false);
-process.exit(drift ? 0 : first.status);
+const remaining = await judge(process.cwd(), args, first.out).catch(() => null);
+if (remaining === null || remaining.length === 0) process.exit(remaining === null ? first.status : 0);
+const ok = await flakeCheck(process.cwd(), args, remaining).catch(() => false);
+process.exit(ok ? 0 : first.status);
