@@ -18,6 +18,9 @@ import { gitRunner } from './draftChecks.mjs';
 import { parseJsonl } from './inputs.mjs';
 import { DEFAULT_JUDGE_EFFORT, DEFAULT_SEED, buildJobs, collectResultFiles, loadCaseMap, loadInstanceMap, pool, runRejudge } from './rejudge.mjs';
 import { renderRejudgeReport } from './rejudgeReport.mjs';
+import { renderPlanRatings, renderPlanReport } from './planReport.mjs';
+import { makeWork, runPlanEval } from './planRun.mjs';
+import { buildPlanKickoff, buildPlanManifest } from './planPrompt.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEFAULT_CASES = join(ROOT, 'evals/form/improve-cases.jsonl');
@@ -25,16 +28,19 @@ export const DEFAULT_INSTANCES = join(ROOT, 'evals/instances/multi-swe-bench-ts-
 export const DEFAULT_RUNS = 3;
 export const DEFAULT_DRAFTS = join(ROOT, 'evals/form/local/drafts.jsonl');
 export const OWN_CASES = join(ROOT, 'evals/form/local/own-tickets.jsonl');
-const PASSES = ['improve', 'intent', 'draft'];
+export const PLAN_REPOS = join(ROOT, 'evals/form/local/repos');
+export const PLAN_RATINGS = join(ROOT, 'evals/form/PLANNER-MODEL-RATINGS.md');
+const PASSES = ['improve', 'intent', 'draft', 'plan'];
 const SOURCES = ['raw', 'improved'];
 const PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false, models: [], timeoutMin: 10, maxDrafts: 3, publish: false };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') { o.dryRun = true; continue; }
+    if (a === '--publish') { o.publish = true; continue; }
     if (a === '--pass') o.pass = need(i);
     else if (a === '--prompt') o.prompts.push(need(i));
     else if (a === '--cases') o.cases.push(need(i));
@@ -55,6 +61,9 @@ export function parseArgs(argv) {
     else if (a === '--seed') o.seed = Number(need(i));
     else if (a === '--max-calls') o.maxCalls = Number(need(i));
     else if (a === '--effort') o.effort = need(i);
+    else if (a === '--models') o.models = need(i).split(',').filter(Boolean);
+    else if (a === '--timeout-min') o.timeoutMin = Number(need(i));
+    else if (a === '--max-drafts') o.maxDrafts = Number(need(i));
     else throw new Error(`unknown flag ${a}`);
     i++;
   }
@@ -63,6 +72,7 @@ export function parseArgs(argv) {
   if (!PASSES.includes(o.pass)) throw new Error(`--pass must be one of ${PASSES.join('|')}`);
   if (o.sources.some((x) => !SOURCES.includes(x))) throw new Error(`--source must be ${SOURCES.join('|')}`);
   if (!PROVIDERS.includes(o.provider)) throw new Error(`--provider must be one of ${PROVIDERS.join('|')}`);
+  if (o.pass === 'plan') return validatePlan(o);
   if (o.pass === 'draft') {
     if (!o.judgeModel) throw new Error('--judge-model is required');
     if (!o.db) throw new Error('--db <karst.db> is required for --pass draft');
@@ -78,6 +88,15 @@ export function parseArgs(argv) {
   }
   if (o.prompts.length === 0) o.prompts = ['builtin'];
   if (o.cases.length === 0) o.cases = [DEFAULT_CASES];
+  return o;
+}
+
+function validatePlan(o) {
+  if (o.models.length === 0) throw new Error('--models is required for --pass plan');
+  if (!o.judgeModel) throw new Error('--judge-model is required');
+  if (o.models.includes(o.judgeModel)) throw new Error('--judge-model must differ from every --models entry');
+  if (!(o.timeoutMin > 0)) throw new Error('--timeout-min must be a positive number');
+  if (!Number.isInteger(o.maxDrafts) || o.maxDrafts < 1) throw new Error('--max-drafts must be a positive integer');
   return o;
 }
 
@@ -207,6 +226,45 @@ async function mainDraft(opts) {
   } finally { store.close(); rmSync(cwd, { recursive: true, force: true }); }
 }
 
+/** Instance row -> bench item. The gold (`fixPatch`, `testPatch`) stays here, never in the prompt. */
+export function planItem({ row, task }) {
+  const [title, ...rest] = task.brief.split('\n');
+  return { id: task.id, dir: `${row.org}__${row.repo}-${row.number}`, repo: row.repo, title, body: rest.join('\n').trim(), baseSha: task.baseSha, fixPatch: row.fix_patch ?? '', testPatch: task.testPatch, f2p: task.f2p };
+}
+
+async function mainPlan(opts) {
+  const [{ resolveAdapter }, preamble, { validateProposal }] = await Promise.all([
+    import('../../src/agent/registry.ts'), import('../../src/planning/preamble.ts'), import('../../src/planning/proposal.ts'),
+  ]);
+  if (!existsSync(opts.instances)) throw new Error(`instances file not found: ${opts.instances}`);
+  const pinned = new Set(readFileSync(join(PLAN_REPOS, 'pins.txt'), 'utf8').split('\n').map((l) => l.split(' ')[0]).filter(Boolean));
+  let items = loadInstances(readFileSync(opts.instances, 'utf8')).map(planItem).filter((i) => pinned.has(i.dir));
+  if (opts.only) items = items.filter((c) => opts.only.includes(c.id) || opts.only.includes(c.dir));
+  if (items.length === 0) throw new Error('no instances selected');
+  const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
+  const startedAt = new Date().toISOString();
+  const meta = { startedAt, pass: 'plan', models: opts.models, judgeModel: opts.judgeModel, provider: opts.provider };
+  const cwd = mkdtempSync(join(tmpdir(), 'eval-form-'));
+  try {
+    const results = await runPlanEval({
+      opts, items, models: opts.models, adapter, judgeAdapter: adapter, validate: validateProposal, cwd,
+      cliEntry: join(ROOT, 'dist/cli/main.js'),
+      makeWork: (item) => makeWork(item, PLAN_REPOS),
+      buildPrompt: (item, w) => ({
+        instructions: preamble.planningInstructions({ sessionId: 1, title: item.title, manifest: buildPlanManifest(item.repo, w.checkout) }),
+        kickoff: preamble.planningKickoff(buildPlanKickoff(item)),
+      }),
+      onProgress: (r) => console.error(`${r.caseId} ${r.model}: ${r.status}${r.error ? ' ' + r.error : ''}`),
+    });
+    const dir = join(ROOT, 'eval-results', `plan-${startedAt.replace(/[:.]/g, '-')}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'report.md'), renderPlanReport({ meta, results }));
+    writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, results }, null, 2));
+    if (opts.publish) writeFileSync(PLAN_RATINGS, renderPlanRatings({ meta, results }));
+    console.log(`report: ${join(dir, 'report.md')}`);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+}
+
 async function mainRejudge(opts) {
   const results = collectResultFiles(opts.rejudge);
   const entries = pool(results, { seed: opts.seed, cases: loadCaseMap(opts.cases), instances: loadInstanceMap(opts.instances) });
@@ -224,6 +282,7 @@ async function mainRejudge(opts) {
 export async function main(argv) {
   const opts = parseArgs(argv);
   if (opts.pass === 'draft') return mainDraft(opts);
+  if (opts.pass === 'plan') return mainPlan(opts);
   if (opts.rejudge.length) return mainRejudge(opts);
   if (opts.pass === 'intent') return mainIntent(opts);
   const [{ improveDescription }, { resolveAdapter }] = await Promise.all([
