@@ -19,10 +19,10 @@ export const DEFAULT_INSTANCES = join(ROOT, 'evals/instances/multi-swe-bench-ts-
 export const DEFAULT_RUNS = 3;
 const PASSES = ['improve', 'intent'];
 const SOURCES = ['raw', 'improved'];
-const PROVIDERS = ['claude', 'codex'];
+const PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -37,6 +37,7 @@ export function parseArgs(argv) {
     else if (a === '--instances') o.instances = need(i);
     else if (a === '--model') o.model = need(i);
     else if (a === '--judge-model') o.judgeModel = need(i);
+    else if (a === '--effort') o.effort = need(i);
     else throw new Error(`unknown flag ${a}`);
     i++;
   }
@@ -85,6 +86,7 @@ export async function runEval({ opts, cases, sources, improve, adapter, judgeAda
           try {
             a.output = await improve(wrapped, {
               instructions: source.body ?? '', description: c.input, title: c.title, ticketType: c.type, cwd, model: opts.model,
+              ...(opts.effort ? { effort: opts.effort } : {}),
             });
             a.seconds = (now() - t0) / 1000;
             a.usage = rec.usage;
@@ -127,9 +129,9 @@ async function mainIntent(opts) {
   if (opts.only) items = items.filter((c) => opts.only.includes(c.id));
   if (items.length === 0) throw new Error('no instances selected');
   const modes = intentModes(opts);
-  const adapter = resolveAdapter(opts.provider);
+  const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
   const startedAt = new Date().toISOString();
-  const meta = { startedAt, pass: 'intent', model: opts.model, judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
+  const meta = { startedAt, pass: 'intent', model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
   const attempts = await runIntentEval({
     opts, items, modes, improve: improveDescription, intent: generateIntent, adapter, judgeAdapter: adapter,
     makeEmptyDir: () => mkdtempSync(join(tmpdir(), 'eval-form-')),
@@ -156,9 +158,9 @@ export async function main(argv) {
   });
   if (opts.only) cases = cases.filter((c) => opts.only.includes(c.id));
   if (cases.length === 0) throw new Error('no cases selected');
-  const adapter = resolveAdapter(opts.provider);
+  const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
   const startedAt = new Date().toISOString();
-  const meta = { startedAt, model: opts.model, judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: sources.map((s) => s.name) };
+  const meta = { startedAt, model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: sources.map((s) => s.name) };
   const attempts = await runEval({
     opts, cases, sources, improve: improveDescription, adapter, judgeAdapter: adapter,
     makeEmptyDir: () => mkdtempSync(join(tmpdir(), 'eval-form-')),

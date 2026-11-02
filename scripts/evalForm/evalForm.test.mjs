@@ -182,9 +182,10 @@ describe('cli args', () => {
     expect(() => parseArgs([...base, '--pass', 'classify'])).toThrow(/--pass/);
   });
   it('collects repeated prompts and --only', () => {
-    const o = parseArgs([...base, '--prompt', 'builtin', '--prompt', 'p.md', '--only', 'a,b']);
+    const o = parseArgs([...base, '--prompt', 'builtin', '--prompt', 'p.md', '--only', 'a,b', '--effort', 'low']);
     expect(o.prompts).toEqual(['builtin', 'p.md']);
     expect(o.only).toEqual(['a', 'b']);
+    expect(o.effort).toBe('low');
   });
 });
 
