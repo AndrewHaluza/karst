@@ -12,6 +12,24 @@ import type { GateResult } from './result.js';
  */
 export const EXIT_COMMAND_NOT_FOUND = 127;
 
+const MODULE_NOT_FOUND_RE = /Cannot find module '([^']*[\\/]node_modules[\\/][^']*)'/;
+const SRC_STACK_RE = /[\\/]src[\\/]/;
+
+/**
+ * The module path when the output is Node's MODULE_NOT_FOUND for a tool under
+ * node_modules that the gate LAUNCHED (the command never ran), else null. A
+ * requireStack naming a project source file means the ticket's own code
+ * imported it: an ordinary failure.
+ */
+export function launcherModuleNotFound(output: string): string | null {
+  if (!output.includes('MODULE_NOT_FOUND')) return null;
+  const m = MODULE_NOT_FOUND_RE.exec(output);
+  if (!m) return null;
+  const stack = output.slice(output.indexOf('requireStack'));
+  if (SRC_STACK_RE.test(stack) || /Require stack:[\s\S]*[\\/]src[\\/]/.test(output)) return null;
+  return m[1] ?? null;
+}
+
 export interface CapabilityGap {
   /** The gates that exited 127, in the order they ran. */
   readonly names: string[];
@@ -33,13 +51,23 @@ export interface CapabilityGap {
  */
 export function capabilityGap(failed: readonly GateResult[]): CapabilityGap | null {
   if (failed.length === 0) return null;
-  if (!failed.every((r) => r.exitCode === EXIT_COMMAND_NOT_FOUND)) return null;
+  const missing = failed.map((r) => (r.exitCode === EXIT_COMMAND_NOT_FOUND ? null : launcherModuleNotFound(r.output)));
+  if (!failed.every((r, i) => r.exitCode === EXIT_COMMAND_NOT_FOUND || missing[i] !== null)) return null;
+  const launcher = missing.filter((m): m is string => m !== null);
   const names = failed.map((r) => r.name);
   const detail = failed
     .map((r) => summarizeGateFailure(r.output) ?? r.name)
     .join(' | ')
     .slice(0, MAX_GATE_SUMMARY_CHARS);
   const many = names.length > 1;
+  if (launcher.length > 0) {
+    return {
+      names,
+      reason:
+        `gate${many ? 's' : ''} ${names.map((n) => `"${n}"`).join(', ')} could not launch ${many ? 'their' : 'its'} tool — ` +
+        `missing module ${launcher.join(', ')} (run \`npm ci\` in the repo root, or check that the worktree's deps resolve): ${detail}`,
+    };
+  }
   return {
     names,
     reason:
