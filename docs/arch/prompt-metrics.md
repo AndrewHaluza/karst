@@ -59,7 +59,7 @@ flowchart TD
 | guide attribution fails | text still printed | best-effort side effect at `cli/main.ts` |
 
 ### Rules
-@arch:PRE-BASELINE · @arch:METRICS · @arch:STORAGE · @arch:GUIDEPULL · @arch:BASELINE · @arch:UAT19 · @arch:GUIDEGATE · @arch:STATS · @arch:RESIDENT · @arch:FORMEVAL
+@arch:PRE-BASELINE · @arch:METRICS · @arch:STORAGE · @arch:GUIDEPULL · @arch:BASELINE · @arch:UAT19 · @arch:GUIDEGATE · @arch:STATS · @arch:RESIDENT · @arch:FORMEVAL · @arch:FORMEVAL-DRAFT
 <!-- GENERATED:end -->
 END_DOC_BLOCK: [@arch:PM-00]
 
@@ -321,6 +321,17 @@ covers: scripts/evalForm/**
 
 - **Intent pass.** `--pass intent [--source raw|improved]... [--improve-prompt builtin|<file.md>] [--instances <jsonl>] [--cases <jsonl>]` runs the REAL `generateIntent` (call site `ticket-intent`, empty temp dir) on the pinned `evals/instances/multi-swe-bench-ts-v1.jsonl` issue text via `scripts/eval/instances.mjs`. `improved` runs `improveDescription` first and feeds `improvedDescription`, like `runAnalysis`; each mode is a report column. Only `brief` reaches the agent; `testPatch` and `f2p` go to the judge alone (UATHOST-05 leak rule). The judge returns per F2P test `covered|partial|missing|not-in-issue` (the last leaves the denominator) plus `unsupported` scenarios; unparsable is `judge-error`. Deterministic checks (`intentChecks.mjs`): parse outcome via a counting adapter wrapper (first try / nudged / degraded), scenario count and Given/when/then, path-like tokens, F2P path or test-name leaks, API identifiers as info only. `--cases` rows get no coverage score (no ground truth), only format and unsupported.
 
-- **Rejudge.** `--rejudge <results.json|dir>... --judge-model <id> [--judge-model <id2>] [--judge-provider <p>] [--judge-effort low] [--seed n] [--dry-run] [--max-calls n]` (`rejudge.mjs`, `rejudgeReport.mjs`) re-scores saved improve/intent attempts with ONE shared judge so cross-model rows are comparable; no producer is called. Blind: the prompt is the unchanged rubric + source (+ hidden tests) + output, no producer meta; each call is a fresh headless call in an empty cwd; attempts are pooled, hashed and judged in seeded shuffled order. Self-identifying output text is flagged in the report, never edited; a judge of the producer's vendor marks the row `self-family`. Checks are recomputed with the current checkers. Writes `eval-results/rejudge-<ts>/report.md` (old judge numbers beside new).
+- **Rejudge.** `--rejudge <results.json|dir>... --judge-model <id> [--judge-model <id2>] [--judge-provider <p>] [--judge-effort low] [--seed n] [--dry-run] [--max-calls n]` (`rejudge.mjs`, `rejudgeReport.mjs`) re-scores saved improve/intent attempts with ONE shared judge so cross-model rows are comparable; no producer is called. Blind: the prompt is the unchanged rubric + source (+ hidden tests) + output, no producer meta; each call is a fresh headless call in an empty cwd; attempts are pooled, hashed and judged in seeded shuffled order. Self-identifying output text is flagged in the report, never edited; a judge of the producer's vendor marks the row `self-family`. Writes `eval-results/rejudge-<ts>/report.md` (old judge numbers beside new).
+
+- **Draft pass.** Continued in `arch:FORMEVAL-DRAFT` (`--pass draft`: accepted planning drafts vs the landed diff).
 
 END_DOC_BLOCK: [@arch:FORMEVAL]
+
+## [@arch:FORMEVAL-DRAFT] Draft pass of the eval:form runner
+covers: scripts/evalForm/draft*.mjs
+
+Split out of `arch:FORMEVAL`.
+
+`--pass draft --judge-model <id> --db <karst.db> --repo <name>=<clone path>...` compares accepted planning drafts whose ticket merged with the diff that landed (`git diff <merge_sha>^1 <merge_sha>`; never the PR description). Input: `npm run eval:form:export -- --pass draft --db <karst.db> --sample 30 --seed <n> [--project <slug>]` -> `evals/form/local/drafts.jsonl` (gitignored, private). Nothing is replayed and no model writes the drafts. A row with no clone, a sha missing from the clone, or a planning model equal to `--judge-model` is `unavailable(missing-repo|missing-commit|judge-wrote-draft)`: counted, excluded, never scored. Static checks (`draftChecks.mjs`, at `<merge_sha>^1`): `@arch:KEY` in `docs/arch/*.md`, commit hash via `git cat-file -e`, `D<n>`/`T<n>` looked up in the store at export time, summary paths present at the parent or created by the diff, and a decisions plus rejected-options shape (`DECISIONS_PART`/`REJECTED_PART`). Diff budget `DIFF_HUNK_BUDGET_CHARS`: the file list is always sent, lock/generated/binary hunks drop first, per-draft truncation is recorded. The judge returns `{notDone, unrequested, reviewFix, verdict}`; implied tests/docs and review or CI fixes are not drift; unparsable is `judge-error`. The report joins each draft with `collectDraftOutcomes` (`src/store/metrics/planning.ts`, the same metric queries as `karst stats --planning` per draft-born ticket, because `--planning --json` only reports buckets) side by side; groups under 10 are LOW and carry no correlation claim.
+
+END_DOC_BLOCK: [@arch:FORMEVAL-DRAFT]
