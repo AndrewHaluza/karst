@@ -59,7 +59,7 @@ flowchart TD
 | guide attribution fails | text still printed | best-effort side effect at `cli/main.ts` |
 
 ### Rules
-@arch:PRE-BASELINE · @arch:METRICS · @arch:STORAGE · @arch:GUIDEPULL · @arch:BASELINE · @arch:UAT19 · @arch:GUIDEGATE · @arch:STATS · @arch:RESIDENT
+@arch:PRE-BASELINE · @arch:METRICS · @arch:STORAGE · @arch:GUIDEPULL · @arch:BASELINE · @arch:UAT19 · @arch:GUIDEGATE · @arch:STATS · @arch:RESIDENT · @arch:FORMEVAL
 <!-- GENERATED:end -->
 END_DOC_BLOCK: [@arch:PM-00]
 
@@ -299,3 +299,18 @@ needs it. The approach body is truncated at `SEED_BUDGETS.approachMethod` (8000
 chars) with `approachTruncationPointer()` pointing to the materialized package
 on disk — not to `karst context`, which cannot render approach bodies.
 END_DOC_BLOCK: [@arch:RESIDENT]
+
+## [@arch:FORMEVAL] Offline eval of the ticket-form improve pass
+covers: scripts/evalForm/**
+
+`npm run eval:form` measures `improveDescription` (call site `ticket-improve`) without the pipeline, Docker or the SWE-bench harness. It imports the REAL function and `resolveAdapter` through tsx (never a copy of the prompt), runs strictly sequentially, and uses the host CLI login. This only MEASURES: it changes no prompt text (@arch:PRE-BASELINE).
+
+- **Sources.** `--prompt builtin` is `buildBuiltInImprovePrompt(type)`; `--prompt <file.md>` is a profile body with frontmatter stripped. Each source is one report column. `--judge-model` is required and must differ from `--model`.
+- **Inputs.** `evals/form/improve-cases.jsonl` (committed, handwritten) and `evals/form/local/own-tickets.jsonl` (gitignored; `npm run eval:form:export -- --db <karst.db> --sample 20 --seed <n>`). Own-ticket input is the stored `brief`, never the already-improved `description`; the export reads the DB read-only through `node:sqlite`.
+- **Deterministic checks** (constants in `scripts/evalForm/checks.mjs`): verbatim tokens kept, built-in contract (applied to every source because improve has NO prompt floor; @arch:FLOOR covers only analyze and tester), canary not obeyed plus a `**Note:**` line, tight input stays near-unchanged.
+- **Judge.** Pinned model, source + output only, empty cwd, JSON `{lost, invented}`. An unparsable reply is a `judge-error`: counted and excluded, never scored 0 (@arch:PM-00).
+- **Report.** `eval-results/form-<ts>/report.md` (per-source summary, then source | output per source | judge items | check failures per input) and `results.json`. Tokens come from the adapter result when reported, else `pending`.
+
+| deterministic checks + judge | judge alone | outputs must also be readable by the user |
+
+END_DOC_BLOCK: [@arch:FORMEVAL]
