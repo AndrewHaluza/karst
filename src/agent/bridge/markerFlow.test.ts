@@ -177,4 +177,53 @@ describe('createMarkerFlow', () => {
     await t.flow.retryNow();
     expect(t.run).not.toHaveBeenCalled();
   });
+
+  describe('recoverRefusal (host re-run of a refused no-commit fix marker)', () => {
+    const refusal = { code: 1, stderr: 'cannot mark this stage done: no new commit since this fix round started' };
+
+    it('a recovered refusal is accepted: replied ok with the path taken, onAccepted fires, nothing reported', async () => {
+      const onAccepted = vi.fn();
+      const recoverRefusal = vi.fn(async () => ({ ok: true, message: 'no change: failed gates passed on re-run' }));
+      const t = setup([refusal], { onAccepted, recoverRefusal });
+      t.setStage('fix');
+      await t.flow.handle('fix', 'a1');
+      expect(recoverRefusal).toHaveBeenCalledExactlyOnceWith('fix', refusal.stderr);
+      expect(t.replies).toEqual([['a1', { v: 1, stage: 'fix', ok: true, retrying: false, reason: 'no change: failed gates passed on re-run' }]]);
+      expect(onAccepted).toHaveBeenCalledExactlyOnceWith('fix');
+      expect(t.reports).toEqual([]);
+      expect(t.saved).toBeUndefined();
+    });
+
+    it('a refusal that stands is reported and replied with the host re-run detail', async () => {
+      const recoverRefusal = vi.fn(async () => ({ ok: false, message: 'the refusal stands (unit: flaky)' }));
+      const onAccepted = vi.fn();
+      const t = setup([refusal], { recoverRefusal, onAccepted });
+      t.setStage('fix');
+      await t.flow.handle('fix', 'a1');
+      const reason = `${refusal.stderr} — the refusal stands (unit: flaky)`;
+      expect(t.replies).toEqual([['a1', { v: 1, stage: 'fix', ok: false, retrying: false, reason }]]);
+      expect(t.reports).toEqual([{ stage: 'fix', reason, diverged: false }]);
+      expect(onAccepted).not.toHaveBeenCalled();
+    });
+
+    it('an undefined answer, a throw, a transient failure or a non-fix stage leaves the refusal as is', async () => {
+      const none = vi.fn(async () => undefined);
+      const t1 = setup([refusal], { recoverRefusal: none });
+      t1.setStage('fix');
+      await t1.flow.handle('fix', 'a1');
+      expect(t1.replies[0]?.[1]).toMatchObject({ ok: false, reason: refusal.stderr });
+      const boom = vi.fn(async () => { throw new Error('x'); });
+      const t2 = setup([refusal], { recoverRefusal: boom });
+      t2.setStage('fix');
+      await t2.flow.handle('fix', 'a1');
+      expect(t2.replies[0]?.[1]).toMatchObject({ ok: false, reason: refusal.stderr });
+      const t3 = setup([{ ...refusal, transient: true }], { recoverRefusal: none });
+      t3.setStage('fix');
+      await t3.flow.handle('fix', 'a1');
+      expect(none).toHaveBeenCalledTimes(1);
+      const t4 = setup([{ code: 1, stderr: 'nope' }], { recoverRefusal: none });
+      await t4.flow.handle('impl', 'a1');
+      expect(none).toHaveBeenCalledTimes(1);
+    });
+  });
 });

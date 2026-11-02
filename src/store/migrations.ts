@@ -2781,5 +2781,14 @@ function migrateLocked(db: Database): void {
     db.exec(FIX_ROUND_HEADS_DDL);
   }
 
+  if (current < 94) {
+    // v94: `recovery_rounds.end_reason` (why a round closed, when the status alone
+    // does not say) and `host_rerun_at` (the one host re-run of the source stage's
+    // failed gates a refused no-new-commit fix marker may trigger). Additive; NULL = none.
+    const cols94 = tableColumns(db, 'recovery_rounds');
+    if (cols94.size > 0 && !cols94.has('end_reason')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN end_reason TEXT');
+    if (cols94.size > 0 && !cols94.has('host_rerun_at')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_at TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

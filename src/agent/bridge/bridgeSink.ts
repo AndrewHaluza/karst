@@ -5,7 +5,7 @@ import { isMarkerStage, type MarkerStage } from '../markerStage.js';
 import type { BridgePaths } from './bridgeDir.js';
 import { createBridgePoller, type BridgePoller } from './bridgePoller.js';
 import { verifyBridgeLine, type BridgeExpectation } from './bridgeVerifier.js';
-import { createMarkerFlow, type MarkerFailure, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
+import { createMarkerFlow, type MarkerFlowDeps, type MarkerFailure, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
 import { writeMarkerReply } from './markerReply.js';
 
 export type MarkerRunner = (stage: MarkerStage) => Promise<MarkerOutcome>;
@@ -23,6 +23,8 @@ export interface BridgeAttachmentDeps {
   readonly onMarkerFailure?: (failure: MarkerFailure) => void;
   /** The host's marker CLI passed for `stage`. */
   readonly onMarkerAccepted?: (stage: MarkerStage) => void;
+  /** Host recovery for a refused fix marker (the one gate re-run); see `MarkerFlowDeps.recoverRefusal`. */
+  readonly recoverRefusal?: MarkerFlowDeps['recoverRefusal'];
   /** Test seam for the retry timer. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
   readonly backoffMs?: readonly number[];
@@ -100,6 +102,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
     pending: filePendingStore(deps.paths.pendingFile),
     currentStage: deps.expect.stage,
     ...(deps.onMarkerAccepted ? { onAccepted: deps.onMarkerAccepted } : {}),
+    ...(deps.recoverRefusal ? { recoverRefusal: deps.recoverRefusal } : {}),
     report: (failure) => {
       log(`ticket ${id} marker ${failure.stage} failed: ${failure.reason}`);
       deps.onMarkerFailure?.(failure);

@@ -16,6 +16,8 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById, getSessionLaunchId } from '../../store/tickets.js';
 import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
 import { ackFixDeliveryRef } from './fixDeliveryOps.js';
+import { makeRecoverRefusal } from './fixRerunOps.js';
+import type { HostRerunOutcome } from '../../workflow/fixHostRerun.js';
 import { createMarkerRunner, type MarkerSpawn } from './markerRunner.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
@@ -50,6 +52,8 @@ export interface BridgeBuildDeps {
   readonly ensureSynced?: (ticketId: number) => Promise<EnsureSyncResult>;
   /** A done marker passed for `ticketId` (a sandboxed session may now be ended, arch:AC-37). */
   readonly onMarkerAccepted?: (ticketId: number) => void;
+  /** Re-runs a ticket's failed gates once for a fix marker refused as "no new commit" (D403). */
+  readonly rerunFailedGates?: (ticketId: number) => Promise<HostRerunOutcome>;
   readonly spawn?: MarkerSpawn;
   readonly attach?: typeof createBridgeAttachment;
 }
@@ -85,6 +89,7 @@ export function makeBridgeBuild(
         const claimed = ackFixDeliveryRef(deps.store, ticketId, ref, new Date().toISOString());
         log(`ticket ${ticketId} ack ${ref}: ${claimed ? 'delivery marked read' : 'ignored (not a pending delivery of this ticket)'}`);
       },
+      ...(deps.rerunFailedGates ? { recoverRefusal: makeRecoverRefusal(ticketId, { rerun: deps.rerunFailedGates, ...(deps.debug ? { debug: deps.debug } : {}) }) } : {}),
       ...(deps.onMarkerAccepted ? { onMarkerAccepted: () => deps.onMarkerAccepted!(ticketId) } : {}),
       onMarkerFailure: (failure) => markerFailed(deps, ticketId, ticketKey, failure),
       ...(deps.debug ? { debug: deps.debug } : {}),
