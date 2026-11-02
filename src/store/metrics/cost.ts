@@ -43,6 +43,7 @@ function tokensBy(store: Store, scope: MetricsScope, column: string): TokenRow[]
   const { clause, params } = scopeSql(scope, {
     projectColumn: 'u.project_id',
     sinceColumn: 'u.recorded_at',
+    ticketColumn: 'u.ticket_id',
   });
   return store.db
     .prepare(

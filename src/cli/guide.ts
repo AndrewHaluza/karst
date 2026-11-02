@@ -234,12 +234,15 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     optional: a missing post is allowed. The note is always written as
     untrusted agent prose, and the merged diff decides who sees it.
 
-- \`stats [--project <slug>] [--since <iso>] [--json]\` — **read** the
+- \`stats [--project <slug>] [--since <iso>] [--planning] [--json]\` — **read** the
   orchestration effectiveness report for a project: first-pass rate, rework
   loops, gate kill distribution, cycle time, agent-active time, token spend by
   call site, escaped defects, finding density, the agent-vs-human finding
   split, merge friction, ship failures, graph efficiency, interruption rate.
   Read-only; it names the metrics the schema cannot answer instead of guessing.
+  \`--planning\` swaps in the planning-draft report: the proposal funnel, the
+  downstream outcome of draft-born tickets, splits by planning core/model and
+  draft traits, and accepted drafts that are stuck.
 - \`stage <impl|fix> pass\` — the done marker: the ONLY transition an agent
   can fire. It advances the ticket from \`impl\` or \`fix\` to the next stage.
   A session ending does NOT advance the ticket — you must fire this marker
