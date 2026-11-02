@@ -4,6 +4,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
 import { applyPrefill, buildTicketFormState, type DesignConstraintsView, type TicketFormState } from './state.js';
+import { reapAttachments } from '../../attachments/reap.js';
 import { appendConstraintsToBrief } from '../../planning/constraintBrief.js';
 import {
   parseTicketFormMessage,
@@ -474,7 +475,14 @@ export class TicketFormManager {
       disposed = true;
       if (prefill && !prefillCommitted && mintedId !== undefined) {
         try {
-          deleteTicket(this.store, mintedId);
+          const discardedId = mintedId;
+          deleteTicket(this.store, discardedId);
+          // The rows are gone; remove the minted ticket's attachment files too.
+          if (this.storageDir !== undefined) {
+            void reapAttachments(this.storageDir, discardedId).catch((e: unknown) =>
+              this.logError('karst: could not remove the discarded draft attachments', e),
+            );
+          }
         } catch (e) {
           this.logError('karst: could not discard the uncommitted draft row', e);
         }

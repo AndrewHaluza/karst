@@ -40,7 +40,7 @@ import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/sugg
 import type { AnalyzeServiceInput } from '../../workflow/classify/analyze.js';
 import { runAnalysis, type RunAnalysisResult } from '../../workflow/classify/runAnalysis.js';
 import { codePointersEnabled } from '../../manifest/validate/analysis.js';
-import type { TicketFormActions, TicketDraftFields } from './messages.js';
+import type { TicketFormActions, TicketDraftFields, FormDraft } from './messages.js';
 import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
 import {
   ingestFile,
@@ -492,7 +492,7 @@ export function buildTicketFormActions(
     // resolves its index against this list, so the webview never names a URL.
     let lastBriefAttachments: readonly BriefAttachment[] = [];
 
-    const ensureTicket = (): number => {
+    const ensureTicket = (live?: FormDraft): number => {
       if (ctx.ticketId !== undefined) return ctx.ticketId;
       // A prefilled review page seeds the row from the draft (never the
       // placeholder) and tags it 'planning'; the panel deletes it again if the
@@ -501,9 +501,9 @@ export function buildTicketFormActions(
       const draft = seed
         ? createTicket(deps.store, {
             key: '',
-            title: seed.title || 'Untitled ticket',
+            title: live?.title.trim() || seed.title || 'Untitled ticket',
             source: 'planning',
-            description: seed.description || undefined,
+            description: live?.description.trim() || seed.description || undefined,
             projectId: deps.projectId,
           })
         : createTicketFlow(deps.store, {
@@ -694,11 +694,11 @@ export function buildTicketFormActions(
     };
 
     const actions: TicketFormActions = {
-    attachPick: async (): Promise<void> => {
+    attachPick: async (draft?: FormDraft): Promise<void> => {
       try {
         const paths = await deps.pickAttachment();
         if (paths.length === 0) return; // cancelled — not an error, say nothing
-        const ticketId = ensureTicket();
+        const ticketId = ensureTicket(draft);
         let changed = false;
         for (const path of paths) {
           // Sequential, not Promise.all: each ingest hashes and copies, and a
@@ -717,7 +717,7 @@ export function buildTicketFormActions(
       }
     },
 
-    attachBytes: async (name: string, base64: string): Promise<void> => {
+    attachBytes: async (name: string, base64: string, draft?: FormDraft): Promise<void> => {
       try {
         // Buffer.from silently DROPS invalid base64 characters rather than
         // throwing, so a corrupt payload would otherwise be written as a
@@ -735,7 +735,7 @@ export function buildTicketFormActions(
           ctx.post({ type: 'error', message: validation.message });
           return;
         }
-        const ticketId = ensureTicket();
+        const ticketId = ensureTicket(draft);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, name, bytes),
@@ -748,7 +748,7 @@ export function buildTicketFormActions(
       }
     },
 
-    attachBriefAttachment: async (index: number): Promise<void> => {
+    attachBriefAttachment: async (index: number, draft?: FormDraft): Promise<void> => {
       try {
         const attachment = lastBriefAttachments[index];
         if (!attachment) {
@@ -765,7 +765,7 @@ export function buildTicketFormActions(
           ctx.post({ type: 'error', message: validation.message });
           return;
         }
-        const ticketId = ensureTicket();
+        const ticketId = ensureTicket(draft);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, attachment.name, bytes),
@@ -1170,7 +1170,7 @@ export function buildTicketFormActions(
       }
     },
 
-    async analyze(livePrompt: string): Promise<void> {
+    async analyze(livePrompt: string, draft?: FormDraft): Promise<void> {
       // D159: consume the one-shot override (a parked-op pick/retry), so it
       // applies to THIS run only and never leaks into a later user analyze.
       const override = analysisOverride;
@@ -1224,7 +1224,7 @@ export function buildTicketFormActions(
         // submit.
         // Probe BEFORE minting: a disabled analysis must leave no row behind.
         const enabled = deps.resolveAnalysisProcess(ctx.ticketId, override) !== null;
-        const ticketId = enabled ? ensureTicket() : undefined;
+        const ticketId = enabled ? ensureTicket(draft) : undefined;
         const process = ticketId === undefined ? null : deps.resolveAnalysisProcess(ticketId, override);
         if (ticketId === undefined || process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),

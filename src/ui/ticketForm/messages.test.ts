@@ -508,8 +508,8 @@ describe('routeTicketFormAction', () => {
     expect(actions.submit).toHaveBeenCalledWith({
       key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
-    expect(actions.analyze).toHaveBeenCalledWith('go');
-    expect(actions.analyze).toHaveBeenCalledWith('go again');
+    expect(actions.analyze).toHaveBeenCalledWith('go', undefined);
+    expect(actions.analyze).toHaveBeenCalledWith('go again', undefined);
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
@@ -517,7 +517,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
     expect(actions.createProviderTicket).toHaveBeenCalled();
-    expect(actions.attachBriefAttachment).toHaveBeenCalledWith(2);
+    expect(actions.attachBriefAttachment).toHaveBeenCalledWith(2, undefined);
     expect(actions.openSettings).toHaveBeenCalledTimes(1);
     expect(actions.closeForm).toHaveBeenCalled();
     // set-provider must not also drive setType (a missing `return` in the
@@ -613,7 +613,7 @@ describe('attachment messages', () => {
     routeTicketFormAction(
       { type: 'attach-bytes', name: 'shot.png', base64: 'AAAA' }, actions,
     );
-    expect(actions.attachBytes).toHaveBeenCalledWith('shot.png', 'AAAA');
+    expect(actions.attachBytes).toHaveBeenCalledWith('shot.png', 'AAAA', undefined);
   });
 
   it('ignores attach-bytes with a non-string name or payload', () => {
@@ -657,7 +657,7 @@ describe('attachment messages', () => {
     routeTicketFormAction({ type: 'attach-bytes', name: 'over.png', base64: overCap }, actions);
 
     expect(actions.attachBytes).toHaveBeenCalledTimes(1);
-    expect(actions.attachBytes).toHaveBeenCalledWith('edge.png', atCap);
+    expect(actions.attachBytes).toHaveBeenCalledWith('edge.png', atCap, undefined);
   });
 
   it('routes detach-attachment and open-attachment with a numeric id', () => {
@@ -698,5 +698,14 @@ describe('attachment messages', () => {
     }
     expect(actions.detachAttachment).not.toHaveBeenCalled();
     expect(actions.openAttachment).not.toHaveBeenCalled();
+  });
+});
+
+describe('live form draft on persisting actions', () => {
+  it('keeps a well-formed draft and drops a malformed one', () => {
+    const draft = { title: 't', description: 'd' };
+    expect(parseTicketFormMessage({ type: 'attach-pick', draft })).toEqual({ type: 'attach-pick', draft });
+    expect(parseTicketFormMessage({ type: 'attach-pick', draft: { title: 1 } })).toEqual({ type: 'attach-pick', draft: undefined });
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'p', draft })).toMatchObject({ draft });
   });
 });

@@ -2970,6 +2970,20 @@ describe('buildTicketFormActions', () => {
       expect(only()).toMatchObject({ title: 'Draft title', description: 'Draft body', source: 'planning' });
     });
 
+    it('attachPick and attachBytes seed from the live form values over the draft', async () => {
+      const live = { title: 'Edited title', description: 'Edited body' };
+      const a = prefillCtx();
+      deps.pickAttachment = async () => [sourceImage('shot.png')];
+      await buildTicketFormActions(deps)(a).attachPick(live);
+      expect(only()).toMatchObject({ title: 'Edited title', description: 'Edited body', source: 'planning' });
+    });
+
+    it('a blank live title falls back to the draft title', async () => {
+      const ctx = prefillCtx();
+      await buildTicketFormActions(deps)(ctx).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'), { title: '  ', description: '' });
+      expect(only()).toMatchObject({ title: 'Draft title', description: 'Draft body' });
+    });
+
     it('attachBytes seeds from the draft', async () => {
       const ctx = prefillCtx();
       await buildTicketFormActions(deps)(ctx).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'));

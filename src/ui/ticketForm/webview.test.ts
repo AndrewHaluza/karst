@@ -669,6 +669,7 @@ describe('pasted text writer', () => {
       btoa: globalThis.btoa,
       MAX_PASTE_BYTES,
       post: (message: unknown) => posted.push(message),
+      liveDraft: () => ({ title: '', description: '' }),
       showErr: (message: string) => errors.push(message),
       el: (id: string) => (id === 'attachBtn' ? {} : null),
       karstIsPending: () => pending,
@@ -836,7 +837,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   it('async controls report pending via the shared runtime rather than swapping their label (UI-R11, R18)', () => {
     const script = scriptBlock();
     // attach-pick / attach-bytes / detach-attachment / open-attachment.
-    expect(script).toContain("karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));");
+    expect(script).toContain("karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId, draft: liveDraft() }));");
     expect(script).toContain('karstBeginPending(detach, requestId);');
     expect(script).toContain('karstBeginPending(open, requestId);');
     expect(script).toContain('karstBeginPending(el(\'attachBtn\'), requestId);');
@@ -1079,7 +1080,7 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
   // produces an identical analysis (the reported "no difference" confusion).
   it('the Improve action carries no agent and the fingerprint stays brief/prompt/repos', () => {
     const fn = functionSource('triggerAnalyze');
-    expect(fn).toMatch(/post\(\{\s*type: 'analyze',\s*prompt: el\('desc'\)\.value\s*\}\)/);
+    expect(fn).toMatch(/post\(\{\s*type: 'analyze',\s*prompt: el\('desc'\)\.value,\s*draft: liveDraft\(\)\s*\}\)/);
     expect(fn).not.toMatch(/\.\.\.\(agent \? \{ agent \} : \{\}\)/);
     expect(fn).not.toMatch(/\.\.\.\(agent\)/);
 
