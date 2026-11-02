@@ -241,7 +241,8 @@ describe('pushableNotes', () => {
   });
 
   it('lists an agent note that matches the reader repo', () => {
-    expect(pushableNotes([candidate(note())], { repos: ['api'], paths: null })).toHaveLength(1);
+    expect(pushableNotes([candidate(note())], { repos: ['api'], paths: ['src/a.ts'] })).toHaveLength(1);
+    expect(pushableNotes([candidate(note())], { repos: ['api'], paths: null })).toHaveLength(0);
   });
 
   it('drops a note already shown or read', () => {
@@ -280,6 +281,7 @@ describe('unreadNotesByTicket (push relevance + session-start cutoff)', () => {
     projectId = upsertProject(store, { slug: 'p1' }).id;
     reader = createTicket(store, { key: 'R', title: 'r', projectId }).id;
     seedWorktree(store, reader, 'api');
+    store.db.prepare('UPDATE tickets SET code_pointers = ? WHERE id = ?').run('- src/a.ts:1 — entry', reader);
   });
   afterEach(() => store.close());
 
@@ -468,6 +470,21 @@ describe('unreadNotesByTicket (push relevance + session-start cutoff)', () => {
       });
       expect(contextNoteIndex(store, reader.id).count).toBe(listed.length);
       expect(listed.length).toBe(7);
+    });
+  });
+
+  describe('reader with no scope paths (repo-only match)', () => {
+    it('counts repo-level notes but lists no titles, marks none shown, pushes none', () => {
+      const reader = createTicket(store, { key: 'R', title: 'r', projectId });
+      const poster = createTicket(store, { key: 'P', title: 'p', projectId });
+      seedWorktree(store, reader.id, 'api');
+      seedWorktree(store, poster.id, 'api');
+      postAgentNote(store, { projectId, fromTicketId: poster.id, title: 'learn a', body: 'x' });
+      expect(ticketNoteScope(store, reader.id).paths).toBeNull();
+      const index = contextNoteIndex(store, reader.id, { markShown: true });
+      expect(index).toMatchObject({ count: 1, titles: [], repoOnly: true });
+      expect(contextNoteIndex(store, reader.id).shownEarlier).toBe(0);
+      expect(unreadNotesByTicket(store, projectId).find((r) => r.toTicketId === reader.id)).toBeUndefined();
     });
   });
 });

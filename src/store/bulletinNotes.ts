@@ -361,6 +361,8 @@ export function pushableNotes(
   const out: BulletinNote[] = [];
   for (const { note, wasShown, wasRead } of candidates) {
     if (wasShown || wasRead) continue;
+    // A reader with no known paths matches at repo level only: nothing is pushed.
+    if (scope.paths === null || scope.paths.length === 0) continue;
     if (note.source === 'agent' ? noteMatchesScope(note, scope) : hostOverlaps(note, scope)) {
       out.push(note);
     }
@@ -504,6 +506,8 @@ export interface ContextNoteIndex extends NoteIndex {
   otherMerges: number;
   otherMergesSince: string | null;
   shownEarlier: number;
+  /** The reader has no known paths: every match is repo-level, so no titles are listed or marked shown. */
+  repoOnly: boolean;
 }
 
 /**
@@ -530,7 +534,8 @@ export function contextNoteIndex(
   const collapsed = newCandidates.filter(
     ({ note }) => note.source === 'host' && !hostOverlaps(note, scope) && !listedIds.has(note.id),
   );
-  if (opts.markShown === true) {
+  const repoOnly = scope.paths === null || scope.paths.length === 0;
+  if (opts.markShown === true && !repoOnly) {
     const mark = store.db.prepare(
       'INSERT OR IGNORE INTO bulletin_context_shown (note_id, reader_ticket_id) VALUES (?, ?)',
     );
@@ -541,6 +546,8 @@ export function contextNoteIndex(
   const index = { ...toIndex(listed), titles: toIndex(listed.filter((n) => !shownIds.has(n.id))).titles };
   return {
     ...index,
+    titles: repoOnly ? [] : index.titles,
+    repoOnly,
     otherMerges: collapsed.length,
     otherMergesSince: collapsed[0]?.note.createdAt ?? null,
     shownEarlier: candidates.filter(({ wasShown }) => wasShown).length,
