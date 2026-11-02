@@ -7,7 +7,7 @@ import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { chownVolumes, ensureClone, ensureVolume, diffFromClone, fetchFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
-import { seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
+import { seedAgyAutonomousState, seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore, DockerRunnerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
@@ -245,7 +245,7 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
   const { proc, names } = input;
   let clone: StepResult;
   try {
-    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch });
+    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch, ...(input.ticket.baseRef ? { baseRef: input.ticket.baseRef } : {}) });
   } catch (err) {
     clone = { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -258,10 +258,10 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
     });
   }
   if ((input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir) {
-    return seedAgyCredentials({
-      bridgeDir: input.bridgeDir,
-      ...(input.debug ? { debug: input.debug } : {}),
-    });
+    const seedInput = { bridgeDir: input.bridgeDir, ...(input.debug ? { debug: input.debug } : {}) };
+    const creds = await seedAgyCredentials(seedInput);
+    if (!creds.ok) return creds;
+    return seedAgyAutonomousState(seedInput);
   }
   return { ok: true };
 }

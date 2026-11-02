@@ -52,6 +52,8 @@ export type RunHeadless = (
 export interface SandboxTicketRef {
   readonly hostWorktreePath: string;
   readonly branch: string;
+  /** The ticket's base branch; a docker first clone ships it as `refs/karst/base/<baseRef>` (D360 drift check). */
+  readonly baseRef?: string;
 }
 
 /** `stashMessage`: park the clone's uncommitted work with `git stash push -u -m <it>` before refreshing (never discarded). */
@@ -137,6 +139,10 @@ export interface SessionRunner {
   hasSandbox?(): Promise<boolean>;
   /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
   ensureWritable?(ticket?: SandboxTicketRef): Promise<StepOutcome>;
+  /** sbx only: poll until the clone's ticket branch resolves (a fresh clone is briefly `.invalid`); `ok: false` when it never does. */
+  ensureCloneReady?(branch: string): Promise<StepOutcome>;
+  /** sbx only: remove the sandbox for a rebuild from the host branch, but only when the host branch and sync ref hold all its commits. */
+  rebuild?(ticket: SandboxTicketRef): Promise<DisposeResult>;
   /** Sandbox runners only: the tri-state behind `hasSandbox` (a CLI that cannot run is `unknown`, not `absent`). */
   probeSandbox?(): Promise<SandboxProbe>;
   /**

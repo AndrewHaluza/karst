@@ -392,6 +392,16 @@ describe('runGateList port slot', () => {
   });
 });
 
+describe('runGateList base ref env', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gates = [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: null, required: true }];
+  it('exports KARST_BASE_REF to the gate process', async () => {
+    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
+    await runGateList(gates, process.cwd(), { now, baseRef: 'develop', runProcess: async (cmd, args) => (seen.push({ cmd, args }), { kind: 'completed', exitCode: 0, output: '' }) });
+    expect(seen[0]).toEqual({ cmd: 'env', args: ['KARST_BASE_REF=develop', 'npm', 'run', 'lint'] });
+  });
+});
+
 describe('runGateList port slot — review fixes', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
   const gate = { name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true, onResourceKill: 'host' as const };

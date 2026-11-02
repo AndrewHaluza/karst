@@ -22,6 +22,8 @@
   ],
   "scripts": {
     "eval": "node scripts/eval/run.mjs",
+    "eval:form": "tsx scripts/evalForm/run.mjs",
+    "eval:form:export": "node scripts/evalForm/export.mjs",
     "eval:setup": "bash scripts/evalSetupHarness.sh",
     "eval:check-set": "node scripts/evalCheckSet.mjs",
     "uat:host": "node scripts/uat-host/run.mjs",
@@ -202,6 +204,10 @@
         "command": "karst.sandbox.sync",
         "title": "Karst: Sync Sandbox Commits",
         "icon": "$(repo-pull)"
+      },
+      {
+        "command": "karst.sandbox.rebuild",
+        "title": "Karst: Rebuild Sandbox"
       },
       {
         "command": "karst.sandbox.stashUpdate",

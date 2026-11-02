@@ -8,7 +8,7 @@ import { PORT_OFFSET_ENV, leasePortSlot, readPortOffset, type PortSlotLease } fr
 const VITEST_ENTRY = join(dirname(createRequire(import.meta.url).resolve('vitest/package.json')), 'vitest.mjs');
 
 function runSpinSuite(offset: number): Promise<{ code: number | null; out: string }> {
-  return new Promise((resolve) => {
+  return new Promise((done) => {
     const child = spawn(
       process.execPath,
       [VITEST_ENTRY, 'run', '--config', 'vitest.integration.config.ts', 'src/runtime/spin.integration.test.ts'],
@@ -17,7 +17,7 @@ function runSpinSuite(offset: number): Promise<{ code: number | null; out: strin
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => done({ code, out }));
   });
 }
 
@@ -51,8 +51,8 @@ describe('concurrent spin suites with distinct port offsets', () => {
     if (!leased) return ctx.skip();
     try {
       const [a, b] = await Promise.all(leased.offsets.map(runSpinSuite));
-      expect(a!.code).toBe(0);
-      expect(b!.code).toBe(0);
+      expect(a!.code, `spin suite a output:\n${a!.out}`).toBe(0);
+      expect(b!.code, `spin suite b output:\n${b!.out}`).toBe(0);
     } finally {
       await Promise.all(leased.held.map((l) => l.release()));
     }

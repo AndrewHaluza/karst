@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
+import { BASE_REF_PREFIX, REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead } from '../cloneSyncClass.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
@@ -82,6 +82,8 @@ export async function chownVolumes(ctx: CloneContext): Promise<StepResult> {
 export interface CloneInput {
   readonly hostWorktreePath: string;
   readonly branch: string;
+  /** Base branch; when set, its host ref rides in the first bundle so the clone can resolve a merge base before any sync. */
+  readonly baseRef?: string;
 }
 
 /** Clone the ticket branch into the repo volume unless a clone is already there. */
@@ -92,7 +94,13 @@ export async function ensureClone(ctx: CloneContext, input: CloneInput): Promise
   const name = (await git(['config', 'user.name'])).stdout.trim();
   const email = (await git(['config', 'user.email'])).stdout.trim();
   return withTemp(ctx.temp, async (dir) => {
-    const bundled = await git(['bundle', 'create', join(dir, 'in.bundle'), input.branch]);
+    let base = input.baseRef && isSafeBaseRef(input.baseRef) ? input.baseRef : undefined;
+    if (base) {
+      // Best effort: an offline host keeps whatever origin/<base> it already has; no ref at all means no base in the bundle.
+      await git(['fetch', 'origin', `+refs/heads/${base}:${hostBaseRef(base)}`]);
+      if ((await git(['rev-parse', '--verify', '-q', hostBaseRef(base)])).code !== 0) base = undefined;
+    }
+    const bundled = await git(['bundle', 'create', join(dir, 'in.bundle'), input.branch, ...(base ? [hostBaseRef(base)] : [])]);
     if (bundled.code !== 0) return { ok: false, reason: `git bundle create ${input.branch} failed: ${detail(bundled)}` };
     const identity = [
       ...(name ? ['--config', `user.name=${name}`] : []),
@@ -103,6 +111,15 @@ export async function ensureClone(ctx: CloneContext, input: CloneInput): Promise
       [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
       ['git', 'clone', ...identity, '--branch', input.branch, `${BUNDLE_DIR}/in.bundle`, CONTAINER_REPO],
     ));
+    if (cloned.code === 0 && base) {
+      // A clone only fetches branch heads: pin the bundled base under the karst-owned ref the sync path uses.
+      const pinned = await ctx.proc.run(DOCKER_BIN, helper(
+        ctx,
+        [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
+        ['git', '-C', CONTAINER_REPO, 'fetch', '-q', `${BUNDLE_DIR}/in.bundle`, `+${hostBaseRef(base)}:${BASE_REF_PREFIX}${base}`],
+      ));
+      if (pinned.code !== 0) return { ok: false, reason: `pinning base ${base} in ${ctx.names.repoVolume} failed: ${detail(pinned)}` };
+    }
     return cloned.code === 0 ? { ok: true } : { ok: false, reason: `clone into ${ctx.names.repoVolume} failed: ${detail(cloned)}` };
   });
 }

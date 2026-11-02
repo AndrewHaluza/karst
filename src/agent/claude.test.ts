@@ -1375,7 +1375,7 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(rendered).toEqual([
       {
         stream: 'stdout',
-        text: '[\n  { "severity": "high", "title": "Readable finding" }\n]\n',
+        text: '── Findings: 1 high ──\n\n[HIGH] Readable finding\n',
       },
     ]);
   });

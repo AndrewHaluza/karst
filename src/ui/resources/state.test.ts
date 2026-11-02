@@ -249,3 +249,21 @@ describe('toDiskRows', () => {
     expect(rows[0]!.display).toBe('./.karst/worktrees/x');
   });
 });
+
+describe('buildResourcesState — containers', () => {
+  it('formats the VM overhead host-side and passes the degraded flag through', () => {
+    const reading = {
+      supported: true, degraded: false, waste: [], history: [], skipped: 0, fastLane: false, containersDegraded: true,
+      inventory: {
+        takenMs: 1, attributed: [], unattributed: [], totals: { rssBytes: 0, cpuPct: null }, cwdProbes: 0,
+        vmOverhead: { rssBytes: 2 * 1024 ** 3, cpuPct: null, procCount: 2 },
+      },
+    };
+    const state = buildResourcesState(reading, []);
+    expect(state.vmOverhead).toEqual({ cpuPctDisplay: '—', rssDisplay: '2.0 GB' });
+    expect(state.containersDegraded).toBe(true);
+  });
+  it('has no VM row when none was measured', () => {
+    expect(buildResourcesState({ supported: true, degraded: false, inventory: null, waste: [], history: [], skipped: 0, fastLane: false }, []).vmOverhead).toBeNull();
+  });
+});

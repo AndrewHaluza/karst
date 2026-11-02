@@ -35,7 +35,7 @@ export const HTTP_429 = /(?<![\w.:])429(?![\w.:])/;
 
 /** Phrases every provider uses for "you are out of allowance". */
 export const LIMIT_PHRASES =
-  /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota)/i;
+  /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota|hit your (?:[\w-]+ )*limit)/i;
 
 /**
  * The QUOTA subset of `LIMIT_PHRASES`: the wording that names an exhausted
@@ -54,7 +54,7 @@ export const LIMIT_PHRASES =
  * signal.
  */
 export const QUOTA_PHRASES =
-  /(quota[-_ ]?(exceeded|exhausted)|usage limit|spend limit|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance)/i;
+  /(quota[-_ ]?(exceeded|exhausted)|usage limit|spend limit|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance|hit your (?:[\w-]+ )*limit)/i;
 
 /** Provider error `code`/`type` values that name an exhausted allowance. */
 export const QUOTA_CODES =

@@ -29,8 +29,9 @@ export interface KnownPid {
 }
 
 export interface AttributedRow {
+  /** 0 for a `container` row: a detached container has no host pid. */
   pid: number;
-  kind: KnownPid['kind'];
+  kind: KnownPid['kind'] | 'container';
   ticketId: number | null;
   label: string | null;
   serverId: number | null;
@@ -50,6 +51,13 @@ export interface UnattributedRow {
   cwdDeleted: boolean;
 }
 
+/** Host cost of the container VM(s) minus karst's containers. NOT part of `totals`. */
+export interface VmOverhead {
+  rssBytes: number;
+  cpuPct: number | null;
+  procCount: number;
+}
+
 export interface Inventory {
   takenMs: number;
   attributed: AttributedRow[];
@@ -58,6 +66,8 @@ export interface Inventory {
   totals: { rssBytes: number; cpuPct: number | null };
   /** How many bounded `liveCwd` probes were spent on this tick (slow lane only). */
   cwdProbes: number;
+  /** Set by `applyContainers`; absent when no VM process is running. */
+  vmOverhead?: VmOverhead | null;
 }
 
 export const UNATTRIBUTED_TOP_N = 5;

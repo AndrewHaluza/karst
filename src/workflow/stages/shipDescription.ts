@@ -67,6 +67,16 @@ async function describePr(
   return sanitizePrDescription(r.raw, ctx.title);
 }
 
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+/** First line of an error message, capped, for a one-line step detail. */
+function oneLine(text: string): string {
+  const first = text.split(/\r?\n/u)[0]?.trim() ?? '';
+  return first.length > 160 ? `${first.slice(0, 157)}...` : first;
+}
+
 /** Deterministic body fingerprint for describe-step reconciliation. */
 export function bodyHash(body: string): string {
   return createHash('sha256').update(body).digest('hex');
@@ -88,6 +98,7 @@ export async function generateDescription(
   onProgress: ShipProgress,
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
   assignment?: ProcessAssignmentSnapshot,
+  fallbackBody?: () => string,
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
   onInsideProgress({
@@ -175,13 +186,22 @@ export async function generateDescription(
       target: repo,
     });
     finishProcessRun(store, processRun.id, 'failed', nowIso());
-    finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
     onInsideProgress({
       kind: 'cleared',
       ticketId,
       stage: 'ship',
       processId: 'pr-description',
     });
+    // The PR is the irreversible, useful part; the prose is cosmetic. Any
+    // non-abort describe failure degrades to the template body and the step
+    // is a note — the process run above stays `failed` for spend/evidence.
+    if (fallbackBody && !isAbort(err)) {
+      const noteDetail = `AI description unavailable (${oneLine(detail)}) — template body used`;
+      finishShipRepoStep(store, step.id, { status: 'note', detail: noteDetail, endedAt: nowIso() });
+      onProgress({ repo, step: 'describe', status: 'note', detail: noteDetail });
+      return fallbackBody();
+    }
+    finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
     throw err;
   }
 }
@@ -221,6 +241,7 @@ export async function backfillDescription(
   buildBody: () => Promise<string>,
   onProgress: ShipProgress,
   saga?: { store: Store; run: ShipRun },
+  fallbackBody?: () => string,
 ): Promise<void> {
   const note = (detail: string): void =>
     onProgress({ repo, step: 'describe', status: 'note', detail });
@@ -236,7 +257,13 @@ export async function backfillDescription(
     return;
   }
 
-  const body = await buildBody();
+  let body: string;
+  try {
+    body = await buildBody();
+  } catch (err) {
+    if (fallbackBody === undefined || isAbort(err)) throw err;
+    body = fallbackBody();
+  }
 
   // Durable describe step + intent around the body UPDATE: the pre-state is
   // the body as it was read, the intent is the exact prose about to be written,

@@ -15,13 +15,21 @@ import type { RunningServerRow, TicketLifecycle } from '../store/runningServers.
  *  - `orphan-worktree-process`: an UNATTRIBUTED process whose confirmed live
  *    cwd is under a known worktree root and which matches no running server.
  *
+ *  - `container-ticket-finished`: a karst sandbox container whose ticket is done
+ *    or archived. Report-only (no pid, no row to signal); an IDLE container is
+ *    never waste — a sandbox sits idle between stages.
+ *
  * Nothing else is waste. Busy CPU is not waste — a real `npm test` should peg a
  * core. Only `worktree-gone` and `ticket-finished` are killable: they have a
  * `servers` row, so `attributeServer` can produce evidence. An orphan has no
  * recorded start time, so the strongest evidence is a cwd match, and the blast
  * radius of a wrong answer is a whole process group.
  */
-export type WasteKind = 'worktree-gone' | 'ticket-finished' | 'orphan-worktree-process';
+export type WasteKind =
+  | 'worktree-gone'
+  | 'ticket-finished'
+  | 'orphan-worktree-process'
+  | 'container-ticket-finished';
 
 export interface WasteFinding {
   kind: WasteKind;
@@ -101,6 +109,22 @@ export function findWaste(opts: {
       reason: `${server.repo} server still running for ${life.archived ? 'an archived' : 'a completed'} ticket ${life.key ?? life.id}`,
       rssBytes: row.cost?.rssBytes ?? 0,
       killable: true,
+    });
+  }
+
+  // container-ticket-finished — report-only; pid 0 is shared, so bypass `emit`.
+  for (const row of inventory.attributed) {
+    if (row.kind !== 'container' || row.ticketId === null) continue;
+    const life = lifecycle.get(row.ticketId);
+    if (!life || (!isFinishedStage(life.stageCurrent) && !life.archived)) continue;
+    findings.push({
+      kind: 'container-ticket-finished',
+      pid: 0,
+      serverId: null,
+      ticketId: row.ticketId,
+      reason: `${row.comm} still running for ${life.archived ? 'an archived' : 'a completed'} ticket ${life.key ?? life.id}`,
+      rssBytes: row.cost?.rssBytes ?? 0,
+      killable: false,
     });
   }
 

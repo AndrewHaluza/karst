@@ -120,10 +120,46 @@ describe('resolveShipArtifacts', () => {
     });
     expect(artifacts.context.repo).toBe('alpha');
   });
+
+  it('reports the core and model that actually ran impl over manifest default', () => {
+    const m = manifest({ extention: repo() }, { agentProvider: 'opencode2' });
+    const ticketWithNullProviders: ShipArtifactTicket = {
+      type: null,
+      model: null,
+      agentProvider: null,
+      sessionProvider: null,
+      agentPreset: null,
+    };
+    const withImpl = resolveShipArtifacts({
+      manifest: m,
+      ticketId: 901,
+      key: 'T901',
+      title: 'fix something',
+      repoName: 'extention',
+      ticket: ticketWithNullProviders,
+      implRun: { provider: 'claude', model: 'claude-sonnet-5-5' },
+    });
+    expect(withImpl.context.provider).toBe('claude');
+    expect(withImpl.context.model).toBe('claude-sonnet-5-5');
+
+    const withoutImpl = resolveShipArtifacts({
+      manifest: m,
+      ticketId: 901,
+      key: 'T901',
+      title: 'fix something',
+      repoName: 'extention',
+      ticket: ticketWithNullProviders,
+    });
+    expect(withoutImpl.context.provider).toBe('opencode2');
+    expect(withoutImpl.context.model).toBeUndefined();
+  });
 });
 
 describe('resolveTemplateModel', () => {
-  it('prefers the ticket override, then the manifest default, then undefined', () => {
+  it('prefers the impl run model, then ticket override, then manifest default, then undefined', () => {
+    expect(
+      resolveTemplateModel({ model: 'opus' }, manifest({}), { model: 'claude-sonnet-5-5' }),
+    ).toBe('claude-sonnet-5-5');
     expect(resolveTemplateModel({ model: 'opus' }, manifest({}))).toBe('opus');
     expect(
       resolveTemplateModel({ model: null }, manifest({}, { defaultModel: 'sonnet' })),

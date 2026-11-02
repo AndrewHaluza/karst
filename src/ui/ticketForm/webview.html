@@ -91,6 +91,7 @@
   #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
+  #designConstraintsCard{margin-top:var(--k-space-7)}
   .attachrow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-3);margin-top:var(--k-space-4)}
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
      secondary-text treatment `.sub` gives page-level notes, without its
@@ -201,9 +202,10 @@
   .searchopt .searchprio{font-size:var(--k-text-2xs);color:var(--k-text-dim);text-transform:capitalize;flex:none}
   /* Status filter row under the key field: the label/select stay small and
      the hint rides the same row (the filter is secondary to the search box). */
-  .searchfilter{margin-top:var(--k-space-3);flex-wrap:wrap}
+  .searchfilter{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  .searchfilter.hidden{display:none}
   .searchfilter label{margin:var(--k-space-0);flex:none}
-  .searchfilter select{width:auto;flex:none}
+  .searchfilter select{flex:1;min-width:0;width:auto;min-height:var(--k-control-h-lg)}
   .searchfilter .searchhint{margin:var(--k-space-0);font-size:var(--k-text-xs)}
 
   /* ── Phase 2 sections + gate ─────────────────────────────────────────── */
@@ -238,6 +240,7 @@
     font-size:var(--k-text-sm);cursor:pointer}
   .repo-opt:hover{background:var(--k-surface-hover)}
   .repo-opt[hidden]{display:none}
+  #revertBtn[hidden]{display:none}
   .repo-opt--reset{font-family:inherit;color:var(--k-text-dim);border-top:var(--k-border-w) solid var(--k-border);border-radius:0}
 
   /* Approaches as a radiogroup of selectable cards (UI-R09, R26): a real
@@ -347,12 +350,14 @@
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
      viewport. Tier CSS follows the base rules (UI-R49, R50). */
+  html{scroll-padding-bottom:calc(var(--k-space-8) * 3)}
   .shell{container-type:inline-size;min-width:0}
   /* One frame (prototype .mock): hairline border, small radius, header strip on top,
      content | settings in the middle, the actions bar as its footer. The bar is
-     in flow (not sticky), so no field can ever sit under it (UI-R44). */
+     sticky at the bottom of the viewport (D379, reverses D355); overflow:clip keeps
+     the frame a non-scroller so sticky binds to the page and focus never scrolls it. */
   .frame{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
-    background:var(--k-bg);overflow:hidden;min-width:0;margin-inline:var(--k-space-7)}
+    background:var(--k-bg);overflow:clip;min-width:0;margin-inline:var(--k-space-7)}
   .pghead{background:var(--k-surface);border-bottom:var(--k-border-w) solid var(--k-border);
     padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch}
@@ -373,7 +378,8 @@
   .settings .chips,.settings .repo-split{min-width:0;max-width:100%}
   .repochip{max-width:100%;overflow-wrap:anywhere}
   .k-switch,.repochip,.repo-caret{min-height:var(--k-space-8)}
-  .actionbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
+  .actionbar{position:sticky;bottom:0;z-index:calc(var(--k-z-drawer) - 1);
+    display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4);
     padding:var(--k-space-5) var(--k-space-9);background:var(--k-surface);border-top:var(--k-border-w) solid var(--k-border)}
   .actionbar .sp{flex:1}
   .actionbar .reason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
@@ -479,6 +485,8 @@
         <span class="synctag hidden" id="syncTag">in sync</span>
         <span class="delta hidden" id="deltaBadge"></span>
       </span>
+      <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="revertBtn" hidden
+              title="Restore the form to how it was before the last Improve with AI">Revert</button>
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn"
               title="Improve the prompt with AI — also suggests the approach and repositories"><span aria-hidden="true">✦</span> <span id="analyzeLbl">Improve with AI</span></button>
     </span>
@@ -527,12 +535,12 @@
           <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
         </div>
         <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
-        <div class="searchfilter hidden" id="searchFilterRow">
-          <label for="searchStatus">Status</label>
-          <select class="k-input" id="searchStatus" title="Filters search results">
-            <option value="to do" selected>to do</option>
-          </select>
-        </div>
+      </div>
+      <div class="searchfilter hidden" id="searchFilterRow">
+        <label for="searchStatus">Status</label>
+        <select class="k-input" id="searchStatus" title="Filters search results">
+          <option value="to do" selected>to do</option>
+        </select>
       </div>
     </div>
     <div class="row2">
@@ -803,6 +811,7 @@
 
     renderGate(state.unclassified, state.repos);
     briefPersisted = state.brief ? String(state.brief) : '';
+    briefSourceState = state.briefSource || { kind: 'manual' };
     lastTicketUrl = state.ticketUrl || '';
     // A fresh fetch in this panel keeps its local timestamp over a state push
     // that has none yet.
@@ -986,6 +995,8 @@
   // Structured brief from this panel's fetch (wins over the persisted markdown).
   let briefData = null;
   let briefPersisted = '';
+  // Host-decided origin of the persisted brief (provider | draft | manual).
+  let briefSourceState = { kind: 'manual' };
   let briefFetchedAt = null;
   let briefOpen = false;
   // The #desc value before "Use as prompt"; null once #desc is edited.
@@ -1034,6 +1045,16 @@
   }
 
   // Muted hint by the comments (replaces the old footer row + its Collapse button).
+  // A brief fetched in this panel always came from the project's provider;
+  // otherwise the host-sent origin decides.
+  function effectiveBriefSource() {
+    return briefData ? { kind: 'provider', provider: currentProvider } : briefSourceState;
+  }
+  function briefFromHtml(src) {
+    if (src.kind === 'provider') return '<span class="brief-from">from</span>' + providerBadgeHtml(src.provider || currentProvider);
+    if (src.kind === 'draft') return '<span class="brief-from">from planning draft D' + esc(String(src.draftId)) + '</span>';
+    return '';
+  }
   function readOnlyHint(label) { return 'Read-only. Reply in ' + esc(label) + '.'; }
   function briefCommentsHtml(comments, label) {
     return '<div id="briefComments"><h3 class="brief-sub">Comments · ' + comments.length + '</h3>'
@@ -1059,11 +1080,13 @@
 
   function briefHeadHtml(label) {
     const fetched = briefFetchedAt ? relativeTime(briefFetchedAt) : '';
-    const url = (briefData && briefData.url) || lastTicketUrl || (srcFetched && srcFetched.url) || '';
+    const src = effectiveBriefSource();
+    const isProvider = src.kind === 'provider';
+    const url = isProvider ? ((briefData && briefData.url) || lastTicketUrl || (srcFetched && srcFetched.url) || '') : '';
     return '<div class="brief-head">'
       + '<button type="button" class="k-iconbtn" id="briefToggle" aria-expanded="' + briefOpen + '" aria-controls="briefBody"'
       + ' aria-label="Toggle brief" title="Toggle brief">' + karstIcon('chevron-down', 16) + '</button>'
-      + '<span class="brief-label">Brief</span><span class="brief-from">from</span>' + providerBadgeHtml(currentProvider)
+      + '<span class="brief-label">Brief</span>' + briefFromHtml(src)
       + (fetched ? '<span class="brief-fetched" id="briefFetched">fetched ' + esc(fetched) + '</span>' : '')
       + '<span class="grow"></span>'
       + (promptUndo ? '<button type="button" class="k-btn k-btn--ghost k-btn--sm" id="briefUndo">Undo</button>' : '')
@@ -1077,7 +1100,8 @@
     if (briefOpen) {
       return '<div class="brief-body" id="briefBody"><div class="brief-desc">' + esc(desc) + '</div>'
         + (atts.length ? briefAttachmentsHtml(atts) : '')
-        + (comments.length ? briefCommentsHtml(comments, label) : '<p class="brief-ro">' + readOnlyHint(label) + '</p>') + '</div>';
+        + (comments.length ? briefCommentsHtml(comments, label)
+          : effectiveBriefSource().kind === 'provider' ? '<p class="brief-ro">' + readOnlyHint(label) + '</p>' : '') + '</div>';
     }
     const all = desc.split('\n');
     const more = Math.max(0, all.length - BRIEF_EXCERPT_LINES);
@@ -1310,7 +1334,7 @@
     openBasePop = repo;
     renderRepos(lastRepos, lastRepoBases);
     const f = el('repoList').querySelector('[data-base-filter]');
-    if (f) f.focus();
+    if (f) f.focus({ preventScroll: true });
   }
 
   function closeBase() {
@@ -1358,7 +1382,7 @@
   function openApproach() {
     approachOpen = true;
     renderApproaches(lastApproaches, lastSelectedApproach);
-    el('approachListbox').focus();
+    el('approachListbox').focus({ preventScroll: true });
   }
   function closeApproach(refocus) {
     approachOpen = false;
@@ -1650,6 +1674,44 @@
   // on the next fetch (the one-time auto-improve) or a fresh page, exactly
   // like every other Settings value the form reads.
   let lastAnalyzed = null;
+  // Pre-Improve snapshots (newest last); each Improve pushes one, Revert pops one.
+  let improveUndo = [];
+  function syncRevertBtn() { el('revertBtn').hidden = improveUndo.length === 0; }
+  function snapshotForm() {
+    return {
+      desc: el('desc').value,
+      intent: el('intent').value,
+      codePointers: el('codePointers').value,
+      pointersHidden: el('codePointersRow').hidden,
+      repos: { ...draft.repos },
+      ticketType: draft.ticketType ?? null,
+    };
+  }
+  function revertImprove() {
+    const snap = improveUndo[improveUndo.length - 1];
+    if (!snap) return;
+    improveUndo = improveUndo.slice(0, -1);
+    el('desc').value = snap.desc;
+    el('intent').value = snap.intent;
+    el('codePointers').value = snap.codePointers;
+    el('codePointersRow').hidden = snap.pointersHidden;
+    draft.repos = { ...snap.repos };
+    draft.ticketType = snap.ticketType;
+    renderRepos(lastRepos, lastRepoBases);
+    renderTypePicker(lastTicketTypes, snap.ticketType, lastDefaultType);
+    const repos = lastRepos.filter(repoSelected).map((r) => r.service);
+    const repoReq = karstRequestId();
+    karstBeginPending(el('repoList'), repoReq);
+    post({ type: 'set-repos', repos, requestId: repoReq });
+    const typeReq = karstRequestId();
+    karstBeginPending(el('typeSelect'), typeReq);
+    post({ type: 'set-type', id: snap.ticketType ?? '', requestId: typeReq });
+    syncRevertBtn();
+    syncSubmitGate();
+    syncAnalyzeBtn();
+    el('desc').focus();
+  }
+  el('revertBtn').addEventListener('click', revertImprove);
   function currentParts() {
     return {
       brief: briefText,
@@ -1858,6 +1920,7 @@
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
     const baseRefs = collectBaseRefs();
+    improveUndo = []; syncRevertBtn();
     post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn, ...changedAnalysisFields() });
   });
 
@@ -1888,6 +1951,7 @@
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
     const baseRefs = collectBaseRefs();
+    improveUndo = []; syncRevertBtn();
     post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, ...changedAnalysisFields() });
   });
 
@@ -2602,6 +2666,8 @@
         break;
       }
       case 'analysis': {
+        improveUndo = [...improveUndo, snapshotForm()];
+        syncRevertBtn();
         // The analyzer result: the improved prompt is authoritative (it
         // replaces the raw description / the prompt the user asked to
         // analyze) and repos are preselected. The approach is a SUGGESTION only —

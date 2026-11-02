@@ -250,3 +250,25 @@ describe('describeWaste', () => {
     expect(text).toContain('1.0 KB');
   });
 });
+
+describe('findWaste container rows', () => {
+  const row = (ticketId: number): import('./resourceInventory.js').AttributedRow => ({
+    pid: 0, kind: 'container', ticketId, label: 'sandbox claude', serverId: null, attribution: 'attributable',
+    cost: { pid: 0, rssBytes: 5, cpuPct: 0, procCount: 1, startedMs: null }, cwd: null, comm: 'karst-x-7-claude',
+  });
+  const inv = (rows: ReturnType<typeof row>[]) => ({ takenMs: 1, attributed: rows, unattributed: [], totals: { rssBytes: 0, cpuPct: 0 }, cwdProbes: 0 });
+  const run = (rows: ReturnType<typeof row>[], life: Map<number, import('../store/runningServers.js').TicketLifecycle>) =>
+    findWaste({ inventory: inv(rows), servers: [], lifecycle: life, worktreeRoots: [], dirs: { exists: () => true } });
+
+  it('flags containers of an archived or done ticket, one finding each, never killable', () => {
+    const life = new Map([[7, { id: 7, key: 'T7', title: null, stageCurrent: 'impl', archived: true }]]);
+    const f = run([row(7), row(7)], life);
+    expect(f).toHaveLength(2);
+    expect(f[0]).toMatchObject({ kind: 'container-ticket-finished', killable: false, serverId: null });
+  });
+
+  it('never flags an open ticket or an unknown one', () => {
+    const life = new Map([[7, { id: 7, key: 'T7', title: null, stageCurrent: 'impl', archived: false }]]);
+    expect(run([row(7), row(8)], life)).toEqual([]);
+  });
+});

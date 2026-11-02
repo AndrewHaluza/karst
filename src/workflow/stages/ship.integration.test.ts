@@ -9,11 +9,12 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence, openShipRun, closeShipRun, openShipRepoStep, beginShipOperationPreparation, finalizeShipOperationIntent } from '../../store/shipRuns.js';
-import { listProcessRuns } from '../../store/processRuns.js';
+import { listProcessRuns, openProcessRun } from '../../store/processRuns.js';
 import { listOpenParks } from '../../store/usageLimitParks.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { transition } from '../machine.js';
-import { shipTicket, hasCompletedShipRun, type ShipStepEvent } from './ship.js';
+import { shipTicket, hasCompletedShipRun, findLatestImplRun, type ShipStepEvent } from './ship.js';
+import { nowIso } from '../../model/time.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
@@ -1888,6 +1889,36 @@ setTimeout(() => {
       expect(body).toContain('Session: sess-42');
     });
 
+    it('PR metadata reports the core and model that actually ran impl over manifest default', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      openProcessRun(store, {
+        ticketId: id,
+        stageKey: 'impl',
+        processId: 'session',
+        attempt: 1,
+        provider: 'claude',
+        model: 'claude-sonnet-5-5',
+        startedAt: nowIso(),
+      });
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo() }, { agentProvider: 'opencode2' }),
+        },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('## Metadata');
+      expect(body).toContain('Agent: claude');
+      expect(body).toContain('Model: claude-sonnet-5-5');
+    });
+
     it('a custom description template replaces the default — metadata only when the template asks for it', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh, creates } = recordingGh();
@@ -2185,6 +2216,47 @@ setTimeout(() => {
       const open = listOpenParks(store, id);
       expect(open).toHaveLength(1);
       expect(open[0]).toMatchObject({ kind: 'op', stage: 'ship', provider: 'codex', model: 'sol' });
+    });
+
+    it('a failed pr-description call falls back to a template body, notes the step, and ship still opens the PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingCreateGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          throw new Error("Claude rate limited — You've hit your 5-hour limit");
+        },
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'log') {
+          return { stdout: '* abc1234 add search\n* def5678 fix ranking\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(
+        store,
+        { ticketId: id, prDescriptionProcess: { assignment: { agentName: 'PR Scribe', provider: 'claude' as const, model: 'm' }, adapter } },
+        gh,
+        undefined,
+        git,
+      );
+
+      expect(creates).toHaveLength(1);
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('PROJ-1');
+      expect(body).toContain('add search');
+      expect(body).toContain('fix ranking');
+      const run = listProcessRuns(store, id).find((r) => r.processId === 'pr-description')!;
+      expect(run.status).toBe('failed');
+      const describeStep = listShipEvidence(store, id).repos['/repo/frontend']!.steps.describe!;
+      expect(describeStep.status).toBe('note');
+      expect(describeStep.detail).toBe(
+        "AI description unavailable (Claude rate limited — You've hit your 5-hour limit) — template body used",
+      );
+      const t = getTicket(store, id);
+      expect(t.stages.find((s) => s.stageKey === 'ship')?.blockedKind).toBe('awaiting-merge');
     });
 
     it('a null pr-description process performs no model call, opens no process run, and falls back to the deterministic branch-facts body', async () => {
@@ -3777,5 +3849,54 @@ describe('hasCompletedShipRun', () => {
     const passed = openShipRun(store, { ticketId: id, attempt: 2, pid: 1, startedAt: 't2' });
     closeShipRun(store, passed.id, 'passed', 't3');
     expect(hasCompletedShipRun(store, id)).toBe(true);
+  });
+});
+
+describe('findLatestImplRun', () => {
+  let store: Store;
+  let id: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'PROJ-3', title: 'find-impl' }).id;
+  });
+  afterEach(() => store.close());
+
+  it('is undefined when no impl process runs exist', () => {
+    expect(findLatestImplRun(store, id)).toBeUndefined();
+  });
+
+  it('returns the provider and model of the latest impl process run', () => {
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'impl',
+      processId: 'session',
+      attempt: 1,
+      provider: 'codex',
+      model: 'codex-mini',
+      startedAt: 't0',
+    });
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'impl',
+      processId: 'session',
+      attempt: 2,
+      provider: 'claude',
+      model: 'claude-sonnet-5-5',
+      startedAt: 't1',
+    });
+    // Another stage run should not be picked
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      processId: 'findings',
+      attempt: 1,
+      provider: 'opencode2',
+      model: 'opencode-default',
+      startedAt: 't2',
+    });
+
+    const run = findLatestImplRun(store, id);
+    expect(run).toEqual({ provider: 'claude', model: 'claude-sonnet-5-5' });
   });
 });

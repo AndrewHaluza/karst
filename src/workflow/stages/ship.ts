@@ -33,6 +33,7 @@ import { scanPorcelainForDenied, describeDenyHits } from '../shipDenyScan.js';
 import {
   countShipRuns,
   findExistingLivePr,
+  findLatestImplRun,
   findMergedPr,
   findPriorShipRun,
   getShipOperationIntentRow,
@@ -126,6 +127,14 @@ export interface ShipOpts {
   model?: string;
   /** Direct injection retained for host-agnostic callers and focused tests. */
   conventions?: ArtifactConventions;
+  /**
+   * The latest impl-stage process run for this ticket (`{provider, model}`),
+   * outranking ticket/manifest defaults in PR metadata. When omitted, loaded from `store`.
+   */
+  implRun?: {
+    provider?: string | null;
+    model?: string | null;
+  } | null;
   /**
    * The configured PR-description process (Task 3): the `pr-description`
    * assignment snapshot and its instrumented adapter, resolved ONCE by the
@@ -574,7 +583,7 @@ function isStoreFailure(err: unknown): boolean {
 
 // `hasCompletedShipRun` now lives in `shipStore.ts` (NDL-40); re-exported here
 // so every existing `from './ship.js'` import keeps working unchanged.
-export { hasCompletedShipRun } from './shipStore.js';
+export { hasCompletedShipRun, findLatestImplRun } from './shipStore.js';
 
 /** The outcome of a sub-task's fork-point ship precondition (NDL-85). */
 export interface SubtaskForkPushOutcome {
@@ -779,6 +788,7 @@ export async function shipTicket(
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
 ): Promise<ShipResult> {
   const ticket = getTicket(store, opts.ticketId);
+  const implRun = opts.implRun !== undefined ? opts.implRun : findLatestImplRun(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
   const allWorktrees = worktrees;
   const scoped = opts.repos
@@ -973,6 +983,7 @@ export async function shipTicket(
           repoName,
           ticket,
           ...(conventions ? { conventions } : {}),
+          implRun,
         });
 
         // Provenance: whatever the branch carried BEFORE this ship ran, bounded
@@ -1465,6 +1476,10 @@ export async function shipTicket(
           // git facts (commit bullets + diffstat) — a ship with no AI process
           // still carries what changed rather than just the title. A failed read
           // degrades to a title-only body and never fails ship.
+          // Template body used when the AI describe call fails: deterministic
+          // branch facts under the ticket key, so ship still opens the PR.
+          const templateBody = (diffContext: PrDiffContext): string =>
+            `Ticket: ${key} — ${title}\n\n${deterministicDescription(diffContext)}`;
           const deterministicDescription = (diffContext: PrDiffContext): string =>
             renderPrDescription({
               title: prTitle,
@@ -1497,6 +1512,7 @@ export async function shipTicket(
                 onProgress,
                 onInsideProgress,
                 process.assignment,
+                () => templateBody(ctx),
               );
             }
             if (process === null) {
@@ -1525,6 +1541,7 @@ export async function shipTicket(
                 onProgress,
                 onInsideProgress,
                 undefined,
+                () => templateBody(ctx),
               );
             }
             opts.debug?.(
@@ -1627,6 +1644,7 @@ export async function shipTicket(
               buildBody,
               onProgress,
               { store, run },
+              () => templateBody({}),
             );
             markShipOperationApplied(store, prOp.intentId, {
               appliedAt: nowIso(),

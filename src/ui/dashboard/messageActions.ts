@@ -61,6 +61,8 @@ export interface DashboardActions {
   openDependency: (ticketId: number) => void | Promise<void>;
   stopDriver: () => void | Promise<void>;
   shipTicket: () => void | Promise<void>;
+  /** Re-run ship for every repo whose latest ship step failed (host re-derives them). */
+  retryShip: () => void | Promise<void>;
   resumeTicket: () => void | Promise<void>;
   /** Move this ticket back to Implement — the unified recovery action (host-confirmed). */
   sendBackToImplement: () => void | Promise<void>;

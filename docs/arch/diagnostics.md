@@ -74,3 +74,15 @@ END_DOC_BLOCK: [@arch:DIAG-04]
 
 A planning-session terminal (`extension/ops/planningOps.ts`) carries no ticket id, so it is NOT token-metered (no `token_usage` rows, nothing on the usage view) and NOT registered with the resource monitor. A report taken while one runs shows neither its tokens nor its process; that absence is expected, not a capture bug.
 END_DOC_BLOCK: [@arch:DIAG-05]
+
+## [@arch:RESMON-CONTAINERS] Containers are sampled by `docker stats` off the fast tick, attributed by NAME
+covers: src/runtime/containerSampler.ts#sampleContainers, src/runtime/containerRows.ts#applyContainers, src/runtime/containerRows.ts#vmProcessCost, src/agent/sandboxInventory.ts#parseSandboxContainerName
+
+On macOS every container runs inside the Docker VM and an sbx sandbox in its own microVM, so the host `ps` tree of a server row sees only the docker CLI client (~0%), and a detached sandbox container (`-proxy`, `-svc`, `-port-<N>`) has no host pid at all. `runtime/containerSampler.ts` is the only reading of their cost: `docker ps` (name filter = `projectPrefix`) then ONE `docker stats --no-stream --format '{{json .}}' <names>`, CPU divided by the core count. It takes ~2 s, so `ResourceMonitor.refreshContainers` runs it only from the slow lane / panel open (`refreshNow`), never from the 2 s fast tick, never awaited by a tick, single-flight, and bounded by a timeout. A daemon that is down or slow sets `containersDegraded` and KEEPS the previous container reading; it never blocks or empties a tick.
+
+Attribution is by NAME (`@arch:CONTAINER`): `parseSandboxContainerName` is `parseSandboxName` plus the `-proxy|-svc|-port-<N>` suffix. A dev-server container (`karst-t<id>|baseline-<service>`, not under the project prefix) is matched through `servers.container` and its stats are merged INTO its existing server row — never a second row. Every other sandbox container becomes an inventory row of kind `container` (pid 0, attributed to its ticket) with NO Kill: it has no pid and no `servers` row.
+
+`vmOverhead` ("VM overhead / other") is the host tree cost of `com.docker.virtualization` and any sbx VM process minus the sum of ALL karst containers, floored at 0. It is shown but is NOT in the attributed totals (it includes non-karst containers and the VM's fixed cost). Whether sbx sandboxes appear in `docker stats` is unverified; if they do not, their cost shows only here.
+
+Waste: `container-ticket-finished` flags a container only when its ticket is done or archived — report-only, never killable. An idle container is never waste (a sandbox idles between stages). It does not duplicate `extension/ops/sandboxStrays.ts`, which finds leftover objects (clone dirs, volumes, networks, proxies) with no sandbox and has no cost reading.
+END_DOC_BLOCK: [@arch:RESMON-CONTAINERS]

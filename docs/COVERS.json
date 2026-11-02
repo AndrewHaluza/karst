@@ -38,6 +38,9 @@
   "scripts/eval/stats.mjs": [
     "arch:UATHOST-05"
   ],
+  "scripts/evalForm/**": [
+    "arch:FORMEVAL"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"
@@ -127,6 +130,9 @@
   "src/agent/registry.ts#resolveAdapter": [
     "arch:UATHOST-00",
     "arch:UATHOST-01"
+  ],
+  "src/agent/sandboxInventory.ts#parseSandboxContainerName": [
+    "arch:RESMON-CONTAINERS"
   ],
   "src/agent/seed.ts": [
     "arch:PM-00"
@@ -460,6 +466,15 @@
   ],
   "src/runtime/branchName.ts#suffixBranchForCollision": [
     "arch:BRANCH-NAME"
+  ],
+  "src/runtime/containerRows.ts#applyContainers": [
+    "arch:RESMON-CONTAINERS"
+  ],
+  "src/runtime/containerRows.ts#vmProcessCost": [
+    "arch:RESMON-CONTAINERS"
+  ],
+  "src/runtime/containerSampler.ts#sampleContainers": [
+    "arch:RESMON-CONTAINERS"
   ],
   "src/runtime/dockerCommand.ts#renderDockerRun": [
     "arch:CONTAINER"

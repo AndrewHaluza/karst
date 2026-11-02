@@ -1015,6 +1015,20 @@ describe('buildDashboardState', () => {
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
   });
 
+  it('offers Retry ship on the ship segment when ship failed, without changing the ticket badge', () => {
+    const t = createTicket(store, { key: 'N-1F', title: 't' });
+    setStage(store, t.id, 'ship', { status: 'failed', verdict: 'describe step failed for /web' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+
+    const ship = buildDashboardState(store, t.id).rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needsUser).toBe(true);
+    expect(ship.needs).toEqual({
+      detail: 'describe step failed for /web',
+      action: 'Retry ship',
+      cta: { kind: 'retry-ship' },
+    });
+  });
+
   it('puts needs-you on impl when the agent is the one waiting', () => {
     const t = createTicket(store, { key: 'N-2', title: 't' });
     setStage(store, t.id, 'impl', { status: 'running' });
