@@ -65,6 +65,13 @@ describe('freePortWindow', () => {
     expect(base).toBeGreaterThan(port);
   });
 
+  it('claims the next band when a foreign listener holds a port inside the first', async () => {
+    const port = await holdLowPort();
+    // the listener sits mid-window: the band [port-2, port+2) is unusable, the next stride is free
+    const base = await freePortWindow(4, port - 2, port + 40, 4, lockDir());
+    expect(base).toBeGreaterThanOrEqual(port + 1);
+  });
+
   it('skips a window another live run has already claimed', async () => {
     const dir = lockDir();
     // A random base: a fixed one would collide with a concurrent run of this very

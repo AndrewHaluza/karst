@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   BASE_FILE_CAP,
+  FLAKE_FILE_CAP,
   alertLine,
   allFailuresParsed,
   cacheKey,
   classifyFailures,
+  classifyRerun,
+  flakeNotice,
+  planFlakeRerun,
   driftNotice,
   failingTestIds,
   fileOfId,
@@ -113,5 +117,27 @@ describe('planBaseCheck dependency changes', () => {
   it('never drifts when the ticket changed dependency files', () => {
     expect(planBaseCheck([ID_A], new Set(['package.json'])).kind).toBe('fail');
     expect(planBaseCheck([ID_A], new Set(['sub/package-lock.json'])).kind).toBe('fail');
+  });
+});
+
+describe('flake re-run', () => {
+  const pass = { status: 0, failed: new Set() };
+  it('passes alone: flaky, with the NOTICE', () => {
+    expect(classifyRerun([ID_A], new Map([['src/a.test.ts', pass]]))).toEqual({ flaky: [ID_A], breaks: [] });
+    expect(flakeNotice([ID_A, ID_B])).toBe(`NOTICE: flaky: ${ID_A}; ${ID_B} (passed when re-run alone)`);
+  });
+  it('fails twice: a break', () => {
+    const again = { status: 1, failed: new Set([ID_A]) };
+    expect(classifyRerun([ID_A], new Map([['src/a.test.ts', again]]))).toEqual({ flaky: [], breaks: [ID_A] });
+  });
+  it('a file that fails alone with no parseable id breaks all its ids', () => {
+    expect(classifyRerun([ID_A], new Map([['src/a.test.ts', { status: 1, failed: new Set() }]])).breaks).toEqual([ID_A]);
+  });
+  it('re-runs up to the cap, skips above it with the file count', () => {
+    expect(planFlakeRerun([ID_A, ID_B])).toEqual({ kind: 'run', files: ['src/a.test.ts', 'src/b.test.ts'] });
+    const ids = Array.from({ length: FLAKE_FILE_CAP + 1 }, (_, i) => `src/f${i}.test.ts > t`);
+    const plan = planFlakeRerun(ids);
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toContain(`flake re-run skipped: ${FLAKE_FILE_CAP + 1} files`);
   });
 });
