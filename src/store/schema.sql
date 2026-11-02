@@ -177,7 +177,8 @@ CREATE TABLE IF NOT EXISTS stage_runs (
   manifest_hash  TEXT,                 -- the gate-relevant config this run resolved from (v25)
   pid            INTEGER,              -- the process that opened it; NULL = unknown, never guessed
   started_at     TEXT NOT NULL,
-  ended_at       TEXT                  -- NULL while running AND on a stale run: when it died is unknown
+  ended_at       TEXT,                 -- NULL while running AND on a stale run: when it died is unknown
+  block_reason   TEXT                  -- v96: 'blocker: reason' of a blocked run; NULL otherwise
 );
 CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_key, id);
 

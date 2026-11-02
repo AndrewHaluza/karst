@@ -2797,5 +2797,12 @@ function migrateLocked(db: Database): void {
     if (cols95.size > 0 && !cols95.has('fix_commit_sha')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN fix_commit_sha TEXT');
   }
 
+  if (current < 96) {
+    // v96: `stage_runs.block_reason` — why a run ended `blocked`, kept on the run so a
+    // later retry of the stage (which clears `stages.blocked_*`) cannot erase it. Additive.
+    const cols96 = tableColumns(db, 'stage_runs');
+    if (cols96.size > 0 && !cols96.has('block_reason')) db.exec('ALTER TABLE stage_runs ADD COLUMN block_reason TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

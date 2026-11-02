@@ -80,6 +80,7 @@ export function caseStageRun(over: Partial<StageRun> & Pick<StageRun, 'id' | 'st
     manifestHash: null,
     pid: null,
     startedAt: at(10),
+    blockReason: null,
     endedAt: at(20),
     ...over,
   };
