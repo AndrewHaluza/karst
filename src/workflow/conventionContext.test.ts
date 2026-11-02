@@ -4,6 +4,7 @@ import {
   resolveRepoName,
   resolveRepoScope,
   resolveTicketType,
+  splitConventionalTitle,
 } from './conventionContext.js';
 import { manifest, repo } from '../manifest/fixtures.js';
 
@@ -115,4 +116,23 @@ describe('resolveRepoName', () => {
     });
     expect(resolveRepoName(shared, '/repos/mono')).toBe('fe');
   });
+});
+
+describe('splitConventionalTitle', () => {
+  it.each([
+    ['fix: Foo', 'fix', 'Foo'],
+    ['feat(sbx): Foo', 'feat', 'Foo'],
+    ['fix!: Foo', 'fix', 'Foo'],
+    ['refactor(core)!: Foo bar', 'refactor', 'Foo bar'],
+    ['fix:   Foo', 'fix', 'Foo'],
+  ])('strips the known prefix of %s', (input, type, title) => {
+    expect(splitConventionalTitle(input)).toEqual({ type, title });
+  });
+
+  it.each(['Foo', 'Ticket form: Foo', 'Fix: Foo', 'fix:Foo', 'fix: ', 'fixes: Foo'])(
+    'leaves %j unchanged',
+    (input) => {
+      expect(splitConventionalTitle(input)).toEqual({ type: null, title: input });
+    },
+  );
 });
