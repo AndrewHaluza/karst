@@ -13,6 +13,9 @@ import {
   testerPartialDetail,
   TESTER_WRAP_UP_NUDGE,
   UAT_TESTER_WRAP_UP_TIMEOUT_MS,
+  AGY_SANDBOX_BYPASS_HINT,
+  TESTER_CORE_HINTS,
+  testerCoreHint,
   type RunUatTesterOpts,
   type TesterTarget,
 } from './tester.js';
@@ -1701,5 +1704,142 @@ describe('buildTesterPrompt — intent-driven black-box role', () => {
     });
     expect(prompt).toContain('Run exactly: karst context T-1 --for tester --md');
     expect(prompt).not.toContain('git diff');
+  });
+});
+
+describe('buildTesterPrompt — per-core hint map and sandbox bypass (T927)', () => {
+  it('TESTER_CORE_HINTS maps antigravity and agy to the sandbox bypass directive', () => {
+    expect(TESTER_CORE_HINTS.antigravity).toBe(AGY_SANDBOX_BYPASS_HINT);
+    expect(TESTER_CORE_HINTS.agy).toBe(AGY_SANDBOX_BYPASS_HINT);
+    expect(testerCoreHint('antigravity')).toBe(AGY_SANDBOX_BYPASS_HINT);
+    expect(testerCoreHint('agy')).toBe(AGY_SANDBOX_BYPASS_HINT);
+    expect(testerCoreHint('claude')).toBeUndefined();
+    expect(testerCoreHint('codex')).toBeUndefined();
+    expect(testerCoreHint(null)).toBeUndefined();
+    expect(testerCoreHint(undefined)).toBeUndefined();
+  });
+
+  it('agy and antigravity tester prompts contain the sandbox bypass directive', () => {
+    const agyPrompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, { core: 'agy' });
+    expect(agyPrompt).toContain(
+      'Run `npm run uat:host:docker …` and commands that write under `.karst/uat-scratch` with `BypassSandbox: true` on the first call.',
+    );
+
+    const antiPrompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, { provider: 'antigravity' });
+    expect(antiPrompt).toContain(AGY_SANDBOX_BYPASS_HINT);
+  });
+
+  it('claude, codex and default prompts do not contain the sandbox bypass directive', () => {
+    const claudePrompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, { core: 'claude' });
+    expect(claudePrompt).not.toContain('BypassSandbox');
+
+    const codexPrompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, { core: 'codex' });
+    expect(codexPrompt).not.toContain('BypassSandbox');
+
+    const defaultPrompt = buildTesterPrompt(TARGETS[0]!);
+    expect(defaultPrompt).not.toContain('BypassSandbox');
+  });
+
+  it('custom instructions do not displace the agy sandbox bypass directive', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Test custom instructions.', undefined, {
+      core: 'antigravity',
+      ticketKey: 'T-1',
+    });
+    expect(prompt).toContain('Test custom instructions.');
+    expect(prompt).toContain(AGY_SANDBOX_BYPASS_HINT);
+  });
+});
+
+describe('runUatTester — core-specific prompt and telemetry (T927)', () => {
+  let store: Store;
+  let ticketId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-927', title: 'test' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+
+  it('antigravity core includes sandbox bypass in prompt and records it in promptTelemetry', async () => {
+    let capturedPrompt = '';
+    const adapter: AgentAdapter = {
+      runHeadless: async (opts) => {
+        capturedPrompt = opts.prompt;
+        return { raw: PASS_COVERAGE_ANSWER };
+      },
+    };
+
+    await runUatTester(
+      store,
+      {
+        ticketId,
+        targets: TARGETS,
+        assignment: { agentName: 'UAT Agent', provider: 'antigravity', model: 'gemini-3.8-flash' },
+        adapter,
+        git: neverGit,
+      },
+      { now },
+    );
+
+    expect(capturedPrompt).toContain(AGY_SANDBOX_BYPASS_HINT);
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.promptTelemetry).toMatchObject({
+      coreHint: AGY_SANDBOX_BYPASS_HINT,
+    });
+  });
+
+  it('claude core does not include sandbox bypass in prompt or promptTelemetry', async () => {
+    let capturedPrompt = '';
+    const adapter: AgentAdapter = {
+      runHeadless: async (opts) => {
+        capturedPrompt = opts.prompt;
+        return { raw: PASS_COVERAGE_ANSWER };
+      },
+    };
+
+    await runUatTester(
+      store,
+      {
+        ticketId,
+        targets: TARGETS,
+        assignment: { agentName: 'UAT Agent', provider: 'claude', model: 'claude-sonnet-5' },
+        adapter,
+        git: neverGit,
+      },
+      { now },
+    );
+
+    expect(capturedPrompt).not.toContain('BypassSandbox');
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.promptTelemetry).not.toHaveProperty('coreHint');
+    expect(JSON.stringify(run.promptTelemetry)).not.toContain('BypassSandbox');
+  });
+
+  it('codex core does not include sandbox bypass in prompt or promptTelemetry', async () => {
+    let capturedPrompt = '';
+    const adapter: AgentAdapter = {
+      runHeadless: async (opts) => {
+        capturedPrompt = opts.prompt;
+        return { raw: PASS_COVERAGE_ANSWER };
+      },
+    };
+
+    await runUatTester(
+      store,
+      {
+        ticketId,
+        targets: TARGETS,
+        assignment: { agentName: 'UAT Agent', provider: 'codex', model: 'o3' },
+        adapter,
+        git: neverGit,
+      },
+      { now },
+    );
+
+    expect(capturedPrompt).not.toContain('BypassSandbox');
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.promptTelemetry).not.toHaveProperty('coreHint');
+    expect(JSON.stringify(run.promptTelemetry)).not.toContain('BypassSandbox');
   });
 });

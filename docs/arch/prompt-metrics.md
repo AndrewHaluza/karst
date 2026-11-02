@@ -29,7 +29,7 @@ Prompt wording was tuned by intuition and never measured. This file fixes which 
 - out: @arch:CLI-00 (`karst guide` argv-only content, `karst stats --prompts`)
 
 ### Flow
-Facts ride `openProcessRun`; late facts merge once via `setProcessRunPromptTelemetry`; one read path serves baseline and CLI.
+Facts ride `openProcessRun` (seed length, core-specific tester directives); late facts merge once via `setProcessRunPromptTelemetry`; one read path serves baseline and CLI.
 
 ```mermaid
 flowchart TD
@@ -87,6 +87,7 @@ is never a metric input.
 | findings parse-failure rate | `process_runs(prompt_telemetry).parseTiers` on the `review` run | how often the salvage parser fell back, and to which tier (whole-doc → JSONL → fenced → balanced; the tail-suffix scan reports as `balanced`) | `review/findings.ts` → `findingsLane.ts` |
 | tester re-ask rate | `process_runs(prompt_telemetry).silenceNudges` on the `tester` run | `TESTER_SILENCE_NUDGE` fire count — output-contract compliance | `uat/tester.ts` |
 | tester reformat-nudge rate | `process_runs(prompt_telemetry).reformatNudges` on the `tester` run | reformat-nudge fire count, kept SEPARATE from `silenceNudges` — how often a target answered in prose and needed a reshape (UAT-19); this is the rate the park's rollback trigger below reads | `uat/tester.ts` |
+| tester core hint | `process_runs(prompt_telemetry).coreHint` on the `tester` run | core-specific directive (agy terminal sandbox bypass for `uat:host:docker` and scratch dir) | `uat/tester.ts` |
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
 | **guide-pull rate, per core** | `process_runs('guide-pull')` pulls ÷ `process_runs('session')` seeded with the pointer | **gates ticket 12 — see below** | `cli/guideTelemetry.ts` + launch env |
 | seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent. Since the launch split, `seedChars` is the TOTAL resident context: the kickoff (first user message) PLUS the instruction body (written to disk and delivered through the core's own channel); `instructionsChars`/`instructionsHash` carry the instruction layer's own size and digest |
@@ -108,7 +109,7 @@ Every new fact rides the existing `openProcessRun` append-only evidence path
 (schema v57, `docs/arch/store-and-schema.md`). `process_runs.prompt_telemetry` is a
 single nullable JSON column — one column, not one-per-metric, because these facts
 are read together as one rollup and never filtered per-metric in SQL. `openProcessRun`
-remains the only opener; the findings tier and the tester nudge count (known only
+remains the only opener (it captures seed facts and core-specific prompt directives such as agy's sandbox bypass); the findings tier and the tester nudge count (known only
 AFTER their calls finish) merge onto the run through `setProcessRunPromptTelemetry`,
 which carries the same single-late-fact allowance as `setProcessRunResultKind`. A
 guide pull is its OWN attributed row (`process_id='guide-pull'`), never a mutation
