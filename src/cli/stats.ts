@@ -196,12 +196,12 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 function renderPlanning(r: PlanningReport): string {
   const f = r.funnel;
   const lines: string[] = [
-    `karst planning drafts — ${r.scope.projectId === null ? 'all projects' : `project #${r.scope.projectId}`}, ${r.scope.since === null ? 'all time' : `since ${r.scope.since}`}`,
+    `karst planning drafts — ${r.scope.projectId === null ? 'all projects' : `project id ${r.scope.projectId}`}, ${r.scope.since === null ? 'all time' : `since ${r.scope.since}`}`,
     '',
     `Funnel: ${f.total.total} proposals — pending=${f.total.pending}, accepted=${f.total.accepted}, discarded=${f.total.discarded}`,
   ];
   for (const s of f.bySession) {
-    lines.push(`  session #${s.sessionId} (${s.core}/${s.model ?? 'unknown'}): pending=${s.pending}, accepted=${s.accepted}, discarded=${s.discarded}`);
+    lines.push(`  session ${s.sessionId} (${s.core}/${s.model ?? 'unknown'}): pending=${s.pending}, accepted=${s.accepted}, discarded=${s.discarded}`);
   }
   lines.push(`  revised before accept: pending — ${f.revisedBeforeAccept.missing}`);
   lines.push('', 'Outcome of draft-born tickets:');
@@ -222,7 +222,7 @@ function renderPlanning(r: PlanningReport): string {
   lines.push('', 'Stuck (accepted, ticket not done or archived):');
   if (r.stuck.length === 0) lines.push('  none');
   for (const s of r.stuck) {
-    lines.push(`  #${s.ticketId} ${s.title} — stage ${s.stage ?? 'unknown'}, age ${pending(s.ageHours === null ? null : Math.round(s.ageHours), 'h')}`);
+    lines.push(`  ticket ${s.ticketId}: ${s.title} — stage ${s.stage ?? 'unknown'}, age ${pending(s.ageHours === null ? null : Math.round(s.ageHours), 'h')}`);
   }
   return lines.join('\n');
 }
