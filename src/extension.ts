@@ -3532,7 +3532,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
           resumeFix: (id, gate, attempts, roundId, process) =>
-            resumeFixSession(id, gate, attempts, roundId, process),
+            snapshotThenResume(localStore, id, process === null ? null : roundId, defaultGitRunner,
+              (err) => logError(`karst: fix-round HEAD snapshot for ticket ${id} failed`, err),
+              () => resumeFixSession(id, gate, attempts, roundId, process)),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row
@@ -3620,18 +3622,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // function only runs once a resume has been granted, so reaching it IS the
   // decision.
   function resumeFixSession(
-    ticketId: number,
-    gate: GateStageKey,
-    attempts: number,
-    roundId: number | null,
-    process: DriveProcessBundle | null,
-  ): void {
-    snapshotThenResume(localStore, ticketId, process === null ? null : roundId, defaultGitRunner, (err) =>
-      logError(`karst: fix-round HEAD snapshot for ticket ${ticketId} failed`, err),
-    () => resumeFixSessionNow(ticketId, gate, attempts, roundId, process));
-  }
-
-  function resumeFixSessionNow(
     ticketId: number,
     gate: GateStageKey,
     attempts: number,
