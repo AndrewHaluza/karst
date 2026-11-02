@@ -8,14 +8,21 @@ import { runChecks } from './checks.mjs';
 import { judgeOutput } from './judge.mjs';
 import { loadCases, loadPromptSource } from './inputs.mjs';
 import { renderReport } from './report.mjs';
+import { renderIntentReport } from './intentReport.mjs';
+import { caseItem, instanceItem, runIntentEval } from './intentRun.mjs';
+import { loadInstances } from '../eval/instances.mjs';
+import { readFileSync } from 'node:fs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEFAULT_CASES = join(ROOT, 'evals/form/improve-cases.jsonl');
+export const DEFAULT_INSTANCES = join(ROOT, 'evals/instances/multi-swe-bench-ts-v1.jsonl');
 export const DEFAULT_RUNS = 3;
+const PASSES = ['improve', 'intent'];
+const SOURCES = ['raw', 'improved'];
 const PROVIDERS = ['claude', 'codex'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -25,17 +32,25 @@ export function parseArgs(argv) {
     else if (a === '--only') o.only = need(i).split(',').filter(Boolean);
     else if (a === '--runs') o.runs = Number(need(i));
     else if (a === '--provider') o.provider = need(i);
+    else if (a === '--source') o.sources.push(need(i));
+    else if (a === '--improve-prompt') o.improvePrompt = need(i);
+    else if (a === '--instances') o.instances = need(i);
     else if (a === '--model') o.model = need(i);
     else if (a === '--judge-model') o.judgeModel = need(i);
     else throw new Error(`unknown flag ${a}`);
     i++;
   }
-  if (o.pass !== 'improve') throw new Error('only --pass improve is supported');
+  if (!PASSES.includes(o.pass)) throw new Error(`--pass must be one of ${PASSES.join('|')}`);
+  if (o.sources.some((x) => !SOURCES.includes(x))) throw new Error(`--source must be ${SOURCES.join('|')}`);
   if (!PROVIDERS.includes(o.provider)) throw new Error(`--provider must be one of ${PROVIDERS.join('|')}`);
   if (!o.model) throw new Error('--model is required');
   if (!o.judgeModel) throw new Error('--judge-model is required');
   if (o.judgeModel === o.model) throw new Error('--judge-model must differ from --model');
   if (!Number.isInteger(o.runs) || o.runs < 1) throw new Error('--runs must be a positive integer');
+  if (o.pass === 'intent') {
+    if (o.sources.length === 0) o.sources = ['raw'];
+    return o;
+  }
   if (o.prompts.length === 0) o.prompts = ['builtin'];
   if (o.cases.length === 0) o.cases = [DEFAULT_CASES];
   return o;
@@ -93,8 +108,44 @@ export function writeResults(dir, { meta, cases, attempts }) {
   writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, cases, attempts }, null, 2));
 }
 
+/** Source modes = report columns: `raw`, and `improved:<prompt name>`. */
+export function intentModes(opts, read) {
+  return opts.sources.map((s) => (s === 'raw'
+    ? { name: 'raw', kind: 'raw' }
+    : (({ name, body }) => ({ name: `improved:${name}`, kind: 'improved', body }))(loadPromptSource(opts.improvePrompt, read))));
+}
+
+async function mainIntent(opts) {
+  const [{ improveDescription }, { generateIntent }, { resolveAdapter }] = await Promise.all([
+    import('../../src/workflow/classify/improve.ts'), import('../../src/workflow/classify/intent.ts'), import('../../src/agent/registry.ts'),
+  ]);
+  if (!existsSync(opts.instances)) throw new Error(`instances file not found: ${opts.instances}`);
+  let items = [
+    ...loadInstances(readFileSync(opts.instances, 'utf8')).map(instanceItem),
+    ...opts.cases.flatMap((p) => { if (!existsSync(p)) throw new Error(`cases file not found: ${p}`); return loadCases(p).map(caseItem); }),
+  ];
+  if (opts.only) items = items.filter((c) => opts.only.includes(c.id));
+  if (items.length === 0) throw new Error('no instances selected');
+  const modes = intentModes(opts);
+  const adapter = resolveAdapter(opts.provider);
+  const startedAt = new Date().toISOString();
+  const meta = { startedAt, pass: 'intent', model: opts.model, judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
+  const attempts = await runIntentEval({
+    opts, items, modes, improve: improveDescription, intent: generateIntent, adapter, judgeAdapter: adapter,
+    makeEmptyDir: () => mkdtempSync(join(tmpdir(), 'eval-form-')),
+    onProgress: (a) => console.error(`${a.source} ${a.caseId} run ${a.run}: ${a.error ? 'ERROR ' + a.error : 'done'}`),
+  });
+  const dir = join(ROOT, 'eval-results', `form-${startedAt.replace(/[:.]/g, '-')}`);
+  const slim = items.map(({ testPatch, ...rest }) => rest); // test_patch stays out of results
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'report.md'), renderIntentReport({ meta, items: slim, attempts }));
+  writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, items: slim, attempts }, null, 2));
+  console.log(`report: ${join(dir, 'report.md')}`);
+}
+
 export async function main(argv) {
   const opts = parseArgs(argv);
+  if (opts.pass === 'intent') return mainIntent(opts);
   const [{ improveDescription }, { resolveAdapter }] = await Promise.all([
     import('../../src/workflow/classify/improve.ts'), import('../../src/agent/registry.ts'),
   ]);

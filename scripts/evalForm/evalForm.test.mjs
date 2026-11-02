@@ -153,7 +153,7 @@ describe('cli args', () => {
     expect(() => parseArgs(['--judge-model', 'a'])).toThrow(/--model/);
     expect(() => parseArgs([...base, '--provider', 'x'])).toThrow(/provider/);
     expect(() => parseArgs([...base, '--runs', '0'])).toThrow(/runs/);
-    expect(() => parseArgs([...base, '--pass', 'intent'])).toThrow(/improve/);
+    expect(() => parseArgs([...base, '--pass', 'classify'])).toThrow(/--pass/);
   });
   it('collects repeated prompts and --only', () => {
     const o = parseArgs([...base, '--prompt', 'builtin', '--prompt', 'p.md', '--only', 'a,b']);
