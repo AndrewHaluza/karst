@@ -5,7 +5,7 @@ import type { GhRunner } from '../integrations/github.js';
 import type { GitRunner } from '../integrations/git.js';
 import { transition } from './machine.js';
 import { getTicket } from '../store/tickets.js';
-import { adoptMergedPr, currentMergedPrNumber, probeMergedNothingNew, settleMergedNothingNew } from './mergedNothingNew.js';
+import { adoptMergedPr, currentMergedPrNumber, probeMergedNothingNew, settleMergedNothingNew, settleMergedPostPrStages } from './mergedNothingNew.js';
 
 function seedPr(store: Store, ticketId: number, status: string, number: number): void {
   store.db
@@ -204,5 +204,46 @@ describe('GitHub fallback (hand-opened PR, no store row)', () => {
       args[0] === 'status' ? { stdout: '', stderr: '', exitCode: 0 } : r.git(args, '/w');
     expect(await settleMergedNothingNew({ store, git, gh: r.gh })).toEqual([ticketId]);
     expect(store.db.prepare('SELECT status FROM prs').all()).toEqual([{ status: 'merged' }]);
+  });
+});
+
+describe('settleMergedPostPrStages', () => {
+  let store: Store;
+  let ticketId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicket(store, { key: 'T', title: 't' }).id;
+    for (const from of ['scope', 'impl'] as const) transition(store, ticketId, from, { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'x' });
+    store.db
+      .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'r', '/w', 'b', 'develop', 'inherited')`)
+      .run(ticketId);
+  });
+  const gitAt = (head: string, diffExit = 1): GitRunner => async (args) =>
+    args[0] === 'rev-parse'
+      ? { stdout: `${head}\n`, stderr: '', exitCode: 0 }
+      : { stdout: '', stderr: '', exitCode: args[0] === 'diff' ? diffExit : 0 };
+
+  it('settles a fix-stage ticket whose PR merged with nothing new to done', async () => {
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
+    seedPr(store, ticketId, 'merged', 3);
+    const { gh } = runners({ head: MERGED });
+    expect(await settleMergedPostPrStages({ store, git: gitAt(MERGED), gh })).toEqual([ticketId]);
+    expect(getTicket(store, ticketId).stageCurrent).toBe('done');
+    expect(store.db.prepare('SELECT body FROM ticket_messages').all()).toEqual([{ body: 'PR #3 merged; the ticket is done' }]);
+  });
+
+  it('leaves the ticket when the branch has a new commit', async () => {
+    seedPr(store, ticketId, 'merged', 3);
+    const { gh } = runners({ head: MERGED });
+    expect(await settleMergedPostPrStages({ store, git: gitAt('b'.repeat(40)), gh })).toEqual([]);
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
+  });
+
+  it('leaves the ticket when the PR status is unknown', async () => {
+    seedPr(store, ticketId, 'unknown', 3);
+    const { gh } = runners({ head: MERGED });
+    expect(await settleMergedPostPrStages({ store, git: gitAt(MERGED), gh })).toEqual([]);
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
   });
 });

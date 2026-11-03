@@ -6,6 +6,8 @@ import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage } from '../store/stages.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
 import { transition } from './machine.js';
+import { postMessage } from '../store/ticketMessages.js';
+import type { StageKey } from '../model/types.js';
 import type { GhRunner } from '../integrations/github.js';
 import { headCommit, type GitRunner } from '../integrations/git.js';
 
@@ -190,6 +192,67 @@ export async function settleMergedNothingNew(
       debug?.(`[merge] sweep: ticket ${ticket.id} waits at ship but every PR merged with nothing new — passing ship`);
       transition(store, ticket.id, 'ship', { kind: 'passed' }, () => {
         clearStageBlock(store, ticket.id, 'ship');
+      });
+      advanced.push(ticket.id);
+    } catch {
+      continue;
+    }
+  }
+  return advanced;
+}
+
+/** Stages that sit after the first PR: a merge landing here has nothing left to ship. */
+const POST_PR_STAGES: readonly StageKey[] = ['uat', 'review', 'fix'];
+
+/**
+ * The sweep's third settle path: a ticket at uat, review or fix whose every
+ * repo's current PR merged with nothing new on the branch (T941: PR merged
+ * while the fix agent had nothing to commit, so the done marker was refused
+ * and the ticket sat at fix). `done` means merged (arch:DONE), so walk the
+ * forward edges to done — the skipped gates are recorded `bypassed`, never as
+ * passes — and post one inbox note. A branch with new commits, an unreadable
+ * PR (status unknown) or a dirty tree settles nothing. The live round ends by
+ * itself: the fix brief and host re-run are keyed on the current stage.
+ * Returns the ids that reached done.
+ */
+export async function settleMergedPostPrStages(
+  deps: { store: Store; git: GitRunner; gh: GhRunner },
+  scope: ProjectScope = {},
+  debug?: (message: string) => void,
+): Promise<number[]> {
+  const { store, git } = deps;
+  const advanced: number[] = [];
+  for (const ticket of listTickets(store, scope)) {
+    const from = ticket.stageCurrent as StageKey;
+    if (!POST_PR_STAGES.includes(from)) continue;
+    try {
+      const worktrees = listWorktreesByTicket(store, ticket.id);
+      if (worktrees.length === 0) continue;
+      let allLanded = true;
+      const landedPrs: [string, MergedNothingNew][] = [];
+      for (const wt of worktrees) {
+        const landed = await probeMergedNothingNew(deps, ticket.id, wt.repo, wt.path);
+        const status = landed ? await git(['status', '--porcelain'], wt.path) : null;
+        if (!landed || status?.exitCode !== 0 || status.stdout.trim() !== '') {
+          allLanded = false;
+          break;
+        }
+        landedPrs.push([wt.repo, landed]);
+      }
+      if (!allLanded) continue;
+      debug?.(`[merge] sweep: ticket ${ticket.id} at '${from}' has every PR merged with nothing new — settling to done`);
+      let stage: StageKey = from;
+      while (stage !== 'ship') {
+        stage = transition(store, ticket.id, stage, { kind: 'bypassed' });
+      }
+      transition(store, ticket.id, 'ship', { kind: 'passed' });
+      const numbers = landedPrs.map(([, l]) => `#${l.number}`).join(', ');
+      postMessage(store, {
+        projectId: ticket.projectId ?? null,
+        fromTicketId: null,
+        toTicketId: ticket.id,
+        kind: 'event',
+        body: `PR ${numbers} merged; the ticket is done`,
       });
       advanced.push(ticket.id);
     } catch {
