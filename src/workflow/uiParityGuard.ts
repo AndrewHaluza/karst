@@ -30,7 +30,9 @@ async function touchesUi(git: GitRunner, cwd: string, baseRef: string | null): P
   }
   const diff = await git(['diff', '--name-only', from], cwd);
   if (diff.exitCode !== 0) return false;
-  return diff.stdout.split('\n').some((f) => f.startsWith(UI_PREFIX));
+  const untracked = await git(['ls-files', '--others', '--exclude-standard'], cwd);
+  const files = [...diff.stdout.split('\n'), ...(untracked.exitCode === 0 ? untracked.stdout.split('\n') : [])];
+  return files.some((f) => f.startsWith(UI_PREFIX));
 }
 
 /**

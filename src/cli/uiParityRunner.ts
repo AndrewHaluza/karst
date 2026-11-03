@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ParityResult } from '../workflow/uiParityGuard.js';
 
 const PARITY_DIR = 'src/ui/dashboard/parity';
@@ -21,6 +23,13 @@ export function parseParityFailures(output: string): string[] {
  * caller lets the marker through.
  */
 export function runParityVitest(cwd: string): Promise<ParityResult> {
+  // Not a karst checkout (another ticket repo with its own src/ui): nothing to run.
+  if (
+    !existsSync(join(cwd, PARITY_DIR)) ||
+    !existsSync(join(cwd, 'vitest.integration.config.ts'))
+  ) {
+    return Promise.resolve({ ok: true, failures: [] });
+  }
   return new Promise((resolve, reject) => {
     execFile(
       'npx',
@@ -30,7 +39,10 @@ export function runParityVitest(cwd: string): Promise<ParityResult> {
         if (!error) return resolve({ ok: true, failures: [] });
         const code = (error as NodeJS.ErrnoException & { code?: unknown }).code;
         if (typeof code !== 'number') return reject(error); // spawn error or timeout
-        resolve({ ok: false, failures: parseParityFailures(`${stdout}\n${stderr}`) });
+        const failures = parseParityFailures(`${stdout}\n${stderr}`);
+        // No failing test named: vitest itself did not run (wrong ABI, bad config). Not a verdict.
+        if (failures.length === 0) return reject(new Error(`vitest exited ${code} with no failing test`));
+        resolve({ ok: false, failures });
       },
     );
   });

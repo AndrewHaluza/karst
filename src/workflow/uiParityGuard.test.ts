@@ -57,6 +57,15 @@ describe('ui parity marker guard', () => {
     await expect(p).rejects.toThrow(UI_PARITY_UPDATE_COMMAND);
   });
 
+  it('counts an untracked src/ui file as a UI change', async () => {
+    const git: GitRunner = async (args) =>
+      args[0] === 'ls-files'
+        ? { exitCode: 0, stdout: 'src/ui/new.ts\n', stderr: '' }
+        : { exitCode: 0, stdout: args[0] === 'diff' ? '\n' : 'abc\n', stderr: '' };
+    await assertUiParityFresh(store, ticketId, git, runner({ ok: true, failures: [] }));
+    expect(runs).toEqual(['/wt/a']);
+  });
+
   it('allows the marker when the diff probe fails', async () => {
     const git: GitRunner = async () => ({ exitCode: 128, stdout: '', stderr: 'bad' });
     await expect(
