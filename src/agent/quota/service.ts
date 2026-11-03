@@ -4,6 +4,7 @@ import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
 import { opencodeAuthPath, opencodeQuotaReader } from './opencode.js';
 import { antigravityQuotaReader } from './antigravity.js';
+import type { ProcessLister } from './antigravityDiscovery.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
 /**
@@ -121,6 +122,8 @@ export interface DefaultQuotaReadersDeps {
   fetchImpl?: typeof fetch;
   /** Injected antigravity appDataDir override for tests. */
   antigravityAppDataDir?: string;
+  /** Injected for tests so discovery never probes a language server running on the host. */
+  antigravityListProcesses?: ProcessLister;
 }
 
 /** The production reader set — one reader per core (D162/D201). */
@@ -151,6 +154,7 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       now,
       fetchImpl: deps.fetchImpl,
       appDataDir: deps.antigravityAppDataDir,
+      listProcesses: deps.antigravityListProcesses,
     }),
     opencodeQuotaReader({
       core: 'opencode',
