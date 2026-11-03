@@ -27,7 +27,7 @@ function deps(over: Partial<CiFailureOpsDeps> = {}) {
         : { stdout: '{"status":"completed","jobs":[]}', exitCode: 0 }),
     writeLog: (name: string, text: string) => { written[name] = text; return `/art/${id}/${name}`; },
     confirm: vi.fn(async () => true),
-    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(), afterServerChange: vi.fn(),
+    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), handOff: vi.fn((_p: string): string | null => null), afterServerChange: vi.fn(),
     ...over,
   } satisfies CiFailureOpsDeps;
   return { d, written };
@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 describe('sendCiFailureToAgent', () => {
-  it('writes the log, sends the ticket back with a reason naming the path, and drives', async () => {
+  it('writes the log, sends the ticket back with a reason naming the path, and hands the reason to the session', async () => {
     seed([{ name: 'build', url: 'https://github.com/o/r/actions/runs/1/job/2' }]);
     const { d, written } = deps();
     await sendCiFailureToAgent(d);
@@ -49,7 +49,12 @@ describe('sendCiFailureToAgent', () => {
     expect(getTicket(store, id).stageCurrent).toBe('impl');
     const msg = listInbox(store, id, { unreadOnly: false })[0]!;
     expect(msg.body).toContain(`/art/${id}/ci-failure-7.log`);
-    expect(d.drive).toHaveBeenCalledOnce();
+    expect(d.handOff).toHaveBeenCalledOnce();
+    const prompt = vi.mocked(d.handOff).mock.calls[0]![0];
+    expect(prompt).toContain('#7');
+    expect(prompt).toContain(`/art/${id}/ci-failure-7.log`);
+    expect(prompt).toContain('stage: "impl"');
+    expect(d.info).toHaveBeenCalledWith(expect.stringContaining('sent to the agent'));
     expect(d.afterServerChange).toHaveBeenCalledOnce();
   });
   it('forgets the stored rollup so a stale failing never re-offers the action', async () => {
@@ -87,7 +92,16 @@ describe('sendCiFailureToAgent', () => {
     const { d } = deps({ confirm: async () => false });
     await sendCiFailureToAgent(d);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
-    expect(d.drive).not.toHaveBeenCalled();
+    expect(d.handOff).not.toHaveBeenCalled();
+  });
+  it('a hand-off refusal says no session was started, never "sent to the agent"', async () => {
+    seed([{ name: 'build', url: null }]);
+    const { d } = deps({ handOff: vi.fn(() => 'the ticket is paused.') });
+    await sendCiFailureToAgent(d);
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
+    const msg = vi.mocked(d.info).mock.calls[0]![0] as string;
+    expect(msg).toContain('No session was started: the ticket is paused.');
+    expect(msg).not.toContain('sent to the agent');
   });
   it('unavailable (not failing) informs and moves nothing', async () => {
     const { d } = deps();

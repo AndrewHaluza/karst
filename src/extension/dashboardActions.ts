@@ -1,5 +1,6 @@
 import { makeTesterSkipActions } from './ops/testerSkipOps.js';
 import { makePushDivergedActions } from './ops/pushDivergedOps.js';
+import { guardedHandOff } from './ops/guardedHandOff.js';
 import { makeBaselineActions } from './ops/baselineDecisionOps.js';
 import { reviewStallBinding } from './reviewStallBinding.js';
 import { type DriverController } from '../workflow/driverController.js';
@@ -550,6 +551,7 @@ export function makeDashboardActions(
       store, ticketId, notify: vscodeNotify, debug,
       runShip: (id) => void runShipSaga(id).catch((e) => logError('push-diverged overwrite: ship failed', e)),
       redrive: driveAfterResume, refresh: afterServerChange,
+      handOff: guardedHandOff({ paused: () => getTicket(store, ticketId).pausedAt != null, sessionsAvailable: () => true, handOff: handOffToSession }),
     }),
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     ...usageLimitParks,

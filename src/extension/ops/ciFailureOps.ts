@@ -31,8 +31,12 @@ export interface CiFailureOpsDeps {
   readonly error: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
   readonly debug: (message: string) => void;
-  /** Kick the driver so the resumed Implement session launches. */
-  readonly drive: () => void;
+  /**
+   * Hand the prompt to the ticket's Implement session: nudge a live one, else open one seeded with it.
+   * Returns null when a session received it, else the reason none did. The driver cannot do this:
+   * it starts gate stages only, never an Implement session.
+   */
+  readonly handOff: (prompt: string) => string | null;
   /** Settles the webview's pending state. Must run on EVERY exit. */
   readonly afterServerChange: () => void;
 }
@@ -91,6 +95,11 @@ function reasonText(reports: readonly PrReport[], paths: readonly string[]): str
   return text.length > MAX_MESSAGE_BODY ? `${text.slice(0, MAX_MESSAGE_BODY - 3)}...` : text;
 }
 
+/** The text the Implement session receives: the stored reason plus the done marker. */
+export function handOffPrompt(reason: string): string {
+  return `${reason}\nFix the failure in the worktree, then call the karst MCP tool \`stage\` with { stage: "impl" } to mark the work done.`;
+}
+
 export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void> {
   try {
     const state = ciFailureState(deps.store, deps.ticketId);
@@ -111,15 +120,17 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     const reports: PrReport[] = [];
     for (const pr of state.prs) reports.push(await reportFor(deps, pr));
     const paths = reports.map((r) => deps.writeLog(logName(r.pr, state.prs), r.body));
-    const result = sendBackToImplement(deps.store, deps.ticketId, {
-      debug: deps.debug,
-      reason: reasonText(reports, paths),
-    });
+    const reason = reasonText(reports, paths);
+    const result = sendBackToImplement(deps.store, deps.ticketId, { debug: deps.debug, reason });
     // The rollup belongs to the head the agent is about to replace: forget it so a
     // stale 'failing' never re-offers this action once the ticket is back at ship.
     for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
-    deps.drive();
-    deps.info(`CI failure sent to the agent; ticket moved back to Implement from ${result.from}.`);
+    const refusal = deps.handOff(handOffPrompt(reason));
+    deps.info(
+      refusal === null
+        ? `CI failure sent to the agent; ticket moved back to Implement from ${result.from}.`
+        : `Ticket moved back to Implement from ${result.from}. No session was started: ${refusal}`,
+    );
   } catch (err) {
     deps.logError('karst: send CI failure to agent failed', err);
     deps.error(err instanceof Error ? err.message : String(err));

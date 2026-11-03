@@ -34,6 +34,7 @@ import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
+import { guardedHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
@@ -2874,6 +2875,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
   const ciHost = (ticketId: number): CiHost => ({
+    // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
+    handOff: guardedHandOff({
+      paused: () => getTicket(localStore, ticketId).pausedAt != null,
+      sessionsAvailable: () => guardCapability('sessions', ticketId, true),
+      handOff: makeSessionHandOff({
+        isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op',
+        nudge: (prompt) => sessions.nudge(ticketId, prompt),
+        focus: () => sessions.focusSession(ticketId),
+        open: (seedPrompt, seedRepo) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }),
+      }),
+    }),
     deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },

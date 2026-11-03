@@ -16,6 +16,8 @@ export interface PushDivergedDeps {
   runShip: (ticketId: number) => void;
   /** Drive the ticket after it was sent back to Implement. */
   redrive: (ticketId: number) => void;
+  /** Hand the prompt to the Implement session (nudge or open). Returns null when delivered, else the reason it was not. */
+  handOff: (prompt: string) => string | null;
   refresh: (ticketId: number) => void;
   debug?: (message: string) => void;
 }
@@ -58,6 +60,9 @@ export function decidePushDiverged(deps: PushDivergedDeps, request: PushDiverged
   sendBackToImplement(store, ticketId, { debug, reason: integrateReason(head.ref) });
   debug(`[gate] push diverged ticket ${ticketId}: sent back to integrate origin/${head.ref}`);
   deps.redrive(ticketId);
+  // The driver starts gate stages only: the Implement session needs the hand-off.
+  const refusal = deps.handOff(`${integrateReason(head.ref)}\nCall the karst MCP tool \`stage\` with { stage: "impl" } when done.`);
+  if (refusal !== null) deps.notify.warn(`${label} moved back to Implement. No session was started: ${refusal}`);
   return 'integrate';
 }
 

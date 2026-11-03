@@ -27,7 +27,8 @@ function parked(kind = 'push-diverged') {
   const runShip = vi.fn();
   const redrive = vi.fn();
   const refresh = vi.fn();
-  return { store, id: t.id, notify, runShip, redrive, refresh, deps: { store, ticketId: t.id, notify, runShip, redrive, refresh } };
+  const handOff = vi.fn((_p: string): string | null => null);
+  return { store, id: t.id, notify, runShip, redrive, refresh, handOff, deps: { store, ticketId: t.id, notify, runShip, redrive, refresh, handOff } };
 }
 
 const leaseFlag = (p: ReturnType<typeof parked>) =>
@@ -48,6 +49,15 @@ describe('push-diverged actions', () => {
     expect(leaseFlag(p)).toBeNull();
     expect(p.store.db.prepare('SELECT stage_current AS s FROM tickets WHERE id = ?').get(p.id)).toEqual({ s: 'impl' });
     expect(p.redrive).toHaveBeenCalledWith(p.id);
+    expect(p.handOff).toHaveBeenCalledOnce();
+    expect(p.handOff.mock.calls[0]![0]).toContain('merge origin/');
+    expect(p.notify.warn).not.toHaveBeenCalled();
+  });
+  it('Integrate warns that no session started when the hand-off refuses', () => {
+    const p = parked();
+    p.handOff.mockReturnValue('the ticket is paused.');
+    expect(decidePushDiverged(p.deps, 'integrate')).toBe('integrate');
+    expect(p.notify.warn).toHaveBeenCalledWith(expect.stringContaining('No session was started: the ticket is paused.'));
   });
 
   it.each(['overwrite', 'integrate'] as const)('%s refuses when ship is parked on another block', (request) => {
