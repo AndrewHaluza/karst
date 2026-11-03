@@ -27,7 +27,7 @@ function deps(over: Partial<CiFailureOpsDeps> = {}) {
         : { stdout: '{"status":"completed","jobs":[]}', exitCode: 0 }),
     writeLog: (name: string, text: string) => { written[name] = text; return `/art/${id}/${name}`; },
     confirm: vi.fn(async () => true),
-    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), handOff: vi.fn((_p: string): string | null => null), afterServerChange: vi.fn(),
+    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(), handOff: vi.fn((_p: string): string | null => null), afterServerChange: vi.fn(),
     ...over,
   } satisfies CiFailureOpsDeps;
   return { d, written };
@@ -49,6 +49,7 @@ describe('sendCiFailureToAgent', () => {
     expect(getTicket(store, id).stageCurrent).toBe('impl');
     const msg = listInbox(store, id, { unreadOnly: false })[0]!;
     expect(msg.body).toContain(`/art/${id}/ci-failure-7.log`);
+    expect(d.drive).toHaveBeenCalledOnce();
     expect(d.handOff).toHaveBeenCalledOnce();
     const prompt = vi.mocked(d.handOff).mock.calls[0]![0];
     expect(prompt).toContain('#7');

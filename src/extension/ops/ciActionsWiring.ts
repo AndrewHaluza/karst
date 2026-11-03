@@ -69,7 +69,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
       return path;
     },
     confirm: (detail) => i.confirm('Send CI failure to the agent?', detail, 'Send to agent'),
-    info: i.info, error: i.error, logError: i.logError, debug: i.debug, handOff: i.handOff, afterServerChange: i.afterServerChange,
+    info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
   });
 }
 

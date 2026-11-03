@@ -25,6 +25,15 @@ describe('guardedHandOff', () => {
   });
 });
 
+describe('graph tickets', () => {
+  it('refuses with a reason instead of reporting a silent success', () => {
+    const open = vi.fn();
+    const fn = ticketHandOff({ paused: () => false, sessionsAvailable: () => true, isGraphTicket: () => true, nudge: () => true, focus: vi.fn(), open });
+    expect(fn('go')).toMatch(/graph coordinator/);
+    expect(open).not.toHaveBeenCalled();
+  });
+});
+
 describe('ticketHandOff', () => {
   it('nudges a live terminal and focuses it, without opening', () => {
     const open = vi.fn(); const focus = vi.fn();

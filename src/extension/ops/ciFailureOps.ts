@@ -31,6 +31,8 @@ export interface CiFailureOpsDeps {
   readonly error: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
   readonly debug: (message: string) => void;
+  /** Kick the stage driver (a no-op at Implement; kept for any stage the driver owns). */
+  readonly drive: () => void;
   /**
    * Hand the prompt to the ticket's Implement session: nudge a live one, else open one seeded with it.
    * Returns null when a session received it, else the reason none did. The driver cannot do this:
@@ -125,6 +127,7 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     // The rollup belongs to the head the agent is about to replace: forget it so a
     // stale 'failing' never re-offers this action once the ticket is back at ship.
     for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
+    deps.drive();
     const refusal = deps.handOff(handOffPrompt(reason));
     deps.info(
       refusal === null

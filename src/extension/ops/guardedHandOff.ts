@@ -8,6 +8,8 @@ import { makeSessionHandOff, type SessionHandOffDeps } from './conflictResolveOp
 export interface GuardedHandOffDeps {
   readonly paused: () => boolean;
   readonly sessionsAvailable: () => boolean;
+  /** A graph ticket's sessions belong to the graph coordinator: a hand-off would be skipped. */
+  readonly isGraphTicket?: () => boolean;
   readonly handOff: (prompt: string, repo: string) => void;
 }
 
@@ -15,6 +17,7 @@ export interface GuardedHandOffDeps {
 export function guardedHandOff(deps: GuardedHandOffDeps): (prompt: string) => string | null {
   return (prompt) => {
     if (deps.paused()) return 'the ticket is paused. Unpause it, then open a session.';
+    if (deps.isGraphTicket?.() === true) return 'the graph coordinator owns the sessions of a graph ticket.';
     if (!deps.sessionsAvailable()) return "the agent core of this ticket does not support sessions.";
     deps.handOff(prompt, '');
     return null;
@@ -25,5 +28,5 @@ export function guardedHandOff(deps: GuardedHandOffDeps): (prompt: string) => st
 export function ticketHandOff(
   deps: SessionHandOffDeps & Pick<GuardedHandOffDeps, 'paused' | 'sessionsAvailable'>,
 ): (prompt: string) => string | null {
-  return guardedHandOff({ paused: deps.paused, sessionsAvailable: deps.sessionsAvailable, handOff: makeSessionHandOff(deps) });
+  return guardedHandOff({ paused: deps.paused, sessionsAvailable: deps.sessionsAvailable, isGraphTicket: deps.isGraphTicket, handOff: makeSessionHandOff(deps) });
 }
