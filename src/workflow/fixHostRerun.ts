@@ -2,6 +2,8 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
+import { finishProcessRun } from '../store/processRuns.js';
+import { roundById } from '../store/recoveryRounds.js';
 import { claimHostRerun, closeRoundPassed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
@@ -10,6 +12,9 @@ import { nowIso } from '../model/time.js';
 
 /** Why a fix round closed when the host's re-run found the failed gates green. */
 export const HOST_RERUN_PASSED_REASON = 'no change: failed gates passed on re-run';
+
+/** `result_kind` on the fix process run the host closed (not the agent's marker). */
+export const HOST_RERUN_RESULT_KIND = 'host-rerun-passed';
 
 /** A gate that failed in the source stage's latest run, with the invocation to repeat. */
 export interface FailedGate {
@@ -76,6 +81,8 @@ async function rerunOne(deps: HostRerunDeps, ticketId: number, gate: FailedGate)
 function returnToSource(store: Store, ticketId: number, roundId: number, stage: StageKey, at: string): void {
   const cleared = { verdict: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null } as const;
   store.db.transaction(() => {
+    const fixRunId = roundById(store, roundId)?.fixProcessRunId ?? null;
+    if (fixRunId !== null) finishProcessRun(store, fixRunId, 'interrupted', at, HOST_RERUN_RESULT_KIND, null, HOST_RERUN_PASSED_REASON);
     setStage(store, ticketId, stage, { status: 'running', startedAt: at, ...cleared });
     setStage(store, ticketId, 'fix', { status: 'pending', startedAt: null, attempt: 0, artifactPath: null, ...cleared });
     closeRoundPassed(store, roundId, HOST_RERUN_PASSED_REASON, at);

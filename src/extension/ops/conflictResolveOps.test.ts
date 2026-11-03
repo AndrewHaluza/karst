@@ -101,6 +101,41 @@ function handOff(over: Partial<Parameters<typeof makeSessionHandOff>[0]> = {}) {
   return { run: makeSessionHandOff(deps), deps };
 }
 
+describe('resolveConflictClick prepareSandbox', () => {
+  const present = async (): Promise<SandboxProbe> => ({ state: 'present' });
+  it('a sandboxed ticket is refreshed before the brief is armed and delivered', async () => {
+    const order: string[] = [];
+    const prepareSandbox = vi.fn(async () => { order.push('prepare'); return { ok: true as const }; });
+    const { input } = click({ probeSandbox: present, prepareSandbox, arm: () => order.push('arm'), deliver: () => order.push('deliver') });
+    await resolveConflictClick(input);
+    expect(order).toEqual(['prepare', 'arm', 'deliver']);
+  });
+  it('a failed refresh sends no brief, arms nothing and says why', async () => {
+    const arm = vi.fn();
+    const { input, deliver, notify } = click({ probeSandbox: present, arm, prepareSandbox: async () => ({ ok: false as const, reason: 'git fetch origin develop failed', diverged: false }) });
+    await resolveConflictClick(input);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(arm).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('git fetch origin develop failed'));
+  });
+  it('a dirty clone names Stash and update; a throwing refresh is a failure too', async () => {
+    const a = click({ probeSandbox: present, prepareSandbox: async () => ({ ok: false as const, reason: 'the sandbox has uncommitted work', diverged: false }) });
+    await resolveConflictClick(a.input);
+    expect(a.notify).toHaveBeenCalledWith(expect.stringContaining('Stash and update'));
+    const b = click({ probeSandbox: present, prepareSandbox: async () => { throw new Error('boom'); } });
+    await resolveConflictClick(b.input);
+    expect(b.deliver).not.toHaveBeenCalled();
+    expect(b.notify).toHaveBeenCalledWith(expect.stringContaining('boom'));
+  });
+  it('a host ticket never prepares a sandbox', async () => {
+    const prepareSandbox = vi.fn(async () => ({ ok: true as const }));
+    const { input, deliver } = click({ prepareSandbox });
+    await resolveConflictClick(input);
+    expect(prepareSandbox).not.toHaveBeenCalled();
+    expect(deliver).toHaveBeenCalled();
+  });
+});
+
 describe('makeSessionHandOff', () => {
   it('nudges a live session and reveals it, without launching', () => {
     const { run, deps } = handOff({ nudge: () => true });

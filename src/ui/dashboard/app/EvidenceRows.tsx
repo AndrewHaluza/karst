@@ -49,6 +49,8 @@ export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
 export function EvidenceGates({ ev }: { readonly ev: Of<'gates'> }) {
   const hasRepo = ev.rows.some((r) => !!r.repo);
   return (
+    <>
+    {ev.caption ? <p className="gates-caption">{ev.caption}</p> : null}
     <div className={`gates${hasRepo ? '' : ' no-repo'}`}>
       {withKeys(ev.rows, (r) => `${r.repo ?? ''}/${r.label}`).map(([key, r]) => (
         <div className={`gate-row${r.status === 'run' ? ' active' : ''}`} key={key}>
@@ -60,6 +62,7 @@ export function EvidenceGates({ ev }: { readonly ev: Of<'gates'> }) {
         </div>
       ))}
     </div>
+    </>
   );
 }
 

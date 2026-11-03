@@ -160,7 +160,7 @@ describe('scopeUatFindings', () => {
 
 describe('review cycle scoping', () => {
   const run = (id: number, attempt: number, runAt: string, outcome: StageRun['outcome']): StageRun =>
-    ({ id, ticketId: 1, stageKey: 'review', attempt, runAt, status: 'finished', outcome, manifestHash: null, pid: null, startedAt: runAt, endedAt: runAt });
+    ({ id, ticketId: 1, stageKey: 'review', attempt, runAt, status: 'finished', outcome, manifestHash: null, pid: null, startedAt: runAt, blockReason: null, endedAt: runAt });
   const fnd = (attempt: number, runAt: string, title: string): Finding =>
     ({ id: 0, ticketId: 1, attempt, runAt, processRunId: null, severity: 'high', repo: 'r', file: 'f', line: 1, title, detail: '', source: 'agent', createdAt: runAt, identity: null }) as Finding;
 

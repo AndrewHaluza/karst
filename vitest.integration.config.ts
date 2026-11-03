@@ -44,6 +44,9 @@ export default defineConfig({
     // the transport close as `MCP error: Connection closed`. Give hooks the
     // same budget as tests.
     hookTimeout: 30_000,
+    // A fork that hangs in teardown (open handle) would otherwise wait for the gate wall.
+    // Fail it at 30s so the report names the file.
+    teardownTimeout: 30_000,
     globalSetup: ['./scripts/vitest-global-setup.mjs'],
   },
 });

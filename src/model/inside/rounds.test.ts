@@ -70,6 +70,7 @@ function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
     id: nextRoundId++,
     ticketId: 1,
     interruptCount: 0,
+    fixCommitSha: null,
     sourceStage: 'uat',
     sourceProcessId: 'gates',
     sourceStageRunId: null,

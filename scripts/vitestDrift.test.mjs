@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  slowestTests,
+  slowestLines,
   BASE_FILE_CAP,
   FLAKE_FILE_CAP,
   alertLine,
@@ -139,5 +141,23 @@ describe('flake re-run', () => {
     const plan = planFlakeRerun(ids);
     expect(plan.kind).toBe('skip');
     expect(plan.reason).toContain(`flake re-run skipped: ${FLAKE_FILE_CAP + 1} files`);
+  });
+});
+
+describe('slowestTests', () => {
+  const out = [
+    ' \u001b[32m✓\u001b[39m src/a.test.ts \u001b[2m(2 tests)\u001b[22m\u001b[33m 943\u001b[2mms\u001b[22m',
+    '     ✓ slow case 20413ms',
+    '     ✓ fast case 5ms',
+    ' ✓ src/b.test.ts (1 test) 100ms',
+    ' ✓ src/b.test.ts (1 test) 100ms',
+  ].join('\n');
+  it('lists the slowest first, deduped, capped', () => {
+    expect(slowestTests(out, 2)).toEqual(['slow case — 20413ms', 'src/a.test.ts (2 tests) — 943ms']);
+    expect(slowestTests(out).filter((r) => r.startsWith('src/b'))).toHaveLength(1);
+  });
+  it('prints nothing without timed lines', () => {
+    expect(slowestLines('no timings')).toEqual([]);
+    expect(slowestLines(out, 1)).toEqual(['Slowest tests:', '  slow case — 20413ms']);
   });
 });

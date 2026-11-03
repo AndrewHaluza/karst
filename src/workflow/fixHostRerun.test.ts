@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
+import { openProcessRun } from '../store/processRuns.js';
 import { openRecoveryRound, activeFixRound, roundById } from '../store/recoveryRounds.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { hasFixingRound } from '../store/recoveryRoundsRead.js';
@@ -77,6 +78,14 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(getStage(store, ticketId, 'uat')).toMatchObject({ status: 'running', attempt: 1, blockedKind: null });
     expect(getStage(store, ticketId, 'fix')).toMatchObject({ status: 'pending' });
     expect(activeFixRound(store, ticketId)).toBeNull();
+  });
+
+  it('ends the round fix process run when the re-run passes, marked as closed by the host', async () => {
+    const run = openProcessRun(store, { ticketId, stageKey: 'fix', processId: 'fix', attempt: 1, startedAt: AT } as never);
+    store.db.prepare('UPDATE recovery_rounds SET fix_process_run_id = ?, status = ? WHERE id = ?').run(run.id, 'fixing', roundId);
+    await hostRerunFailedGates(store, ticketId, deps(() => ok));
+    const row = store.db.prepare('SELECT status, ended_at, result_kind FROM process_runs WHERE id = ?').get(run.id) as Record<string, string>;
+    expect(row).toMatchObject({ status: 'interrupted', ended_at: '2026-01-02T00:00:00Z', result_kind: 'host-rerun-passed' });
   });
 
   it('keeps the refusal, parks the fix stage with names and summaries when a gate still fails', async () => {

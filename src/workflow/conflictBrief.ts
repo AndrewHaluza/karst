@@ -97,7 +97,7 @@ export function renderConflictBrief(input: ConflictBriefInput): string {
     return [
       ...header,
       `This ticket runs in a sandbox with no access to origin. The host ships \`${input.baseRef}\` into your clone as the read-only ref \`${ref}\` (refreshed on every sync while the conflict is open); merge it yourself:`,
-      `1. \`git merge --no-ff ${ref}\``,
+      `1. \`git merge --no-ff ${ref}\`. If it reports "Already up to date", stop and report that \`${ref}\` did not move: do not claim the conflict is resolved and do not commit an empty merge.`,
       '2. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code first.',
       '3. Before committing, run the repository\'s gate scripts that run in the sandbox (docs check, typecheck, unit tests) and fix what the merge broke.',
       '4. Do not run `git fetch` or `git push`.',

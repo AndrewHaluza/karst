@@ -197,6 +197,44 @@ describe('syncSandboxOp', () => {
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
+  describe('with an open conflict', () => {
+    const wrapped = (refresh: { code: number; stdout?: string } | undefined) => {
+      const inner = fakeSbxProcess(LISTED);
+      return {
+        calls: inner.calls,
+        run: async (c: string, args: readonly string[], o?: Parameters<typeof inner.run>[2]) => {
+          const r = await inner.run(c, args, o);
+          if (refresh && args.includes('karst-refresh')) return { code: refresh.code, stdout: refresh.stdout ?? '', stderr: '' };
+          if (c === 'git' && args.includes('bundle') && r.code === 0) writeFileSync(args[args.indexOf('-q') + 1]!, 'b');
+          return r;
+        },
+      };
+    };
+    const deps = (proc: ReturnType<typeof wrapped>, conflictBaseRef: (id: number) => string | null) => {
+      const r = recorder();
+      return { r, d: { notify: r.notify, projectRoot: '/p', proc, conflictBaseRef, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) } };
+    };
+    it('also ships the fresh base into the clone', async () => {
+      const proc = wrapped(undefined);
+      const { d } = deps(proc, () => 'develop');
+      await expect(syncSandboxOp(d, target)).resolves.toBe(true);
+      expect(proc.calls.filter((c) => c.args.includes('karst-refresh'))).toHaveLength(1);
+      expect(proc.calls.some((c) => c.args.includes('bundle') && c.args.join(' ').includes('develop'))).toBe(true);
+    });
+    it('no conflict, no refresh', async () => {
+      const proc = wrapped(undefined);
+      const { d } = deps(proc, () => null);
+      await expect(syncSandboxOp(d, target)).resolves.toBe(true);
+      expect(proc.calls.some((c) => c.args.includes('karst-refresh'))).toBe(false);
+    });
+    it('a refresh failure is a sync error', async () => {
+      const proc = wrapped({ code: 4 });
+      const { r, d } = deps(proc, () => 'develop');
+      await expect(syncSandboxOp(d, target)).resolves.toBe(false);
+      expect(r.errors).toEqual([expect.stringContaining('failed')]);
+    });
+  });
+
   it('a listed-absent sandbox has nothing to sync manually', async () => {
     const r = recorder();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } }) }, target)).resolves.toBe(false);
