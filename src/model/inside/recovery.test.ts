@@ -27,6 +27,7 @@ function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
     startedAt: '2026-07-20T12:00:00.000Z',
     endedAt: null,
     interruptCount: 0,
+    fixCommitSha: null,
     ...extra,
   };
 }

@@ -95,5 +95,7 @@ npm run eval:form -- --pass draft --db <karst.db> --judge-model <id> --repo <man
 
 Reports notDone / unrequested per draft, static defect rate by kind, truncation count, split by planning core/model, and per-draft downstream outcome (n < 10 = LOW, no correlation claim).
 
+Planner bench (real planner, headless, public issues; see `@arch:FORMEVAL-PLAN`): `npm run eval:form -- --pass plan --models <a,b> --judge-model <id> [--only id] [--timeout-min 10] [--max-drafts 3] [--publish]`; output `eval-results/plan-<ts>/`; `--publish` writes `evals/form/PLANNER-MODEL-RATINGS.md`.
+
 Re-score saved runs with one blind judge (no producer call): `npm run eval:form -- --rejudge evals/form/references --judge-model claude-opus-5-5 [--dry-run] [--max-calls N]`; output `eval-results/rejudge-<ts>/report.md`.
 

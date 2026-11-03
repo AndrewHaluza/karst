@@ -32,15 +32,17 @@ export function LiveDuration({ stage }: { readonly stage: string }) {
 
 export function RowTime({ stage, id }: { readonly stage: string; readonly id: string }) {
   const time = useSlice(useMemo(() => rowField(stage, id, pickTime), [stage, id]));
-  return time ? <span className="op-time">{time}</span> : null;
+  return <span className="op-time">{time || null}</span>;
 }
 
 export function RowDuration({ stage, id }: { readonly stage: string; readonly id: string }) {
   const d = useSlice(useMemo(() => rowField(stage, id, pickDuration), [stage, id]));
-  if (!d?.text) return null;
+  const time = useSlice(useMemo(() => rowField(stage, id, pickTime), [stage, id]));
+  // The start time is the duration's title too: the narrow tier hides the time column and keeps this cell (UI-R41).
+  const title = [d?.exact, time ? `started ${time}` : ''].filter(Boolean).join(' · ');
   return (
-    <span className="duration" title={d.exact || undefined}>
-      {d.text}
+    <span className="duration" title={title || undefined}>
+      {d?.text || null}
     </span>
   );
 }

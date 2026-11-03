@@ -159,9 +159,9 @@ export function commitGateOutcome(
   }
 
   /** Close the caller's run, if it opened one. Always inside a transaction below. */
-  const closeRun = (kind: StageRunOutcome): void => {
+  const closeRun = (kind: StageRunOutcome, reason: string | null = null): void => {
     if (stageRunId === undefined || stageRunId === null) return;
-    closeStageRun(store, stageRunId, kind, now());
+    closeStageRun(store, stageRunId, kind, now(), reason);
   };
 
   // Findings share the batch's `runAt` and the same pre-bump `attempt` gates
@@ -193,7 +193,7 @@ export function commitGateOutcome(
         ...(outcome.park ? { park: outcome.park } : {}),
       });
       recordFindingsIfAny();
-      closeRun('blocked');
+      closeRun('blocked', `${outcome.blocker}: ${outcome.reason}`);
     });
     apply();
     return { kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason };

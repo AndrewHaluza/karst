@@ -41,6 +41,7 @@ export interface CiActionsInput {
   readonly logError: (message: string, err: unknown) => void;
   readonly debug: (message: string) => void;
   readonly drive: () => void;
+  readonly handOff: (prompt: string) => string | null;
   readonly deliver: DeliverHost;
   readonly afterServerChange: () => void;
 }
@@ -56,7 +57,7 @@ export function runShellCommand(cwd: string, command: string): Promise<{ code: n
 }
 
 /** The host-specific half of `CiActionsInput` (everything `extension.ts` binds to vscode, gh, git and the sandbox). */
-export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver'>;
+export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff'>;
 
 export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   return sendCiFailureToAgent({
@@ -68,7 +69,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
       return path;
     },
     confirm: (detail) => i.confirm('Send CI failure to the agent?', detail, 'Send to agent'),
-    info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, afterServerChange: i.afterServerChange,
+    info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
   });
 }
 

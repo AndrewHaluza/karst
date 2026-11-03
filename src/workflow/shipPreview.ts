@@ -21,6 +21,7 @@ import {
   resolveRepoName,
   resolveRepoScope,
   resolveTicketType,
+  splitConventionalTitle,
 } from './conventionContext.js';
 import { scanPorcelainForDenied } from './shipDenyScan.js';
 import { findExistingLivePr, findLatestImplRun, hasCompletedShipRun } from './stages/shipStore.js';
@@ -197,6 +198,7 @@ export function resolveTemplateModel(
 export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
   const conventions =
     input.conventions ?? resolveRepoConventions(input.manifest, input.repoName);
+  const split = splitConventionalTitle(input.title);
   const implProvider =
     typeof input.implRun?.provider === 'string' && input.implRun.provider.trim() !== ''
       ? input.implRun.provider.trim()
@@ -204,9 +206,9 @@ export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
   const context: ArtifactTemplateContext = {
     id: input.ticketId,
     key: input.key,
-    title: input.title,
+    title: split.title,
     repo: input.repoName,
-    type: resolveTicketType(input.ticket, conventions),
+    type: resolveTicketType({ type: input.ticket.type ?? split.type }, conventions),
     scope: resolveRepoScope(input.manifest, input.repoName),
     provider:
       implProvider ??

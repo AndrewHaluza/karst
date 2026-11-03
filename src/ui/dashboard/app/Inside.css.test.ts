@@ -73,14 +73,21 @@ describe('Inside CSS — the ledger grid and the evidence cells', () => {
 
   it('positions the row status glyph in its own leading cell, not the tail', () => {
     expect(CSS).toMatch(/#inside \.ev-glyph\{[^}]*justify-content:center/);
-    expect(CSS).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-end/);
-    expect(CSS).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
+    expect(CSS).toMatch(/#inside \.ev-state,#inside \.gate-state\{[^}]*justify-items:end/);
+  });
+
+  it('draws time and duration as two fixed, right-aligned, tabular columns from shared tokens (UI-R41)', () => {
+    expect(CSS).toMatch(/#inside\{--inside-time-w:11ch;--inside-dur-w:7ch\}/);
+    expect(CSS).toMatch(/#inside \.ev-state,#inside \.gate-state\{[^}]*grid-template-columns:var\(--inside-time-w\) var\(--inside-dur-w\)[^}]*font-variant-numeric:tabular-nums/);
+    expect(CSS).toMatch(/#inside \.op-time\{[^}]*justify-content:flex-end;font-variant-numeric:tabular-nums/);
+    expect(CSS).toMatch(/#inside \.duration\{[^}]*justify-content:flex-end;font-variant-numeric:tabular-nums/);
+    expect(CSS).not.toContain('text-transform:lowercase;white-space:nowrap;\n  font-family');
   });
 
   it('gives gate rows and evidence rows a leading fixed track for the glyph', () => {
-    expect(CSS).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
-    expect(CSS).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
-    expect(CSS).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
+    expect(CSS).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) var\(--ev-timing-w\);/);
+    expect(CSS).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) var\(--ev-timing-w\)\}/);
+    expect(CSS).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto var\(--ev-timing-w\);/);
   });
 
   it('has a rule for every container the evidence bodies emit', () => {
@@ -125,8 +132,8 @@ describe('Inside CSS — the container queries', () => {
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
     // The glyph track leads even at 430px: the repo column is what drops, never the status. Four rendered children need four named tracks.
-    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) auto\}/);
-    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
+    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) var\(--ev-timing-w\)\}/);
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto var\(--ev-timing-w\)\}/);
     // The pins that used to paper over a missing fourth track must not come back.
     expect(wide).not.toMatch(/#inside \.gate-state\{grid-column/);
     expect(wide).not.toMatch(/#inside \.ev-state\{grid-column/);
@@ -149,8 +156,8 @@ describe('Inside CSS — the container queries', () => {
   });
 
   it('keeps the glyph and the process name leading the op grid at every width (Task 6)', () => {
-    expect(CSS).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) auto 16px/);
-    expect(containerBlock('430px')).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto 16px[;}]/);
+    expect(CSS).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) auto var\(--inside-time-w\) var\(--inside-dur-w\) 16px/);
+    expect(containerBlock('430px')).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto var\(--inside-dur-w\) 16px[;}]/);
   });
 
   it('thins row chrome at ≤360 without dropping a cell (Task 6)', () => {

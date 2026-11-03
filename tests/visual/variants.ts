@@ -175,6 +175,15 @@ const dashboardVariants = (): Variant[] => [
       blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
     },
   }))),
+  // T938: the same park in the UAT lane; the title names the lane ("Provider out of quota — UAT Tester").
+  variant('dashboard', 'usage-limit-blocked-uat', dashboardScenario('running', 2, (s) => ({
+    ...s,
+    currentStage: {
+      stageKey: 'uat',
+      status: 'running',
+      blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
+    },
+  })), { skipLayout: true }),
   // T853: out-of-memory kill park; the strip carries Run gate on host + Retry.
   variant('dashboard', 'resource-killed-blocked', dashboardScenario('running', 2, (s) => ({
     ...s,

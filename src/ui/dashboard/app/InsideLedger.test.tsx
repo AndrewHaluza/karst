@@ -57,7 +57,7 @@ describe('Ledger — rows', () => {
 
   it('orders status, name, detail, then the right-hand cluster, and the disclosure marker last', () => {
     mountInside(rows('uat', [proc('gates', { evidence: gatesEvidence })]));
-    expect([...must('[data-proc-id] > summary').children].map((c) => c.className.split(' ')[0])).toEqual(['glyph', 'op-name', 'op-detail', 'op-tail', 'chev']);
+    expect([...must('[data-proc-id] > summary').children].map((c) => c.className.split(' ')[0])).toEqual(['glyph', 'op-name', 'op-detail', 'op-tail', 'op-time', 'duration', 'chev']);
   });
 
   it('puts the status on the glyph (its word as the accessible name), never as text in the tail', () => {
@@ -127,10 +127,14 @@ describe('Ledger — rows', () => {
     expect(all('.count', tail).map((c) => c.textContent)).toEqual(['4 passed · 1 failed', '5 rows']);
     expect(all('.count', tail)[0]!.title).toBe('by gate');
     expect(all('.count', tail)[1]!.hasAttribute('title')).toBe(false);
-    expect(text(tail.querySelector('.op-time'))).toBe('10:00');
-    expect(tail.querySelector('.duration')!.getAttribute('title')).toBe('12.4s');
-    expect([...tail.children].map((c) => c.className.split(' ')[0])).toEqual(['count', 'count', 'op-time', 'duration']);
-    expect(all('.op-tail')[1]!.childElementCount).toBe(0);
+    const sum = tail.parentElement!;
+    expect(text(sum.querySelector('.op-time'))).toBe('10:00');
+    expect(sum.querySelector('.duration')!.getAttribute('title')).toBe('12.4s · started 10:00');
+    expect([...tail.children].map((c) => c.className.split(' ')[0])).toEqual(['count', 'count']);
+    // A row with no timing keeps both (empty) cells so the columns stay aligned.
+    const bare = all('.op-tail')[1]!.parentElement!;
+    expect(bare.querySelector('.op-time')!.textContent).toBe('');
+    expect(bare.querySelector('.duration')!.textContent).toBe('');
   });
 
   it('shows the Σ pill: fresh tokens with their exact title, cache reads beside it, live while running', () => {

@@ -15,20 +15,23 @@
   #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
   #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
   #inside .inside-meta{grid-column:2}
-  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto 16px;
+  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
   #inside .attempt-tabs-label,#inside .attempt-tab-tail{display:none}
-  #inside .duration,#inside .op-time{display:none}
+  /* The duration stays, the start time drops (it is still the duration cell's title); both timing columns keep one grid item each. */
+  #inside .op-time,#inside .ev-time{display:none}
+  #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
+  #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
   #inside .op-tail .agent-model{display:none}
   #inside .op-body{margin-left:20px}
   /* Four rendered children at this width — glyph, name, detail, state —
      get four named tracks, not three: an item left to auto-place wraps to
      an implicit new row instead of sharing one (UI-R04/R05). The repo is
      the cell that drops, never the status. */
-  #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
+  #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) var(--ev-timing-w)}
   #inside .gate-repo{display:none}
-  #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
-  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto}
+  #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) var(--ev-timing-w)}
+  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto var(--ev-timing-w)}
   #inside .finding{grid-template-columns:56px minmax(0,1fr)}
   #inside .finding-loc{grid-column:2}
   #inside .finding-time{display:none}
@@ -40,16 +43,17 @@
   #inside .receipt-block{border-right:0;border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .receipt-block:last-child{border-bottom:0}
   #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto auto}
+  #inside .commit-dur,#inside .pr-dur{display:none}
   #inside .commit-repo-name{grid-column:1}
   #inside .commit-repo-summary{grid-column:1/-1}
   #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
   #inside .commit-item{grid-template-columns:auto minmax(0,1fr)}
-  #inside .pr-branch{flex-wrap:wrap}
+  #inside .pr-branch{display:flex;flex-wrap:wrap}
   #inside .pr-time{margin-left:0}
   #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
   #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
     padding-left:var(--timeline-left)}
-  #inside .phase-time,#inside .timeline-tail{display:none}
+  #inside .phase-time.tl-time,#inside .phase-tail,#inside .timeline-tail,#inside .tl-time{display:none}
   #inside .session-foot{flex-wrap:wrap}
   #inside .session-foot .session-rule{margin-left:0;width:100%}
   /* The node list's control stays in its own `auto` track and the meta
@@ -88,3 +92,27 @@
   white-space:nowrap;text-overflow:ellipsis}
 #inside .alive .adetail,#inside .alive .adur{color:var(--p-muted2);margin-left:var(--p-s1);
   font-family:var(--p-mono);font-size:var(--p-xs)}
+
+/* The tail carries identity, tokens, counts and the action ahead of two fixed timing columns, so the model name drops from 760px down (UI-R41). */
+@container (max-width: 760px){
+  #inside .op-tail .agent-model,#inside .op-tail .agent-sep:has(+ .agent-model){display:none}
+}
+/* From 520px down the start time drops first; the duration column stays (UI-R41). */
+@container (max-width: 520px){
+  #inside .op-time,#inside .ev-time{display:none}
+  /* Timeline, commit and PR rows: the start time hides (the duration cell titles it); the time-less rows keep their own explicit tracks, never the zeroed time track. */
+  #inside .tl-time,#inside .phase-tail,#inside .timeline-tail{display:none}
+  #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr) var(--inside-dur-w)}
+  #inside .commit-repo-head{grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto auto}
+  #inside .commit-dur,#inside .pr-dur{display:none}
+  #inside .pr-branch{display:flex;flex-wrap:wrap}
+  #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
+  #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
+  /* The tail wraps under the name and detail instead of squeezing them; the duration and chevron keep row one. */
+  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,110px) minmax(0,1fr) var(--inside-dur-w) 16px}
+  #inside .op-tail{grid-row:2;grid-column:2/4;justify-content:flex-start;flex-wrap:wrap;white-space:normal;padding-bottom:var(--p-s1)}
+}
+/* At 430px the commit head stacks again: it overrides the 520px tracks above (UI-R41). */
+@container (max-width: 430px){
+  #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto auto}
+}

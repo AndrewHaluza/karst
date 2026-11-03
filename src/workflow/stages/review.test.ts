@@ -573,6 +573,25 @@ describe('runReview', () => {
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
   });
 
+  it('stores the refusal output as the summary of a hostRefused row', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, null, null, null, i, 'host tree has uncommitted changes: a.snap');
+            return { name: g.name, exitCode: null, output: 'host tree has uncommitted changes: a.snap', hostRefused: true };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+    const rows = listGateRuns(store, id);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.summary).toContain('uncommitted changes');
+  });
+
   it('every gate reporting null blocks nothing-to-run, keeping the rows that say so', async () => {
     const res = await runReview(
       store,

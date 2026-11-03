@@ -80,6 +80,7 @@ export function caseStageRun(over: Partial<StageRun> & Pick<StageRun, 'id' | 'st
     manifestHash: null,
     pid: null,
     startedAt: at(10),
+    blockReason: null,
     endedAt: at(20),
     ...over,
   };
@@ -124,6 +125,7 @@ export function caseRound(
     startedAt: at(21),
     endedAt: at(30),
     interruptCount: 0,
+    fixCommitSha: null,
     ...over,
   };
 }

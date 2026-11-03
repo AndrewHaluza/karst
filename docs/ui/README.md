@@ -56,6 +56,12 @@ What the commands do (`src/ui/layout/layoutLedger.ts`):
 - `npm run test:layout:docker:seed` is only for a missing ledger file. It
   refuses when the file exists; that is expected, not a blocker.
 
+Marker check: when the ticket diff touches `src/ui/`, `karst stage impl|fix pass`
+runs the dashboard parity vitest and refuses the marker if it fails. The refusal
+names the snapshots and the fix: `npm run ui:parity:update` updates the parity
+snapshot and prunes (or seeds) the ledger in one run. Check the diff, then commit.
+The docker visual and layout runs stay in UAT.
+
 Recipe:
 1. Fix every real layout failure your change caused.
 2. Run `npm run test:layout:docker:prune`.

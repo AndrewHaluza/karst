@@ -1,5 +1,5 @@
 import type { ArtifactConventions, Manifest } from '../manifest/types.js';
-import { DEFAULT_TICKET_TYPE } from '../store/ticketTypes.js';
+import { DEFAULT_TICKET_TYPE, isTicketType, type TicketType } from '../store/ticketTypes.js';
 
 /**
  * The two derived values a convention template can interpolate but nothing
@@ -74,4 +74,22 @@ export function resolveRepoName(manifest: Manifest | undefined, repoPath: string
   if (!manifest) return repoPath;
   const entry = Object.entries(manifest.repositories).find(([, def]) => def.repoPath === repoPath);
   return entry ? entry[0] : repoPath;
+}
+
+/** `type(scope)!: ` at the start of a title. The lookahead keeps an empty rest unmatched. */
+const CONVENTIONAL_PREFIX = /^([a-z]+)(?:\([^()\s]*\))?!?:\s+(?=\S)/;
+
+/**
+ * Split a known conventional prefix off a ticket title, so a `{type}: {title}`
+ * template never renders `fix: fix: …`. Only a curated ticket type counts
+ * (`Ticket form: Foo` is not a prefix). The scope and `!` are dropped.
+ */
+export function splitConventionalTitle(title: string): {
+  type: TicketType | null;
+  title: string;
+} {
+  const match = CONVENTIONAL_PREFIX.exec(title);
+  const type = match?.[1];
+  if (!match || !isTicketType(type)) return { type: null, title };
+  return { type, title: title.slice(match[0].length) };
 }

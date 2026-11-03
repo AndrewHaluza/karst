@@ -16,29 +16,21 @@ export function EvGlyph({ r }: { readonly r: Pick<EvidenceRow, 'status'> }) {
 }
 
 export function EvTiming({ r, cls }: { readonly r: EvidenceRow; readonly cls: string }) {
-  if (!r.status) return <span className={cls} />;
+  // Two fixed columns, always both emitted (empty when absent), so every row of a level lines up (UI-R41).
   return (
-    <span className={`${cls} ${r.status}`}>
-      {r.time ? (
-        <span className="ev-time" title={`started ${r.time}`}>
-          {r.time}
-        </span>
-      ) : null}
-      {r.duration ? (
-        <span className="ev-dur" title={r.durationExact || undefined}>
-          {r.duration}
-        </span>
-      ) : null}
+    <span className={r.status ? `${cls} ${r.status}` : cls}>
+      <span className="ev-time" title={r.status && r.time ? `started ${r.time}` : undefined}>
+        {r.status ? r.time || null : null}
+      </span>
+      <span className="ev-dur" title={(r.status && [r.durationExact, r.time ? `started ${r.time}` : ''].filter(Boolean).join(' · ')) || undefined}>
+        {r.status ? r.duration || null : null}
+      </span>
     </span>
   );
 }
 
 export function EvAction({ r }: { readonly r: EvidenceRow }) {
-  return r.action ? (
-    <span className="ev-tail">
-      <InsideActionButton action={r.action} />
-    </span>
-  ) : null;
+  return <span className="ev-tail">{r.action ? <InsideActionButton action={r.action} /> : null}</span>;
 }
 
 /** The bounded remainder of a RICH body. The host owns both the count copy and the continuation's label; the webview counts nothing (UI-R31). */

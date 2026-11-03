@@ -236,6 +236,13 @@ describe('commitGateOutcome — recovery trigger', () => {
     expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 
+  it('a blocked outcome keeps its reason on the stage run, after the stage block is cleared', () => {
+    const { runId } = commit('uat', { kind: 'blocked', blocker: 'boot-failed', reason: 'server did not boot' }, () => undefined);
+    store.db.prepare('UPDATE stages SET blocked_kind = NULL, blocked_reason = NULL WHERE ticket_id = ?').run(id);
+    const run = listStageRuns(store, id).find((r) => r.id === runId);
+    expect(run).toMatchObject({ outcome: 'blocked', blockReason: 'boot-failed: server did not boot' });
+  });
+
   it('K11: a blocked usage-limit outcome writes the park row with the block', () => {
     commit(
       'review',

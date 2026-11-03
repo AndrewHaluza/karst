@@ -138,6 +138,7 @@ describe('defaultQuotaReaders', () => {
         env: {},
         now: () => new Date(0),
         antigravityAppDataDir: dir,
+        antigravityListProcesses: () => [],
       });
       const snap = await readers.find((r) => r.core === 'antigravity')!.read();
       expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });

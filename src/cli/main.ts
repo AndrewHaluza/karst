@@ -13,6 +13,8 @@ import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
 import { assertFixHasNewCommit } from '../workflow/fixRoundGuard.js';
+import { assertUiParityFresh } from '../workflow/uiParityGuard.js';
+import { runParityVitest } from './uiParityRunner.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { runPhaseCommand } from './phase.js';
 import { runArtifactAddCommand } from './artifactAdd.js';
@@ -642,6 +644,13 @@ async function assertMarkerHasWork(
       verbose ? (m: string) => process.stderr.write(`${m}\n`) : undefined,
     );
     if (stage === 'fix') await assertFixHasNewCommit(store, found.id, defaultGitRunner);
+    // A parity probe that cannot run (timeout, spawn error) is not a verdict: the marker goes through.
+    try {
+      await assertUiParityFresh(store, found.id, defaultGitRunner, runParityVitest);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('cannot mark this stage done')) throw e;
+      if (verbose) process.stderr.write(`[marker] ui parity probe unavailable: ${String(e)}\n`);
+    }
   } finally {
     store.close();
   }

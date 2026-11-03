@@ -359,3 +359,54 @@ describe('loadShipPreview branchCommits', () => {
     expect(r.branchCommitsMore).toBe(0);
   });
 });
+
+describe('resolveShipArtifacts conventional prefix in the ticket title', () => {
+  const conventions = { commitMessage: '{type}: {title}', pullRequestTitle: '{type}: {title}' };
+  const render = (title: string, type: string | null = null, defaultType?: string) =>
+    resolveShipArtifacts({
+      manifest: manifest({ extention: repo() }),
+      ticketId: 7,
+      key: 'T7',
+      title,
+      repoName: 'extention',
+      ticket: { ...ticket, type },
+      conventions: { ...conventions, ...(defaultType ? { defaultType } : {}) },
+    });
+
+  it('takes the type from the title when the ticket has none', () => {
+    const a = render('fix: Foo');
+    expect(a.prTitle).toBe('fix: Foo');
+    expect(a.commitMessage).toBe('fix: Foo');
+    expect(a.context.title).toBe('Foo');
+  });
+
+  it('lets the stored ticket type win', () => {
+    expect(render('fix: Foo', 'feat').prTitle).toBe('feat: Foo');
+  });
+
+  it('uses the default type for a title with no prefix', () => {
+    expect(render('Foo').prTitle).toBe('feat: Foo');
+    expect(render('Foo', null, 'chore').prTitle).toBe('chore: Foo');
+  });
+
+  it('drops the scope of a scoped prefix', () => {
+    expect(render('fix(sbx): Foo').prTitle).toBe('fix: Foo');
+  });
+
+  it('does not treat an unknown word as a prefix', () => {
+    expect(render('Ticket form: Foo').prTitle).toBe('feat: Ticket form: Foo');
+  });
+
+  it('keeps the raw title when no convention is set', () => {
+    const a = resolveShipArtifacts({
+      manifest: manifest({ extention: repo() }),
+      ticketId: 7,
+      key: 'T7',
+      title: 'fix: Foo',
+      repoName: 'extention',
+      ticket,
+    });
+    expect(a.prTitle).toBe('fix: Foo');
+    expect(a.commitMessage).toBe('fix: Foo');
+  });
+});

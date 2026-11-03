@@ -65,6 +65,10 @@ function latestFailingGates(stageKey: StageKey, runs: readonly GateRun[]): GateR
   );
 }
 
+/** Said once in a gate-failure brief: a refused marker the host re-run cannot clear is a valid stop. */
+export const FIX_REFUSED_STOP_RULE =
+  'If the done marker is refused with no new commit and the host re-run still fails, stop and wait for the user — that is a valid stopping point.';
+
 /**
  * The opening prompt for a session resumed at `fix`. A bare "continue the work"
  * wastes the one thing karst knows and the agent does not: which gate failed, why
@@ -129,6 +133,7 @@ export function renderFixBrief(
     '',
     PROCESS_KILL_RULE,
   ];
+  if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {
     lines.push('', PROTOTYPE_REGION_CHECKLIST_RULE);
