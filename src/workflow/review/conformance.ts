@@ -83,6 +83,7 @@ export function buildConformanceBlock(a: ReviewArtifacts, repo?: string): string
     `- Missing behavior may live outside the diff. Exception to the scope rule "widen beyond the diff only into a file the diff actually touches or directly calls": to confirm an artifact requirement is absent you may also read unchanged code the diff does not touch. This exception is ONLY for confirming absence — never report a finding about untouched code itself.`,
     `- If the diff range is empty, the scope block's single "no changes to review" observation rule wins: do not emit per-requirement findings.`,
     `- For a conformance finding, set "requirement" to the scenario / requirement it is about (e.g. "Scenario 2" or the spec item's id) and omit "file" when the gap is not in one file.`,
+    `- Use "requirement" ONLY for an intent/spec requirement the change does not deliver. If an artifact itself cannot be used (it covers a different ticket, is stale, or cannot be read), report that as a finding WITHOUT "requirement" and without "file", with your own honest severity: it is a note about the artifact, not a missing requirement.`,
   ];
   return [
     ...rules,
