@@ -1,4 +1,5 @@
 import type { SandboxProbe } from '../../agent/sessionRunner.js';
+import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
 /**
  * The two decisions behind a "Resolve conflicts" click, shared by the ticket
@@ -32,6 +33,22 @@ export interface ResolveConflictInput {
   readonly deliver: (brief: string, repo: string) => void;
   /** Called once the brief is going out: arms Karst's own delivery of the resolved merge (D247). */
   readonly arm?: (repo: string) => void;
+  /**
+   * Sandboxed tickets only: sync both ways with the conflict's base ref, so the clone's
+   * `refs/karst/base/<base>` is fresh BEFORE the brief goes out (a live terminal is only nudged,
+   * and a stale ref makes the agent's merge say "Already up to date"). A failure sends no brief.
+   */
+  readonly prepareSandbox?: () => Promise<EnsureSyncResult>;
+}
+
+const DIRTY_HINT = ' Use "Stash and update" on the dashboard Sandbox card to park the sandbox changes, then click Resolve conflicts again.';
+
+async function prepare(input: ResolveConflictInput): Promise<string | null> {
+  if (!input.prepareSandbox) return null;
+  const result = await input.prepareSandbox().catch((err: unknown): EnsureSyncResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err), diverged: false }));
+  if (result.ok) return null;
+  const dirty = /uncommitted/i.test(result.reason);
+  return `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}`;
 }
 
 export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
@@ -48,6 +65,13 @@ export async function resolveConflictClick(input: ResolveConflictInput): Promise
       `No merge conflict is recorded for "${input.repo}" on ticket ${input.label} — nothing to resolve.`,
     );
     return;
+  }
+  if (sandboxed) {
+    const failure = await prepare(input);
+    if (failure !== null) {
+      input.notify(failure);
+      return;
+    }
   }
   input.arm?.(input.repo);
   input.deliver(brief, input.repo);

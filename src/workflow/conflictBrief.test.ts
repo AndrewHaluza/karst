@@ -76,6 +76,13 @@ describe('renderConflictBrief', () => {
 });
 
 describe('renderConflictBrief sandboxed', () => {
+  it('tells the agent to stop on "Already up to date"', () => {
+    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'develop', files: [], prUrl: null, sandboxed: true, stageCurrent: 'fix' });
+    expect(out).toContain('Already up to date');
+    expect(out).toContain('did not move');
+    expect(out).toContain('do not commit an empty merge');
+  });
+
   it('tells the agent to commit and emit the fix marker, with no fetch or push', () => {
     const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'main', files: [], prUrl: null, sandboxed: true, stageCurrent: 'fix' });
     expect(out).toContain('`fix` marker');
