@@ -13,11 +13,19 @@ function Tail({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage
   return (
     <span className="timeline-tail">
       <TimelineTokens stage={stage} id={id} index={index} />
-      {/* The start stamp renders BESIDE the duration in the tail: every row dates at its end, next to the span it measures. */}
-      {r.time ? <span className="segment-window">{r.time}</span> : null}
-      {r.duration ? <span className="segment-window">{r.duration}</span> : null}
       {r.action ? <InsideActionButton action={r.action} /> : null}
     </span>
+  );
+}
+
+/** The timing is two fixed grid cells after the action, empty when absent, so every row of the rail lines up (UI-R41). */
+function Timing({ r }: { readonly r: EvidenceRow }) {
+  const title = [r.durationExact, r.time ? `started ${r.time}` : ''].filter(Boolean).join(' · ');
+  return (
+    <>
+      <span className="segment-window tl-time">{r.time || null}</span>
+      <span className="segment-window tl-dur" title={title || undefined}>{r.duration || null}</span>
+    </>
   );
 }
 
@@ -58,6 +66,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
         </span>
         <IdentityCell r={r} />
         {tail}
+        <Timing r={r} />
       </div>
     );
   }
@@ -71,6 +80,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
         <span className="timeline-start-label">{r.label}</span>
         <IdentityCell r={r} />
         {tail}
+        <Timing r={r} />
       </div>
     );
   }
@@ -82,7 +92,9 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
       </span>
       <span className="phase-name">{r.label}</span>
       <span className={`phase-detail ${status}`}>{r.detail || ''}</span>
-      <span className="phase-time">{r.time || r.duration || ''}</span>
+      <span className="phase-tail" />
+      <span className="phase-time tl-time">{r.time || null}</span>
+      <span className="phase-time tl-dur" title={[r.durationExact, r.time ? `started ${r.time}` : ''].filter(Boolean).join(' · ') || undefined}>{r.duration || null}</span>
     </div>
   );
 }

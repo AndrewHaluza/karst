@@ -168,7 +168,7 @@
 #inside .session-segments{--timeline-left:var(--p-s3);--timeline-col:20px;position:relative;
   padding:var(--p-s1) 0 var(--p-s2)}
 #inside .timeline-row{display:grid;
-  grid-template-columns:var(--timeline-col) minmax(110px,160px) minmax(0,1fr) auto;
+  grid-template-columns:var(--timeline-col) minmax(110px,160px) minmax(0,1fr) auto var(--inside-time-w) var(--inside-dur-w);
   gap:var(--p-s1);align-items:center;min-height:29px;padding:0 var(--p-s2) 0 var(--timeline-left);
   position:relative;z-index:1}
 /* ONE source of truth for the timeline x-position: node and edge are both
@@ -188,6 +188,7 @@
   border-radius:var(--k-radius-circle);background:var(--p-surface2)}
 #inside .timeline-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
   min-width:0;white-space:nowrap}
+#inside .tl-time,#inside .tl-dur,#inside .commit-time,#inside .pr-time{justify-self:end;text-align:right;font-variant-numeric:tabular-nums}
 #inside .segment-window,#inside .switch-time,#inside .phase-time{color:var(--p-muted2);
   font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
 #inside .phase-row{color:var(--p-muted);--node-radius:7px}
@@ -290,7 +291,7 @@
   overflow:hidden;background:var(--p-surface)}
 #inside .commit-repo{border-bottom:var(--k-border-w) solid var(--p-border)}
 #inside .commit-repo:last-child{border-bottom:0}
-#inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto auto;
+#inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto var(--inside-time-w) var(--inside-dur-w);
   gap:var(--p-s2);align-items:center;min-height:29px;padding:0 var(--p-s2)}
 #inside .commit-repo-name{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -327,7 +328,7 @@
 
 /* Ship · Pull request: the recorded path per repository */
 #inside .pr-branches{display:grid;gap:var(--k-space-1)}
-#inside .pr-branch{display:flex;align-items:center;gap:var(--p-s1);min-height:29px;
+#inside .pr-branch{display:grid;grid-template-columns:44px minmax(0,1fr) var(--inside-time-w) var(--inside-dur-w);align-items:center;gap:var(--p-s1);min-height:29px;
   padding:0 var(--p-s2);border-radius:var(--p-r1)}
 #inside .pr-branch.current{background:var(--p-tint-run)}
 #inside .pr-repo{width:44px;flex:none;color:var(--p-strong);font-family:var(--p-mono);
@@ -351,7 +352,7 @@
 #inside .pr-step.fail{color:var(--p-failed)}
 #inside .pr-step.note{color:var(--p-muted2);font-style:italic}
 #inside .pr-arrow{color:var(--p-muted2);flex:none}
-#inside .pr-time{margin-left:auto;flex:none;color:var(--p-muted2);font-family:var(--p-mono);
+#inside .pr-time{color:var(--p-muted2);font-family:var(--p-mono);
   font-size:var(--p-xs);white-space:nowrap}
 /* Indented one step under its branch line, not by the whole repo column —
    the 48px reservation opened a gap wider than the note's own first word. */

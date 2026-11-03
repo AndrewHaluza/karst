@@ -43,16 +43,17 @@
   #inside .receipt-block{border-right:0;border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .receipt-block:last-child{border-bottom:0}
   #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto auto}
+  #inside .commit-dur,#inside .pr-dur{display:none}
   #inside .commit-repo-name{grid-column:1}
   #inside .commit-repo-summary{grid-column:1/-1}
   #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
   #inside .commit-item{grid-template-columns:auto minmax(0,1fr)}
-  #inside .pr-branch{flex-wrap:wrap}
+  #inside .pr-branch{display:flex;flex-wrap:wrap}
   #inside .pr-time{margin-left:0}
   #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
   #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
     padding-left:var(--timeline-left)}
-  #inside .phase-time,#inside .timeline-tail{display:none}
+  #inside .phase-time,#inside .phase-tail,#inside .timeline-tail,#inside .tl-time,#inside .tl-dur{display:none}
   #inside .session-foot{flex-wrap:wrap}
   #inside .session-foot .session-rule{margin-left:0;width:100%}
   /* The node list's control stays in its own `auto` track and the meta

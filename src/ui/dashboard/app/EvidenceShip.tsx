@@ -23,12 +23,9 @@ export function EvidenceCommits({ ev }: { readonly ev: Of<'commits'> }) {
             <div className="commit-repo-head">
               <span className="commit-repo-name">{r.repo}</span>
               <span className="commit-repo-summary">{r.summary}</span>
-              {r.time ? (
-                <span className="commit-time" title={`commit step started ${r.time}`}>
-                  {r.time}
-                </span>
-              ) : null}
               <span className={`commit-origin ${r.originKind}`}>{r.origin}</span>
+              <span className="commit-time" title={r.time ? `commit step started ${r.time}` : undefined}>{r.time || null}</span>
+              <span className="commit-dur" />
             </div>
             {r.commits && r.commits.length ? (
               <div className="commit-list">
@@ -88,11 +85,8 @@ export function EvidencePrs({ ev }: { readonly ev: Of<'prs'> }) {
                   ))}
                 </div>
                 {/* Every expanded row dates itself, like the commit blocks beside it. */}
-                {b.time ? (
-                  <span className="pr-time" title={`pull-request step started ${b.time}`}>
-                    {b.time}
-                  </span>
-                ) : null}
+                <span className="pr-time" title={b.time ? `pull-request step started ${b.time}` : undefined}>{b.time || null}</span>
+                <span className="pr-dur" />
               </div>
               <div className="pr-branch-note">{b.note || ''}</div>
             </div>
