@@ -1112,6 +1112,25 @@ describe('runUat', () => {
     expect(passing.exitCode).toBe(0);
     expect(passing.summary).toBeNull();
   });
+
+  it('stores the refusal output as the summary of a hostRefused row', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, null, null, null, i, 'host tree has uncommitted changes: a.snap');
+            return { name: g.name, exitCode: null, output: 'host tree has uncommitted changes: a.snap', hostRefused: true };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+    const rows = listGateRuns(store, id);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.summary).toContain('uncommitted changes');
+  });
 });
 
 describe('testerTargets running services', () => {

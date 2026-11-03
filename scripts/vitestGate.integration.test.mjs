@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -119,4 +119,16 @@ describe('vitestGate flake re-run', () => {
     expect(run.stderr).not.toContain('NOTICE: flaky:');
     expect(run.status).not.toBe(0);
   }, 120_000);
+});
+
+describe('vitestGate CI mode', () => {
+  it('fails a missing snapshot, names the test, and writes no snapshot file', () => {
+    write('snap.test.mjs', "import {it,expect} from 'vitest';\nit('has no snapshot yet', () => expect('a').toMatchSnapshot());\n");
+    const run = gate(repo, null);
+    expect(run.status).not.toBe(0);
+    expect(run.stdout + run.stderr).toContain('has no snapshot yet');
+    expect(spawnSync('git', ['status', '--porcelain', '--', '__snapshots__'], { cwd: repo, encoding: 'utf8' }).stdout).toBe('');
+    expect(existsSync(join(repo, '__snapshots__'))).toBe(false);
+    rmSync(join(repo, 'snap.test.mjs'));
+  });
 });
