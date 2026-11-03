@@ -44,6 +44,9 @@
   "scripts/evalForm/draft*.mjs": [
     "arch:FORMEVAL-DRAFT"
   ],
+  "scripts/evalForm/plan*.mjs": [
+    "arch:FORMEVAL-PLAN"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"
