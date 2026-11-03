@@ -367,11 +367,12 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('nothing-to-commit: says the agent already committed its work', async () => {
+  it('nothing-to-commit: displays agent committed badge and no status row', async () => {
     const h = await render('nothing-to-commit');
-    expect(h.query('[data-region="ship-preview"]')!.textContent).toContain(
-      'nothing to commit — agent committed its work',
-    );
+    const preview = h.query('[data-region="ship-preview"]')!;
+    expect(preview.textContent).toContain('agent committed');
+    expect(preview.textContent).not.toContain('nothing to commit — agent committed its work');
+    expect(preview.textContent).toContain('feat(web): agent did this work');
     h.close();
   });
 

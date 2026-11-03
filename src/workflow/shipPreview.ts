@@ -80,6 +80,13 @@ export interface ShipPreviewRepo {
    * "every repo unchanged" warning (`arch:SHIP-UNCHANGED`).
    */
   changedFromBase: boolean;
+  /**
+   * Agent's commits between baseRef and HEAD (`<baseRef>..HEAD`), capped.
+   * Empty when unchanged or unresolvable.
+   */
+  branchCommits: { sha: string; subject: string }[];
+  /** How many additional commits exist beyond the cap. */
+  branchCommitsMore: number;
   status: ShipPreviewRepoStatus;
   /** Per-repo read failure; the preview never blocks ship. Absent on success. */
   error?: string;
@@ -89,6 +96,24 @@ export interface ShipPreviewRepo {
 export interface ShipPreview {
   computedAt: string;
   repos: ShipPreviewRepo[];
+}
+
+/** The maximum number of branch commits shown in the preview before truncation. */
+export const BRANCH_COMMITS_CAP = 20;
+
+/** Parse the null-delimited stdout of `git log --format=%h%x00%s`. */
+export function parseBranchCommits(stdout: string): { sha: string; subject: string }[] {
+  const lines = stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const commits: { sha: string; subject: string }[] = [];
+  for (const line of lines) {
+    const idx = line.indexOf('\0');
+    if (idx === -1) {
+      commits.push({ sha: line, subject: '' });
+    } else {
+      commits.push({ sha: line.slice(0, idx), subject: line.slice(idx + 1) });
+    }
+  }
+  return commits;
 }
 
 /** The ticket facts the artifact templates interpolate. */
@@ -263,6 +288,12 @@ interface RepoContext {
   signal?: AbortSignal;
 }
 
+/** The base to compare/log against: remote-tracking ref when present, else local branch. */
+async function resolveBaseSpec(git: GitRunner, cwd: string, baseRef: string, opts?: { signal?: AbortSignal }): Promise<string> {
+  const remote = await git(['rev-parse', '--verify', `origin/${baseRef}^{commit}`], cwd, opts);
+  return remote.exitCode === 0 ? `origin/${baseRef}` : baseRef;
+}
+
 /**
  * Whether the branch holds an effective change from its base, read LOCALLY (no
  * fetch — the preview repaints on demand and must not spend a network round
@@ -309,6 +340,8 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     deny: [],
     prNumber: null,
     changedFromBase: false,
+    branchCommits: [],
+    branchCommitsMore: 0,
     status: 'nothing-to-commit',
   };
   try {
@@ -384,16 +417,26 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     const baseRef = manifest
       ? resolveTicketBaseRef(store, ctx.ticketId, wt.repo, manifest)
       : (wt.baseRef ?? '');
+    const baseSpec = baseRef ? await resolveBaseSpec(git, wt.path, baseRef, opts) : '';
     if (specs.length > 0) {
       const head = await headCommit(git, wt.path);
-      if (head !== null && baseRef) {
+      if (head !== null && baseSpec) {
         base.committedExcludedWarning = await changedPathsMatching(
           git,
           wt.path,
-          `${baseRef}...${head}`,
+          `${baseSpec}...${head}`,
           specs,
         ).catch(() => [] as string[]);
       }
+    }
+    if (baseSpec) {
+      const log = await git(['log', '--format=%h%x00%s', `${baseSpec}..HEAD`], wt.path, opts);
+      if (log.exitCode !== 0) {
+        throw new Error(log.stderr.trim() || `git log exited ${log.exitCode}`);
+      }
+      const commits = parseBranchCommits(log.stdout);
+      base.branchCommits = commits.slice(0, BRANCH_COMMITS_CAP);
+      base.branchCommitsMore = Math.max(0, commits.length - BRANCH_COMMITS_CAP);
     }
     if (base.status === 'nothing-to-commit' && baseRef) {
       base.changedFromBase = await hasLocalChangesFrom(ctx, wt, baseRef);

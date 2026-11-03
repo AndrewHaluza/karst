@@ -597,6 +597,8 @@ function shipPreviewRepo(over: Partial<ShipPreviewRepo> & { repo: string }): Shi
     deny: [],
     prNumber: null,
     changedFromBase: true,
+    branchCommits: [],
+    branchCommitsMore: 0,
     status: 'will-commit',
     ...over,
   };
@@ -650,7 +652,14 @@ export function shipPreviewFixture(kind: ShipPreviewFixtureKind): ShipPreview | 
     return {
       computedAt,
       repos: [
-        shipPreviewRepo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: true }),
+        shipPreviewRepo({
+          repo: 'web',
+          status: 'nothing-to-commit',
+          changedFromBase: true,
+          branchCommits: [
+            { sha: 'a1b2c3d', subject: 'feat(web): agent did this work' },
+          ],
+        }),
       ],
     };
   }

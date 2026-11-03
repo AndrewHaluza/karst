@@ -31,7 +31,9 @@ function Badge({ r }: { readonly r: ShipPreviewRepo }) {
           ? ['sp-badge sp-badge--ok', 'circle-check', 'merged — nothing to ship']
           : r.status === 'will-commit'
             ? ['sp-badge sp-badge--ok', 'circle-check', 'will commit']
-            : ['sp-badge', 'check', 'nothing to commit'];
+            : r.status === 'nothing-to-commit' && r.changedFromBase
+              ? ['sp-badge sp-badge--ok', 'check', 'agent committed']
+              : ['sp-badge', 'check', 'nothing to commit'];
   return (
     <span className={cls}>
       <Icon name={icon!} size={14} />
@@ -93,16 +95,31 @@ function Repo({ r }: { readonly r: ShipPreviewRepo }) {
           <Row label="Status">{`PR #${prNumber(r)} open — skipped`}</Row>
         ) : r.status === 'already-merged' ? (
           <Row label="Status">{`merged in #${prNumber(r)} — nothing to ship`}</Row>
-        ) : r.status === 'nothing-to-commit' && !r.error ? (
+        ) : r.status === 'nothing-to-commit' && !r.error && !r.changedFromBase ? (
           // Never a verdict on a failed read: `r.error` renders its own row below.
-          <Row label="Status">{r.changedFromBase ? 'nothing to commit — agent committed its work' : 'no changes from base'}</Row>
+          <Row label="Status">no changes from base</Row>
         ) : null}
         {/* A re-ship: a live PR exists but ship will commit and push into it (FIX-46), so the repo is NOT skipped. */}
         {r.prNumber != null && r.status !== 'already-shipped' && !r.error ? <Row label="PR">{`PR #${r.prNumber} open — this commit is pushed onto it`}</Row> : null}
         <Row label="PR title">{r.prTitle}</Row>
-        <Row label="Commit">{r.commitMessage}</Row>
-        {/* A blocked repo will not commit at all (ship refuses before the sweep), so listing its dirty paths under "Commits" would claim work ship will never do. */}
-        {r.status !== 'blocked' && r.commitFiles && r.commitFiles.length ? <Files label="Commits" files={r.commitFiles} note="" /> : null}
+        {r.status === 'will-commit' ? <Row label="Commit">{r.commitMessage}</Row> : null}
+        {(r.status === 'will-commit' || r.status === 'nothing-to-commit') && r.branchCommits && r.branchCommits.length > 0 ? (
+          <Row label="Commits">
+            <ul className="sp-commit-list">
+              {r.branchCommits.map((c) => (
+                <li className="sp-commit" key={c.sha}>
+                  <span className="sp-commit-sha">{c.sha}</span>
+                  <span className="sp-commit-subject">{c.subject}</span>
+                </li>
+              ))}
+              {r.branchCommitsMore > 0 ? (
+                <li className="sp-commit sp-more">{`and ${r.branchCommitsMore} more`}</li>
+              ) : null}
+            </ul>
+          </Row>
+        ) : null}
+        {/* A blocked repo will not commit at all (ship refuses before the sweep), so listing its dirty paths under "Files" would claim work ship will never do. */}
+        {r.status !== 'blocked' && r.commitFiles && r.commitFiles.length ? <Files label="Files" files={r.commitFiles} note="" /> : null}
         {r.excludedFiles && r.excludedFiles.length ? <Files label="Excluded" files={r.excludedFiles} note="(ship.exclude)" /> : null}
         {r.committedExcludedWarning && r.committedExcludedWarning.length ? (
           <Row label="Warning" cls="sp-row--warn">{`ship.exclude matches committed changes: ${r.committedExcludedWarning.join(', ')} — these DO ship`}</Row>

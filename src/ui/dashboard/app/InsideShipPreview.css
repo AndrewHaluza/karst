@@ -28,6 +28,10 @@
 #inside .sp-value{color:var(--p-text);font-size:var(--p-sm);min-width:0;overflow-wrap:anywhere;white-space:normal}
 #inside .sp-row--danger .sp-value{color:var(--p-failed)}
 #inside .sp-row--warn .sp-value{color:var(--p-attention)}
+#inside .sp-commit-list{margin:0;padding:0;list-style:none;display:grid;gap:var(--k-border-w)}
+#inside .sp-commit{font-size:var(--p-xs);color:var(--p-muted);overflow-wrap:anywhere;display:flex;gap:var(--p-s2);align-items:baseline}
+#inside .sp-commit-sha{font-family:var(--p-mono);color:var(--p-muted2);flex:none}
+#inside .sp-commit-subject{color:var(--p-text);overflow-wrap:anywhere;min-width:0}
 #inside .sp-files summary{cursor:pointer;color:var(--p-muted);font-size:var(--p-xs)}
 #inside .sp-files summary::-webkit-details-marker{display:none}
 #inside .sp-files summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}

@@ -733,6 +733,19 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
 }
 
 /**
+ * Whether ship ran past the pull request phase, opening none.
+ * The stage cell is terminal, or every recorded repository has completed its PR step.
+ */
+function prRanPast(input: ShipProcessesInput): boolean {
+  if (input.cell.status === 'passed' || input.cell.status === 'failed') return true;
+  const repos = Object.values(input.evidence.repos);
+  if (repos.length > 0 && repos.every((r) => r.steps.pr && r.steps.pr.status !== 'running')) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * The merge process: has each CURRENT PR landed. Answered from current state,
  * never from the saga evidence — a merged PR stops being a question the
  * moment it is merged, and the last pre-merge verdict must not freeze beside
@@ -811,8 +824,8 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     // collapsed summary.
     ...(conflicted > 0
       ? { detail: 'Ship is waiting: resolve the merge conflict before the ticket can be done.' }
-      : recorded.length === 0 && input.cell.startedAt
-        ? { detail: 'nothing to merge — no pull request opened' }
+      : recorded.length === 0
+        ? { detail: prRanPast(input) ? 'nothing to merge — no pull request opened' : noEvidenceDetail(input) }
         : rows.length === 0
           ? { detail: noEvidenceDetail(input) }
           // The row describes EVERY state: the merged count over the CURRENT

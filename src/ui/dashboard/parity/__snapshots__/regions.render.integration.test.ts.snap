@@ -1302,9 +1302,6 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.sp-row>
             <span.sp-label> "PR title"
             <span.sp-value> "feat(web): land the change"
-          <div.sp-row>
-            <span.sp-label> "Commit"
-            <span.sp-value> "feat(web): land the change"
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
@@ -1643,7 +1640,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.sp-label> "Commit"
             <span.sp-value> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
           <div.sp-row>
-            <span.sp-label> "Commits"
+            <span.sp-label> "Files"
             <span.sp-value>
               <details.sp-files>
                 <summary> "2 files"
@@ -1664,7 +1661,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.sp-label> "Commit"
             <span.sp-value> "feat(api): land the change"
           <div.sp-row>
-            <span.sp-label> "Commits"
+            <span.sp-label> "Files"
             <span.sp-value>
               <details.sp-files>
                 <summary> "1 file"
