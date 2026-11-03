@@ -225,6 +225,20 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
   }
   deps.onRewritten?.(target.ticketId, false);
   await recordSyncedHead(deps, target);
+  // An open conflict: the agent merges the clone's `refs/karst/base/<base>`, so the manual Sync also ships the fresh base in.
+  const opts = baseOpts(deps, target.ticketId);
+  if (opts.baseRef && runner.refresh) {
+    try {
+      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, opts);
+      if (!refreshed.ok) {
+        await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${refreshed.reason}`);
+        return false;
+      }
+    } catch (err) {
+      await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: sandbox refresh failed: ${message(err)}`);
+      return false;
+    }
+  }
   deps.notify.info(`Karst: ${target.ticketLabel} ${result.summary}.`);
   return true;
 }

@@ -590,6 +590,7 @@ export function makeDashboardActions(
         probeSandbox: () => sandbox.bindings()?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
         arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
+        prepareSandbox: () => sandbox.life().ensureInSync(ticketId),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),
       }) : undefined));

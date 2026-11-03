@@ -747,6 +747,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
         arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
+        prepareSandbox: () => sandboxLife.ensureInSync(id),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief) => {
           if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
