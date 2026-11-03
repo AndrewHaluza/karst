@@ -60,24 +60,35 @@ export async function listBaseChanges(
   baseRef: string,
   debug: Debug,
 ): Promise<BaseChange[]> {
+  return (await listBaseChangesChecked(git, worktreePath, baseRef, debug)) ?? [];
+}
+
+/** Like {@link listBaseChanges}, but `null` (not `[]`) when the diff could not be computed. */
+export async function listBaseChangesChecked(
+  git: GitRunner,
+  worktreePath: string,
+  baseRef: string,
+  debug: Debug,
+): Promise<BaseChange[] | null> {
   debug(`[artifacts] base diff in ${worktreePath} vs ${baseRef}`);
   const base = await mergeBase(git, worktreePath, baseRef);
   if (base === undefined) {
     debug(`[artifacts] no merge-base for ${baseRef}; capturing nothing`);
-    return [];
+    return null;
   }
   const tracked = await git(['diff', '--name-status', '-z', '--no-renames', base], worktreePath);
   if (tracked.exitCode !== 0) {
     debug(`[artifacts] git diff failed (exit ${tracked.exitCode}); capturing nothing`);
-    return [];
+    return null;
   }
   const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z'], worktreePath);
-  const added: BaseChange[] =
-    untracked.exitCode === 0
-      ? untracked.stdout
-          .split('\0')
-          .filter((p) => p !== '')
-          .map((relPath) => ({ relPath, kind: 'added' as const }))
-      : [];
+  if (untracked.exitCode !== 0) {
+    debug(`[artifacts] git ls-files failed (exit ${untracked.exitCode}); capturing nothing`);
+    return null;
+  }
+  const added: BaseChange[] = untracked.stdout
+    .split('\0')
+    .filter((p) => p !== '')
+    .map((relPath) => ({ relPath, kind: 'added' as const }));
   return [...parseNameStatus(tracked.stdout), ...added];
 }
