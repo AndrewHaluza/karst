@@ -170,11 +170,13 @@
 #inside .token-stat .cache-read{color:var(--p-muted2);margin-left:var(--p-s1)}
 
 /* Process ledger */
+/* The two timing columns, defined once: 'hh:mm:ss AM' and '12m 34s' (UI-R41). */
+#inside{--inside-time-w:11ch;--inside-dur-w:7ch}
 #inside .ledger{padding-bottom:var(--p-s2)}
 #inside .op{border-top:var(--k-border-w) solid var(--p-border)}
 #inside .op:first-child{border-top:0}
 #inside .op summary,#inside .op-static{list-style:none;display:grid;
-  grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto 16px;
+  grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) auto var(--inside-time-w) var(--inside-dur-w) 16px;
   align-items:center;gap:var(--p-s2);min-height:31px;padding:0 var(--p-s4);border-radius:var(--p-r1)}
 #inside .op summary{cursor:pointer}
 #inside .op summary::-webkit-details-marker{display:none}
@@ -238,9 +240,9 @@
 #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
   border-radius:var(--k-radius-pill);padding:0 var(--p-s2);color:var(--p-muted);
   font-family:var(--p-mono);font-size:var(--p-xs);line-height:16px}
-#inside .duration{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+#inside .duration{display:inline-flex;align-items:center;justify-content:flex-end;font-variant-numeric:tabular-nums;height:18px;color:var(--p-muted2);
   font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
-#inside .op-time{display:inline-flex;align-items:center;height:18px;color:var(--p-muted2);
+#inside .op-time{display:inline-flex;align-items:center;justify-content:flex-end;font-variant-numeric:tabular-nums;height:18px;color:var(--p-muted2);
   font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;white-space:nowrap}
 #inside .chev{width:16px;height:16px;display:grid;place-items:center;justify-self:center;align-self:center;color:var(--p-muted2)}
 #inside .chev:before{content:"";width:5px;height:5px;border-right:var(--k-border-w) solid currentColor;

@@ -37,7 +37,8 @@ export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
             {r.detail || ''}
             <PrState state={r.prState} />
           </span>
-          {r.action ? <EvAction r={r} /> : <EvTiming r={r} cls="ev-state" />}
+          <EvAction r={r} />
+          <EvTiming r={r} cls="ev-state" />
         </div>
       ))}
     </>

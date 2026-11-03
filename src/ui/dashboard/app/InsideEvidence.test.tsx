@@ -19,25 +19,29 @@ describe('Evidence — the generic rows', () => {
   it('leads every row with its glyph and trails it with the timing, as two separate cells', () => {
     withEvidence(ev);
     const [a, b] = all('.evidence-row');
-    expect([...a!.children].map((c) => c.className.split(' ')[0])).toEqual(['ev-glyph', 'ev-key', 'ev-detail', 'ev-state']);
+    expect([...a!.children].map((c) => c.className.split(' ')[0])).toEqual(['ev-glyph', 'ev-key', 'ev-detail', 'ev-tail', 'ev-state']);
     expect(a!.querySelector('.ev-glyph .glyph')!.getAttribute('aria-label')).toBe('passed');
     expect(a!.querySelector('.ev-glyph')!.textContent).toBe('');
     expect(a!.querySelector('.ev-state')!.className).toBe('ev-state pass');
     expect(text(a!.querySelector('.ev-state .ev-time'))).toBe('10:00');
     expect(a!.querySelector('.ev-state .ev-time')!.getAttribute('title')).toBe('started 10:00');
-    expect(a!.querySelector('.ev-state .ev-dur')!.getAttribute('title')).toBe('2.04s');
+    expect(a!.querySelector('.ev-state .ev-dur')!.getAttribute('title')).toBe('2.04s · started 10:00');
     expect(a!.querySelector('.ev-glyph .ev-dur, .ev-glyph .ev-time')).toBeNull();
     expect(text(a!.querySelector('.ev-detail .pr-status.merged'))).toBe('merged');
     // A statusless row keeps the grid's columns: both cells exist, empty.
     expect(b!.querySelector('.ev-glyph')!.childElementCount).toBe(0);
     expect(b!.querySelector('.ev-state')!.className).toBe('ev-state');
-    expect(b!.querySelector('.ev-state')!.childElementCount).toBe(0);
+    expect([...b!.querySelector('.ev-state')!.children].map((c) => c.className)).toEqual(['ev-time', 'ev-dur']);
+    expect(b!.querySelector('.ev-state')!.textContent).toBe('');
   });
 
-  it('puts an action in the trailing cell instead of the timing', () => {
-    withEvidence({ kind: 'rows', rows: [{ label: 'more', detail: '+3 more', action: { actionId: 'x:1', kind: 'open-full-evidence', label: 'Show 3 more' } }] });
+  it('puts an action BEFORE the timing and keeps both timing cells (UI-R41)', () => {
+    withEvidence({ kind: 'rows', rows: [{ label: 'more', detail: '+3 more', status: 'pass', time: '10:00:01 AM', duration: '2s', action: { actionId: 'x:1', kind: 'open-full-evidence', label: 'Show 3 more' } }] });
+    const row = must('.evidence-row');
     expect(text(must('.evidence-row > .ev-tail > button'))).toBe('Show 3 more');
-    expect(q('.evidence-row .ev-state')).toBeNull();
+    expect([...row.children].map((c) => c.className.split(' ')[0]).slice(-2)).toEqual(['ev-tail', 'ev-state']);
+    expect(text(must('.evidence-row .ev-state .ev-time'))).toBe('10:00:01 AM');
+    expect(text(must('.evidence-row .ev-state .ev-dur'))).toBe('2s');
   });
 
   it('falls back to this body for a kind it does not know, and never throws', () => {
@@ -94,7 +98,7 @@ describe('Evidence — gates running mid-list', () => {
     expect(text(b!.querySelector('.gate-repo'))).toBe('api');
     expect(text(b!.querySelector('.ev-time'))).toBe('10:05');
     expect(text(b!.querySelector('.ev-dur'))).toBe('12s');
-    expect(b!.querySelector('.ev-dur')!.getAttribute('title')).toBe('12.3s');
+    expect(b!.querySelector('.ev-dur')!.getAttribute('title')).toBe('12.3s · started 10:05');
   });
 });
 
@@ -179,7 +183,7 @@ describe('Evidence — the commit blocks', () => {
     expect(plain!.querySelector('a')).toBeNull();
     expect(text(linked!.querySelector('.commit-message'))).toBe('feat: x');
     expect(api!.querySelector('.commit-list')).toBeNull();
-    expect(api!.querySelector('.commit-time')).toBeNull();
+    expect(text(api!.querySelector('.commit-time'))).toBe('');
   });
 
   it('falls back to the generic rows when a snapshot carries no repositories (an older host)', () => {
@@ -222,7 +226,7 @@ describe('Evidence — the pull-request branches', () => {
     expect(text(web!.querySelector('.pr-branch-note'))).toBe('merge waits on review');
     expect(text(api!.querySelector('.pr-empty'))).toBe('no PR recorded');
     expect(api!.querySelector('.pr-arrow')).toBeNull();
-    expect(api!.querySelector('.pr-time')).toBeNull();
+    expect(text(api!.querySelector('.pr-time'))).toBe('');
   });
 
   it('shows a number the host gave no action for as plain text, never a dead link', () => {
@@ -343,17 +347,21 @@ describe('Evidence — the session timeline', () => {
     const [plan, impl, pending] = all('.phase-row');
     expect(plan!.querySelector('.glyph')!.getAttribute('aria-label')).toBe('passed');
     expect(plan!.querySelector('.phase-detail')!.className).toBe('phase-detail pass');
-    expect(text(plan!.querySelector('.phase-time'))).toBe('09:13');
-    expect(text(impl!.querySelector('.phase-time'))).toBe('3m');
+    expect(text(plan!.querySelector('.tl-time'))).toBe('09:13');
+    expect(text(impl!.querySelector('.tl-dur'))).toBe('3m');
     expect(pending!.querySelector('.glyph')!.className).toBe('glyph phase-status pending');
-    expect(text(pending!.querySelector('.phase-time'))).toBe('');
+    expect(text(pending!.querySelector('.tl-time'))).toBe('');
+    expect(text(pending!.querySelector('.tl-dur'))).toBe('');
   });
 
   it('dates each row beside its duration in the tail and shows its token pill', () => {
     withEvidence(timeline);
     const tails = all('.session-segments .timeline-tail');
-    expect(all('.segment-window', tails[0]!).map((s) => s.textContent)).toEqual(['09:12']);
-    expect(all('.segment-window', tails[1]!).map((s) => s.textContent)).toEqual(['4m']);
+    const rows = all('.session-segments .timeline-row');
+    // The timing is two fixed cells of the row, outside the tail (UI-R41).
+    expect(all('.segment-window', tails[0]!)).toEqual([]);
+    expect(rows[0]!.querySelector('.tl-time')!.textContent).toBe('09:12');
+    expect(rows[1]!.querySelector('.tl-dur')!.textContent).toBe('4m');
     expect(tails[0]!.querySelector('.token-stat')!.textContent).toBe('Σ1k tok');
     expect(tails[1]!.querySelector('.token-stat')!.textContent).toBe('Σ2k tok');
     expect(tails[2]!.querySelector('.token-stat')).toBeNull();

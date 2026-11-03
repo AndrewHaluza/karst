@@ -106,10 +106,15 @@ const ProcessRow = memo(
           </span>
         ) : null}
         {p.count ? <span className="count">{p.count}</span> : null}
-        <RowTime stage={stageKey} id={p.id} />
-        <RowDuration stage={stageKey} id={p.id} />
         {p.action ? <InsideActionButton action={p.action} /> : null}
       </span>
+    );
+    // The timing is two grid cells of the row, after the action: fixed columns, so the rows line up (UI-R41).
+    const timing = (
+      <>
+        <RowTime stage={stageKey} id={p.id} />
+        <RowDuration stage={stageKey} id={p.id} />
+      </>
     );
     const ev = p.evidence;
     const footer = <Footer footer={p.footer} />;
@@ -130,6 +135,7 @@ const ProcessRow = memo(
             {name}
             {detail}
             {tail}
+            {timing}
             <span />
           </div>
           {body}
@@ -146,6 +152,7 @@ const ProcessRow = memo(
             {name}
             {detail}
             {tail}
+            {timing}
             <span />
           </div>
         </div>
@@ -161,6 +168,7 @@ const ProcessRow = memo(
           {name}
           {detail}
           {tail}
+          {timing}
           <span className="chev" aria-hidden="true" />
         </summary>
         <div className="op-body">

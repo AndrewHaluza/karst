@@ -41,7 +41,7 @@ function LiveLine({ stage, live }: { readonly stage: string; readonly live: Fram
       {live.detail ? (
         <>
           <span className="sep">·</span>
-          <span className="live-copy">{live.detail}</span>
+          <span className="live-copy" title={live.detail} aria-label={live.detail}>{live.detail}</span>
         </>
       ) : null}
       {/* The running operation's AI identity, so it does not appear only once the step finishes. */}

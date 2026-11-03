@@ -1086,8 +1086,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.agent-model> "Claude Opus 4.1"
             <span.live.token-stat title="12,435 fresh tokens"> "12.4k tok"
               <span.sigma> "Σ"
-            <span.duration> "<dur> <dur>"
             <button.k-btn.k-btn--secondary.k-btn--sm data-act="inside-action" data-action-id="fixture:open-full-evidence:1" title="Show every recorded row" type="button"> "Show all"
+          <span.op-time>
+          <span.duration> "<dur> <dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.session-segments>
@@ -1098,8 +1099,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.switch-value>
                 <span>
               <span.timeline-tail>
-                <span.segment-window> "<clock>"
-                <span.segment-window> "<dur> <dur>"
+              <span.segment-window.tl-time> "<clock>"
+              <span.segment-window.tl-dur title="started <clock>"> "<dur> <dur>"
             <div.switch-event.timeline-row>
               <span.switch-slot.timeline-slot aria-hidden="true">
                 <span.switch-branch>
@@ -1114,6 +1115,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.timeline-tail>
                 <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
                   <span.sigma> "Σ"
+              <span.segment-window.tl-time>
+              <span.segment-window.tl-dur>
             <div.switch-event.timeline-row>
               <span.switch-slot.timeline-slot aria-hidden="true">
                 <span.switch-branch>
@@ -1128,18 +1131,24 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.timeline-tail>
                 <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
                   <span.sigma> "Σ"
+              <span.segment-window.tl-time>
+              <span.segment-window.tl-dur>
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.note.phase-status aria-label="note">
               <span.phase-name> "research"
               <span.note.phase-detail> "<clock>"
-              <span.phase-time>
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur>
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.note.phase-status aria-label="note">
               <span.phase-name> "plan"
               <span.note.phase-detail> "<clock>"
-              <span.phase-time>"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · implementation prototype > inside · implementation prototype 1`] = `
@@ -1167,7 +1176,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.agent-model> "Sonnet"
             <span.token-stat title="58,300 fresh tokens"> "58.3k tok"
               <span.sigma> "Σ"
-            <span.duration> "<dur>"
+          <span.op-time>
+          <span.duration> "<dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.session-segments>
@@ -1183,19 +1193,24 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.timeline-tail>
                 <span.token-stat title="18,600 fresh tokens"> "18.6k tok"
                   <span.sigma> "Σ"
-                <span.segment-window> "10:03–10:09"
+              <span.segment-window.tl-time>
+              <span.segment-window.tl-dur> "10:03–10:09"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.pass.phase-status aria-label="passed">
               <span.phase-name> "Understand"
               <span.pass.phase-detail> "reported · <clock>"
-              <span.phase-time> "10:06"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur> "10:06"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.pass.phase-status aria-label="passed">
               <span.phase-name> "Plan"
               <span.pass.phase-detail> "reported · <clock>"
-              <span.phase-time> "10:08"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur> "10:08"
             <div.switch-event.timeline-row>
               <span.switch-slot.timeline-slot aria-hidden="true">
                 <span.switch-branch>
@@ -1210,13 +1225,16 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.timeline-tail>
                 <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
                   <span.sigma> "Σ"
-                <span.segment-window> "<clock>"
+              <span.segment-window.tl-time>
+              <span.segment-window.tl-dur> "<clock>"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.pass.phase-status aria-label="passed">
               <span.phase-name> "Implement"
               <span.pass.phase-detail> "reported · <clock>"
-              <span.phase-time> "10:15"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur> "10:15"
             <div.switch-event.timeline-row>
               <span.switch-slot.timeline-slot aria-hidden="true">
                 <span.switch-branch>
@@ -1231,19 +1249,24 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.timeline-tail>
                 <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
                   <span.sigma> "Σ"
-                <span.segment-window> "<clock>"
+              <span.segment-window.tl-time>
+              <span.segment-window.tl-dur> "<clock>"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.pass.phase-status aria-label="passed">
               <span.phase-name> "Tests"
               <span.pass.phase-detail> "reported · <clock>"
-              <span.phase-time> "10:20"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur> "10:20"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
                 <span.glyph.pass.phase-status aria-label="passed">
               <span.phase-name> "Done"
               <span.pass.phase-detail> "done marker · <clock>"
-              <span.phase-time> "10:22"
+              <span.phase-tail>
+              <span.phase-time.tl-time>
+              <span.phase-time.tl-dur> "10:22"
           <div.session-foot>
             <span> "session c7f1"
             <span> "2 switches"
@@ -1290,6 +1313,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1298,6 +1323,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "web"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
@@ -1310,6 +1337,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "api"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
@@ -1324,6 +1353,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1331,13 +1362,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1345,6 +1382,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1359,6 +1398,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #120 was created in this ship run."
             <div>
               <div.pr-branch>
@@ -1371,6 +1412,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
@@ -1380,6 +1423,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1387,13 +1432,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview loading > inside · ship preview loading 1`] = `
@@ -1432,6 +1483,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1440,6 +1493,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "web"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
@@ -1452,6 +1507,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "api"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
@@ -1466,6 +1523,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1473,13 +1532,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1487,6 +1552,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1501,6 +1568,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #120 was created in this ship run."
             <div>
               <div.pr-branch>
@@ -1513,6 +1582,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
@@ -1522,6 +1593,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1529,13 +1602,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview ready > inside · ship preview ready 1`] = `
@@ -1599,6 +1678,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.commit-grid>
@@ -1607,6 +1688,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "web"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
@@ -1619,6 +1702,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                 <span.commit-repo-name> "api"
                 <span.commit-repo-summary> "2 created · 1 before"
                 <span.commit-origin.ship> "created by ship"
+                <span.commit-time>
+                <span.commit-dur>
               <div.commit-list>
                 <div.commit-item>
                   <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
@@ -1633,6 +1718,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Push"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1640,13 +1727,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
+            <span.ev-tail>
             <span.ev-state.pass>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
           <span.glyph.pass aria-label="passed">
@@ -1654,6 +1747,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.pr-branches>
@@ -1668,6 +1763,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #120 was created in this ship run."
             <div>
               <div.pr-branch>
@@ -1680,6 +1777,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.done.pr-step> "description generated"
                   <span.pr-arrow aria-hidden="true"> "→"
                   <span.done.pr-step> "PR opened"
+                <span.pr-time>
+                <span.pr-dur>
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
@@ -1689,6 +1788,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.op-detail.wait>
             <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
+          <span.op-time>
+          <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
           <div.evidence-row>
@@ -1696,13 +1797,19 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
+            <span.ev-tail>
             <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
-            <span.ev-state.wait>"
+            <span.ev-tail>
+            <span.ev-state.wait>
+              <span.ev-time>
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > logsView #logsView · closed > logsView · closed 1`] = `"<div#logsView.hidden.logsview tabindex="-1">"`;
