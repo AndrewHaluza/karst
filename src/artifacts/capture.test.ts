@@ -143,6 +143,16 @@ describe('captureWorktree', () => {
       expect(commits.find((c) => c.deleted)).toMatchObject({ repo: 'app', trailers: { kind: 'plan' } });
     });
 
+    it('removes nothing when the untracked listing fails', async () => {
+      const { commits, deps, target } = setup('', '', '.git', stored);
+      onDisk(target, Object.keys(stored));
+      const ok = deps.git;
+      deps.git = async (args, cwd) =>
+        args[0] === 'ls-files' ? { stdout: '', stderr: 'boom', exitCode: 128 } : ok(args, cwd);
+      expect(await captureWorktree(deps, target)).toBe(0);
+      expect(commits).toEqual([]);
+    });
+
     it('also removes stale paths on a watcher-scoped pass', async () => {
       const { commits, deps, target } = setup('', '', '.git', stored);
       onDisk(target, Object.keys(stored));

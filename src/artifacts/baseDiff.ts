@@ -82,12 +82,13 @@ export async function listBaseChangesChecked(
     return null;
   }
   const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z'], worktreePath);
-  const added: BaseChange[] =
-    untracked.exitCode === 0
-      ? untracked.stdout
-          .split('\0')
-          .filter((p) => p !== '')
-          .map((relPath) => ({ relPath, kind: 'added' as const }))
-      : [];
+  if (untracked.exitCode !== 0) {
+    debug(`[artifacts] git ls-files failed (exit ${untracked.exitCode}); capturing nothing`);
+    return null;
+  }
+  const added: BaseChange[] = untracked.stdout
+    .split('\0')
+    .filter((p) => p !== '')
+    .map((relPath) => ({ relPath, kind: 'added' as const }));
   return [...parseNameStatus(tracked.stdout), ...added];
 }
