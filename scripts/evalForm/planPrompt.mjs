@@ -3,8 +3,9 @@
 export const KICKOFF_LINE = 'No user is present. Propose the draft now.';
 
 /** The kickoff text: the issue, then the one bench-only line (documented gap in @arch:FORMEVAL-PLAN). */
-export function buildPlanKickoff({ title, body }) {
-  return `Plan this issue: ${title}\n\n${body}\n\n${KICKOFF_LINE}`;
+export function buildPlanKickoff({ title, body, extra = '' }) {
+  const rules = extra ? `\n\n${extra}` : '';
+  return `Plan this issue: ${title}\n\n${body}${rules}\n\n${KICKOFF_LINE}`;
 }
 
 /** Instructions ride the prompt, not the system channel: `RunHeadlessOpts` has no `instructions`. */

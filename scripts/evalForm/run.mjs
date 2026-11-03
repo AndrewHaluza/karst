@@ -35,7 +35,7 @@ const SOURCES = ['raw', 'improved'];
 const PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false, models: [], timeoutMin: 10, maxDrafts: 3, publish: false };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false, models: [], timeoutMin: 10, maxDrafts: 3, publish: false, planExtra: null };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -44,6 +44,7 @@ export function parseArgs(argv) {
     if (a === '--pass') o.pass = need(i);
     else if (a === '--prompt') o.prompts.push(need(i));
     else if (a === '--cases') o.cases.push(need(i));
+    else if (a === '--plan-extra') o.planExtra = need(i);
     else if (a === '--only') o.only = need(i).split(',').filter(Boolean);
     else if (a === '--runs') o.runs = Number(need(i));
     else if (a === '--provider') o.provider = need(i);
@@ -247,6 +248,7 @@ async function mainPlan(opts) {
   const judgeAdapter = resolveAdapter(judgeProvider === 'opencode' ? 'opencode2' : judgeProvider);
   const startedAt = new Date().toISOString();
   const meta = { startedAt, pass: 'plan', models: opts.models, judgeModel: opts.judgeModel, provider: opts.provider, judgeProvider, judgeEffort: opts.judgeEffort };
+  const planExtra = opts.planExtra ? readFileSync(resolve(opts.planExtra), 'utf8').trim() : '';
   const cwd = mkdtempSync(join(tmpdir(), 'eval-form-'));
   try {
     const results = await runPlanEval({
@@ -255,7 +257,7 @@ async function mainPlan(opts) {
       makeWork: (item) => makeWork(item, PLAN_REPOS),
       buildPrompt: (item, w) => ({
         instructions: preamble.planningInstructions({ sessionId: 1, title: item.title, manifest: buildPlanManifest(item.repo, w.checkout) }),
-        kickoff: preamble.planningKickoff(buildPlanKickoff(item)),
+        kickoff: preamble.planningKickoff(buildPlanKickoff({ ...item, extra: planExtra })),
       }),
       onProgress: (r) => console.error(`${r.caseId} ${r.model}: ${r.status}${r.error ? ' ' + r.error : ''}`),
     });

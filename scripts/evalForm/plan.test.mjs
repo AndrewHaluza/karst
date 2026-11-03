@@ -7,7 +7,7 @@ import { planningInstructions } from '../../src/planning/preamble.ts';
 import { validateProposal } from '../../src/planning/proposal.ts';
 import { gitRunner } from './draftChecks.mjs';
 import { buildPlanJudgePrompt, judgePlan, parsePlanJudge } from './planJudge.mjs';
-import { buildPlanManifest, buildPlanPrompt, KICKOFF_LINE } from './planPrompt.mjs';
+import { buildPlanKickoff, buildPlanManifest, buildPlanPrompt, KICKOFF_LINE } from './planPrompt.mjs';
 import { createdPaths, dirtyDefect, extractPaths, planStaticChecks } from './planChecks.mjs';
 import { renderPlanReport, renderPlanRatings, summarizePlan } from './planReport.mjs';
 import { planTools, runPlanEval, runPlannerHeadless } from './planRun.mjs';
@@ -184,7 +184,13 @@ describe('plan args', () => {
     const o = parseArgs(['--pass', 'plan', '--models', 'a,b', '--judge-model', 'j', '--only', 'x', '--timeout-min', '5', '--max-drafts', '2', '--publish']);
     expect(o).toMatchObject({ pass: 'plan', models: ['a', 'b'], judgeModel: 'j', only: ['x'], timeoutMin: 5, maxDrafts: 2, publish: true });
     const d = parseArgs(['--pass', 'plan', '--models', 'a', '--judge-model', 'j']);
-    expect(d).toMatchObject({ timeoutMin: 10, maxDrafts: 3, publish: false });
+    expect(d).toMatchObject({ timeoutMin: 10, maxDrafts: 3, publish: false, planExtra: null });
+  });
+  it('parses --plan-extra and puts the rules between the issue and the bench line', () => {
+    expect(parseArgs(['--pass', 'plan', '--models', 'a', '--judge-model', 'j', '--plan-extra', 'r.md']).planExtra).toBe('r.md');
+    const k = buildPlanKickoff({ title: 'T', body: 'B', extra: 'Rule 1.' });
+    expect(k).toBe(`Plan this issue: T\n\nB\n\nRule 1.\n\n${KICKOFF_LINE}`);
+    expect(buildPlanKickoff({ title: 'T', body: 'B' })).toBe(`Plan this issue: T\n\nB\n\n${KICKOFF_LINE}`);
   });
   it('rejects a missing model list and a judge equal to a planner model', () => {
     expect(() => parseArgs(['--pass', 'plan', '--judge-model', 'j'])).toThrow('--models');
