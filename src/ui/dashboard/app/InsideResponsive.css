@@ -53,7 +53,7 @@
   #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
   #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
     padding-left:var(--timeline-left)}
-  #inside .phase-time,#inside .phase-tail,#inside .timeline-tail,#inside .tl-time,#inside .tl-dur{display:none}
+  #inside .phase-time.tl-time,#inside .phase-tail,#inside .timeline-tail,#inside .tl-time{display:none}
   #inside .session-foot{flex-wrap:wrap}
   #inside .session-foot .session-rule{margin-left:0;width:100%}
   /* The node list's control stays in its own `auto` track and the meta
@@ -100,9 +100,19 @@
 /* From 520px down the start time drops first; the duration column stays (UI-R41). */
 @container (max-width: 520px){
   #inside .op-time,#inside .ev-time{display:none}
+  /* Timeline, commit and PR rows: the start time hides (the duration cell titles it); the time-less rows keep their own explicit tracks, never the zeroed time track. */
+  #inside .tl-time,#inside .phase-tail,#inside .timeline-tail{display:none}
+  #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr) var(--inside-dur-w)}
+  #inside .commit-repo-head{grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto auto}
+  #inside .commit-dur,#inside .pr-dur{display:none}
+  #inside .pr-branch{display:flex;flex-wrap:wrap}
   #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
   #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
   /* The tail wraps under the name and detail instead of squeezing them; the duration and chevron keep row one. */
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,110px) minmax(0,1fr) var(--inside-dur-w) 16px}
   #inside .op-tail{grid-row:2;grid-column:2/4;justify-content:flex-start;flex-wrap:wrap;white-space:normal;padding-bottom:var(--p-s1)}
+}
+/* At 430px the commit head stacks again: it overrides the 520px tracks above (UI-R41). */
+@container (max-width: 430px){
+  #inside .commit-repo-head{grid-template-columns:minmax(0,1fr) auto auto}
 }
