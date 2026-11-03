@@ -37,7 +37,7 @@ function input(over: Partial<CiActionsInput> = {}): CiActionsInput {
     deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
     reprobe: vi.fn(async () => {}),
     confirm: vi.fn(async () => true),
-    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(), afterServerChange: vi.fn(),
+    info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(), handOff: vi.fn(() => null), afterServerChange: vi.fn(),
     ...over,
   };
 }
@@ -122,7 +122,7 @@ describe('sendCiFailureAction', () => {
     const files = readFileSync(join(dir, `ci-failure-5.log`), 'utf8');
     expect(files).toContain('lint');
     expect(i.confirm).toHaveBeenCalledWith('Send CI failure to the agent?', expect.any(String), 'Send to agent');
-    expect(i.drive).toHaveBeenCalled();
+    expect(i.handOff).toHaveBeenCalled();
   });
 });
 

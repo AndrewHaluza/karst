@@ -1581,6 +1581,7 @@ describe('antigravityQuotaReader', () => {
         homeDir: fakeHome,
         env: {},
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       const snap1 = await readerWithHome.read();
       expect(snap1.core).toBe('antigravity');
@@ -1590,6 +1591,7 @@ describe('antigravityQuotaReader', () => {
         appDataDir: fakeAppData,
         env: {},
         now: () => new Date(0),
+        listProcesses: () => [],
       });
       const snap2 = await readerWithAppData.read();
       expect(snap2.core).toBe('antigravity');
