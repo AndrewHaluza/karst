@@ -1,3 +1,5 @@
+import { makeSessionHandOff, type SessionHandOffDeps } from './conflictResolveOps.js';
+
 /**
  * Wrap a session hand-off so a refusal has a reason. `makeSessionHandOff` returns nothing, so a
  * caller could not tell "nudged or opened" from "nothing happened". The wrapper refuses a paused
@@ -17,4 +19,11 @@ export function guardedHandOff(deps: GuardedHandOffDeps): (prompt: string) => st
     deps.handOff(prompt, '');
     return null;
   };
+}
+
+/** The guarded hand-off over the live session seams: nudge a live terminal, else open a seeded session. */
+export function ticketHandOff(
+  deps: SessionHandOffDeps & Pick<GuardedHandOffDeps, 'paused' | 'sessionsAvailable'>,
+): (prompt: string) => string | null {
+  return guardedHandOff({ paused: deps.paused, sessionsAvailable: deps.sessionsAvailable, handOff: makeSessionHandOff(deps) });
 }
