@@ -129,7 +129,7 @@ describe('Ledger — rows', () => {
     expect(all('.count', tail)[1]!.hasAttribute('title')).toBe(false);
     const sum = tail.parentElement!;
     expect(text(sum.querySelector('.op-time'))).toBe('10:00');
-    expect(sum.querySelector('.duration')!.getAttribute('title')).toBe('12.4s');
+    expect(sum.querySelector('.duration')!.getAttribute('title')).toBe('12.4s · started 10:00');
     expect([...tail.children].map((c) => c.className.split(' ')[0])).toEqual(['count', 'count']);
     // A row with no timing keeps both (empty) cells so the columns stay aligned.
     const bare = all('.op-tail')[1]!.parentElement!;

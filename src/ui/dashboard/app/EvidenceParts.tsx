@@ -22,7 +22,7 @@ export function EvTiming({ r, cls }: { readonly r: EvidenceRow; readonly cls: st
       <span className="ev-time" title={r.status && r.time ? `started ${r.time}` : undefined}>
         {r.status ? r.time || null : null}
       </span>
-      <span className="ev-dur" title={(r.status && r.durationExact) || undefined}>
+      <span className="ev-dur" title={(r.status && [r.durationExact, r.time ? `started ${r.time}` : ''].filter(Boolean).join(' · ')) || undefined}>
         {r.status ? r.duration || null : null}
       </span>
     </span>

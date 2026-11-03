@@ -25,7 +25,7 @@ describe('Evidence — the generic rows', () => {
     expect(a!.querySelector('.ev-state')!.className).toBe('ev-state pass');
     expect(text(a!.querySelector('.ev-state .ev-time'))).toBe('10:00');
     expect(a!.querySelector('.ev-state .ev-time')!.getAttribute('title')).toBe('started 10:00');
-    expect(a!.querySelector('.ev-state .ev-dur')!.getAttribute('title')).toBe('2.04s');
+    expect(a!.querySelector('.ev-state .ev-dur')!.getAttribute('title')).toBe('2.04s · started 10:00');
     expect(a!.querySelector('.ev-glyph .ev-dur, .ev-glyph .ev-time')).toBeNull();
     expect(text(a!.querySelector('.ev-detail .pr-status.merged'))).toBe('merged');
     // A statusless row keeps the grid's columns: both cells exist, empty.
@@ -87,7 +87,7 @@ describe('Evidence — gates running mid-list', () => {
     expect(text(b!.querySelector('.gate-repo'))).toBe('api');
     expect(text(b!.querySelector('.ev-time'))).toBe('10:05');
     expect(text(b!.querySelector('.ev-dur'))).toBe('12s');
-    expect(b!.querySelector('.ev-dur')!.getAttribute('title')).toBe('12.3s');
+    expect(b!.querySelector('.ev-dur')!.getAttribute('title')).toBe('12.3s · started 10:05');
   });
 });
 

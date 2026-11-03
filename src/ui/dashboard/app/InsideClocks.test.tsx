@@ -82,7 +82,7 @@ describe('a live push re-renders only the clock and token leaves (A4)', () => {
     expect(text(must('.inside-meta'))).toBe('started 09:12 · 2s elapsed');
     expect(text(must('.inside-live .duration'))).toBe('2s');
     expect(text(must('[data-proc-id="impl:session"] > summary .duration'))).toBe('2s');
-    expect(must('[data-proc-id="impl:session"] > summary .duration').getAttribute('title')).toBe('2.0s');
+    expect(must('[data-proc-id="impl:session"] > summary .duration').getAttribute('title')).toBe('2.0s · started 09:12');
     expect(text(must('[data-proc-id="impl:session"] > summary .token-stat'))).toBe('Σ2k tok');
     expect(must('[data-proc-id="impl:session"] > summary .token-stat').getAttribute('title')).toBe('2,000 fresh tokens');
     expect(text(must('.timeline-tail .token-stat'))).toBe('Σ2k tok');

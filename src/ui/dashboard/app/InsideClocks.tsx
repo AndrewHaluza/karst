@@ -37,8 +37,11 @@ export function RowTime({ stage, id }: { readonly stage: string; readonly id: st
 
 export function RowDuration({ stage, id }: { readonly stage: string; readonly id: string }) {
   const d = useSlice(useMemo(() => rowField(stage, id, pickDuration), [stage, id]));
+  const time = useSlice(useMemo(() => rowField(stage, id, pickTime), [stage, id]));
+  // The start time is the duration's title too: the narrow tier hides the time column and keeps this cell (UI-R41).
+  const title = [d?.exact, time ? `started ${time}` : ''].filter(Boolean).join(' · ');
   return (
-    <span className="duration" title={d?.exact || undefined}>
+    <span className="duration" title={title || undefined}>
       {d?.text || null}
     </span>
   );

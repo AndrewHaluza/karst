@@ -64,7 +64,7 @@
    control's track is `auto` sized to its content and never shrunk, so the
    button always lands inside the row at the right end. */
 #inside .graph-node{display:grid;
-  grid-template-columns:18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto var(--ev-timing-w);
+  grid-template-columns:18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto;
   gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
 #inside .graph-entry{border-bottom:var(--k-border-w) solid var(--p-border)}
 #inside .graph-entry:last-child{border-bottom:0}
