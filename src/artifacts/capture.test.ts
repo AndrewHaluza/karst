@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import type { TaggedOutput } from '../approaches/outputs.js';
@@ -8,18 +12,23 @@ import type { RevisionInput } from './store.js';
 const outputs: TaggedOutput[] = [{ approachId: 'sp', glob: 'docs/plans/**', kind: 'plan' }];
 
 /** Fake git: merge-base ok, tracked diff and untracked lists as given. */
-function fakeGit(tracked: string, untracked: string): GitRunner {
+function fakeGit(tracked: string, untracked: string, gitDir = '.git'): GitRunner {
   return async (args) => {
+    if (args[0] === 'rev-parse') return { stdout: `${gitDir}\n`, stderr: '', exitCode: 0 };
     const out = args[0] === 'merge-base' ? 'abc\n' : args[0] === 'diff' ? tracked : untracked;
     return { stdout: out, stderr: '', exitCode: 0 };
   };
 }
 
-function setup(tracked: string, untracked = '') {
+function setup(tracked: string, untracked = '', gitDir = '.git', stored: Record<string, string> = {}) {
   const commits: RevisionInput[] = [];
   const deps: CaptureDeps = {
-    store: { commitRevision: async (i) => (commits.push(i), 'sha') },
-    git: fakeGit(tracked, untracked),
+    store: {
+      commitRevision: async (i) => (commits.push(i), 'sha'),
+      listArtifacts: async () => Object.keys(stored).map((path) => ({ path, revisions: 1, latestSha: 'x' })),
+      history: async (_t, path) => [{ sha: 'x', at: '', trailers: { source: stored[path] ?? '' } }],
+    },
+    git: fakeGit(tracked, untracked, gitDir),
     outputs: () => outputs,
     trailers: (_t, o) => ({ approach: o.approachId, kind: o.kind }),
     debug: vi.fn(),
@@ -54,7 +63,7 @@ describe('captureWorktree', () => {
 
   it('never throws; a failing store yields 0', async () => {
     const { deps, target } = setup('M\0docs/plans/a.md\0');
-    const failing = { ...deps, store: { commitRevision: async () => { throw new Error('boom'); } } };
+    const failing = { ...deps, store: { ...deps.store, commitRevision: async () => { throw new Error('boom'); } } };
     expect(await captureWorktree(failing, target)).toBe(0);
     expect(failing.debug).toHaveBeenCalledWith(expect.stringContaining('capture failed'));
   });
@@ -78,7 +87,49 @@ describe('captureWorktree', () => {
   it('does not notify for a skipped (null) commit', async () => {
     const { deps, target } = setup('M\0docs/plans/a.md\0');
     const events: unknown[] = [];
-    await captureWorktree({ ...deps, store: { commitRevision: async () => null }, onRevision: (e) => events.push(e) }, target);
+    await captureWorktree({ ...deps, store: { ...deps.store, commitRevision: async () => null }, onRevision: (e) => events.push(e) }, target);
     expect(events).toEqual([]);
+  });
+
+  describe.each(['MERGE_HEAD', 'REBASE_HEAD', 'rebase-merge', 'rebase-apply', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'])(
+    'while %s exists in the git dir',
+    (marker) => {
+      it('captures nothing and logs the reason', async () => {
+        const gitDir = mkdtempSync(join(tmpdir(), 'karst-gd-'));
+        if (marker.includes('-')) mkdirSync(join(gitDir, marker));
+        else writeFileSync(join(gitDir, marker), 'abc\n');
+        const { commits, deps, target } = setup('', 'docs/plans/base-only.md\0', gitDir);
+        expect(await captureWorktree(deps, target)).toBe(0);
+        expect(commits).toEqual([]);
+        expect(deps.debug).toHaveBeenCalledWith(expect.stringContaining(marker));
+      });
+    },
+  );
+
+  it('resolves a relative git dir against the worktree', async () => {
+    const wt = mkdtempSync(join(tmpdir(), 'karst-wt-'));
+    mkdirSync(join(wt, '.git'));
+    writeFileSync(join(wt, '.git', 'MERGE_HEAD'), 'abc\n');
+    const { commits, deps, target } = setup('', 'docs/plans/x.md\0');
+    expect(await captureWorktree(deps, { ...target, worktreePath: wt })).toBe(0);
+    expect(commits).toEqual([]);
+  });
+
+  describe('stale captured paths', () => {
+    const stored = { 'app/docs/plans/old.md': 'watcher', 'app/docs/plans/hand.md': 'manual-edit', 'app/docs/plans/hook.md': 'hook', 'app/docs/plans/keep.md': 'watcher', 'other/docs/plans/z.md': 'watcher' };
+
+    it('removes watcher/manual-edit revisions no longer in the base diff', async () => {
+      const { commits, deps, target } = setup('M\0docs/plans/keep.md\0', '', '.git', stored);
+      expect(await captureWorktree(deps, target)).toBe(3);
+      const removed = commits.filter((c) => c.deleted).map((c) => c.relPath).sort();
+      expect(removed).toEqual(['docs/plans/hand.md', 'docs/plans/old.md']);
+      expect(commits.find((c) => c.deleted)).toMatchObject({ repo: 'app', trailers: { kind: 'plan' } });
+    });
+
+    it('also removes stale paths on a watcher-scoped pass', async () => {
+      const { commits, deps, target } = setup('', '', '.git', stored);
+      await captureWorktree(deps, target, new Set(['docs/plans/other.md']));
+      expect(commits.filter((c) => c.deleted).length).toBe(3); // old, hand, keep (keep is not in this diff)
+    });
   });
 });
