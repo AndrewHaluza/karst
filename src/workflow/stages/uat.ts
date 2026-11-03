@@ -740,7 +740,9 @@ export async function runUat(
           // failure summary is evidence a later session can read without
           // opening the artifact log.
           summary:
-            exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
+            // A null exit is a gate that never ran (a refused host gate): its reason is the summary,
+            // so hostRefusalRepeats can see an identical refusal twice.
+            exitCode !== 0 && (output ?? '').trim() !== '' ? summarizeGateFailure(output ?? '') : null,
         }]);
         // A drift-passed gate exits 0 but prints the shared alert line (D360).
         try {

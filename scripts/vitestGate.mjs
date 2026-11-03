@@ -47,7 +47,8 @@ function run(cmd, args, cwd) {
   return new Promise((done) => {
     let out = '';
     const binDir = join(cwd, 'node_modules', '.bin');
-    const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+    // CI mode: a gate judges the tree and never writes it, so a missing snapshot fails instead of being written.
+    const env = { ...process.env, CI: '1', PATH: `${binDir}:${process.env.PATH ?? ''}` };
     let execCmd = cmd;
     let execArgs = args;
     if (cmd === 'npx' && args.length > 0) {
