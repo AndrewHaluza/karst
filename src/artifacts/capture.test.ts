@@ -118,8 +118,25 @@ describe('captureWorktree', () => {
   describe('stale captured paths', () => {
     const stored = { 'app/docs/plans/old.md': 'watcher', 'app/docs/plans/hand.md': 'manual-edit', 'app/docs/plans/hook.md': 'hook', 'app/docs/plans/keep.md': 'watcher', 'other/docs/plans/z.md': 'watcher' };
 
+    function onDisk(target: { worktreePath: string }, paths: string[]): void {
+      target.worktreePath = mkdtempSync(join(tmpdir(), 'karst-wt-'));
+      for (const p of paths) {
+        const rel = p.slice(p.indexOf('/') + 1);
+        mkdirSync(join(target.worktreePath, rel, '..'), { recursive: true });
+        writeFileSync(join(target.worktreePath, rel), 'x');
+      }
+    }
+
+    it('keeps the history of a stale path whose file is gone from disk', async () => {
+      const { commits, deps, target } = setup('', '', '.git', stored);
+      target.worktreePath = mkdtempSync(join(tmpdir(), 'karst-wt-'));
+      await captureWorktree(deps, target);
+      expect(commits).toEqual([]);
+    });
+
     it('removes watcher/manual-edit revisions no longer in the base diff', async () => {
       const { commits, deps, target } = setup('M\0docs/plans/keep.md\0', '', '.git', stored);
+      onDisk(target, Object.keys(stored));
       expect(await captureWorktree(deps, target)).toBe(3);
       const removed = commits.filter((c) => c.deleted).map((c) => c.relPath).sort();
       expect(removed).toEqual(['docs/plans/hand.md', 'docs/plans/old.md']);
@@ -128,6 +145,7 @@ describe('captureWorktree', () => {
 
     it('also removes stale paths on a watcher-scoped pass', async () => {
       const { commits, deps, target } = setup('', '', '.git', stored);
+      onDisk(target, Object.keys(stored));
       await captureWorktree(deps, target, new Set(['docs/plans/other.md']));
       expect(commits.filter((c) => c.deleted).length).toBe(3); // old, hand, keep (keep is not in this diff)
     });

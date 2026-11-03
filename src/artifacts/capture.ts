@@ -52,14 +52,18 @@ async function gitOperationInProgress(git: GitRunner, worktreePath: string): Pro
   if (r.exitCode !== 0 || dir === '') return undefined;
   const gitDir = isAbsolute(dir) ? dir : join(worktreePath, dir);
   for (const marker of GIT_OPERATION_MARKERS) {
-    try {
-      await access(join(gitDir, marker));
-      return marker;
-    } catch {
-      /* absent */
-    }
+    if (await exists(join(gitDir, marker))) return marker;
   }
   return undefined;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -78,6 +82,8 @@ async function removeStalePaths(
     if (!path.startsWith(`${repo}/`)) continue;
     const relPath = path.slice(repo.length + 1);
     if (current.has(relPath)) continue;
+    // A file the agent deleted keeps its history; only one still on disk yet no longer a diff came from the base.
+    if (!(await exists(join(target.worktreePath, relPath)))) continue;
     const output = matchOutput(outputs, relPath);
     if (output === undefined) continue;
     const source = (await deps.store.history(target.ticketId, path))[0]?.trailers.source;
