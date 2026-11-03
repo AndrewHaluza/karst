@@ -216,7 +216,7 @@ const POST_PR_STAGES: readonly StageKey[] = ['uat', 'review', 'fix'];
  * Returns the ids that reached done.
  */
 export async function settleMergedPostPrStages(
-  deps: { store: Store; git: GitRunner; gh: GhRunner },
+  deps: { store: Store; git: GitRunner; gh: GhRunner; stopRound?: (ticketId: number) => void },
   scope: ProjectScope = {},
   debug?: (message: string) => void,
 ): Promise<number[]> {
@@ -224,6 +224,8 @@ export async function settleMergedPostPrStages(
   const advanced: number[] = [];
   for (const ticket of listTickets(store, scope)) {
     const from = ticket.stageCurrent as StageKey;
+    // A running round is ended first via `stopRound`; without that seam it is left alone.
+    if (getStage(store, ticket.id, from)?.status === 'running' && !deps.stopRound) continue;
     if (!POST_PR_STAGES.includes(from)) continue;
     try {
       const worktrees = listWorktreesByTicket(store, ticket.id);
@@ -231,7 +233,10 @@ export async function settleMergedPostPrStages(
       let allLanded = true;
       const landedPrs: [string, MergedNothingNew][] = [];
       for (const wt of worktrees) {
-        const landed = await probeMergedNothingNew(deps, ticket.id, wt.repo, wt.path);
+        const landed = await probeMergedNothingNew(deps, ticket.id, wt.repo, wt.path, {
+          branch: wt.branch,
+          baseRef: wt.baseRef,
+        });
         const status = landed ? await git(['status', '--porcelain'], wt.path) : null;
         if (!landed || status?.exitCode !== 0 || status.stdout.trim() !== '') {
           allLanded = false;
@@ -241,21 +246,27 @@ export async function settleMergedPostPrStages(
       }
       if (!allLanded) continue;
       debug?.(`[merge] sweep: ticket ${ticket.id} at '${from}' has every PR merged with nothing new — settling to done`);
-      let stage: StageKey = from;
-      while (stage !== 'ship') {
-        stage = transition(store, ticket.id, stage, { kind: 'bypassed' });
-      }
-      transition(store, ticket.id, 'ship', { kind: 'passed' });
+      if (getStage(store, ticket.id, from)?.status === 'running') deps.stopRound?.(ticket.id);
       const numbers = landedPrs.map(([, l]) => `#${l.number}`).join(', ');
-      postMessage(store, {
-        projectId: ticket.projectId ?? null,
-        fromTicketId: null,
-        toTicketId: ticket.id,
-        kind: 'event',
-        body: `PR ${numbers} merged; the ticket is done`,
-      });
+      // One transaction: a throw mid-walk must not strand the ticket at ship.
+      store.db.transaction(() => {
+        for (const [repo, landed] of landedPrs) adoptMergedPr(store, ticket.id, repo, landed);
+        let stage: StageKey = from;
+        while (stage !== 'ship') {
+          stage = transition(store, ticket.id, stage, { kind: 'bypassed' });
+        }
+        transition(store, ticket.id, 'ship', { kind: 'passed' });
+        postMessage(store, {
+          projectId: ticket.projectId ?? null,
+          fromTicketId: null,
+          toTicketId: ticket.id,
+          kind: 'event',
+          body: `PR ${numbers} merged; the ticket is done`,
+        });
+      })();
       advanced.push(ticket.id);
-    } catch {
+    } catch (e) {
+      debug?.(`[merge] sweep: ticket ${ticket.id} post-PR settle failed: ${String(e)}`);
       continue;
     }
   }

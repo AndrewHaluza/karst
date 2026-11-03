@@ -4,6 +4,7 @@ import { createTicket } from '../store/tickets.js';
 import type { GhRunner } from '../integrations/github.js';
 import type { GitRunner } from '../integrations/git.js';
 import { transition } from './machine.js';
+import { setStage } from '../store/stages.js';
 import { getTicket } from '../store/tickets.js';
 import { adoptMergedPr, currentMergedPrNumber, probeMergedNothingNew, settleMergedNothingNew, settleMergedPostPrStages } from './mergedNothingNew.js';
 
@@ -215,6 +216,7 @@ describe('settleMergedPostPrStages', () => {
     ticketId = createTicket(store, { key: 'T', title: 't' }).id;
     for (const from of ['scope', 'impl'] as const) transition(store, ticketId, from, { kind: 'passed' });
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'x' });
+    setStage(store, ticketId, 'fix', { status: 'pending' });
     store.db
       .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'r', '/w', 'b', 'develop', 'inherited')`)
       .run(ticketId);
@@ -245,5 +247,27 @@ describe('settleMergedPostPrStages', () => {
     const { gh } = runners({ head: MERGED });
     expect(await settleMergedPostPrStages({ store, git: gitAt(MERGED), gh })).toEqual([]);
     expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
+  });
+});
+
+describe('settleMergedPostPrStages running round', () => {
+  it('skips a running stage without stopRound and stops the round when given one', async () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'T', title: 't' }).id;
+    for (const from of ['scope', 'impl'] as const) transition(store, id, from, { kind: 'passed' });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'x' });
+    setStage(store, id, 'fix', { status: 'running' });
+    store.db
+      .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'r', '/w', 'b', 'develop', 'inherited')`)
+      .run(id);
+    seedPr(store, id, 'merged', 3);
+    const { gh } = runners({ head: MERGED });
+    const git: GitRunner = async (a) =>
+      a[0] === 'rev-parse' ? { stdout: `${MERGED}\n`, stderr: '', exitCode: 0 } : { stdout: '', stderr: '', exitCode: 0 };
+    expect(await settleMergedPostPrStages({ store, git, gh })).toEqual([]);
+    const stopped: number[] = [];
+    expect(await settleMergedPostPrStages({ store, git, gh, stopRound: (t) => void stopped.push(t) })).toEqual([id]);
+    expect(stopped).toEqual([id]);
+    expect(getTicket(store, id).stageCurrent).toBe('done');
   });
 });

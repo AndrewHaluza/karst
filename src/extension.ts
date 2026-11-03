@@ -5700,7 +5700,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logger.debug(message),
         );
         landed.push(...(await settleMergedNothingNew({ store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync }, { projectId: project.id }, (message) => logger.debug(message))));
-        landed.push(...(await settleMergedPostPrStages({ store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync }, { projectId: project.id }, (message) => logger.debug(message))));
+        landed.push(...(await settleMergedPostPrStages({ store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync, stopRound: (id) => { driver.requestStop(id); sessions.disposeSession(id); } }, { projectId: project.id }, (message) => logger.debug(message))));
         // A landed sub-task releases its parent: integrate the child's work into
         // the parent's branch, then re-derive the parent's gate. This is the
         // background sweep — the normal way a merged PR is observed.
