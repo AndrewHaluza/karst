@@ -1,4 +1,5 @@
 import { imageBuildArgs, OPENCODE_IMAGE } from './dockerImage.js';
+import { cleanupAfterBuild } from './dockerCleanup.js';
 import type { DockerProcess, ProcessResult } from './dockerProcess.js';
 
 export const DOCKER_BIN = 'docker';
@@ -12,7 +13,7 @@ export type DockerPreflight = { readonly ok: true } | { readonly ok: false; read
  * broken docker always resolves to "host, because …" (arch:AC-31). Network
  * creation is checked where it happens (`prepareDockerSandbox`), not probed.
  */
-export async function dockerPreflight(proc: DockerProcess, contextDir: string): Promise<DockerPreflight> {
+export async function dockerPreflight(proc: DockerProcess, contextDir: string, debug: (msg: string) => void = () => {}): Promise<DockerPreflight> {
   try {
     const version = await proc.run(DOCKER_BIN, ['version', '--format', '{{.Server.Version}}']);
     if (version.code === 127) return fail('docker not installed (not on PATH)');
@@ -21,6 +22,7 @@ export async function dockerPreflight(proc: DockerProcess, contextDir: string): 
     if (image.code === 0) return { ok: true };
     const build = await proc.run(DOCKER_BIN, imageBuildArgs(contextDir));
     if (build.code !== 0) return fail(`docker build ${OPENCODE_IMAGE} failed: ${lastLine(build)}`);
+    await cleanupAfterBuild(proc, debug);
     return { ok: true };
   } catch (err) {
     return fail(`docker preflight failed: ${err instanceof Error ? err.message : String(err)}`);

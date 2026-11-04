@@ -3,6 +3,7 @@ import type { BackendWant } from './backendChoices.js';
 import type { BackendStatus } from './effectiveBackend.js';
 import { sbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
+import { OPENCODE_IMAGE_REPOSITORY } from './docker/dockerImage.js';
 import { dockerPreflight } from './docker/dockerPreflight.js';
 import { DOCKER_ASSETS_DIR } from './docker/resolveDocker.js';
 import { NODE_DOCKER_PROCESS } from './docker/dockerProcess.js';
@@ -17,10 +18,10 @@ export interface BackendProbes {
  * runs (arch:AC-31), so the status the UI shows is the decision a session start
  * would make. Never throws.
  */
-export async function probeBackends(want: BackendWant = { sbx: true, docker: true }): Promise<BackendProbes> {
+export async function probeBackends(want: BackendWant = { sbx: true, docker: true }, debug: (msg: string) => void = () => {}): Promise<BackendProbes> {
   const [sbx, docker] = await Promise.all([
     want.sbx ? sbxPreflight(NODE_SBX_PROCESS) : NOT_SELECTED,
-    want.docker ? dockerPreflight(NODE_DOCKER_PROCESS, DOCKER_ASSETS_DIR) : NOT_SELECTED,
+    want.docker ? dockerPreflight(NODE_DOCKER_PROCESS, DOCKER_ASSETS_DIR, debug) : NOT_SELECTED,
   ]);
   return { sbx: toStatus(sbx), docker: toStatus(docker) };
 }
@@ -46,6 +47,31 @@ export async function probeDockerDisk(proc: SbxProcess = NODE_DOCKER_PROCESS): P
   } catch {
     return undefined;
   }
+}
+
+/** Bytes of karst sandbox images (repository `karst/opencode-sandbox`) and of the whole build cache; each undefined when unreadable. */
+export async function probeDockerImageDisk(proc: SbxProcess = NODE_DOCKER_PROCESS): Promise<{ readonly imageBytes: number | undefined; readonly cacheBytes: number | undefined }> {
+  const sum = async (args: string[], pick: (line: string) => string | undefined): Promise<number | undefined> => {
+    try {
+      const r = await proc.run('docker', args);
+      if (r.code !== 0) return undefined;
+      let total = 0;
+      for (const line of r.stdout.split('\n').filter((l) => l.trim() !== '')) {
+        const cell = pick(line);
+        const n = cell === undefined ? undefined : parseDockerSize(cell);
+        if (n === undefined) return undefined;
+        total += n;
+      }
+      return total;
+    } catch {
+      return undefined;
+    }
+  };
+  const [imageBytes, cacheBytes] = await Promise.all([
+    sum(['image', 'ls', OPENCODE_IMAGE_REPOSITORY, '--format', '{{.Size}}'], (l) => l),
+    sum(['system', 'df', '--format', '{{.Type}}|{{.Size}}'], (l) => (l.startsWith('Build Cache|') ? l.slice('Build Cache|'.length) : '0B')),
+  ]);
+  return { imageBytes, cacheBytes };
 }
 
 /** The Docker VM's total memory in bytes (`docker info` MemTotal); undefined when it cannot be read. */

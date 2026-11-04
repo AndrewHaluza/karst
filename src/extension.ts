@@ -2238,7 +2238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return true;
       },
       clearToken: (): Promise<void> => clearToken(context),
-      probeBackends,
+      probeBackends: (want) => probeBackends(want, (m) => logger.debug(m)),
       hasToken: (): Promise<boolean> => hasToken(context),
       // Native folder picker for a repository's repoPath (§ settings). No
       // validation here — whatever the user picks is just text in the field,
