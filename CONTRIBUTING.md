@@ -41,6 +41,12 @@ These are binding. Read the reference document covering what you are touching
 | Manifest and Settings | `docs/arch/manifest-and-settings.md` |
 | Diagnostics | `docs/arch/diagnostics.md` |
 | Native ABI (better-sqlite3) | `docs/arch/ABI.md` |
+| Prompt metrics | `docs/arch/prompt-metrics.md` |
+| Approach packages | `docs/arch/approaches.md` |
+| Debug logging | `docs/arch/debug-logging.md` |
+| Entity ids | `docs/arch/ids.md` |
+| UAT host harness | `docs/arch/uat-host.md` |
+| Generated module map (never hand-edit) | `docs/arch/system-map.md` |
 | UI rules | `docs/ui/UI-RULES.md` |
 
 The four that break most pull requests:
