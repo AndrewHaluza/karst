@@ -5,7 +5,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
@@ -42,18 +42,48 @@ const skip = (reason, ids) => {
   return ids;
 };
 
+/** Directories from `from` up to the filesystem root. */
+function ancestors(from) {
+  const out = [];
+  for (let d = resolve(from); !out.includes(d); d = dirname(d)) out.push(d);
+  return out;
+}
+
+/** The nearest directory (self or ancestor) whose node_modules holds vitest: where Node's upward lookup finds the full deps. */
+function depsRoot(cwd) {
+  return ancestors(cwd).find((d) => existsSync(join(d, 'node_modules', 'vitest'))) ?? null;
+}
+
+/** The nearest node_modules/.bin/<name> from cwd upward, so a partial node_modules still finds the repository's vitest. */
+function localBinOf(cwd, name) {
+  for (const d of ancestors(cwd)) {
+    const bin = join(d, 'node_modules', '.bin', name);
+    if (existsSync(bin)) return bin;
+  }
+  return null;
+}
+
+/** The directories that hold the base worktree, in order: below the deps root (never under .git), else tmpdir. */
+function baseParent(cwd) {
+  const root = depsRoot(cwd);
+  if (root === null) return tmpdir();
+  const parent = join(root, '.karst', 'base-check');
+  mkdirSync(parent, { recursive: true });
+  return parent;
+}
+
 /** Run a command, teeing its output to ours while capturing it. */
 function run(cmd, args, cwd) {
   return new Promise((done) => {
     let out = '';
-    const binDir = join(cwd, 'node_modules', '.bin');
+    const binDirs = ancestors(cwd).map((d) => join(d, 'node_modules', '.bin'));
     // CI mode: a gate judges the tree and never writes it, so a missing snapshot fails instead of being written.
-    const env = { ...process.env, CI: '1', PATH: `${binDir}:${process.env.PATH ?? ''}` };
+    const env = { ...process.env, CI: '1', PATH: `${binDirs.join(':')}:${process.env.PATH ?? ''}` };
     let execCmd = cmd;
     let execArgs = args;
     if (cmd === 'npx' && args.length > 0) {
-      const localBin = resolve(cwd, 'node_modules', '.bin', args[0]);
-      if (existsSync(localBin)) {
+      const localBin = localBinOf(cwd, args[0]);
+      if (localBin !== null) {
         execCmd = localBin;
         execArgs = args.slice(1);
       }
@@ -94,7 +124,7 @@ const readJson = (path) => {
 
 /** Re-run these files at the base; the ids that fail there. */
 async function redAtBase(cwd, sha, args, files) {
-  const dir = mkdtempSync(join(tmpdir(), 'karst-base-'));
+  const dir = mkdtempSync(join(baseParent(cwd), 'karst-base-'));
   try {
     if ((await git(cwd, ['worktree', 'add', '--detach', dir, sha])) === null) return null;
     if (existsSync(join(cwd, 'node_modules'))) symlinkSync(resolve(cwd, 'node_modules'), join(dir, 'node_modules'), 'dir');
