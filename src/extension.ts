@@ -597,8 +597,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
-  const restoreGate = new RestoreGate(); // serializers register NOW (sync); restores wait for the managers
-  context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate));
+  const restoreGate = new RestoreGate(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -3219,10 +3218,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
   );
   const doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) });
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({
-    store: localStore, dashboard, dashboardHost, changes, changesHost, settings, settingsHost,
-    gettingStarted, gettingStartedHost, doctor: doctorWiring, usage: tokenUsagePanel, usageHost, resources: resourcesPanel, resourcesHost,
-  }));
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, dashboardHost, changes, changesHost, settings, settingsHost,
+    gettingStarted, gettingStartedHost, doctor: doctorWiring, usage: tokenUsagePanel, usageHost, resources: resourcesPanel, resourcesHost }));
   serverLifecycleDeps = {
     store: localStore, manifest: currentManifest,
     stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)),
