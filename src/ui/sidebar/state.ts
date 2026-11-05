@@ -1,3 +1,4 @@
+import { memoryWaitNotes } from '../../store/memoryQueue.js';
 import { isFinishedStage } from '../../model/types.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
@@ -321,6 +322,7 @@ export function buildSidebarState(
       parentKeys,
       agentDefaults,
       listOpenBlockersFor(store, tickets.map((t) => t.id)),
+      memoryWaitNotes(store),
     );
     const rows = tickets.map((t, i) => {
       const node = nodes[i]!;

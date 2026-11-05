@@ -143,6 +143,8 @@ export interface SessionRunner {
    * failed closed to the host has none, so its gates and services stay on the host.
    */
   hasSandbox?(): Promise<boolean>;
+  /** sbx only: the out-of-memory notice for an exit-137 session (best-effort `dmesg` in the sandbox, bounded in time). */
+  oomReport?(): Promise<string>;
   /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
   ensureWritable?(ticket?: SandboxTicketRef): Promise<StepOutcome>;
   /** sbx only: poll until the clone's ticket branch resolves (a fresh clone is briefly `.invalid`); `ok: false` when it never does. */

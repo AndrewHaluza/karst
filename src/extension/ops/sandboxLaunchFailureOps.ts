@@ -20,6 +20,8 @@ export interface SandboxLaunchFailureInput {
   readonly hostEnded?: (ticketId: number) => boolean;
   /** Docker VM memory / sibling-container context, used to diagnose a kill. */
   readonly killContext?: () => Promise<string | undefined>;
+  /** sbx: the out-of-memory notice for an exit-137 session (killed process + limit); null when unavailable. */
+  readonly oomReport?: (ticketId: number) => Promise<string | null>;
   /** Switches only this ticket to the host and relaunches it; offered as a button on the failure notice. */
   readonly runOnHost?: (ticketId: number) => Promise<void> | void;
   /** Ends the ticket's running implementation run as interrupted ('sandbox stopped'). */
@@ -105,6 +107,27 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         reportStopped(info);
         return;
       }
+      // Exit 137 on sbx is the guest OOM killer (no swap): say so, never as a generic launch failure.
+      if (info.exitCode === 137 && info.runner === 'sbx' && input.oomReport) {
+        void input.oomReport(input.ticketId).catch(() => null).then((oom) => {
+          if (input.hostEnded?.(input.ticketId)) return; // the lookup is slow: the session may have been ended by karst meanwhile
+          if (oom === null) return reportLaunchFailure(info);
+          input.warn(`[session] ticket ${input.ticketLabel} ${oom}`);
+          try {
+            input.interruptRun?.(input.ticketId, oom);
+          } catch (e) {
+            input.warn(`[session] ticket ${input.ticketLabel} could not close the run after the OOM: ${String(e)}`);
+          }
+          input.markNotStarted(input.ticketId);
+          report(`Karst: ${input.ticketLabel}: ${oom}`);
+        }).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} OOM report failed: ${String(e)}`));
+        return;
+      }
+      reportLaunchFailure(info);
+    },
+  };
+  function reportLaunchFailure(info: { runner: string; exitCode: number; tail: string }): void {
+    {
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);
       input.warn(line);
       try {
@@ -125,6 +148,6 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       const help = (ctx: string | undefined): string => ` ${DOCKER_MEMORY_HELP_TEXT}${ctx ? ` (${ctx})` : ''}`;
       if (!input.killContext) report(base + help(undefined));
       else void input.killContext().catch(() => undefined).then((ctx) => report(base + help(ctx)));
-    },
-  };
+    }
+  }
 }

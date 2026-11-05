@@ -157,6 +157,8 @@ export function buildTicketNodes(
    */
   agentDefaults?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults,
   blockersByTicket: Map<number, BlockerView[]> = new Map(),
+  /** Tickets waiting in the host-memory queue → 'Waiting for memory (free X GB, needs Y GB)', shown in place of the stage text. */
+  memoryWaits: ReadonlyMap<number, string> = new Map(),
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -172,7 +174,7 @@ export function buildTicketNodes(
       idLabel: formatId('ticket', t.id),
       label: ticketLabel(t, labelTemplate),
       glyph: badge.glyph,
-      description: `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
+      description: memoryWaits.get(t.id) ?? `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
       stageLabel: badge.label,
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',

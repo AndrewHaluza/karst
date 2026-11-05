@@ -521,7 +521,7 @@ function validateAgentSandbox(raw: unknown): boolean | undefined {
   return raw;
 }
 
-const SANDBOX_MEMORY_KEYS = ['interactiveMemory', 'interactiveReservation', 'gateMemory', 'gateReservation'] as const;
+const SANDBOX_MEMORY_KEYS = ['interactiveMemory', 'interactiveReservation', 'gateMemory', 'gateReservation', 'sbxMemory', 'sbxMinFree'] as const;
 
 /** Parse `sandboxMemory` (absent → VM-scaled defaults). Each present key must be a Docker memory string like `2g` or `1536m`. */
 function validateSandboxMemory(raw: unknown): SandboxMemoryConfig | undefined {

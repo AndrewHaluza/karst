@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
-import { guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
+import { guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
 const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, placement: { backend: 'host', core: null, sandboxName: null, reason: null }, ...over });
@@ -142,5 +142,13 @@ describe('wantsSandboxBackend / hostFallbackPrompts', () => {
     expect(show).toHaveBeenLastCalledWith('x', { modal: true }, 'Run on host');
     show.mockResolvedValueOnce(undefined);
     expect(await p.confirmHost('x')).toBe(false);
+  });
+});
+
+describe('wantsSbxBackend', () => {
+  it('is true only for the sbx backend, not docker or host', () => {
+    expect(wantsSbxBackend({ claude: 'sbx' } as never, 'claude', null)).toBe(true);
+    expect(wantsSbxBackend({ claude: 'docker' } as never, 'claude', null)).toBe(false);
+    expect(wantsSbxBackend({ claude: 'sbx' } as never, 'claude', 'host')).toBe(false);
   });
 });

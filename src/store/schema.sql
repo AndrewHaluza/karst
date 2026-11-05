@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v64 sub-task autostart queue (kept in sync with migrations.ts v64 ALTER):
   autostart_pending INTEGER NOT NULL DEFAULT 0, -- 0 none | 1 queued at scope | 2 starting (claimed); leaving scope clears to 0
   autostart_claimed_at TEXT,              -- when the claim set 2; a stale claim at scope is re-queued
+  -- v97 host-memory wait queue (kept in sync with migrations.ts v97 ALTER):
+  memory_wait INTEGER NOT NULL DEFAULT 0, -- 0 none | 1 queued (waiting for free host RAM) | 2 starting (claimed)
+  memory_wait_at TEXT,                    -- when it was queued (FIFO order)
+  memory_claimed_at TEXT,                 -- when the claim set 2; a stale claim is re-queued
+  memory_wait_note TEXT,                  -- 'Waiting for memory (free X GB, needs Y GB)'
+  -- v98 (kept in sync with migrations.ts v98 ALTER):
+  memory_wait_owner TEXT,                 -- pid of the extension host that queued it; a dead owner's row is adopted by another window
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
