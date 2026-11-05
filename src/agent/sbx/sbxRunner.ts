@@ -105,7 +105,7 @@ export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 export const SANDBOX_ENV = 'KARST_SANDBOX';
 
 /** Time limit for the transcript link step (`sbx create` plus `sbx exec`). A timeout only costs the token count. */
-export const TRANSCRIPT_LINK_TIMEOUT_MS = 120_000;
+export const TRANSCRIPT_LINK_TIMEOUT_MS = 300_000;
 
 /** The host remote clone mode leaves for a sandbox. */
 export function sandboxRemote(name: string): string {

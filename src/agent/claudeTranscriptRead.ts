@@ -1,5 +1,5 @@
 import { constants as fsConstants } from 'node:fs';
-import { open, realpath, type FileHandle } from 'node:fs/promises';
+import { open, readFile, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { sep } from 'node:path';
 
 /** A transcript above this size is refused, never read whole into memory. */
@@ -38,6 +38,16 @@ async function openChecked(path: string, root: string | undefined): Promise<{ ha
  * point the host at another file.
  */
 export function makeTranscriptReader(root?: string): TranscriptReader {
+  // A host transcript is written by the host agent: it keeps the plain read, with no sandbox limits.
+  if (root === undefined) {
+    return {
+      async stat(path) {
+        const st = await stat(path);
+        return { mtimeMs: st.mtimeMs, size: st.size };
+      },
+      readFile: (path) => readFile(path, 'utf8'),
+    };
+  }
   return {
     async stat(path) {
       const { handle, mtimeMs, size } = await openChecked(path, root);

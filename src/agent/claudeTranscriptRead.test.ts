@@ -61,12 +61,13 @@ describe('makeTranscriptReader', () => {
     await expect(r.stat(join(root, 'p', 'none'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('without a root still refuses a symlink and reads a regular file', async () => {
+  it('without a root keeps the plain host read: a symlink is followed', async () => {
     const f = join(dir, 'h.jsonl');
     writeFileSync(f, 'h');
     symlinkSync(f, join(dir, 'l.jsonl'));
     const r = makeTranscriptReader();
     expect(await r.readFile(f)).toBe('h');
-    await expect(r.readFile(join(dir, 'l.jsonl'))).rejects.toThrow();
+    expect(await r.readFile(join(dir, 'l.jsonl'))).toBe('h');
+    expect((await r.stat(f)).size).toBe(1);
   });
 });

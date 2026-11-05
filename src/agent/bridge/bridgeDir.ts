@@ -72,10 +72,27 @@ export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   // Claude's transcripts land here through the sandbox link; the sandbox user writes them.
   const projects = sandboxProjectsDir(paths.dir);
   await mkdir(projects, { recursive: true, mode: 0o777 });
-  await chmod(projects, 0o777);
+  await chmodDirNoFollow(projects, 0o777);
   // mode is masked by umask: enforce explicitly.
   // Sticky: another sandbox user cannot rename or replace the host-owned results dir.
   await chmod(paths.dir, 0o1777);
+}
+
+/** The agent can write the bridge dir: open the directory without following a symlink and chmod through the handle. */
+async function chmodDirNoFollow(dir: string, mode: number): Promise<void> {
+  let handle: FileHandle;
+  try {
+    handle = await open(dir, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_DIRECTORY);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'ENOTDIR') throw new Error(`bridge: refusing symlinked or non-directory ${dir}`);
+    throw err;
+  }
+  try {
+    await handle.chmod(mode);
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

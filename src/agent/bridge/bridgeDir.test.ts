@@ -16,6 +16,16 @@ describe('bridgeDir', () => {
     expect((await stat(join(paths.dir, 'claude-projects'))).isDirectory()).toBe(true);
   });
 
+  it('refuses a claude-projects symlink instead of chmod-ing its target', async () => {
+    const paths = bridgePaths(root, 8);
+    const target = join(root, 'victim');
+    await mkdir(target, { mode: 0o700 });
+    await mkdir(paths.dir, { recursive: true });
+    await symlink(target, join(paths.dir, 'claude-projects'));
+    await expect(ensureBridgeDir(paths)).rejects.toThrow(/refusing symlinked/);
+    expect((await stat(target)).mode & 0o777).toBe(0o700);
+  });
+
   it('derives host and in-sandbox paths from the ticket id only', () => {
     expect(bridgePaths('/g', 7)).toEqual({
       dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json',
