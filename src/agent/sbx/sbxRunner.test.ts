@@ -447,6 +447,13 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
     expect(args).toContain('NODE_OPTIONS=--trace-warnings --max-old-space-size=2048');
   });
 
+  it('extends the guest NODE_OPTIONS read before the launch', async () => {
+    const proc = fakeSbxProcess({ [`sbx exec ${NAME} -- sh -c printf`]: { stdout: '--trace-warnings' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '4g', cpus: 3 });
+    await runner.ensureWritable!();
+    expect(runner.placeInteractive(spec()).shellArgs).toContain('NODE_OPTIONS=--trace-warnings --max-old-space-size=2048');
+  });
+
   it('sets no env on opt-out but still passes --cpus', () => {
     const args = mk([], { limitWorkers: false }).placeInteractive(spec()).shellArgs;
     expect(args).toContain('--cpus');

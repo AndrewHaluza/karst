@@ -178,9 +178,19 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'git', '--version'], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
     return out.code === 0 ? checkSandboxGit(out.stdout) : { ok: true };
   };
+  /** The guest's own NODE_OPTIONS, read before a launch so `--env` extends it instead of replacing it. */
+  let guestNodeOptions: string | undefined;
+  const readGuestNodeOptions = async (): Promise<void> => {
+    if (opts.cpus === undefined || opts.limitWorkers === false) return; // no limit env is passed, so nothing can replace it
+    const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', 'printf %s "$NODE_OPTIONS"'], opts.cloneDir ? { cwd: opts.cloneDir } : undefined).catch(() => undefined);
+    guestNodeOptions = out && out.code === 0 && out.stdout.trim() !== '' ? out.stdout.trim() : undefined;
+  };
   const ensureWritable = async (ticket?: SandboxTicketRef): Promise<StepOutcome> => {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WRITE_PROBE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
-    if (out.code === 0) return checkGit();
+    if (out.code === 0) {
+      await readGuestNodeOptions();
+      return checkGit();
+    }
     if (out.code !== PROBE_UNWRITABLE && !/read-only file system/i.test(out.stderr)) return { ok: true };
     const dmesg = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...EXT4_LOG], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
     const lines = dmesg.stdout.split('\n').filter((l) => l.includes('EXT4-fs'));
@@ -203,8 +213,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         cwd: opts.cloneDir ?? spec.hostWorktreePath,
         shellPath: SBX_BIN,
         shellArgs: [
-          'run', ...create, // The heap flag is merged into the spec's NODE_OPTIONS. `--env` cannot read the guest's own value, so a value only the guest sets is replaced.
-          ...limitArgs(spec.env?.NODE_OPTIONS), '--name', opts.name, opts.core, ...workspace,
+          'run', ...create, // The heap flag is merged into the spec's NODE_OPTIONS, else the guest's own value read by `ensureWritable` before the launch.
+          ...limitArgs(spec.env?.NODE_OPTIONS ?? guestNodeOptions), '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
         env: withoutHostOnlyEnv(spec.env),
