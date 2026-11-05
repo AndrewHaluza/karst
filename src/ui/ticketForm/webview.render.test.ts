@@ -369,41 +369,75 @@ describe('ticket form — reopen shows stored intent and code pointers', () => {
 describe('ticket form — sandbox backend opt-out', () => {
   const picker = (v: RenderHandle) => v.query<HTMLElement>('#backendPicker')!;
   const select = (v: RenderHandle) => v.query<HTMLSelectElement>('#backendSelect')!;
+  const inherit = (v: RenderHandle) => select(v).options[0]!.textContent;
+  const MAP = { codex: 'sbx', opencode: 'docker' };
+  const st = (over: Record<string, unknown> = {}) =>
+    baseState({ agentBackends: MAP, presetCores: {}, defaultAgentProvider: 'claude', agentProviders: ['claude', 'codex', 'opencode'], ...over });
+  const pickCore = (v: RenderHandle, core: string) => {
+    v.click('[data-ap-trigger="core"]');
+    v.click(`[data-ap-core="${core}"]`);
+  };
 
-  it('shows in edit mode when the project uses a sandbox backend', () => {
-    const v = open(baseState({ mode: 'edit', projectBackend: 'sbx', selectedBackend: null }));
+  it('shows a Claude default on host while other cores use a sandbox', () => {
+    const v = open(st({ mode: 'edit' }));
     expect(picker(v).classList.contains('hidden')).toBe(false);
-    expect(select(v).options[0]!.textContent).toBe('Inherit (project: sbx)');
+    expect(inherit(v)).toBe('Inherit (project: host)');
     expect([...select(v).options].map((o) => o.value)).toEqual(['', 'host']);
     expect(select(v).value).toBe('');
   });
 
-  it('shows in create mode for sbx/docker projects and keeps the pick in the draft payload', () => {
-    for (const projectBackend of ['sbx', 'docker']) {
-      const v = open(baseState({ mode: 'create', projectBackend }));
-      expect(picker(v).classList.contains('hidden')).toBe(false);
-      v.close?.();
-    }
-    const v = open(baseState({ mode: 'create', projectBackend: 'sbx' }));
+  it('shows sbx for a Codex default', () => {
+    expect(inherit(open(st({ defaultAgentProvider: 'codex' })))).toBe('Inherit (project: sbx)');
+  });
+
+  it('shows docker for an explicit opencode pick', () => {
+    expect(inherit(open(st({ selectedAgentProvider: 'opencode' })))).toBe('Inherit (project: docker)');
+  });
+
+  it('follows the core of the selected preset', () => {
+    const v = open(st({ agentPresetNames: ['cx'], presetCores: { cx: 'codex' }, selectedAgentPreset: 'cx' }));
+    expect(inherit(v)).toBe('Inherit (project: sbx)');
+  });
+
+  it('maps antigravity to the agy key', () => {
+    const v = open(st({ agentBackends: { agy: 'docker' }, defaultAgentProvider: 'antigravity' }));
+    expect(inherit(v)).toBe('Inherit (project: docker)');
+  });
+
+  it('updates the label on a live core pick in create mode with no state push', () => {
+    const v = open(st({ mode: 'create' }));
+    expect(inherit(v)).toBe('Inherit (project: host)');
+    pickCore(v, 'codex');
+    expect(inherit(v)).toBe('Inherit (project: sbx)');
+    pickCore(v, 'claude');
+    expect(inherit(v)).toBe('Inherit (project: host)');
+  });
+
+  it('keeps the draft backend pick in the payload path (no set-backend post in create mode)', () => {
+    const v = open(st({ mode: 'create' }));
     select(v).value = 'host';
     select(v).dispatchEvent(new Event('change', { bubbles: true }));
     expect(v.posted.some((m) => (m as { type: string }).type === 'set-backend')).toBe(false);
   });
 
-  it('is hidden for a host project', () => {
-    expect(picker(open(baseState({ mode: 'create', projectBackend: null }))).classList.contains('hidden')).toBe(true);
+  it('is hidden when no core selects a sandbox', () => {
+    expect(picker(open(baseState({ mode: 'create', agentBackends: {} }))).classList.contains('hidden')).toBe(true);
     h?.close();
-    expect(picker(open(baseState({ mode: 'edit', projectBackend: null }))).classList.contains('hidden')).toBe(true);
+    expect(picker(open(baseState({ mode: 'edit', agentBackends: {} }))).classList.contains('hidden')).toBe(true);
   });
 
-  it('stays visible with host selected so the opt-out can be undone', () => {
-    const v = open(baseState({ mode: 'edit', projectBackend: null, selectedBackend: 'host' }));
+  it('stays visible with host selected for an opt-out on an empty map', () => {
+    const v = open(baseState({ mode: 'edit', agentBackends: {}, selectedBackend: 'host' }));
     expect(picker(v).classList.contains('hidden')).toBe(false);
     expect(select(v).value).toBe('host');
   });
 
+  it('disables the select while a session is open', () => {
+    expect(select(open(st({ mode: 'edit', sessionOpen: true }))).disabled).toBe(true);
+  });
+
   it('posts set-backend on change', () => {
-    const v = open(baseState({ mode: 'edit', projectBackend: 'docker', selectedBackend: null }));
+    const v = open(st({ mode: 'edit', selectedBackend: null }));
     select(v).value = 'host';
     select(v).dispatchEvent(new Event('change', { bubbles: true }));
     expect(v.posted).toContainEqual(expect.objectContaining({ type: 'set-backend', id: 'host' }));

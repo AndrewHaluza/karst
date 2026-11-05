@@ -128,6 +128,20 @@ describe('runUatTester', () => {
     ...over,
   });
 
+  it.each([
+    ['minimal', 'skills-and-subagents'],
+    [undefined, undefined],
+  ] as const)('profile context %s -> minimalContext %s', async (context, expected) => {
+    const { adapter, calls } = rawAdapter(PASS_COVERAGE_ANSWER);
+    await runUatTester(
+      store,
+      opts({ adapter, assignment: { ...ASSIGNMENT, ...(context ? { context } : {}) } }),
+      { now },
+    );
+    expect(calls[0]!.minimalContext).toBe(expected);
+    expect('minimalContext' in calls[0]!).toBe(expected !== undefined);
+  });
+
   it('observes the target, records the observations and finishes the process run as observed', async () => {
     const { adapter, calls } = rawAdapter(
       JSON.stringify([

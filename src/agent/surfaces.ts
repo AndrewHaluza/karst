@@ -165,6 +165,14 @@ export interface AdapterSurfaces {
    * home config. `unsupported` names why the core cannot express it.
    */
   readonly headlessPolicy: SurfaceSupport;
+  /**
+   * `RunHeadlessOpts.minimalContext` → the core's flags that drop the user's
+   * skill list, agent list and tool definitions from a headless run whose prompt
+   * karst owns and that calls no working tool (PR description, ticket-intent,
+   * classify, alignment). `unsupported` names why the core has no equivalent;
+   * the option is then ignored.
+   */
+  readonly minimalHeadlessContext: SurfaceSupport;
   /** `InteractiveCommandOpts.policy: 'gate'` (unattended graph node/planner) → the core's sandbox channel. */
   readonly interactiveGatePolicy: SurfaceSupport;
   /** `InteractiveCommandOpts.policy: 'attended'` (ticket session) → pattern-kill + home-config-write denies. */

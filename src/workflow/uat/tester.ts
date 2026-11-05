@@ -1079,6 +1079,7 @@ async function runTesterBody(
           signal,
           timeoutMs,
           policy: 'uat-tester',
+          ...(opts.assignment.context === 'minimal' ? { minimalContext: 'skills-and-subagents' as const } : {}),
           gateScripts: gateScriptsOf(target.gates),
           onOutput: captureOutput,
           ...(structured ? { outputSchema: TESTER_OUTPUT_SCHEMA } : {}),

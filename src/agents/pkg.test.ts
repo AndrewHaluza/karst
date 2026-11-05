@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listAgentFiles, readAgentFile, writeAgentFile, removeAgentFile } from './pkg.js';
+import { listAgentFiles, readAgentFile, writeAgentFile, removeAgentFile, parseProfileContext, resolveProfileContext } from './pkg.js';
 
 const dirs: string[] = [];
 
@@ -128,5 +128,51 @@ describe('removeAgentFile', () => {
 
     // idempotent: removing again does not throw
     expect(() => removeAgentFile(dir, 'temp')).not.toThrow();
+  });
+});
+
+describe('parseProfileContext / resolveProfileContext', () => {
+  const fm = (line: string): string => `---\ndescription: Reviews code\n${line}\n---\nBody`;
+
+  it('no key = full context; context: minimal = minimal', () => {
+    expect(parseProfileContext(fm('model: x'))).toEqual({});
+    expect(parseProfileContext('no frontmatter')).toEqual({});
+    expect(parseProfileContext(fm('context: minimal'))).toEqual({ context: 'minimal' });
+    expect(parseProfileContext(fm('context: "minimal"'))).toEqual({ context: 'minimal' });
+  });
+
+  it('reads a CRLF profile', () => {
+    expect(parseProfileContext('---\r\ncontext: minimal\r\n---\r\nBody')).toEqual({ context: 'minimal' });
+  });
+
+  it('an unknown value is reported, never minimal', () => {
+    expect(parseProfileContext(fm('context: tiny'))).toEqual({ unknown: 'tiny' });
+    expect(parseProfileContext(fm('context:'))).toEqual({ unknown: '' });
+  });
+
+  it('ignores nested keys and a key after an unterminated block', () => {
+    expect(parseProfileContext('---\nmeta:\n  context: minimal\n---\n')).toEqual({});
+    expect(parseProfileContext('---\ncontext: minimal\nBody')).toEqual({});
+  });
+
+  it('the key does not change the parsed description and survives sanitizeFrontmatter', () => {
+    const dir = makeAgentsDir();
+    writeAgentFile(dir, 'a', fm('context: minimal\npermissionMode: bypassPermissions'));
+    const read = readAgentFile(dir, 'a')!;
+    expect(read.description).toBe('Reviews code');
+    expect(read.body).toContain('context: minimal');
+    expect(read.body).not.toContain('permissionMode');
+  });
+
+  it('resolveProfileContext: minimal, none, unreadable (undefined body), unknown warns', () => {
+    const warn = vi.fn();
+    expect(resolveProfileContext('p', fm('context: minimal'), warn)).toBe('minimal');
+    expect(resolveProfileContext('p', fm('x: y'), warn)).toBeUndefined();
+    expect(resolveProfileContext('p', undefined, warn)).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    expect(resolveProfileContext('p', fm('context: tiny'), warn)).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown `context: tiny`'));
+    resolveProfileContext(undefined, fm('context: tiny'), warn);
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('(unnamed)'));
   });
 });

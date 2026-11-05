@@ -398,6 +398,9 @@ export class CodexAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     sandboxInteractive: SUPPORTED,
+    minimalHeadlessContext: unsupported(
+      'codex exec has no flag that drops skills or tool definitions; its tools come from the sandbox and config, so a minimal context cannot be requested per run',
+    ),
     headlessPolicy: SUPPORTED,
     interactiveGatePolicy: SUPPORTED,
     interactiveAttendedPolicy: unsupported(

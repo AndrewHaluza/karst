@@ -99,6 +99,7 @@ export async function runAlignment(
         ),
         cwd,
         trustCwd: false,
+        minimalContext: true,
         model: deps.model,
         effort: deps.effort,
         ...(deps.adapter.surfaces?.structuredOutput?.supported === true

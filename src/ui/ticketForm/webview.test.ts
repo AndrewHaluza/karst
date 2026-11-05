@@ -283,6 +283,7 @@ describe('ticket-form webview.html', () => {
       // The injected picker blob defines this page global; the sandbox must too.
       AP_ROUTES: {},
       post: () => {},
+      rerenderBackendPicker: () => {},
       mountAgentPicker: (_root: unknown, opts: { onChange: (v: unknown) => void }) => {
         (sandbox as { capturedOnChange?: (v: unknown) => void }).capturedOnChange = opts.onChange;
         return { setDisabled: () => {} };

@@ -1277,7 +1277,7 @@ export function buildTicketFormActions(
             },
             title: bound?.title ?? '',
             ticketType: bound?.type ?? undefined,
-            improve: { instructions: process.assignment.instructions ?? '', cwd, resolveRepoPath },
+            improve: { instructions: process.assignment.instructions ?? '', ...(process.assignment.context ? { context: process.assignment.context } : {}), cwd, resolveRepoPath },
             codePointers: { enabled: codePointersEnabled(deps.manifest) },
             warn: deps.warn,
             // K11: any pass that dies on quota records one re-runnable op park

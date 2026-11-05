@@ -121,6 +121,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'sandboxInteractive',
       'processKillDeny',
       'headlessPolicy',
+      'minimalHeadlessContext',
       'interactiveGatePolicy',
       'interactiveAttendedPolicy',
     ];

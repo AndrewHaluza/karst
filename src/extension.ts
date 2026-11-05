@@ -387,7 +387,7 @@ import { makeResourcesPanelHost } from './ui/resources/host.js';
 import { ServerLogsManager } from './ui/serverLogs/panel.js';
 import { makeServerLogsPanelHost } from './ui/serverLogs/host.js';
 import { readApproachPackage, uninstallApproach, readArtifactBody, listArtifacts, setPendingOutputs, type ApproachPackage } from './approaches/pkg.js';
-import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
+import { readAgentFile, writeAgentFile, removeAgentFile, resolveProfileContext } from './agents/pkg.js';
 import { buildAgentPool, poolAgentBody, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
@@ -1317,6 +1317,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       promptBearingRoles.has(role) && assignment.agent
         ? (soloAgentBody(assignment.agent) ?? undefined)
         : undefined;
+    // `context: minimal` rides beside `instructions`, parsed from the same body.
+    // An unknown value keeps full context and is reported as a warning.
+    const profileContext = resolveProfileContext(assignment.agent, instructions, logger.warn);
     if (instructions !== undefined) {
       logger.debug(
         `[process] ${role} for ticket ${ticketId === undefined ? '(none yet)' : formatId('ticket', ticketId)} runs through Settings profile ` +
@@ -1325,7 +1328,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return {
       assignment:
-        instructions === undefined ? assignment : { ...assignment, instructions },
+        instructions === undefined
+          ? assignment
+          : {
+              ...assignment,
+              instructions,
+              ...(profileContext ? { context: profileContext } : {}),
+            },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here

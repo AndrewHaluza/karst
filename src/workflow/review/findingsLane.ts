@@ -418,6 +418,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           signal: opts.signal,
           timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
           policy: 'reviewer',
+          ...(opts.process?.assignment.context === 'minimal' ? { minimalContext: 'skills-and-subagents' as const } : {}),
           gateScripts: gateScriptsOf(target.gates),
           onOutput: (chunk) => {
             if (chunk.stream === 'stdout') captured.push(chunk.text);
