@@ -231,3 +231,20 @@ function karstToast(kind, message) {
   }
   return node;
 }
+
+/**
+ * VS Code's webview host script (pre/index.html, handleInnerClick) listens for
+ * 'click' on the iframe WINDOW in the bubble phase. For an anchor whose href is
+ * exactly "#" it calls window.scrollTo(0, 0) and does not check
+ * event.defaultPrevented, so a handler's preventDefault() cannot stop it.
+ * Host-mediated links are written <a href="#">, so each click scrolled the page
+ * to the top. This document-level bubble listener runs after the element and
+ * React-root handlers, then stops the event before it reaches the window.
+ */
+document.addEventListener('click', function (ev) {
+  var t = ev.target;
+  if (t && typeof t.closest === 'function' && t.closest('a[href="#"]')) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+});
