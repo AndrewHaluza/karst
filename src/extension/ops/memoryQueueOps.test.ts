@@ -91,7 +91,7 @@ describe('memory queue ops', () => {
       store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, settleMs: 60_000, now: () => t,
       start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
     });
-    const a = ticket(), b = ticket();
+    const a = ticket(10), b = ticket(11);
     free = 0;
     await make().q.admit(a); await make().q.admit(b);
     expect(await q.sweep()).toBe(a);
@@ -106,7 +106,7 @@ describe('memory queue ops', () => {
       store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, hasSession: () => true,
       start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
     });
-    const a = ticket();
+    const a = ticket(12);
     free = 0;
     await make().q.admit(a);
     expect(await q.sweep()).toBeNull();
@@ -115,7 +115,7 @@ describe('memory queue ops', () => {
   });
 
   it('a launch that is admitted clears a stale queue row', async () => {
-    const a = ticket();
+    const a = ticket(13);
     free = 0;
     const { q } = make();
     await q.admit(a);
