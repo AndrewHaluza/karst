@@ -74,6 +74,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
     if (deps.canStart && !deps.canStart(first)) return null;
     const free = await deps.freeBytes();
     const need = deps.minFreeBytes();
+    if (!listMemoryQueue(store, project).includes(first)) return null; // cancelled or claimed during the memory read
     if (free < need) {
       queueMemoryWait(store, first, waitingNote(free, need), deps.owner); // keeps its place, refreshes the numbers
       return null;

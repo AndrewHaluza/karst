@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { upsertProject } from './projects.js';
-import { createTicket } from './tickets.js';
+import { archiveTicket, createTicket, unarchiveTicket } from './tickets.js';
 import { claimMemoryWait, clearMemoryWait, listMemoryQueue, memoryWaitNotes, queueMemoryWait, requeueStaleMemoryClaims } from './memoryQueue.js';
 
 let store: Store;
@@ -86,5 +86,14 @@ describe('memory wait queue', () => {
     store.db.prepare("UPDATE tickets SET memory_wait = 2, memory_claimed_at = '2000-01-01 00:00:00.000' WHERE id = ?").run(x);
     expect(requeueStaleMemoryClaims(store, 60_000, projectId)).toBe(0);
     expect(requeueStaleMemoryClaims(store, 60_000, other)).toBe(1);
+  });
+
+  it('archiving a queued ticket clears its wait, so an unarchive does not start it', () => {
+    const a = ticket();
+    queueMemoryWait(store, a, 'x', 'owner');
+    archiveTicket(store, a);
+    unarchiveTicket(store, a);
+    expect(state(a)).toBe(0);
+    expect(listMemoryQueue(store)).toEqual([]);
   });
 });

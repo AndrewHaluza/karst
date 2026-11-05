@@ -119,7 +119,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
           if (!r.ok) d.notify.warn(`Karst: ${d.label(ticketId)} could not start: ${r.message.slice(0, 300)}`);
         }
         d.refresh(ticketId);
-      });
+      }).catch((e: unknown) => d.debug(`[memory-queue] launch notice failed: ${String(e)}`));
       return false;
     },
     dispose: () => { clearInterval(sweepTimer); clearInterval(pressureTimer); },

@@ -2,8 +2,8 @@ import { freemem } from 'node:os';
 import type { SbxProcess } from './sbxProcess.js';
 
 /**
- * Pages macOS can hand to a new VM without swapping: free + inactive + purgeable (+ speculative is counted
- * inside free by `vm_stat`, so it is not added again). Undefined when the text is not `vm_stat` output.
+ * Pages macOS can hand to a new VM without swapping: free + inactive + purgeable (`vm_stat` reports speculative pages
+ * on their own line and not inside free; they are left out on purpose, so the figure stays conservative). Undefined when the text is not `vm_stat` output.
  */
 export function parseVmStat(text: string): number | undefined {
   const size = /page size of (\d+) bytes/.exec(text)?.[1];
