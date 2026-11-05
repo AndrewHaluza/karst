@@ -86,6 +86,7 @@ export async function runAlignment(
         prompt: buildAlignmentPrompt(input.edge, input.parentText, input.childText, input.paths),
         cwd,
         trustCwd: false,
+        minimalContext: true,
         model: deps.model,
         effort: deps.effort,
         ...(deps.adapter.surfaces?.structuredOutput?.supported === true
