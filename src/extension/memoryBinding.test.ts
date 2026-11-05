@@ -45,6 +45,16 @@ describe('bindMemory', () => {
     expect(listMemoryQueue(store)).toEqual([]);
   });
 
+  it('a dismissed notice can be re-offered, and Cancel then leaves the queue', async () => {
+    free = 0.2 * GB;
+    const answers: (string | undefined)[] = [undefined, 'Cancel'];
+    const b = bind(async () => answers.shift());
+    expect(await b.admitLaunch(id)).toBe(false);
+    b.resolveWait();
+    await vi.waitFor(() => expect(listMemoryQueue(store)).toEqual([]));
+    expect(answers).toEqual([]);
+  });
+
   it('Cancel leaves the queue without starting', async () => {
     free = 0.2 * GB;
     const b = bind(async () => 'Cancel');

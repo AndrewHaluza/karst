@@ -43,6 +43,8 @@ export interface MemoryBindingDeps {
 export interface MemoryBinding {
   /** Gate a sandbox launch: true → go ahead; false → the ticket is queued ('Waiting for memory'), with Start anyway / Cancel offered. */
   admitLaunch(ticketId: number, options?: OpenSessionOptions): Promise<boolean>;
+  /** Offer Start anyway / Cancel again for a waiting ticket (the first waiting one when none is named): the first notice may have been dismissed. */
+  resolveWait(ticketId?: number): void;
   dispose(): void;
 }
 
@@ -103,7 +105,25 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     stop: (b) => d.stopSandbox(b.ticketId).catch((e: unknown) => d.notify.warn(`Karst: could not stop ${b.name}: ${String(e).slice(0, 300)}`)),
   });
   const pressureTimer = setInterval(() => void pressure.tick().catch((e: unknown) => d.debug(`[memory-pressure] tick failed: ${String(e)}`)), d.pressureMs ?? 30_000);
+  // The Start anyway / Cancel notice; a dismissed notice is re-offered by `resolveWait` (the karst.memoryWait command).
+  const offerChoice = (ticketId: number, note: string): void => {
+    void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
+      if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }
+      else if (choice === 'Start anyway') {
+        const r = await queue.startAnyway(ticketId);
+        if (!r.ok) d.notify.warn(`Karst: ${d.label(ticketId)} could not start: ${r.message.slice(0, 300)}`);
+      }
+      d.refresh(ticketId);
+    }).catch((e: unknown) => d.debug(`[memory-queue] launch notice failed: ${String(e)}`));
+  };
   return {
+    resolveWait: (ticketId) => {
+      const waiting = memoryWaitNotes(d.store);
+      const ids = ticketId !== undefined ? [ticketId] : [...waiting.keys()];
+      const id = ids.find((x) => waiting.has(x));
+      if (id === undefined) { d.notify.info('Karst: no ticket is waiting for memory.'); return; }
+      offerChoice(id, waiting.get(id)!);
+    },
     admitLaunch: async (ticketId, options) => {
       sbxTickets.add(ticketId);
       if (admitted.delete(ticketId)) return true;
@@ -113,14 +133,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       if (pending.has(ticketId)) { d.refresh(ticketId); return false; } // already queued here: keep its options, no second notice
       pending.set(ticketId, options ?? {}); // also marks this window as the one that queued it (canStart)
       d.refresh(ticketId);
-      void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${admission.note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
-        if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }
-        else if (choice === 'Start anyway') {
-          const r = await queue.startAnyway(ticketId);
-          if (!r.ok) d.notify.warn(`Karst: ${d.label(ticketId)} could not start: ${r.message.slice(0, 300)}`);
-        }
-        d.refresh(ticketId);
-      }).catch((e: unknown) => d.debug(`[memory-queue] launch notice failed: ${String(e)}`));
+      offerChoice(ticketId, admission.note);
       return false;
     },
     dispose: () => { clearInterval(sweepTimer); clearInterval(pressureTimer); },
