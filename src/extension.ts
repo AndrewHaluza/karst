@@ -1870,7 +1870,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Servers stay deferred — they come up only when a stage needs to verify.
   const startGuards = makeStartGuards({
     log: (m) => logger.info(m), warn: (m) => logger.warn(m),
-    markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); },
+    markNotStarted: (id) => { if (sessions.isOpen(id) || getTicket(localStore, id).agentState !== 'none') return; setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, // never over a live session or a state an agent already set
   });
   const { failedLaunch, boundedBackendStep } = startGuards;
   const startTicket = async (
@@ -1938,7 +1938,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (err) {
       const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
       logError(`start ticket ${ticketId} failed`, err);
-      if (getTicket(localStore, ticketId).stageCurrent !== 'scope') startGuards.markNotStarted(ticketId); // scope passed: impl with no session
+      try { if (getTicket(localStore, ticketId).stageCurrent !== 'scope') startGuards.markNotStarted(ticketId); } catch (markErr) { logError(`start ticket ${ticketId}: could not record not-started`, markErr); } // scope passed: impl with no session
       if (!quiet) void vscode.window.showErrorMessage(message);
       return { ok: false, message };
     }
@@ -4860,11 +4860,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Bootstrap a graph-approach ticket's first impl launch: create the run,
    *  launch the planner session, and retain terminal close as a submission
    *  fallback for older or interrupted planner prompts. */
-  const launchGraphRun = async (ticketId: number): Promise<void> => {
+  /** True when the planner session launched. */
+  const launchGraphRun = async (ticketId: number): Promise<boolean> => {
     const gs = graphCoordinatorStore;
-    if (!gs) return;
+    if (!gs) return false;
     const t = getTicket(localStore, ticketId);
-    if (!t.approach || t.stageCurrent !== 'impl') return;
+    if (!t.approach || t.stageCurrent !== 'impl') return false;
     const attempt = implAttemptOf(ticketId);
     const result = await bootstrapAndLaunchPlanner(graphDriverDeps(), {
       ticketId,
@@ -4881,7 +4882,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showErrorMessage(
         `Ticket ${formatId('ticket', ticketId)}: the graph engineering run could not start — ${reason}`,
       );
-      return;
+      return false;
     }
     const identity: GraphLaunchIdentity = {
       graphRunId: result.graphRunId,
@@ -4897,6 +4898,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     provider.refresh();
     dashboard.pushState(ticketId);
     logger.info(`karst: graph run ${result.graphRunId} launched for ticket ${formatId('ticket', ticketId)}`);
+    return true;
   };
 
   /** The human confirm gate: awaiting-confirmation → running, then a sweep
@@ -6224,8 +6226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return { kind: 'not-applicable', reason: 'graph-owned' };
         }
-        await launchGraphRun(ticketId);
-        return { kind: 'launched' };
+        return (await launchGraphRun(ticketId)) ? { kind: 'launched' } : failedLaunch(ticketId, 'the graph planner session did not start');
       }
 
       // Resolve the approach's method prompt (its entrypoint), if one resolves.
