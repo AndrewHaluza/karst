@@ -448,7 +448,7 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
   });
 
   it('passes --memory and --cpus to the transcript-link sbx create, new sandbox only', async () => {
-    const created = async (existing: string[]): Promise<string[] | undefined> => {
+    const created = async (existing: string[]): Promise<readonly string[] | undefined> => {
       const proc = fakeSbxProcess();
       const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing, memory: '4g', cpus: 3 });
       await runner.linkTranscripts!({ bridgeDir: '/b', hostWorktreePath: '/wt' });
