@@ -75,6 +75,14 @@ export interface RunHeadlessOpts {
    * extra profile (classify / PR-description calls).
    */
   policy?: HeadlessPolicy;
+  /**
+   * A minimal context for a run whose prompt karst owns and that calls no
+   * working tool: the core drops the user's skills, agent list and tool
+   * definitions (claude: `--disable-slash-commands --tools ""`). Per call,
+   * never a default. A core without an equivalent declares
+   * `AdapterSurfaces.minimalHeadlessContext` unsupported and ignores it.
+   */
+  minimalContext?: boolean;
   /** The target's declared gate scripts; the `reviewer` profile denies `npm run <script>*` for each. */
   gateScripts?: string[];
   resume?: string; // session_id to continue

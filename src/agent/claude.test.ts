@@ -1105,6 +1105,93 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
+  describe('minimalContext', () => {
+    const OK = JSON.stringify({ session_id: 's', result: 'x' });
+    it('adds --disable-slash-commands and an empty --tools only when asked', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const adapter = new ClaudeAdapter(spawn);
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: true });
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt' });
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: false });
+      const on = seen[0]!;
+      expect(on).toContain('--disable-slash-commands');
+      expect(on[on.indexOf('--tools') + 1]).toBe('');
+      expect(on.indexOf('--tools')).toBeLessThan(on.indexOf('--'));
+      expect(on.slice(-2)).toEqual(['--', 'go']);
+      for (const off of [seen[1]!, seen[2]!]) {
+        expect(off).not.toContain('--disable-slash-commands');
+        expect(off).not.toContain('--tools');
+      }
+    });
+    it('keeps --json-schema beside the flags', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        minimalContext: true,
+        outputSchema: { type: 'array' },
+      });
+      expect(seen[0]).toEqual(expect.arrayContaining(['--json-schema', '--tools', '--disable-slash-commands']));
+    });
+    it('retries once without the flags when the CLI rejects them, and logs a debug line', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return args.includes('--tools')
+          ? { stdout: '', stderr: "error: unknown option '--disable-slash-commands'", exitCode: 1 }
+          : { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const debug = vi.fn();
+      const r = await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        minimalContext: true,
+        debug,
+      });
+      expect(r.raw).toBe('x');
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).not.toContain('--tools');
+      expect(seen[1]).not.toContain('--disable-slash-commands');
+      expect(seen[1]!.slice(-2)).toEqual(['--', 'go']);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('retrying once without them'));
+    });
+    it('does not retry an unrelated failure, nor a run without minimalContext', async () => {
+      const calls: string[][] = [];
+      const fail = (stderr: string): SpawnHeadless => async (_c, args) => {
+        calls.push(args);
+        return { stdout: '', stderr, exitCode: 1 };
+      };
+      await expect(
+        new ClaudeAdapter(fail('boom')).runHeadless({ prompt: 'g', cwd: '/w', minimalContext: true }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+      calls.length = 0;
+      await expect(
+        new ClaudeAdapter(fail("unknown option '--tools'")).runHeadless({ prompt: 'g', cwd: '/w' }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+    });
+    it('retries only once when the second run also fails', async () => {
+      const calls: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        calls.push(args);
+        return { stdout: '', stderr: "unknown option '--tools'", exitCode: 1 };
+      };
+      await expect(
+        new ClaudeAdapter(spawn).runHeadless({ prompt: 'g', cwd: '/w', minimalContext: true }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(2);
+    });
+  });
+
   it('refuses an unsandboxed bypassPermissions but keeps other modes (AC-31)', async () => {
     const seen: string[][] = [];
     const spawn: SpawnHeadless = async (_cmd, args) => {

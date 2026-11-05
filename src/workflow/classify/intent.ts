@@ -97,6 +97,7 @@ export async function generateIntent(
       prompt: p,
       cwd,
       trustCwd: false,
+      minimalContext: true,
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       tracking: {
