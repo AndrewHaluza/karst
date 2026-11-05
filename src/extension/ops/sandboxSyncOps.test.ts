@@ -512,7 +512,20 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(out.sandboxed).toBe(true);
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/warning: K-7: sandbox transcripts are not linked.*busy/));
     const throwing = vi.fn(async () => { throw new Error('spawn'); });
-    await expect(resolveLaunchBackend({ ...base, info, worktree, resolve: async () => ({ runner: mk(throwing), line: 'sbx' }), bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: true });
+    const info2 = vi.fn();
+    await expect(resolveLaunchBackend({ ...base, info: info2, worktree, resolve: async () => ({ runner: mk(throwing), line: 'sbx' }), bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: true });
+    expect(info2).toHaveBeenCalledWith(expect.stringContaining('not linked, token usage will not be counted: spawn'));
+    const info3 = vi.fn();
+    await resolveLaunchBackend({ ...base, info: info3, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths });
+    expect(info3).not.toHaveBeenCalledWith(expect.stringContaining('not linked'));
+    const nonError = vi.fn(async () => { throw 'plain'; });
+    const info4 = vi.fn();
+    await resolveLaunchBackend({ ...base, info: info4, worktree, resolve: async () => ({ runner: mk(nonError), line: 'sbx' }), bridgeFor: async () => paths });
+    expect(info4).toHaveBeenCalledWith(expect.stringContaining('will not be counted: plain'));
+    const idle = vi.fn(async () => ({ ok: true as const }));
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(idle), line: 'sbx' }), bridgeFor: async () => paths });
+    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(idle), line: 'sbx' }) });
+    expect(idle).not.toHaveBeenCalled();
   });
 
   it('records the cloned worktree in the bridge dir; a missing dir only logs (F13)', async () => {
