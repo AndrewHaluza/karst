@@ -27,6 +27,8 @@ export interface MemoryQueueDeps {
   readonly hasSession?: (ticketId: number) => boolean;
   /** After a start, wait this long before the next claim so the new VM's memory shows in the free reading. */
   readonly settleMs?: number;
+  /** False when another window queued this ticket with launch options this window does not hold: leave it to that window. */
+  readonly canStart?: (ticketId: number) => boolean;
   readonly now?: () => number;
 }
 
@@ -67,6 +69,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
       deps.debug?.(`[memory-queue] ${deps.label(first)} already has a session: dropped from the queue`);
       return null;
     }
+    if (deps.canStart && !deps.canStart(first)) return null;
     const free = await deps.freeBytes();
     const need = deps.minFreeBytes();
     if (free < need) {

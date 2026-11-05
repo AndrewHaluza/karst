@@ -136,4 +136,16 @@ describe('memory queue ops', () => {
     expect(await q.sweep()).toBeNull();
     expect(started).toEqual([]);
   });
+
+  it('leaves a ticket queued by another window (options not held here) alone', async () => {
+    const q = makeMemoryQueue({
+      store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, canStart: () => false,
+      start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
+    });
+    const a = ticket(20);
+    free = 0;
+    await make().q.admit(a);
+    expect(await q.sweep()).toBeNull();
+    expect(started).toEqual([]);
+  });
 });

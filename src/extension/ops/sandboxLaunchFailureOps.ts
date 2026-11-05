@@ -110,12 +110,13 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       // Exit 137 on sbx is the guest OOM killer (no swap): say so, never as a generic launch failure.
       if (info.exitCode === 137 && info.runner === 'sbx' && input.oomReport) {
         void input.oomReport(input.ticketId).catch(() => null).then((oom) => {
+          if (input.hostEnded?.(input.ticketId)) return; // the lookup is slow: the session may have been ended by karst meanwhile
           if (oom === null) return reportLaunchFailure(info);
           input.warn(`[session] ticket ${input.ticketLabel} ${oom}`);
           input.interruptRun?.(input.ticketId, oom);
           input.markNotStarted(input.ticketId);
           report(`Karst: ${input.ticketLabel}: ${oom}`);
-        });
+        }).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} OOM report failed: ${String(e)}`));
         return;
       }
       reportLaunchFailure(info);

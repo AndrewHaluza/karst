@@ -1,4 +1,5 @@
 import type { OpenSessionOptions } from '../ui/session.js';
+import { memoryWaitAgeMs } from '../store/memoryQueue.js';
 import type { Store } from '../store/db.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
@@ -10,6 +11,9 @@ import { totalmem } from 'node:os';
 import { resolveMinFreeBytes, resolveSbxMemory } from '../agent/sbx/sbxMemory.js';
 import { SBX_CORES } from '../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
+
+/** A queued ticket whose launch options this window lacks is taken over after this long (the queuing window reloaded or died). */
+const ORPHAN_MS = 2 * 60_000;
 
 export interface MemoryBindingDeps {
   readonly store: Store;
@@ -52,6 +56,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   const queue: MemoryQueue = makeMemoryQueue({
     store: d.store, freeBytes, minFreeBytes, notify: d.notify, label: d.label, debug: d.debug,
     ...(d.projectId ? { projectId: d.projectId } : {}), hasSession: (id) => [...d.ownedSessions()].includes(id), settleMs: d.settleMs ?? 45_000,
+    canStart: (id) => pending.has(id) || (memoryWaitAgeMs(d.store, id) ?? 0) > ORPHAN_MS,
     start: async (id) => {
       admitted.add(id);
       try {
@@ -89,7 +94,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       if (admitted.delete(ticketId)) return true;
       const admission = await queue.admit(ticketId);
       if (admission.admitted) return true;
-      if (options) pending.set(ticketId, options);
+      pending.set(ticketId, options ?? {}); // also marks this window as the one that queued it (canStart)
       d.refresh(ticketId);
       void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${admission.note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
         if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }

@@ -67,6 +67,14 @@ export function requeueStaleMemoryClaims(store: Store, staleMs: number, projectI
     .run({ project: projectId ?? null, age: `-${Math.floor(staleMs / 1000)} seconds` }).changes;
 }
 
+/** Milliseconds a ticket has been queued, or null when it is not queued. */
+export function memoryWaitAgeMs(store: Store, ticketId: number): number | null {
+  const r = store.db
+    .prepare(`SELECT CAST((julianday('now') - julianday(memory_wait_at)) * 86400000 AS INTEGER) AS age FROM tickets WHERE id = ? AND memory_wait <> ${MEMORY_WAIT_NONE} AND memory_wait_at IS NOT NULL`)
+    .get(ticketId) as { age: number } | undefined;
+  return r ? r.age : null;
+}
+
 /** Queued ticket ids in FIFO order; with `projectId`, only that project's (a window never starts another project's ticket). */
 export function listMemoryQueue(store: Store, projectId?: number): number[] {
   return (
