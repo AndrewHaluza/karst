@@ -1105,6 +1105,34 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
+  // The tool-form output rule tells the agent to write NO findings as text, so
+  // on a `--json-schema` run the answer is the envelope's `structured_output`
+  // and `result` may be a bare "Done." — the adapter must hand the parser the
+  // structured document, not the prose.
+  it('returns the structured_output document as raw when a schema run produced one', async () => {
+    const findings = { findings: [{ severity: 'high', title: 't', detail: 'd' }] };
+    const adapter = new ClaudeAdapter(
+      fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'Done.', structured_output: findings }), exitCode: 0 }),
+    );
+    const res = await adapter.runHeadless({ prompt: 'go', cwd: '/wt', outputSchema: { type: 'object' } });
+    expect(JSON.parse(res.raw)).toEqual(findings);
+  });
+
+  it('keeps the result text when the envelope has no structured_output', async () => {
+    const adapter = new ClaudeAdapter(fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'plain' }), exitCode: 0 }));
+    const res = await adapter.runHeadless({ prompt: 'go', cwd: '/wt' });
+    expect(res.raw).toBe('plain');
+  });
+
+  it('ignores a null or non-object structured_output', async () => {
+    for (const structured_output of [null, 'x', 7]) {
+      const adapter = new ClaudeAdapter(
+        fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'plain', structured_output }), exitCode: 0 }),
+      );
+      expect((await adapter.runHeadless({ prompt: 'go', cwd: '/wt' })).raw).toBe('plain');
+    }
+  });
+
   describe('minimalContext', () => {
     const OK = JSON.stringify({ session_id: 's', result: 'x' });
     it('adds --disable-slash-commands and an empty --tools only when asked', async () => {

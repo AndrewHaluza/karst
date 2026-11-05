@@ -18,6 +18,8 @@
  * pass). Nothing here reads the store or the filesystem; it is pure text.
  */
 
+import type { StructuredOutputForm } from './surfaces.js';
+
 /** The marker rule's refusal clause, shared by the guide, the done-marker
  *  instruction, and the ticket-context non-marker note. One sentence, one
  *  source — change it here and all three surfaces agree by construction. */
@@ -57,12 +59,36 @@ export const OUTPUT_RULES_HEADING = 'Output rules (strict):';
 /** The output-contract lines shared verbatim by the UAT Tester and the Review
  *  lane. Each lane appends its own tail after these (the "no changes" line and
  *  the severity usage note differ between uat and review). */
-export const OUTPUT_RULES_BASE: readonly string[] = [
-  '- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.',
-  '- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.',
-  '- "file" must be a path RELATIVE to this worktree\'s root — never absolute, never outside it.',
-  '- "title" is one short sentence; "detail" carries the explanation.',
-];
+/** The first output rule per structured-output form. `none` is the prose rule
+ *  for a core with no native structured output. */
+const FIRST_OUTPUT_RULE: Readonly<Record<StructuredOutputForm | 'none', string>> = {
+  tool: '- Finish by calling the StructuredOutput tool with your findings in its `findings` array. Write no findings as text.',
+  'final-document':
+    '- Your final message is ONLY a JSON object with one key, `findings`, whose value is the array of findings: no preamble, no markdown fence, no commentary.',
+  none: '- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.',
+};
+
+/** The output-contract lines for a core's structured-output form. */
+export function outputRulesBase(form: StructuredOutputForm | undefined): readonly string[] {
+  return [
+    FIRST_OUTPUT_RULE[form ?? 'none'],
+    '- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.',
+    '- "file" must be a path RELATIVE to this worktree\'s root — never absolute, never outside it.',
+    '- "title" is one short sentence; "detail" carries the explanation.',
+  ];
+}
+
+/** The prose form (no native structured output) of the shared output rules. */
+export const OUTPUT_RULES_BASE: readonly string[] = outputRulesBase(undefined);
+
+/** Pick a line by structured-output form. Used for tail lines that mention the
+ *  output shape, so they never contradict `outputRulesBase`'s first rule. */
+export function perForm(
+  form: StructuredOutputForm | undefined,
+  lines: Readonly<Record<StructuredOutputForm | 'none', string>>,
+): string {
+  return lines[form ?? 'none'];
+}
 
 /** UAT-only output rule: a criterion the Tester could NOT exercise is severity
  *  `info`, never `high`. `high` is reserved for a criterion the Tester
@@ -159,3 +185,42 @@ export const SERVERS_VIA_CLI_RULE =
   'next spin fails inside the child where the only symptom is a health check ' +
   'that never passes. Run `servers list` (or `context`) to see what is already ' +
   'running before you reach for anything else.';
+/**
+ * The delivery phrases a re-ask nudge uses, by structured-output form, so a
+ * nudge never demands a bare array from a core whose output rule says to call
+ * the StructuredOutput tool or to end with a `{findings}` object.
+ */
+export function nudgeDelivery(form: StructuredOutputForm | undefined): {
+  /** What to produce, after "as". */
+  what: string;
+  /** The "nothing to report" instruction. */
+  empty: string;
+  /** The closing "nothing else" sentence. */
+  only: string;
+  /** What the failed answer should have been, after "was not". */
+  valid: string;
+} {
+  switch (form) {
+    case 'tool':
+      return {
+        what: 'findings in the `findings` array of the StructuredOutput tool call',
+        empty: 'call the tool with an empty `findings` array',
+        only: 'Call the StructuredOutput tool and write no findings as text.',
+        valid: 'a StructuredOutput tool call with a valid `findings` array',
+      };
+    case 'final-document':
+      return {
+        what: 'the JSON object with one key, `findings`,',
+        empty: 'use an empty `findings` array',
+        only: 'Output the object and nothing else.',
+        valid: 'a valid JSON object with a `findings` array',
+      };
+    default:
+      return {
+        what: 'the JSON array',
+        empty: 'output exactly []',
+        only: 'Output the array and nothing else.',
+        valid: 'a valid JSON array of findings',
+      };
+  }
+}

@@ -98,7 +98,7 @@ function reasonOf(support: SurfaceSupport): string {
 describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   it('declares a position on every seam surface, with a reason for each drop', () => {
     const surfaces = surfacesOf(provider);
-    const keys: (keyof AdapterSurfaces)[] = [
+    const keys: Exclude<keyof AdapterSurfaces, 'structuredOutputForm'>[] = [
       'exactModel',
       'model',
       'effortHeadless',

@@ -191,6 +191,7 @@ export class ClaudeAdapter implements AgentAdapter {
     sessionName: SUPPORTED,
     consoleStream: SUPPORTED,
     structuredOutput: SUPPORTED,
+    structuredOutputForm: 'tool',
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
     mcpIsolationHeadless: SUPPORTED,
@@ -847,9 +848,9 @@ export class ClaudeAdapter implements AgentAdapter {
       );
     }
 
-    let parsed: { session_id?: string; result?: string };
+    let parsed: { session_id?: string; result?: string; structured_output?: unknown };
     try {
-      parsed = JSON.parse(r.stdout) as { session_id?: string; result?: string };
+      parsed = JSON.parse(r.stdout) as { session_id?: string; result?: string; structured_output?: unknown };
     } catch (e) {
       opts.debug?.(
         `[agent:claude] unparseable output — first 500 chars: ${headlessPreview(r.stdout)}`,
@@ -864,8 +865,19 @@ export class ClaudeAdapter implements AgentAdapter {
     return {
       sessionId: parsed.session_id ?? '',
       verdict: null,
-      raw: parsed.result ?? '',
+      raw: structuredAnswer(parsed.structured_output) ?? parsed.result ?? '',
       ...(usage ? { usage } : {}),
     };
   }
+}
+
+/**
+ * A `--json-schema` run answers through the StructuredOutput tool: the document
+ * sits in the envelope's `structured_output`, and `result` may be prose such as
+ * "Done." (the output rule says to write no findings as text). Return that
+ * document as the run's raw answer so the findings parser sees it; anything that
+ * is not a JSON object (absent, null, a scalar) leaves `result` in charge.
+ */
+function structuredAnswer(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null ? JSON.stringify(value) : undefined;
 }
