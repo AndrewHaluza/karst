@@ -434,11 +434,11 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
     expect(mk([NAME]).placeInteractive(spec()).shellArgs).not.toContain('--cpus');
   });
 
-  it('sets the worker env on create and on reattach, and no NODE_OPTIONS the guest could lose', () => {
+  it('sets the worker and heap env on create and on reattach', () => {
     for (const existing of [[], [NAME]]) {
       const args = mk(existing).placeInteractive(spec()).shellArgs;
       expect(args).toContain('VITEST_MAX_WORKERS=3');
-      expect(args.join(' ')).not.toContain('NODE_OPTIONS');
+      expect(args).toContain('NODE_OPTIONS=--max-old-space-size=2048');
     }
   });
 
