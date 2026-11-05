@@ -549,6 +549,7 @@ describe('dispatchInsideAction', () => {
     const r = registry(7);
     r.register({ kind: 'open-session', ticketId: 1 });
     const calls: string[] = [];
+    store.db.prepare("INSERT INTO stages (ticket_id, stage_key, status) VALUES (1, 'impl', 'pending')").run();
     setStage(store, 1, 'impl', { status: 'running', startedAt: '2026-08-08T10:00:00.000Z' });
     expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
       outcome: 'dispatched',
