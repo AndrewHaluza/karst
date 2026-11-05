@@ -18,6 +18,7 @@ import { disposeResult, disposeStep, type DisposeResult, type DisposeStep } from
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
+import { transcriptLinkCommand } from './sbxTranscriptLink.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
@@ -177,6 +178,17 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     for (const l of lines) opts.log?.(`[sbx ${opts.name}] ${l}`);
     return { ok: false, reason: damagedReason(opts.name, ticket ? await workIsOnHost(ticket) : false) };
   };
+  /** Create (when new) then link: the same workspace args as `placeInteractive`, so the later `sbx run` only reattaches. */
+  const linkTranscripts: NonNullable<SessionRunner['linkTranscripts']> = async (input) => {
+    const cwd = opts.cloneDir ?? input.hostWorktreePath;
+    if (!known.has(opts.name)) {
+      const created = await sbx(['create', '--clone', '--name', opts.name, opts.core, cwd, input.bridgeDir]);
+      if (created.code !== 0) return { ok: false, reason: `sbx create failed: ${created.stderr.trim()}` };
+      known.add(opts.name);
+    }
+    const linked = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...transcriptLinkCommand(input.bridgeDir, cwd)], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+    return linked.code === 0 ? { ok: true } : { ok: false, reason: `transcript link failed: ${linked.stderr.trim()}` };
+  };
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -198,6 +210,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         env: withoutHostOnlyEnv(spec.env),
       };
     },
+    ...(opts.core === 'claude' ? { linkTranscripts: linkTranscripts } : {}),
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,
     // Gates run against the agent's live edits; killing the `sbx exec` client

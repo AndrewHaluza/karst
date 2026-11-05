@@ -22,7 +22,7 @@ import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
+import { lstat as fsLstat, stat as fsStat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { describeBuildInfo, readBuildInfo } from './buildInfo.js';
@@ -167,6 +167,9 @@ import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
+import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
+import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
+import { getPlacement } from './store/placement.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
@@ -176,10 +179,7 @@ import { listPendingProposals } from './store/planningProposals.js';
 import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
 import {
   resolveClaudeProjectsDir,
-  transcriptPathFor,
-  parseClaudeTranscript,
-  claudeTranscriptTick,
-  type ClaudeTranscriptSnapshot,
+  claudeTranscriptLocation,
   type ClaudeWatchState,
 } from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
@@ -5906,65 +5906,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logger.debug(`[claude] ticket ${named.ticketId}: no sessionId`);
           continue;
         }
-        const transcriptPath = transcriptPathFor(projectsDir, worktree.path, sessionId);
-        let fingerprint: { mtimeMs: number; size: number } | null = null;
-        try {
-          const st = statSync(transcriptPath);
-          fingerprint = { mtimeMs: st.mtimeMs, size: st.size };
-        } catch {
-          continue; // no transcript yet — the session may not have written one
+        const placement = getPlacement(localStore, named.ticketId);
+        const sandboxed = placement !== null && placement.backend !== 'host';
+        const transcriptPath = claudeTranscriptLocation({
+          placement,
+          hostProjectsDir: projectsDir,
+          worktreePath: worktree.path,
+          sessionId,
+          ...(sandboxed && bridgeRoot ? { bridgeDir: bridgePaths(bridgeRoot, named.ticketId).dir } : {}),
+          ...(sandboxed ? sandboxCwdFor(placement, cliEntryAndManifest(context).manifestPath ?? worktree.path) : {}),
+        });
+        if (transcriptPath === null) {
+          logger.debug(`[claude] ticket ${named.ticketId}: no transcript location for ${placement?.backend} placement`);
+          continue;
         }
         const state =
           claudeTranscriptStates.get(named.ticketId) ??
           { transcriptPath: null, eventId: null, fingerprint: null };
-        if (
-          state.transcriptPath === transcriptPath &&
-          state.fingerprint !== null &&
-          state.fingerprint.mtimeMs === fingerprint.mtimeMs &&
-          state.fingerprint.size === fingerprint.size
-        ) {
-          continue; // unchanged since the last read — nothing new to parse
-        }
-        let text: string;
-        try {
-          text = await fsReadFile(transcriptPath, 'utf8');
-        } catch (error) {
-          logError(`karst: claude transcript read failed for ticket ${named.ticketId}`, error);
-          continue;
-        }
-        interactiveUsageLimit.onClaudeTranscript(named.ticketId, sessionId, text);
-        const usage = parseClaudeTranscript(text);
-        const snapshot: ClaudeTranscriptSnapshot = { transcriptPath, usage };
-        const events = claudeTranscriptTick(state, snapshot);
-        state.fingerprint = fingerprint;
         claudeTranscriptStates.set(named.ticketId, state);
-        logger.debug(`[claude] ticket ${named.ticketId}: usage=${usage ? `${usage.input}/${usage.output}/${usage.cacheRead}/${usage.cacheWrite}` : 'null'}, events=${events.length}, launchId=${named.launchId ?? 'none'}`);
-        if (events.length === 0) continue;
-        for (const event of events) {
-          const payload: HookPayload = {
-            hook_event_name: 'UsageUpdate',
+        await sweepClaudeTranscript(
+          {
+            stat: fsStat,
+            readFile: (path) => fsReadFile(path, 'utf8'),
+            debug: (m) => logger.debug(m),
+            onError: (m, e) => logError(m, e),
+            onTranscript: (id, sid, text) => interactiveUsageLimit.onClaudeTranscript(id, sid, text),
+            dispatch: (payload) =>
+              dispatchHook(
+                localStore,
+                payload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+                logger.debug,
+              ),
+          },
+          {
+            ticketId: named.ticketId,
+            sessionId,
+            transcriptPath,
             cwd: worktree.path,
-            session_id: sessionId,
-            usage: event.usage,
             ...(named.launchId ? { launchId: named.launchId } : {}),
-          };
-          try {
-            dispatchHook(
-              localStore,
-              payload,
-              notifyHook,
-              shouldApplyHookState,
-              sessionProviderFor,
-              hookChannelRecorder,
-              logger.debug,
-            );
-          } catch (error) {
-            logError(
-              `karst: claude transcript usage dispatch failed for ticket ${named.ticketId}`,
-              error,
-            );
-          }
-        }
+            state,
+          },
+        );
       }
     } catch (error) {
       logError('karst: claude transcript usage watch failed', error);

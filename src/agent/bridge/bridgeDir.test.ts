@@ -10,6 +10,12 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'bridge-')); });
 afterEach(() => rm(root, { recursive: true, force: true }));
 
 describe('bridgeDir', () => {
+  it('ensureBridgeDir creates the sandbox-writable claude-projects dir (arch:AC-34)', async () => {
+    const paths = bridgePaths(root, 7);
+    await ensureBridgeDir(paths);
+    expect((await stat(join(paths.dir, 'claude-projects'))).isDirectory()).toBe(true);
+  });
+
   it('derives host and in-sandbox paths from the ticket id only', () => {
     expect(bridgePaths('/g', 7)).toEqual({
       dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json',

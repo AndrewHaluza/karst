@@ -2,6 +2,7 @@ import { constants as fsConstants } from 'node:fs';
 import { chmod, mkdir, open, readdir, rm, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { HookChannel } from '../adapter.js';
+import { sandboxProjectsDir } from '../claudeTranscriptWatch.js';
 import { hostHeadFileFor } from '../hostHead.js';
 
 const EVENTS_FLAGS =
@@ -68,6 +69,10 @@ export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   // The host writes replies here; the sandbox only reads them.
   await mkdir(paths.resultsDir, { recursive: true, mode: 0o755 });
   await mkdir(paths.inboxDir, { recursive: true, mode: 0o755 });
+  // Claude's transcripts land here through the sandbox link; the sandbox user writes them.
+  const projects = sandboxProjectsDir(paths.dir);
+  await mkdir(projects, { recursive: true, mode: 0o777 });
+  await chmod(projects, 0o777);
   // mode is masked by umask: enforce explicitly.
   // Sticky: another sandbox user cannot rename or replace the host-owned results dir.
   await chmod(paths.dir, 0o1777);

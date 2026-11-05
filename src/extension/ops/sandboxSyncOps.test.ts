@@ -500,6 +500,21 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  it('links sandbox transcripts into the bridge dir at launch; a failed link only logs and the launch proceeds', async () => {
+    const worktree = { path: '/wt/b', branch: 'k/b' };
+    const link = vi.fn(async () => ({ ok: true as const }));
+    const mk = (linkTranscripts: unknown) => ({ kind: 'sbx', enforcesSandbox: true, linkTranscripts, bridgeRunDir: (p: { dir: string }) => p.dir }) as never;
+    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths });
+    expect(link).toHaveBeenCalledWith({ bridgeDir: '/g/events/7', hostWorktreePath: '/wt/b' });
+    const info = vi.fn();
+    const failing = vi.fn(async () => ({ ok: false as const, reason: 'busy' }));
+    const out = await resolveLaunchBackend({ ...base, info, worktree, resolve: async () => ({ runner: mk(failing), line: 'sbx' }), bridgeFor: async () => paths });
+    expect(out.sandboxed).toBe(true);
+    expect(info).toHaveBeenCalledWith(expect.stringMatching(/warning: K-7: sandbox transcripts are not linked.*busy/));
+    const throwing = vi.fn(async () => { throw new Error('spawn'); });
+    await expect(resolveLaunchBackend({ ...base, info, worktree, resolve: async () => ({ runner: mk(throwing), line: 'sbx' }), bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: true });
+  });
+
   it('records the cloned worktree in the bridge dir; a missing dir only logs (F13)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'karst-launch-'));
     try {

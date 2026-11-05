@@ -33,6 +33,38 @@ export function transcriptPathFor(projectsDir: string, cwd: string, sessionId: s
   return join(projectsDir, encodeClaudeProjectDir(cwd), `${sessionId}.jsonl`);
 }
 
+/** Dir under the ticket's bridge dir that a sandbox's Claude `projects/<cwd>` is linked to (arch:AC-34). */
+export const SANDBOX_PROJECTS_DIRNAME = 'claude-projects';
+
+/** Host path of the transcripts a sandboxed Claude session writes through its link. */
+export function sandboxProjectsDir(bridgeDir: string): string {
+  return join(bridgeDir, SANDBOX_PROJECTS_DIRNAME);
+}
+
+export interface TranscriptLocationInput {
+  /** The ticket's recorded placement; null (never recorded) reads like the host. */
+  readonly placement: { readonly backend: 'host' | 'sbx' | 'docker' } | null;
+  readonly hostProjectsDir: string;
+  readonly worktreePath: string;
+  readonly sessionId: string;
+  /** Host path of the ticket's bridge dir. */
+  readonly bridgeDir?: string;
+  /** The session's cwd INSIDE the sandbox (the clone), which names its project dir. */
+  readonly sandboxCwd?: string;
+}
+
+/**
+ * Where the host reads this ticket's transcript. A host ticket: the host config
+ * dir, keyed by the worktree. A sandboxed ticket: the bridge dir, keyed by the
+ * sandbox cwd. Null when a sandboxed ticket lacks either input.
+ */
+export function claudeTranscriptLocation(input: TranscriptLocationInput): string | null {
+  const backend = input.placement?.backend ?? 'host';
+  if (backend === 'host') return transcriptPathFor(input.hostProjectsDir, input.worktreePath, input.sessionId);
+  if (input.bridgeDir === undefined || input.sandboxCwd === undefined) return null;
+  return transcriptPathFor(sandboxProjectsDir(input.bridgeDir), input.sandboxCwd, input.sessionId);
+}
+
 // ---------------------------------------------------------------------------
 // Transcript parsing — cumulative usage from assistant messages.
 // ---------------------------------------------------------------------------

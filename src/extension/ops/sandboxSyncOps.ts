@@ -136,6 +136,12 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   }
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+  if (paths && input.worktree && resolved.runner.linkTranscripts) {
+    // A missing token count must not stop a session: a failed link is only a warning (arch:AC-34).
+    const linked = await resolved.runner.linkTranscripts({ bridgeDir: paths.dir, hostWorktreePath: input.worktree.path })
+      .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
+    if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
+  }
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
   return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
 }
