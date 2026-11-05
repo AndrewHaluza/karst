@@ -17,9 +17,8 @@ import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
-import * as vscode from 'vscode';
+import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -597,7 +596,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
-  const restoreGate = new RestoreGate(); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
+  let doctorWiring: ReturnType<typeof registerDoctorCommand>; const restoreGate = new RestoreGate(); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -3210,8 +3209,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     storedArtifacts.load,
     makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
   );
-  const doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) });
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
   serverLifecycleDeps = {
     store: localStore, manifest: currentManifest,
     stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)),
@@ -6850,7 +6847,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
-    doctorWiring.command,
+    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showAttention', async () => {
       const items = currentAttention();
@@ -6951,6 +6948,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-
