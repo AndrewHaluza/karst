@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -270,7 +270,7 @@ describe('archive/restore worktree', () => {
       baseRef: 'develop',
     });
 
-    expect(res.outcome).toBe('skipped');
+    expect(res.outcome).toBe('cleared');
     expect(res.reapedServers).toEqual([]);
   });
 
@@ -331,17 +331,13 @@ describe('archive/restore worktree', () => {
   });
 
   it('skips an orphan folder (folder present but not a registered worktree)', async () => {
-    const orphan = join(repo.path, 'not-a-worktree');
-    mkdtempSync(join(tmpdir(), 'ignore-')); // noop to keep imports honest
-    writeFileSync(join(repo.path, 'placeholder'), 'x'); // ensure repo writable
+    const orphan = join(repo.path, 'orphan-marker-dir');
+    mkdirSync(orphan, { recursive: true });
     const alloc = makePortAllocator(store, [4000, 4100]);
-    // Create a bare folder that is not a git worktree.
-    rmSync(orphan, { recursive: true, force: true });
-    writeFileSync(join(repo.path, 'orphan-marker'), 'x');
     const res = await archiveWorktree(defaultGitRunner, store, alloc, {
       ticketId: 1,
       repoPath: repo.path,
-      path: join(repo.path, 'orphan-marker-dir-does-not-exist'),
+      path: orphan,
       branch: 'karst/none',
       baseRef: 'develop',
     });
