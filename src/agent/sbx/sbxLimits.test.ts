@@ -24,6 +24,8 @@ describe('limitEnvEntries', () => {
   it('sets the worker counts and a heap of 50% of the memory limit', () => {
     expect(limitEnvEntries({ cpus: 3, memory: '4g' })).toEqual([
       ['VITEST_MAX_WORKERS', '3'],
+      ['VITEST_MAX_THREADS', '3'],
+      ['VITEST_MAX_FORKS', '3'],
       ['NODE_OPTIONS', '--max-old-space-size=2048'],
     ]);
   });
@@ -40,7 +42,7 @@ describe('limitEnvEntries', () => {
     expect(e).toContainEqual(['NODE_OPTIONS', '--max-old-space-size=768']);
   });
   it('sets no heap when the memory limit is unknown', () => {
-    expect(limitEnvEntries({ cpus: 2 }).map(([k]) => k)).toEqual(['VITEST_MAX_WORKERS']);
+    expect(limitEnvEntries({ cpus: 2 }).map(([k]) => k)).toEqual(['VITEST_MAX_WORKERS', 'VITEST_MAX_THREADS', 'VITEST_MAX_FORKS']);
   });
   it('sets nothing on opt-out', () => {
     expect(limitEnvEntries({ cpus: 2, memory: '4g', optOut: true })).toEqual([]);
@@ -49,7 +51,7 @@ describe('limitEnvEntries', () => {
 
 describe('limitEnvArgs', () => {
   it('renders --env KEY=VALUE pairs', () => {
-    expect(limitEnvArgs({ cpus: 2 })).toEqual(['--env', 'VITEST_MAX_WORKERS=2']);
+    expect(limitEnvArgs({ cpus: 2 })).toEqual(['--env', 'VITEST_MAX_WORKERS=2', '--env', 'VITEST_MAX_THREADS=2', '--env', 'VITEST_MAX_FORKS=2']);
   });
 });
 

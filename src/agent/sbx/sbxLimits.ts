@@ -30,8 +30,10 @@ export interface LimitEnvInput {
 export function limitEnvEntries(input: LimitEnvInput): [string, string][] {
   if (input.optOut) return [];
   const out: [string, string][] = [
-    // vitest 4 reads only VITEST_MAX_WORKERS (MAX_THREADS / MAX_FORKS were removed).
+    // vitest 4 reads VITEST_MAX_WORKERS; older vitest reads MAX_THREADS / MAX_FORKS. Set all three.
     ['VITEST_MAX_WORKERS', String(input.cpus)],
+    ['VITEST_MAX_THREADS', String(input.cpus)],
+    ['VITEST_MAX_FORKS', String(input.cpus)],
   ];
   const existing = input.nodeOptions?.trim() ?? '';
   if (existing.includes(HEAP_FLAG)) {

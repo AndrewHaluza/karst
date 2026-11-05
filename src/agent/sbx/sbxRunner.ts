@@ -203,7 +203,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         cwd: opts.cloneDir ?? spec.hostWorktreePath,
         shellPath: SBX_BIN,
         shellArgs: [
-          'run', ...create, ...limitArgs(spec.env?.NODE_OPTIONS), '--name', opts.name, opts.core, ...workspace,
+          'run', ...create, // A session sets NODE_OPTIONS only when the spec supplies one: `--env` would replace the guest's own value.
+          ...limitArgs(spec.env?.NODE_OPTIONS, spec.env?.NODE_OPTIONS !== undefined), '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
         env: withoutHostOnlyEnv(spec.env),
