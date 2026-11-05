@@ -2804,5 +2804,15 @@ function migrateLocked(db: Database): void {
     if (cols96.size > 0 && !cols96.has('block_reason')) db.exec('ALTER TABLE stage_runs ADD COLUMN block_reason TEXT');
   }
 
+  if (current < 97) {
+    // v97: host-memory wait queue (`store/memoryQueue.ts`): 0 none | 1 queued | 2 starting, plus the claim time, the
+    // queue time (FIFO) and the "free X, needs Y" note the UI shows. Additive; every existing row is honestly 0.
+    const cols97 = ticketColumns(db);
+    if (cols97.size > 0 && !cols97.has('memory_wait')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait INTEGER NOT NULL DEFAULT 0');
+    if (cols97.size > 0 && !cols97.has('memory_wait_at')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait_at TEXT');
+    if (cols97.size > 0 && !cols97.has('memory_claimed_at')) db.exec('ALTER TABLE tickets ADD COLUMN memory_claimed_at TEXT');
+    if (cols97.size > 0 && !cols97.has('memory_wait_note')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait_note TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

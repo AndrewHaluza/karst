@@ -15,6 +15,10 @@ export interface SandboxMemoryConfig {
   readonly interactiveReservation?: string;
   readonly gateMemory?: string;
   readonly gateReservation?: string;
+  /** sbx sandbox memory ceiling (`sbx run --memory`); absent → 40% of host RAM, clamped 2–8 GB (`agent/sbx/sbxMemory.ts`). */
+  readonly sbxMemory?: string;
+  /** Free host memory below which a sandbox start waits in the memory queue (default 1.5g). */
+  readonly sbxMinFree?: string;
 }
 
 /** What to use when the daemon will not say how much memory it has. */
@@ -29,12 +33,12 @@ export const FALLBACK_MEMORY_LIMITS: DockerMemoryLimits = {
 export const DOCKER_MEMORY_PATTERN = /^[1-9][0-9]*(?:[mMgG])$/;
 
 /** No container may request more than this share of the Docker VM. */
-const VM_CEILING = 0.85;
+export const VM_CEILING = 0.85;
 const BYTES_PER_MB = 1024 * 1024;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
-function toMb(value: string): number {
+export function toMb(value: string): number {
   const n = Number(value.slice(0, -1));
   return value.slice(-1).toLowerCase() === 'g' ? n * 1024 : n;
 }

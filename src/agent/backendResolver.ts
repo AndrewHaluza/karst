@@ -3,6 +3,10 @@ import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
 import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
+import { existsSync, writeFileSync } from 'node:fs';
+import { totalmem } from 'node:os';
+import { resolveSbxMemory } from './sbx/sbxMemory.js';
+import type { SandboxMemoryConfig } from './docker/dockerMemory.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from './sbx/sbxRunner.js';
 import { resolveDocker, type DockerResolveDeps } from './docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxTicketRef, type SessionRunner } from './sessionRunner.js';
@@ -21,6 +25,10 @@ export interface ResolveBackendInput {
   readonly worktree?: SandboxTicketRef;
   readonly bridgeDir?: string;
   readonly docker?: DockerResolveDeps;
+  /** The manifest's `sandboxMemory`: `sbxMemory` overrides the default sbx ceiling. */
+  readonly sandboxMemory?: SandboxMemoryConfig;
+  /** Host RAM in bytes (tests); default `os.totalmem()`. */
+  readonly hostRamBytes?: number;
   /** Karst log sink for the sbx runner (damaged-disk EXT4 lines). */
   readonly log?: (line: string) => void;
 }
@@ -67,12 +75,30 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
       .catch((err: unknown) => ({ ok: false as const, reason: `sandbox clone failed: ${err instanceof Error ? err.message : String(err)}` }));
     if (!cloned.ok) return onHost(cloned.reason);
   }
+  const memory = resolveSbxMemory(input.hostRamBytes ?? totalmem(), input.sandboxMemory?.sbxMemory);
+  noteSandboxWithoutLimit(check.existing.includes(name), `${cloneDir}.sbx-memory`, name, memory, input.log);
   return {
-    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, ...(input.log ? { log: input.log } : {}) }),
+    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...(input.log ? { log: input.log } : {}) }),
     line: `sbx (${name})`,
   };
 }
 
 function isSbxCore(core: string): core is SbxCore {
   return (SBX_CORES as readonly string[]).includes(core);
+}
+
+/**
+ * `--memory` applies only when sbx creates a sandbox. A marker beside the clone records that karst created it with a limit;
+ * an existing sandbox without one keeps its old size, so say once per launch how to get the limit.
+ */
+function noteSandboxWithoutLimit(exists: boolean, marker: string, name: string, memory: string, log?: (line: string) => void): void {
+  try {
+    if (!exists) {
+      writeFileSync(marker, `${memory}\n`);
+    } else if (!existsSync(marker)) {
+      log?.(`[sbx ${name}] created without a karst memory limit and keeps its old size; remove it (sbx rm ${name}) to get the ${memory} limit on the next launch`);
+    }
+  } catch {
+    /* the marker is advisory */
+  }
 }

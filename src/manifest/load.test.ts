@@ -2260,6 +2260,10 @@ describe('sandboxMemory (docker container memory overrides)', () => {
     expect(load('')).toBeUndefined();
   });
 
+  it('parses the sbx keys', () => {
+    expect(load('sandboxMemory:\n  sbxMemory: 6g\n  sbxMinFree: 2g\n')).toEqual({ sbxMemory: '6g', sbxMinFree: '2g' });
+  });
+
   it('parses every key', () => {
     expect(load('sandboxMemory:\n  interactiveMemory: 2g\n  interactiveReservation: 512m\n  gateMemory: 3G\n  gateReservation: 1536m\n')).toEqual({
       interactiveMemory: '2g', interactiveReservation: '512m', gateMemory: '3G', gateReservation: '1536m',

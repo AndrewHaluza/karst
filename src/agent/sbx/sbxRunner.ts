@@ -21,6 +21,7 @@ import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
+import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -43,6 +44,8 @@ export interface SbxRunnerOptions {
   readonly cloneDir?: string;
   /** Clone-readiness polling overrides (tests). */
   readonly cloneReady?: CloneReadyOptions;
+  /** `sbx run --memory` ceiling (`resolveSbxMemory`). Passed on create only: an existing sandbox keeps the size it was made with. */
+  readonly memory?: string;
   /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
   readonly log?: (line: string) => void;
 }
@@ -185,7 +188,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // Only a sandbox `sbx ls` reported is reattached. Building the argv is
       // not proof the sandbox exists: a first terminal can fail before
       // creation, so a retry must create again (preflight re-lists per launch).
-      const create = known.has(opts.name) ? [] : ['--clone'];
+      const create = known.has(opts.name) ? [] : ['--clone', ...(opts.memory ? ['--memory', opts.memory] : [])];
       const source = opts.cloneDir ?? spec.hostWorktreePath;
       const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       return {
@@ -205,6 +208,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
     ensureWritable,
+    // Best effort and bounded: a dead VM answers nothing, which still reports as an OOM (exit 137 is the signal).
+    oomReport: async () => {
+      const out = await opts.proc
+        .run(SBX_BIN, ['exec', opts.name, '--', ...OOM_LOG], { signal: AbortSignal.timeout(OOM_LOOKUP_TIMEOUT_MS), ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) })
+        .catch(() => undefined);
+      return oomMessage(opts.name, opts.memory, out && out.code === 0 ? parseKilledProcess(out.stdout) : null);
+    },
     ensureCloneReady: (branch) => waitForCloneReady(opts.proc, { name: opts.name, branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, opts.cloneReady),
     rebuild: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       const safe = await assertRebuildSafe(opts.proc, { name: opts.name, branch: ticket.branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, (args) => git(ticket.hostWorktreePath, args));

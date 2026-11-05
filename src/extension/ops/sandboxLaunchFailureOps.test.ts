@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LAUNCH_FAILURE_FILE, sandboxLaunchFailureOptions, type SandboxLaunchFailureInput } from './sandboxLaunchFailureOps.js';
 import { DOCKER_MEMORY_HELP_TEXT } from './sandboxSetupOp.js';
 
@@ -228,5 +228,24 @@ describe('sandboxLaunchFailureOptions', () => {
     opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'error: sandbox "n" was stopped' });
     await new Promise((r) => setTimeout(r, 0));
     expect(relaunched).toEqual([4]);
+  });
+});
+
+describe('sbx exit 137 is reported as an out-of-memory kill', () => {
+  it('shows the OOM text, not a launch failure, and keeps the sandbox', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oom-'));
+    const warn = vi.fn();
+    const removeSandbox = vi.fn(async () => undefined);
+    const markNotStarted = vi.fn();
+    const opts = sandboxLaunchFailureOptions({
+      ticketId: 7, ticketLabel: 'T7', core: 'claude', captureDir: dir, warn: () => undefined, notify: { info: vi.fn(), warn, error: async () => undefined },
+      markNotStarted, removeSandbox, oomReport: async () => 'Sandbox s ran out of memory (limit 6 GB): killed node.',
+    });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 137, tail: '' });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn.mock.calls[0]![0]).toContain('ran out of memory (limit 6 GB): killed node');
+    expect(warn.mock.calls[0]![0]).not.toContain('launch failed');
+    expect(removeSandbox).not.toHaveBeenCalled();
+    expect(markNotStarted).toHaveBeenCalledWith(7);
   });
 });
