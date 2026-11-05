@@ -448,6 +448,8 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           result.raw,
           { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
           opts.warn,
+          undefined,
+          result.finalMessage,
         );
         if (tier !== undefined) parseTiers.push(tier);
         if (shape === 'unreadable') unreadable.push(target.repo);

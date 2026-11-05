@@ -808,7 +808,15 @@ export function parseFindingsResult(
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
   onTier?: (tier: FindingsExtractionTier) => void,
+  finalMessage?: string,
 ): FindingsParseResult {
+  // The final assistant message is tried first (opencode cores join narration
+  // into `raw`). It wins only when it carries a findings container; otherwise
+  // `raw` is parsed as before, so a split or non-JSON final message loses nothing.
+  if (finalMessage !== undefined && finalMessage.trim() !== '') {
+    const probe = parseFindingsResult(finalMessage, ctx, () => undefined);
+    if (probe.shape !== 'unreadable') return parseFindingsResult(finalMessage, ctx, warn, onTier);
+  }
   // The extraction fallback is gated on "the primary read found no container
   // that could CARRY findings" (a `strong` one), NOT on "nothing parsed at all"
   // and NOT on "any array at all". A single narration line that happens to be a

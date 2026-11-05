@@ -1,3 +1,4 @@
+import { createOpencodeTextCollector } from './opencodeText.js';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
@@ -198,10 +199,11 @@ export function describeOpencode2ErrorEvent(error: unknown): Error {
 export function parseOpencode2Jsonl(stdout: string): {
   sessionId: string;
   raw: string;
+  finalMessage?: string;
   usage?: TokenUsage;
 } {
   let sessionId = '';
-  let raw = '';
+  const text = createOpencodeTextCollector();
   let usage: TokenUsage | undefined;
 
   for (const line of stdout.split(/\r?\n/)) {
@@ -217,7 +219,7 @@ export function parseOpencode2Jsonl(stdout: string): {
     if (event['type'] === 'text') {
       const part = asRecord(event['part']);
       if (part !== null && part['type'] === 'text' && typeof part['text'] === 'string') {
-        raw += part['text'];
+        text.add(part);
       }
     }
     if (event['type'] === 'step_finish') {
@@ -229,7 +231,7 @@ export function parseOpencode2Jsonl(stdout: string): {
   if (!sessionId) throw new Error('opencode2 JSONL did not contain a session id');
   // No text is an EMPTY ANSWER, never a parse failure — a turn can end on a
   // tool call (869ekt). A missing session id stays a hard failure.
-  return { sessionId, raw, ...(usage ? { usage } : {}) };
+  return { sessionId, ...text.result(), ...(usage ? { usage } : {}) };
 }
 
 /**
@@ -708,6 +710,7 @@ export class Opencode2Adapter implements AgentAdapter {
       sessionId: parsed.sessionId,
       verdict: null,
       raw: parsed.raw,
+      ...(parsed.finalMessage !== undefined ? { finalMessage: parsed.finalMessage } : {}),
       ...(usage ? { usage } : {}),
     };
   }

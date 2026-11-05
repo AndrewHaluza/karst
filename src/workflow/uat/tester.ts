@@ -1045,7 +1045,7 @@ async function runTesterBody(
         text: string,
         signal: AbortSignal | undefined,
         timeoutMs: number,
-      ): Promise<{ raw: string }> =>
+      ): Promise<{ raw: string; finalMessage?: string }> =>
         opts.adapter.runHeadless({
           prompt: text,
           cwd: target.worktreePath,
@@ -1070,7 +1070,7 @@ async function runTesterBody(
       // A caller Stop still forwards, so the two are distinguishable: the
       // caller's signal is the authority, this timer is only the budget.
       const soft = linkedAbort(opts.signal, softTimeoutMs);
-      let result: { raw: string } = { raw: '' };
+      let result: { raw: string; finalMessage?: string } = { raw: '' };
       let stopped = false;
       try {
         result = await ask(prompt, soft.signal, hardTimeoutMs);
@@ -1142,7 +1142,7 @@ async function runTesterBody(
           result = await ask(`${prompt}\n${TESTER_SILENCE_NUDGE}`, opts.signal, hardTimeoutMs);
         }
         if (opts.signal?.aborted) break;
-        parseResult = parseFindingsResult(result.raw, parseContext, opts.warn);
+        parseResult = parseFindingsResult(result.raw, parseContext, opts.warn, undefined, result.finalMessage);
         // UNREADABLE prose is re-asked ONCE, for reformatting only (UAT-19) —
         // the core already answered and may have found something real; only
         // the shape is wrong. Quoting its own prose back and asking for
@@ -1162,7 +1162,7 @@ async function runTesterBody(
           );
           if (!opts.signal?.aborted) {
             result = reformatted;
-            parseResult = parseFindingsResult(result.raw, parseContext, opts.warn);
+            parseResult = parseFindingsResult(result.raw, parseContext, opts.warn, undefined, result.finalMessage);
           }
         }
       }
