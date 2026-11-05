@@ -12,11 +12,11 @@ let free = 0;
 let binding: MemoryBinding | undefined;
 const opened: number[] = [];
 
-function bind(infoActions?: (m: string, a: readonly string[]) => Promise<string | undefined>) {
+function bind(infoActions?: (m: string, a: readonly string[]) => Promise<string | undefined>, projectId?: () => number | undefined) {
   binding = bindMemory({
     store, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined, ...(infoActions ? { infoActions } : {}) }, manifest: () => undefined,
     freeBytes: async () => free, label: () => 'T1', refresh: () => undefined, openSession: async (t) => { opened.push(t); },
-    inventory: () => null, ownedSessions: () => [], stopSandbox: async () => undefined, debug: () => undefined, sweepMs: 10, pressureMs: 1e9,
+    inventory: () => null, ownedSessions: () => [], stopSandbox: async () => undefined, debug: () => undefined, sweepMs: 10, pressureMs: 1e9, ...(projectId ? { projectId } : {}),
   });
   return binding;
 }
@@ -53,6 +53,17 @@ describe('bindMemory', () => {
     b.resolveWait();
     await vi.waitFor(() => expect(listMemoryQueue(store)).toEqual([]));
     expect(answers).toEqual([]);
+  });
+
+  it('resolveWait never offers a ticket of another project', async () => {
+    free = 0.2 * GB;
+    const other = createTicket(store, { key: 'O-1', title: 't', projectId: upsertProject(store, { slug: 'q' }).id }).id;
+    const infoActions = vi.fn(async () => undefined);
+    const b = bind(infoActions, () => (store.db.prepare('SELECT project_id AS p FROM tickets WHERE id = ?').get(id) as { p: number }).p);
+    await b.admitLaunch(other);
+    infoActions.mockClear();
+    b.resolveWait(other);
+    expect(infoActions).not.toHaveBeenCalled();
   });
 
   it('Cancel leaves the queue without starting', async () => {

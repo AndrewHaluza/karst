@@ -1,6 +1,6 @@
 import type { OpenSessionOptions } from '../ui/session.js';
 import type { Store } from '../store/db.js';
-import { memoryWaitNotes, memoryWaitOwner } from '../store/memoryQueue.js';
+import { listMemoryQueue, memoryWaitNotes, memoryWaitOwner } from '../store/memoryQueue.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
 import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPressure.js';
@@ -86,7 +86,13 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     },
   });
   const sweepTimer = setInterval(() => {
-    void queue.sweep().then((started) => { if (started !== null) d.refresh(started); }).catch((e: unknown) => d.debug(`[memory-queue] sweep failed: ${String(e)}`));
+    const before = memoryWaitNotes(d.store);
+    void queue.sweep().then((started) => {
+      // Repaint every ticket whose waiting state or note moved (a failed start, a refreshed 'free X GB' note), not only the started one.
+      const after = memoryWaitNotes(d.store);
+      for (const id of new Set([...before.keys(), ...after.keys()])) if (before.get(id) !== after.get(id)) d.refresh(id);
+      if (started !== null) d.refresh(started);
+    }).catch((e: unknown) => d.debug(`[memory-queue] sweep failed: ${String(e)}`));
   }, d.sweepMs);
   // Biggest sandbox by the Resources sampler: container rows, else the VM overhead split over the owned sessions.
   const pressure = makePressureWatch({
@@ -118,11 +124,13 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   };
   return {
     resolveWait: (ticketId) => {
+      const project = d.projectId ? d.projectId() : undefined;
+      if (d.projectId && project === undefined) return; // no project in this window: it must not start another project's ticket
       const waiting = memoryWaitNotes(d.store);
-      const ids = ticketId !== undefined ? [ticketId] : [...waiting.keys()];
-      const id = ids.find((x) => waiting.has(x));
+      const mine = listMemoryQueue(d.store, project); // queued rows of this window's project, FIFO
+      const id = ticketId !== undefined ? mine.find((x) => x === ticketId) : mine[0];
       if (id === undefined) { d.notify.info('Karst: no ticket is waiting for memory.'); return; }
-      offerChoice(id, waiting.get(id)!);
+      offerChoice(id, waiting.get(id) ?? 'Waiting for memory');
     },
     admitLaunch: async (ticketId, options) => {
       sbxTickets.add(ticketId);
