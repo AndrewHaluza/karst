@@ -27,6 +27,15 @@ export type SurfaceSupport =
   | { readonly supported: true }
   | { readonly supported: false; readonly reason: string };
 
+/**
+ * HOW a core with native structured output hands the schema-conforming result
+ * back: `tool` = the agent calls a StructuredOutput tool (claude
+ * `--json-schema`); `final-document` = the agent's final message is the
+ * document (codex `--output-schema`). A core without native structured output
+ * declares neither. Prompt builders read this, never the core's name.
+ */
+export type StructuredOutputForm = 'tool' | 'final-document';
+
 export const SUPPORTED: SurfaceSupport = { supported: true };
 
 /** Declare a dropped surface. The reason is required — an unexplained drop is the bug. */
@@ -80,6 +89,12 @@ export interface AdapterSurfaces {
    * path — see `promptText.ts`'s output rules.
    */
   readonly structuredOutput: SurfaceSupport;
+  /**
+   * How the structured result is returned (see `StructuredOutputForm`). Set
+   * exactly when `structuredOutput` is supported; absent on an unsupported core,
+   * whose prompt keeps the prose "output ONLY a JSON array" rule.
+   */
+  readonly structuredOutputForm?: StructuredOutputForm;
   /**
    * An executable hook channel the launch can install (a bridge script, a
    * settings file). `unsupported` means lifecycle signals are WATCHED instead
@@ -169,4 +184,13 @@ export interface AdapterSurfaces {
    * core has no enforced sandbox; the launch fails closed to prompted mode.
    */
   readonly sandboxInteractive: SurfaceSupport;
+}
+
+/** The declared structured-output form of an adapter, or `undefined` when the
+ *  core has none (or the adapter declares no surfaces). */
+export function structuredOutputFormOf(
+  adapter: { readonly surfaces?: AdapterSurfaces } | null | undefined,
+): StructuredOutputForm | undefined {
+  const surfaces = adapter?.surfaces;
+  return surfaces?.structuredOutput.supported === true ? surfaces.structuredOutputForm : undefined;
 }

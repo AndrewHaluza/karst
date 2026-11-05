@@ -12,6 +12,9 @@ import { PROCESS_KEYS, type ProcessKey } from '../../manifest/validate/processAs
 
 export type BuiltInPrompts = Readonly<Record<ProcessKey, string | null>>;
 
+// No core is chosen here, so both builders render the core-agnostic prose form
+// ("Output ONLY a JSON array"). A claude or codex run swaps only the first
+// output rule (`outputRulesBase`, by the adapter's structured-output form).
 export function buildBuiltInPrompts(): BuiltInPrompts {
   const prompts = Object.fromEntries(PROCESS_KEYS.map((key) => [key, null])) as Record<ProcessKey, string | null>;
   prompts.uatTester = buildTesterPrompt({ repo: '<repository>', worktreePath: '<worktree>', baseRef: '<base branch>' });

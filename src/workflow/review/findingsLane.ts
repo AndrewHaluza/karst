@@ -32,6 +32,7 @@ import { nowIso } from '../../model/time.js';
 import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
+import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
@@ -41,7 +42,7 @@ import {
   reconcileRequirementFindings,
   targetHasChanges,
 } from './requirements.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, reviewBlockingSeverityRule, type NamedGate } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, outputRulesBase, perForm, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, reviewBlockingSeverityRule, type NamedGate } from '../../agent/promptText.js';
 import { endedOnBackgroundCommand, backgroundEndedDetail } from '../uat/backgroundCommand.js';
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
@@ -217,6 +218,8 @@ export function buildFindingsPrompt(
   artifacts?: ReviewArtifacts,
   /** The gates the gates phase already ran; named in the never-replaced no-gates rule. */
   gates?: readonly NamedGate[],
+  /** How the core returns structured output; absent → the prose rules. */
+  outputForm?: StructuredOutputForm,
 ): string {
   const conformance = artifacts ? buildConformanceBlock(artifacts, repo) : [];
   const baseClause = baseRef
@@ -263,8 +266,12 @@ export function buildFindingsPrompt(
     NO_DANGLING_COMMAND_RULE,
     ``,
     OUTPUT_RULES_HEADING,
-    ...OUTPUT_RULES_BASE,
-    `- No changes worth reporting → output only the coverage entry below.`,
+    ...outputRulesBase(outputForm),
+    perForm(outputForm, {
+      none: `- No changes worth reporting → output only the coverage entry below.`,
+      tool: `- No changes worth reporting → put only the coverage entry below in the \`findings\` array.`,
+      'final-document': `- No changes worth reporting → put only the coverage entry below in the \`findings\` array.`,
+    }),
     COVERAGE_RULE_REVIEW,
     `- Use "critical" only for something that will break in production (data loss, security, crash); "high" for a real bug or a clear regression; "medium"/"low"/"info" for style, maintainability, or a suggestion.`,
     ...(blockingSeverity ? [reviewBlockingSeverityRule(blockingSeverity)] : []),
@@ -403,6 +410,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             opts.config.blockingSeverity === 'none' ? undefined : opts.config.blockingSeverity,
             opts.artifacts,
             target.gates,
+            structuredOutputFormOf(adapter),
           ),
           cwd: target.worktreePath,
           model: opts.process?.assignment.model,

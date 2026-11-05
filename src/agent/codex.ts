@@ -387,6 +387,7 @@ export class CodexAdapter implements AgentAdapter {
     ),
     consoleStream: SUPPORTED,
     structuredOutput: SUPPORTED,
+    structuredOutputForm: 'final-document',
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
     mcpIsolationHeadless: SUPPORTED,

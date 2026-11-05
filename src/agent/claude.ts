@@ -176,6 +176,7 @@ export class ClaudeAdapter implements AgentAdapter {
     sessionName: SUPPORTED,
     consoleStream: SUPPORTED,
     structuredOutput: SUPPORTED,
+    structuredOutputForm: 'tool',
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
     mcpIsolationHeadless: SUPPORTED,

@@ -47,7 +47,7 @@ import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { endedOnBackgroundCommand, backgroundEndedDetail } from './backgroundCommand.js';
 import { gateScriptsOf } from '../review/declaredGates.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, type NamedGate } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, outputRulesBase, perForm, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, type NamedGate } from '../../agent/promptText.js';
 import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -60,6 +60,7 @@ import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
+import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
 
 /**
@@ -705,6 +706,8 @@ export interface TesterPromptExtra {
   core?: string | null;
   /** Core or provider key alias. */
   provider?: AgentProvider | string | null;
+  /** How the core returns structured output; absent → the prose rules. */
+  outputForm?: StructuredOutputForm;
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
@@ -811,9 +814,13 @@ export function buildTesterPrompt(
     }),
     ``,
     OUTPUT_RULES_HEADING,
-    ...OUTPUT_RULES_BASE,
+    ...outputRulesBase(extra?.outputForm),
     ...OUTPUT_RULES_UAT,
-    `- No observations worth reporting → output only the coverage entry above.`,
+    perForm(extra?.outputForm, {
+      none: `- No observations worth reporting → output only the coverage entry above.`,
+      tool: `- No observations worth reporting → put only the coverage entry above in the \`findings\` array.`,
+      'final-document': `- No observations worth reporting → put only the coverage entry above in the \`findings\` array.`,
+    }),
     `- These are OBSERVATIONS, not verdicts: you cannot pass or fail the ticket; you report what you found.`,
   ].join('\n');
 }
@@ -1023,6 +1030,7 @@ async function runTesterBody(
           debug: opts.debug,
           core: opts.assignment.provider,
           provider: opts.assignment.provider,
+          outputForm: structuredOutputFormOf(opts.adapter),
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
