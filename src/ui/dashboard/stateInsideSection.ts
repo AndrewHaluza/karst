@@ -1,3 +1,4 @@
+import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import type { Store } from '../../store/db.js';
 import { listServersByTicket } from '../../store/dashboard.js';
 import { summarizeRecordedTokenUsage, summarizeRecordedTokenUsageByRole } from '../../store/tokenUsage.js';
@@ -31,6 +32,7 @@ export interface InsideSectionInput {
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   repoNameFor: (repo: string) => string | undefined;
   graphInside?: GraphInsideInput | null;
+  implSession?: ImplSessionReading | null;
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   findingsBlockingSeverity: Severity | 'none';
   displayBlocking?: {
@@ -48,7 +50,7 @@ export interface InsideSectionInput {
 export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
-    assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection,
+    assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
     findingsBlockingSeverity, displayBlocking,
   } = input;
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
@@ -101,6 +103,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     // re-derived: it is the same fact `cli/stage.ts`'s
     // `assertMarkerNotWhileWaiting` refuses the done marker on.
     agentWaiting: ticket.agentState === 'waiting',
+    implSession,
     now,
     processRuns,
     timeline,

@@ -295,6 +295,11 @@ function graphRunStatusCopy(status: string): string {
   return isGraphRunStatus(status) ? graphRunStatusLabel(status) : status;
 }
 
+/** An open graph run that is working (no interactive session backs it). */
+export function graphRunIsLive(input: GraphInsideInput | null | undefined): boolean {
+  return !!input?.enabled && !!input.graphRun && graphRunStatus(input.graphRun.status) === 'run';
+}
+
 function graphRunStatus(status: string): InsideStatus {
   switch (status) {
     case 'planning':

@@ -25,6 +25,8 @@ import { buildDashboardRows } from './stateRows.js';
 import { readRelations, readRounds, originLabel } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
 import { readActionStates, shipActionViews } from './stateActions.js';
+import { implSessionReading } from '../../model/implSessionReading.js';
+import { graphRunIsLive } from '../../model/inside/graph.js';
 import { buildInsideSection } from './stateInsideSection.js';
 import { buildRail } from './stateRail.js';
 import { formatId } from '../../model/entityId.js';
@@ -288,6 +290,11 @@ export function buildDashboardState(
   const implCell = stepper.find((c) => c.stageKey === 'impl') ?? null;
   const reported = implCell ? reportedPhases(marks, implCell).map((m) => m.phaseName) : [];
 
+  const implSession = implSessionReading(implCell ?? { stageKey: 'impl', status: 'pending' }, {
+    agentState: ticket.agentState,
+    hasRun: evidence.timeline !== null,
+    graphRunLive: graphRunIsLive(graphInside),
+  });
   const attach = buildAttach(registry, ticketId);
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
@@ -314,6 +321,7 @@ export function buildDashboardState(
     findingsRepoSelection,
     repoNameFor,
     graphInside,
+    implSession,
     attemptSelection,
     findingsBlockingSeverity,
     displayBlocking,
@@ -372,6 +380,7 @@ export function buildDashboardState(
       mergeGate,
       mergeableRepos,
       fixCapFor,
+      implSession,
     }),
     insideViews,
     presentedStage,

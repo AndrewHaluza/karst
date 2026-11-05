@@ -1,4 +1,5 @@
 import { buildStageRail } from '../../model/stageRail.js';
+import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { needsUser } from '../../model/ticketGlyph.js';
 import type { StepperCell } from '../../model/stepper.js';
@@ -16,6 +17,7 @@ export interface RailInput {
   mergeGate: ReturnType<typeof mergeGateState>;
   mergeableRepos: string[];
   fixCapFor: (gate: GateStageKey) => number;
+  implSession?: ImplSessionReading | null;
 }
 
 export function buildRail({
@@ -27,6 +29,7 @@ export function buildRail({
   mergeGate,
   mergeableRepos,
   fixCapFor,
+  implSession,
 }: RailInput) {
   // A failed ship parks on the user (Retry ship) even though the ticket-level
   // glyph/badge keep reading the failure (red), so only the rail widens `blocked`.
@@ -58,5 +61,6 @@ export function buildRail({
         })
       : null,
     capFor: fixCapFor,
+    implSession,
   });
 }
