@@ -41,6 +41,14 @@ export interface ArchivableWorktreesOptions extends ProjectScope {
    * the board, and this sweep must not undercut it.
    */
   onlyArchived?: boolean;
+  /**
+   * Live-session check. An ARCHIVED ticket whose `agent_state` still reads
+   * 'running' is selected anyway when no session is live for it AND it was
+   * archived over an hour ago (another IDE window may own a live session this
+   * window cannot see, so a freshly archived ticket is left alone) (a stale
+   * column, T409); without this seam the column alone decides, as before.
+   */
+  isSessionLive?: (ticketId: number) => boolean;
 }
 
 interface Raw {
@@ -231,14 +239,18 @@ export function listArchivableWorktrees(
   const inactiveClause = options.onlyArchived
     ? 't.archived_at IS NOT NULL'
     : "(t.archived_at IS NOT NULL OR t.stage_current = 'done')";
+  const staleRunningClause =
+    options.isSessionLive
+      ? " OR t.archived_at < datetime('now', '-1 hour')"
+      : '';
   const rows = store.db
     .prepare(
       `SELECT w.ticket_id AS ticketId, w.repo AS repoPath, w.path AS path,
-              w.branch AS branch, w.base_ref AS baseRef
+              t.agent_state AS agentState, w.branch AS branch, w.base_ref AS baseRef
        FROM worktrees w
        JOIN tickets t ON t.id = w.ticket_id
        WHERE ${inactiveClause}
-         AND (t.agent_state IS NULL OR t.agent_state != 'running')
+         AND (t.agent_state IS NULL OR t.agent_state != 'running'${staleRunningClause})
          ${projectClause}
        ORDER BY w.path`,
     )
@@ -246,10 +258,12 @@ export function listArchivableWorktrees(
     ticketId: number;
     repoPath: string;
     path: string;
+    agentState: string | null;
     branch: string | null;
     baseRef: string | null;
   }[];
   return rows
+    .filter((r) => r.agentState !== 'running' || !options.isSessionLive?.(r.ticketId))
     .filter((r): r is typeof r & { branch: string } => r.branch != null)
     .map((r) => ({
       ticketId: r.ticketId,
