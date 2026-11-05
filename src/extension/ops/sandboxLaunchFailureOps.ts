@@ -112,6 +112,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         void input.oomReport(input.ticketId).catch(() => null).then((oom) => {
           if (oom === null) return reportLaunchFailure(info);
           input.warn(`[session] ticket ${input.ticketLabel} ${oom}`);
+          input.interruptRun?.(input.ticketId, oom);
           input.markNotStarted(input.ticketId);
           report(`Karst: ${input.ticketLabel}: ${oom}`);
         });

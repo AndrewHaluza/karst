@@ -3,7 +3,7 @@ import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
 import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
-import { existsSync, writeFileSync } from 'node:fs';
+import { access, writeFile } from 'node:fs/promises';
 import { totalmem } from 'node:os';
 import { resolveSbxMemory } from './sbx/sbxMemory.js';
 import type { SandboxMemoryConfig } from './docker/dockerMemory.js';
@@ -76,7 +76,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
     if (!cloned.ok) return onHost(cloned.reason);
   }
   const memory = resolveSbxMemory(input.hostRamBytes ?? totalmem(), input.sandboxMemory?.sbxMemory);
-  noteSandboxWithoutLimit(check.existing.includes(name), `${cloneDir}.sbx-memory`, name, memory, input.log);
+  await noteSandboxWithoutLimit(check.existing.includes(name), `${cloneDir}.sbx-memory`, name, memory, input.log);
   return {
     runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...(input.log ? { log: input.log } : {}) }),
     line: `sbx (${name})`,
@@ -91,11 +91,11 @@ function isSbxCore(core: string): core is SbxCore {
  * `--memory` applies only when sbx creates a sandbox. A marker beside the clone records that karst created it with a limit;
  * an existing sandbox without one keeps its old size, so say once per launch how to get the limit.
  */
-function noteSandboxWithoutLimit(exists: boolean, marker: string, name: string, memory: string, log?: (line: string) => void): void {
+async function noteSandboxWithoutLimit(exists: boolean, marker: string, name: string, memory: string, log?: (line: string) => void): Promise<void> {
   try {
     if (!exists) {
-      writeFileSync(marker, `${memory}\n`);
-    } else if (!existsSync(marker)) {
+      await writeFile(marker, `${memory}\n`);
+    } else if (!(await access(marker).then(() => true, () => false))) {
       log?.(`[sbx ${name}] created without a karst memory limit and keeps its old size; remove it (sbx rm ${name}) to get the ${memory} limit on the next launch`);
     }
   } catch {

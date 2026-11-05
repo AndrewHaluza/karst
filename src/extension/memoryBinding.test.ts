@@ -3,7 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { upsertProject } from '../store/projects.js';
 import { createTicket } from '../store/tickets.js';
 import { listMemoryQueue } from '../store/memoryQueue.js';
-import { bindMemory, type MemoryBinding } from './memoryBinding.js';
+import { bindMemory, isSbxLaunch, type MemoryBinding } from './memoryBinding.js';
 
 const GB = 1024 ** 3;
 let store: Store;
@@ -53,5 +53,13 @@ describe('bindMemory', () => {
     free = 4 * GB;
     await new Promise((r) => setTimeout(r, 40));
     expect(opened).toEqual([]);
+  });
+});
+
+describe('isSbxLaunch', () => {
+  it('gates sbx cores only, never Docker or host', () => {
+    expect(isSbxLaunch('claude')).toBe(true);
+    expect(isSbxLaunch('opencode')).toBe(false);
+    expect(isSbxLaunch(null)).toBe(false);
   });
 });

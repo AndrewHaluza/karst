@@ -8,6 +8,7 @@ import type { Manifest } from '../manifest/types.js';
 import { readFreeHostMemory } from '../agent/sbx/hostMemory.js';
 import { totalmem } from 'node:os';
 import { resolveMinFreeBytes, resolveSbxMemory } from '../agent/sbx/sbxMemory.js';
+import { SBX_CORES } from '../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
 
 export interface MemoryBindingDeps {
@@ -54,7 +55,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     start: async (id) => {
       admitted.add(id);
       try {
-        await d.openSession(id, pending.get(id));
+        await d.openSession(id, pending.get(id)); // after a reload `pending` is empty: the relaunch uses the default options
         return { ok: true };
       } finally {
         admitted.delete(id);
@@ -92,7 +93,10 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       d.refresh(ticketId);
       void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${admission.note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
         if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }
-        else if (choice === 'Start anyway') await queue.startAnyway(ticketId);
+        else if (choice === 'Start anyway') {
+          const r = await queue.startAnyway(ticketId);
+          if (!r.ok) d.notify.warn(`Karst: ${d.label(ticketId)} could not start: ${r.message.slice(0, 300)}`);
+        }
         d.refresh(ticketId);
       });
       return false;
@@ -104,4 +108,9 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
 /** `sbx run --memory` for this host: manifest override or the 40% default (sbxMemory.ts). */
 export function hostSbxMemory(override?: string): string {
   return resolveSbxMemory(totalmem(), override);
+}
+
+/** Only sbx launches take the host-memory gate; Docker sandboxes have their own limits (arch:CONCURRENCY). */
+export function isSbxLaunch(core: string | null | undefined): boolean {
+  return core != null && (SBX_CORES as readonly string[]).includes(core);
 }
