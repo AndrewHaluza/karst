@@ -1,4 +1,4 @@
-import { makeStartGuards, settleStartOutcome, type SessionOutcome } from './extension/ops/startOutcome.js';
+import { makeStartGuards, type SessionOutcome } from './extension/ops/startOutcome.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { hostFallbackPrompts } from './extension/ops/sandboxLaunchOps.js';
 import { listInstalled } from './approaches/pkg.js';
@@ -1865,14 +1865,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // never re-fetches for a different panel on the same repo.
   const baseBranchCandidates = new Map<string, string[]>();
 
+  const startGuards = makeStartGuards({ log: (m) => logger.info(m), warn: (m) => logger.warn(m), logError, isOpen: (id) => sessions.isOpen(id), agentStateOf: (id) => getTicket(localStore, id).agentState, stageOf: (id) => getTicket(localStore, id).stageCurrent, setNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); } });
   // Finish handoff: scope the ticket's selected repos (worktrees, no
-  // servers) and open the agent session seeded with its chosen approach.
-  // Servers stay deferred — they come up only when a stage needs to verify.
-  const startGuards = makeStartGuards({
-    log: (m) => logger.info(m), warn: (m) => logger.warn(m),
-    markNotStarted: (id) => { if (sessions.isOpen(id) || getTicket(localStore, id).agentState !== 'none') return; setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, // never over a live session or a state an agent already set
-  });
-  const { failedLaunch, boundedBackendStep } = startGuards;
+  // servers) and open the agent session seeded with its chosen approach. Servers stay deferred.
   const startTicket = async (
     ticketId: number,
     { pullBase, quiet }: StartTicketOptions,
@@ -1912,11 +1907,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Await so a launch failure (missing worktree, terminal spawn throw)
       // surfaces as a failed start instead of a silent stall with the ticket
       // already advanced to impl.
-      const settled = settleStartOutcome({ ticketId, outcome: await vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', ticketId), log: (m) => logger.info(m), markNotStarted: startGuards.markNotStarted });
-      if (!settled.ok) {
-        if (!quiet) void vscode.window.showErrorMessage(settled.message);
-        return settled;
-      }
+      const settled = startGuards.settle(ticketId, await vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', ticketId));
+      if (!settled.ok) { if (!quiet) void vscode.window.showErrorMessage(settled.message); return settled; }
       // The session is open and the ticket has already advanced to impl —
       // the irreversible part succeeded, so a failed status push warns; it
       // never turns a started ticket into a failed start (mirrors
@@ -1937,8 +1929,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { ok: true };
     } catch (err) {
       const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
-      logError(`start ticket ${ticketId} failed`, err);
-      try { if (getTicket(localStore, ticketId).stageCurrent !== 'scope') startGuards.markNotStarted(ticketId); } catch (markErr) { logError(`start ticket ${ticketId}: could not record not-started`, markErr); } // scope passed: impl with no session
+      startGuards.afterThrow(ticketId, err);
       if (!quiet) void vscode.window.showErrorMessage(message);
       return { ok: false, message };
     }
@@ -4860,7 +4851,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Bootstrap a graph-approach ticket's first impl launch: create the run,
    *  launch the planner session, and retain terminal close as a submission
    *  fallback for older or interrupted planner prompts. */
-  /** True when the planner session launched. */
   const launchGraphRun = async (ticketId: number): Promise<boolean> => {
     const gs = graphCoordinatorStore;
     if (!gs) return false;
@@ -6107,7 +6097,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!options.providerReady && !guardCapability('sessions', ticketId)) return failedLaunch(ticketId, 'the sessions capability is unavailable');
+      if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch(ticketId, 'the sessions capability is unavailable');
       // An opencode2 session with an empty isolated credential store opens into
       // "No provider selected"; warn first (real launches only).
       if (
@@ -6158,7 +6148,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           void vscode.window.showWarningMessage(
             `Ticket ${formatId('ticket', ticketId)} has no repositories selected — edit it to choose one, then start.`,
           );
-          return failedLaunch(ticketId, 'no repositories selected');
+          return startGuards.failedLaunch(ticketId, 'no repositories selected');
         }
         try {
           // No page to ask here (this is Start on a saved draft), so the pull
@@ -6179,12 +6169,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           void vscode.window.showErrorMessage(
             `Could not start ticket ${formatId('ticket', ticketId)}: ${e instanceof Error ? e.message : String(e)}`,
           );
-          return failedLaunch(ticketId, `scope failed: ${e instanceof Error ? e.message : String(e)}`);
+          return startGuards.failedLaunch(ticketId, `scope failed: ${e instanceof Error ? e.message : String(e)}`);
         }
         wt = listWorktreesByTicket(localStore, ticketId)[0];
         if (!wt) {
           void vscode.window.showWarningMessage(`Ticket ${formatId('ticket', ticketId)} could not be scoped — check its repositories.`);
-          return failedLaunch(ticketId, 'no worktree after scope');
+          return startGuards.failedLaunch(ticketId, 'no worktree after scope');
         }
       }
       const t = getTicket(localStore, ticketId);
@@ -6226,7 +6216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return { kind: 'not-applicable', reason: 'graph-owned' };
         }
-        return (await launchGraphRun(ticketId)) ? { kind: 'launched' } : failedLaunch(ticketId, 'the graph planner session did not start');
+        return (await launchGraphRun(ticketId)) ? { kind: 'launched' } : startGuards.failedLaunch(ticketId, 'the graph planner session did not start');
       }
 
       // Resolve the approach's method prompt (its entrypoint), if one resolves.
@@ -6293,7 +6283,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session

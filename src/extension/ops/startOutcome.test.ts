@@ -79,8 +79,13 @@ describe('withBackendTimeout', () => {
 });
 
 describe('makeStartGuards', () => {
-  const guards = () => {
-    const d = { log: vi.fn(), warn: vi.fn(), markNotStarted: vi.fn() };
+  const guards = (over: { open?: boolean; state?: string; stage?: string } = {}) => {
+    const d = {
+      log: vi.fn(), warn: vi.fn(), logError: vi.fn(), setNotStarted: vi.fn(),
+      isOpen: () => over.open ?? false,
+      agentStateOf: () => over.state ?? 'none',
+      stageOf: () => over.stage ?? 'impl',
+    };
     return { d, g: makeStartGuards(d) };
   };
 
@@ -94,11 +99,10 @@ describe('makeStartGuards', () => {
     vi.useFakeTimers();
     const { d, g } = guards();
     let release!: (v: string) => void;
-    const p = g.boundedBackendStep(4, 'T4', () => new Promise<string>((r) => { release = r; }));
-    const caught = p.catch((e: Error) => e.message);
+    const caught = g.boundedBackendStep(4, 'T4', () => new Promise<string>((r) => { release = r; })).catch((e: Error) => e.message);
     await vi.advanceTimersByTimeAsync(LAUNCH_BACKEND_TIMEOUT_MS);
     expect(await caught).toContain('did not start within');
-    expect(d.markNotStarted).toHaveBeenCalledWith(4);
+    expect(d.setNotStarted).toHaveBeenCalledWith(4);
     release('late');
     await vi.advanceTimersByTimeAsync(0);
     expect(d.warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
@@ -108,6 +112,35 @@ describe('makeStartGuards', () => {
   it('a healthy backend passes its value through without marking', async () => {
     const { d, g } = guards();
     await expect(g.boundedBackendStep(5, 'T5', async () => 'ok')).resolves.toBe('ok');
-    expect(d.markNotStarted).not.toHaveBeenCalled();
+    expect(d.setNotStarted).not.toHaveBeenCalled();
+  });
+
+  it('never marks a ticket with a live session', () => {
+    const { d, g } = guards({ open: true });
+    expect(g.settle(1, { kind: 'failed', reason: 'x' }).ok).toBe(false);
+    expect(d.setNotStarted).not.toHaveBeenCalled();
+  });
+
+  it('never overwrites a state an agent already set', () => {
+    const { d, g } = guards({ state: 'running' });
+    g.settle(1, { kind: 'failed', reason: 'x' });
+    expect(d.setNotStarted).not.toHaveBeenCalled();
+  });
+
+  it('afterThrow logs the error and marks only a ticket past scope', () => {
+    const past = guards();
+    past.g.afterThrow(2, new Error('boom'));
+    expect(past.d.logError).toHaveBeenCalledWith(expect.stringContaining('2'), expect.any(Error));
+    expect(past.d.setNotStarted).toHaveBeenCalledWith(2);
+    const atScope = guards({ stage: 'scope' });
+    atScope.g.afterThrow(2, new Error('boom'));
+    expect(atScope.d.setNotStarted).not.toHaveBeenCalled();
+  });
+
+  it('afterThrow keeps the start error when the stage lookup throws', () => {
+    const { d } = guards();
+    const g = makeStartGuards({ ...d, stageOf: () => { throw new Error('gone'); } });
+    expect(() => g.afterThrow(2, new Error('boom'))).not.toThrow();
+    expect(d.logError).toHaveBeenCalledTimes(2);
   });
 });

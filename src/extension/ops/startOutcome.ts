@@ -88,13 +88,34 @@ export async function withBackendTimeout<T>(
 export interface StartGuardsDeps {
   readonly log: (message: string) => void;
   readonly warn: (message: string) => void;
-  readonly markNotStarted: (ticketId: number) => void;
+  readonly logError: (message: string, error: unknown) => void;
+  readonly isOpen: (ticketId: number) => boolean;
+  readonly agentStateOf: (ticketId: number) => string | null | undefined;
+  readonly stageOf: (ticketId: number) => string | null | undefined;
+  /** Writes `agent_state='not-started'` and refreshes the views. */
+  readonly setNotStarted: (ticketId: number) => void;
 }
 
 /** The launch-path helpers `extension.ts` binds: a logged failed exit, and the bounded backend step. */
 export function makeStartGuards(deps: StartGuardsDeps) {
+  /** Never over a live session or a state an agent already set. */
+  const markNotStarted = (ticketId: number): void => {
+    if (deps.isOpen(ticketId) || (deps.agentStateOf(ticketId) ?? 'none') !== 'none') return;
+    deps.setNotStarted(ticketId);
+  };
   return {
-    markNotStarted: deps.markNotStarted,
+    markNotStarted,
+    settle: (ticketId: number, outcome: SessionOutcome | undefined): StartTicketResult =>
+      settleStartOutcome({ ticketId, outcome, log: deps.log, markNotStarted }),
+    /** The `startTicket` catch: log the error; a ticket past scope has no session, so record it. */
+    afterThrow(ticketId: number, error: unknown): void {
+      deps.logError(`start ticket ${ticketId} failed`, error);
+      try {
+        if (deps.stageOf(ticketId) !== 'scope') markNotStarted(ticketId);
+      } catch (markErr) {
+        deps.logError(`start ticket ${ticketId}: could not record not-started`, markErr);
+      }
+    },
     /** A pre-launch exit of `karst.openSession` that leaves the ticket without a session. */
     failedLaunch(ticketId: number, reason: string): SessionOutcome {
       deps.log(`open session ${ticketId}: not launched: ${reason}`);
@@ -105,7 +126,7 @@ export function makeStartGuards(deps: StartGuardsDeps) {
       const step = await withBackendTimeout(work, LAUNCH_BACKEND_TIMEOUT_MS, () =>
         deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`));
       if (step.kind === 'done') return step.value;
-      deps.markNotStarted(ticketId);
+      markNotStarted(ticketId);
       throw new Error(`the sandbox backend for ${label} did not start within ${LAUNCH_BACKEND_TIMEOUT_MS / 1000} s`);
     },
   };
