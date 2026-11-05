@@ -76,6 +76,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
+      ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}),
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch, ...(input.worktree.baseRef ? { baseRef: input.worktree.baseRef } : {}) } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
@@ -167,6 +168,8 @@ export interface SandboxSyncDeps {
   readonly projectRoot: string;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
+  /** The sbx memory ceiling, so a runner built here can name it in an OOM report. */
+  readonly sbxMemory?: () => string | undefined;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
@@ -182,7 +185,8 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}) });
+    const memory = deps.sbxMemory?.();
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

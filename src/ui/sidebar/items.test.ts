@@ -61,6 +61,13 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
 }
 
 describe('buildTicketNodes', () => {
+  it('shows the memory-wait note in place of the stage text', () => {
+    const t = ticket();
+    const note = 'Waiting for memory (free 0.8 GB, needs 1.5 GB)';
+    expect(buildTicketNodes([t], undefined, undefined, new Map(), undefined, new Map(), new Map([[t.id, note]]))[0]!.description).toBe(note);
+    expect(buildTicketNodes([t])[0]!.description).not.toContain('Waiting for memory');
+  });
+
   it('maps each ticket to a collapsible ticket node with label from key + title', () => {
     const nodes = buildTicketNodes([ticket()]);
     expect(nodes).toHaveLength(1);

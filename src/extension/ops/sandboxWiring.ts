@@ -47,6 +47,8 @@ export interface SandboxWiringInput {
   /** Opens a unified diff in a read-only editor. */
   readonly showDiff: (title: string, diff: string) => Promise<void>;
   readonly debug?: (m: string) => void;
+  /** The sbx memory ceiling a new sandbox gets (`resolveSbxMemory`); names the limit in an OOM report. */
+  readonly sbxMemory?: () => string | undefined;
   readonly info: (m: string) => void;
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
@@ -104,6 +106,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
       worktreeOf: (id) => { try { return target(id).worktree?.path; } catch { return undefined; } },
       debug: w.debug,
+      ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
@@ -115,6 +118,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       d: {
         notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls,
         ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
+        ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
       },
     };
   };
@@ -363,6 +367,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const { d, t } = await manualDeps(ticketId);
       if (!w.reopen) throw new Error('reopening the sandbox is not available');
       await recreateSandboxNoSync({ ...d, ...syncTrack, reopen: w.reopen }, t);
+    },
+    /** The out-of-memory notice for an exit-137 sbx session (killed process, limit); null for a non-sbx ticket. */
+    oomReport: async (ticketId: number): Promise<string | null> => {
+      const { d, t } = await manualDeps(ticketId);
+      return (await sandboxRunnerFor(d, t.core, ticketId)?.oomReport?.()) ?? null;
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
     stop: stopTicket,
