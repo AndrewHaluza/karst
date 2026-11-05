@@ -820,27 +820,46 @@ function isCompleteFindingsDocument(text: string): boolean {
 
 /**
  * The text of a final assistant message when it is one complete findings
- * container (bare, the only content of a single fence, or the last complete
- * fenced block after prose), else undefined.
+ * container (bare, the only content of a single fence, or the complete fenced
+ * blocks after prose, merged in order), else undefined.
  * Fragments of a split answer, JSONL lines and stray arrays in prose (`see
  * [1]`, a tool echo) never qualify. `[]` does: a clean pass is a real answer.
  */
 function completeFinalBody(finalMessage: string | undefined): string | undefined {
   if (finalMessage === undefined) return undefined;
   const trimmed = finalMessage.trim();
-  const candidates = [SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed];
-  // Prose around the answer is common: the LAST complete fenced block counts.
-  for (const match of trimmed.matchAll(FENCED_BLOCK)) candidates.unshift(match[1] ?? '');
-  for (const candidate of candidates) {
-    const body = candidate.trim();
-    const value = tryParseJson(body);
-    if (value === undefined) continue;
-    // A lone finding object is one PIECE of an answer (one finding per message),
-    // never the answer: only an array or a `findings` object can be a whole one.
-    if (isBareFindingObject(value)) continue;
-    if (findingCandidatesFrom(value).strong || isEmptyContainer(value)) return body;
+  const whole = completeBody(SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed);
+  if (whole !== undefined) return whole.body;
+  // Prose around the answer is common: EVERY complete fenced block counts, in
+  // document order. A reviewer may emit one block per area, so keeping only one
+  // block would drop the rest of the report.
+  const blocks: CompleteBody[] = [];
+  for (const match of trimmed.matchAll(FENCED_BLOCK)) {
+    const block = completeBody(match[1] ?? '');
+    if (block !== undefined) blocks.push(block);
   }
-  return undefined;
+  if (blocks.length === 0) return undefined;
+  const [only] = blocks;
+  if (blocks.length === 1 && only !== undefined) return only.body;
+  return JSON.stringify(blocks.flatMap((block) => block.candidates));
+}
+
+interface CompleteBody {
+  readonly body: string;
+  readonly candidates: readonly unknown[];
+}
+
+/** One text as a whole findings answer (array or `findings` object, `[]` included), else undefined. */
+function completeBody(text: string): CompleteBody | undefined {
+  const body = text.trim();
+  const value = tryParseJson(body);
+  if (value === undefined) return undefined;
+  // A lone finding object is one PIECE of an answer (one finding per message),
+  // never the answer: only an array or a `findings` object can be a whole one.
+  if (isBareFindingObject(value)) return undefined;
+  const found = findingCandidatesFrom(value);
+  if (!found.strong && !isEmptyContainer(value)) return undefined;
+  return { body, candidates: found.candidates };
 }
 
 /**
