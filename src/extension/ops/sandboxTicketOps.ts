@@ -414,7 +414,8 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       })().catch(input.onError);
     },
     hostGateFor: (ticketId: number) => {
-      const sandboxGate = ticketGateProcess(deps, ticketId, { slotted: true });
+      // Only start and dirty-check probes use this runner; the gate itself runs on the host, so it takes no slot.
+      const sandboxGate = ticketGateProcess(deps, ticketId);
       const sync = input.ensureInSync;
       return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync, ...(input.hostEnded ? { hostEnded: input.hostEnded } : {}) }, ticketId, sandboxGate) : undefined;
     },
