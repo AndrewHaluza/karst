@@ -5,7 +5,8 @@ import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPress
 import type { Notify } from './ops/notify.js';
 import type { Manifest } from '../manifest/types.js';
 import { readFreeHostMemory } from '../agent/sbx/hostMemory.js';
-import { resolveMinFreeBytes } from '../agent/sbx/sbxMemory.js';
+import { totalmem } from 'node:os';
+import { resolveMinFreeBytes, resolveSbxMemory } from '../agent/sbx/sbxMemory.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
 
 export interface MemoryBindingDeps {
@@ -88,4 +89,9 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     },
     dispose: () => { clearInterval(sweepTimer); clearInterval(pressureTimer); },
   };
+}
+
+/** `sbx run --memory` for this host: manifest override or the 40% default (sbxMemory.ts). */
+export function hostSbxMemory(override?: string): string {
+  return resolveSbxMemory(totalmem(), override);
 }

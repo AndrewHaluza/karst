@@ -290,10 +290,7 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
-import { interruptImplementationRun } from './store/implementationRuns.js';
-import { totalmem } from 'node:os';
-import { bindMemory, type MemoryBinding } from './extension/memoryBinding.js';
-import { resolveSbxMemory } from './agent/sbx/sbxMemory.js';
+import { interruptImplementationRun } from './store/implementationRuns.js'; import { bindMemory, hostSbxMemory, type MemoryBinding } from './extension/memoryBinding.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
@@ -572,8 +569,7 @@ const GRAPH_RECONCILE_INTERVAL_MS = 60_000;
  */
 const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
-let store: Store | undefined;
-let memoryGuard: MemoryBinding | undefined;
+let store: Store | undefined; let memoryGuard: MemoryBinding | undefined;
 let endpoint: HookEndpoint | undefined;
 let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; let sandboxLife!: ReturnType<typeof makeSandboxWiring>; // set in activate, before any dashboard opens; // arch:AC-34 (built once the hook endpoint is bound), AC-32
 let graphEndpoint: GraphWakeupEndpoint | undefined;
@@ -1148,8 +1144,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
-    sbxMemory: () => resolveSbxMemory(totalmem(), currentManifest()?.sandboxMemory?.sbxMemory),
-    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
+    sbxMemory: () => hostSbxMemory(currentManifest()?.sandboxMemory?.sbxMemory), store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'), bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -2674,13 +2669,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectRoot: () => cliEntryAndManifest(context).manifestPath ?? undefined,
   });
   resourceMonitor = resourceMonitorInstance;
-  resourceMonitorInstance.start();
-  memoryGuard = bindMemory({ // host-memory admission queue + pressure warning
-    store: localStore, notify: vscodeNotify, manifest: currentManifest, label: (id) => getTicket(localStore, id).key ?? String(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); },
-    openSession: (id) => Promise.resolve(vscode.commands.executeCommand('karst.openSession', id)), inventory: () => resourceMonitorInstance.reading().inventory,
-    ownedSessions: () => ownedSessionTickets, stopSandbox: (id) => sandboxLife.stop(id), debug: (m) => logger.debug(m), sweepMs: SUBTASK_AUTOSTART_INTERVAL_MS,
-  });
-  context.subscriptions.push({ dispose: () => memoryGuard?.dispose() });
+  resourceMonitorInstance.start(); context.subscriptions.push(memoryGuard = bindMemory({ store: localStore, notify: vscodeNotify, manifest: currentManifest, label: (id) => getTicket(localStore, id).key ?? String(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, openSession: (id) => Promise.resolve(vscode.commands.executeCommand('karst.openSession', id)), inventory: () => resourceMonitorInstance.reading().inventory, ownedSessions: () => ownedSessionTickets, stopSandbox: (id) => sandboxLife.stop(id), debug: (m) => logger.debug(m), sweepMs: SUBTASK_AUTOSTART_INTERVAL_MS, })); // host-memory admission queue + pressure warning
 
   const resourcesDisk = new WorktreeDiskCache();
   // The Servers tab (project-wide control plane): ops + host bindings live in
@@ -6293,8 +6282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const cliLit = cliLiteral(context, dbPath, t.key || String(ticketId));
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
-      const launchProvider = identity.provider;
-      if (wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && memoryGuard && !(await memoryGuard.admitLaunch(ticketId))) return; // queued: 'Waiting for memory'
+      const launchProvider = identity.provider; if (wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && memoryGuard && !(await memoryGuard.admitLaunch(ticketId))) return; // queued: 'Waiting for memory'
       const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
