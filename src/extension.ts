@@ -45,7 +45,7 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
-import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
+import { runBootSweeps, runBridgeSweep, runShipCommitSubjectSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor } from './extension/ops/fixRerunOps.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
@@ -820,6 +820,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore,
     globalStorageRoot: settingsDir,
     info: (message) => logger.info(message),
+    debug: (message) => logger.debug(message),
+    logError,
+  });
+  // Background, one-time: fill blank before-ship commit messages from git.
+  void runShipCommitSubjectSweep({
+    store: localStore,
+    globalStorageRoot: settingsDir,
+    git: defaultGitRunner,
     debug: (message) => logger.debug(message),
     logError,
   });

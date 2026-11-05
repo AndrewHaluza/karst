@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Store } from '../../store/db.js';
@@ -5,7 +6,7 @@ import { sweepHookSettings } from '../../agent/settingsSweep.js';
 import { reapStaleServers, describeReap } from '../../runtime/worktreeServers.js';
 import { reconcileStageRuns, describeStaleStageRun } from '../../store/stageRuns.js';
 import { reconcileProcessRuns, describeStaleProcessRun } from '../../store/processRuns.js';
-import { reconcileShipRuns, describeStaleShipRun } from '../../store/shipRuns.js';
+import { reconcileShipRuns, describeStaleShipRun, listBlankBeforeShipCommits, fillBeforeShipMessage } from '../../store/shipRuns.js';
 import { reconcileStrandedFixRounds, describeStrandedFixRound } from '../../store/recoveryRounds.js';
 import { compactArchivedWorktrees } from '../../runtime/archiveBulk.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from '../../approaches/graph/retention.js';
@@ -13,7 +14,7 @@ import { reapOrphanedArtifactDirs, describeArtifactReap } from '../../runtime/ar
 import { getProjectBySlug } from '../../store/projects.js';
 import { getTicket } from '../../store/tickets.js';
 import { allGraphRunsClosed } from '../../store/graph/graphRuns.js';
-import { defaultGitRunner } from '../../integrations/git.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { pidAlive } from '../../runtime/pidAlive.js';
 import { reconcileOnStart } from '../../recovery/reconcile.js';
 import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js';
@@ -399,5 +400,64 @@ export async function runSandboxReconcile(deps: SandboxReconcileDeps): Promise<R
   } catch (err) {
     deps.logError('karst: sandbox reconcile failed', err);
     return undefined;
+  }
+}
+
+export interface ShipCommitSubjectSweepDeps {
+  readonly store: Store;
+  /** The marker file that records completion lives here. */
+  readonly globalStorageRoot: string;
+  readonly git: GitRunner;
+  readonly debug: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+const SHIP_SUBJECT_SWEEP_MARKER = 'ship-commit-subjects.done';
+
+/**
+ * One-time fill of `before-ship` commit messages that older builds stored
+ * blank. Reads each subject from git, per repository path (a trailing slash
+ * is ignored). A missing path or sha is skipped, logged, and left blank.
+ * A marker file records completion, so a missing sha costs no git call at a
+ * later boot. Meant to run in the background; never throws.
+ */
+export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps): Promise<void> {
+  const marker = join(deps.globalStorageRoot, SHIP_SUBJECT_SWEEP_MARKER);
+  try {
+    if (existsSync(marker)) return;
+    const rows = listBlankBeforeShipCommits(deps.store);
+    const bySha = new Map<string, { repo: string; sha: string; ids: number[] }>();
+    for (const row of rows) {
+      const repo = row.repo.length > 1 ? row.repo.replace(/\/+$/, '') : row.repo;
+      const key = `${repo}\0${row.sha}`;
+      const entry = bySha.get(key) ?? { repo, sha: row.sha, ids: [] };
+      entry.ids.push(row.id);
+      bySha.set(key, entry);
+    }
+    const missingRepos = new Set<string>();
+    let filled = 0;
+    for (const { repo, sha, ids } of bySha.values()) {
+      try {
+        if (missingRepos.has(repo) || !existsSync(repo)) {
+          missingRepos.add(repo);
+          deps.debug(`karst: ship commit subject sweep: repository path missing, skipped ${repo}`);
+          continue;
+        }
+        const out = await deps.git(['show', '-s', '--format=%s', `${sha}^{commit}`], repo);
+        const subject = out.stdout.trim();
+        if (out.exitCode !== 0 || subject === '') {
+          deps.debug(`karst: ship commit subject sweep: no subject for ${sha} in ${repo}, left blank`);
+          continue;
+        }
+        for (const id of ids) filled += fillBeforeShipMessage(deps.store, id, subject);
+      } catch (err) {
+        deps.debug(`karst: ship commit subject sweep: ${sha} in ${repo} failed: ${String(err)}`);
+      }
+    }
+    mkdirSync(deps.globalStorageRoot, { recursive: true });
+    writeFileSync(marker, new Date().toISOString());
+    deps.debug(`karst: ship commit subject sweep done, ${filled} row(s) filled`);
+  } catch (err) {
+    deps.logError('karst: ship commit subject sweep failed', err);
   }
 }
