@@ -5765,13 +5765,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           defaultGitRunner,
           localStore,
           archiveAllocator,
-          { projectId: project.id, onlyArchived: true, beforeRemove: artifactCapture.beforeRemove },
+          { projectId: project.id, onlyArchived: true, beforeRemove: artifactCapture.beforeRemove, isSessionLive: (id) => sessions.isLive(id), log: logger },
         );
-        worktreesSwept =
-          archivedTrees.archived > 0 ||
-          archivedTrees.failed > 0 ||
-          archivedTrees.reapedServers.length > 0;
-        if (archivedTrees.archived > 0 || archivedTrees.failed > 0) {
+        worktreesSwept = archivedTrees.archived + archivedTrees.cleared + archivedTrees.failed + archivedTrees.reapedServers.length > 0;
+        if (archivedTrees.archived + archivedTrees.cleared > 0 || archivedTrees.failed > 0) {
           logger.info(
             `karst: auto-swept ${archivedTrees.archived} inactive worktree(s), ` +
               `skipped ${archivedTrees.skipped}, failed ${archivedTrees.failed}`,
