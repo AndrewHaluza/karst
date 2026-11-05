@@ -264,7 +264,12 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
           control={{ kind: 'textarea', name: `agent-body-${entry.id}`, rows: 14, value: buffer ?? entry.text ?? '', onChange: onBuffer }}
         />
         <div className="agents-text-foot" data-region="toolbar">
-          <span className="agents-muted">Editing .karst/agents/{entry.name}.md</span>
+          <span
+            className="agents-muted"
+            title="Optional frontmatter: add `context: minimal` to run review, UAT tester and ticket-improve with this profile without skills and subagents (slash commands and the Agent tool are disabled; every other tool stays). No key = full context."
+          >
+            Editing .karst/agents/{entry.name}.md
+          </span>
           <Button variant="ghost" size="sm" disabled={!dirty} onClick={onRevert}>
             Revert
           </Button>

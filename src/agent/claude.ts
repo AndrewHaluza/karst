@@ -153,12 +153,15 @@ const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spa
 /** Flags of `RunHeadlessOpts.minimalContext`: no slash commands/skills, no tool definitions. */
 export const CLAUDE_MINIMAL_CONTEXT_ARGS: readonly string[] = ['--disable-slash-commands', '--tools', ''];
 
+/** Flags of `minimalContext: 'skills-and-subagents'`: no skills/slash commands, no Agent tool; every other tool stays. */
+export const CLAUDE_MINIMAL_SKILLS_ARGS: readonly string[] = ['--disable-slash-commands', '--disallowedTools', 'Agent'];
+
 /** True when the CLI output names one of the minimal-context flags as an unknown option. */
 export function rejectsMinimalContextFlag(stdout: string, stderr: string): boolean {
   const text = `${stderr}\n${stdout}`;
   return (
     /unknown (option|argument)|unrecognized (option|argument)/i.test(text) &&
-    /--disable-slash-commands|--tools/.test(text)
+    /--disable-slash-commands|--tools|--disallowedTools/.test(text)
   );
 }
 
@@ -742,11 +745,17 @@ export class ClaudeAdapter implements AgentAdapter {
     // Minimal context (per call, never a default): drops the user's skill list,
     // agent list and every tool definition for a lane whose karst-owned prompt
     // calls no working tool. `--tools ""` still allows `--json-schema` output.
-    const minimal = opts.minimalContext === true;
+    const minimalFlags =
+      opts.minimalContext === true
+        ? CLAUDE_MINIMAL_CONTEXT_ARGS
+        : opts.minimalContext === 'skills-and-subagents'
+          ? CLAUDE_MINIMAL_SKILLS_ARGS
+          : [];
+    const minimal = minimalFlags.length > 0;
     const baseArgs = args.slice();
     const buildArgs = (withMinimal: boolean): string[] => [
       ...baseArgs,
-      ...(withMinimal ? CLAUDE_MINIMAL_CONTEXT_ARGS : []),
+      ...(withMinimal ? minimalFlags : []),
       // `--` ends option parsing so the prompt is always a positional, even when
       // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —
       // otherwise the CLI reads `---…` as an unknown option and exits 1 (same fix
@@ -802,7 +811,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // `execution-failed` because of an optimisation.
     if (minimal && r.exitCode !== 0 && rejectsMinimalContextFlag(r.stdout, r.stderr)) {
       opts.debug?.(
-        `[agent:claude] minimal context: the CLI rejected ${CLAUDE_MINIMAL_CONTEXT_ARGS.join(' ')} as an unknown option — retrying once without them`,
+        `[agent:claude] minimal context: the CLI rejected ${minimalFlags.join(' ')} as an unknown option — retrying once without them`,
       );
       args2 = buildArgs(false);
       logSpawn(args2);

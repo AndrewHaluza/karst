@@ -80,6 +80,12 @@ export interface ProcessAssignmentSnapshot {
    * live run is reading.
    */
   instructions?: string;
+  /**
+   * `'minimal'` when the assigned profile declares `context: minimal` in its
+   * frontmatter (`@arch:PROFILE`), resolved beside `instructions` at the same
+   * boundary. Absent = full context (no profile, no key, unknown value).
+   */
+  context?: 'minimal';
 }
 
 /**

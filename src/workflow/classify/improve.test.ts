@@ -43,6 +43,25 @@ function rejectingAdapter(): AgentAdapter {
   };
 }
 
+describe('improveDescription minimalContext', () => {
+  const run = async (context?: 'minimal') => {
+    const seen: Array<Record<string, unknown>> = [];
+    const adapter = fakeAdapter('ok');
+    adapter.runHeadless = async (o) => {
+      seen.push(o as never);
+      return { sessionId: 's', verdict: null, raw: 'ok' };
+    };
+    await improveDescription(adapter, {
+      instructions: 'custom', description: 'd', title: 't', cwd: '/w', ...(context ? { context } : {}),
+    } as never);
+    return seen[0]!;
+  };
+  it('minimal profile -> skills-and-subagents; no key -> option absent', async () => {
+    expect((await run('minimal'))['minimalContext']).toBe('skills-and-subagents');
+    expect('minimalContext' in (await run())).toBe(false);
+  });
+});
+
 describe('improveDescription', () => {
   it('returns the trimmed raw prose when given instructions', async () => {
     const result = await improveDescription(fakeAdapter('  Rewritten description.  '), {
