@@ -264,7 +264,7 @@ describe('extension activation', () => {
     expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
     expect(source).toContain('karst stage impl pass');
     expect(source.indexOf("activeGraph.status === 'completed-awaiting-impl-marker'")).toBeLessThan(
-      source.indexOf("if (!options.providerReady && !guardCapability('sessions', ticketId)) return failedLaunch("),
+      source.indexOf("if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch("),
     );
   });
 
@@ -459,7 +459,7 @@ describe('extension activation', () => {
     expect(source).toContain('modal: true');
     expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
     expect(source).toContain(
-      "if (!options.providerReady && !guardCapability('sessions', ticketId)) return failedLaunch(",
+      "if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch(",
     );
     expect(source).toContain('sessions.disposeSession(ticketId)');
     expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId, options)");
