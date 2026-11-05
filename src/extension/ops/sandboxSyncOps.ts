@@ -76,6 +76,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
+      ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}),
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch, ...(input.worktree.baseRef ? { baseRef: input.worktree.baseRef } : {}) } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },
@@ -103,6 +104,8 @@ export interface LaunchBackend {
   readonly runDir?: string;
   /** Host paths of the attached bridge dir (the mirror target for attachments and gate logs). */
   readonly bridge?: BridgePaths;
+  /** Links the sandbox transcripts into the bridge dir. Run it after the bounded backend step, never inside it: `sbx create` can be slow. */
+  readonly linkTranscripts?: () => Promise<void>;
 }
 
 /**
@@ -137,7 +140,23 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
+  const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
+  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
+}
+
+/**
+ * The transcript link step, handed back instead of run: `sbx create` may be slow, and the
+ * bounded backend step (180 s) must not stop a launch for it. A failure only logs (arch:AC-34).
+ */
+function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, bridgeDir: string, hostWorktreePath: string): (() => Promise<void>) | undefined {
+  if (!runner.linkTranscripts) return undefined;
+  const link = runner.linkTranscripts.bind(runner);
+  return async () => {
+    // A missing token count must not stop a session: a failed link is only a warning.
+    const linked = await link({ bridgeDir, hostWorktreePath })
+      .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
+    if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
+  };
 }
 
 /** The placement a resolved runner means: its kind, the name inside `sbx (<name>)` / `docker (<name>)`, or the host fallback reason. */
@@ -167,6 +186,8 @@ export interface SandboxSyncDeps {
   readonly projectRoot: string;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
+  /** The sbx memory ceiling, so a runner built here can name it in an OOM report. */
+  readonly sbxMemory?: () => string | undefined;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
@@ -182,7 +203,8 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}) });
+    const memory = deps.sbxMemory?.();
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

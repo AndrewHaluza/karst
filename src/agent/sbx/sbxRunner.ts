@@ -18,9 +18,11 @@ import { disposeResult, disposeStep, type DisposeResult, type DisposeStep } from
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
+import { transcriptLinkCommand } from './sbxTranscriptLink.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
+import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -35,6 +37,8 @@ export interface SbxRunnerOptions {
   readonly name: string;
   /** `sbx ls` names from preflight: picks create vs reattach without a sync call. */
   readonly existing: readonly string[];
+  /** Override of `TRANSCRIPT_LINK_TIMEOUT_MS` (tests). */
+  readonly linkTimeoutMs?: number;
   /** The host gate boundary `runGate` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
   /** Agent-visible evidence dir (the bridge, arch:AC-34), exported to gates as `KARST_EVIDENCE_DIR`. */
@@ -43,6 +47,8 @@ export interface SbxRunnerOptions {
   readonly cloneDir?: string;
   /** Clone-readiness polling overrides (tests). */
   readonly cloneReady?: CloneReadyOptions;
+  /** `sbx run --memory` ceiling (`resolveSbxMemory`). Passed on create only: an existing sandbox keeps the size it was made with. */
+  readonly memory?: string;
   /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
   readonly log?: (line: string) => void;
 }
@@ -100,6 +106,9 @@ export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 
 /** Env marker every in-sandbox gate exec carries, so scripts print sandbox-specific hints. */
 export const SANDBOX_ENV = 'KARST_SANDBOX';
+
+/** Time limit for the transcript link step (`sbx create` plus `sbx exec`). A timeout only costs the token count. */
+export const TRANSCRIPT_LINK_TIMEOUT_MS = 300_000;
 
 /** The host remote clone mode leaves for a sandbox. */
 export function sandboxRemote(name: string): string {
@@ -177,6 +186,19 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     for (const l of lines) opts.log?.(`[sbx ${opts.name}] ${l}`);
     return { ok: false, reason: damagedReason(opts.name, ticket ? await workIsOnHost(ticket) : false) };
   };
+  /** Create (when new) then link: the same workspace args as `placeInteractive`, so the later `sbx run` only reattaches. */
+  const linkTranscripts: NonNullable<SessionRunner['linkTranscripts']> = async (input) => {
+    const cwd = opts.cloneDir ?? input.hostWorktreePath;
+    // One deadline for create and exec: the step runs outside the bounded launch step, so it needs its own limit.
+    const signal = AbortSignal.timeout(opts.linkTimeoutMs ?? TRANSCRIPT_LINK_TIMEOUT_MS);
+    if (!known.has(opts.name)) {
+      const created = await opts.proc.run(SBX_BIN, ['create', '--clone', '--name', opts.name, opts.core, cwd, input.bridgeDir], { signal });
+      if (created.code !== 0) return { ok: false, reason: `sbx create failed: ${signal.aborted ? 'timed out' : created.stderr.trim()}` };
+      known.add(opts.name);
+    }
+    const linked = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...transcriptLinkCommand(input.bridgeDir, cwd)], { signal, ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) });
+    return linked.code === 0 ? { ok: true } : { ok: false, reason: `transcript link failed: ${signal.aborted ? 'timed out' : linked.stderr.trim()}` };
+  };
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -185,7 +207,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // Only a sandbox `sbx ls` reported is reattached. Building the argv is
       // not proof the sandbox exists: a first terminal can fail before
       // creation, so a retry must create again (preflight re-lists per launch).
-      const create = known.has(opts.name) ? [] : ['--clone'];
+      const create = known.has(opts.name) ? [] : ['--clone', ...(opts.memory ? ['--memory', opts.memory] : [])];
       const source = opts.cloneDir ?? spec.hostWorktreePath;
       const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       return {
@@ -198,6 +220,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         env: withoutHostOnlyEnv(spec.env),
       };
     },
+    ...(opts.core === 'claude' ? { linkTranscripts: linkTranscripts } : {}),
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,
     // Gates run against the agent's live edits; killing the `sbx exec` client
@@ -205,6 +228,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
     ensureWritable,
+    // Best effort and bounded: a dead VM answers nothing, which still reports as an OOM (exit 137 is the signal).
+    oomReport: async () => {
+      const out = await opts.proc
+        .run(SBX_BIN, ['exec', opts.name, '--', ...OOM_LOG], { signal: AbortSignal.timeout(OOM_LOOKUP_TIMEOUT_MS), ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) })
+        .catch(() => undefined);
+      return oomMessage(opts.name, out ? parseGuestLimit(out.stdout) : undefined, out && out.code === 0 ? parseKilledProcess(out.stdout) : null);
+    },
     ensureCloneReady: (branch) => waitForCloneReady(opts.proc, { name: opts.name, branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, opts.cloneReady),
     rebuild: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       const safe = await assertRebuildSafe(opts.proc, { name: opts.name, branch: ticket.branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, (args) => git(ticket.hostWorktreePath, args));

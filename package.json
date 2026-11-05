@@ -248,6 +248,10 @@
         "icon": "$(history)"
       },
       {
+        "command": "karst.memoryWait",
+        "title": "Karst: Resolve Ticket Waiting for Memory (Start anyway / Cancel)"
+      },
+      {
         "command": "karst.pauseTicket",
         "title": "Karst: Pause Ticket Execution",
         "icon": "$(debug-pause)"

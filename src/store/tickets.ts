@@ -859,7 +859,7 @@ export function archiveTicket(store: Store, ticketId: number): void {
   assertNoOpenSubtasks(store, ticketId);
   store.db
     // Unqueued in the same write: archived work must never auto-start.
-    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, autostart_claimed_at = NULL, updated_at = datetime('now') WHERE id = ?")
+    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, autostart_claimed_at = NULL, memory_wait = 0, memory_wait_at = NULL, memory_claimed_at = NULL, memory_wait_note = NULL, memory_wait_owner = NULL, updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
 }
 

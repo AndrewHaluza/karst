@@ -207,6 +207,11 @@ export function wantsSandboxBackend(backends: AgentBackends | undefined, core: s
   return (ticketBackendSetting(backendForCore(backends, core), override) ?? 'host') !== 'host';
 }
 
+/** The ticket resolves to the sbx backend (not host, not Docker): only these launches take the host-memory gate. */
+export function wantsSbxBackend(backends: AgentBackends | undefined, core: string, override: 'host' | null | undefined): boolean {
+  return ticketBackendSetting(backendForCore(backends, core), override) === 'sbx';
+}
+
 /** The two prompts of the host-fallback choice, over any `showWarningMessage`. */
 export function hostFallbackPrompts(win: { showWarningMessage(message: string, ...items: any[]): PromiseLike<string | undefined> }) {
   return {

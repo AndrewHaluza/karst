@@ -120,6 +120,12 @@ export interface SessionRunner {
   runHeadless?: RunHeadless;
   /** Sandbox runners only: where the AGENT sees the bridge dir (host runner: undefined). */
   bridgeRunDir?(paths: BridgePaths): string;
+  /**
+   * sbx claude only: before the terminal opens, make the sandbox write its transcripts into the bridge dir
+   * (a link at `~/.claude/projects/<cwd>`), creating the sandbox first when none exists (arch:AC-34).
+   * A failure never blocks the launch: the caller logs it and the session runs uncounted.
+   */
+  linkTranscripts?(input: { readonly bridgeDir: string; readonly hostWorktreePath: string }): Promise<StepOutcome>;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: host → sandbox (F8): fast-forward the clone to the host branch; dirty clone or divergence is refused, never overwritten. */
@@ -137,6 +143,8 @@ export interface SessionRunner {
    * failed closed to the host has none, so its gates and services stay on the host.
    */
   hasSandbox?(): Promise<boolean>;
+  /** sbx only: the out-of-memory notice for an exit-137 session (best-effort `dmesg` in the sandbox, bounded in time). */
+  oomReport?(): Promise<string>;
   /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
   ensureWritable?(ticket?: SandboxTicketRef): Promise<StepOutcome>;
   /** sbx only: poll until the clone's ticket branch resolves (a fresh clone is briefly `.invalid`); `ok: false` when it never does. */

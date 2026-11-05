@@ -423,3 +423,35 @@ describe('createSbxSessionRunner damaged disk (EXT4 errors)', () => {
     expect(log).not.toHaveBeenCalled();
   });
 });
+
+describe('createSbxSessionRunner memory limit, OOM report and stop', () => {
+  it('passes --memory on create and not on reattach', () => {
+    const fresh = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [], memory: '6g' }).placeInteractive(spec());
+    expect(fresh.shellArgs.slice(0, 6)).toEqual(['run', '--clone', '--memory', '6g', '--name', NAME]);
+    const again = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [NAME], memory: '6g' }).placeInteractive(spec());
+    expect(again.shellArgs).not.toContain('--memory');
+  });
+
+  it('omits --memory when no limit is set', () => {
+    expect(createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] }).placeInteractive(spec()).shellArgs).not.toContain('--memory');
+  });
+
+  it('reports the OOM from dmesg, with the limit', async () => {
+    const proc = fakeSbxProcess({ 'sbx exec': { stdout: '[1] Out of memory: Killed process 5 (node) x\nMemTotal:        6094848 kB' } });
+    const text = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '8g' }).oomReport!();
+    expect(text).toContain(`Sandbox ${NAME} ran out of memory (limit 6 GB): killed node`);
+    expect(proc.calls[0]!.args.join(' ')).toContain("grep -i 'killed process'");
+    expect(proc.calls[0]!.opts?.signal).toBeDefined();
+  });
+
+  it('still reports an OOM when the sandbox is gone', async () => {
+    const proc = fakeSbxProcess({ 'sbx exec': { code: 1 } });
+    expect(await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).oomReport!()).toContain('ran out of memory');
+  });
+
+  it('stop runs `sbx stop` with the exact name and never removes (idle / done stop, arch:AC-37)', async () => {
+    const proc = fakeSbxProcess();
+    await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).stop!();
+    expect(proc.calls.map((c) => [c.command, ...c.args])).toEqual([['sbx', 'stop', NAME]]);
+  });
+});

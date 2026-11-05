@@ -76,11 +76,13 @@ function runBridge(
   diagnosticsPath: string,
   input: string,
   provider?: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number; stderr: string }> {
   return new Promise((resolve, reject) => {
     const args = [bridgePath, endpointUrl ?? '', diagnosticsPath, provider ?? 'codex'];
     const child = spawn(resolveNodeExecutable(), args, {
       stdio: ['pipe', 'ignore', 'pipe'],
+      ...(env !== undefined ? { env } : {}),
     });
     let stderr = '';
     child.stderr.setEncoding('utf8');
@@ -566,6 +568,119 @@ describe('CodexAdapter interactive commands', () => {
     } finally {
       await receiver.close();
     }
+  });
+
+  // Codex hooks send no `usage` object. The only source with token counts is the
+  // session rollout file named by `transcript_path`: its `token_count` events carry
+  // cumulative `total_token_usage`. Shape checked against codex-cli 0.147.0
+  // (rollout written) and 0.166.0 (installed); the source is undocumented.
+  const tokenCountLine = (ordinal: number, total: Record<string, number> | null): string =>
+    JSON.stringify({
+      timestamp: '2026-08-14T21:17:36.223Z',
+      ordinal,
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: total === null ? null : { total_token_usage: total, model_context_window: 258400 },
+        rate_limits: { limit_id: 'codex' },
+      },
+    });
+
+  function writeRollout(codexHome: string, sessionId: string, lines: string[]): string {
+    const dir = join(codexHome, 'sessions', '2026', '08', '14');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `rollout-2026-08-14T21-16-38-${sessionId}.jsonl`);
+    writeFileSync(file, lines.join('\n') + '\n');
+    return file;
+  }
+
+  async function stopWithRollout(
+    transcriptPath: string,
+    codexHome: string,
+    expected: number,
+  ): Promise<unknown[]> {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveHooks(expected);
+    try {
+      const [result, bodies] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            turn_id: 'turn-9',
+            transcript_path: transcriptPath,
+            last_assistant_message: 'Done.',
+          }),
+          'codex',
+          { ...process.env, CODEX_HOME: codexHome },
+        ),
+        receiver.received,
+      ]);
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      return bodies;
+    } finally {
+      await receiver.close();
+    }
+  }
+
+  it('records cumulative usage from the rollout token_count events as a UsageUpdate', async () => {
+    const codexHome = makeWorktree();
+    const file = writeRollout(codexHome, 'thread-1', [
+      tokenCountLine(13, null),
+      tokenCountLine(17, {
+        input_tokens: 33396,
+        cached_input_tokens: 6912,
+        cache_write_input_tokens: 0,
+        output_tokens: 217,
+        reasoning_output_tokens: 58,
+        total_tokens: 33613,
+      }),
+      tokenCountLine(23, {
+        input_tokens: 68731,
+        cached_input_tokens: 39424,
+        cache_write_input_tokens: 0,
+        output_tokens: 371,
+        reasoning_output_tokens: 109,
+        total_tokens: 69102,
+      }),
+    ]);
+    const bodies = await stopWithRollout(file, codexHome, 2);
+    expect(bodies[1]).toEqual({
+      hook_event_name: 'UsageUpdate',
+      cwd: '/wt',
+      session_id: 'thread-1',
+      usage: {
+        event_id: 'rollout-23',
+        input: 68731 - 39424,
+        output: 371,
+        cache_read: 39424,
+        cache_write: 0,
+        total: 69102,
+      },
+    });
+  });
+
+  it('ignores a transcript_path outside the codex sessions directory', async () => {
+    const codexHome = makeWorktree();
+    const elsewhere = makeWorktree();
+    const file = writeRollout(elsewhere, 'thread-1', [
+      tokenCountLine(5, { input_tokens: 10, output_tokens: 2, total_tokens: 12 }),
+    ]);
+    const bodies = await stopWithRollout(file, codexHome, 1);
+    expect(bodies).toEqual([{ hook_event_name: 'Stop', cwd: '/wt', session_id: 'thread-1' }]);
+  });
+
+  it('emits no UsageUpdate when the rollout holds no token_count with info', async () => {
+    const codexHome = makeWorktree();
+    const file = writeRollout(codexHome, 'thread-1', [tokenCountLine(13, null)]);
+    const bodies = await stopWithRollout(file, codexHome, 1);
+    expect(bodies).toEqual([{ hook_event_name: 'Stop', cwd: '/wt', session_id: 'thread-1' }]);
   });
 
   it('emits no UsageUpdate when the payload carries no usage at all', async () => {
