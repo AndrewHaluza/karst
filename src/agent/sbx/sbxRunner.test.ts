@@ -437,8 +437,8 @@ describe('createSbxSessionRunner memory limit, OOM report and stop', () => {
   });
 
   it('reports the OOM from dmesg, with the limit', async () => {
-    const proc = fakeSbxProcess({ 'sbx exec': { stdout: '[1] Out of memory: Killed process 5 (node) x' } });
-    const text = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '6g' }).oomReport!();
+    const proc = fakeSbxProcess({ 'sbx exec': { stdout: '[1] Out of memory: Killed process 5 (node) x\nMemTotal:        6094848 kB' } });
+    const text = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '8g' }).oomReport!();
     expect(text).toContain(`Sandbox ${NAME} ran out of memory (limit 6 GB): killed node`);
     expect(proc.calls[0]!.args.join(' ')).toContain("grep -i 'killed process'");
     expect(proc.calls[0]!.opts?.signal).toBeDefined();

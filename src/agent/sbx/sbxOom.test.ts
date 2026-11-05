@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { oomMessage, parseKilledProcess } from './sbxOom.js';
+import { oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 
 const DMESG = `[ 90.1] Out of memory: Killed process 412 (node) total-vm:9000kB
 [ 91.2] Out of memory: Killed process 977 (cc1plus) total-vm:1000kB`;
@@ -13,4 +13,9 @@ describe('sbxOom', () => {
     expect(m).toContain('sbxMemory');
   });
   it('still an OOM report when dmesg could not be read', () => expect(oomMessage('s', undefined, null)).toBe('Sandbox s ran out of memory. Raise sandboxMemory.sbxMemory in the manifest or run fewer sandboxes at once.'));
+});
+
+describe('parseGuestLimit', () => {
+  it('reads MemTotal as the guest ceiling', () => expect(parseGuestLimit('MemTotal:        6094848 kB')).toBe('6g'));
+  it('undefined without it', () => expect(parseGuestLimit('')).toBeUndefined());
 });

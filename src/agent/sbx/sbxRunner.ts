@@ -21,7 +21,7 @@ import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
-import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseKilledProcess } from './sbxOom.js';
+import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -213,7 +213,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const out = await opts.proc
         .run(SBX_BIN, ['exec', opts.name, '--', ...OOM_LOG], { signal: AbortSignal.timeout(OOM_LOOKUP_TIMEOUT_MS), ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) })
         .catch(() => undefined);
-      return oomMessage(opts.name, opts.memory, out && out.code === 0 ? parseKilledProcess(out.stdout) : null);
+      return oomMessage(opts.name, out ? parseGuestLimit(out.stdout) : undefined, out && out.code === 0 ? parseKilledProcess(out.stdout) : null);
     },
     ensureCloneReady: (branch) => waitForCloneReady(opts.proc, { name: opts.name, branch, ...(opts.cloneDir ? { cloneDir: opts.cloneDir } : {}) }, opts.cloneReady),
     rebuild: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {

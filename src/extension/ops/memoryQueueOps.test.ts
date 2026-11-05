@@ -84,4 +84,56 @@ describe('memory queue ops', () => {
     expect(listMemoryQueue(store)).toEqual([]);
     expect(started).toEqual([a]);
   });
+
+  it('waits for the settle window between starts, so the whole queue is not released at once', async () => {
+    let t = 0;
+    const q = makeMemoryQueue({
+      store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, settleMs: 60_000, now: () => t,
+      start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
+    });
+    const a = ticket(), b = ticket();
+    free = 0;
+    await make().q.admit(a); await make().q.admit(b);
+    expect(await q.sweep()).toBe(a);
+    t = 10_000;
+    expect(await q.sweep()).toBeNull();
+    t = 61_000;
+    expect(await q.sweep()).toBe(b);
+  });
+
+  it('drops the row of a ticket that already has a session instead of starting it again', async () => {
+    const q = makeMemoryQueue({
+      store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, hasSession: () => true,
+      start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
+    });
+    const a = ticket();
+    free = 0;
+    await make().q.admit(a);
+    expect(await q.sweep()).toBeNull();
+    expect(started).toEqual([]);
+    expect(listMemoryQueue(store)).toEqual([]);
+  });
+
+  it('a launch that is admitted clears a stale queue row', async () => {
+    const a = ticket();
+    free = 0;
+    const { q } = make();
+    await q.admit(a);
+    free = 8 * GB;
+    expect((await q.admit(a)).admitted).toBe(true);
+    expect(listMemoryQueue(store)).toEqual([]);
+  });
+
+  it('only starts tickets of this window\'s project', async () => {
+    const other = upsertProject(store, { slug: 'o2' }).id;
+    const x = createTicket(store, { key: 'X-9', title: 't', projectId: other }).id;
+    free = 0;
+    await make().q.admit(x);
+    const q = makeMemoryQueue({
+      store, freeBytes: async () => GB * 8, minFreeBytes: () => 1.5 * GB, projectId: () => projectId,
+      start: async (id) => { started.push(id); return { ok: true }; }, label: (id) => `T${id}`, notify: { info: vi.fn(), warn: vi.fn(), error: async () => undefined },
+    });
+    expect(await q.sweep()).toBeNull();
+    expect(started).toEqual([]);
+  });
 });

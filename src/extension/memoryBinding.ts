@@ -1,3 +1,4 @@
+import type { OpenSessionOptions } from '../ui/session.js';
 import type { Store } from '../store/db.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
@@ -17,7 +18,11 @@ export interface MemoryBindingDeps {
   /** Free host memory (tests); default `vm_stat` / `os.freemem`. */
   readonly freeBytes?: () => Promise<number>;
   /** Relaunches the ticket through the normal open-session path (the same one an interactive launch takes). */
-  readonly openSession: (ticketId: number) => Promise<unknown>;
+  readonly openSession: (ticketId: number, options?: OpenSessionOptions) => Promise<unknown>;
+  /** This window's project id: the sweep never starts another project's ticket. */
+  readonly projectId?: () => number | undefined;
+  /** Pause between two queue starts (a booting VM needs a moment to show in free memory). Default 45 s. */
+  readonly settleMs?: number;
   readonly label: (ticketId: number) => string;
   /** Repaints the sidebar and the dashboard for a ticket whose waiting state changed. */
   readonly refresh: (ticketId: number) => void;
@@ -31,7 +36,7 @@ export interface MemoryBindingDeps {
 
 export interface MemoryBinding {
   /** Gate a sandbox launch: true → go ahead; false → the ticket is queued ('Waiting for memory'), with Start anyway / Cancel offered. */
-  admitLaunch(ticketId: number): Promise<boolean>;
+  admitLaunch(ticketId: number, options?: OpenSessionOptions): Promise<boolean>;
   dispose(): void;
 }
 
@@ -41,15 +46,19 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   const minFreeBytes = (): number => resolveMinFreeBytes(d.manifest()?.sandboxMemory?.sbxMinFree);
   /** Tickets the sweep (or Start anyway) just admitted: their relaunch skips the check once. */
   const admitted = new Set<number>();
+  /** The options each queued launch came with (seed prompt, reveal, recovery…), replayed when the sweep relaunches it. */
+  const pending = new Map<number, OpenSessionOptions>();
   const queue: MemoryQueue = makeMemoryQueue({
     store: d.store, freeBytes, minFreeBytes, notify: d.notify, label: d.label, debug: d.debug,
+    ...(d.projectId ? { projectId: d.projectId } : {}), hasSession: (id) => [...d.ownedSessions()].includes(id), settleMs: d.settleMs ?? 45_000,
     start: async (id) => {
       admitted.add(id);
       try {
-        await d.openSession(id);
+        await d.openSession(id, pending.get(id));
         return { ok: true };
       } finally {
         admitted.delete(id);
+        pending.delete(id);
         d.refresh(id);
       }
     },
@@ -75,13 +84,14 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   });
   const pressureTimer = setInterval(() => void pressure.tick().catch(() => undefined), d.pressureMs ?? 30_000);
   return {
-    admitLaunch: async (ticketId) => {
+    admitLaunch: async (ticketId, options) => {
       if (admitted.delete(ticketId)) return true;
       const admission = await queue.admit(ticketId);
       if (admission.admitted) return true;
+      if (options) pending.set(ticketId, options);
       d.refresh(ticketId);
       void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${admission.note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
-        if (choice === 'Cancel') queue.cancel(ticketId);
+        if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }
         else if (choice === 'Start anyway') await queue.startAnyway(ticketId);
         d.refresh(ticketId);
       });

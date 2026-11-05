@@ -21,6 +21,13 @@ export interface MemoryQueueDeps {
   readonly label: (ticketId: number) => string;
   readonly notify: Notify;
   readonly debug?: (line: string) => void;
+  /** This window's project: the sweep only starts its tickets. Omitted → unscoped (tests). A function returning undefined → no project yet, no start. */
+  readonly projectId?: () => number | undefined;
+  /** True when the ticket already has a live session (a launch that bypassed the queue): its row is dropped, not started again. */
+  readonly hasSession?: (ticketId: number) => boolean;
+  /** After a start, wait this long before the next claim so the new VM's memory shows in the free reading. */
+  readonly settleMs?: number;
+  readonly now?: () => number;
 }
 
 export type Admission = { admitted: true } | { admitted: false; note: string };
@@ -38,6 +45,9 @@ export interface MemoryQueue {
 
 export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
   const { store } = deps;
+  const now = deps.now ?? Date.now;
+  let lastStartAt = -Infinity;
+  let sweeping = false;
   const run = async (ticketId: number): Promise<StartResult> => {
     try {
       return await deps.start(ticketId);
@@ -45,33 +55,54 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
   };
+  const sweepOnce = async (): Promise<number | null> => {
+    const project = deps.projectId ? deps.projectId() : undefined;
+    if (deps.projectId && project === undefined) return null;
+    requeueStaleMemoryClaims(store, STALE_MEMORY_CLAIM_MS, project);
+    if (now() - lastStartAt < (deps.settleMs ?? 0)) return null;
+    const [first] = listMemoryQueue(store, project);
+    if (first === undefined) return null;
+    if (deps.hasSession?.(first)) {
+      clearMemoryWait(store, first);
+      deps.debug?.(`[memory-queue] ${deps.label(first)} already has a session: dropped from the queue`);
+      return null;
+    }
+    const free = await deps.freeBytes();
+    const need = deps.minFreeBytes();
+    if (free < need) {
+      queueMemoryWait(store, first, waitingNote(free, need)); // keeps its place, refreshes the numbers
+      return null;
+    }
+    if (!claimMemoryWait(store, first)) {
+      deps.debug?.(`[memory-queue] ${deps.label(first)} was claimed elsewhere`);
+      return null;
+    }
+    const result = await run(first);
+    clearMemoryWait(store, first);
+    if (result.ok) lastStartAt = now();
+    else deps.notify.warn(`Karst: ${deps.label(first)} could not start after waiting for memory: ${result.message.slice(0, 300)}`);
+    return result.ok ? first : null;
+  };
   return {
     admit: async (ticketId) => {
       const free = await deps.freeBytes();
       const need = deps.minFreeBytes();
-      if (free >= need) return { admitted: true };
+      if (free >= need) {
+        clearMemoryWait(store, ticketId); // a stale row must not start this ticket a second time
+        return { admitted: true };
+      }
       const note = waitingNote(free, need);
       queueMemoryWait(store, ticketId, note);
       return { admitted: false, note };
     },
     sweep: async () => {
-      requeueStaleMemoryClaims(store, STALE_MEMORY_CLAIM_MS);
-      const [first] = listMemoryQueue(store);
-      if (first === undefined) return null;
-      const free = await deps.freeBytes();
-      const need = deps.minFreeBytes();
-      if (free < need) {
-        queueMemoryWait(store, first, waitingNote(free, need)); // keeps its place, refreshes the numbers
-        return null;
+      if (sweeping) return null;
+      sweeping = true;
+      try {
+        return await sweepOnce();
+      } finally {
+        sweeping = false;
       }
-      if (!claimMemoryWait(store, first)) {
-        deps.debug?.(`[memory-queue] ${deps.label(first)} was claimed elsewhere`);
-        return null;
-      }
-      const result = await run(first);
-      clearMemoryWait(store, first);
-      if (!result.ok) deps.notify.warn(`Karst: ${deps.label(first)} could not start after waiting for memory: ${result.message.slice(0, 300)}`);
-      return result.ok ? first : null;
     },
     startAnyway: async (ticketId) => {
       clearMemoryWait(store, ticketId);

@@ -42,7 +42,7 @@ export function claimMemoryWait(store: Store, ticketId: number): boolean {
         WHERE id = @id AND memory_wait = ${MEMORY_WAIT_QUEUED} AND archived_at IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM tickets o
-             WHERE o.memory_wait = ${MEMORY_WAIT_QUEUED} AND o.archived_at IS NULL AND o.id <> tickets.id
+             WHERE o.memory_wait = ${MEMORY_WAIT_QUEUED} AND o.archived_at IS NULL AND o.id <> tickets.id AND o.project_id IS tickets.project_id
                AND (o.memory_wait_at < tickets.memory_wait_at OR (o.memory_wait_at = tickets.memory_wait_at AND o.id < tickets.id)))`,
     )
     .run({ id: ticketId });
@@ -57,22 +57,22 @@ export function clearMemoryWait(store: Store, ticketId: number): void {
 }
 
 /** Re-queue claims older than `staleMs` (their window died mid-start), keeping their original place. Returns the count. */
-export function requeueStaleMemoryClaims(store: Store, staleMs: number): number {
+export function requeueStaleMemoryClaims(store: Store, staleMs: number, projectId?: number): number {
   return store.db
     .prepare(
       `UPDATE tickets SET memory_wait = ${MEMORY_WAIT_QUEUED}, memory_claimed_at = NULL
-        WHERE memory_wait = ${MEMORY_WAIT_STARTING}
-          AND (memory_claimed_at IS NULL OR memory_claimed_at < strftime('%Y-%m-%d %H:%M:%f', 'now', ?))`,
+        WHERE memory_wait = ${MEMORY_WAIT_STARTING} AND (@project IS NULL OR project_id = @project)
+          AND (memory_claimed_at IS NULL OR memory_claimed_at < strftime('%Y-%m-%d %H:%M:%f', 'now', @age))`,
     )
-    .run(`-${Math.floor(staleMs / 1000)} seconds`).changes;
+    .run({ project: projectId ?? null, age: `-${Math.floor(staleMs / 1000)} seconds` }).changes;
 }
 
-/** Queued ticket ids in FIFO order. */
-export function listMemoryQueue(store: Store): number[] {
+/** Queued ticket ids in FIFO order; with `projectId`, only that project's (a window never starts another project's ticket). */
+export function listMemoryQueue(store: Store, projectId?: number): number[] {
   return (
     store.db
-      .prepare(`SELECT id FROM tickets WHERE memory_wait = ${MEMORY_WAIT_QUEUED} AND archived_at IS NULL ORDER BY memory_wait_at ASC, id ASC`)
-      .all() as { id: number }[]
+      .prepare(`SELECT id FROM tickets WHERE memory_wait = ${MEMORY_WAIT_QUEUED} AND archived_at IS NULL AND (@project IS NULL OR project_id = @project) ORDER BY memory_wait_at ASC, id ASC`)
+      .all({ project: projectId ?? null }) as { id: number }[]
   ).map((r) => r.id);
 }
 

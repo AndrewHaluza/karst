@@ -72,4 +72,19 @@ describe('memory wait queue', () => {
     expect(state(a)).toBe(0);
     expect(memoryWaitNotes(store).has(a)).toBe(false);
   });
+
+  it('is scoped to a project: another project\'s ticket is neither listed, requeued nor blocked by', () => {
+    const other = upsertProject(store, { slug: 'other' }).id;
+    const a = ticket();
+    const x = createTicket(store, { key: 'X-1', title: 't', projectId: other }).id;
+    queueMemoryWait(store, x, 'x');
+    stamp(x, '2026-01-01 00:00:00.000');
+    queueMemoryWait(store, a, 'a');
+    stamp(a, '2026-01-01 00:00:05.000');
+    expect(listMemoryQueue(store, projectId)).toEqual([a]);
+    expect(claimMemoryWait(store, a)).toBe(true); // x is older but belongs to another project
+    store.db.prepare("UPDATE tickets SET memory_wait = 2, memory_claimed_at = '2000-01-01 00:00:00.000' WHERE id = ?").run(x);
+    expect(requeueStaleMemoryClaims(store, 60_000, projectId)).toBe(0);
+    expect(requeueStaleMemoryClaims(store, 60_000, other)).toBe(1);
+  });
 });
