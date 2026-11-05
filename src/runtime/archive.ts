@@ -1,9 +1,11 @@
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { isAbsolute, join } from 'node:path';
 import { basename } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
-import { createWorktree, removeWorktree, canonicalPath, type WorktreeRecord } from './worktree.js';
+import { createWorktree, removeWorktree, clearGoneWorktree, canonicalPath, type WorktreeRecord } from './worktree.js';
 import type { ReapedServer } from './worktreeServers.js';
 import {
   recordArchive,
@@ -28,7 +30,8 @@ export interface ArchiveTarget {
 }
 
 export interface ArchiveResult {
-  outcome: 'archived' | 'skipped';
+  /** `cleared`: the folder was already gone, so only the stale worktrees row was dropped. */
+  outcome: 'archived' | 'skipped' | 'cleared';
   reason?: string;
   archiveRef: string;
   /**
@@ -56,6 +59,49 @@ export interface RestoreResult {
  */
 function slugOf(worktreePath: string): string {
   return basename(worktreePath);
+}
+
+/** An index.lock younger than this may belong to a git command still starting. */
+export const STALE_INDEX_LOCK_MS = 10 * 60 * 1000;
+
+/** `true` = a process holds the file, `false` = none does, `null` = cannot be checked (no lsof). */
+export type LockHolderCheck = (file: string) => Promise<boolean | null>;
+
+export const lsofLockHolder: LockHolderCheck = (file) =>
+  new Promise((resolve) => {
+    let out = '';
+    const child = spawn('lsof', ['-t', '--', file], { stdio: ['ignore', 'pipe', 'ignore'] });
+    child.stdout.on('data', (d) => (out += String(d)));
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => resolve(out.trim() ? true : code === 1 ? false : null));
+  });
+
+export interface ArchiveDeps {
+  isLockHolder?: LockHolderCheck;
+  staleLockMs?: number;
+}
+
+/**
+ * Remove a stale `index.lock` of the worktree (older than `staleLockMs`, held by
+ * no process). Returns a skip reason when a lock is there and cannot be removed
+ * safely, else null.
+ */
+async function clearStaleIndexLock(
+  runner: GitRunner,
+  path: string,
+  deps: ArchiveDeps,
+): Promise<string | null> {
+  const r = await runner(['rev-parse', '--git-dir'], path);
+  if (r.exitCode !== 0) return null;
+  const dir = r.stdout.trim();
+  const lock = join(isAbsolute(dir) ? dir : join(path, dir), 'index.lock');
+  if (!existsSync(lock)) return null;
+  const age = Date.now() - statSync(lock).mtimeMs;
+  if (age < (deps.staleLockMs ?? STALE_INDEX_LOCK_MS)) return 'index.lock is recent';
+  const held = await (deps.isLockHolder ?? lsofLockHolder)(lock);
+  if (held !== false) return 'stale index.lock';
+  rmSync(lock, { force: true });
+  return null;
 }
 
 /** Run a git command through the injected runner; throw on nonzero exit. Returns trimmed stdout. */
@@ -93,11 +139,13 @@ export async function archiveWorktree(
   target: ArchiveTarget,
   /** Runs once the worktree is confirmed live and BEFORE it is archived/removed (artifact final sweep). */
   beforeRemove?: (target: ArchiveTarget) => Promise<void>,
+  deps: ArchiveDeps = {},
 ): Promise<ArchiveResult> {
   const { ticketId, repoPath, path, branch, baseRef } = target;
 
   if (!existsSync(path)) {
-    return { outcome: 'skipped', reason: 'folder already gone', archiveRef: '', reapedServers: [] };
+    const reapedServers = clearGoneWorktree(store, { ticketId, repoPath, path }, allocator);
+    return { outcome: 'cleared', reason: 'folder already gone', archiveRef: '', reapedServers };
   }
   if (!(await isRegistered(runner, repoPath, path))) {
     return {
@@ -107,6 +155,9 @@ export async function archiveWorktree(
       reapedServers: [],
     };
   }
+
+  const lockReason = await clearStaleIndexLock(runner, path, deps);
+  if (lockReason) return { outcome: 'skipped', reason: lockReason, archiveRef: '', reapedServers: [] };
 
   await beforeRemove?.(target);
 

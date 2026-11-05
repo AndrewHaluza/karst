@@ -294,6 +294,27 @@ export function removeWorktree(
 }
 
 /**
+ * A worktrees row whose folder is already gone: nothing to remove from disk, so
+ * stop its servers, drop the row and free the ticket's ports (@arch:WT-REMOVE).
+ * `git worktree prune` is left to git; no `worktree remove` runs on a missing path.
+ */
+export function clearGoneWorktree(
+  store: Store,
+  record: RemovableWorktree,
+  allocator: PortAllocator,
+): ReapedServer[] {
+  const reaped = stopServersUnder(store, record.path);
+  try {
+    store.db
+      .prepare('DELETE FROM worktrees WHERE ticket_id = ? AND path = ?')
+      .run(record.ticketId, record.path);
+  } finally {
+    allocator.release(record.ticketId);
+  }
+  return reaped;
+}
+
+/**
  * Manual divergence action (§8.2): the ticket changed package.json/lockfile, so
  * this worktree needs its own node_modules to shadow the shared one. Runs a
  * local install and flips deps_mode to `local`.
