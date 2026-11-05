@@ -467,3 +467,77 @@ describe('design system async runtime', () => {
     });
   });
 });
+
+describe('host-link click guard (href="#")', () => {
+  interface Ev {
+    defaultPrevented: boolean;
+    stopped: boolean;
+    target: unknown;
+    preventDefault(): void;
+    stopPropagation(): void;
+  }
+
+  /** Load the runtime and capture the document-level click listener it installs. */
+  function loadGuard(): ((ev: Ev) => void) | undefined {
+    const listeners: Record<string, ((ev: Ev) => void)[]> = {};
+    const doc = {
+      body: fakeEl('body'),
+      createElement: (tag: string) => fakeEl(tag),
+      getElementById: () => null,
+      querySelector: () => null,
+      addEventListener: (t: string, h: (ev: Ev) => void) => {
+        (listeners[t] ??= []).push(h);
+      },
+    };
+    new Function('document', 'setTimeout', 'clearTimeout', designRuntimeJs())(doc, () => 0, () => {});
+    return listeners.click?.[0];
+  }
+
+  /** Stand-in for the DOM: element handler, then document guard, then VS Code's window listener. */
+  function click(guard: (ev: Ev) => void, href: string | null, tag: string) {
+    const calls = { element: 0, window: 0 };
+    const target = {
+      closest: (sel: string) =>
+        sel === 'a[href="#"]' && tag === 'a' && href === '#' ? target : null,
+    };
+    const ev: Ev = {
+      defaultPrevented: false,
+      stopped: false,
+      target,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      stopPropagation() {
+        this.stopped = true;
+      },
+    };
+    calls.element += 1;
+    guard(ev);
+    if (!ev.stopped) calls.window += 1;
+    return { calls, ev };
+  }
+
+  it('stops an a[href="#"] click before the VS Code window listener', () => {
+    const guard = loadGuard();
+    expect(guard).toBeTypeOf('function');
+    const { calls, ev } = click(guard!, '#', 'a');
+    expect(calls.element).toBe(1);
+    expect(calls.window).toBe(0);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('lets other clicks reach the window listener', () => {
+    const guard = loadGuard();
+    for (const [href, tag] of [['https://x', 'a'], [null, 'button']] as const) {
+      const { calls, ev } = click(guard!, href, tag);
+      expect(calls.window).toBe(1);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('ignores a click whose target has no closest()', () => {
+    const guard = loadGuard();
+    const ev = { defaultPrevented: false, target: {}, preventDefault() {}, stopPropagation() {} } as unknown as Ev;
+    expect(() => guard!(ev)).not.toThrow();
+  });
+});
