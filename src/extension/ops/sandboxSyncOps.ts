@@ -104,6 +104,8 @@ export interface LaunchBackend {
   readonly runDir?: string;
   /** Host paths of the attached bridge dir (the mirror target for attachments and gate logs). */
   readonly bridge?: BridgePaths;
+  /** Links the sandbox transcripts into the bridge dir. Run it after the bounded backend step, never inside it: `sbx create` can be slow. */
+  readonly linkTranscripts?: () => Promise<void>;
 }
 
 /**
@@ -138,7 +140,23 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
+  const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
+  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
+}
+
+/**
+ * The transcript link step, handed back instead of run: `sbx create` may be slow, and the
+ * bounded backend step (180 s) must not stop a launch for it. A failure only logs (arch:AC-34).
+ */
+function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, bridgeDir: string, hostWorktreePath: string): (() => Promise<void>) | undefined {
+  if (!runner.linkTranscripts) return undefined;
+  const link = runner.linkTranscripts.bind(runner);
+  return async () => {
+    // A missing token count must not stop a session: a failed link is only a warning.
+    const linked = await link({ bridgeDir, hostWorktreePath })
+      .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
+    if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
+  };
 }
 
 /** The placement a resolved runner means: its kind, the name inside `sbx (<name>)` / `docker (<name>)`, or the host fallback reason. */
