@@ -447,6 +447,17 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
     expect(args).toContain('NODE_OPTIONS=--trace-warnings --max-old-space-size=2048');
   });
 
+  it('passes --memory and --cpus to the transcript-link sbx create, new sandbox only', async () => {
+    const created = async (existing: string[]): Promise<string[] | undefined> => {
+      const proc = fakeSbxProcess();
+      const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing, memory: '4g', cpus: 3 });
+      await runner.linkTranscripts!({ bridgeDir: '/b', hostWorktreePath: '/wt' });
+      return proc.calls.find((c) => c.args[0] === 'create')?.args;
+    };
+    expect(await created([])).toEqual(expect.arrayContaining(['--clone', '--memory', '4g', '--cpus', '3']));
+    expect(await created([NAME])).toBeUndefined();
+  });
+
   it('extends the guest NODE_OPTIONS read before the launch', async () => {
     const proc = fakeSbxProcess({ [`sbx exec ${NAME} -- sh -c printf`]: { stdout: '--trace-warnings' } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '4g', cpus: 3 });
