@@ -1,5 +1,4 @@
 import type { OpenSessionOptions } from '../ui/session.js';
-import { memoryWaitAgeMs } from '../store/memoryQueue.js';
 import type { Store } from '../store/db.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
@@ -11,9 +10,6 @@ import { totalmem } from 'node:os';
 import { resolveMinFreeBytes, resolveSbxMemory } from '../agent/sbx/sbxMemory.js';
 import { SBX_CORES } from '../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
-
-/** A queued ticket whose launch options this window lacks is taken over after this long (the queuing window reloaded or died). */
-const ORPHAN_MS = 2 * 60_000;
 
 export interface MemoryBindingDeps {
   readonly store: Store;
@@ -53,10 +49,14 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   const admitted = new Set<number>();
   /** The options each queued launch came with (seed prompt, reveal, recovery…), replayed when the sweep relaunches it. */
   const pending = new Map<number, OpenSessionOptions>();
+  /** Tickets whose sbx launch went through this window's gate: only these may be named by the pressure warning's fallback. */
+  const sbxTickets = new Set<number>();
   const queue: MemoryQueue = makeMemoryQueue({
     store: d.store, freeBytes, minFreeBytes, notify: d.notify, label: d.label, debug: d.debug,
     ...(d.projectId ? { projectId: d.projectId } : {}), hasSession: (id) => [...d.ownedSessions()].includes(id), settleMs: d.settleMs ?? 45_000,
-    canStart: (id) => pending.has(id) || (memoryWaitAgeMs(d.store, id) ?? 0) > ORPHAN_MS,
+    // Only the window that queued a launch holds its options: another live window never takes it over. A row left by a
+    // closed window waits for Cancel / Start anyway (no owner column, so a live owner cannot be told from a dead one).
+    canStart: (id) => pending.has(id),
     start: async (id) => {
       admitted.add(id);
       try {
@@ -81,7 +81,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       if (!inv) return [];
       const rows = inv.attributed.filter((r) => r.kind === 'container' && r.ticketId !== null && r.cost);
       if (rows.length > 0) return rows.map((r) => ({ name: r.label ?? `ticket ${r.ticketId}`, ticketId: r.ticketId!, footprintBytes: r.cost!.rssBytes }));
-      const ids = [...d.ownedSessions()];
+      const ids = [...d.ownedSessions()].filter((id) => sbxTickets.has(id)); // host sessions are not sandboxes
       const vm = inv.vmOverhead;
       return vm && ids.length > 0 ? ids.map((id) => ({ name: d.label(id), ticketId: id, footprintBytes: vm.rssBytes / ids.length })) : [];
     },
@@ -91,9 +91,11 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   const pressureTimer = setInterval(() => void pressure.tick().catch(() => undefined), d.pressureMs ?? 30_000);
   return {
     admitLaunch: async (ticketId, options) => {
+      sbxTickets.add(ticketId);
       if (admitted.delete(ticketId)) return true;
       const admission = await queue.admit(ticketId);
-      if (admission.admitted) return true;
+      if (admission.admitted) { pending.delete(ticketId); return true; }
+      if (pending.has(ticketId)) { d.refresh(ticketId); return false; } // already queued here: keep its options, no second notice
       pending.set(ticketId, options ?? {}); // also marks this window as the one that queued it (canStart)
       d.refresh(ticketId);
       void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${admission.note}`, ['Start anyway', 'Cancel']).then(async (choice) => {

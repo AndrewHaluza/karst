@@ -56,6 +56,28 @@ describe('bindMemory', () => {
   });
 });
 
+describe('bindMemory queue ownership', () => {
+  it('a second launch of a queued ticket keeps the first options and shows one notice', async () => {
+    free = 0.2 * GB;
+    const infoActions = vi.fn(async () => undefined);
+    const b = bind(infoActions);
+    expect(await b.admitLaunch(id, { reveal: true } as never)).toBe(false);
+    expect(await b.admitLaunch(id, { reveal: false } as never)).toBe(false);
+    expect(infoActions).toHaveBeenCalledTimes(1);
+    free = 4 * GB;
+    await vi.waitFor(() => expect(opened).toEqual([id]));
+  });
+
+  it('does not start a ticket that another window queued, however old', async () => {
+    free = 4 * GB;
+    store.db.prepare("UPDATE tickets SET memory_wait = 1, memory_wait_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 hour') WHERE id = ?").run(id);
+    bind();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(opened).toEqual([]);
+    expect(listMemoryQueue(store)).toEqual([id]);
+  });
+});
+
 describe('isSbxLaunch', () => {
   it('gates sbx cores only, never Docker or host', () => {
     expect(isSbxLaunch('claude')).toBe(true);
