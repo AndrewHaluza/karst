@@ -500,31 +500,39 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
-  it('links sandbox transcripts into the bridge dir at launch; a failed link only logs and the launch proceeds', async () => {
+  it('hands back the transcript link step without running it; a failed link only logs and the launch proceeds', async () => {
     const worktree = { path: '/wt/b', branch: 'k/b' };
     const link = vi.fn(async () => ({ ok: true as const }));
     const mk = (linkTranscripts: unknown) => ({ kind: 'sbx', enforcesSandbox: true, linkTranscripts, bridgeRunDir: (p: { dir: string }) => p.dir }) as never;
-    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths });
+    const first = await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths });
+    // The resolve step (inside the 180 s limit) never creates or links.
+    expect(link).not.toHaveBeenCalled();
+    await first.linkTranscripts!();
     expect(link).toHaveBeenCalledWith({ bridgeDir: '/g/events/7', hostWorktreePath: '/wt/b' });
     const info = vi.fn();
     const failing = vi.fn(async () => ({ ok: false as const, reason: 'busy' }));
     const out = await resolveLaunchBackend({ ...base, info, worktree, resolve: async () => ({ runner: mk(failing), line: 'sbx' }), bridgeFor: async () => paths });
     expect(out.sandboxed).toBe(true);
+    expect(info).not.toHaveBeenCalled();
+    await out.linkTranscripts!();
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/warning: K-7: sandbox transcripts are not linked.*busy/));
     const throwing = vi.fn(async () => { throw new Error('spawn'); });
     const info2 = vi.fn();
-    await expect(resolveLaunchBackend({ ...base, info: info2, worktree, resolve: async () => ({ runner: mk(throwing), line: 'sbx' }), bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: true });
+    const thrown = await resolveLaunchBackend({ ...base, info: info2, worktree, resolve: async () => ({ runner: mk(throwing), line: 'sbx' }), bridgeFor: async () => paths });
+    await expect(thrown.linkTranscripts!()).resolves.toBeUndefined();
     expect(info2).toHaveBeenCalledWith(expect.stringContaining('not linked, token usage will not be counted: spawn'));
     const info3 = vi.fn();
-    await resolveLaunchBackend({ ...base, info: info3, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths });
+    await (await resolveLaunchBackend({ ...base, info: info3, worktree, resolve: async () => ({ runner: mk(link), line: 'sbx' }), bridgeFor: async () => paths })).linkTranscripts!();
     expect(info3).not.toHaveBeenCalledWith(expect.stringContaining('not linked'));
     const nonError = vi.fn(async () => { throw 'plain'; });
     const info4 = vi.fn();
-    await resolveLaunchBackend({ ...base, info: info4, worktree, resolve: async () => ({ runner: mk(nonError), line: 'sbx' }), bridgeFor: async () => paths });
+    await (await resolveLaunchBackend({ ...base, info: info4, worktree, resolve: async () => ({ runner: mk(nonError), line: 'sbx' }), bridgeFor: async () => paths })).linkTranscripts!();
     expect(info4).toHaveBeenCalledWith(expect.stringContaining('will not be counted: plain'));
     const idle = vi.fn(async () => ({ ok: true as const }));
-    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(idle), line: 'sbx' }), bridgeFor: async () => paths });
-    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(idle), line: 'sbx' }) });
+    // No worktree, or no bridge: there is nothing to link, so no step is handed back.
+    expect((await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(idle), line: 'sbx' }), bridgeFor: async () => paths })).linkTranscripts).toBeUndefined();
+    expect((await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: mk(idle), line: 'sbx' }) })).linkTranscripts).toBeUndefined();
+    expect((await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: { kind: 'sbx', enforcesSandbox: true, bridgeRunDir: (p: { dir: string }) => p.dir } as never, line: 'sbx' }), bridgeFor: async () => paths })).linkTranscripts).toBeUndefined();
     expect(idle).not.toHaveBeenCalled();
   });
 

@@ -22,7 +22,7 @@ import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { lstat as fsLstat, stat as fsStat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
+import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { describeBuildInfo, readBuildInfo } from './buildInfo.js';
@@ -168,6 +168,7 @@ import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
+import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
@@ -5924,10 +5925,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           claudeTranscriptStates.get(named.ticketId) ??
           { transcriptPath: null, eventId: null, fingerprint: null };
         claudeTranscriptStates.set(named.ticketId, state);
+        const transcriptReader = makeTranscriptReader(sandboxed && bridgeRoot ? bridgePaths(bridgeRoot, named.ticketId).dir : undefined);
         await sweepClaudeTranscript(
           {
-            stat: fsStat,
-            readFile: (path) => fsReadFile(path, 'utf8'),
+            stat: transcriptReader.stat,
+            readFile: transcriptReader.readFile,
             debug: (m) => logger.debug(m),
             onError: (m, e) => logError(m, e),
             onTranscript: (id, sid, text) => interactiveUsageLimit.onClaudeTranscript(id, sid, text),
@@ -6267,7 +6269,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
