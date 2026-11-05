@@ -627,7 +627,7 @@ const SILENT_WARN: WarnFn = () => {};
 async function recoverStoppedTarget(
   captured: string,
   context: { repo: string; worktreePath: string; max: number },
-  reask: (text: string) => Promise<{ raw: string }>,
+  reask: (text: string) => Promise<{ raw: string; finalMessage?: string }>,
   warn: WarnFn | undefined,
   outerSignal: AbortSignal | undefined,
 ): Promise<{ parse: ReturnType<typeof parseFindingsResult>; raw: string }> {
@@ -637,7 +637,7 @@ async function recoverStoppedTarget(
   }
   try {
     const answer = await reask(buildWrapUpNudge(captured));
-    const reparsed = parseFindingsResult(answer.raw, context, warn);
+    const reparsed = parseFindingsResult(answer.raw, context, warn, undefined, answer.finalMessage);
     // A still-unreadable re-ask keeps the salvage's record of what the run said.
     return reparsed.shape === 'unreadable' && reparsed.findings.length === 0
       ? { parse: salvaged, raw: captured }

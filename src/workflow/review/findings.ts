@@ -796,7 +796,36 @@ export interface FindingsParseResult {
   tier: FindingsExtractionTier;
 }
 
-const FINAL_MESSAGE_TIERS: ReadonlySet<FindingsExtractionTier> = new Set(['whole-doc', 'jsonl', 'fenced']);
+const SINGLE_FENCE = /^```[A-Za-z0-9_-]*\n([\s\S]*?)\n?```$/;
+
+/** True for a literal empty result: `[]` or an object whose `findings` is `[]`. */
+function isEmptyContainer(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value !== 'object' || value === null) return false;
+  const findings = (value as Record<string, unknown>)['findings'];
+  return Array.isArray(findings) && findings.length === 0;
+}
+
+/** True when the whole text is one JSON value that CARRIES findings. */
+function isCompleteFindingsDocument(text: string): boolean {
+  const value = tryParseJson(text.trim());
+  return value !== undefined && findingCandidatesFrom(value).strong;
+}
+
+/**
+ * The text of a final assistant message when it is one complete findings
+ * container (bare, or the only content of a single fence), else undefined.
+ * Fragments of a split answer, JSONL lines and stray arrays in prose (`see
+ * [1]`, a tool echo) never qualify. `[]` does: a clean pass is a real answer.
+ */
+function completeFinalBody(finalMessage: string | undefined): string | undefined {
+  if (finalMessage === undefined) return undefined;
+  const trimmed = finalMessage.trim();
+  const body = (SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed).trim();
+  const value = tryParseJson(body);
+  if (value === undefined) return undefined;
+  return findingCandidatesFrom(value).strong || isEmptyContainer(value) ? body : undefined;
+}
 
 /**
  * Parse one review invocation's raw output into findings ready for
@@ -813,14 +842,11 @@ export function parseFindingsResult(
   finalMessage?: string,
 ): FindingsParseResult {
   // The final assistant message is tried first (opencode cores join narration
-  // into `raw`). It wins only when it carries a findings container; otherwise
-  // `raw` is parsed as before, so a split or non-JSON final message loses nothing.
-  if (finalMessage !== undefined && finalMessage.trim() !== '') {
-    const probe = parseFindingsResult(finalMessage, ctx, () => undefined);
-    // Only a COMPLETE container counts (whole document, JSONL line or fenced block). The
-    // balanced-span salvage also recognizes fragments of a split answer and
-    // stray arrays in prose (`see [1]`), which must not override `raw`.
-    if (probe.shape !== 'unreadable' && FINAL_MESSAGE_TIERS.has(probe.tier)) return parseFindingsResult(finalMessage, ctx, warn, onTier);
+  // into `raw`). It wins only when it is ONE complete findings container, so a
+  // split or non-JSON final message loses nothing: `raw` is parsed as before.
+  const finalBody = completeFinalBody(finalMessage);
+  if (finalBody !== undefined && !isCompleteFindingsDocument(raw)) {
+    return parseFindingsResult(finalBody, ctx, warn, onTier);
   }
   // The extraction fallback is gated on "the primary read found no container
   // that could CARRY findings" (a `strong` one), NOT on "nothing parsed at all"
