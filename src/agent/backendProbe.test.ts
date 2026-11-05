@@ -82,7 +82,7 @@ describe('probeDockerImageDisk', () => {
   });
   it('is undefined per probe on failure, bad output or throw', async () => {
     expect(await probeDockerImageDisk(proc(1, ''))).toEqual({ imageBytes: undefined, cacheBytes: undefined });
-    expect(await probeDockerImageDisk(proc(0, 'weird\n'))).toEqual({ imageBytes: undefined, cacheBytes: undefined });
+    expect(await probeDockerImageDisk(proc(0, 'weird\n'))).toEqual({ imageBytes: undefined, cacheBytes: 0 });
     expect(await probeDockerImageDisk({ run: async () => { throw new Error('x'); } })).toEqual({ imageBytes: undefined, cacheBytes: undefined });
   });
 });
