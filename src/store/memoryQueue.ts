@@ -20,16 +20,17 @@ export const STALE_MEMORY_CLAIM_MS = 5 * 60_000;
 const NOW_MS = "strftime('%Y-%m-%d %H:%M:%f', 'now')";
 
 /** Queue a ticket (or refresh the note of a queued one, keeping its place). False when it is mid-start or archived. */
-export function queueMemoryWait(store: Store, ticketId: number, note: string): boolean {
+export function queueMemoryWait(store: Store, ticketId: number, note: string, owner?: string): boolean {
   const info = store.db
     .prepare(
       `UPDATE tickets
           SET memory_wait_note = @note,
+              memory_wait_owner = COALESCE(@owner, memory_wait_owner),
               memory_wait_at = CASE WHEN memory_wait = ${MEMORY_WAIT_QUEUED} THEN memory_wait_at ELSE ${NOW_MS} END,
               memory_wait = ${MEMORY_WAIT_QUEUED}, memory_claimed_at = NULL
         WHERE id = @id AND archived_at IS NULL AND memory_wait <> ${MEMORY_WAIT_STARTING}`,
     )
-    .run({ id: ticketId, note });
+    .run({ id: ticketId, note, owner: owner ?? null });
   return info.changes === 1;
 }
 
@@ -52,7 +53,7 @@ export function claimMemoryWait(store: Store, ticketId: number): boolean {
 /** Leave the queue from any state: started, failed, cancelled or archived. */
 export function clearMemoryWait(store: Store, ticketId: number): void {
   store.db
-    .prepare(`UPDATE tickets SET memory_wait = ${MEMORY_WAIT_NONE}, memory_wait_at = NULL, memory_claimed_at = NULL, memory_wait_note = NULL WHERE id = ? AND memory_wait <> ${MEMORY_WAIT_NONE}`)
+    .prepare(`UPDATE tickets SET memory_wait = ${MEMORY_WAIT_NONE}, memory_wait_at = NULL, memory_claimed_at = NULL, memory_wait_note = NULL, memory_wait_owner = NULL WHERE id = ? AND memory_wait <> ${MEMORY_WAIT_NONE}`)
     .run(ticketId);
 }
 
@@ -73,6 +74,17 @@ export function memoryWaitAgeMs(store: Store, ticketId: number): number | null {
     .prepare(`SELECT CAST((julianday('now') - julianday(memory_wait_at)) * 86400000 AS INTEGER) AS age FROM tickets WHERE id = ? AND memory_wait <> ${MEMORY_WAIT_NONE} AND memory_wait_at IS NOT NULL`)
     .get(ticketId) as { age: number } | undefined;
   return r ? r.age : null;
+}
+
+/** The extension host that queued the ticket, or null (not queued, or queued before owners were recorded). */
+export function memoryWaitOwner(store: Store, ticketId: number): string | null {
+  const r = store.db.prepare('SELECT memory_wait_owner AS o FROM tickets WHERE id = ? AND memory_wait <> 0').get(ticketId) as { o: string | null } | undefined;
+  return r?.o ?? null;
+}
+
+/** True while the ticket waits in the queue (queued or starting). */
+export function isMemoryWaiting(store: Store, ticketId: number): boolean {
+  return memoryWaitAgeMs(store, ticketId) !== null;
 }
 
 /** Queued ticket ids in FIFO order; with `projectId`, only that project's (a window never starts another project's ticket). */

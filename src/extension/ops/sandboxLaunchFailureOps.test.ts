@@ -250,4 +250,17 @@ describe('sbx exit 137 is reported as an out-of-memory kill', () => {
     expect(markNotStarted).toHaveBeenCalledWith(7);
     expect(interruptRun).toHaveBeenCalledWith(7, expect.stringContaining('ran out of memory'));
   });
+
+  it('still resets the state and shows the notice when closing the run throws', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oom-'));
+    const warn = vi.fn();
+    const markNotStarted = vi.fn();
+    const opts = sandboxLaunchFailureOptions({
+      ticketId: 7, ticketLabel: 'T7', core: 'claude', captureDir: dir, warn: () => undefined, notify: { info: vi.fn(), warn, error: async () => undefined },
+      markNotStarted, interruptRun: () => { throw new Error('db locked'); }, oomReport: async () => 'Sandbox s ran out of memory (limit 6 GB): killed node.',
+    });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 137, tail: '' });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(markNotStarted).toHaveBeenCalledWith(7);
+  });
 });

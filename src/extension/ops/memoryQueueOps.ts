@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { claimMemoryWait, clearMemoryWait, listMemoryQueue, queueMemoryWait, requeueStaleMemoryClaims, STALE_MEMORY_CLAIM_MS } from '../../store/memoryQueue.js';
+import { claimMemoryWait, clearMemoryWait, isMemoryWaiting, listMemoryQueue, queueMemoryWait, requeueStaleMemoryClaims, STALE_MEMORY_CLAIM_MS } from '../../store/memoryQueue.js';
 import { waitingNote } from '../../agent/sbx/sbxMemory.js';
 import type { Notify } from './notify.js';
 
@@ -29,6 +29,8 @@ export interface MemoryQueueDeps {
   readonly settleMs?: number;
   /** False when another window queued this ticket with launch options this window does not hold: leave it to that window. */
   readonly canStart?: (ticketId: number) => boolean;
+  /** Identifies this window on rows it queues (the extension host pid). */
+  readonly owner?: string;
   readonly now?: () => number;
 }
 
@@ -73,7 +75,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
     const free = await deps.freeBytes();
     const need = deps.minFreeBytes();
     if (free < need) {
-      queueMemoryWait(store, first, waitingNote(free, need)); // keeps its place, refreshes the numbers
+      queueMemoryWait(store, first, waitingNote(free, need), deps.owner); // keeps its place, refreshes the numbers
       return null;
     }
     if (!claimMemoryWait(store, first)) {
@@ -95,7 +97,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
         return { admitted: true };
       }
       const note = waitingNote(free, need);
-      queueMemoryWait(store, ticketId, note);
+      queueMemoryWait(store, ticketId, note, deps.owner);
       return { admitted: false, note };
     },
     sweep: async () => {
@@ -108,6 +110,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
       }
     },
     startAnyway: async (ticketId) => {
+      if (!isMemoryWaiting(store, ticketId)) return { ok: true }; // a late click: the ticket already started or was cancelled
       clearMemoryWait(store, ticketId);
       return run(ticketId);
     },

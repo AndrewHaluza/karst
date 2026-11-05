@@ -1,5 +1,6 @@
 import type { OpenSessionOptions } from '../ui/session.js';
 import type { Store } from '../store/db.js';
+import { memoryWaitOwner } from '../store/memoryQueue.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
 import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPressure.js';
@@ -33,6 +34,10 @@ export interface MemoryBindingDeps {
   readonly debug: (line: string) => void;
   readonly sweepMs: number;
   readonly pressureMs?: number;
+  /** Is the extension host with this pid alive? Default `process.kill(pid, 0)`. */
+  readonly isAlive?: (owner: string) => boolean;
+  /** This window's owner mark. Default the extension host pid. */
+  readonly owner?: string;
 }
 
 export interface MemoryBinding {
@@ -43,6 +48,10 @@ export interface MemoryBinding {
 
 /** Wires the host-memory queue sweep and the pressure warning to the extension (arch:AUTOSTART pattern, arch:AC-37). */
 export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
+  const owner = d.owner ?? String(process.pid);
+  const isAlive = d.isAlive ?? ((o: string): boolean => {
+    try { process.kill(Number(o), 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
+  });
   const freeBytes = d.freeBytes ?? ((): Promise<number> => readFreeHostMemory(NODE_SBX_PROCESS));
   const minFreeBytes = (): number => resolveMinFreeBytes(d.manifest()?.sandboxMemory?.sbxMinFree);
   /** Tickets the sweep (or Start anyway) just admitted: their relaunch skips the check once. */
@@ -54,9 +63,14 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
   const queue: MemoryQueue = makeMemoryQueue({
     store: d.store, freeBytes, minFreeBytes, notify: d.notify, label: d.label, debug: d.debug,
     ...(d.projectId ? { projectId: d.projectId } : {}), hasSession: (id) => [...d.ownedSessions()].includes(id), settleMs: d.settleMs ?? 45_000,
-    // Only the window that queued a launch holds its options: another live window never takes it over. A row left by a
-    // closed window waits for Cancel / Start anyway (no owner column, so a live owner cannot be told from a dead one).
-    canStart: (id) => pending.has(id),
+    owner,
+    // This window holds the launch options of its own queued tickets; a live owner's row is left to that window,
+    // and a row whose owner is gone (reload, closed window) is adopted with default options so it never blocks the line.
+    canStart: (id) => {
+      if (pending.has(id)) return true;
+      const o = memoryWaitOwner(d.store, id);
+      return o === null || (o !== owner && !isAlive(o));
+    },
     start: async (id) => {
       admitted.add(id);
       try {
@@ -86,9 +100,9 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       return vm && ids.length > 0 ? ids.map((id) => ({ name: d.label(id), ticketId: id, footprintBytes: vm.rssBytes / ids.length })) : [];
     },
     warn: async (message) => (await d.notify.infoActions?.(message, ['Stop'])) === 'Stop',
-    stop: (b) => d.stopSandbox(b.ticketId),
+    stop: (b) => d.stopSandbox(b.ticketId).catch((e: unknown) => d.notify.warn(`Karst: could not stop ${b.name}: ${String(e).slice(0, 300)}`)),
   });
-  const pressureTimer = setInterval(() => void pressure.tick().catch(() => undefined), d.pressureMs ?? 30_000);
+  const pressureTimer = setInterval(() => void pressure.tick().catch((e: unknown) => d.debug(`[memory-pressure] tick failed: ${String(e)}`)), d.pressureMs ?? 30_000);
   return {
     admitLaunch: async (ticketId, options) => {
       sbxTickets.add(ticketId);

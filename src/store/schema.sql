@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   memory_wait_at TEXT,                    -- when it was queued (FIFO order)
   memory_claimed_at TEXT,                 -- when the claim set 2; a stale claim is re-queued
   memory_wait_note TEXT,                  -- 'Waiting for memory (free X GB, needs Y GB)'
+  -- v98 (kept in sync with migrations.ts v98 ALTER):
+  memory_wait_owner TEXT,                 -- pid of the extension host that queued it; a dead owner's row is adopted by another window
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):

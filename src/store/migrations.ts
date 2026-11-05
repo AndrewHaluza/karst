@@ -2814,5 +2814,11 @@ function migrateLocked(db: Database): void {
     if (cols97.size > 0 && !cols97.has('memory_wait_note')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait_note TEXT');
   }
 
+  if (current < 98) {
+    // v98: which extension host queued a memory wait (`store/memoryQueue.ts`), so only a dead owner's row is adopted.
+    const cols98 = ticketColumns(db);
+    if (cols98.size > 0 && !cols98.has('memory_wait_owner')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait_owner TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

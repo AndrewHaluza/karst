@@ -113,7 +113,11 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
           if (input.hostEnded?.(input.ticketId)) return; // the lookup is slow: the session may have been ended by karst meanwhile
           if (oom === null) return reportLaunchFailure(info);
           input.warn(`[session] ticket ${input.ticketLabel} ${oom}`);
-          input.interruptRun?.(input.ticketId, oom);
+          try {
+            input.interruptRun?.(input.ticketId, oom);
+          } catch (e) {
+            input.warn(`[session] ticket ${input.ticketLabel} could not close the run after the OOM: ${String(e)}`);
+          }
           input.markNotStarted(input.ticketId);
           report(`Karst: ${input.ticketLabel}: ${oom}`);
         }).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} OOM report failed: ${String(e)}`));
