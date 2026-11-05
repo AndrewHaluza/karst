@@ -18,7 +18,7 @@ export interface RunAnalysisInput {
    * improve's `repoPath` AND the code-pointer pass's cwd. undefined = no repo resolvable
    * (improve runs without a repoPath line; the pointer pass is skipped silently).
    */
-  improve: { instructions: string; cwd: string; resolveRepoPath: (repos: string[]) => string | undefined };
+  improve: { instructions: string; context?: 'minimal'; cwd: string; resolveRepoPath: (repos: string[]) => string | undefined };
   codePointers: { enabled: boolean };
   warn?: (msg: string) => void;
   /**
@@ -63,6 +63,7 @@ export async function runAnalysis(adapter: AgentAdapter, input: RunAnalysisInput
   try {
     improved = await improveDescription(adapter, {
       instructions: improve.instructions,
+      ...(improve.context ? { context: improve.context } : {}),
       description: combined,
       title,
       ...(effectiveType ? { ticketType: effectiveType } : {}),

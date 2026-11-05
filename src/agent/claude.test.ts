@@ -1127,6 +1127,32 @@ describe('ClaudeAdapter.runHeadless', () => {
         expect(off).not.toContain('--tools');
       }
     });
+    it("'skills-and-subagents' adds only --disable-slash-commands and --disallowedTools Agent", async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: 'skills-and-subagents' });
+      const a = seen[0]!;
+      expect(a).toContain('--disable-slash-commands');
+      expect(a.some((x, i) => x === '--disallowedTools' && a[i + 1] === 'Agent')).toBe(true);
+      expect(a).not.toContain('--tools');
+      expect(a.slice(-2)).toEqual(['--', 'go']);
+    });
+    it("retries without the flags when the CLI rejects --disallowedTools", async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return seen.length === 1
+          ? { stdout: '', stderr: 'error: unknown option --disallowedTools', exitCode: 1 }
+          : { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: 'skills-and-subagents' });
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).not.toContain('Agent');
+      expect(seen[1]).not.toContain('--disable-slash-commands');
+    });
     it('keeps --json-schema beside the flags', async () => {
       const seen: string[][] = [];
       const spawn: SpawnHeadless = async (_c, args) => {

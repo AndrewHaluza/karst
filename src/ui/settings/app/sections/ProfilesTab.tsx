@@ -263,6 +263,9 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
           hideLabel
           control={{ kind: 'textarea', name: `agent-body-${entry.id}`, rows: 14, value: buffer ?? entry.text ?? '', onChange: onBuffer }}
         />
+        <div className="agents-note">
+          Optional frontmatter: add <code>context: minimal</code> to run Review, UAT tester and the ticket-improve pass with this profile without skills and subagents. Other tools stay available. No key = full context.
+        </div>
         <div className="agents-text-foot" data-region="toolbar">
           <span className="agents-muted">Editing .karst/agents/{entry.name}.md</span>
           <Button variant="ghost" size="sm" disabled={!dirty} onClick={onRevert}>

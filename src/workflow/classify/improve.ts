@@ -117,6 +117,8 @@ export interface ImproveInput {
   cwd: string;
   /** The classifier-selected repository's absolute path, rendered as a `Primary repository:` line. Absent → the line is omitted. */
   repoPath?: string;
+  /** The profile's `context: minimal` (only meaningful with `instructions`). */
+  context?: 'minimal';
   model?: string;
   effort?: string;
   ticketId?: number | null;
@@ -160,6 +162,7 @@ export async function improveDescription(
   const result = await adapter.runHeadless({
     prompt,
     cwd: input.cwd,
+    ...(input.context === 'minimal' ? { minimalContext: 'skills-and-subagents' as const } : {}),
     ...(input.model !== undefined ? { model: input.model } : {}),
     ...(input.effort !== undefined ? { effort: input.effort } : {}),
     tracking: {
