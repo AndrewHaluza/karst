@@ -10,6 +10,7 @@ import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import { baselineReviewRoot } from './baselineRows.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -52,7 +53,7 @@ export function makeDashboardPanelHost(
   brandIcon?: BrandIconPaths,
   warn: (message: string) => void = () => {},
   debug?: Pick<Logger, 'debug' | 'isDebugEnabled'>,
-): PanelHost {
+): PanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<DashboardPanel> } {
   const { html, xterm } = dashboardWebviewAssets(warn);
   // Payload sizes, measured only in debug mode: over Remote-SSH every byte of
   // the document and of each message crosses the network, so these lines name
@@ -61,67 +62,76 @@ export function makeDashboardPanelHost(
   const traceSize = (what: string, payload: () => string): void => {
     if (debug?.isDebugEnabled()) debug.debug(`[dashboard] ${what} ${payload().length} chars`);
   };
+  // Options a new panel and a restored one both carry. A restored panel arrives
+  // with default options, so `wrap` sets them again on every path.
+  const webviewOptions: vscode.WebviewOptions = {
+    enableScripts: true,
+    // The only local content this panel needs is the UAT report's baseline
+    // images, which the host COPIES into one fixed directory
+    // (@arch:BASELINE-REVIEW) — so no worktree path is ever a root.
+    localResourceRoots: [vscode.Uri.file(baselineReviewRoot(context.globalStorageUri.fsPath))],
+  };
+  /** Configure a raw panel (new or restored) and wrap it in the `DashboardPanel` interface. */
+  const wrap = (panel: vscode.WebviewPanel): DashboardPanel => {
+    panel.webview.options = webviewOptions;
+    // The brand mark until the first state push repaints it with the ticket's
+    // status glyph — a dashboard tab is never unmarked, not even for a frame.
+    panel.iconPath = brandIconUri(brandIcon);
+    // Nonce per panel, not per host (the html above is built once and reused).
+    panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
+    traceSize('html', () => panel.webview.html);
+    panel.webview.onDidReceiveMessage(
+      (message: { type?: unknown } | null) => {
+        if (message?.type !== 'xterm-request') return;
+        const answer = xtermMessage(xterm);
+        traceSize('post xterm', () => answer.js ?? '');
+        void panel.webview.postMessage(answer);
+      },
+      undefined,
+      context.subscriptions,
+    );
+    return {
+      reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
+      asWebviewUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
+      postMessage: (message) => {
+        traceSize(`post ${messageLabel(message)}`, () => JSON.stringify(message) ?? '');
+        void panel.webview.postMessage(message);
+      },
+      onDidReceiveMessage: (handler) =>
+        panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+      // `active` — not `visible`: a preserve-focus reveal makes the panel
+      // visible without the user being on it, and binding off that would fire
+      // on karst's own reveal rather than on a real click.
+      onDidChangeViewState: (handler) =>
+        panel.onDidChangeViewState(
+          (e) => handler(e.webviewPanel.active),
+          undefined,
+          context.subscriptions,
+        ),
+      onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+      // `visible` — the counterpart of `active` above: the live repaint asks
+      // "can anyone see this?", and a dashboard watched beside a terminal the
+      // user types in is visible and inactive.
+      isVisible: () => panel.visible,
+      setIcon: (p: string) => {
+        panel.iconPath = vscode.Uri.file(p);
+      },
+    };
+  };
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.dashboard',
-        title,
-        // A bound open rides on the user clicking the TERMINAL: the panel must
-        // appear beside it without taking the caret out of the shell.
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
-        {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          // The only local content this panel needs is the UAT report's baseline
-          // images, which the host COPIES into one fixed directory
-          // (@arch:BASELINE-REVIEW) — so no worktree path is ever a root.
-          localResourceRoots: [vscode.Uri.file(baselineReviewRoot(context.globalStorageUri.fsPath))],
-        },
+      return wrap(
+        vscode.window.createWebviewPanel(
+          'karst.dashboard',
+          title,
+          // A bound open rides on the user clicking the TERMINAL: the panel must
+          // appear beside it without taking the caret out of the shell.
+          { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
+          { ...webviewOptions, retainContextWhenHidden: true },
+        ),
       );
-      // The brand mark until the first state push repaints it with the ticket's
-      // status glyph — a dashboard tab is never unmarked, not even for a frame.
-      panel.iconPath = brandIconUri(brandIcon);
-      // Nonce per panel, not per host (the html above is built once and reused).
-      panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
-      traceSize('html', () => panel.webview.html);
-      panel.webview.onDidReceiveMessage(
-        (message: { type?: unknown } | null) => {
-          if (message?.type !== 'xterm-request') return;
-          const answer = xtermMessage(xterm);
-          traceSize('post xterm', () => answer.js ?? '');
-          void panel.webview.postMessage(answer);
-        },
-        undefined,
-        context.subscriptions,
-      );
-      return {
-        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
-        asWebviewUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
-        postMessage: (message) => {
-          traceSize(`post ${messageLabel(message)}`, () => JSON.stringify(message) ?? '');
-          void panel.webview.postMessage(message);
-        },
-        onDidReceiveMessage: (handler) =>
-          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        // `active` — not `visible`: a preserve-focus reveal makes the panel
-        // visible without the user being on it, and binding off that would fire
-        // on karst's own reveal rather than on a real click.
-        onDidChangeViewState: (handler) =>
-          panel.onDidChangeViewState(
-            (e) => handler(e.webviewPanel.active),
-            undefined,
-            context.subscriptions,
-          ),
-        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
-        // `visible` — the counterpart of `active` above: the live repaint asks
-        // "can anyone see this?", and a dashboard watched beside a terminal the
-        // user types in is visible and inactive.
-        isVisible: () => panel.visible,
-        setIcon: (p: string) => {
-          panel.iconPath = vscode.Uri.file(p);
-        },
-      };
     },
+    restore: (raw) => ({ wrap: () => wrap(raw), dispose: () => raw.dispose() }),
   };
 }
 

@@ -6,6 +6,7 @@ import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
@@ -18,16 +19,12 @@ import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 export function makeGettingStartedPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
-): GettingStartedPanelHost {
+): GettingStartedPanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<GettingStartedPanel> } {
   const html = hydrateWebview('gettingStarted', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'gettingStarted', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title: string): GettingStartedPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.gettingStarted',
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
+  /** Configure a raw panel (new or restored) and wrap it. */
+  const wrap = (panel: vscode.WebviewPanel): GettingStartedPanel => {
+      // A restored panel arrives with default options.
+      panel.webview.options = { enableScripts: true };
       // The first karst surface a user ever sees — it carries the mark too.
       panel.iconPath = brandIconUri(brandIcon);
       // CSP nonce per panel, not per host: the html above is built once and
@@ -41,6 +38,15 @@ export function makeGettingStartedPanelHost(
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
       };
-    },
+  };
+  return {
+    createPanel: (title: string) =>
+      wrap(
+        vscode.window.createWebviewPanel('karst.gettingStarted', title, vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+        }),
+      ),
+    restore: (raw) => ({ wrap: () => wrap(raw), dispose: () => raw.dispose() }),
   };
 }

@@ -385,6 +385,10 @@
     const viewFlat = document.getElementById('viewFlat');
     const restored = vscode.getState();
     let lastState = restored?.state || null;
+    // Panel identity for a window reload: the host names the ticket on its first
+    // message (and every state carries it); the serializer reads it back from
+    // the saved state. An additive key — the other keys keep their shape.
+    let panelTicketId = Number.isInteger(restored?.karstPanel?.ticketId) ? restored.karstPanel.ticketId : null;
     let loading = Boolean(restored?.loading);
     // Tree is the default (folders first, then files); the List chip switches
     // to the flat all-files view. Persisted so a panel reload keeps the user's
@@ -576,7 +580,9 @@
       // primitive's own spinner carries the pending meaning instead.
       refresh.disabled = loading;
       refresh.setAttribute('aria-busy', loading ? 'true' : 'false');
-      vscode.setState({ state: lastState, loading, viewMode });
+      const stateTicketId = lastState && Number.isInteger(lastState.ticketId) ? lastState.ticketId : null;
+      if (stateTicketId !== null) panelTicketId = stateTicketId;
+      vscode.setState({ state: lastState, loading, viewMode, ...(panelTicketId !== null ? { karstPanel: { ticketId: panelTicketId } } : {}) });
     }
 
     function applyViewToggle() {
@@ -689,6 +695,7 @@
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'loading') {
+        if (Number.isInteger(msg.ticketId)) panelTicketId = msg.ticketId;
         notice.hidden = true;
         render(msg.state || lastState, true);
       } else if (msg.type === 'state') {
