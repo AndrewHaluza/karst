@@ -796,6 +796,8 @@ export interface FindingsParseResult {
   tier: FindingsExtractionTier;
 }
 
+const FINAL_MESSAGE_TIERS: ReadonlySet<FindingsExtractionTier> = new Set(['whole-doc', 'jsonl', 'fenced']);
+
 /**
  * Parse one review invocation's raw output into findings ready for
  * `recordFindings`'s batch, plus the shape that produced them (see
@@ -815,7 +817,10 @@ export function parseFindingsResult(
   // `raw` is parsed as before, so a split or non-JSON final message loses nothing.
   if (finalMessage !== undefined && finalMessage.trim() !== '') {
     const probe = parseFindingsResult(finalMessage, ctx, () => undefined);
-    if (probe.shape !== 'unreadable') return parseFindingsResult(finalMessage, ctx, warn, onTier);
+    // Only a COMPLETE container counts (whole document, JSONL line or fenced block). The
+    // balanced-span salvage also recognizes fragments of a split answer and
+    // stray arrays in prose (`see [1]`), which must not override `raw`.
+    if (probe.shape !== 'unreadable' && FINAL_MESSAGE_TIERS.has(probe.tier)) return parseFindingsResult(finalMessage, ctx, warn, onTier);
   }
   // The extraction fallback is gated on "the primary read found no container
   // that could CARRY findings" (a `strong` one), NOT on "nothing parsed at all"
