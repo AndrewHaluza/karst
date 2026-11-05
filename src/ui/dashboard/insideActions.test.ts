@@ -6,6 +6,7 @@ import { openShipRun, openShipRepoStep, finishShipRepoStep, recordShipCommit } f
 import { openProcessRun } from '../../store/processRuns.js';
 import { openImplementationRun, completeImplementationRun } from '../../store/implementationRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
+import { setStage } from '../../store/stages.js';
 import {
   InsideActionRegistry,
   dispatchInsideAction,
@@ -542,6 +543,18 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r, 'snapshot-7:action-1', deps([]))).toEqual({
       outcome: 'unknown',
     });
+  });
+
+  it('dispatches open-session for a running impl stage with no run recorded (no session started)', () => {
+    const r = registry(7);
+    r.register({ kind: 'open-session', ticketId: 1 });
+    const calls: string[] = [];
+    store.db.prepare("INSERT INTO stages (ticket_id, stage_key, status) VALUES (1, 'impl', 'pending')").run();
+    setStage(store, 1, 'impl', { status: 'running', startedAt: '2026-08-08T10:00:00.000Z' });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['open-session:1']);
   });
 
   it('dispatches open-session only while the ticket has a live implementation run', () => {

@@ -6,7 +6,8 @@ import { getShipCommitById, getShipRepoStepById, listShipEvidence } from '../../
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
-import { liveImplementationRun } from '../../store/implementationRuns.js';
+import { getStage } from '../../store/stages.js';
+import { currentImplementationRun, liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import { nodeRunTicketId } from '../../store/graph/nodeRuns.js';
 import { graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
@@ -462,7 +463,13 @@ export function dispatchInsideAction(
       // run that ended (the done marker fired) since the snapshot has no
       // terminal left to reveal, so the id is refused rather than reaching
       // for a session that is gone.
-      if (liveImplementationRun(store, target.ticketId) === undefined) {
+      // The one exception: an impl stage that reads `running` with no run
+      // recorded at all (the 'no session started' / 'did not start' rows) —
+      // there is nothing to reveal, and Open session is the way to start one.
+      const noRunYet =
+        getStage(store, target.ticketId, 'impl')?.status === 'running' &&
+        currentImplementationRun(store, target.ticketId) === undefined;
+      if (liveImplementationRun(store, target.ticketId) === undefined && !noRunYet) {
         return { outcome: 'rejected', reason: 'no live implementation session for this ticket' };
       }
       void deps.host.openSession(target.ticketId);

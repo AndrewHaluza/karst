@@ -29,6 +29,7 @@ import {
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
 import type { CurrentAttempt } from '../../model/inside/currentAttempt.js';
 import { shipProcesses, type ShipProcessesInput } from '../../model/inside/ship.js';
+import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import { doneReceipt, type DoneReceiptInput, type DoneReceiptView } from '../../model/inside/done.js';
 import type {
   SegmentTokensInput,
@@ -68,6 +69,8 @@ export interface InsideViewsInput {
   worktrees: readonly WorktreeView[];
   /** The ticket's own `agent_state === 'waiting'` — the agent asked a question. */
   agentWaiting: boolean;
+  /** The shared impl session reading, computed once in `state.ts`. */
+  implSession?: ImplSessionReading | null;
   now: string;
   processRuns: readonly ProcessRun[];
   timeline: ImplementationTimeline | null;
@@ -134,6 +137,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     selectedRepos,
     worktrees,
     agentWaiting,
+    implSession,
     now,
     processRuns,
     timeline,
@@ -201,6 +205,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
           // `cli/stage.ts`'s `assertMarkerNotWhileWaiting` refuses the done
           // marker on.
           agentWaiting,
+          implSession ?? null,
         ),
         // The graph runtime's read-only projection (Slice 2 Task 10):
         // appended when the host supplies it, inert otherwise. Computed once

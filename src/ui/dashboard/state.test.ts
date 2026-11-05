@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, updateTicketFields } from '../../store/tickets.js';
+import { createTicket, getTicket, updateTicketFields, setAgentState } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { recordGateRun } from '../../store/gateRuns.js';
@@ -2030,8 +2030,21 @@ describe('insideViews (the six-stage inside presentation)', () => {
   it('states the running process as the stage live line', () => {
     const ticketId = ticketAt('impl');
     setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    setAgentState(store, ticketId, 'running');
     const impl = buildDashboardState(store, ticketId).insideViews.impl;
     expect(impl.live).toMatchObject({ status: 'run', label: 'Session' });
+  });
+
+  it('T952: a running impl stage with no run and agent_state none shows no session and no spinner', () => {
+    const ticketId = ticketAt('impl');
+    setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const state = buildDashboardState(store, ticketId);
+    expect(state.insideViews.impl.live).toBeUndefined();
+    expect(state.insideViews.impl.processes.find((p) => p.id === 'session')).toMatchObject({
+      status: 'pending',
+      detail: 'no session started',
+    });
+    expect(state.rail.main.find((s) => s.cell.stageKey === 'impl')?.status).toBe('pending');
   });
 
   it('names the AI phase as the current process once the gates have passed', () => {

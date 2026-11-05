@@ -7,6 +7,7 @@ import {
 } from '../workflow/fixAttempts.js';
 import type { RailCta, RailNeeds } from './railNeeds.js';
 import { displayStatus, type StepperCell } from './stepper.js';
+import { isSessionless, type ImplSessionReading } from './implSessionReading.js';
 import type { StageKey, StageStatus } from './types.js';
 
 export type { RailCta, RailNeeds };
@@ -76,6 +77,8 @@ export interface StageRail {
 }
 
 export interface BuildRailOptions {
+  /** The shared impl session reading (`implSessionReading`); absent = legacy. */
+  implSession?: ImplSessionReading | null;
   /** `ticket.stageCurrent`. A stored string: it may name no main-line stage. */
   current: string | null;
   /** The ticket's existing needs-you derivation ([[ticketGlyph]]). */
@@ -174,7 +177,8 @@ export function buildStageRail(
       const needsUser = current && opts.needsUser;
       return {
         cell,
-        status: displayStatus(cell),
+        // A running impl stage with no live session reads pending: no spinner.
+        status: k === 'impl' && isSessionless(opts.implSession) ? 'pending' : displayStatus(cell),
         current,
         needsUser,
         needs: needsUser ? opts.needs : null,

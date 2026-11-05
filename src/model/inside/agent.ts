@@ -20,6 +20,7 @@ import {
   type TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
+import { isSessionless, type ImplSessionReading } from '../implSessionReading.js';
 
 /**
  * The agent stages. Neither impl nor fix produces a deterministic sub-signal —
@@ -394,8 +395,14 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
  * still reads `wait` while the agent is waiting on the user, and a stage
  * already `blocked` stays `wait` regardless (defect 3).
  */
-function sessionStatus(cell: StepperCell, agentWaiting: boolean): InsideStatus {
+function sessionStatus(
+  cell: StepperCell,
+  agentWaiting: boolean,
+  reading?: ImplSessionReading | null,
+): InsideStatus {
   if (agentWaiting) return 'wait';
+  // A running stage with no live session: no spinner, the stage is not working.
+  if (isSessionless(reading)) return 'pending';
   switch (displayStatus(cell)) {
     case 'passed':
       return 'pass';
@@ -422,7 +429,14 @@ function sessionStatus(cell: StepperCell, agentWaiting: boolean): InsideStatus {
  * explicit done marker, a failed session, or a stage that has not started.
  * Never infers agent progress — the file's own header rule.
  */
-function sessionDetail(status: InsideStatus, agentWaiting: boolean): string {
+function sessionDetail(
+  status: InsideStatus,
+  agentWaiting: boolean,
+  reading?: ImplSessionReading | null,
+): string {
+  if (reading === 'not-started') return 'the session did not start';
+  if (reading === 'no-session') return 'no session started';
+  if (reading === 'idle') return 'agent session idle';
   switch (status) {
     case 'run':
       return 'agent session running';
@@ -534,6 +548,7 @@ export function implementationSessionProcess(
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined,
   segmentTokens: readonly SegmentTokensInput[] = [],
   agentWaiting = false,
+  reading: ImplSessionReading | null = null,
 ): InsideProcessView {
   const execution = timeline ? latestConfirmedSegment(timeline) : undefined;
 
@@ -583,8 +598,10 @@ export function implementationSessionProcess(
   // time, so the mint and the ownership proof never disagree. A `passed` run
   // has no terminal left to reveal: the marker already fired and the session
   // that produced it is gone.
+  // 'no session started' (and 'did not start') have no run to prove ownership
+  // of, so they mint the action from the reading, like `railNeeds`' CTA.
   const action =
-    attach && timeline && timeline.run.status !== 'passed'
+    attach && ((timeline && timeline.run.status !== 'passed') || reading === 'no-session' || reading === 'not-started')
       ? attach({ kind: 'open-session' })
       : undefined;
 
@@ -603,9 +620,11 @@ export function implementationSessionProcess(
 
   // One status reading feeds both the row's dot and its label — a second
   // derivation from `cell` is how the two would drift apart.
-  const status = sessionStatus(cell, agentWaiting);
-  const detail = sessionDetail(status, agentWaiting);
+  const status = sessionStatus(cell, agentWaiting, reading);
+  const detail = sessionDetail(status, agentWaiting, reading);
   const footer = implementationFooter(timeline, tokens);
+  // A growing duration claims work in progress; with no live session keep only the start time.
+  const hideDuration = isSessionless(reading);
 
   return {
     id: 'session',
@@ -616,13 +635,13 @@ export function implementationSessionProcess(
     ...(detail ? { detail } : {}),
     ...(footer.length > 0 ? { footer } : {}),
     ...(action ? { action } : {}),
-    ...(cell.startedAt
+    ...(cell.startedAt && !hideDuration
       ? {
           duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
           durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
-          time: formatTime(cell.startedAt),
         }
       : {}),
+    ...(cell.startedAt ? { time: formatTime(cell.startedAt) } : {}),
     ...(execution ? { execution: executionView(execution.provider, execution.model) } : {}),
     ...(configured && !execution
       ? { configuredExecution: executionView(configured.provider, configured.model) }
