@@ -89,3 +89,18 @@ describe('checkSandboxSetupDeclared', () => {
     expect(checkSandboxSetupDeclared([], [repo()])).toEqual([]);
   });
 });
+
+describe('state.sandbox-disk with images and build cache', () => {
+  const disk = (extra: object) => checkSandboxBackends({ ...base, sandboxCount: 0, diskBytes: undefined, ...extra }).find((x) => x.id === 'state.sandbox-disk');
+  it('counts images and cache toward the warning and names the commands', () => {
+    const c = disk({ imageBytes: 6e9, cacheBytes: 5e9 })!;
+    expect(c.status).toBe('warn');
+    expect(c.detail).toBe('0 sandboxes, size unknown, karst images ~6.0 GB, build cache ~5.0 GB');
+    expect((c.fix as { nextStep?: string } | undefined)?.nextStep).toContain('docker image rm');
+    expect((c.fix as { nextStep?: string } | undefined)?.nextStep).toContain('docker builder prune --filter until=168h --keep-storage 10GB');
+  });
+  it('is ok under the threshold and absent with nothing to report', () => {
+    expect(disk({ imageBytes: 1e9, cacheBytes: 1e9 })!.status).toBe('ok');
+    expect(disk({})).toBeUndefined();
+  });
+});

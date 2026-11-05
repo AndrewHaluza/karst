@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dockerKillContext, probeDockerDisk, probeDockerMemory } from './backendProbe.js';
+import { dockerKillContext, probeDockerDisk, probeDockerImageDisk, probeDockerMemory } from './backendProbe.js';
 import type { SbxProcess } from './sbx/sbxProcess.js';
 
 const proc = (code: number, stdout: string): SbxProcess => ({ run: async () => ({ code, stdout, stderr: '' }) });
@@ -67,5 +67,22 @@ describe('dockerKillContext', () => {
   });
   it('is undefined when nothing is readable', async () => {
     expect(await dockerKillContext(multi({ code: 1, stdout: '' }, { code: 1, stdout: '' }))).toBeUndefined();
+  });
+});
+
+describe('probeDockerImageDisk', () => {
+  it('sums karst image sizes and reads the build cache row', async () => {
+    const run = async (_c: string, a: readonly string[]) =>
+      a[0] === 'image'
+        ? { code: 0, stdout: '2GB\n500MB\n', stderr: '' }
+        : { code: 0, stdout: 'Images|36GB\nBuild Cache|50GB\n', stderr: '' };
+    const r = await probeDockerImageDisk({ run });
+    expect(r.imageBytes).toBeCloseTo(2.5e9, -3);
+    expect(r.cacheBytes).toBeCloseTo(50e9, -3);
+  });
+  it('is undefined per probe on failure, bad output or throw', async () => {
+    expect(await probeDockerImageDisk(proc(1, ''))).toEqual({ imageBytes: undefined, cacheBytes: undefined });
+    expect(await probeDockerImageDisk(proc(0, 'weird\n'))).toEqual({ imageBytes: undefined, cacheBytes: 0 });
+    expect(await probeDockerImageDisk({ run: async () => { throw new Error('x'); } })).toEqual({ imageBytes: undefined, cacheBytes: undefined });
   });
 });

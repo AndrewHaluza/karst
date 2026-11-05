@@ -139,6 +139,7 @@ flowchart LR
   diagnostics --> agent
   diagnostics --> model
   diagnostics --> store
+  doctor --> agent
   doctor --> manifest
   doctor --> runtime
   doctor --> workflow

@@ -38,11 +38,14 @@ export { DOCKER_CORES, type DockerCore };
 /** Cores accepted by the Docker runner (arch:AC-33). */
 export type DockerRunnerCore = DockerCore;
 
+/** The repository every karst sandbox image tag lives in; cleanup never touches another. */
+export const OPENCODE_IMAGE_REPOSITORY = 'karst/opencode-sandbox';
+
 export function opencodeImageTag(v1: string, v2: string): string {
   if (!SEMVER.test(v1) || !SEMVER.test(v2)) {
     throw new Error(`opencode image: unpinned version ${JSON.stringify(`${v1}/${v2}`)}`);
   }
-  return `karst/opencode-sandbox:${v1}-${v2}-pw${PLAYWRIGHT_VERSION}-${OPENCODE_IMAGE_REVISION}`;
+  return `${OPENCODE_IMAGE_REPOSITORY}:${v1}-${v2}-pw${PLAYWRIGHT_VERSION}-${OPENCODE_IMAGE_REVISION}`;
 }
 
 export const OPENCODE_IMAGE = opencodeImageTag(OPENCODE_V1_VERSION, OPENCODE_V2_VERSION);

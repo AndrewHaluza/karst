@@ -1,4 +1,5 @@
 import type { BackendStatus } from '../agent/effectiveBackend.js';
+import { PRUNE_CACHE_HINT, REMOVE_IMAGES_HINT } from '../agent/docker/dockerCleanup.js';
 import type { DoctorCheck } from './types.js';
 
 /** Disk warning threshold for karst sandboxes (a constant, not config). */
@@ -12,6 +13,9 @@ export interface SandboxCheckInput {
   readonly sandboxCount: number;
   /** Approximate bytes used by this project's sandboxes; undefined when unknown. */
   readonly diskBytes: number | undefined;
+  /** Bytes of karst sandbox images and of the docker build cache; undefined when unknown or docker is not in use. */
+  readonly imageBytes?: number | undefined;
+  readonly cacheBytes?: number | undefined;
   /** The Docker VM's total memory; undefined when unknown or docker is not selected. */
   readonly dockerMemBytes?: number | undefined;
 }
@@ -28,7 +32,8 @@ export function checkSandboxBackends(input: SandboxCheckInput): DoctorCheck[] {
   if (input.selected.length === 0) return [];
   const out: DoctorCheck[] = input.selected.map((backend) => backendCheck(backend, backend === 'sbx' ? input.sbx : input.docker));
   if (input.selected.includes('docker') && input.dockerMemBytes !== undefined) out.push(memoryCheck(input.dockerMemBytes));
-  if (input.sandboxCount > 0) out.push(diskCheck(input.sandboxCount, input.diskBytes));
+  const extra = (input.imageBytes ?? 0) + (input.cacheBytes ?? 0);
+  if (input.sandboxCount > 0 || extra > 0) out.push(diskCheck(input.sandboxCount, input.diskBytes, input.imageBytes, input.cacheBytes));
   return out;
 }
 
@@ -58,17 +63,21 @@ function memoryCheck(bytes: number): DoctorCheck {
   };
 }
 
-function diskCheck(count: number, bytes: number | undefined): DoctorCheck {
+function diskCheck(count: number, bytes: number | undefined, imageBytes: number | undefined, cacheBytes: number | undefined): DoctorCheck {
   const noun = count === 1 ? 'sandbox' : 'sandboxes';
   const size = bytes === undefined ? 'size unknown' : `~${formatGb(bytes)}`;
-  const over = bytes !== undefined && bytes > SANDBOX_DISK_WARN_BYTES;
+  const parts = [`${count} ${noun}, ${size}`];
+  if (imageBytes !== undefined) parts.push(`karst images ~${formatGb(imageBytes)}`);
+  if (cacheBytes !== undefined) parts.push(`build cache ~${formatGb(cacheBytes)}`);
+  const total = (bytes ?? 0) + (imageBytes ?? 0) + (cacheBytes ?? 0);
+  const over = total > SANDBOX_DISK_WARN_BYTES;
   return {
     id: 'state.sandbox-disk',
     area: 'state',
     status: over ? 'warn' : 'ok',
-    detail: `${count} ${noun}, ${size}`,
+    detail: parts.join(', '),
     ...(over
-      ? { fix: { tier: 'report' as const, summary: 'sandboxes use over 10 GB', nextStep: 'remove finished sandboxes from the dashboard or run "Karst: Clean Up Orphan Sandboxes"' } }
+      ? { fix: { tier: 'report' as const, summary: 'sandboxes, karst images and build cache use over 10 GB', nextStep: `remove finished sandboxes from the dashboard or run "Karst: Clean Up Orphan Sandboxes"; remove old image tags with \`${REMOVE_IMAGES_HINT}\`; trim the build cache with \`${PRUNE_CACHE_HINT}\`` } }
       : {}),
   };
 }

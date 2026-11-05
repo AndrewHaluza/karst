@@ -56,4 +56,16 @@ describe('dockerPreflight', () => {
     const proc = { run: () => Promise.reject('nope'), pipe: () => Promise.reject(new Error('x')) };
     await expect(dockerPreflight(proc, CTX)).resolves.toEqual({ ok: false, reason: 'docker preflight failed: nope' });
   });
+
+  it('cleans up after a successful build only', async () => {
+    const built = fakeDockerProcess({ 'docker image inspect': { code: 1 } });
+    await dockerPreflight(built, CTX);
+    expect(lines(built).some((l) => l.startsWith('docker builder prune'))).toBe(true);
+    const failed = fakeDockerProcess({ 'docker image inspect': { code: 1 }, 'docker build': { code: 1 } });
+    await dockerPreflight(failed, CTX);
+    expect(lines(failed).some((l) => l.startsWith('docker builder prune'))).toBe(false);
+    const present = fakeDockerProcess();
+    await dockerPreflight(present, CTX);
+    expect(lines(present).some((l) => l.startsWith('docker builder prune'))).toBe(false);
+  });
 });
