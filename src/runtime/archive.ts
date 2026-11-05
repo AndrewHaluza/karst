@@ -72,8 +72,19 @@ export const lsofLockHolder: LockHolderCheck = (file) =>
     let out = '';
     const child = spawn('lsof', ['-t', '--', file], { stdio: ['ignore', 'pipe', 'ignore'] });
     child.stdout.on('data', (d) => (out += String(d)));
-    child.on('error', () => resolve(null));
-    child.on('close', (code) => resolve(out.trim() ? true : code === 1 ? false : null));
+    // A hung lsof must not stall the sweep: treat it as "cannot be checked".
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 5000);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(out.trim() ? true : code === 1 ? false : null);
+    });
   });
 
 export interface ArchiveDeps {

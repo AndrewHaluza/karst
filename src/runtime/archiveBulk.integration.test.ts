@@ -202,6 +202,15 @@ describe('archiveInactiveWorktrees — sweep progress (T952)', () => {
   it('selects an archived ticket with stale agent_state=running only when no session is live', async () => {
     const { t } = archivedTicket('R');
     store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(t.id);
+    // Archived just now: another window may own a live session, so it stays put.
+    const fresh = await archiveInactiveWorktrees(defaultGitRunner, store, alloc(), {
+      projectId: pid,
+      isSessionLive: () => false,
+    });
+    expect(fresh.archived).toBe(0);
+    store.db
+      .prepare("UPDATE tickets SET archived_at = datetime('now', '-2 hours') WHERE id = ?")
+      .run(t.id);
     const live = await archiveInactiveWorktrees(defaultGitRunner, store, alloc(), {
       projectId: pid,
       isSessionLive: () => true,

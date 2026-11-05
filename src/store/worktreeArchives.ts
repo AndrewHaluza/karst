@@ -43,7 +43,9 @@ export interface ArchivableWorktreesOptions extends ProjectScope {
   onlyArchived?: boolean;
   /**
    * Live-session check. An ARCHIVED ticket whose `agent_state` still reads
-   * 'running' is selected anyway when no session is live for it (a stale
+   * 'running' is selected anyway when no session is live for it AND it was
+   * archived over an hour ago (another IDE window may own a live session this
+   * window cannot see, so a freshly archived ticket is left alone) (a stale
    * column, T409); without this seam the column alone decides, as before.
    */
   isSessionLive?: (ticketId: number) => boolean;
@@ -238,7 +240,9 @@ export function listArchivableWorktrees(
     ? 't.archived_at IS NOT NULL'
     : "(t.archived_at IS NOT NULL OR t.stage_current = 'done')";
   const staleRunningClause =
-    options.isSessionLive ? ' OR t.archived_at IS NOT NULL' : '';
+    options.isSessionLive
+      ? " OR t.archived_at < datetime('now', '-1 hour')"
+      : '';
   const rows = store.db
     .prepare(
       `SELECT w.ticket_id AS ticketId, w.repo AS repoPath, w.path AS path,
