@@ -838,7 +838,10 @@
     lastTicketTypes = state.ticketTypes || [];
     lastDefaultType = state.defaultType || 'feat';
     renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
-    renderBackendPicker(state.mode, state.projectBackend, state.selectedBackend, state.sessionOpen === true);
+    lastAgentBackends = state.agentBackends || {};
+    lastPresetCores = state.presetCores || {};
+    lastBackendSelection = state.selectedBackend ?? null;
+    renderBackendPicker(state.mode, state.selectedBackend, state.sessionOpen === true);
     syncSubmitGate();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
     // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
@@ -1584,6 +1587,7 @@
           draft.selectedModel = '';
           draft.selectedEffort = '';
           post({ type: 'set-preset', id: preset || '', requestId: undefined });
+          rerenderBackendPicker();
           return;
         }
         // '' (not null) is the EXPLICIT "Inherit" pick: null means "the user
@@ -1603,6 +1607,7 @@
         post({ type: 'set-provider', id: core || '', requestId: undefined });
         post({ type: 'set-model', id: m || '', requestId: undefined });
         post({ type: 'set-effort', id: e || '', requestId: undefined });
+        rerenderBackendPicker();
       },
     });
     agentPickerInst = picker || null;
@@ -1626,16 +1631,37 @@
     el('typeSelect').innerHTML = opts.join('');
   }
 
-  // Backend picker: "Inherit (project: <backend>)" or "Host". Only a sandbox
-  // project backend gives something to opt out of; a ticket already opted out
-  // stays visible so the choice can be undone.
-  // Create mode has no ticket: the pick lives in draft.agentBackend and rides
-  // the submit/save payload. A running session locks it like the agent picker.
-  function renderBackendPicker(mode, projectBackend, stateBackend, sessionOpen) {
+  // Backend picker: "Inherit (project: <backend of the session core>)" or "Host".
+  // The label mirrors the host's backendForCore (agent/backendChoices.ts; the
+  // page cannot import TS): an exact key wins, then antigravity -> agy, else
+  // host. The picker shows when ANY core selects a sandbox (it does not depend
+  // on the effective core); a ticket already opted out stays visible so the
+  // choice can be undone. Create mode has no ticket: the pick lives in
+  // draft.agentBackend and rides the submit/save payload. A running session
+  // locks it like the agent picker.
+  let lastAgentBackends = {};
+  let lastPresetCores = {};
+  let lastBackendSelection = null;
+  function backendForCore(core) {
+    return lastAgentBackends[core] || lastAgentBackends[core === 'antigravity' ? 'agy' : core] || 'host';
+  }
+  // Effective core: an explicit core ('' = none), then the selected preset's
+  // core, then the manifest default.
+  function effectiveBackendCore() {
+    const explicit = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
+    if (explicit) return explicit;
+    const preset = draft.agentPreset ?? lastSelectedAgentPreset ?? '';
+    return (preset && lastPresetCores[preset]) || lastDefaultProvider;
+  }
+  // The core or preset pick changes the label; create mode gets no state push.
+  function rerenderBackendPicker() {
+    renderBackendPicker(draft.mode, lastBackendSelection, lastSessionOpen);
+  }
+  function renderBackendPicker(mode, stateBackend, sessionOpen) {
     const selectedBackend = mode === 'create' && draft.agentBackend !== undefined ? draft.agentBackend : stateBackend;
-    const sandboxed = projectBackend === 'sbx' || projectBackend === 'docker';
-    el('backendPicker').classList.toggle('hidden', !(sandboxed || selectedBackend === 'host'));
-    const inherit = `Inherit (project: ${esc(projectBackend || 'host')})`;
+    const anySandbox = Object.values(lastAgentBackends).some((b) => b === 'sbx' || b === 'docker');
+    el('backendPicker').classList.toggle('hidden', !(anySandbox || selectedBackend === 'host'));
+    const inherit = `Inherit (project: ${esc(backendForCore(effectiveBackendCore()))})`;
     el('backendSelect').innerHTML =
       `<option value=""${selectedBackend ? '' : ' selected'}>${inherit}</option>` +
       `<option value="host"${selectedBackend === 'host' ? ' selected' : ''}>Host (no sandbox, prompted)</option>`;
