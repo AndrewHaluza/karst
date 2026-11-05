@@ -430,14 +430,14 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
     createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing, memory: '4g', cpus: 3, ...extra });
 
   it('passes --cpus on create only', () => {
-    expect(mk([]).placeInteractive(spec()).shellArgs.slice(0, 8)).toEqual(['run', '--clone', '--memory', '4g', '--cpus', '3', '--env', 'VITEST_MAX_THREADS=3']);
+    expect(mk([]).placeInteractive(spec()).shellArgs.slice(0, 8)).toEqual(['run', '--clone', '--memory', '4g', '--cpus', '3', '--env', 'VITEST_MAX_WORKERS=3']);
     expect(mk([NAME]).placeInteractive(spec()).shellArgs).not.toContain('--cpus');
   });
 
   it('sets the worker and heap env on create and on reattach', () => {
     for (const existing of [[], [NAME]]) {
       const args = mk(existing).placeInteractive(spec()).shellArgs;
-      expect(args).toContain('VITEST_MAX_FORKS=3');
+      expect(args).toContain('VITEST_MAX_WORKERS=3');
       expect(args).toContain('NODE_OPTIONS=--max-old-space-size=2048');
     }
   });
@@ -457,8 +457,7 @@ describe('createSbxSessionRunner cpu and worker limits', () => {
     const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' } as ProcessOutcome));
     await mk([NAME], { gateProcess }).runGate!('npm', ['test'], '/wt');
     expect(gateProcess.mock.calls[0]![1]).toEqual([
-      'exec', '--env', 'KARST_SANDBOX=1', '--env', 'VITEST_MAX_THREADS=3', '--env', 'VITEST_MAX_FORKS=3',
-      '--env', 'NODE_OPTIONS=--max-old-space-size=2048', NAME, '--', 'npm', 'test',
+      'exec', '--env', 'KARST_SANDBOX=1', '--env', 'VITEST_MAX_WORKERS=3', NAME, '--', 'sh', '-c', expect.stringContaining('--max-old-space-size=2048'), 'sh', 'npm', 'test',
     ]);
   });
 });

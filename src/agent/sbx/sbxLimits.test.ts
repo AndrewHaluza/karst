@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { limitEnvEntries, limitEnvArgs, resolveGateSlots, resolveSbxCpus, resolveSbxLimits, SBX_CPUS_MAX } from './sbxLimits.js';
+import { limitEnvEntries, limitEnvArgs, resolveGateSlots, resolveSbxCpus, resolveSbxLimits, SBX_CPUS_MAX, wrapWithHeap } from './sbxLimits.js';
 
 describe('resolveSbxCpus', () => {
   it('defaults to half the host CPUs, at least 2, at most 4', () => {
@@ -23,8 +23,7 @@ describe('resolveSbxCpus', () => {
 describe('limitEnvEntries', () => {
   it('sets the worker counts and a heap of 50% of the memory limit', () => {
     expect(limitEnvEntries({ cpus: 3, memory: '4g' })).toEqual([
-      ['VITEST_MAX_THREADS', '3'],
-      ['VITEST_MAX_FORKS', '3'],
+      ['VITEST_MAX_WORKERS', '3'],
       ['NODE_OPTIONS', '--max-old-space-size=2048'],
     ]);
   });
@@ -41,7 +40,7 @@ describe('limitEnvEntries', () => {
     expect(e).toContainEqual(['NODE_OPTIONS', '--max-old-space-size=768']);
   });
   it('sets no heap when the memory limit is unknown', () => {
-    expect(limitEnvEntries({ cpus: 2 }).map(([k]) => k)).toEqual(['VITEST_MAX_THREADS', 'VITEST_MAX_FORKS']);
+    expect(limitEnvEntries({ cpus: 2 }).map(([k]) => k)).toEqual(['VITEST_MAX_WORKERS']);
   });
   it('sets nothing on opt-out', () => {
     expect(limitEnvEntries({ cpus: 2, memory: '4g', optOut: true })).toEqual([]);
@@ -50,7 +49,7 @@ describe('limitEnvEntries', () => {
 
 describe('limitEnvArgs', () => {
   it('renders --env KEY=VALUE pairs', () => {
-    expect(limitEnvArgs({ cpus: 2 })).toEqual(['--env', 'VITEST_MAX_THREADS=2', '--env', 'VITEST_MAX_FORKS=2']);
+    expect(limitEnvArgs({ cpus: 2 })).toEqual(['--env', 'VITEST_MAX_WORKERS=2']);
   });
 });
 
@@ -63,5 +62,17 @@ describe('resolveSbxLimits and resolveGateSlots', () => {
     expect(resolveGateSlots()).toBe(2);
     expect(resolveGateSlots({ gateSlots: 0 })).toBe(0);
     expect(resolveGateSlots({ gateSlots: 5 })).toBe(5);
+  });
+});
+
+describe('wrapWithHeap', () => {
+  it('extends the guest NODE_OPTIONS inside the guest and keeps the command', () => {
+    const w = wrapWithHeap('npm', ['test'], '4g');
+    expect(w.command).toBe('sh');
+    expect(w.args.slice(-3)).toEqual(['sh', 'npm', 'test']);
+    expect(w.args[1]).toContain('${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=2048');
+  });
+  it('leaves the command alone without a memory limit', () => {
+    expect(wrapWithHeap('npm', ['test'], undefined)).toEqual({ command: 'npm', args: ['test'] });
   });
 });

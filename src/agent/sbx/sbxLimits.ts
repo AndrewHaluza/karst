@@ -30,8 +30,8 @@ export interface LimitEnvInput {
 export function limitEnvEntries(input: LimitEnvInput): [string, string][] {
   if (input.optOut) return [];
   const out: [string, string][] = [
-    ['VITEST_MAX_THREADS', String(input.cpus)],
-    ['VITEST_MAX_FORKS', String(input.cpus)],
+    // vitest 4 reads only VITEST_MAX_WORKERS (MAX_THREADS / MAX_FORKS were removed).
+    ['VITEST_MAX_WORKERS', String(input.cpus)],
   ];
   const existing = input.nodeOptions?.trim() ?? '';
   if (existing.includes(HEAP_FLAG)) {
@@ -43,6 +43,22 @@ export function limitEnvEntries(input: LimitEnvInput): [string, string][] {
     out.push(['NODE_OPTIONS', existing]);
   }
   return out;
+}
+
+/** The heap flag for a sandbox memory ceiling, or undefined when none is set. */
+export function heapOption(memory: string | undefined): string | undefined {
+  return memory === undefined ? undefined : `${HEAP_FLAG}=${Math.max(1, Math.floor(toMb(memory) * SBX_HEAP_SHARE))}`;
+}
+
+/**
+ * Wrap a gate command so the GUEST's own NODE_OPTIONS is extended, not replaced (`sbx exec --env` would replace it).
+ * A heap flag the guest already sets wins. Without a heap option the command is unchanged.
+ */
+export function wrapWithHeap(command: string, args: readonly string[], memory: string | undefined): { command: string; args: string[] } {
+  const heap = heapOption(memory);
+  if (heap === undefined) return { command, args: [...args] };
+  const script = `case "$NODE_OPTIONS" in *${HEAP_FLAG}*) ;; *) export NODE_OPTIONS="\${NODE_OPTIONS:+$NODE_OPTIONS }${heap}";; esac; exec "$@"`;
+  return { command: 'sh', args: ['-c', script, 'sh', command, ...args] };
 }
 
 /** The same variables as `--env KEY=VALUE` argv pairs for `sbx run` / `sbx exec`. */

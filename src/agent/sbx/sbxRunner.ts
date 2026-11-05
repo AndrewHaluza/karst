@@ -25,7 +25,7 @@ import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKille
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
-import { limitEnvArgs } from './sbxLimits.js';
+import { limitEnvArgs, wrapWithHeap } from './sbxLimits.js';
 import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
@@ -134,8 +134,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const listed = async (): Promise<boolean> => (await probe()).state === 'present';
   const evidenceEnv = ['--env', `${SANDBOX_ENV}=1`, ...(opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [])];
   /** Worker and heap limits as `--env` pairs; `sbx run --env` also applies on reattach. Empty without a CPU count or on opt-out. */
-  const limitArgs = (nodeOptions?: string): string[] =>
-    opts.cpus === undefined ? [] : limitEnvArgs({ cpus: opts.cpus, optOut: opts.limitWorkers === false, ...(opts.memory ? { memory: opts.memory } : {}), ...(nodeOptions ? { nodeOptions } : {}) });
+  const limitArgs = (nodeOptions?: string, heap = true): string[] =>
+    opts.cpus === undefined ? [] : limitEnvArgs({ cpus: opts.cpus, optOut: opts.limitWorkers === false, ...(opts.memory && heap ? { memory: opts.memory } : {}), ...(nodeOptions ? { nodeOptions } : {}) });
   /**
    * Bring the sandbox's branch into the host worktree as the private `refs/karst/sandbox/<branch>` (never FETCH_HEAD). The bundle
    * is made INSIDE the sandbox (`sbx exec`) and streamed back as base64, so the
@@ -213,8 +213,11 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     bridgeRunDir: (paths) => paths.dir,
     // Gates run against the agent's live edits; killing the `sbx exec` client
     // on abort ends the command.
-    runGate: (command, args, cwd, gateOpts) =>
-      gateProcess(SBX_BIN, ['exec', ...evidenceEnv, ...limitArgs(), opts.name, '--', command, ...args], cwd, gateOpts),
+    runGate: (command, args, cwd, gateOpts) => {
+      // The heap flag is added inside the guest so its own NODE_OPTIONS is kept (never replaced by --env).
+      const wrapped = opts.cpus !== undefined && opts.limitWorkers !== false ? wrapWithHeap(command, args, opts.memory) : { command, args: [...args] };
+      return gateProcess(SBX_BIN, ['exec', ...evidenceEnv, ...limitArgs(undefined, false), opts.name, '--', wrapped.command, ...wrapped.args], cwd, gateOpts);
+    },
     ensureWritable,
     // Best effort and bounded: a dead VM answers nothing, which still reports as an OOM (exit 137 is the signal).
     oomReport: async () => {

@@ -167,12 +167,12 @@ export async function ticketSandboxContext(deps: TicketSandboxDeps, ticketId: nu
 
 /**
  * The ticket's gate boundary: inside its sandbox when it exists, else the host
- * `runProcess`. A ticket that HAS a sandbox never runs a gate on the host: with
+ * `runProcess`. Only `slotted` callers (real gates) take a project-wide slot; setup and clone checks do not. A ticket that HAS a sandbox never runs a gate on the host: with
  * no runner able to exec there, the gate is refused (`spawnFailed`, no verdict;
  * arch:AC-31/AC-32). Undefined when no sandbox backend is configured and the
  * session provider names no sandboxed core, so host tickets stay byte-identical.
  */
-export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number): GateProcessRunner | undefined {
+export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number, opts: { readonly slotted?: boolean } = {}): GateProcessRunner | undefined {
   if (deps.placementOf?.(ticketId)?.backend === 'host') return undefined;
   const legacy = ticketSandboxRunner(deps, ticketId);
   const listing = deps.inventory !== undefined && selectedSandboxBackends(deps.backends()).length > 0;
@@ -189,7 +189,7 @@ export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number): Ga
     deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs ${inside ? `in ${found!.runner.kind} (${found!.sandboxName})` : 'on the host (no sandbox)'}`);
     if (!inside) return runProcess(command, args, cwd, options);
     // A sandbox gate takes a project-wide slot (agents do not): gates of different tickets cannot all build at once.
-    const slotted = deps.gateSlots ? withGateSlot({ ...deps.gateSlots, limit: () => resolveGateSlots(deps.sandboxLimits?.()) }, ticketId, sandboxGate!) : sandboxGate!;
+    const slotted = opts.slotted && deps.gateSlots ? withGateSlot({ ...deps.gateSlots, limit: () => resolveGateSlots(deps.sandboxLimits?.()) }, ticketId, sandboxGate!) : sandboxGate!;
     return slotted(command, args, cwd, options);
   };
 }
@@ -360,7 +360,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         else uatGate.release(ticketId);
       },
     },
-    gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
+    gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId, { slotted: true }),
     /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
     provision: async (ticketId: number, opts: { readonly signal?: AbortSignal; readonly background?: boolean } = {}) => {
       // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
@@ -414,7 +414,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       })().catch(input.onError);
     },
     hostGateFor: (ticketId: number) => {
-      const sandboxGate = ticketGateProcess(deps, ticketId);
+      const sandboxGate = ticketGateProcess(deps, ticketId, { slotted: true });
       const sync = input.ensureInSync;
       return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync, ...(input.hostEnded ? { hostEnded: input.hostEnded } : {}) }, ticketId, sandboxGate) : undefined;
     },
