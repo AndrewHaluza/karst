@@ -115,6 +115,26 @@ describe('makeStartGuards', () => {
     expect(d.setNotStarted).not.toHaveBeenCalled();
   });
 
+  it('does not mark a ticket at another stage', () => {
+    const { d, g } = guards({ stage: 'review' });
+    g.settle(1, { kind: 'failed', reason: 'x' });
+    expect(d.setNotStarted).not.toHaveBeenCalled();
+  });
+
+  it('refuses a retry while the timed-out step still runs, then allows it', async () => {
+    vi.useFakeTimers();
+    const { g } = guards();
+    let release!: (v: string) => void;
+    const first = g.boundedBackendStep(6, 'T6', () => new Promise<string>((r) => { release = r; })).catch(() => 'timeout');
+    await vi.advanceTimersByTimeAsync(LAUNCH_BACKEND_TIMEOUT_MS);
+    await first;
+    await expect(g.boundedBackendStep(6, 'T6', async () => 'x')).rejects.toThrow('still running');
+    release('late');
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(g.boundedBackendStep(6, 'T6', async () => 'x')).resolves.toBe('x');
+    vi.useRealTimers();
+  });
+
   it('never marks a ticket with a live session', () => {
     const { d, g } = guards({ open: true });
     expect(g.settle(1, { kind: 'failed', reason: 'x' }).ok).toBe(false);

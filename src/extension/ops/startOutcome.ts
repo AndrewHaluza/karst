@@ -98,11 +98,13 @@ export interface StartGuardsDeps {
 
 /** The launch-path helpers `extension.ts` binds: a logged failed exit, and the bounded backend step. */
 export function makeStartGuards(deps: StartGuardsDeps) {
-  /** Never over a live session or a state an agent already set. */
+  /** Only an impl or fix ticket, never over a live session or a state an agent already set. */
   const markNotStarted = (ticketId: number): void => {
-    if (deps.isOpen(ticketId) || (deps.agentStateOf(ticketId) ?? 'none') !== 'none') return;
+    const stage = deps.stageOf(ticketId);
+    if ((stage !== 'impl' && stage !== 'fix') || deps.isOpen(ticketId) || (deps.agentStateOf(ticketId) ?? 'none') !== 'none') return;
     deps.setNotStarted(ticketId);
   };
+  const hung = new Set<number>(); // tickets whose timed-out backend step still runs
   return {
     markNotStarted,
     settle: (ticketId: number, outcome: SessionOutcome | undefined): StartTicketResult =>
@@ -123,9 +125,12 @@ export function makeStartGuards(deps: StartGuardsDeps) {
     },
     /** Bounds the backend step; a late result is logged, never launched. */
     async boundedBackendStep<T>(ticketId: number, label: string, work: () => Promise<T>): Promise<T> {
-      const step = await withBackendTimeout(work, LAUNCH_BACKEND_TIMEOUT_MS, () =>
+      if (hung.has(ticketId)) throw new Error(`the earlier sandbox backend step for ${label} is still running; try again when it ends`);
+      const tracked = (): Promise<T> => work().finally(() => hung.delete(ticketId));
+      const step = await withBackendTimeout(tracked, LAUNCH_BACKEND_TIMEOUT_MS, () =>
         deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`));
       if (step.kind === 'done') return step.value;
+      hung.add(ticketId);
       markNotStarted(ticketId);
       throw new Error(`the sandbox backend for ${label} did not start within ${LAUNCH_BACKEND_TIMEOUT_MS / 1000} s`);
     },
