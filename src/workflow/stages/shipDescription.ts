@@ -60,6 +60,7 @@ async function describePr(
   const r = await adapter.runHeadless({
     prompt: buildPrDescriptionPrompt(ctx),
     cwd,
+    minimalContext: true,
     model,
     effort,
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },

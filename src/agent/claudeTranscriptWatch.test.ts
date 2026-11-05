@@ -5,6 +5,7 @@ import {
   transcriptPathFor,
   parseClaudeTranscript,
   claudeTranscriptTick,
+  claudeTranscriptLocation,
   type ClaudeWatchState,
 } from './claudeTranscriptWatch.js';
 
@@ -288,5 +289,28 @@ describe('claudeTranscriptWatch', () => {
       expect(events).toEqual([]);
       expect(state.eventId).toBeNull();
     });
+  });
+});
+
+describe('claudeTranscriptLocation', () => {
+  const base = { hostProjectsDir: '/h/.claude/projects', worktreePath: '/wt/x', sessionId: 's1' };
+
+  it('keeps the host path for a host ticket and for an unrecorded placement', () => {
+    const want = transcriptPathFor('/h/.claude/projects', '/wt/x', 's1');
+    expect(claudeTranscriptLocation({ ...base, placement: { backend: 'host' } })).toBe(want);
+    expect(claudeTranscriptLocation({ ...base, placement: null })).toBe(want);
+  });
+
+  it('reads a sandboxed ticket from the bridge directory with the clone cwd encoding', () => {
+    expect(
+      claudeTranscriptLocation({
+        ...base, placement: { backend: 'sbx' }, bridgeDir: '/b/events/7', sandboxCwd: '/p/.karst/sbx-clones/n',
+      }),
+    ).toBe('/b/events/7/claude-projects/-p--karst-sbx-clones-n/s1.jsonl');
+  });
+
+  it('returns null when a sandboxed ticket has no bridge directory or no sandbox cwd', () => {
+    expect(claudeTranscriptLocation({ ...base, placement: { backend: 'docker' }, sandboxCwd: '/work/repo' })).toBeNull();
+    expect(claudeTranscriptLocation({ ...base, placement: { backend: 'sbx' }, bridgeDir: '/b' })).toBeNull();
   });
 });

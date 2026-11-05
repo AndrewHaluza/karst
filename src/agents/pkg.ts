@@ -108,6 +108,66 @@ export function listAgentFiles(agentsDir: string): AgentFile[] {
   return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The values of the optional `context:` frontmatter key. Anything else = full context. */
+export type ProfileContext = 'minimal';
+
+export interface ParsedProfileContext {
+  /** `'minimal'` only for an exact `context: minimal`; undefined = full context (no key, or an unknown value). */
+  context?: ProfileContext;
+  /** The raw value of a `context:` key that is not a known value — the caller reports it as a warning. */
+  unknown?: string;
+}
+
+/**
+ * Parse the optional top-level `context:` scalar from a profile's leading
+ * frontmatter block (same line-scan as `parseDescription`). `context: minimal`
+ * asks a headless lane to drop skills and subagents (`@arch:PROFILE`). No key
+ * or any other value = full context; an unknown value is returned in `unknown`.
+ */
+export function parseProfileContext(body: string): ParsedProfileContext {
+  if (!body.startsWith('---')) return {};
+  const lines = body.split('\n').map((l) => l.replace(/\r$/, ''));
+  let closeIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]!.trim() === '---') {
+      closeIdx = i;
+      break;
+    }
+  }
+  if (closeIdx === -1) return {};
+  for (let i = 1; i < closeIdx; i++) {
+    const line = lines[i]!;
+    if (/^\s/.test(line)) continue;
+    const match = /^context\s*:\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const raw = match[1]!.trim();
+    const value = (/^"(.*)"$/.exec(raw) ?? /^'(.*)'$/.exec(raw))?.[1] ?? raw;
+    if (value === 'minimal') return { context: 'minimal' };
+    return { unknown: value };
+  }
+  return {};
+}
+
+/**
+ * The context a process runs with, from its resolved profile body. An
+ * unreadable / absent profile (`body` undefined) and an unknown value both keep
+ * full context (undefined); the unknown value is reported through `warn`.
+ */
+export function resolveProfileContext(
+  name: string | undefined,
+  body: string | undefined,
+  warn: (message: string) => void,
+): ProfileContext | undefined {
+  if (body === undefined) return undefined;
+  const parsed = parseProfileContext(body);
+  if (parsed.unknown !== undefined) {
+    warn(
+      `[process] profile "${name ?? '(unnamed)'}": unknown \`context: ${parsed.unknown}\` — only \`minimal\` is supported; keeping full context`,
+    );
+  }
+  return parsed.context;
+}
+
 /** Read a single agent file by name. Returns null when it doesn't exist. */
 export function readAgentFile(agentsDir: string, name: string): AgentFile | null {
   const path = agentPath(agentsDir, name);

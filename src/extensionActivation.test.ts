@@ -540,7 +540,9 @@ describe('extension activation', () => {
     // must not come back as a branch here.
     expect(source).not.toMatch(/assignment\.instructions !== undefined/);
     // …and the resolved body is layered onto the assignment as `instructions`.
-    expect(source).toContain('{ ...assignment, instructions }');
+    // (the profile's `context: minimal` rides beside it, resolved from the same body).
+    expect(source).toMatch(/\.\.\.assignment,\s*instructions,/);
+    expect(source).toContain('resolveProfileContext(assignment.agent, instructions, logger.warn)');
     // Only the prompt-BEARING roles resolve a body, and that vocabulary is the
     // shared one — never a literal re-declared here.
     expect(source).toContain('new Set<ProcessRole>(PROMPT_BEARING_ROLES)');

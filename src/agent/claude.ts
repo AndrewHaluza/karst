@@ -150,6 +150,21 @@ const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spa
  * Claude Code implementation of the agent boundary (MVP's one adapter, §2.6).
  * Keeps every Claude-specific flag here so nothing leaks past `AgentAdapter`.
  */
+/** Flags of `RunHeadlessOpts.minimalContext`: no slash commands/skills, no tool definitions. */
+export const CLAUDE_MINIMAL_CONTEXT_ARGS: readonly string[] = ['--disable-slash-commands', '--tools', ''];
+
+/** Flags of `minimalContext: 'skills-and-subagents'`: no skills/slash commands, no Agent tool; every other tool stays. */
+export const CLAUDE_MINIMAL_SKILLS_ARGS: readonly string[] = ['--disable-slash-commands', '--disallowedTools', 'Agent'];
+
+/** True when the CLI output names one of the minimal-context flags as an unknown option. */
+export function rejectsMinimalContextFlag(stdout: string, stderr: string): boolean {
+  const text = `${stderr}\n${stdout}`;
+  return (
+    /unknown (option|argument)|unrecognized (option|argument)/i.test(text) &&
+    /--disable-slash-commands|--tools|--disallowedTools/.test(text)
+  );
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   // Interactive usage for claude is measured by reading Claude Code's session
   // transcript (claudeTranscriptWatch.ts) — the hooks remain lifecycle-only
@@ -188,6 +203,7 @@ export class ClaudeAdapter implements AgentAdapter {
     sandboxInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
+    minimalHeadlessContext: SUPPORTED,
     interactiveGatePolicy: SUPPORTED,
     interactiveAttendedPolicy: SUPPORTED,
   };
@@ -726,19 +742,38 @@ export class ClaudeAdapter implements AgentAdapter {
         `[agent:claude] structured output: enforcing the supplied JSON Schema on the final response`,
       );
     }
-    // `--` ends option parsing so the prompt is always a positional, even when
-    // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —
-    // otherwise the CLI reads `---…` as an unknown option and exits 1 (same fix
-    // as buildInteractiveCommand above).
-    args.push('--', opts.prompt);
+    // Minimal context (per call, never a default): drops the user's skill list,
+    // agent list and every tool definition for a lane whose karst-owned prompt
+    // calls no working tool. `--tools ""` still allows `--json-schema` output.
+    const minimalFlags =
+      opts.minimalContext === true
+        ? CLAUDE_MINIMAL_CONTEXT_ARGS
+        : opts.minimalContext === 'skills-and-subagents'
+          ? CLAUDE_MINIMAL_SKILLS_ARGS
+          : [];
+    const minimal = minimalFlags.length > 0;
+    const baseArgs = args.slice();
+    const buildArgs = (withMinimal: boolean): string[] => [
+      ...baseArgs,
+      ...(withMinimal ? minimalFlags : []),
+      // `--` ends option parsing so the prompt is always a positional, even when
+      // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —
+      // otherwise the CLI reads `---…` as an unknown option and exits 1 (same fix
+      // as buildInteractiveCommand above).
+      '--',
+      opts.prompt,
+    ];
+    let args2 = buildArgs(minimal);
 
     // The prompt is ticket prose — never logged in full. The debug line names
     // the invocation and redacts the prompt to its length (§ debug logging).
-    opts.debug?.(
-      `[agent:claude] spawn: ${args
-        .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
-        .join(' ')} (cwd ${opts.cwd})`,
-    );
+    const logSpawn = (a: string[]): void =>
+      opts.debug?.(
+        `[agent:claude] spawn: ${a
+          .map((x) => (x === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : x))
+          .join(' ')} (cwd ${opts.cwd})`,
+      );
+    logSpawn(args2);
     // Claude emits one newline-free JSON document rather than JSONL. Do NOT
     // pass the live chunks to a document buffer: HeadlessSpawnOptions.onOutput
     // sees bytes before the spawner's BoundedOutput cap. Format only the
@@ -755,20 +790,33 @@ export class ClaudeAdapter implements AgentAdapter {
     // before an abort, timeout or extension-host restart.
     const consoleOutput = opts.onOutput;
     let streamedStderr = false;
-    const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd, {
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      onDebug: opts.debug,
-      onSpawned: opts.onSpawned,
-      env: opts.env,
-      onOutput: consoleOutput
-        ? (chunk) => {
-            if (chunk.stream !== 'stderr' || chunk.text.length === 0) return;
-            streamedStderr = true;
-            emitConsoleText(consoleOutput, 'stderr', chunk.text);
-          }
-        : undefined,
-    });
+    const spawn = (a: string[]) =>
+      this.spawnHeadless(CLAUDE_BIN, a, opts.cwd, {
+        signal: opts.signal,
+        timeoutMs: opts.timeoutMs,
+        onDebug: opts.debug,
+        onSpawned: opts.onSpawned,
+        env: opts.env,
+        onOutput: consoleOutput
+          ? (chunk) => {
+              if (chunk.stream !== 'stderr' || chunk.text.length === 0) return;
+              streamedStderr = true;
+              emitConsoleText(consoleOutput, 'stderr', chunk.text);
+            }
+          : undefined,
+      });
+    let r = await spawn(args2);
+    // An older CLI can reject the minimal-context flags as unknown options.
+    // Run the call once more without them: these lanes must not turn into
+    // `execution-failed` because of an optimisation.
+    if (minimal && r.exitCode !== 0 && rejectsMinimalContextFlag(r.stdout, r.stderr)) {
+      opts.debug?.(
+        `[agent:claude] minimal context: the CLI rejected ${minimalFlags.join(' ')} as an unknown option — retrying once without them`,
+      );
+      args2 = buildArgs(false);
+      logSpawn(args2);
+      r = await spawn(args2);
+    }
     if (consoleOutput) {
       if (r.stdout.length > 0) {
         emitConsoleText(consoleOutput, 'stdout', claudeConsoleLine(r.stdout));
