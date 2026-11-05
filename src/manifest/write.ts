@@ -195,6 +195,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     agentBackends: manifest.agentBackends,
     // Optional: written when set, dropped when cleared (VM-scaled defaults).
     sandboxMemory: manifest.sandboxMemory,
+    sandboxLimits: manifest.sandboxLimits,
     // undefined overrides the stale raw scalar, so it cannot resurrect a
     // sandbox for a core the user switched back to host.
     agentBackend: undefined,

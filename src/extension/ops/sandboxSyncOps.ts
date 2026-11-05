@@ -1,5 +1,6 @@
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
+import type { SandboxLimitsConfig } from '../../agent/sbx/sbxLimits.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendCoreKey, backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
@@ -46,6 +47,7 @@ export interface BackendSessionInput {
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
   readonly hostPorts?: readonly number[];
   readonly sandboxMemory?: SandboxMemoryConfig;
+  readonly sandboxLimits?: SandboxLimitsConfig;
   /**
    * F8: before a session starts or resumes in a sandbox that already exists, sync sandbox → host
    * and refresh host → sandbox. A blocker (dirty clone, divergence) stops the launch.
@@ -77,6 +79,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
       ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}),
+      ...(input.sandboxLimits ? { sandboxLimits: input.sandboxLimits } : {}),
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch, ...(input.worktree.baseRef ? { baseRef: input.worktree.baseRef } : {}) } } : {}),
       ...(input.debug || input.hostPorts || input.sandboxMemory ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}), ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}) },

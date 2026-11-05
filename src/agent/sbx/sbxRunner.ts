@@ -25,6 +25,7 @@ import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKille
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
+import { limitEnvArgs } from './sbxLimits.js';
 import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
@@ -46,6 +47,10 @@ export interface SbxRunnerOptions {
   readonly cloneReady?: CloneReadyOptions;
   /** `sbx run --memory` ceiling (`resolveSbxMemory`). Passed on create only: an existing sandbox keeps the size it was made with. */
   readonly memory?: string;
+  /** `sbx run --cpus` (`resolveSbxCpus`), create only. Also the vitest worker count in the sandbox env. */
+  readonly cpus?: number;
+  /** false = the manifest opted out of the worker and heap variables (`sandboxLimits.workers`). */
+  readonly limitWorkers?: boolean;
   /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
   readonly log?: (line: string) => void;
 }
@@ -128,6 +133,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   };
   const listed = async (): Promise<boolean> => (await probe()).state === 'present';
   const evidenceEnv = ['--env', `${SANDBOX_ENV}=1`, ...(opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [])];
+  /** Worker and heap limits as `--env` pairs; `sbx run --env` also applies on reattach. Empty without a CPU count or on opt-out. */
+  const limitArgs = (nodeOptions?: string): string[] =>
+    opts.cpus === undefined ? [] : limitEnvArgs({ cpus: opts.cpus, optOut: opts.limitWorkers === false, ...(opts.memory ? { memory: opts.memory } : {}), ...(nodeOptions ? { nodeOptions } : {}) });
   /**
    * Bring the sandbox's branch into the host worktree as the private `refs/karst/sandbox/<branch>` (never FETCH_HEAD). The bundle
    * is made INSIDE the sandbox (`sbx exec`) and streamed back as base64, so the
@@ -188,14 +196,14 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // Only a sandbox `sbx ls` reported is reattached. Building the argv is
       // not proof the sandbox exists: a first terminal can fail before
       // creation, so a retry must create again (preflight re-lists per launch).
-      const create = known.has(opts.name) ? [] : ['--clone', ...(opts.memory ? ['--memory', opts.memory] : [])];
+      const create = known.has(opts.name) ? [] : ['--clone', ...(opts.memory ? ['--memory', opts.memory] : []), ...(opts.cpus !== undefined ? ['--cpus', String(opts.cpus)] : [])];
       const source = opts.cloneDir ?? spec.hostWorktreePath;
       const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       return {
         cwd: opts.cloneDir ?? spec.hostWorktreePath,
         shellPath: SBX_BIN,
         shellArgs: [
-          'run', ...create, '--name', opts.name, opts.core, ...workspace,
+          'run', ...create, ...limitArgs(spec.env?.NODE_OPTIONS), '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
         env: withoutHostOnlyEnv(spec.env),
@@ -206,7 +214,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // Gates run against the agent's live edits; killing the `sbx exec` client
     // on abort ends the command.
     runGate: (command, args, cwd, gateOpts) =>
-      gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
+      gateProcess(SBX_BIN, ['exec', ...evidenceEnv, ...limitArgs(), opts.name, '--', command, ...args], cwd, gateOpts),
     ensureWritable,
     // Best effort and bounded: a dead VM answers nothing, which still reports as an OOM (exit 137 is the signal).
     oomReport: async () => {
