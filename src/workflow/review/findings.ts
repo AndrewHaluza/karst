@@ -807,6 +807,11 @@ function isEmptyContainer(value: unknown): boolean {
   return Array.isArray(findings) && findings.length === 0;
 }
 
+/** A non-array object without a `findings` key: one finding, not a container. */
+function isBareFindingObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && !('findings' in value);
+}
+
 /** True when the whole text is one JSON value that CARRIES findings. */
 function isCompleteFindingsDocument(text: string): boolean {
   const value = tryParseJson(text.trim());
@@ -830,6 +835,9 @@ function completeFinalBody(finalMessage: string | undefined): string | undefined
     const body = candidate.trim();
     const value = tryParseJson(body);
     if (value === undefined) continue;
+    // A lone finding object is one PIECE of an answer (one finding per message),
+    // never the answer: only an array or a `findings` object can be a whole one.
+    if (isBareFindingObject(value)) continue;
     if (findingCandidatesFrom(value).strong || isEmptyContainer(value)) return body;
   }
   return undefined;
