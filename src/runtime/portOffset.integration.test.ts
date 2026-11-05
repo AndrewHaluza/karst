@@ -45,14 +45,17 @@ async function leaseTwoForeignSlots(own: number): Promise<{ held: PortSlotLease[
   return { held, offsets: held.filter((l) => l.offset !== own).map((l) => l.offset) };
 }
 
+/** Prefix each nested vitest line so the outer gate's FAIL_LINE never counts it as a failure. */
+const nested = (out: string): string => out.split('\n').map((l) => `| ${l}`).join('\n');
+
 describe('concurrent spin suites with distinct port offsets', () => {
   it('both pass when run at the same time', async (ctx) => {
     const leased = await leaseTwoForeignSlots(readPortOffset());
     if (!leased) return ctx.skip();
     try {
       const [a, b] = await Promise.all(leased.offsets.map(runSpinSuite));
-      expect(a!.code, `spin suite a output:\n${a!.out}`).toBe(0);
-      expect(b!.code, `spin suite b output:\n${b!.out}`).toBe(0);
+      expect(a!.code, `spin suite a output:\n${nested(a!.out)}`).toBe(0);
+      expect(b!.code, `spin suite b output:\n${nested(b!.out)}`).toBe(0);
     } finally {
       await Promise.all(leased.held.map((l) => l.release()));
     }
