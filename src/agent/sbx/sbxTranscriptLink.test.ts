@@ -42,6 +42,15 @@ describe('sbx linkTranscripts', () => {
     expect(out).toEqual({ ok: false, reason: expect.stringContaining('busy') });
   });
 
+  it('gives up when the link step hangs past its time limit', async () => {
+    const hang = { calls: [] as string[][], run: (_c: string, args: readonly string[], o?: { signal?: AbortSignal }) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      hang.calls.push([...args]);
+      o?.signal?.addEventListener('abort', () => resolve({ code: 127, stdout: '', stderr: 'aborted' }));
+    }) };
+    const runner = createSbxSessionRunner({ proc: hang, core: 'claude', name: NAME, existing: [NAME], cloneDir: CLONE, linkTimeoutMs: 20 });
+    expect(await runner.linkTranscripts!(input)).toEqual({ ok: false, reason: 'transcript link failed: timed out' });
+  });
+
   it('is absent for a non-claude core', () => {
     const r = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'codex', name: 'karst-ab12cd34-7-codex', existing: [] });
     expect(r.linkTranscripts).toBeUndefined();
