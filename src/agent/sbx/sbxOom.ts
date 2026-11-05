@@ -7,7 +7,7 @@ export const OOM_LOOKUP_TIMEOUT_MS = 8000;
 /** The process name of the LAST `Killed process <pid> (<name>)` line, or null when the log has none. */
 export function parseKilledProcess(dmesg: string): string | null {
   let name: string | null = null;
-  for (const m of dmesg.matchAll(/killed process \d+ \(([^)]+)\)/gi)) name = m[1] ?? null;
+  for (const m of dmesg.matchAll(/killed process \d+ \(([^)]+)\)/gi)) name = m[1]?.slice(0, 64) ?? null;
   return name;
 }
 

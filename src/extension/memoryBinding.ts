@@ -1,6 +1,6 @@
 import type { OpenSessionOptions } from '../ui/session.js';
 import type { Store } from '../store/db.js';
-import { memoryWaitOwner } from '../store/memoryQueue.js';
+import { memoryWaitNotes, memoryWaitOwner } from '../store/memoryQueue.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
 import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPressure.js';
@@ -107,6 +107,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     admitLaunch: async (ticketId, options) => {
       sbxTickets.add(ticketId);
       if (admitted.delete(ticketId)) return true;
+      if (pending.has(ticketId) && !memoryWaitNotes(d.store).has(ticketId)) pending.delete(ticketId); // its row was dropped: old options must not replay
       const admission = await queue.admit(ticketId);
       if (admission.admitted) { pending.delete(ticketId); return true; }
       if (pending.has(ticketId)) { d.refresh(ticketId); return false; } // already queued here: keep its options, no second notice

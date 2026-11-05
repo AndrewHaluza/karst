@@ -114,6 +114,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
       if (!claimMemoryWaitNow(store, ticketId)) return { ok: true }; // a late click, or a sweep already claimed it: never a second start
       const result = await run(ticketId);
       clearMemoryWait(store, ticketId);
+      if (result.ok) lastStartAt = now(); // the settle pause holds the sweep off a second VM
       return result;
     },
     cancel: (ticketId) => clearMemoryWait(store, ticketId),
