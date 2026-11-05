@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { RESTORED_VIEW_TYPES, RestoreGate, UNRESTORED_VIEW_TYPES } from './panelRestore.js';
-import { liveTicket, makeRestorers, registerRestoreSerializers } from './panelRestoreBinding.js';
+import { hostTracker, liveTicket, makeRestorers, registerRestoreSerializers } from './panelRestoreBinding.js';
 import { openStore } from '../store/db.js';
 import { archiveTicket, createTicket } from '../store/tickets.js';
 import { restoredTicketId } from '../ui/shared/restoredPanel.js';
@@ -159,5 +159,23 @@ describe('liveTicket', () => {
     expect(liveTicket(store, live.id)).toBe(true);
     expect(liveTicket(store, gone.id)).toBe(false);
     expect(liveTicket(store, 9999)).toBe(false);
+  });
+});
+
+describe('hostTracker', () => {
+  it('returns the host it records and hands every recorded host back by key', () => {
+    const t = hostTracker();
+    const a = { restore: () => 1 };
+    const b = { restore: () => 2 };
+    expect(t.track('settingsHost', a)).toBe(a);
+    expect(t.track('usageHost', b)).toBe(b);
+    expect(t.hosts()).toEqual({ settingsHost: a, usageHost: b });
+  });
+  it('keeps the latest host when a key is tracked twice', () => {
+    const t = hostTracker();
+    t.track('usageHost', { n: 1 });
+    const second = { n: 2 };
+    t.track('usageHost', second);
+    expect(t.hosts().usageHost).toBe(second);
   });
 });

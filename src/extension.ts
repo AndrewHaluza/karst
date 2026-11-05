@@ -19,7 +19,7 @@ import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js'
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { RestoreGate, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
+import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -597,7 +597,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
-  const restoreGate = new RestoreGate(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
+  const restoreGate = new RestoreGate(); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -615,8 +615,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showErrorMessage(
       fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
     );
-    restoreGate.fail();
-    return;
+    return restoreGate.fail();
   }
   const localStore = store;
   registerProbeCommand(context, probeRecorder, () => store!, { deactivate, activate: () => activate(context) });
@@ -1491,10 +1490,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
-  const gettingStartedHost = makeGettingStartedPanelHost(context, brandIcon);
   const gettingStarted = new GettingStartedManager(
     loadGettingStartedState,
-    gettingStartedHost,
+    restoreHosts.track('gettingStartedHost', makeGettingStartedPanelHost(context, brandIcon)),
     buildGettingStartedActions({
       scaffoldManifest,
       setDismissed: () => void context.workspaceState.update(GETTING_STARTED_DISMISSED_KEY, true),
@@ -2174,11 +2172,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Settings page: edit the manifest (host, ports, services, agents, ...) on a
   // persistent surface. Opens even on an invalid manifest so a broken file can
   // be fixed from the UI; save re-validates before touching disk.
-  const settingsHost = makeSettingsPanelHost(context, brandIcon);
   const settings = new SettingsManager(
     loadSettingsState,
     () => manifestPathOrThrow(),
-    settingsHost,
+    restoreHosts.track('settingsHost', makeSettingsPanelHost(context, brandIcon)),
     buildSettingsActions({
       writeManifest,
       reloadManifest,
@@ -2518,9 +2515,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const changesHost = makeChangesPanelHost(context, brandIcon);
   const changes = new TicketChangesManager(
-    changesHost,
+    restoreHosts.track('changesHost', makeChangesPanelHost(context, brandIcon)),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
       return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
@@ -2613,8 +2609,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
-  const usageHost = makeUsagePanelHost(context, brandIcon);
-  const tokenUsagePanel = new UsagePanelManager(localStore, usageHost, {
+  const tokenUsagePanel = new UsagePanelManager(localStore, restoreHosts.track('usageHost', makeUsagePanelHost(context, brandIcon)), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
@@ -2694,8 +2689,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
   });
   const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
-  const resourcesHost = makeResourcesPanelHost(context, brandIcon);
-  const resourcesPanel = new ResourcesPanelManager(resourcesHost, {
+  const resourcesPanel = new ResourcesPanelManager(restoreHosts.track('resourcesHost', makeResourcesPanelHost(context, brandIcon)), {
     monitor: resourceMonitorInstance,
     disk: resourcesDisk,
     worktreePaths: () => {
@@ -2904,10 +2898,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
-  const dashboardHost = makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger);
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
-    dashboardHost,
+    restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -3218,8 +3211,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
   );
   const doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) });
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, dashboardHost, changes, changesHost, settings, settingsHost,
-    gettingStarted, gettingStartedHost, doctor: doctorWiring, usage: tokenUsagePanel, usageHost, resources: resourcesPanel, resourcesHost }));
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
   serverLifecycleDeps = {
     store: localStore, manifest: currentManifest,
     stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)),

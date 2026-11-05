@@ -57,6 +57,20 @@ export interface RestoreTargets<R extends RawPanel> {
   resourcesHost: Host<R, unknown>;
 }
 
+type HostKey = 'dashboardHost' | 'changesHost' | 'settingsHost' | 'gettingStartedHost' | 'usageHost' | 'resourcesHost';
+
+/** Records each panel host as `extension.ts` builds it, so the restorers reuse the same host (no extra wiring lines there). */
+export function hostTracker<R extends RawPanel>(): {
+  track<H>(key: HostKey, host: H): H;
+  hosts(): Pick<RestoreTargets<R>, HostKey>;
+} {
+  const seen = new Map<HostKey, unknown>();
+  return {
+    track: (key, host) => (seen.set(key, host), host),
+    hosts: () => Object.fromEntries(seen) as Pick<RestoreTargets<R>, HostKey>,
+  };
+}
+
 /** The adopt path of each restored view type, built once the managers exist. */
 export function makeRestorers<R extends RawPanel>(t: RestoreTargets<R>): Restorers {
   const exists = (id: number): boolean => liveTicket(t.store, id);
