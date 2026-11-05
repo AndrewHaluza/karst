@@ -73,6 +73,14 @@ describe('reconcileRequirementFindings', () => {
       ),
     ).toEqual([fileAnchored, plain]);
   });
+  it('a file-less finding without requirement keeps its severity; a requirement finding is high', () => {
+    const note = { severity: 'low', repo: 'api', file: null, title: 'plan covers a different ticket', detail: '', source: 'agent' } as Finding;
+    const out = reconcileRequirementFindings(
+      [{ repo: 'api', findings: [note, conformance('api', 'S1', 'low')] }],
+      ['api'],
+    );
+    expect(out.map((f) => f.severity)).toEqual(['low', 'high']);
+  });
 });
 
 describe('targetHasChanges', () => {

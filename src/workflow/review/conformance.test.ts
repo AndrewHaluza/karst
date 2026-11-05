@@ -38,6 +38,11 @@ describe('buildConformanceBlock', () => {
     expect(t).toMatch(/work outside the plan/i);
     expect(t).toMatch(/"requirement"/);
   });
+  it('an unusable artifact is reported without "requirement"', () => {
+    const t = buildConformanceBlock({ intent: 'I', spec: null, plan: 'P' }).join('\n');
+    expect(t).toMatch(/ONLY for an intent\/spec requirement/);
+    expect(t).toMatch(/different ticket.*WITHOUT "requirement"/);
+  });
   it('no plan → does not judge out-of-plan work', () => {
     const t = buildConformanceBlock({ intent: 'I', spec: null, plan: null }).join('\n');
     expect(t).not.toMatch(/work outside the plan/i);
