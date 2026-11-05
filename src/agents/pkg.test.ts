@@ -141,6 +141,10 @@ describe('parseProfileContext / resolveProfileContext', () => {
     expect(parseProfileContext(fm('context: "minimal"'))).toEqual({ context: 'minimal' });
   });
 
+  it('reads a CRLF profile', () => {
+    expect(parseProfileContext('---\r\ncontext: minimal\r\n---\r\nBody')).toEqual({ context: 'minimal' });
+  });
+
   it('an unknown value is reported, never minimal', () => {
     expect(parseProfileContext(fm('context: tiny'))).toEqual({ unknown: 'tiny' });
     expect(parseProfileContext(fm('context:'))).toEqual({ unknown: '' });

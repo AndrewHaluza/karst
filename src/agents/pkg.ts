@@ -126,7 +126,7 @@ export interface ParsedProfileContext {
  */
 export function parseProfileContext(body: string): ParsedProfileContext {
   if (!body.startsWith('---')) return {};
-  const lines = body.split('\n');
+  const lines = body.split('\n').map((l) => l.replace(/\r$/, ''));
   let closeIdx = -1;
   for (let i = 1; i < lines.length; i++) {
     if (lines[i]!.trim() === '---') {
