@@ -5,7 +5,13 @@ import { structuredOutputFormOf, type StructuredOutputForm } from './surfaces.js
 import { outputRulesBase, OUTPUT_RULES_BASE } from './promptText.js';
 import { buildAlignmentPrompt } from '../workflow/artifacts/alignment.js';
 import { buildFindingsPrompt } from '../workflow/review/findingsLane.js';
-import { buildTesterPrompt } from '../workflow/uat/tester.js';
+import {
+  buildTesterPrompt,
+  testerSilenceNudge,
+  testerWrapUpNudge,
+  TESTER_SILENCE_NUDGE,
+  TESTER_WRAP_UP_NUDGE,
+} from '../workflow/uat/tester.js';
 import { parseFindingsResult } from '../workflow/review/findings.js';
 
 const TOOL = '- Finish by calling the StructuredOutput tool with your findings in its `findings` array. Write no findings as text.';
@@ -65,5 +71,31 @@ describe('findings output rules per structured-output form', () => {
     const quiet = (): void => {};
     expect(parseFindingsResult(JSON.stringify(f), ctx, quiet).findings).toHaveLength(1);
     expect(parseFindingsResult(JSON.stringify({ findings: f }), ctx, quiet).findings).toHaveLength(1);
+  });
+
+  describe('tester re-ask nudges', () => {
+    const nudges = (form: StructuredOutputForm | undefined): string[] => [
+      testerSilenceNudge(form),
+      testerWrapUpNudge(form),
+    ];
+    it('keep the bare-array wording when the core has no structured output', () => {
+      expect(testerSilenceNudge(undefined)).toBe(TESTER_SILENCE_NUDGE);
+      expect(testerWrapUpNudge(undefined)).toBe(TESTER_WRAP_UP_NUDGE);
+      for (const n of nudges(undefined)) expect(n).toContain('exactly []');
+    });
+    it('tool form names the StructuredOutput tool and never asks for a bare array', () => {
+      for (const n of nudges('tool')) {
+        expect(n).toContain('StructuredOutput');
+        expect(n).not.toContain('JSON array');
+        expect(n).not.toContain('exactly []');
+      }
+    });
+    it('final-document form names the findings object and never asks for a bare array', () => {
+      for (const n of nudges('final-document')) {
+        expect(n).toContain('`findings`');
+        expect(n).not.toContain('JSON array');
+        expect(n).not.toContain('exactly []');
+      }
+    });
   });
 });

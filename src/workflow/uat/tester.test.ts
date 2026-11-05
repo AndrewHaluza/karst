@@ -1,4 +1,5 @@
 import { AntigravityAdapter } from '../../agent/antigravity.js';
+import { SUPPORTED, type AdapterSurfaces } from '../../agent/surfaces.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
@@ -377,6 +378,31 @@ describe('runUatTester', () => {
     expect(calls[1]!.prompt).toContain('Found a dangling-reference bug');
     expect(listObservations(store, ticketId)).toHaveLength(1);
     expect(listObservations(store, ticketId)[0]!.title).toBe('dangling reference');
+  });
+
+  // The re-ask nudges must agree with the core's output rule: on a core that
+  // returns structured output through a tool, "output the JSON array" would
+  // reopen the conflict the first output rule closes.
+  it('words the reformat and silence re-asks for a core that returns structured output by tool', async () => {
+    let call = 0;
+    const { adapter, calls } = fakeAdapter(async () => {
+      call += 1;
+      if (call === 1) return { sessionId: '', verdict: null, raw: '' };
+      if (call === 2) return { sessionId: '', verdict: null, raw: 'Found a bug in prose.' };
+      return { sessionId: '', verdict: null, raw: JSON.stringify([{ severity: 'medium', title: 't', detail: '' }]) };
+    });
+    const toolAdapter: AgentAdapter = {
+      ...adapter,
+      surfaces: { structuredOutput: SUPPORTED, structuredOutputForm: 'tool' } as unknown as AdapterSurfaces,
+    };
+    await runUatTester(store, opts({ adapter: toolAdapter }), { now });
+    expect(calls).toHaveLength(3);
+    expect(calls[0]!.prompt).toContain('Finish by calling the StructuredOutput tool');
+    for (const c of calls.slice(1)) {
+      expect(c.prompt).toContain('StructuredOutput tool');
+      expect(c.prompt).not.toContain('Output the array and nothing else');
+      expect(c.prompt).not.toContain('output exactly []');
+    }
   });
 
   it('parks (unreadable-output) only after the reformat nudge also fails, and fires it at most once per target', async () => {

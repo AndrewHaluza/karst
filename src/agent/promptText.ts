@@ -185,3 +185,42 @@ export const SERVERS_VIA_CLI_RULE =
   'next spin fails inside the child where the only symptom is a health check ' +
   'that never passes. Run `servers list` (or `context`) to see what is already ' +
   'running before you reach for anything else.';
+/**
+ * The delivery phrases a re-ask nudge uses, by structured-output form, so a
+ * nudge never demands a bare array from a core whose output rule says to call
+ * the StructuredOutput tool or to end with a `{findings}` object.
+ */
+export function nudgeDelivery(form: StructuredOutputForm | undefined): {
+  /** What to produce, after "as". */
+  what: string;
+  /** The "nothing to report" instruction. */
+  empty: string;
+  /** The closing "nothing else" sentence. */
+  only: string;
+  /** What the failed answer should have been, after "was not". */
+  valid: string;
+} {
+  switch (form) {
+    case 'tool':
+      return {
+        what: 'findings in the `findings` array of the StructuredOutput tool call',
+        empty: 'call the tool with an empty `findings` array',
+        only: 'Call the StructuredOutput tool and write no findings as text.',
+        valid: 'a StructuredOutput tool call with a valid `findings` array',
+      };
+    case 'final-document':
+      return {
+        what: 'the JSON object with one key, `findings`,',
+        empty: 'use an empty `findings` array',
+        only: 'Output the object and nothing else.',
+        valid: 'a valid JSON object with a `findings` array',
+      };
+    default:
+      return {
+        what: 'the JSON array',
+        empty: 'output exactly []',
+        only: 'Output the array and nothing else.',
+        valid: 'a valid JSON array of findings',
+      };
+  }
+}
