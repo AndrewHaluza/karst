@@ -29,9 +29,11 @@ describe('prepareSbxClone with a real linked worktree', () => {
     expect(existsSync(dir)).toBe(false);
   });
 
-  it.skipIf(spawnSync('sbx', ['version']).status !== 0)('sbx accepts the clone where it rejects the worktree', () => {
+  it.skipIf(spawnSync('sbx', ['version']).status !== 0)('sbx accepts the clone where it rejects the worktree', (ctx) => {
     const wt = join(root, 'wt');
     const rejected = spawnSync('sbx', ['run', '--clone', '--name', 'karst-fixture-wt', 'claude', wt, '--detach'], { encoding: 'utf8' });
-    expect(`${rejected.stderr}${rejected.stdout}`).toContain('not supported when run from a Git worktree');
+    const output = `${rejected.stderr}${rejected.stdout}`;
+    if (output.includes('not signed in')) ctx.skip(); // sbx is installed but not logged in on this host: it never reaches the worktree check
+    expect(output).toContain('not supported when run from a Git worktree');
   });
 });
