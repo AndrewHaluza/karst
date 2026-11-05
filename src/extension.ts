@@ -1928,8 +1928,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return { ok: true };
     } catch (err) {
-      const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
-      startGuards.afterThrow(ticketId, err);
+      const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`; startGuards.afterThrow(ticketId, err);
       if (!quiet) void vscode.window.showErrorMessage(message);
       return { ok: false, message };
     }
@@ -4853,9 +4852,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *  fallback for older or interrupted planner prompts. */
   const launchGraphRun = async (ticketId: number): Promise<boolean> => {
     const gs = graphCoordinatorStore;
-    if (!gs) return false;
     const t = getTicket(localStore, ticketId);
-    if (!t.approach || t.stageCurrent !== 'impl') return false;
+    if (!gs || !t.approach || t.stageCurrent !== 'impl') return false;
     const attempt = implAttemptOf(ticketId);
     const result = await bootstrapAndLaunchPlanner(graphDriverDeps(), {
       ticketId,
