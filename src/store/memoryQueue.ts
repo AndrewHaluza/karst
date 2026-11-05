@@ -50,6 +50,14 @@ export function claimMemoryWait(store: Store, ticketId: number): boolean {
   return info.changes === 1;
 }
 
+/** Claim a queued ticket (1 → 2) regardless of its place in line ('Start anyway'). False when it is not queued: a sweep or a click already took it. */
+export function claimMemoryWaitNow(store: Store, ticketId: number): boolean {
+  const info = store.db
+    .prepare(`UPDATE tickets SET memory_wait = ${MEMORY_WAIT_STARTING}, memory_claimed_at = ${NOW_MS} WHERE id = ? AND memory_wait = ${MEMORY_WAIT_QUEUED} AND archived_at IS NULL`)
+    .run(ticketId);
+  return info.changes === 1;
+}
+
 /** Leave the queue from any state: started, failed, cancelled or archived. */
 export function clearMemoryWait(store: Store, ticketId: number): void {
   store.db
@@ -80,11 +88,6 @@ export function memoryWaitAgeMs(store: Store, ticketId: number): number | null {
 export function memoryWaitOwner(store: Store, ticketId: number): string | null {
   const r = store.db.prepare('SELECT memory_wait_owner AS o FROM tickets WHERE id = ? AND memory_wait <> 0').get(ticketId) as { o: string | null } | undefined;
   return r?.o ?? null;
-}
-
-/** True while the ticket waits in the queue (queued or starting). */
-export function isMemoryWaiting(store: Store, ticketId: number): boolean {
-  return memoryWaitAgeMs(store, ticketId) !== null;
 }
 
 /** Queued ticket ids in FIFO order; with `projectId`, only that project's (a window never starts another project's ticket). */

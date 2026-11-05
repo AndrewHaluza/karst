@@ -102,6 +102,26 @@ describe('bindMemory queue ownership', () => {
     await vi.waitFor(() => expect(opened).toEqual([id]));
   });
 
+  it('keeps an adopted row startable after a low-memory sweep refreshed it', async () => {
+    free = 0.2 * GB;
+    queueAs('200');
+    bindOwned(() => false);
+    await new Promise((r) => setTimeout(r, 60)); // sweeps refresh the row (owner becomes this window) while memory is short
+    free = 4 * GB;
+    await vi.waitFor(() => expect(opened).toEqual([id]));
+  });
+
+  it('a Start anyway click while a sweep is starting the ticket does not start it twice', async () => {
+    free = 0.2 * GB;
+    let choose: (v: string) => void = () => undefined;
+    const b = bind(() => new Promise<string | undefined>((r) => { choose = r; }));
+    await b.admitLaunch(id);
+    store.db.prepare('UPDATE tickets SET memory_wait = 2 WHERE id = ?').run(id); // a sweep holds the claim
+    choose('Start anyway');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(opened).toEqual([]);
+  });
+
   it('a late Start anyway on a ticket that left the queue starts nothing', async () => {
     free = 0.2 * GB;
     let choose: (v: string) => void = () => undefined;

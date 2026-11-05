@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { claimMemoryWait, clearMemoryWait, isMemoryWaiting, listMemoryQueue, queueMemoryWait, requeueStaleMemoryClaims, STALE_MEMORY_CLAIM_MS } from '../../store/memoryQueue.js';
+import { claimMemoryWait, clearMemoryWait, claimMemoryWaitNow, listMemoryQueue, queueMemoryWait, requeueStaleMemoryClaims, STALE_MEMORY_CLAIM_MS } from '../../store/memoryQueue.js';
 import { waitingNote } from '../../agent/sbx/sbxMemory.js';
 import type { Notify } from './notify.js';
 
@@ -110,9 +110,10 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
       }
     },
     startAnyway: async (ticketId) => {
-      if (!isMemoryWaiting(store, ticketId)) return { ok: true }; // a late click: the ticket already started or was cancelled
+      if (!claimMemoryWaitNow(store, ticketId)) return { ok: true }; // a late click, or a sweep already claimed it: never a second start
+      const result = await run(ticketId);
       clearMemoryWait(store, ticketId);
-      return run(ticketId);
+      return result;
     },
     cancel: (ticketId) => clearMemoryWait(store, ticketId),
   };

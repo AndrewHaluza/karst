@@ -69,7 +69,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
     canStart: (id) => {
       if (pending.has(id)) return true;
       const o = memoryWaitOwner(d.store, id);
-      return o === null || (o !== owner && !isAlive(o));
+      return o === null || o === owner || !isAlive(o); // o === owner: a row this window adopted earlier
     },
     start: async (id) => {
       admitted.add(id);
