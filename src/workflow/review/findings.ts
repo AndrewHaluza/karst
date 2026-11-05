@@ -796,6 +796,7 @@ export interface FindingsParseResult {
   tier: FindingsExtractionTier;
 }
 
+const FENCED_BLOCK = /```[A-Za-z0-9_-]*\n([\s\S]*?)\n?```/g;
 const SINGLE_FENCE = /^```[A-Za-z0-9_-]*\n([\s\S]*?)\n?```$/;
 
 /** True for a literal empty result: `[]` or an object whose `findings` is `[]`. */
@@ -814,17 +815,24 @@ function isCompleteFindingsDocument(text: string): boolean {
 
 /**
  * The text of a final assistant message when it is one complete findings
- * container (bare, or the only content of a single fence), else undefined.
+ * container (bare, the only content of a single fence, or the last complete
+ * fenced block after prose), else undefined.
  * Fragments of a split answer, JSONL lines and stray arrays in prose (`see
  * [1]`, a tool echo) never qualify. `[]` does: a clean pass is a real answer.
  */
 function completeFinalBody(finalMessage: string | undefined): string | undefined {
   if (finalMessage === undefined) return undefined;
   const trimmed = finalMessage.trim();
-  const body = (SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed).trim();
-  const value = tryParseJson(body);
-  if (value === undefined) return undefined;
-  return findingCandidatesFrom(value).strong || isEmptyContainer(value) ? body : undefined;
+  const candidates = [SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed];
+  // Prose around the answer is common: the LAST complete fenced block counts.
+  for (const match of trimmed.matchAll(FENCED_BLOCK)) candidates.unshift(match[1] ?? '');
+  for (const candidate of candidates) {
+    const body = candidate.trim();
+    const value = tryParseJson(body);
+    if (value === undefined) continue;
+    if (findingCandidatesFrom(value).strong || isEmptyContainer(value)) return body;
+  }
+  return undefined;
 }
 
 /**
