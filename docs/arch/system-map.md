@@ -471,6 +471,7 @@ erDiagram
   fix_deliveries
   fix_round_heads
   gate_runs
+  gate_slots
   implementation_runs
   implementation_segments
   interactive_usage_samples
