@@ -40,6 +40,8 @@
     "test:unit": "node scripts/vitestGate.mjs npx vitest run",
     "test:integration": "node scripts/vitestGate.mjs npx vitest run --config vitest.integration.config.ts",
     "typecheck": "node scripts/tsc.mjs --noEmit",
+    "gate:sast": "node scripts/sastGate.mjs",
+    "gate:secrets": "node scripts/secretsGate.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "compile": "tsc -p tsconfig.build.json",
     "copy-assets": "node scripts/copy-assets.mjs",
