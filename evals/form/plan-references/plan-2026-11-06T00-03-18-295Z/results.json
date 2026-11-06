@@ -1,0 +1,197 @@
+{
+  "meta": {
+    "startedAt": "2026-11-06T00:03:18.295Z",
+    "pass": "plan",
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "judgeModel": "claude-sonnet-5-5",
+    "provider": "claude",
+    "judgeProvider": "claude",
+    "judgeEffort": "high"
+  },
+  "results": [
+    {
+      "caseId": "vuejs/core:pr-8785",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(compiler-core): resolve dotted component tags from props in script setup",
+          "description": "In a `<script setup>` component, `<info.icon />` renders as the literal element `<info.icon></info.icon>` when `info` is a prop. Change `resolveComponentType` in packages/compiler-core/src/transforms/transformElement.ts so that the namespace of a dotted tag resolves from a prop binding. Expected output for the issue reproduction: `<div>hello</div>`.",
+          "summary": "ROOT CAUSE: packages/compiler-core/src/transforms/transformElement.ts. The dotted-tag branch of `resolveComponentType` (lines 318-324) calls `resolveSetupReference` for the namespace. `resolveSetupReference` (lines 347-388) checks only the SETUP_* and LITERAL_CONST binding types, so it returns undefined for BindingTypes.PROPS. The tag then falls through to `resolveComponent('info.icon')` in step 5. That call finds no component, so the runtime treats the tag as a native element. This explains the reproduction: `abc` is a setup binding and `props` is a setup binding, so `<abc.icon>` and `<props.info.icon>` render, but `info` is a prop and `<info.icon>` does not.\n\nThis trace comes from code reading and from the decoded reproduction. The failure was not run.\n\nDECISIONS:\n1. In the dotted-tag branch only, when the namespace has the binding type PROPS, return the props access expression plus the remaining part of the tag.\n2. Generate `$props.info.icon` in non-inline mode. `$props` is a render function argument (codegen.ts:233).\n3. Generate `__props.info.icon` in inline mode. Reuse `genPropsAccessExp`, which transformExpression.ts:198 uses for the same binding type.\n4. Keep the guard that skips this resolution when `bindingMetadata` is absent or `__isScriptSetup` is false.\n\nREJECTED:\n- Add the PROPS check inside `resolveSetupReference`. That function also serves bare tags (line 314) and custom directives (line 901). With that change, a prop `myComp` would capture `<my-comp>` and hide a globally registered component, and a prop `vFoo` would capture `v-foo`. The issue does not ask for this behavior change.\n- Tell users to write `<props.info.icon>` or `<component :is>`. That is a workaround and it leaves the root cause.\n- Support PROPS_ALIASED (destructured props). The issue does not ask for this support.\n\nNOTE: The checkout has a detached HEAD at fc772db and no local `main` ref. docs/arch and .karst/worktrees do not exist, so no arch key applies and no in-flight work overlaps.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "fc772db",
+            "Test: with `info` bound as BindingTypes.PROPS, non-inline `<info.icon/>` must generate tag `$props.info.icon` and must not call resolveComponent.",
+            "Test: with `info` bound as BindingTypes.PROPS and inline: true, `<info.icon/>` must generate tag `__props.info.icon` and must not call resolveComponent.",
+            "Put the tests next to 'resolve namespaced component from setup bindings' in compiler-core transformElement.spec.ts."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 7089,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 203579,
+        "cacheWriteTokens": 38316,
+        "totalTokens": 248996,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 97.318,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "Add the PROPS binding check inside `resolveSetupReference`, so it returns `unref(__props[\"name\"])` in inline mode and `unref($props[\"name\"])` in non-inline mode. The drafts reject this change on purpose. They only patch the dotted-tag branch."
+          },
+          {
+            "item": "Wrap the props access in the `unref` helper (`context.helperString(UNREF)`) and use bracket-string access (`__props[\"info\"]`, `$props[\"info\"]`). The drafts generate plain `$props.info.icon` and `__props.info.icon` with no `unref`, so the generated tag string differs from the one the tests expect."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "partial",
+        "f2pCoverage": [
+          {
+            "test": "resolve namespaced component from props bindings (non-inline)",
+            "coverage": "partial"
+          },
+          {
+            "test": "resolve namespaced component from props bindings (inline)",
+            "coverage": "partial"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 1062,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 25628,
+          "totalTokens": 39126,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23778",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[Select] Forward disabled to the hidden input element",
+          "description": "Root cause: packages/material-ui/src/Select/SelectInput.js takes `disabled` out of props by destructuring. The file applies `disabled` to the display div, as aria-disabled and classes, and to the icon. The file does not apply `disabled` to the `<input>`, and `...other` no longer contains the prop. Thus `<TextField select disabled />` renders an enabled input, and a form submit includes the value.\n\nWork:\n1. In SelectInput.js, add `disabled={disabled}` to the `<input>` element.\n2. In packages/material-ui/src/Select/Select.test.js, add the test that the constraints describe.",
+          "summary": "Decisions: Make the one-prop fix in SelectInput.js. InputBase already passes `fcs.disabled` to the input component, so a disabled FormControl and TextField reach SelectInput through the same path. No change is necessary in InputBase, Select, or TextField. Keep aria-disabled on the display div, because the issue does not ask to remove it.\n\nRejected: A change in TextField, because the defect is in SelectInput and a bare `<Select disabled />` has the same defect. Removal of the input `name` when disabled, because it is a workaround and does not give the input the disabled attribute.\n\nFindings: The repository has no docs/arch directory, so no @arch key applies. `draft list` was empty and no ticket worktree exists. The local `main` ref does not exist, so the history check used HEAD.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "Test: `<Select disabled value=\"\" />` renders an `input` element with the `disabled` attribute.",
+            "Test: `<Select disabled={false} value=\"\" />` renders an `input` element without the `disabled` attribute.",
+            "4f6c184"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 3142,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 200313,
+        "cacheWriteTokens": 35126,
+        "totalTokens": 238593,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 62.282,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 107,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 24079,
+          "totalTokens": 36622,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-24010",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[system] Apply style() transform when the theme value is a function or an array",
+          "description": "Root cause: in packages/material-ui-system/src/style.js, getValue() calls transform only in the final else branch (plain object theme value). When the theme value at themeKey is a function or an array, getValue() returns without a call to transform. The issue example uses themeKey 'spacing', and theme.spacing is such a value, so the transform never runs.\n\nFix: in getValue() in packages/material-ui-system/src/style.js, move the `if (transform)` block out of the else branch, so that it runs after all three branches. Add the regression test in packages/material-ui-system/src/style.test.js.",
+          "summary": "Decisions:\n- Fix the root cause in getValue(). This is the same change that the issue requests from stale PR #16439.\n- The transform receives the value that the theme lookup resolved. If the lookup finds no array entry, the transform receives the user value.\n- Change only style.js and style.test.js.\n\nRejected:\n- A wrapper or a special case for themeKey 'spacing': this is a workaround, and the defect applies to all function and array theme values.\n- A change to spacing.js or to the docs: the issue does not ask for it.\n\nKnown effect:\n- A built-in `border` style with a function or array theme.borders now has its numeric result changed by getBorder to `${value}px solid`. String results do not change, so the existing 'should transform the prop correctly' test (output3) must continue to pass without an edit.\n- Styles without a themeKey (for example `width`) use the object branch, so they do not change.\n\nNot verified in this session: the tests were not run, and the codesandbox from the issue was not opened. The root cause comes from a read of the code.\n\nNote: the checkout is a detached HEAD at 3506dda, and the ref 'main' does not resolve locally. The repository has no docs/arch directory, so no @arch keys apply. `draft list` showed no other drafts, and there are no open ticket worktrees.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "3506dda",
+            "Test must check: with a function theme value at themeKey, transform runs on the function result and the output has the transformed value.",
+            "Test must check: with an array theme value at themeKey, transform runs on the array entry and the output has the transformed value.",
+            "Test must check: with an array theme value and a missing index, transform runs on the user value.",
+            "Test must fail before the fix: the transform output is absent from the style result."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 3767,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 189900,
+        "cacheWriteTokens": 32638,
+        "totalTokens": 226315,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 81.92,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui-system/src/style.test.js:style should transform the property correctly using theme",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 92,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 24637,
+          "totalTokens": 37165,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    }
+  ]
+}

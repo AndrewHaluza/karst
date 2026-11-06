@@ -1,0 +1,421 @@
+{
+  "meta": {
+    "startedAt": "2026-11-02T23:50:28.570Z",
+    "pass": "plan",
+    "models": [
+      "claude-sonnet-5-5"
+    ],
+    "judgeModel": "claude-opus-5-5",
+    "provider": "claude",
+    "judgeProvider": "claude",
+    "judgeEffort": "low"
+  },
+  "results": [
+    {
+      "caseId": "vuejs/core:pr-8470",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(compiler-sfc): include inherited call signatures of extended interfaces in defineEmits type",
+          "description": "Root cause: packages/compiler-sfc/src/script/resolveType.ts, function resolveInterfaceMembers (around line 337). When an interface has an `extends` clause, the code calls `resolveTypeElements(ctx, ext, scope)` but destructures only `{ props }` from the result. It copies the base `props` into `base.props` and drops the base `calls`. A call signature such as `(e: 'input-event', value: string): void` is stored in `calls`, not in `props`. So for `interface ComponentEmits extends BaseEmits`, the resolved type only has the own call signatures (`blur-event`, `focus-event`). The function extractRuntimeEmits in packages/compiler-sfc/src/script/defineEmits.ts then reads `calls` and builds a runtime `emits` option without `input-event` and `change-event`. At runtime Vue warns that the events are not declared in the emits option.\n\nFix: in resolveInterfaceMembers, take `calls` from each resolved base type as well as `props`. Append the base calls to `base.calls`, and create `base.calls` when it does not exist. Keep the existing rule that an own property wins over an inherited property. Keep the `@vue-ignore` skip and the existing error handling. Do not change defineEmits.ts. Create a new array for `base.calls`. Do not mutate the object that resolveTypeElements returns for a base type.\n\nScope: only this fix and one regression test in packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts (the repository already has a call-signature test there). No refactor.",
+          "summary": "Decisions: fix the root cause in resolveInterfaceMembers (resolveType.ts), where the `extends` loop reads only `props` and loses `calls`. Rejected: changing extractRuntimeEmits in defineEmits.ts to walk the `extends` clause itself. That is a workaround; it duplicates the type resolution logic and does not fix other users of resolveTypeElements that read `calls`. Rejected: a runtime fallback or a dev warning change; the compiled emits option is wrong, so the compiler must be right. Note: the checkout has no docs/arch or docs/ui directory, no local `main` branch (HEAD is detached at a989345), no open ticket worktrees, and `draft list` was empty. So no other work touches these files. No user was available for questions; the issue text is clear enough to plan without them.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "a989345",
+            "Root cause file: packages/compiler-sfc/src/script/resolveType.ts (resolveInterfaceMembers)",
+            "No docs/arch blocks exist in this checkout; no @arch keys apply",
+            "Test must check: defineEmits<Emits>() where Emits extends Base gives a runtime emits option with the own and the inherited event names",
+            "Test example: Base has call signature 'a'; Emits extends Base and adds 'b'; compiled output contains emits with both \"a\" and \"b\"",
+            "Test must also check: a base with property syntax still resolves, and a base marked /* @vue-ignore */ is still skipped"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 17,
+        "outputTokens": 5282,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 303789,
+        "cacheWriteTokens": 34362,
+        "totalTokens": 343450,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 57.932,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 106,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 25263,
+          "totalTokens": 35461,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-8785",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "Resolve props as the namespace of a dotted component tag in script setup",
+          "description": "Problem\n\nIn a `<script setup>` component, the tag `<info.icon />` does not render when `info` is a prop. The compiler emits `<info.icon></info.icon>` instead of the component. The tags `<abc.icon />` (a computed) and `<props.info.icon />` (the `props` const) render correctly.\n\nRoot cause\n\nThe file is `packages/compiler-core/src/transforms/transformElement.ts`.\n\n1. `resolveComponentType` step 3 calls `resolveSetupReference(tag, context)`. For a dotted tag, it then calls `resolveSetupReference` again with the part before the first dot (`info`).\n2. `resolveSetupReference` checks only the binding types SETUP_CONST, SETUP_REACTIVE_CONST, LITERAL_CONST, SETUP_LET, SETUP_REF and SETUP_MAYBE_REF.\n3. A prop has the binding type `BindingTypes.PROPS`. The function does not check this type, so it returns `undefined`.\n4. Step 3 finds no namespace, and the flow goes on to step 5. Step 5 emits `resolveComponent(\"info.icon\")`. The runtime cannot find a component with this name, so it renders a plain element with that tag.\n\nWork to do\n\nMake `resolveSetupReference` resolve a binding of type `BindingTypes.PROPS`. Use the same access form as `transformExpression.ts` uses for a prop: `__props` in inline mode and `$props` in non-inline mode. Reuse `genPropsAccessExp` if it fits. Do not add a second code path in `resolveComponentType`. The dotted-tag branch then returns `<props access>` + `.icon` through the existing `ns + tag.slice(dotIndex)` code.\n\nOut of scope: refactors, aliased props (`PROPS_ALIASED`), and changes to the runtime or to compiler-sfc.",
+          "summary": "Decisions: fix the root cause in resolveSetupReference (packages/compiler-core/src/transforms/transformElement.ts). It ignores BindingTypes.PROPS, so a dotted tag whose namespace is a prop falls back to resolveComponent('info.icon'). Rejected: (a) special-casing dotted tags in resolveComponentType, because the missing PROPS lookup is the real defect and it would leave a workaround; (b) fixing in compiler-sfc or runtime, because those layers are correct and the compiler emits the wrong code; (c) asking users to write props.info.icon, because that is a workaround, not a fix. Side effect to accept: a non-dotted tag that matches a prop name will also resolve to that prop, because it uses the same function. Note: the repo has no docs/arch directory, and no draft or open ticket worktree touches these files. Evidence: the repro (decoded from the playground link) uses `const props = defineProps({ info })` with `<info.icon />` in Comp.vue.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "File: packages/compiler-core/src/transforms/transformElement.ts (resolveComponentType, resolveSetupReference)",
+            "Reference: packages/compiler-core/src/transforms/transformExpression.ts lines 195-211 (prop access form: __props inline, $props non-inline)",
+            "Test must check: compiling `<info.icon />` with bindingMetadata { __isScriptSetup: true, info: BindingTypes.PROPS } emits a component expression `$props[\"info\"].icon` and no resolveComponent call",
+            "Test must check: the same compile with inline: true emits `__props[\"info\"].icon` (or the genPropsAccessExp form) and no resolveComponent call",
+            "Test must check: existing tests for namespaced setup bindings (Foo.Example) still pass",
+            "No docs/arch blocks exist in this repo; no landed commit touches the area (HEAD fc772db is unrelated)"
+          ]
+        },
+        {
+          "title": "Resolve props as the namespace of a dotted component tag in script setup",
+          "description": "Problem\n\nIn a `<script setup>` component, the tag `<info.icon />` does not render when `info` is a prop. The compiler emits `<info.icon></info.icon>` instead of the component. The tags `<abc.icon />` (a computed) and `<props.info.icon />` (the `props` const) render correctly.\n\nRoot cause\n\nThe file is `packages/compiler-core/src/transforms/transformElement.ts`.\n\n1. `resolveComponentType` step 3 calls `resolveSetupReference(tag, context)`. For a dotted tag, it then calls `resolveSetupReference` again with the part before the first dot (`info`).\n2. `resolveSetupReference` checks only the binding types SETUP_CONST, SETUP_REACTIVE_CONST, LITERAL_CONST, SETUP_LET, SETUP_REF and SETUP_MAYBE_REF.\n3. A prop has the binding type `BindingTypes.PROPS`. The function does not check this type, so it returns `undefined`.\n4. Step 3 finds no namespace, and the flow goes on to step 5. Step 5 emits `resolveComponent(\"info.icon\")`. The runtime cannot find a component with this name, so it renders a plain element with that tag.\n\nWork to do\n\nMake `resolveSetupReference` resolve a binding of type `BindingTypes.PROPS`. Use the same access form as `transformExpression.ts` uses for a prop: `__props.<name>` in inline mode (`genPropsAccessExp` from `@vue/shared`) and `$props.<name>` in non-inline mode. Do not add a second code path in `resolveComponentType`. The existing dotted-tag branch then returns `<props access>` + `.icon` through the `ns + tag.slice(dotIndex)` code.\n\nOut of scope: refactors, aliased props (`PROPS_ALIASED`), and changes to the runtime or to compiler-sfc.",
+          "summary": "Decisions: fix the root cause in resolveSetupReference (packages/compiler-core/src/transforms/transformElement.ts). It ignores BindingTypes.PROPS, so a dotted tag whose namespace is a prop falls back to resolveComponent('info.icon'). Rejected: (a) special-casing dotted tags in resolveComponentType, because the missing PROPS lookup is the real defect and this would be a workaround; (b) fixing in compiler-sfc or runtime, because those layers are correct and the compiler emits the wrong code; (c) asking users to write props.info.icon, because that is a workaround, not a fix. Side effect to accept: a non-dotted tag that matches a prop name will also resolve to that prop, because it uses the same function. Note: the repo has no docs/arch directory, and no draft or open ticket worktree touches these files. Evidence: the repro (decoded from the playground link) uses `const props = defineProps({ info })` with `<info.icon />` in Comp.vue.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "File: packages/compiler-core/src/transforms/transformElement.ts (resolveComponentType, resolveSetupReference)",
+            "Reference: transformExpression.ts lines 195-214 (prop access form: __props.x inline, $props.x non-inline)",
+            "Test must check: `<info.icon />` with info: BindingTypes.PROPS (script setup, non-inline) resolves to `$props.info.icon`, with no resolveComponent call",
+            "Test must check: the same tag with inline: true resolves to `__props.info.icon`, with no resolveComponent call",
+            "Test must check: existing namespaced setup binding tests (Foo.Example) still pass",
+            "No docs/arch blocks exist in this repo; no landed commit touches the area (HEAD fc772db is unrelated)"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 26,
+        "outputTokens": 10008,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 485777,
+        "cacheWriteTokens": 45179,
+        "totalTokens": 540990,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 111.738,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "Wrap the props access in the unref helper (context.helperString(UNREF)), so the output is `_unref(__props[\"Foo\"]).Bar` or `_unref($props[\"Foo\"]).Bar`. The drafts do not ask for the unref wrapper. Draft 2 also asks for the dotted genPropsAccessExp form (`__props.Foo`) instead of the bracket JSON.stringify form, so the generated string will not match the expected test output."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "partial",
+        "f2pCoverage": [
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+            "coverage": "partial"
+          },
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+            "coverage": "partial"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 526,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 27469,
+          "totalTokens": 38087,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-9213",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix: render slot fallback and provided content with different Fragment keys",
+          "description": "Root cause file: packages/runtime-core/src/helpers/renderSlot.ts (function renderSlot, the createBlock(Fragment, { key }) call at lines 64-78).\n\nThe bug: renderSlot gives the same Fragment key (`_default`) to the provided slot content and to the fallback content. In the reproduction, the provided content is `<div v-if=\"show\">Provided Content</div>`. The fallback content is `<div v-if=\"showChildren\">Fallback Content</div>`. The compiler gives both v-if branches the key 0. When `show` changes, the renderer sees the same Fragment key, the same div type, and the same div key. It patches the old fallback div in place. The div is a block with no dynamic children and a static text child. The patch does not update static text. The old text stays on the screen. The slot content does not toggle.\n\nThe fix: in renderSlot, add a suffix to the Fragment key when the fallback renders. Use the suffix `_fb`. Add it only when there is no valid slot content and a fallback function exists. The key of the fallback Fragment then differs from the key of the provided Fragment. The renderer unmounts the old Fragment and mounts the new one.\n\nKeep the existing key logic: props.key, then the key of the valid slot content, then `_${name}`. Only append the suffix. Do not change the patch flags. Do not change the compiler. Do not change the runtime patch code.\n\nScope: change only renderSlot.ts and add one test. Do not refactor. Do not add other tests.\n\nRejected options: (1) Change the v-if branch key in packages/compiler-core/src/transforms/vIf.ts. This changes the output of all templates and does not solve the clash, because the clash is between two different templates. (2) Change patchElement in the runtime renderer. This touches a hot path for one slot case. (3) Add a :key in the user component. This hides the bug and does not fix it.\n\nNote: the repo has no docs/arch directory and no @arch keys. The git history has one commit (dadb363). No other draft exists and no open ticket worktree exists for this file.",
+          "summary": "Decision: fix the key in renderSlot (packages/runtime-core/src/helpers/renderSlot.ts). Cause: fallback content and provided content share the Fragment key `_default`. Both contain a v-if div with key 0 and static text, so the renderer patches the old div in place and keeps the old text. The fix appends `_fb` to the Fragment key when the fallback renders (no valid slot content and a fallback function exists). Rejected: change the v-if key in vIf.ts (wrong layer, affects all output), change patchElement (hot path, wide impact), and a user-side :key (workaround, not a fix). I traced this by reading the code. I did not run it, because node_modules is not installed. The implementing agent must install dependencies and confirm that the new test fails before the fix.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "dadb363",
+            "Root cause: packages/runtime-core/src/helpers/renderSlot.ts - same Fragment key for fallback and provided content",
+            "Test must check: show=false renders Fallback; show=true renders Provided and not Fallback; show=false again renders Fallback",
+            "Test setup: child has <slot><div v-if=\"showChildren\">Fallback</div></slot>; parent passes <div v-if=\"show\">Provided</div> and showChildren=!show",
+            "Test must check: with the same slot name, the Fragment key for fallback differs from the key for valid content",
+            "Key order stays: props.key, then content key, then _name. Existing renderSlot.spec.ts tests must pass"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 20,
+        "outputTokens": 10200,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 368387,
+        "cacheWriteTokens": 41389,
+        "totalTokens": 419996,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 112.721,
+      "defects": [
+        {
+          "kind": "invented-path",
+          "item": "docs/arch"
+        }
+      ],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "The gold adds an internal `isSlotFallback` flag to the VNode interface in packages/runtime-core/src/vnode.ts. It sets `rendered.isSlotFallback = !validSlotContent` in renderSlot. The drafts use a different Fragment key suffix (`_fb`) instead of this flag."
+          },
+          {
+            "item": "The gold changes processFragment in packages/runtime-core/src/renderer.ts. When the old and new Fragments differ in `isSlotFallback`, it unmounts the old Fragment and mounts the new one. The drafts explicitly reject any change to the renderer and depend on the key mismatch to force the remount."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "partial",
+        "f2pCoverage": [
+          {
+            "test": "packages/runtime-core/__tests__/components/Suspense.spec.ts > Suspense > nested suspense (w/ suspensible) switch several times before parent suspense resolve",
+            "coverage": "partial"
+          },
+          {
+            "test": "packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts > renderer: optimized mode > diff slot and slot fallback node",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 709,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 26099,
+          "totalTokens": 36900,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23778",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[Select] Set the disabled attribute on the hidden <input> element",
+          "description": "Root cause: packages/material-ui/src/Select/SelectInput.js. The component destructures `disabled` from props (line 38). Because of this, `disabled` is not in `...other`. `disabled` is used only for aria-disabled, tabIndex, onMouseDown, and the `classes.disabled` class on the display <div> and the icon. The hidden <input> (around line 397) does not receive `disabled`. InputBase already passes `disabled` (fcs.disabled) to SelectInput, so InputBase and TextField need no change.\n\nWork: in SelectInput.js, pass `disabled={disabled}` to the hidden <input> element. Put it before `{...other}`, in the same way as `tabIndex`, `className`, and `autoFocus`. Make no other change.",
+          "summary": "Decision: fix at the source in SelectInput.js by adding `disabled={disabled}` to the hidden <input>. This matches the expected behavior in the issue and the native <select>, so a disabled field is not submitted with its form. Rejected: change TextField or InputBase. They already pass `disabled` down, so a change there would be a workaround. Rejected: depend on aria-disabled for form behavior. It does not stop form submission. Out of scope: refactors, other Select props, extra tests beyond the one that covers this behavior. No docs/arch exists in this repo. No open ticket worktree or draft touches these files.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "Root cause file: packages/material-ui/src/Select/SelectInput.js (`disabled` destructured at line 38; hidden <input> near line 397 lacks it)",
+            "Existing test area: packages/material-ui/src/Select/Select.test.js (aria-disabled tests near line 421); add the new test there",
+            "Test must check: render `<Select disabled value=\"\" />` and `<TextField select disabled />`; the hidden native <input> (aria-hidden, class nativeInput) must have the `disabled` attribute",
+            "Test must check: with `disabled={false}` or no `disabled` prop, the hidden <input> must NOT have the `disabled` attribute",
+            "Test must check: the existing aria-disabled='true' and `Mui-disabled` class behavior on the display <div> stays the same",
+            "No docs/arch in this repo; git history checked for packages/material-ui/src/Select (latest commit 4f6c184 is unrelated)"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 15,
+        "outputTokens": 3855,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 297607,
+        "cacheWriteTokens": 31913,
+        "totalTokens": 333390,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 86.445,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 107,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 24809,
+          "totalTokens": 35008,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-24010",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix: apply the style() transform option when the theme value is a function or an array",
+          "description": "Root cause: packages/material-ui-system/src/style.js, function getValue (lines 13-30). The call `value = transform(value)` is inside the final `else` branch only. That branch runs when the theme mapping is a plain object or is missing. When `getPath(theme, themeKey)` returns a function (for example `theme.spacing`, which `createTheme` defines as a function), the first branch runs: `value = themeMapping(propValueFinal)`. When the mapping is an array, the second branch runs. Both branches return without a call to `transform`. For this reason `transform` never runs with `themeKey: 'spacing'` and a real theme.\n\nChange: in getValue, call `transform` on the resolved value after all three branches, not only in the object branch. Keep the rest of getValue and style unchanged.\n\nOut of scope: no change to other system modules, to docs, or to the TypeScript types.",
+          "summary": "Decision: move the transform call in getValue (packages/material-ui-system/src/style.js) so it runs for the function, array and object theme mappings. This is the fix that the stale PR #16439 proposed, and it fixes the cause in the one place where the skip happens.\n\nRejected: a workaround in user code (a custom theme wrapper or a manual transform in the styled component). It leaves the library defect in place.\nRejected: change spacing.js. The issue uses the generic style() function, and spacing.js already has its own transformer path.\n\nChecked: the existing test 'should transform the prop correctly' in style.test.js (case output3, theme value is a function that returns '4px solid') still passes after the change. The transform in that test returns a non-number value unchanged, so the output stays '4px solid'. The built-in users of transform are borders.js, sizing.js and display.js (displayPrint). They use an object or a missing mapping, so their behavior does not change.\n\nNo docs/arch blocks exist in this checkout, and no open draft or ticket worktree touches style.js. The last commit on style.js is 3506dda.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "3506dda",
+            "Root cause file: packages/material-ui-system/src/style.js (getValue)",
+            "Test must check: theme.spacing as a function with themeKey 'spacing': transform runs on the value that theme.spacing returns.",
+            "Test must check: theme mapping is an array: transform runs on the array item, or on the user value if the index is missing.",
+            "Test must check: theme mapping is an object or missing: transform runs one time per value. The test 'should transform the prop correctly' must still pass.",
+            "Test must check: with no transform option, the output for function, array and object mappings does not change."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 14,
+        "outputTokens": 4488,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 260440,
+        "cacheWriteTokens": 33978,
+        "totalTokens": 298920,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 54.955,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui-system/src/style.test.js:style should transform the property correctly using theme",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 92,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 25409,
+          "totalTokens": 35593,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23806",
+      "model": "claude-sonnet-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[useMediaQuery] Document why the first call returns defaultMatches and how to set noSsr globally",
+          "description": "Issue: [useMediaQuery] always returns false at the first call (duplicate of #21048).\n\nRoot cause, for reference, is in packages/material-ui/src/useMediaQuery/useMediaQuery.js, the useState initializer. Do not change that logic.\n\n1. In docs/src/pages/components/use-media-query/use-media-query.md, in the `options.noSsr` entry (line ~176), state that when noSsr is false the first call returns `defaultMatches`, or the `ssrMatchMedia` result when it is provided. State that the hook then reads the real value in an effect and renders again.\n2. In the same entry, state that a client-only app can set `noSsr: true` for every call with the theme default props. Show a short example: createMuiTheme({ props: { MuiUseMediaQuery: { noSsr: true } } }). Link to /customization/globals/#default-props. Keep one source for this text: merge or reword the existing note near line 177. Do not repeat it.\n3. Add one small test in packages/material-ui/src/useMediaQuery/useMediaQuery.test.js that proves the theme-level path works. Follow the style of the 'option: noSsr' describe block.\n4. Do not change translated docs, the demos, the TypeScript types, or the hook logic.\n\nAcceptance: the docs example is accurate, prettier passes, and the new test passes with `yarn test:unit --grep useMediaQuery`.",
+          "summary": "ROOT CAUSE: packages/material-ui/src/useMediaQuery/useMediaQuery.js, the React.useState initializer (lines ~41-52). It reads the real matchMedia value only when `noSsr && supportMatchMedia`. `noSsr` defaults to false, so on the first call the hook returns `ssrMatchMedia(query).matches` or `defaultMatches` (false). The effect then calls setMatch and the component renders a second time. This is intentional: the hook cannot detect hydration. Under React 16/17 (peer range ^16.8 || ^17) there is no useSyncExternalStore, so no safe way exists to read matchMedia in the first render of a server-rendered app without a hydration mismatch.\n\nDECISION: Do not change the useState logic or the noSsr default. The issue itself says no change to useMediaQuery is needed and that a way to supply `noSsr` is needed. That way already exists: `useMediaQuery` merges theme props (`getThemeProps` with name `MuiUseMediaQuery`) with `options`, so `createMuiTheme({ props: { MuiUseMediaQuery: { noSsr: true } } })` sets noSsr for every call in a client-only app. The docs mention this only in one note (use-media-query.md, line ~177) and do not link it to the `noSsr` option. The work: update the English docs page docs/src/pages/components/use-media-query/use-media-query.md so a reader of the `options.noSsr` entry learns (1) the first call returns `defaultMatches` (or the ssrMatchMedia result) unless noSsr is true, (2) the reason (hydration reconciliation), (3) a client-only app sets `noSsr: true` once through the theme `MuiUseMediaQuery` default props. Do not edit translated pages (-de/-es/-fr/-ru/-zh); Crowdin manages them.\n\nREJECTED: (a) Default noSsr to true or read matchMedia in the initializer for all cases: breaks hydration for SSR apps (mismatch warning, wrong markup) and contradicts the existing test 'should render twice if the default value does not match the expectation'. (b) Track a 'past hydration' flag as the issue sketches: no reliable signal in React 16/17, and partial hydration makes it wrong. (c) Rewrite with useSyncExternalStore: needs React 18 or a shim, out of scope for the current peer range. (d) New API or auto-detect for noSsr: the theme default props already cover it; the issue does not need more.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "No docs/arch in this checkout, so no @arch key is cited.",
+            "Base 21b4e26. git log shows no earlier work on packages/material-ui/src/useMediaQuery. draft list is empty. No ticket worktrees.",
+            "Root cause: useMediaQuery.js useState initializer reads matchMedia only if `noSsr && supportMatchMedia`. noSsr defaults to false.",
+            "Do not change the noSsr default or the initializer. Existing test 'should render twice if the default value does not match the expectation' must keep passing.",
+            "TEST MUST CHECK: theme props MuiUseMediaQuery {noSsr:true}, no per-call option, defaultMatches:true on '(min-width:2000px)': first render is 'false' and the effect runs once.",
+            "TEST MUST ALSO CHECK: without noSsr the first render returns defaultMatches and the effect runs twice.",
+            "Peer range react ^16.8.0 || ^17.0.0 (packages/material-ui/package.json): useSyncExternalStore is unavailable.",
+            "Do not edit translated docs use-media-query-{de,es,fr,ru,zh}.md. Crowdin manages them."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 16,
+        "outputTokens": 7831,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 306390,
+        "cacheWriteTokens": 35560,
+        "totalTokens": 349797,
+        "model": "claude-sonnet-5-5",
+        "estimated": false
+      },
+      "seconds": 83.323,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "Change React.useEffect to useEnhancedEffect (layout effect on the client) in packages/material-ui/src/useMediaQuery/useMediaQuery.js. This lets the value resolve before paint, and the F2P ssr ponyfill test needs this change. The drafts explicitly forbid any change to the hook."
+          },
+          {
+            "item": "Add a new 'Client-side only rendering' section to use-media-query.md. The section shows the per-call noSsr option and the global theme override."
+          },
+          {
+            "item": "Use the theme API that the gold uses: createMuiTheme({ components: { MuiUseMediaQuery: { defaultProps: { noSsr: true } } } }). The drafts use the older props: { MuiUseMediaQuery: ... } shape."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "partial",
+        "f2pCoverage": [
+          {
+            "test": "useMediaQuery server-side should use the ssr match media ponyfill",
+            "coverage": "none"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 328,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10090,
+          "cacheWriteTokens": 26855,
+          "totalTokens": 37275,
+          "model": "claude-opus-5-5",
+          "estimated": false
+        }
+      }
+    }
+  ]
+}
