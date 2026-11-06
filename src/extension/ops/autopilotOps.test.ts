@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, pauseTicket } from '../../store/tickets.js';
+import { createTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { clearMergeCheck, setMergeCheck } from '../../store/mergeChecks.js';
@@ -416,5 +416,42 @@ describe('autopilotTick guards (review #615)', () => {
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'waiting for review', runAt: 'x', gates: [] });
     expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
     expect(stageBlock(store, id, 'ship')?.reason).toBe('waiting for review');
+  });
+});
+
+describe('autopilotTick review #4 guards', () => {
+  it('leaves a push-diverged block alone: no round, no park', async () => {
+    seedPr(); conflict();
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'push-diverged', reason: 'origin moved', runAt: '2026-01-01T00:00:00Z', gates: [] });
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(r.resolve).not.toHaveBeenCalled();
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('push-diverged');
+  });
+
+  it('refuses a second tick while a round is in flight', async () => {
+    seedPr(); conflict();
+    let release!: (o: FixOutcome) => void;
+    const first = rig({ resolveConflicts: () => new Promise<FixOutcome>((res) => { release = res; }) });
+    const p = autopilotTick(first.deps);
+    expect((await autopilotTick(rig().deps)).kind).toBe('busy');
+    release({ kind: 'sent' });
+    expect((await p).kind).toBe('armed');
+  });
+
+  it('gives the attempt back and stays quiet when the lease is lost', async () => {
+    seedPr(); conflict();
+    const r = rig({}, { kind: 'lease-lost' });
+    expect((await autopilotTick(r.deps)).kind).toBe('not-controller');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+  });
+
+  it('does not park on ship when the ticket already left ship', async () => {
+    seedPr(failing('build'));
+    const r = rig({ sendCiFailure: async () => { setStageCurrent(store, id, 'impl'); return { kind: 'env-blocker', reason: 'read-only' }; } });
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(r.notes.length).toBe(1);
   });
 });

@@ -25,6 +25,8 @@ import {
 /** What a fix action reports back. `env-blocker` = a sandbox environment problem (read-only, setup failure, dirty/diverged clone). */
 export type FixOutcome =
   | { readonly kind: 'sent' }
+  /** This window lost the lease before the round started: nothing ran, nothing is parked. */
+  | { readonly kind: 'lease-lost' }
   | { readonly kind: 'env-blocker'; readonly reason: string }
   | { readonly kind: 'failed'; readonly reason: string };
 
@@ -73,7 +75,18 @@ export function clearParkBlock(store: Store, ticketId: number): void {
   if (stageBlock(store, ticketId, 'ship')?.reason.startsWith('auto-fix')) clearStageBlock(store, ticketId, 'ship');
 }
 
+/** A ship block of another kind than awaiting-merge (push-diverged, a gate park, ...). Awaiting-merge is the normal ship wait, where autopilot works. */
+function foreignBlock(store: Store, ticketId: number): boolean {
+  const block = stageBlock(store, ticketId, 'ship');
+  return block !== null && block.kind !== 'awaiting-merge';
+}
+
+/** Tickets with a round in flight in this process: a second tick for the same ticket must not start another round. */
+const inFlight = new Set<string>();
+
 function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
+  // Another writer's block (push-diverged) owns the ship row: leave it untouched.
+  if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
   // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
   if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
     setAutopilotStopped(d.store, d.ticketId, reason);
@@ -112,8 +125,21 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (state.stopAfter || state.pausedReason !== null || ticket.pausedAt !== null) return { kind: 'idle' };
   // A ship saga in flight owns the ticket: no round while it runs.
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
+  // Push-diverged and every other foreign block need a person: no round runs over them.
+  if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
+  const flightKey = `${d.store.db.name}:${d.ticketId}`;
+  if (inFlight.has(flightKey)) return { kind: 'busy' };
+  inFlight.add(flightKey);
+  try {
+    return await runRound(d, cfg, state);
+  } finally {
+    inFlight.delete(flightKey);
+  }
+}
+
+async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {
 
   const problem = findProblem(d, cfg.conflicts.maxRounds);
   if (problem === 'wait') return { kind: 'nothing' };
@@ -137,6 +163,11 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     return park(d, problem.kind, stoppedReason(problem.kind, budget.used, budget.max), `the budget for ${problem.repo} is spent; approve one more attempt or fix it by hand.`);
   }
   const outcome = problem.kind === 'conflicts' ? await d.resolveConflicts(problem.repo) : await d.sendCiFailure();
+  if (outcome.kind === 'lease-lost') {
+    // Another window owns the round now: give the attempt back and stay quiet.
+    refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
+    return { kind: 'not-controller' };
+  }
   if (outcome.kind === 'sent') {
     setAutopilotStopped(d.store, d.ticketId, null);
     clearParkBlock(d.store, d.ticketId);
@@ -145,6 +176,12 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     return { kind: 'armed', problem: problem.kind, used: budget.used, max: budget.max };
   }
   // Neither an environment blocker nor a failed fetch reached the agent: they cost no attempt and are not retried.
+  if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
+    // The action already moved the ticket on (CI hand-off to Implement): the attempt is spent and the ship row is not ours to park.
+    d.note(`Autopilot: ${problem.kind} round could not start`, `${d.key}: the round for ${problem.repo} was sent but the session did not start (${outcome.reason}); the ticket is no longer in ship.`);
+    d.debug(`${LOG} ticket ${d.key} ${problem.kind} left ship before the failure: ${outcome.reason}`);
+    return { kind: 'nothing' };
+  }
   refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
   if (outcome.kind === 'env-blocker') {
     return park(d, problem.kind, pausedReason(outcome.reason), `the sandbox cannot run a round (${outcome.reason}); no attempt was used and the host fallback is never taken.`, true);

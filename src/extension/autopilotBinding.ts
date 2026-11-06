@@ -62,22 +62,31 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   const owner = d.windowId;
   // A session launch is slow: after a round is sent, the ticket is left alone until the session shows up or the cooldown ends.
   const cooldown = new Map<number, number>();
-  // Keep the DB lease for the whole cooldown so a second window cannot send a duplicate round.
-  const armCooldown = (id: number): void => {
+  // The lease and the cooldown start WITH the round, not after it: a slow round must not let the lease lapse or a second tick start.
+  const beginRound = (id: number): boolean => {
+    if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return false;
     cooldown.set(id, now() + ROUND_COOLDOWN_MS);
-    claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS);
+    // A launch record left by an earlier hand-off must not read as this round's failure.
+    void d.takeLaunch(id);
+    return true;
+  };
+  /** A round that did not go out frees the ticket: drop the cooldown and shrink the lease back to the normal interval. */
+  const abandonRound = (id: number): void => {
+    cooldown.delete(id);
+    claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS);
   };
   /** A round is only sent when the opened session launched: a failed launch is an environment blocker (never a host fallback). */
   const launchFailure = async (id: number): Promise<string | null> => {
     const outcome = await d.takeLaunch(id);
     return outcome?.kind === 'failed' ? outcome.reason : null;
   };
-  const sent = async (id: number, outcome: Promise<FixOutcome>): Promise<FixOutcome> => {
-    const result = await outcome;
-    if (result.kind !== 'sent') return result;
+  const sent = async (id: number, outcome: () => Promise<FixOutcome>): Promise<FixOutcome> => {
+    if (!beginRound(id)) return { kind: 'lease-lost' };
+    const result = await outcome();
+    if (result.kind !== 'sent') { abandonRound(id); return result; }
     const failure = await launchFailure(id);
+    // The CI hand-off already moved the ticket to Implement: the cooldown stays, the engine does not park on ship.
     if (failure !== null) return { kind: 'env-blocker', reason: `session launch failed: ${failure}` };
-    armCooldown(id);
     return result;
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
@@ -93,17 +102,18 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
           && claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS),
         sessionRunning: () => running(id),
         resolveRound: async (repo) => {
+          if (!beginRound(id)) return { kind: 'refused', cause: 'lease-lost', message: 'lease lost', reason: 'lease lost' };
           const result = await resolveConflictRound(d.roundInput(id, repo));
-          if (result.kind !== 'sent') return result;
+          if (result.kind !== 'sent') { abandonRound(id); return result; }
           const failure = await launchFailure(id);
           if (failure !== null) {
+            abandonRound(id);
             const reason = `session launch failed: ${failure}`;
             return { kind: 'refused', cause: 'launch-failed', message: reason, reason };
           }
-          armCooldown(id);
           return result;
         },
-        sendCi: () => sent(id, ciOutcome(d.ciInput(id))),
+        sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
       }),
     }).finally(() => { sweeping = false; });
   };

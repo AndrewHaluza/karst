@@ -23,6 +23,7 @@ import { autopilotTick } from './autopilotOps.js';
  */
 export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
   if (result.kind === 'sent') return { kind: 'sent' };
+  if (result.cause === 'lease-lost') return { kind: 'lease-lost' };
   return result.cause === 'sandbox-sync' || result.cause === 'launch-failed'
     ? { kind: 'env-blocker', reason: result.reason }
     : { kind: 'failed', reason: result.reason };
