@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GateProcessRunner, ProcessOutcome } from '../workflow/gates/run.js';
-import { ensureSandboxSetup, resetSetupLocks, SETUP_BOUND_MS, type SetupDeps } from './sandboxSetup.js';
+import { ensureSandboxSetup, readSetupFailure, resetSetupLocks, SETUP_BOUND_MS, type SetupDeps } from './sandboxSetup.js';
 
 const HASH = 'a'.repeat(64);
 const done = (output = '', exitCode = 0): ProcessOutcome => ({ kind: 'completed', exitCode, output, stdout: output });
@@ -304,5 +304,22 @@ describe('ensureSandboxSetup', () => {
       expect(r.setups()).toHaveLength(1);
       expect(existsSync(r.deps.stateFile)).toBe(false);
     });
+  });
+});
+
+describe('readSetupFailure', () => {
+  const file = (text: string): string => {
+    const f = join(mkdtempSync(join(tmpdir(), 'setup-state-')), '1.setup.json');
+    writeFileSync(f, text);
+    return f;
+  };
+  it('names a failed setup', async () => {
+    expect(await readSetupFailure(file('{"status":"failed"}'))).toBe('dependency setup failed');
+  });
+  it('is null for an ok setup, a missing file, bad JSON and a non-object', async () => {
+    expect(await readSetupFailure(file('{"status":"ok"}'))).toBeNull();
+    expect(await readSetupFailure(join(tmpdir(), 'no-such-dir-xyz', 'x.json'))).toBeNull();
+    expect(await readSetupFailure(file('not json'))).toBeNull();
+    expect(await readSetupFailure(file('null'))).toBeNull();
   });
 });

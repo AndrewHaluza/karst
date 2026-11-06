@@ -19,6 +19,17 @@ export interface SetupState {
   readonly at: number;
 }
 
+/** The recorded setup state of a sandbox: `failed` is an environment blocker (arch:AC-47). Unreadable or missing = not failed. */
+export async function readSetupFailure(stateFile: string): Promise<string | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(stateFile, 'utf8'));
+    const status = typeof parsed === 'object' && parsed !== null ? (parsed as { status?: unknown }).status : undefined;
+    return status === 'failed' ? 'dependency setup failed' : null;
+  } catch {
+    return null;
+  }
+}
+
 export type SetupResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 /** The network window around the setup step (arch:AC-36): open for the declared hosts, close when it ends. */

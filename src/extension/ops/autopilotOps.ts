@@ -3,10 +3,12 @@ import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { decideBudget, getAutopilotBudget } from '../../store/autopilot.js';
-import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
+import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
+import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
+import { parseChecks } from '../../model/prChecks.js';
 import {
   effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, pausedReason, refundAutopilotAttempt,
   setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
@@ -71,9 +73,12 @@ export function allChecksAllowed(failing: readonly string[], allow: readonly str
   return failing.length > 0 && allow.length > 0 && failing.every((n) => allow.includes(n));
 }
 
-/** Drop the amber block this module wrote (its reason starts with `auto-fix`); never another block. */
+/**
+ * Drop the amber block this module wrote (its reason starts with `auto-fix`); never another block.
+ * The park replaced the normal awaiting-merge block, so the normal reason is put back (the ticket is still shipped).
+ */
 export function clearParkBlock(store: Store, ticketId: number): void {
-  if (stageBlock(store, ticketId, 'ship')?.reason.startsWith('auto-fix')) clearStageBlock(store, ticketId, 'ship');
+  if (stageBlock(store, ticketId, 'ship')?.reason.startsWith('auto-fix')) restoreAwaitingMergeBlock(store, ticketId);
 }
 
 /** A ship block of another kind than awaiting-merge (push-diverged, a gate park, ...). Awaiting-merge is the normal ship wait, where autopilot works. */
@@ -125,9 +130,24 @@ function findProblem(d: AutopilotDeps, maxRounds: number): Problem | 'wait' | nu
   const conflicted = open1 ?? candidates[0];
   if (conflicted) return { kind: 'conflicts', repo: conflicted.repo, signature: conflicted.baseSha! };
   const ci = ciFailureState(d.store, d.ticketId);
-  if (!ci.available) return ci.reason === 'not-failing' || ci.reason === 'stage' ? null : 'wait';
+  if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
   const names = ci.prs.flatMap((p) => p.failing.map((f) => f.name)).sort();
   return { kind: 'ci', repo: ci.prs[0]!.repo, signature: [...new Set(names)].join('\n'), failing: [...new Set(names)] };
+}
+
+/**
+ * The problem is only GONE on positive evidence (arch:DONE, arch:GH-03): every open PR has a clean merge check
+ * and a passing CI rollup. An unknown, missing, pending or unreadable status is never a pass.
+ */
+function provenClean(d: AutopilotDeps): boolean {
+  const open = [...openPrRepos(d.store, d.ticketId)];
+  if (open.length === 0) return false;
+  const merge = new Map(listMergeChecksByTicket(d.store, d.ticketId).map((c) => [c.repo, c.state]));
+  const rows = d.store.db
+    .prepare("SELECT repo, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
+    .all(d.ticketId) as Array<{ repo: string; checks: string | null }>;
+  const ci = new Map(rows.map((r) => [r.repo, parseChecks(r.checks)?.state]));
+  return open.every((repo) => merge.get(repo) === 'clean' && ci.get(repo) === 'passing');
 }
 
 /** One autopilot pass over a ship-stage ticket. Safe to call every tick: it acts at most once per signature attempt. */
@@ -139,8 +159,9 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (state.stopAfter || state.pausedReason !== null || ticket.pausedAt !== null) return { kind: 'idle' };
   // A ship saga in flight owns the ticket: no round while it runs.
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
-  // Push-diverged and every other foreign block need a person: no round runs over them.
-  if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
+  // Only a SHIPPED ticket (the awaiting-merge block) is worked: a ticket that waits for Confirm ship has no block, and its
+  // stored CI result belongs to an older head. Push-diverged and every other foreign block need a person too.
+  if (stageBlock(d.store, d.ticketId, 'ship')?.kind !== 'awaiting-merge') return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
   const flightKey = flightKeyOf(d);
@@ -206,7 +227,8 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
     // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
     // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
-    const reason = `auto-fix paused: ${problem.kind} session did not start (${outcome.reason})`;
+    // A sandbox environment blocker keeps the required `auto-fix paused: sandbox <reason>` wording (AC-47).
+    const reason = outcome.kind === 'env-blocker' ? pausedReason(outcome.reason) : `auto-fix paused: ${problem.kind} session did not start (${outcome.reason})`;
     setAutopilotStopped(d.store, d.ticketId, reason);
     setAutopilotPaused(d.store, d.ticketId, reason);
     d.note(`Autopilot: ${reason}`, `${d.key}: the ${problem.kind} round for ${problem.repo} moved the ticket to Implement but no session started; no attempt was used. Start the agent by hand, then set the auto-fix mode again to resume.`);

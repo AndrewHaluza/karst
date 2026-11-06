@@ -7,6 +7,7 @@ import { resolveConflictRound, type ResolveConflictInput } from './ops/conflictR
 import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket } from '../store/autopilot.js';
+import { readSetupFailure } from '../agent/sandboxSetup.js';
 import type { FixOutcome } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
@@ -58,6 +59,16 @@ export interface AutopilotBindingDeps {
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
   /** Marks the ticket while an autopilot round may open its session: that launch never offers the sandbox host fallback (AC-31). */
   readonly roundLaunching?: (ticketId: number, on: boolean) => void;
+  /** A recorded sandbox environment blocker that no retry can fix (a failed dependency setup, AC-47), or null. */
+  readonly envBlocker?: (ticketId: number) => Promise<string | null>;
+  /** The ticket's recorded sandbox setup state file (undefined for a host ticket); read when no `envBlocker` is given. */
+  readonly setupStateFile?: (ticketId: number) => string | undefined;
+}
+
+async function envBlockerOf(d: AutopilotBindingDeps, id: number): Promise<string | null> {
+  if (d.envBlocker) return d.envBlocker(id);
+  const file = d.setupStateFile?.(id);
+  return file ? readSetupFailure(file) : null;
 }
 
 /**
@@ -93,6 +104,8 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
     if (!beginRound(id)) return { kind: 'lease-lost' };
     d.roundLaunching?.(id, true);
     try {
+      const blocker = await envBlockerOf(d, id);
+      if (blocker) { abandonRound(id); return { kind: 'env-blocker', reason: blocker }; }
       const result = await outcome();
       if (result.kind !== 'sent') { abandonRound(id); return result; }
       const failure = await launchFailure(id);
@@ -117,15 +130,23 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         sessionRunning: () => running(id),
         resolveRound: async (repo) => {
           if (!beginRound(id)) return { kind: 'refused', cause: 'lease-lost', message: 'lease lost', reason: 'lease lost' };
-          const result = await resolveConflictRound(d.roundInput(id, repo));
-          if (result.kind !== 'sent') { abandonRound(id); return result; }
-          const failure = await launchFailure(id);
-          if (failure !== null) {
-            abandonRound(id);
-            const reason = `session launch failed: ${failure}`;
-            return { kind: 'refused', cause: 'launch-failed', message: reason, reason };
+          // The conflict hand-off may open a session: that launch fails closed too (no host-fallback prompt, AC-31).
+          d.roundLaunching?.(id, true);
+          try {
+            const blocker = await envBlockerOf(d, id);
+            if (blocker) { abandonRound(id); return { kind: 'refused', cause: 'sandbox-sync', message: blocker, reason: blocker }; }
+            const result = await resolveConflictRound(d.roundInput(id, repo));
+            if (result.kind !== 'sent') { abandonRound(id); return result; }
+            const failure = await launchFailure(id);
+            if (failure !== null) {
+              abandonRound(id);
+              const reason = `session launch failed: ${failure}`;
+              return { kind: 'refused', cause: 'launch-failed', message: reason, reason };
+            }
+            return result;
+          } finally {
+            d.roundLaunching?.(id, false);
           }
-          return result;
         },
         sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
       }),

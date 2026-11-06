@@ -1973,10 +1973,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLive: (id) => sessions.isLive(id), windowId: `${process.pid}-${Date.now()}`,
     canLaunch: (id) => guardCapability('sessions', id, true),
     takeLaunch: launches.take, roundLaunching: launches.markRound,
+    setupStateFile: (id) => sandboxB?.deps.bridgeOf?.(id)?.setupStateFile,
     roundInput: (id, repo) => ({ repo, label: formatId('ticket', id), probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed), arm: (r) => armConflictRound(localStore, conflictRounds, id, r), prepareSandbox: () => sandboxLife.ensureInSync(id), notify: (m) => logger.info(m), deliver: (brief) => { if (!sessions.nudge(id, brief)) openSeeded(id, brief, repo); } }),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
   }));
-  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: async (id) => { sessions.disposeSession(id); await sandboxLife.stop(id); } }));
+  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); } }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
     store: localStore,

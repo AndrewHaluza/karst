@@ -191,6 +191,19 @@ function parkAwaitingMerge(store: Store, ticketId: number, state: MergeGateState
 }
 
 /**
+ * Put the NORMAL awaiting-merge reason back on the ship row (autopilot cleared its own park, T973).
+ * A landed state has no wait left, so the block is dropped and the settle path takes over.
+ */
+export function restoreAwaitingMergeBlock(store: Store, ticketId: number): void {
+  const state = mergeGateState(store, ticketId);
+  if (isLanded(state)) {
+    setStage(store, ticketId, 'ship', { blockedKind: null, blockedReason: null, blockedAt: null });
+    return;
+  }
+  setStage(store, ticketId, 'ship', { blockedKind: 'awaiting-merge', blockedReason: describeAwaitingMerge(state), blockedAt: nowIso() });
+}
+
+/**
  * Whether a ticket at `ship` has PROVABLY shipped but lost its `awaiting-merge`
  * block to a failed terminal write.
  *

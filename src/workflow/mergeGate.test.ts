@@ -9,7 +9,7 @@ import { transition } from './machine.js';
 import { setStage } from '../store/stages.js';
 import { dismissPr } from '../store/prs.js';
 import { openShipRun, closeShipRun } from '../store/shipRuns.js';
-import { mergeGateState, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
+import { mergeGateState, restoreAwaitingMergeBlock, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
 
 // Wrapped rather than stubbed (`vi.fn(actual.x)`), so every OTHER test in this
 // file — which drives tickets through real transitions and real stage writes —
@@ -449,5 +449,27 @@ describe('settleShipGates', () => {
     store.db.prepare('DELETE FROM tickets WHERE id = ?').run(broken);
 
     expect(settleShipGates(store)).toEqual([good]);
+  });
+});
+
+describe('restoreAwaitingMergeBlock', () => {
+  let store: Store;
+  let id: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'T-9', title: 't' }).id;
+    setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+  });
+  it('writes the normal awaiting-merge block while a PR is open', () => {
+    seedPr(store, id, 'api', 'open');
+    restoreAwaitingMergeBlock(store, id);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('api') });
+  });
+  it('clears the block when every PR is merged', () => {
+    seedPr(store, id, 'api', 'open');
+    restoreAwaitingMergeBlock(store, id);
+    store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
+    restoreAwaitingMergeBlock(store, id);
+    expect(stageBlock(store, id, 'ship')).toBeNull();
   });
 });

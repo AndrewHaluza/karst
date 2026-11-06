@@ -9,6 +9,7 @@ import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopi
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
+const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
 let id: number;
 
@@ -52,6 +53,7 @@ beforeEach(() => {
   id = createTicket(store, { key: 'AP-1', title: 't' }).id;
   for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
   setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+  parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: NORMAL_BLOCK, runAt: '2026-08-09T10:00:00.000Z', gates: [] });
 });
 
 describe('allChecksAllowed', () => {
@@ -358,7 +360,7 @@ describe('amber Needs you state', () => {
     await autopilotTick(rig().deps);
     expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: 'auto-fix stopped: conflicts 2/2' });
     approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
-    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('is not merged yet') });
   });
   it('never clears a block that autopilot did not write', async () => {
     seedPr();
@@ -406,10 +408,22 @@ describe('autopilotTick guards (review #615)', () => {
     await autopilotTick(rig().deps);
     expect((await autopilotTick(rig().deps)).kind).toBe('parked');
     expect(stageBlock(store, id, 'ship')).not.toBeNull();
-    clearMergeCheck(store, id, 'r');
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'base1', baseRef: 'develop', checkedAt: 'x' });
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify({ state: 'passing', total: 3, passed: 3, failed: 0, pending: 0, failedShown: 0, failing: [] }), id);
     expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
-    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('is not merged yet') });
     expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+
+  it('keeps the park when the merge or CI status is unknown (no positive evidence)', async () => {
+    seedPr(); conflict();
+    await autopilotTick(rig().deps);
+    await autopilotTick(rig().deps);
+    expect((await autopilotTick(rig().deps)).kind).toBe('parked');
+    clearMergeCheck(store, id, 'r');
+    await autopilotTick(rig().deps);
+    expect(stageBlock(store, id, 'ship')?.reason).toMatch(/^auto-fix/);
+    expect(getAutopilotTicket(store, id).stoppedReason).not.toBeNull();
   });
 
   it('keeps a block that autopilot did not write', async () => {
@@ -444,7 +458,7 @@ describe('autopilotTick review #4 guards', () => {
     const r = rig({}, { kind: 'lease-lost' });
     expect((await autopilotTick(r.deps)).kind).toBe('not-controller');
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
-    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: NORMAL_BLOCK });
   });
 
   it('pauses with a visible reason and refunds the attempt when the ticket left ship before the launch failed', async () => {
@@ -452,7 +466,7 @@ describe('autopilotTick review #4 guards', () => {
     const r = rig({ sendCiFailure: async () => { setStageCurrent(store, id, 'impl'); return { kind: 'failed', reason: 'no seat' }; } });
     const result = await autopilotTick(r.deps);
     expect(result.kind).toBe('parked');
-    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: NORMAL_BLOCK });
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
     expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: ci session did not start (no seat)');
     expect(r.notes.length).toBe(1);

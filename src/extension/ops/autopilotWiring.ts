@@ -10,6 +10,7 @@ import { listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
+import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 
 /**
  * Binds the autopilot engine to the real ship actions. Only the mapping lives here:
@@ -33,7 +34,7 @@ export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
  * Run "Send CI failure to agent" without the click: the confirm is answered yes.
  * Autopilot never shows a toast: the info and error text go to the debug log only.
  * A gh failure and a missing failure are NOT a sent round, so each becomes a `failed` outcome.
- * A refused hand-off IS a sent round: the ticket already moved to Implement.
+ * A refused hand-off is NOT a sent round: it returns `failed` (the ticket already moved to Implement, so the engine pauses).
  */
 export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
   if (!ciFailureState(input.store, input.ticketId).available) return { kind: 'failed', reason: 'no failing CI to send' };
@@ -86,21 +87,39 @@ export interface AutopilotSweepDeps {
   readonly changed: () => void;
 }
 
+/** A sub-task that holds a concurrency slot (arch:CONCURRENCY). */
+export interface SlotHolder { readonly id: number; readonly subtaskParentId: number }
+
 /**
- * Each auto round counts against the sub-task concurrency limit (@arch:CONCURRENCY):
- * the cap is full when the running tickets reach the total, or the running
- * children of the same parent reach the per-parent cap.
+ * Every sub-task of the project that holds a slot: the same rule the autostart picker uses (`HOLDS_SLOT_SQL`),
+ * plus a sub-task whose agent still runs at ship (a conflict round does not leave ship but does use a seat).
+ */
+export function listSlotHolders(store: Store, projectId: number): SlotHolder[] {
+  const rows = store.db
+    .prepare(
+      `SELECT s.id AS id, s.subtask_parent_id AS parent FROM tickets s
+        WHERE s.project_id = ? AND s.subtask_parent_id IS NOT NULL
+          AND (${HOLDS_SLOT_SQL} OR (s.archived_at IS NULL AND s.stage_current = 'ship' AND s.agent_state = 'running'))`,
+    )
+    .all(projectId) as Array<{ id: number; parent: number }>;
+  return rows.map((r) => ({ id: r.id, subtaskParentId: r.parent }));
+}
+
+/**
+ * Each auto round of a sub-task counts against the sub-task concurrency limit (@arch:CONCURRENCY): the round
+ * needs a slot like a started sub-task does. The cap is full when the slot holders reach the total, or the
+ * holders of the same parent reach the per-parent cap. A ticket that is not a sub-task has no slot to take.
+ * A cap of 0 (or less) means unlimited, as in pickSubtasksToStart.
  */
 export function concurrencyFullFor(
-  tickets: ReadonlyArray<{ id: number; agentState: string | null; subtaskParentId: number | null }>,
+  holders: readonly SlotHolder[],
   self: { id: number; subtaskParentId: number | null },
   caps: AutostartCaps,
 ): boolean {
-  const running = tickets.filter((t) => t.agentState === 'running' && t.id !== self.id);
-  // A cap of 0 (or less) means unlimited, as in pickSubtasksToStart.
-  if (caps.total > 0 && running.length >= caps.total) return true;
-  return caps.perParent > 0 && self.subtaskParentId !== null
-    && running.filter((t) => t.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
+  if (self.subtaskParentId === null) return false;
+  const others = holders.filter((h) => h.id !== self.id);
+  if (caps.total > 0 && others.length >= caps.total) return true;
+  return caps.perParent > 0 && others.filter((h) => h.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
 }
 
 /** One pass over the ship tickets of the bound project. Never throws; a failure only delays the next pass. */
@@ -109,7 +128,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
   if (projectId === undefined) return 0;
   const tickets = listTickets(d.store, { projectId });
   let acted = 0;
-  const armed = new Set<number>();
+  // Sub-tasks armed earlier in this pass hold a seat the stored rows do not show yet.
+  const armed = new Map<number, SlotHolder>();
   for (const t of tickets) {
     if (t.stageCurrent !== 'ship') continue;
     try {
@@ -119,12 +139,12 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         config: () => d.manifest()?.autopilot,
         controls: seams.controls,
         sessionRunning: seams.sessionRunning,
-        concurrencyFull: () => concurrencyFullFor(tickets.map((o) => (armed.has(o.id) ? { ...o, agentState: 'running' } : o)), t, d.caps()),
+        concurrencyFull: () => concurrencyFullFor([...listSlotHolders(d.store, projectId), ...armed.values()], t, d.caps()),
         ...actionSeams(seams.resolveRound, seams.sendCi),
         note: (title, body) => void postAgentNote(d.store, { projectId, fromTicketId: t.id, title, body }),
         debug: d.debug,
       });
-      if (result.kind === 'armed') armed.add(t.id);
+      if (result.kind === 'armed' && t.subtaskParentId !== null) armed.set(t.id, { id: t.id, subtaskParentId: t.subtaskParentId });
       if (result.kind === 'armed' || result.kind === 'parked') acted += 1;
     } catch (err) {
       d.debug(`[ship] autopilot ticket ${t.key ?? formatId('ticket', t.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);

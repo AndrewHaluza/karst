@@ -193,8 +193,10 @@ export type HostFallbackResult<T> =
 export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   for (;;) {
     const backend = await input.launch();
-    if (backend.sandboxed || !input.wantsSandbox || !(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
+    if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
+    // Fail closed BEFORE the listing: a listing that fails must not read as "no sandbox" and launch on the host (AC-31).
     if (input.failClosed === true) return { kind: 'refused', reason: 'the sandbox backend is unavailable and auto-fix never runs on the host' };
+    if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
     const picked = await input.choose(
       `Karst: the sandbox backend for ${input.ticketLabel} is unavailable, but the ticket has a sandbox with the agent's work in it.`,
       [HOST_FALLBACK_RETRY, HOST_FALLBACK_HOST],

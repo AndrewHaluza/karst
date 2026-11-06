@@ -13,6 +13,10 @@ describe('conflictOutcome', () => {
   it('maps a dirty or diverged sandbox clone (AC-46) to an environment blocker', () => {
     expect(conflictOutcome({ kind: 'refused', cause: 'sandbox-sync', message: 'm', reason: 'clone diverged' })).toEqual({ kind: 'env-blocker', reason: 'clone diverged' });
   });
+  it('maps a lost lease to lease-lost and a failed launch to an environment blocker', () => {
+    expect(conflictOutcome({ kind: 'refused', cause: 'lease-lost', message: 'm', reason: 'r' })).toEqual({ kind: 'lease-lost' });
+    expect(conflictOutcome({ kind: 'refused', cause: 'launch-failed', message: 'm', reason: 'no terminal' })).toEqual({ kind: 'env-blocker', reason: 'no terminal' });
+  });
   it.each(['placement-unknown', 'no-conflict'] as const)('maps %s to a failure, never a host fallback', (cause) => {
     expect(conflictOutcome({ kind: 'refused', cause, message: 'm', reason: 'r' })).toEqual({ kind: 'failed', reason: 'r' });
   });
@@ -31,32 +35,31 @@ import { upsertProject } from '../../store/projects.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
+import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
-import { autopilotSweep, concurrencyFullFor, type TicketSeams } from './autopilotWiring.js';
+import { autopilotSweep, concurrencyFullFor, listSlotHolders, type TicketSeams } from './autopilotWiring.js';
 
 describe('concurrencyFullFor', () => {
   const caps = { perParent: 1, total: 3 };
-  const t = (id: number, agentState: string | null, subtaskParentId: number | null = null) => ({ id, agentState, subtaskParentId });
+  const h = (id: number, subtaskParentId: number) => ({ id, subtaskParentId });
+  const self = (id: number, subtaskParentId: number | null) => ({ id, subtaskParentId });
   it('is full at the total cap, ignoring the ticket itself', () => {
-    const all = [t(1, 'running'), t(2, 'running'), t(3, 'running'), t(4, null)];
-    expect(concurrencyFullFor(all, t(4, null), caps)).toBe(true);
-    expect(concurrencyFullFor(all, t(3, 'running'), caps)).toBe(false);
+    const all = [h(1, 11), h(2, 12), h(3, 13)];
+    expect(concurrencyFullFor(all, self(4, 14), caps)).toBe(true);
+    expect(concurrencyFullFor(all, self(3, 13), caps)).toBe(false);
   });
   it('treats a cap of 0 as unlimited', () => {
-    const all = [t(1, 'running', 8), t(2, 'running', 8), t(3, 'running', 8), t(4, null, 8)];
-    expect(concurrencyFullFor(all, t(4, null, 8), { perParent: 0, total: 0 })).toBe(false);
-    expect(concurrencyFullFor(all, t(4, null, 8), { perParent: 0, total: 3 })).toBe(true);
+    const all = [h(1, 8), h(2, 8), h(3, 8)];
+    expect(concurrencyFullFor(all, self(4, 8), { perParent: 0, total: 0 })).toBe(false);
+    expect(concurrencyFullFor(all, self(4, 8), { perParent: 0, total: 3 })).toBe(true);
   });
-  it('counts only running siblings of the same parent against the per-parent cap', () => {
-    const all = [t(1, 'running', 8), t(2, null, 9)];
-    expect(concurrencyFullFor(all, t(2, null, 9), caps)).toBe(false);
-    expect(concurrencyFullFor([t(1, 'running', 9)], t(2, null, 9), caps)).toBe(true);
+  it('counts only slot holders of the same parent against the per-parent cap', () => {
+    expect(concurrencyFullFor([h(1, 8)], self(2, 9), caps)).toBe(false);
+    expect(concurrencyFullFor([h(1, 9)], self(2, 9), caps)).toBe(true);
   });
-  it('is full at the per-parent cap for a sub-task only', () => {
-    const all = [t(1, 'running', 9), t(2, null, 9)];
-    expect(concurrencyFullFor(all, t(2, null, 9), caps)).toBe(true);
-    expect(concurrencyFullFor(all, t(5, null, null), caps)).toBe(false);
+  it('never limits a ticket that is not a sub-task', () => {
+    expect(concurrencyFullFor([h(1, 9), h(2, 9), h(3, 9)], self(5, null), caps)).toBe(false);
   });
 });
 
@@ -67,6 +70,7 @@ describe('autopilotSweep', () => {
     const id = createTicket(store, { key: 'AP-9', title: 't', projectId: project.id }).id;
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
     setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked: not merged yet', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r', '/w', 'b');
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 5, ?, ?)').run(id, 'r', 'https://github.com/o/r/pull/5', 'open');
     setMergeCheck(store, { ticketId: id, repo: 'r', state: 'conflicted', files: [], reason: null, headSha: 'h', baseSha: 'b1', baseRef: 'develop', checkedAt: 'x' });
@@ -109,6 +113,7 @@ describe('ciOutcome', () => {
     const id = createTicket(store, { key: 'CI-1', title: 't' }).id;
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
     setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked: not merged yet', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r', '/w', 'b');
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, 5, ?, ?, ?)').run(id, 'r', 'https://github.com/o/r/pull/5', 'open', withFailure ? JSON.stringify(failingChecks) : null);
     const info = vi.fn(); const error = vi.fn(); const debug = vi.fn();
@@ -164,6 +169,7 @@ describe('autopilotSweep edges', () => {
     const { store, projectId, id } = setup();
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
     setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked: not merged yet', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
     const d = base(store, projectId, { seamsFor: () => { throw new Error('boom'); } });
     expect(await autopilotSweep(d)).toBe(0);
     expect(d.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-7: sweep failed (boom)');
@@ -174,8 +180,23 @@ describe('autopilotSweep edges', () => {
     const { store, projectId, id } = setup();
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
     setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked: not merged yet', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
     const d = base(store, projectId, { seamsFor: () => { throw 'bad'; } });
     await autopilotSweep(d);
     expect(d.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-7: sweep failed (bad)');
+  });
+});
+
+describe('listSlotHolders', () => {
+  it('lists sub-tasks only: running ship sub-tasks hold a slot, plain tickets and idle ones do not', () => {
+    const store = openStore(':memory:');
+    const project = upsertProject(store, { slug: 'p' });
+    const parent = createTicket(store, { key: 'P-1', title: 'p', projectId: project.id }).id;
+    const running = createTicket(store, { key: 'S-1', title: 's', projectId: project.id, subtaskParentId: parent }).id;
+    const idle = createTicket(store, { key: 'S-2', title: 's', projectId: project.id, subtaskParentId: parent }).id;
+    const plain = createTicket(store, { key: 'T-1', title: 't', projectId: project.id }).id;
+    for (const tid of [running, idle, plain]) store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(tid);
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id IN (?, ?)").run(running, plain);
+    expect(listSlotHolders(store, project.id)).toEqual([{ id: running, subtaskParentId: parent }]);
   });
 });
