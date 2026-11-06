@@ -33,7 +33,7 @@ export interface DependencyProbeOptions {
 }
 
 const cacheKey = (dep: RequiredDependency): string =>
-  JSON.stringify([dep.binary, dep.unavailable ?? null, dep.ready?.args ?? null, dep.probeEnv ?? null]);
+  JSON.stringify([dep.binary, dep.unavailable, dep.ready?.args, dep.probeEnv]);
 
 /**
  * Async, bounded, cached dependency probes. Never blocks the extension host: a
