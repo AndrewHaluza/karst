@@ -197,6 +197,14 @@ describe('ci', () => {
     expect(r.notes).toHaveLength(1);
     expect(r.sendCi).toHaveBeenCalledTimes(1);
   });
+  it('parks with the error and refunds the attempt when the action throws', async () => {
+    seedPr(failing('build'));
+    const r = rig({ sendCiFailure: async () => { throw new Error('boom'); } });
+    const out = await autopilotTick(r.deps);
+    expect(out).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci could not run (boom)' });
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(r.notes).toHaveLength(1);
+  });
 });
 
 describe('sandboxed ticket', () => {

@@ -206,7 +206,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (!budget.ok) {
     return park(d, problem.kind, stoppedReason(problem.kind, budget.used, budget.max), `the budget for ${problem.repo} is spent; approve one more attempt or fix it by hand.`);
   }
-  const outcome = problem.kind === 'conflicts' ? await d.resolveConflicts(problem.repo) : await d.sendCiFailure();
+  // An action that throws reached no agent: it costs no attempt and parks with the error, like a failed fetch.
+  const outcome: FixOutcome = await (problem.kind === 'conflicts' ? d.resolveConflicts(problem.repo) : d.sendCiFailure())
+    .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   if (outcome.kind === 'lease-lost') {
     // Another window owns the round now: give the attempt back and stay quiet.
     refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);

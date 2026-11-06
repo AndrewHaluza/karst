@@ -54,6 +54,7 @@ describe('BlockedBanner — when it shows', () => {
     mountRail(blockedState(block('awaiting-merge', { resumable: false, reason: 'auto-fix stopped: conflicts 2/2' })));
     expect(shown()).toBe(true);
     expect(banner().textContent).toContain('auto-fix stopped: conflicts 2/2');
+    expect(banner().querySelector('[data-act="stage-resume"]')).toBeNull();
   });
 
   it('reads the real host path: an awaiting-merge park renders no banner, an unmapped repository offers Resume', () => {

@@ -61,6 +61,11 @@ export interface AutopilotBindingDeps {
   readonly roundLaunching?: (ticketId: number, on: boolean) => void;
   /** A recorded sandbox environment blocker that no retry can fix (a failed dependency setup, AC-47), or null. */
   readonly envBlocker?: (ticketId: number) => Promise<string | null>;
+  /**
+   * Checked BEFORE a CI hand-off moves the ticket to Implement: an unreadable placement or a dirty or diverged clone
+   * at the pre-round sync (AC-46). A string is an environment blocker; null lets the round go. Default: no check.
+   */
+  readonly ciPreflight?: (ticketId: number) => Promise<string | null>;
   /** The ticket's recorded sandbox setup state file (undefined for a host ticket); read when no `envBlocker` is given. */
   readonly setupStateFile?: (ticketId: number) => string | undefined;
 }
@@ -76,8 +81,9 @@ async function envBlockerOf(d: AutopilotBindingDeps, id: number): Promise<string
  * ticket when it holds the session, or when no window runs one. "Session running" uses the same data.
  */
 export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
-  // The engine also refuses a ticket whose stored agent state is running, so only the live-session check lives here.
-  const running = (id: number): boolean => d.isLive(id);
+  // An open terminal with an idle or waiting agent is not a running session: it must not block a round or a park.
+  // The engine also refuses a ticket whose stored agent state is running (another window).
+  const running = (id: number): boolean => d.isLive(id) && getTicket(d.store, id).agentState === 'running';
   const now = d.now ?? Date.now;
   const owner = d.windowId;
   // A session launch is slow: after a round is sent, the ticket is left alone until the session shows up or the cooldown ends.
@@ -98,13 +104,15 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   /** A round is only sent when the opened session launched: a failed launch is an environment blocker (never a host fallback). */
   const launchFailure = async (id: number): Promise<string | null> => {
     const outcome = await d.takeLaunch(id);
-    return outcome?.kind === 'failed' ? outcome.reason : null;
+    if (outcome?.kind === 'failed') return outcome.reason;
+    // No session was opened (cancelled, graph-owned, recovery): the round did not reach the agent.
+    return outcome?.kind === 'not-applicable' ? `no session opened (${outcome.reason})` : null;
   };
   const sent = async (id: number, outcome: () => Promise<FixOutcome>): Promise<FixOutcome> => {
     if (!beginRound(id)) return { kind: 'lease-lost' };
     d.roundLaunching?.(id, true);
     try {
-      const blocker = await envBlockerOf(d, id);
+      const blocker = (await envBlockerOf(d, id)) ?? (await d.ciPreflight?.(id).catch((err: unknown) => (err instanceof Error ? err.message : String(err)))) ?? null;
       if (blocker) { abandonRound(id); return { kind: 'env-blocker', reason: blocker }; }
       const result = await outcome();
       if (result.kind !== 'sent') { abandonRound(id); return result; }
@@ -150,7 +158,7 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         },
         sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
       }),
-    }).finally(() => { sweeping = false; });
+    }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };
   const timer = setInterval(sweep, d.intervalMs);
   return { dispose: () => clearInterval(timer) };

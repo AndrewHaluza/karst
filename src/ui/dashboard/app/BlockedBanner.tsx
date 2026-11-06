@@ -301,6 +301,8 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
     );
   }
   if (kind === 'baseline-review') return <BaselineReview entries={slice.baselines} reason={reason} drafts={drafts} />;
+  // An autopilot park (T973) is an awaiting-merge wait: Resume cannot act on it, so the banner shows the reason only.
+  if (kind === 'awaiting-merge') return <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />;
   return (
     <>
       <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />

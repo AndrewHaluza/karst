@@ -89,6 +89,21 @@ describe('a failed session launch', () => {
   });
 });
 
+describe('a launch that opened no session', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('does not count a not-applicable outcome as a sent round', async () => {
+    const r = rig({ takeLaunch: async () => ({ kind: 'not-applicable', reason: 'cancelled' }) });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    r.release();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(getAutopilotTicket(r.deps.store, r.id).pausedReason).toContain('no session opened (cancelled)');
+    handle.dispose();
+  });
+});
+
 describe('a running session', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
@@ -103,12 +118,13 @@ describe('a running session', () => {
     handle.dispose();
     expect(r.roundInput).not.toHaveBeenCalled();
   });
-  it('arms nothing when this window holds a live session whose state is not yet running', async () => {
+  it('arms a round when this window holds an open terminal whose agent is idle', async () => {
     const r = rig({ isLive: () => true });
+    r.deps.store.db.prepare("UPDATE tickets SET agent_state = 'idle' WHERE id = ?").run(r.id);
     const handle = startAutopilot(r.deps);
     await vi.advanceTimersByTimeAsync(1000);
     handle.dispose();
-    expect(r.roundInput).not.toHaveBeenCalled();
+    expect(r.roundInput).toHaveBeenCalled();
   });
 });
 
