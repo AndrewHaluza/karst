@@ -10,6 +10,8 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 Time zone: all times in this report are UTC. Git commit times were local CET (UTC+1) and are converted to UTC. The Nov 2 18:06 time of `~/.claude/CLAUDE.md` is taken from the ticket text; its zone is not stated and the study did not use it.
 
+Data cut: Nov 6 20:00 UTC. The store counts of Q1 and Q2 reproduce with this cut (first non-stale `claude-opus-5-5` review per ticket: A 73, C 41, 22 blocked). Reviews after the cut are not in the tables. The store at Nov 7 00:13 UTC has 47 tickets for Nov 5 to 6 with 27 blocked (57%), and it includes reviews of T995 itself, so the cut also keeps this ticket out of its own data.
+
 Each verdict below is either MEASURED (number and source) or NOT MEASURED (reason and the free query). Projects: 5 of the 41 tickets in C belong to another project (mobile-app); see Q2.
 
 Research only. No prompt, reviewer definition, threshold or setting changed. Data: store `process_runs` + `review_findings`, first review per ticket, model claude-opus-5-5, blocking = critical, high or medium. Review transcripts: `~/.claude/projects/<worktree>/<uuid>.jsonl`.
@@ -17,11 +19,11 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 ## [@issue:RB-01] Summary and verdict
 
 - Q1: MEASURED. First-review block rate: A (Oct 29 to Nov 1) 21% (15 of 73 tickets), C (Nov 5 to 6) 54% (22 of 41). Without UI-only and docs-only tickets: A 22% (n=69), C 54% (n=41). Without the 11 C tickets that have no merged diff: C 47% (n=30). Source: RB-02. The ticket figures (19% over 90 tickets) match Oct 27 to Nov 1 (17 of 91), not Oct 29 to Nov 1; the reason is not confirmed.
-- Q2: MEASURED for the type mix only. The `fix` share is 51% in A and 51% in C. At the A type mix, C would have a block rate of 46% to 54% against 54% actual (0 to 4 of the 33 points; source RB-03). NOT MEASURED: the size mix and the intent mix. 15 of 41 C tickets and 2 of 73 A tickets have an intent value. Free query: block rate by intent value and by size band (`tickets` joined with `process_runs`). No verdict on whether the mix explains the rise.
-- Q3: MEASURED as a list of input differences (RB-04): Claude Code version (2.1.314 and 2.1.316 in A, 2.1.318 and 2.1.319 in C), loaded user context, repo CLAUDE.md, prompt tail with the Intent section (1 of 57 A runs, 14 of 35 C runs), and `effort: medium` in 8 runs. The prompt text and the model did not change. NOT MEASURED: which difference changes the block rate. A free query cannot measure this; it needs a controlled re-run.
-- Q4: NOT MEASURED. No sampled finding was classified against the code as the reviewer saw it (the snapshot refs are gone). The sample classes in RB-05 and RB-08 compare findings with later code and later fixes, so they are circular and are not a measure of correctness. Free query: for each sampled finding that names a first ticket-branch commit, run `git show <commit>:<file>` and classify against that. The study did not do it.
+- Q2: MEASURED (source RB-03). The mix does not explain the rise. Of the 33 points (21% to 54%): type 0 to 4 points (the `fix` share is 51% in A and 51% in C; at the A type mix C would have 46% to 54%), size 0 points (at the A size mix C would have 56%; reviewed diffs are a median of 150 lines in A and 181.5 in C), intent 4 points (at the A intent mix C would have 50%). If the three effects added, the mix explains at most 8 points (about a quarter). The rate rose inside every size band, among `fix` tickets (11% to 48%) and among tickets without intent (21% to 50%).
+- Q3: MEASURED as a list of input differences (RB-04): Claude Code version (2.1.314 and 2.1.316 in A, 2.1.318 and 2.1.319 in C), loaded user context, repo CLAUDE.md, prompt tail with the Intent section (1 of 57 A runs, 14 of 35 C runs), and `effort: medium` in 8 runs. The reviewer prompt text (hash 21e8a7e8) and the model did not change, but the assembled prompt did change: its tail now has an Intent section (and, in 5 runs, a Ticket description section) that most A prompts do not have. NOT MEASURED: which difference changes the block rate. A free query cannot measure this; it needs a controlled re-run.
+- Q4: MEASURED (source RB-05, RB-08). Each of the 30 sampled findings was classified against the ticket-branch code at the review start. Wrong: 0 of 29 decided (A 0 of 14, C 0 of 15; 1360 in A is UNDECIDED, because it needs a Stryker run). Real at the stated severity: A 6 of 14 (43%), C 7 of 15 (47%). Real but below the stated severity: A 8, C 8. Right severity low (would not block): A 7 of 14, C 3 of 15. 5 of the 9 stated highs in the C sample are medium at most. The extra blocks in C are real defects; the rise is not explained by false findings. Both periods rate about half of the findings above their right severity.
 - Q5: MEASURED, with low power. Fix-titled later tickets that reference a ticket that passed review: A 5 of 70, C 3 of 38 (text match; source RB-06). C is 1 to 2 days old. No verdict on missed bugs.
-- Forced-high rule: MEASURED. Highs without a file (the form of a forced requirement finding): A 0 of 4, C 1 of 21 (source RB-04). The rule gives at most 1 of the 21 C highs.
+- Forced-high rule: MEASURED (source RB-04). Code form (highs without a file): A 0 of 4, C 1 of 21. Prompt form ("ALWAYS high" for an unmet intent scenario or spec requirement; `conformance.ts`): it applies to the 15 C tickets with intent, which have 14 of the 21 C highs (4 name a scenario by text match). The other 7 C highs are on tickets without intent (0.27 per ticket against 0.06 in A), so the rule does not explain the rise in highs there.
 - Cause: not isolated. The report names two candidates that match the timing: (a) from Nov 2, the user context and the Intent section; (b) Nov 5 12:13 UTC, the Claude Code upgrade to 2.1.318 (store cut-over at run 5759). The extension build per run is NOT MEASURED (the store does not record it; free query: none).
 - Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of 5 tickets with an intent value, from Oct 29 to Nov 3 (2 of the 73 A tickets have one, so B tickets are needed). Each run reviews the first-review input diff of one ticket: the ticket-branch commits before the review start, rebuilt with git. Factors: Claude Code version (2.1.316 and 2.1.319), loaded context (A context and current context), prompt tail (with and without Intent). It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. It tests (a) and (b). It does not test the extension build or `effort`. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
 
@@ -54,7 +56,7 @@ Second table, without UI-only and docs-only tickets:
 
 11 of the 41 tickets in C have no merged diff, so the study could not classify them as UI-only or docs-only. They stay in the C row. Without them, C has 30 tickets with 47% blocked (14 of 30), against 22% in A. The rise holds in both views.
 
-The ticket figures (90 tickets, 19% blocked) match Oct 27 to Nov 1 in this table: 91 tickets, 17 blocked (19%), 0.23 average. They do not match Oct 29 to Nov 1, which has 73 tickets. The ticket text probably names the wrong start day, but the study did not confirm this. The later days compare as follows (ticket against this study): Nov 2 35% and 0.40 against 33% and 0.39; Nov 3 38% and 0.75 against 38% and 0.75; Nov 5 52% and 1.00 against 55% and 1.05; Nov 6 52% and 1.14 against 52% and 1.14. These agree within 3 points. The user counts may also include other models or repeat reviews. The daily averages of 0.15 to 0.32 in the ticket match the daily column here (0.11 to 0.29). The difference is small and has no known cause. The trend is the same in both counts.
+The ticket figures (90 tickets, 19% blocked) match Oct 27 to Nov 1 in this table: 91 tickets, 17 blocked (19%), 0.23 average. They do not match Oct 29 to Nov 1, which has 73 tickets. The ticket text probably names the wrong start day, but the study did not confirm this. The later days compare as follows (ticket against this study): Nov 2 35% and 0.40 against 33% and 0.39; Nov 3 38% and 0.75 against 38% and 0.75; Nov 5 52% and 1.00 against 55% and 1.05; Nov 6 52% and 1.14 against 52% and 1.14. These agree within 3 points. The user counts may also include other models or repeat reviews. The daily averages of 0.15 to 0.32 in the ticket do not match the daily column here exactly (0.11 to 0.29 for Oct 27 to Nov 1). The difference is small and its cause is unknown. The trend is the same in both counts.
 
 END_DOC_BLOCK: [@issue:RB-02]
 
@@ -100,9 +102,29 @@ How much the mix explains: the `fix` share is 51% in A and 51% in C. The 11 tick
 
 MEASURED: the A rate is 21%. The C rate is 54% for all 41 tickets and 47% for the 30 typed tickets. The A type mix gives C a rate of 46% to 54%. The gap to the actual rate is 0 to 4 points (4 if all 11 are `fix`, 0 if none is, 1 for the typed tickets). This covers the `fix` or other type only.
 
-NOT MEASURED: the size mix and the intent mix. Median lines are 163 in A and 256 in C (typed tickets only). 15 of 41 C tickets and 2 of 73 A tickets have an intent value. The "Intent" section in the prompt tail exists only for such tickets, so the Q3 Intent rates (50% against 25%) may be a ticket mix effect. Free query: block rate by intent value and by size band, from `tickets` joined with `process_runs`.
+Size and intent: MEASURED with the reviewed diff. The size of a ticket is the diff that the reviewer saw: the develop tip at the review start, three-dot to the last ticket-branch commit before the review start (`git diff --shortstat <develop>...<snapshot>`). The 5 other-project tickets in C have no branch here and have no size. Cohort: first non-stale `claude-opus-5-5` review per ticket, data cut Nov 6 20:00 UTC (see the note at the top). Median files and lines: A 7 and 150 (n=73), B 7 and 133 (n=26), C 6 and 181.5 (n=36). Block rate by size band (lines changed in the reviewed diff):
 
-Verdict: none on whether the mix explains the rise. Only the type bound is measured.
+| Band | A: tickets, blocked | C: tickets, blocked |
+|---|---|---|
+| up to 100 lines | 23, 2 (9%) | 12, 6 (50%) |
+| 101 to 400 lines | 31, 5 (16%) | 19, 11 (58%) |
+| over 400 lines | 19, 8 (42%) | 5, 3 (60%) |
+| All with a size | 73, 15 (21%) | 36, 20 (56%) |
+
+At the A size mix, C would have a block rate of 56%, against 56% actual (0 points). The block rate rose in every band (by 41, 42 and 18 points). The reviewed diffs in C are not larger in files, and 181 lines against 150 lines is a small step.
+
+Intent (a ticket attribute in `tickets.intent`; the "Intent" section of the prompt tail exists only for such tickets):
+
+| Group | A: tickets, blocked | B: tickets, blocked | C: tickets, blocked |
+|---|---|---|---|
+| No intent | 71, 15 (21%) | 15, 4 (27%) | 26, 13 (50%) |
+| Intent | 2, 0 | 11, 5 (45%) | 15, 9 (60%) |
+
+At the A intent mix (71 of 73 tickets without intent), C would have a block rate of 50%, against 54% actual (4 points). Among tickets without intent the rate rose from 21% to 50%, so the Intent section is not needed for the rise. The Q3 Intent rate (50% against 25%) is mostly a ticket mix effect, because intent tickets are rare in A (2 of 73) and common from Nov 2 (11 of 26 in B, 15 of 41 in C).
+
+How much the mix explains: MEASURED. Type 0 to 4 points, size 0 points, intent 4 points, from a rise of 33 points (21% to 54%). If the three effects added, the mix would explain at most 8 of the 33 points (about a quarter). The study did not test a joint adjustment, because the cells are too thin (for example 5 C tickets over 400 lines). The three tests are separate and they use different ticket counts. Each one shows a rise inside its own strata.
+
+Verdict Q2: MEASURED. The mix of type, size and intent does not explain the rise. At least about three quarters of it remains with the ticket mix held fixed in each of the three views. Not covered: other mix factors (for example, the area of the code that a ticket changes).
 
 END_DOC_BLOCK: [@issue:RB-03]
 
@@ -112,7 +134,7 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 
 | Item | A (Oct 29 to Nov 1) | C (Nov 5 to 6) |
 |---|---|---|
-| Claude Code version | 2.1.314, 2.1.316 | 2.1.318, 2.1.319 |
+| Claude Code version | 2.1.314, 2.1.316 | 2.1.318, 2.1.319 (2.1.317 also appears in 6 runs; the study did not record their period) |
 | Skills listed | 133 to 141 | 157 |
 | Tools | 13 | 14 (Workflow added) |
 | System prompt size | 5474 chars | 7437 chars |
@@ -131,7 +153,7 @@ The Q3 rows use the 118 runs whose transcript could be matched to a review run (
 
 Repo CLAUDE.md change ab9d723c15f (committed Nov 2 18:06 UTC): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. All C runs loaded the new repo file (hash ebf53bc7). B has runs on both sides of the change: Nov 2 runs before 18:06 UTC used the old file, and Nov 3 runs used the new file. The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
 
-Forced-high rule: the review code forces a kept missing intent or spec requirement to severity high (`src/workflow/review/requirements.ts`, `conformance.ts`). High findings rose from 4 in A to 21 in C. Commit 868d4ae7a14 (Nov 5 11:28 UTC, #919) stopped the forced high when the plan or spec cannot be used. It lowers the number of forced highs, so it cannot explain the rise. MEASURED: highs with no file (the form of a requirement finding; the store keeps no requirement field): A 0 of 4, C 1 of 21 (`review_findings`, `file` null, severity high). The rule gives at most 1 of the 21 C highs.
+Forced-high rule: the review code forces a kept missing intent or spec requirement to severity high (`src/workflow/review/requirements.ts`, `conformance.ts`). High findings rose from 4 in A to 21 in C. Commit 868d4ae7a14 (Nov 5 11:28 UTC, #919) stopped the forced high when the plan or spec cannot be used. It lowers the number of forced highs, so it cannot explain the rise. The rule has two forms. The code form (`requirements.ts`) forces a kept requirement finding to high. The prompt form (`conformance.ts`, "ALWAYS high" for an intent scenario or a spec requirement that is not implemented) applies to every ticket that has an intent or a spec, and the model sets the severity itself. MEASURED, code form: highs with no file (the form of a requirement finding; the store keeps no requirement field): A 0 of 4, C 1 of 21. MEASURED, prompt form: 14 of the 21 C highs are on the 15 tickets with intent (A: 0 of 4 highs, 2 tickets with intent; B: 3 of 4). Of these 14, 4 name a scenario in the title or detail (text match; the study did not read them as unmet requirements). So the prompt form can account for at most 14 of the 21 C highs, and 4 by the text match. The other 7 C highs are on tickets without intent (A: 4 highs on 71 tickets; C: 7 highs on 26 tickets, 0.27 per ticket against 0.06). The forced-high rule does not explain the rise in those.
 
 Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticket description 100% (n=5). The Ticket description group is only 5 runs and gives no reliable rate. Inside the "no extra section" group the rate still rose: A 20%, B 27%, C 44%.
 
@@ -143,31 +165,39 @@ Verdict: MEASURED, the input changed in five ways: the Claude Code version, the 
 
 END_DOC_BLOCK: [@issue:RB-04]
 
-## [@issue:RB-05] Q4: finding sample
+## [@issue:RB-05] Q4: finding sample, period A
 
-Q4 status: NOT MEASURED against the reviewed code. Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. A subagent compared each finding with the PR history and the final merged code. The classes below therefore describe the finding against later code, not against the code as the reviewer saw it. The review snapshot refs are gone. For rows whose reason names a first ticket-branch commit (for example fids 1911, 2063, 1910 in C), the PR commits still exist, so a classification against that commit is possible. The study did not do it. A fix after review shows that the finding was acted on, not that it was right. Read the class and "fits" columns as descriptive only.
+Q4 is MEASURED against the reviewed code. Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. For each finding, one subagent read the code at the snapshot: the last first-parent commit of the ticket branch made before the review started (`git rev-list -1 --first-parent --before=<review start> <branch> --not <base_sha>`), with `git show <snapshot>:<file>` and `git diff <base_sha> <snapshot>`. The subagent did not use later commits to decide a class. It ran no code. The classes are:
 
-Counts A: {'REAL-LOWER': 8, 'REAL': 6, 'WRONG': 1}. Counts C: {'REAL': 13, 'REAL-LOWER': 2}.
+- REAL: a real defect at the stated severity.
+- REAL-LOWER: a real defect, but its right severity is below the stated one. The right severity is in the table.
+- WRONG: the claim is false at the snapshot.
 
-Period A:
+Severity scale given to the classifier: critical = data loss, security breach or crash in normal use; high = wrong result or gate bypass in a likely path; medium = real defect in an edge path or with contained impact; low = cosmetic, diagnostics or process rule. A finding with a right severity of low does not block (blocking = critical, high, medium).
 
-| fid | ticket | stated | class | fits | reason |
+Snapshot selection: the first pick by commit date chose a develop commit that was merged into the branch for tickets 908, 954 and 964. Those rows use the first-parent commit (908: 3b64aeb, 954: 4d001de, 964: 4df3df0). The pick by first parent is not proven for every ticket; it is a rule and not a check against the real reviewer input.
+
+Period A (fids are `review_findings.id`):
+
+| fid | ticket | stated | class | right severity | evidence at the snapshot |
 |---|---|---|---|---|---|
-| 1367 | UAT-A-TESTER-RUN-THAT-OBSERVED | medium | REAL-LOWER | low | reaskPrefix hardcoded karst's uat:host:docker (testerSkip.ts new file); fixed in PR #825 3rd commit 're-ask prompt names no karst-only script'. Harm is only a wasted re-ask; the park outcome would occur anyway. |
-| 1439 | FIX-KICKOFF-SAYS-8-UNREAD-NOTES | medium | REAL-LOWER | low | contextNoteIndex listed=unreadNotesFor but collapsed still counted same host merges (bulletinNotes.ts:527); fixed in ab7f6a1f3 (11:16, after review 11:07). Only a wrong count in a kickoff note. |
-| 1440 | FIX-KICKOFF-SAYS-8-UNREAD-NOTES | medium | REAL-LOWER | low | listed came from unreadNotesFor ignoring wasShown, so shown notes re-listed; fixed in ab7f6a1f3 (titles skip shownIds). Extra context noise, not a correctness break. |
-| 1403 | REVAMP-THE-DASHBOARD-ARTIFACTS | medium | REAL-LOWER | low | history grew unbounded and persisted; fixed in 12401e5f3 (MAX_HISTORY=50, sameView compare) 10 min after review start. Bounded growth of small state; Back-walk UX issue. |
-| 1465 | TEST-INTEGRATION-SUITES-USE | medium | REAL | medium | tryClaim isStale->rm->mkdir non-atomic; fixed in 82c1385f1 'serialise stale reclaim' (reclaim.lock mutex in portSlots.ts reclaimStale) 3 min after review start. Narrow race, real port collision. |
-| 1360 | REFACTOR-MOVE-THE-TOP-LEVEL | medium | REAL | medium | Moved vscode-importing modules fell under src/extension/** mutate glob; PR commit bea0c77a8 (14:50, after review 14:46) added the excludes in stryker.config.json to fix it. Gate failure was real. |
-| 1313 | VISUAL-LAYOUT-GATES-SKIP-WHEN | medium | REAL | medium | No-manifest base ref 'HEAD' gives empty diff so UI gates skip; fixed in 522335de5 'keep UI gates when there is no manifest base ref' (review.ts:462 now guards on opts.manifest) 7 min after review start. |
-| 1407 | EVAL-REAL-CORE-CONTAINER-RUN | medium | REAL | medium | NET_ADMIN kept in the root host shell; fixed in 685e67d0f 'drop NET_ADMIN' (eval-lockdown.sh:49 setpriv --no-new-privs --bounding-set=-net_admin,...) 4 min after review start. |
-| 1531 | FIX-SANDBOX-A-FIX-BRIEF-THAT | high | REAL-LOWER | medium | escalateUnsendable claimed pointer_failed_at for merely busy sessions and stopped delivery; fixed in b25e079ce 'keep sending after the Needs you escalation' 15 min after review. A Needs-you was raised, so stall is not silent. |
-| 1464 | TEST-INTEGRATION-SUITES-USE | medium | REAL-LOWER | low | catch{} mapped any lease error to 'stopped' in runList.ts; fixed in 82c1385f1 'surface lease errors'. Needs EACCES/ENOSPC on tmpdir lock dir; only diagnostics lost. |
-| 1479 | GATES-A-UNIT-INTEGRATION-FAILURE | high | REAL | high | failingTestIds skips file-level FAILs; judge could pass drift with an unparsed file failure. Fixed in d5e892e03 (allFailuresParsed in vitestDrift.mjs, used at vitestGate.mjs judge) 2 min after review start. Gate false pass. |
-| 1510 | FIX-SBX-SANDBOX-OPENS-WITH-AN | medium | REAL | medium | assertRebuildSafe checked only refs, not working tree; fixed in 8edb03134 'sandbox rebuild refuses a dirty sandbox working tree' (DIRTY_CHECK in sbxCloneReady.ts) 10 min after review. Data loss of uncommitted edits. |
-| 1511 | FIX-SBX-SANDBOX-OPENS-WITH-AN | medium | WRONG |  | rebuild intentionally keeps placement and bridge dir because the next Open AI Session recreates the sandbox; disposeSandboxOp has no controls() check either. Final sandboxSyncOps.ts:427 unchanged; no fix commit addressed it. |
-| 1522 | FIX-RESOURCES-TAB-IS-BLIND-TO | medium | REAL-LOWER | low | sampleContainers mapped docker ENOENT (127) to daemon-down so non-docker hosts saw a banner; fixed in a662e3fce 'no docker is not degraded' (NOT_INSTALLED/no-docker) 4 min after review. Cosmetic false warning. |
-| 1377 | TICKET-FORM-B-LAYOUT-SHELL | medium | REAL-LOWER | low | Ticket form is vanilla and the diff adds a layout feature, against the CLAUDE.md UI rule; resolved by docs commit 62cfb954e recording T862 exception ('review finding'). Process-rule violation, no runtime defect. |
+| 1313 | VISUAL-LAYOUT-GATES-SKIP-WHEN | medium | REAL | medium | `review.ts:464` passes 'HEAD' when there is no manifest. The diff HEAD..HEAD is empty, so the UI gates are skipped. |
+| 1360 | REFACTOR-MOVE-THE-TOP-LEVEL | medium | UNDECIDED | | The moved files import vscode and fall in the `stryker.config.json` mutate glob. Whether the score drops below 85 needs a Stryker run. |
+| 1367 | UAT-A-TESTER-RUN-THAT-OBSERVED | medium | REAL-LOWER | low | `testerSkip.ts:29` hardcodes `npm run uat:host:docker`, but the text also offers another route. The re-ask can still succeed. |
+| 1377 | TICKET-FORM-B-LAYOUT-SHELL | medium | REAL-LOWER | low | `webview.html:328-362` adds a layout shell to a vanilla view. This breaks a process rule, not runtime behaviour. |
+| 1403 | REVAMP-THE-DASHBOARD-ARTIFACTS | medium | REAL-LOWER | low | `overlayStack.ts:242` appends to history with no cap. The entries are small tuples. |
+| 1407 | EVAL-REAL-CORE-CONTAINER-RUN | medium | REAL | medium | `entrypoint.sh:9-10` runs the host as root with NET_ADMIN, so the core can flush the output rules while the config says enforced. |
+| 1439 | FIX-KICKOFF-SAYS-8-UNREAD-NOTES | medium | REAL-LOWER | low | `bulletinNotes.ts:527-528`: the listed and collapsed counts include host merges. Only text in the agent context is wrong. |
+| 1440 | FIX-KICKOFF-SAYS-8-UNREAD-NOTES | medium | REAL-LOWER | low | `listed` ignores wasShown, and `shownEarlier` counts the same notes again. Count and doc drift only. |
+| 1464 | TEST-INTEGRATION-SUITES-USE | medium | REAL | medium | `runList.ts:181-183` maps every lease error (EACCES, ENOSPC) to `stopped`, with no debug line and no failed result. |
+| 1465 | TEST-INTEGRATION-SUITES-USE | medium | REAL | medium | `portSlots.ts:85-95`: isStale, rmSync, mkdir is not atomic. A second process can delete a fresh claim, and both lease the same slot. |
+| 1479 | GATES-A-UNIT-INTEGRATION-FAILURE | high | REAL | high | `vitestDrift.mjs:21` keeps only ids with ' > '. An unparsed file-level FAIL plus one drift id exits 0 (`vitestGate.mjs:101`). |
+| 1510 | FIX-SBX-SANDBOX-OPENS-WITH-AN | medium | REAL | medium | `sbxCloneReady.ts:60-77` checks only ref commits, not the dirty tree. A rebuild can delete uncommitted edits. |
+| 1511 | FIX-SBX-SANDBOX-OPENS-WITH-AN | medium | REAL-LOWER | low | The placement part of the claim is wrong (a rebuild must not flip the placement). Only the bridge dir is left. |
+| 1522 | FIX-RESOURCES-TAB-IS-BLIND-TO | medium | REAL-LOWER | low | `containerSampler.ts:104,119` maps exit 127 (no docker) to daemon-down. The result is a false banner. |
+| 1531 | FIX-SANDBOX-A-FIX-BRIEF-THAT | high | REAL-LOWER | medium | `fixDeliveryWiring.ts:158` counts a busy session as stuck and claims `pointer_failed_at`. Needs you is raised, so it is a stall, not a wrong result. |
+
+Counts A: REAL 6, REAL-LOWER 8, WRONG 0, UNDECIDED 1. Of the 14 decided findings, 7 have a right severity of low and would not block (1367, 1377, 1403, 1439, 1440, 1511, 1522).
 
 Period C and the Q4 verdict are in block [@issue:RB-08].
 
@@ -175,31 +205,42 @@ END_DOC_BLOCK: [@issue:RB-05]
 
 ## [@issue:RB-08] Q4: sample C and verdict
 
-Period C:
+Period C. Method and classes are in [@issue:RB-05]. Two rows (1733, 1793) belong to the other project (mobile-app, iOS). Their code is in the repo `tatto-timer`, and the snapshot is the last first-parent commit of the ticket branch there before the review start.
 
-| fid | ticket | stated | class | fits | reason |
-|---|---|---|---|---|---|
-| 1911 | AUTOPILOT-ENGINE-AUTO-FIX-MERGE | high | REAL | high | Fixed by later PR-branch commit 5b680978757 "autopilot parks show the amber block"; first commit 814a665e2cf lacked it. |
-| 2059 | FIX-THE-EXTENSION-TS-RATCHET | medium | REAL-LOWER | low | Observability only. Fixed by df6f2efec25: console.info replaced by writeSync to fd 1 because vitest hides passing-test console output. |
-| 2063 | FIX-WORKTREES-AND-THE-GIT | high | REAL | high | Fixed by 2deeb5f9a02 "thin bundle works when the clone is behind a host commit" on the ticket branch (PR 959 still open); first commit e46fc6cc131 lacked it. |
-| 1793 | CI-LAND-THE-CI-WORKFLOW-FROM-PR | medium | REAL | medium | release-ios.yml at cf39b500 (pre-review state) had no check-ios-scene/archive steps; commit 915ef598 "harden the release workflows after review" added both. |
-| 1702 | FIX-A-TICKET-START-THAT-DOES-NOT | medium | REAL | medium | Original timeout path called markNotStarted unconditionally; later PR commit 15:18 "not-started never overwrites a live session" added isOpen/agentState guards (startOutcome.ts markNotStarted). |
-| 1809 | PERF-LIMIT-PARALLEL-LOAD-IN-SBX | high | REAL | high | Gate sbx exec replaced NODE_OPTIONS; later PR 936 commit "gates extend the guest NODE_OPTIONS" / "session extends guest NODE_OPTIONS" (sbxRunner.ts:250) fixed it. |
-| 1773 | FIX-SANDBOX-TOKEN-USAGE-AND | high | REAL | high | Sweep used plain stat/readFile; PR 929 commit "harden the sandbox transcript read" added claudeTranscriptRead.ts with O_NOFOLLOW/O_NONBLOCK, regular-file and size check. |
-| 1774 | FIX-SANDBOX-TOKEN-USAGE-AND | medium | REAL | medium | Link ran inside the 180 s bounded step; PR 929 later moved it outside the launch limit and added TRANSCRIPT_LINK_TIMEOUT_MS (sbxRunner.ts:111). |
-| 2046 | FIX-THE-MCP-ARTIFACT-TOOL-ALWAYS | medium | REAL | medium | Test asserted only not-unknown-command; PR 956 second commit "test exact routes" added per-verb handler-message assertions (command.test.ts describe async verbs). |
-| 1673 | FIX-SBX-SANDBOXES-HAVE-NO-MEMORY | high | REAL | high | Queue reads were unscoped; PR 926 commit 3 "scope the memory queue to its project" added projectId filters (memoryQueue.ts:69,94). |
-| 1910 | AUTOPILOT-ENGINE-AUTO-FIX-MERGE | high | REAL | high | Fixed by 5b680978757 "add host commands" on the ticket branch after the first commit 814a665e2cf; in the stated diff no command bound these operations. |
-| 1733 | FIX-RESET-TIMER-RETURNS-TO-THE | high | REAL | high | PR 15 second commit (after review start) "keep onboarding on screen when the app resumes after a reset" fixed the stale HomePage timer state. |
-| 1820 | FIX-AGENTS-THE-FINDINGS-OUTPUT | high | REAL | high | PR 935 commit "tester re-ask nudges follow" the output form was added after the first commit; nudges were form-independent in the first diff. |
-| 2075 | FIX-A-TICKET-READS-NEEDS-YOU | high | REAL | high | Fixed by baf116640f2: markActivity now runs only when nextAgentState(payload) !== null; test "no-signal Notification does not cancel the deadline flip" added (PR 958 open). |
-| 1904 | TEST-BRIDGE-A-CONFORMANCE-TEST | medium | REAL-LOWER | low | Scanner gap is real (fixed by PR 942 commit 2 for promises imports) but no file in scope uses the form; latent gap in a test guard only. |
+| fid | ticket | snapshot | stated | class | right severity | evidence at the snapshot |
+|---|---|---|---|---|---|---|
+| 1673 | FIX-SBX-SANDBOXES-HAVE-NO-MEMORY | 4d001de | high | REAL-LOWER | medium | `memoryQueue.ts:78`: list, claim and requeue have no project filter. It needs two project windows and low memory. |
+| 1702 | FIX-A-TICKET-START-THAT-DOES-NOT | 05982716 | medium | REAL | medium | `startOutcome.ts:108` calls `markNotStarted` on timeout, and no `sessions.isOpen` exit comes before it. |
+| 1733 | FIX-RESET-TIMER-RETURNS-TO-THE | 7c9199b | high | REAL | high | `HomePage.vue:469-480` `handleResume` pushes the result page from the in-memory COMPLETED state after a reset. |
+| 1773 | FIX-SANDBOX-TOKEN-USAGE-AND | 56f535cc | high | REAL-LOWER | medium | `extension.ts:5927` sweep uses plain stat and read on a bridge path. It needs a hostile agent, and the result is a metering DoS. |
+| 1774 | FIX-SANDBOX-TOKEN-USAGE-AND | 56f535cc | medium | REAL | medium | `sbx create` runs inside the 180 s bounded step. A `.catch` does not stop a hang. |
+| 1793 | CI-LAND-THE-CI-WORKFLOW-FROM-PR | b9e55b2 | medium | REAL | medium | `release-ios.yml:105-131` goes from archive to export and upload without the scene checks that the local script runs. |
+| 1809 | PERF-LIMIT-PARALLEL-LOAD-IN-SBX | 4df3df0 | high | REAL-LOWER | medium | `sbxRunner.ts:217` calls `limitArgs()` with no nodeOptions, so the heap flag replaces the guest NODE_OPTIONS. It needs an existing value. |
+| 1820 | FIX-AGENTS-THE-FINDINGS-OUTPUT | de30b6ad | high | REAL-LOWER | medium | `tester.ts:405-464`: the silence, wrap-up and reformat nudges still demand the JSON array. Re-ask path only. |
+| 1904 | TEST-BRIDGE-A-CONFORMANCE-TEST | cb14dc8f | medium | REAL-LOWER | low | The conformance scanner misses `fs.chmod` through the namespace form. No file uses it now, so it is a ratchet gap. |
+| 1910 | AUTOPILOT-ENGINE-AUTO-FIX-MERGE | 814a665e | high | REAL | high | `setAutopilotOverride`, `approveOneMore` and `stopAutopilot` have no non-test caller, but the ticket requires the host commands. |
+| 1911 | AUTOPILOT-ENGINE-AUTO-FIX-MERGE | 814a665e | high | REAL-LOWER | medium | Only the store reads `stopped_reason` and `paused_reason`. The ticket requires the amber Needs you block. The note still shows the reason. |
+| 2046 | FIX-THE-MCP-ARTIFACT-TOOL-ALWAYS | d398193f | medium | REAL-LOWER | low | `command.test.ts:28` asserts only not-unknown-command. A wrong route throws a different error and passes. Test gap. |
+| 2059 | FIX-THE-EXTENSION-TS-RATCHET | 0fc08895 | medium | REAL-LOWER | low | `ratchet.test.ts:368` `console.info` is hidden by the vitest `silent: 'passed-only'` setting. Diagnostics only. |
+| 2063 | FIX-WORKTREES-AND-THE-GIT | e46fc6cc | high | REAL | high | `cloneSyncClass.ts:44-46` sets an empty bundle range when the tip is an ancestor, and git refuses it. The state is reachable. |
+| 2075 | FIX-A-TICKET-READS-NEEDS-YOU | 8fa12eb9 | high | REAL | high | `dispatch.ts:746` `markActivity` runs for every non-Stop event. The bridge forwards no `notification_type`, so `idle_prompt` clears the quiet state. |
 
-Notes: sample A has 1 wrong finding (fid 1511: keeping the placement and the bridge dir is intended). Each sample was classified by one subagent, so the classes carry classifier bias. Sample A is 79% of its pool. 25 of 30 reasons cite a later fix or a later change (keyword count). These classes are weak for that reason.
+Counts C: REAL 7, REAL-LOWER 8, WRONG 0, UNDECIDED 0. Four rows depend on runtime behaviour that the classifier did not run (1733, 1774, 2063, 2075).
 
-Method note: the classifier checked each C finding against the PR history and the final code. It did not rebuild the code at the reviewed commit. A rebuild is possible only for the rows that name a first ticket-branch commit; the study did not attempt it for any row. The C classes are therefore not a check against the reviewed code. Treat them as indicative.
+Comparison (MEASURED, sample of 15 per period, 29 decided):
 
-Q4 verdict: NOT MEASURED. The classes compare each finding with later code and later fixes, so they are not a measure of correctness. They give no comparison between A and C. Free query for a measurement: for each sampled finding that names a first ticket-branch commit, run `git show <commit>:<file>` and classify against that file. The study did not do it.
+| Measure | A | C |
+|---|---|---|
+| Decided findings | 14 | 15 |
+| REAL | 6 (43%) | 7 (47%) |
+| REAL-LOWER | 8 (57%) | 8 (53%) |
+| WRONG | 0 | 0 |
+| Stated high, of which REAL | 2, 1 | 9, 4 |
+| Right severity low (would not block) | 7 of 14 (50%) | 3 of 15 (20%) |
+
+Q4 verdict: MEASURED. No sampled finding is wrong: 0 of 29 decided. The upper 95% bound for the wrong rate is about 10% for both periods together and about 20% for each period alone, so a small wrong rate is not excluded. The findings in C are real defects at the same rate as in A (47% against 43% at the stated severity). About half of the findings in both periods are rated above their right severity, and 5 of the 9 stated highs in C are medium at most. The sample gives no sign that C has more false or low-value findings. A has more findings that would not block at their right severity (50% against 20%). So on this sample the rise in blocks is not noise. A lower `blockingSeverity` would hide real defects of medium right severity: 8 of the 15 C findings are real at medium or higher.
+
+Limits: one subagent per period classified the rows, by reading code only, with the severity scale in [@issue:RB-05]. Snapshots follow a rule and are not proven to be the reviewer input. 1360 is UNDECIDED. Samples are small: 14 and 15 of pools of 19 and 45. The C pool is 45 and the sample is a third of it. The classifier saw the stated severity of each finding, so it may be anchored.
 
 END_DOC_BLOCK: [@issue:RB-08]
 
@@ -226,6 +267,6 @@ END_DOC_BLOCK: [@issue:RB-06]
 
 1. Record the Claude Code version and the lane effort in `process_runs` for each review. Today the version is found only in transcripts.
 2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs of tickets that have an intent value, from Oct 29 to Nov 3 (A has only 2 such tickets). The A context is the same as in the summary: no user CLAUDE.md, the second session-start hook, and the repo CLAUDE.md from before ab9d723c15f. Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This tests causes (a) and (b). It does not test the extension build (c). Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
-3. Decide on any prompt or `blockingSeverity` change only after step 2 (@arch:PRE-BASELINE). Q4 is NOT MEASURED, so no evidence yet shows whether the extra findings are real.
+3. Decide on any prompt or `blockingSeverity` change only after step 2 (@arch:PRE-BASELINE). Q4 shows that the sampled extra findings are real defects (0 of 29 wrong), so a change that only removes blocks has no support in this data. A severity calibration change (about half of the findings are rated above their right severity in both periods) is a separate question for a person.
 
 END_DOC_BLOCK: [@issue:RB-07]
