@@ -184,7 +184,7 @@ import {
   type ClaudeWatchState,
 } from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
-import { dispatchHook } from './hooks/dispatch.js';
+import { dispatchHook, TurnTracker } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { computeDriftNotes } from './context/drift.js';
@@ -201,7 +201,7 @@ import { renderGuideInstruction } from './cli/guide.js';
 import { renderServersInstruction } from './cli/serversCommand.js';
 import { buildWorkflowInvocation, renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
-import { TurnTracker } from './hooks/dispatch.js';
+import { startBackgroundWaitSweep } from './extension/ops/backgroundWaitWiring.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
@@ -3800,7 +3800,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
-  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded); context.subscriptions.push(startBackgroundWaitSweep(localStore, turnTracker, notifyHook, (m) => logger.debug(m)));
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of

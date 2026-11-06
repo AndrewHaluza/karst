@@ -72,6 +72,17 @@ export interface HookPayload {
    */
   run_in_background?: boolean;
   /**
+   * `tool_input.timeout_ms` of a Monitor `PostToolUse`, forwarded only when it
+   * is a positive finite number. It is how long the monitor may run.
+   */
+  timeout_ms?: number;
+  /**
+   * True on a `UserPromptSubmit` that claude generated for a background-task
+   * notification, not one the user typed. The bridge derives it and never
+   * forwards the prompt text.
+   */
+  task_notification?: boolean;
+  /**
    * Claude's `Stop` re-entry flag, forwarded by the shared bridge. True means
    * the agent is CONTINUING from a prior block, so the mail reply must not fire
    * (and must not spend the batch's one-block budget).
@@ -157,6 +168,17 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     typeof (toolInput as Record<string, unknown>).run_in_background === 'boolean'
       ? ((toolInput as Record<string, unknown>).run_in_background as boolean)
       : undefined;
+  if (o.task_notification !== undefined && typeof o.task_notification !== 'boolean') {
+    return null;
+  }
+  const rawTimeout =
+    o.tool_name === 'Monitor' && typeof toolInput === 'object' && toolInput !== null
+      ? (toolInput as Record<string, unknown>).timeout_ms
+      : undefined;
+  const timeoutMs =
+    typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0
+      ? rawTimeout
+      : undefined;
   return {
     hook_event_name: o.hook_event_name as string | undefined,
     cwd: o.cwd as string | undefined,
@@ -167,6 +189,8 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
     ...(filePath !== undefined ? { file_path: filePath } : {}),
     ...(runInBackground !== undefined ? { run_in_background: runInBackground } : {}),
+    ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+    ...(o.task_notification !== undefined ? { task_notification: o.task_notification as boolean } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
   };
 }
@@ -208,6 +232,35 @@ const BACKGROUND_TOOL_NAMES: Record<AgentProvider, ReadonlySet<string>> = {
   opencode2: new Set(),
   antigravity: new Set(),
 };
+
+/**
+ * The tools that are ALWAYS background work, with no `run_in_background` flag
+ * (claude's Monitor streams events and re-invokes the agent). Same
+ * verification rule as above: other cores stay empty (@arch:AC-08).
+ */
+const ALWAYS_BACKGROUND_TOOL_NAMES: Record<AgentProvider, ReadonlySet<string>> = {
+  claude: new Set(['Monitor']),
+  codex: new Set(),
+  opencode: new Set(),
+  opencode2: new Set(),
+  antigravity: new Set(),
+};
+
+/** How often the host checks for background waits that reached their deadline. */
+export const BACKGROUND_WAIT_SWEEP_INTERVAL_MS = 30_000;
+
+/*
+ * T993 findings (claude background wait). A task-notification turn DOES send
+ * UserPromptSubmit with the same keys as a typed prompt; only the prompt text
+ * prefix "<task-notification>" separates them, so the hook bridge forwards a
+ * `task_notification` boolean and never the text. The hook bridge also used to
+ * drop tool_input, so `run_in_background` never reached this module. The wait
+ * lives in memory: a window reload loses it (accepted), and a direct HTTP hook
+ * without the node bridge never sets `task_notification`, so its woken turn
+ * ends the wait (accepted).
+ */
+/** How long a background wait holds a ticket blue when the tool gives no timeout. */
+export const BACKGROUND_WAIT_DEFAULT_MS = 30 * 60 * 1000;
 
 /**
  * Whether the ticket is inside agent work whose done marker has NOT fired.
@@ -271,16 +324,56 @@ export class TurnTracker {
   private readonly toolCounts = new Map<number, number>();
   private readonly lastToolNames = new Map<number, string>();
   private readonly nudges = new Map<number, MarkerNudgeCandidate>();
-  private readonly backgroundTurns = new Set<number>();
+  /**
+   * Per ticket: when its background wait ends (epoch ms). Survives `reset`
+   * (a woken turn that launches nothing is still the same wait); ended by
+   * `endBackgroundWait`, `forget`, or the deadline.
+   */
+  private readonly waitDeadlines = new Map<number, number>();
+  /** Tickets whose latest event was a Stop taken during a wait (no activity since). */
+  private readonly quietWaits = new Set<number>();
 
-  /** The current turn launched background work that will re-invoke the agent. */
-  markBackgroundWork(ticketId: number): void {
-    this.backgroundTurns.add(ticketId);
+  /** Background work launched: the wait lasts until the later of the old and new deadline. */
+  extendBackgroundWait(ticketId: number, durationMs: number, now: number = Date.now()): void {
+    const deadline = now + durationMs;
+    this.waitDeadlines.set(ticketId, Math.max(this.waitDeadlines.get(ticketId) ?? 0, deadline));
   }
 
-  /** Whether the current turn launched background work. */
-  launchedBackgroundWork(ticketId: number): boolean {
-    return this.backgroundTurns.has(ticketId);
+  /** Whether the ticket is inside a background wait that has not reached its deadline. */
+  backgroundWaitActive(ticketId: number, now: number = Date.now()): boolean {
+    const deadline = this.waitDeadlines.get(ticketId);
+    return deadline !== undefined && now < deadline;
+  }
+
+  /** The wait is over (real prompt, marker, session end). */
+  endBackgroundWait(ticketId: number): void {
+    this.waitDeadlines.delete(ticketId);
+    this.quietWaits.delete(ticketId);
+  }
+
+  /** A Stop was taken during the wait: the ticket now shows blue with nothing running in the turn. */
+  markWaitQuiet(ticketId: number): void {
+    if (this.waitDeadlines.has(ticketId)) this.quietWaits.add(ticketId);
+  }
+
+  /** Any non-Stop event after the last Stop: the sweep must not read this ticket as needs-you. */
+  markActivity(ticketId: number): void {
+    this.quietWaits.delete(ticketId);
+  }
+
+  /**
+   * Take every wait whose deadline passed. Returns the tickets that were quiet
+   * since their last Stop: only those may flip to needs-you. Each taken wait is
+   * removed, so a wait is judged once.
+   */
+  takeExpiredWaits(now: number = Date.now()): number[] {
+    const flip: number[] = [];
+    for (const [ticketId, deadline] of [...this.waitDeadlines]) {
+      if (now < deadline) continue;
+      this.waitDeadlines.delete(ticketId);
+      if (this.quietWaits.delete(ticketId)) flip.push(ticketId);
+    }
+    return flip;
   }
 
   /**
@@ -302,7 +395,6 @@ export class TurnTracker {
   reset(ticketId: number): void {
     this.toolCounts.set(ticketId, 0);
     this.lastToolNames.delete(ticketId);
-    this.backgroundTurns.delete(ticketId);
   }
 
   /** Record a tool use during the current turn. */
@@ -333,8 +425,35 @@ export class TurnTracker {
     this.toolCounts.delete(ticketId);
     this.lastToolNames.delete(ticketId);
     this.nudges.delete(ticketId);
-    this.backgroundTurns.delete(ticketId);
+    this.endBackgroundWait(ticketId);
   }
+}
+
+/**
+ * The host sweep for background waits: a wait that reached its deadline while
+ * the ticket sat quiet (no event since the last Stop) leaves blue. It sets
+ * 'waiting' only when the marker is still pending and agent_state is still
+ * 'running' — a ticket that moved on, finished, or already asked is left alone.
+ * Returns the tickets it changed.
+ */
+export function expireBackgroundWaits(
+  store: Store,
+  tracker: TurnTracker,
+  notify?: NotifyTicket,
+  now: number = Date.now(),
+): number[] {
+  const changed: number[] = [];
+  for (const ticketId of tracker.takeExpiredWaits(now)) {
+    if (!doneMarkerPending(store, ticketId)) continue;
+    const row = store.db.prepare('SELECT agent_state FROM tickets WHERE id = ?').get(ticketId) as
+      | { agent_state: string }
+      | undefined;
+    if (row?.agent_state !== 'running') continue;
+    setAgentState(store, ticketId, 'waiting');
+    changed.push(ticketId);
+    notify?.(ticketId, { hook_event_name: 'BackgroundWaitExpired' });
+  }
+  return changed;
 }
 
 /**
@@ -633,14 +752,28 @@ export function dispatchHook(
 
   // PROMPT-15: track tool activity per turn and record marker-miss telemetry.
   if (tracker) {
+    const isStop = payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle';
+    // Only an event that carries a liveness signal is activity; a no-signal one
+    // (an auth_success Notification) must not cancel the deadline flip.
+    if (!isStop && nextAgentState(payload, markerIsPending) !== null) tracker.markActivity(ticketId);
+    // A real prompt, or a finished marker, ends the wait. A task-notification
+    // prompt is the background job waking the agent and does not.
+    if (
+      (payload.hook_event_name === 'UserPromptSubmit' && payload.task_notification !== true) ||
+      !markerIsPending
+    ) {
+      tracker.endBackgroundWait(ticketId);
+    }
     if (payload.hook_event_name === 'PostToolUse' && payload.tool_name) {
       tracker.recordToolUse(ticketId, payload.tool_name);
-      if (
-        payload.run_in_background === true &&
-        lifecycleProvider !== null &&
-        BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name)
-      ) {
-        tracker.markBackgroundWork(ticketId);
+      if (lifecycleProvider !== null) {
+        const alwaysBackground = ALWAYS_BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name);
+        const flagged =
+          payload.run_in_background === true &&
+          BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name);
+        if (alwaysBackground || flagged) {
+          tracker.extendBackgroundWait(ticketId, payload.timeout_ms ?? BACKGROUND_WAIT_DEFAULT_MS);
+        }
       }
     }
 
@@ -656,7 +789,8 @@ export function dispatchHook(
       markerIsPending
     ) {
       const toolCount = tracker.toolCount(ticketId);
-      backgroundWait = tracker.launchedBackgroundWork(ticketId);
+      backgroundWait = tracker.backgroundWaitActive(ticketId);
+      if (backgroundWait) tracker.markWaitQuiet(ticketId);
       const markerMissCase = backgroundWait
         ? 'background-wait'
         : toolCount === 0

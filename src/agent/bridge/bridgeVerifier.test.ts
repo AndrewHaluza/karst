@@ -15,6 +15,11 @@ const hook = (o: Record<string, unknown> = {}) =>
 const marker = (o: Record<string, unknown> = {}) =>
   JSON.stringify({ v: 1, kind: 'marker', ticket: 7, stage: 'impl', ...o });
 
+const payloadOf = (v: ReturnType<typeof verifyBridgeLine>): Record<string, unknown> => {
+  if (!v.ok || v.event.kind !== 'hook') throw new Error('expected an accepted hook');
+  return v.event.payload as unknown as Record<string, unknown>;
+};
+
 describe('verifyBridgeLine', () => {
   it('accepts an own-ticket hook and rebuilds cwd + launchId from host facts', () => {
     const r = verifyBridgeLine(hook({ launchId: 'FORGED' }), expectOf());
@@ -22,6 +27,24 @@ describe('verifyBridgeLine', () => {
       ok: true,
       event: { kind: 'hook', payload: { hook_event_name: 'Notification', message: 'permission_prompt', session_id: 's1', cwd: '/wt/t7', launchId: 'L1' } },
     });
+  });
+  it('carries the narrow background-wait facts and nothing else of tool_input (T993)', () => {
+    const r = verifyBridgeLine(
+      hook({ hook_event_name: 'PostToolUse', tool_name: 'Monitor', tool_input: { command: 'secret', run_in_background: true, timeout_ms: 5000 }, task_notification: true }),
+      expectOf(),
+    );
+    expect(r).toMatchObject({ ok: true, event: { payload: { run_in_background: true, timeout_ms: 5000, task_notification: true } } });
+    expect(JSON.stringify(r)).not.toContain('secret');
+    const bad = verifyBridgeLine(
+      hook({ tool_name: 'Monitor', tool_input: { run_in_background: 'yes', timeout_ms: -1 }, task_notification: 'yes' }),
+      expectOf(),
+    );
+    const payload = payloadOf(bad);
+    expect(payload.run_in_background).toBeUndefined();
+    expect(payload.timeout_ms).toBeUndefined();
+    expect(payload.task_notification).toBeUndefined();
+    const notMonitor = verifyBridgeLine(hook({ tool_name: 'Bash', tool_input: { timeout_ms: 5000 } }), expectOf());
+    expect(payloadOf(notMonitor).timeout_ms).toBeUndefined();
   });
   it('omits launchId when the session has none', () => {
     const r = verifyBridgeLine(hook(), expectOf({ launchId: undefined }));
