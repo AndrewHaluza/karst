@@ -30,8 +30,8 @@ describe('selectViews', () => {
     expect(selectViews(['tests/visual/layout-known-failures.json']).all).toBe(true);
   });
 
-  it('does not count the layout ledger as a path that alters a render', () => {
-    expect(isUiPath('tests/visual/layout-known-failures.json')).toBe(false);
+  it('counts the layout ledger as a UI path, so an edit after a green pass still runs the gate', () => {
+    expect(isUiPath('tests/visual/layout-known-failures.json')).toBe(true);
   });
 
   it('unions the views of several directories', () => {

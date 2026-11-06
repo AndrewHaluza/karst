@@ -180,7 +180,8 @@ export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_
   const git = (args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
   const sha = mergeBaseSha(cwd, base);
   if (sha === null) return null;
-  const tracked = git(['diff', '--name-only', '-z', sha]);
+  // --no-renames lists both sides of a move: a move out of a shared root must count as that root.
+  const tracked = git(['diff', '--no-renames', '--name-only', '-z', sha]);
   const untracked = git(['ls-files', '-o', '--exclude-standard', '-z']);
   if (tracked.status !== 0 || untracked.status !== 0) return null;
   return `${tracked.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean);

@@ -45,6 +45,22 @@ afterEach(() => {
   rmSync(bin, { recursive: true, force: true });
 });
 
+describe('test:layout:docker with a moved file', () => {
+  it('runs the full chain when a file moves out of a shared root into a view', () => {
+    git('checkout', '-q', 'develop');
+    put('src/ui/theme/tokens.ts');
+    put('src/ui/diffs/a.tsx');
+    git('add', '-A');
+    git('commit', '-qm', 'shared file');
+    git('checkout', '-qB', 'ticket');
+    expect(git('mv', 'src/ui/theme/tokens.ts', 'src/ui/diffs/tokens.ts').status).toBe(0);
+    git('commit', '-qm', 'move into a view');
+    const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
+    expect(run.stderr).toContain('layout: running every view');
+  });
+});
+
 describe('test:layout:docker with a selection that has no layout route', () => {
   it('prints a skip line and exits 0 without a run', () => {
     put('tests/visual/__baselines__/catalog/catalog.png');
