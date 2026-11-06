@@ -12,13 +12,13 @@ const f = (over: Partial<FindingInput> = {}): FindingInput => ({
 });
 const GOOD = JSON.stringify({ cause: 'Likely a design gap.', options: [{ label: 'Split', note: 'Split it.', recommended: true }] });
 
-function setup(run: () => Promise<{ raw: string }>) {
+function setup(run: (call: { policy?: string; tracking?: unknown }) => Promise<{ raw: string }>) {
   const store = openStore(':memory:');
   const ticketId = createTicket(store, { key: 'S', title: 's' }).id;
   updateTicketFields(store, ticketId, { description: 'Desc', intent: 'Check' });
   recordFindings(store, { ticketId, attempt: 0, runAt: '2026-01-01T00:00:01Z', findings: [f({ severity: 'medium', file: 'b.ts' }), f({ severity: 'critical' }), f({ severity: 'low' })] });
   recordFindings(store, { ticketId, attempt: 1, runAt: '2026-01-01T00:00:02Z', findings: [f()] });
-  const runHeadless = vi.fn(run);
+  const runHeadless = vi.fn((call: { policy?: string; tracking?: unknown }) => run(call));
   const adapter = { runHeadless } as unknown as AgentAdapter;
   const deps = { store, adapter, ticketId, cwd: '/w', blockingSeverity: 'medium' as const, diff: { files: ['a.ts'], stat: ' a.ts | 2 +-' } };
   return { store, ticketId, runHeadless, deps };

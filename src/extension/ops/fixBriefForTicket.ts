@@ -5,7 +5,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
 import { hasLinkedPrototype, renderFixBrief } from '../../agent/fixBrief.js';
-import { reviewStallHint } from '../../store/reviewStallHint.js';
+import { stallNote } from '../../store/stallNote.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
 /**
@@ -31,8 +31,12 @@ export function fixBriefForTicket(store: Store, ticketId: number, label?: string
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
     { hasPrototype: hasLinkedPrototype(t) },
   );
-  // A "Redesign hint…" answers a review stall: the user's direction rides the
-  // brief (D99 path) so the fix agent rethinks instead of patching again.
-  const hint = brief === null ? null : reviewStallHint(store, ticketId);
-  return hint === null ? brief : `${brief}\n\n## Redesign hint from the user\n\n${hint}\n`;
+  // The note of an applied stall option leads the brief (D99 path): the fix
+  // agent reads the direction first, and findings on removed scope lapse.
+  const note = stallNote(store, ticketId);
+  if (note === null) return brief;
+  const lead =
+    `## Direction from the user\n\n${note}\n\n` +
+    'Findings on scope that this direction removes no longer apply.\n';
+  return brief === null ? lead : `${lead}\n---\n\n${brief}`;
 }
