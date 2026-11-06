@@ -49,11 +49,14 @@ export function makeSessionOwnerSync(
   };
 }
 
-/** A sandboxed ticket gets no round. A placement that cannot be read is not a host ticket either (D482). */
+/**
+ * A ticket is a host ticket only when its recorded placement says so (D482). A sandbox placement, and a ticket with no
+ * recorded placement, get no round: a sandbox that is not listed (stopped, CLI down) must not read as a host.
+ */
 export function makeHostTicketCheck(
-  probe: (ticketId: number) => Promise<{ state: string }> | undefined,
+  placementOf: (ticketId: number) => { readonly backend: string } | null,
 ): (ticketId: number) => Promise<boolean> {
-  return async (id) => ((await probe(id)) ?? { state: 'absent' }).state === 'absent';
+  return async (id) => placementOf(id)?.backend === 'host';
 }
 
 /** Stop now: only the window that holds the session can end it. Another window reports that the stop did not reach it. */
@@ -108,7 +111,10 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   const holder = (id: number): 'self' | 'other' | 'none' | 'unknown' => {
     if (d.isLive(id)) return 'self';
     const stored = getAutopilotSessionOwner(d.store, id);
-    if (stored !== null && stored !== owner) return 'other';
+    if (stored !== null && stored !== owner) {
+      d.debug(`[ship] autopilot ticket ${id}: no round, window ${stored} holds the session (a closed window leaves its row until a window syncs)`);
+      return 'other';
+    }
     const state = getTicket(d.store, id).agentState;
     if (state === 'running' || state === 'waiting') {
       d.debug(`[ship] autopilot ticket ${id}: no round, the window that holds the session is not known`);

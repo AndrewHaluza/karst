@@ -1976,7 +1976,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLive: (id) => sessions.isLive(id), windowId,
     canLaunch: (id) => guardCapability('sessions', id, true),
     takeLaunch: launches.take,
-    isHostTicket: makeHostTicketCheck((id) => sandboxB?.probeSandbox(id)),
+    isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
   }));
   context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));

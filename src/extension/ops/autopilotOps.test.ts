@@ -330,6 +330,34 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci round for r is waiting for a free concurrency slot');
   });
 
+  it('parks when the stored failing list is cut short, because a hidden check may not be on the allowlist', async () => {
+    seedPr({ ...failing('build'), failed: 3, failedShown: 1 });
+    const r = rig();
+    const result = await autopilotTick(r.deps);
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix not run: the list of failing ci checks is cut short' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+  });
+
+  it('with two failing PRs the round and the signature follow the first PR only', async () => {
+    seedPr(failing('build'));
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+    const other = (names: string[]) => store.db.prepare("UPDATE prs SET checks = ? WHERE repo = 'r2'").run(JSON.stringify(failing(...names)));
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', JSON.stringify(failing('lint')));
+    await autopilotTick(rig().deps);
+    other(['lint', 'build']);
+    await autopilotTick(rig().deps);
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(2);
+    expect(getAutopilotBudget(store, id, 'r2', 'ci').attempts).toBe(0);
+  });
+
+  it('a second tick on an unchanged park does not report a new action', async () => {
+    seedPr(failing('other-check'));
+    expect((await autopilotTick(rig().deps)).kind).toBe('parked');
+    expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
+  });
+
   it('the budget-spent note says what to do', async () => {
     seedPr(failing('build'));
     await spend(3);

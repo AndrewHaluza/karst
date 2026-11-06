@@ -176,6 +176,7 @@ describe('who holds the session', () => {
     syncAutopilotSessionOwner(r.store, 'OTHER', [r.id]);
     await sweepOnce(r);
     expect(sendCiFailureAction).not.toHaveBeenCalled();
+    expect(r.debug).toHaveBeenCalledWith(`[ship] autopilot ticket ${r.id}: no round, window OTHER holds the session (a closed window leaves its row until a window syncs)`);
   });
 
   it('starts no round beside another window even when agent_state shows idle', async () => {
@@ -283,11 +284,11 @@ describe('window helpers', () => {
     expect(logError).toHaveBeenCalledWith('karst: session owner sync failed', expect.anything());
   });
 
-  it('makeHostTicketCheck is true only for an absent sandbox', async () => {
-    expect(await makeHostTicketCheck(async () => ({ state: 'absent' }))(1)).toBe(true);
-    expect(await makeHostTicketCheck(() => undefined)(1)).toBe(true);
-    expect(await makeHostTicketCheck(async () => ({ state: 'running' }))(1)).toBe(false);
-    await expect(makeHostTicketCheck(async () => { throw new Error('x'); })(1)).rejects.toThrow('x');
+  it('makeHostTicketCheck is true only for a recorded host placement', async () => {
+    expect(await makeHostTicketCheck(() => ({ backend: 'host' }))(1)).toBe(true);
+    expect(await makeHostTicketCheck(() => ({ backend: 'docker' }))(1)).toBe(false);
+    expect(await makeHostTicketCheck(() => ({ backend: 'sbx' }))(1)).toBe(false);
+    expect(await makeHostTicketCheck(() => null)(1)).toBe(false);
   });
 
   it('makeStopSession ends a held session, and reports a session this window does not hold', async () => {

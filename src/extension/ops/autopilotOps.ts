@@ -112,18 +112,24 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
     parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
     d.note(`Autopilot: ${reason}`, `${d.key} (${kind}): ${body}`);
     d.debug(`${LOG} ticket ${d.key} ${kind}: ${reason}`);
+    return { kind: 'parked', reason };
   }
-  return { kind: 'parked', reason };
+  // Already parked with this reason: nothing changed, so the views are not refreshed again.
+  return { kind: 'nothing' };
 }
 
-interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly failing?: readonly string[] }
+interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly failing?: readonly string[]; readonly cutShort?: boolean }
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
 function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   const ci = ciFailureState(d.store, d.ticketId);
   if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
-  const names = ci.prs.flatMap((p) => p.failing.map((f) => f.name)).sort();
-  return { kind: 'ci', repo: ci.prs[0]!.repo, signature: [...new Set(names)].join('\n'), failing: [...new Set(names)] };
+  // One PR per round, the first one: its own failing names make the signature, so a change on another PR cannot reset it.
+  const pr = ci.prs[0]!;
+  const names = [...new Set(pr.failing.map((f) => f.name))].sort();
+  // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
+  const cutShort = (pr.failedTotal ?? 0) > pr.failing.length;
+  return { kind: 'ci', repo: pr.repo, signature: names.join('\n'), failing: names, cutShort };
 }
 
 /**
@@ -175,6 +181,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'nothing' };
   }
   if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
+  if (problem.cutShort) {
+    return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
+  }
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
     const reason = `auto-fix not run: ci check ${(problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)'} is not on the allowlist`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
