@@ -919,9 +919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return {
         endpointUrl: hookEndpoint.toString(),
         configDir: settingsDir,
-        launchId,
-        // The bridge falls back only to a host of this project (arch:GLOBAL).
-        ...(hookProjectKey() !== undefined ? { projectKey: hookProjectKey() } : {}),
+        launchId, projectKey: projectEndpointKey(currentProject()?.slug),
       };
     },
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
@@ -1442,8 +1440,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return undefined;
     }
   };
-  // Key of this window's project for the hook bridge's current-endpoint file.
-  const hookProjectKey = (): string | undefined => projectEndpointKey(currentProject()?.slug);
   artifactCapture.start(); // after `currentProject` exists: wiring-time sync hit its TDZ
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
@@ -5540,7 +5536,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
-  writeCurrentEndpoint(settingsDir, endpoint.url, hookProjectKey());
+  writeCurrentEndpoint(settingsDir, endpoint.url, projectEndpointKey(currentProject()?.slug));
 
   // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket
   // stranded when the trigger that would normally kick the driver never arrived
