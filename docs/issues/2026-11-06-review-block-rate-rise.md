@@ -149,6 +149,12 @@ Period A:
 | 1522 | FIX-RESOURCES-TAB-IS-BLIND-TO | medium | REAL-LOWER | low | sampleContainers mapped docker ENOENT (127) to daemon-down so non-docker hosts saw a banner; fixed in a662e3fce 'no docker is not degraded' (NOT_INSTALLED/no-docker) 4 min after review. Cosmetic false warning. |
 | 1377 | TICKET-FORM-B-LAYOUT-SHELL | medium | REAL-LOWER | low | Ticket form is vanilla and the diff adds a layout feature, against the CLAUDE.md UI rule; resolved by docs commit 62cfb954e recording T862 exception ('review finding'). Process-rule violation, no runtime defect. |
 
+Period C and the Q4 verdict are in block [@issue:RB-08].
+
+END_DOC_BLOCK: [@issue:RB-05]
+
+## [@issue:RB-08] Q4: sample C and verdict
+
 Period C:
 
 | fid | ticket | stated | class | fits | reason |
@@ -173,7 +179,7 @@ Notes: sample A has 1 wrong finding (fid 1511: keeping the placement and the bri
 
 Verdict: the findings in C are not noisier than in A. In C, 13 of 15 are real at their severity. In A, 6 of 15 are real at their severity and 8 are real but lower. The sample does not show that wrong findings caused the rise in C. Because the fix basis is circular, treat this as low confidence. The comparison of A and C at the stated severity is indicative only.
 
-END_DOC_BLOCK: [@issue:RB-05]
+END_DOC_BLOCK: [@issue:RB-08]
 
 ## [@issue:RB-06] Q5: missed bugs
 
