@@ -1,3 +1,4 @@
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { LogError } from '../../logging/logger.js';
 import type { ResourceMonitor, ResourceReading } from '../../runtime/resourceMonitor.js';
 import type { WorktreeDiskCache, DiskUsage } from '../../runtime/worktreeDisk.js';
@@ -150,7 +151,20 @@ export class ResourcesPanelManager {
       this.push();
       return;
     }
-    const panel = this.host.createPanel(tabTitle(this.deps.panelTitle?.() ?? PANEL_TITLE));
+    this.start(this.host.createPanel(tabTitle(this.deps.panelTitle?.() ?? PANEL_TITLE)), tab);
+  }
+
+  /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
+  adopt(restored: RestoredPanel<ResourcesPanel>): boolean {
+    if (this.panel) {
+      restored.dispose();
+      return false;
+    }
+    this.start(restored.wrap(), 'resources');
+    return true;
+  }
+
+  private start(panel: ResourcesPanel, tab: PanelTab): void {
     this.panel = panel;
     this.pendingTab = tab;
     this.deps.monitor.setPanelVisible(true);

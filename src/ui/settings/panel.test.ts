@@ -249,3 +249,29 @@ describe('SettingsManager', () => {
     });
   });
 });
+
+describe('SettingsManager.adopt', () => {
+  const restoredOf = (panel: FakePanel) => {
+    const log: string[] = [];
+    return { log, restored: { wrap: () => (log.push('wrap'), panel), dispose: () => void log.push('dispose') } };
+  };
+
+  it('adopts a restored panel into the single slot, pushes state and never reveals', async () => {
+    const { mgr } = make({ manifest: M, error: null });
+    const panel = new FakePanel();
+    const r = restoredOf(panel);
+    expect(await mgr.adopt(r.restored)).toBe(true);
+    expect(r.log).toEqual(['wrap']);
+    expect(mgr.isOpen()).toBe(true);
+    expect(panel.posted.some((m) => m.type === 'state')).toBe(true);
+    expect(panel.revealed).toBe(0);
+  });
+
+  it('closes a restored duplicate when the slot already holds a panel', async () => {
+    const { mgr } = make({ manifest: M, error: null });
+    await mgr.open();
+    const r = restoredOf(new FakePanel());
+    expect(await mgr.adopt(r.restored)).toBe(false);
+    expect(r.log).toEqual(['dispose']);
+  });
+});
