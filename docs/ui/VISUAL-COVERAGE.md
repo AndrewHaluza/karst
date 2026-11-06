@@ -104,6 +104,7 @@ END_DOC_BLOCK: [@ui:LAYOUT-SANITY]
 
 - **Scope**: `scripts/dockerGate.mjs` narrows `test:visual:docker` and `test:layout:docker` to the views that the ticket diff reaches (`selectViews`, `gateGrep` in `scripts/uiViews.mjs`). The `layout` project uses the same `KARST_UI_GREP` grep. `layout-setup` and `layout-teardown` take no filter, so the ledger verdict still runs on the selected routes for any grep, and a filtered seed or prune is refused. The selection line states the scope, with counts that include layout tests. These runs stay on the full chain: CI (variable unset), `test:ui:docker` (it passes `KARST_UI_GREP: ''` because its view is named by hand, not derived from the diff), a shared path (a move counts as both of its paths), `playwright.config.ts`, a change to the ledger (it also voids the repeat-pass skip, `@arch:GATE-REPEAT`), an unknown diff, seed and prune. CI is the backstop for a layout bug that a view-scoped run misses.
 - **No selected route**: `catalog` and `status` have no layout route. In that selection, `test:layout:docker` prints a skip line and exits 0, and in `test:visual:docker` the teardown accepts zero shards only if the grep matches no layout title. A run with selected routes and no shards still fails.
+- **Measured saving**: `docs/issues/2026-11-06-layout-chain-narrowing-timing.md` (`@issue:NARROW-01`).
 END_DOC_BLOCK: [@ui:LAYOUT-SCOPE]
 
 ## [@ui:VISUAL-VARIANTS] Variant matrix (UI-R57)
