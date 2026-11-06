@@ -12,7 +12,9 @@ import ts from 'typescript';
  * (T705, T712, T961). This test is a RATCHET: each path-based call in scope is
  * counted per file and call name, and an allowlist entry must give the reason.
  * It does not judge safety. It forces a decision that the reviewer sees in the
- * diff. Calls on a handle (`handle.chmod`) are the safe form and are not
+ * diff. A reason has one of three forms: `host-only path`, `checked before use` (name the check),
+ * or `UNCHECKED` (a sandbox-writable path with no check: a follow-up for the owner, listed in the PR).
+ * Calls on a handle (`handle.chmod`) are the safe form and are not
  * counted. DI-wired fs calls (for example in `extension.ts`) are not visible.
  */
 
@@ -22,7 +24,8 @@ const ROOT = join(SRC, '..');
 export const CHECKED_CALLS: readonly string[] = [
   'chmod', 'chown', 'lchown', 'utimes', 'stat', 'readFile', 'writeFile', 'appendFile', 'mkdir',
   'rm', 'rmdir', 'unlink', 'rename', 'copyFile', 'symlink', 'truncate', 'readdir',
-].flatMap((name) => [name, `${name}Sync`]);
+  'link', 'cp', 'lutimes', 'opendir',
+].flatMap((name) => [name, `${name}Sync`]).concat(['createReadStream', 'createWriteStream']);
 
 const OPEN_CALLS: readonly string[] = ['open', 'openSync'];
 const FS_MODULES: readonly string[] = ['node:fs', 'node:fs/promises', 'fs', 'fs/promises'];
@@ -52,7 +55,11 @@ export function scanSource(fileName: string, text: string): ReadonlyMap<string, 
       const bindings = clause?.namedBindings;
       if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
       if (bindings && ts.isNamedImports(bindings)) {
-        for (const el of bindings.elements) named.set(el.name.text, (el.propertyName ?? el.name).text);
+        for (const el of bindings.elements) {
+          // `import { promises } from 'node:fs'` is a namespace in disguise: `promises.rm(p)`.
+          if ((el.propertyName ?? el.name).text === 'promises') namespaces.add(el.name.text);
+          else named.set(el.name.text, (el.propertyName ?? el.name).text);
+        }
       }
     }
   }
@@ -265,6 +272,16 @@ describe('scanner fixtures', () => {
   it('flags a namespace import call (fs.rm) and a default import call', () => {
     expect(scan(`import * as fs from 'node:fs/promises'; await fs.rm(p);`).get('rm')).toBe(1);
     expect(scan(`import fs from 'node:fs'; fs.promises.unlink(p);`).get('unlink')).toBe(1);
+  });
+
+  it('flags stream, copy and link calls', () => {
+    const src = `import { createWriteStream, cpSync, link } from 'node:fs'; createWriteStream(p); cpSync(a, b); link(a, b);`;
+    expect([...scan(src).keys()].sort()).toEqual(['cpSync', 'createWriteStream', 'link']);
+  });
+
+  it('flags a call through a named promises import, also aliased', () => {
+    expect(scan(`import { promises } from 'node:fs'; await promises.rm(p);`).get('rm')).toBe(1);
+    expect(scan(`import { promises as fsp } from 'node:fs'; await fsp.writeFile(p, '');`).get('writeFile')).toBe(1);
   });
 
   it('follows an import alias and ignores names not imported from fs', () => {
