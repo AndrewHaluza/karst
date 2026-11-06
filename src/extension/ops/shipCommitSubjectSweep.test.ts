@@ -83,6 +83,16 @@ describe('runShipCommitSubjectSweep', () => {
     expect(messages()).toEqual(['first', '']);
   });
 
+  it('retries at the next boot when a git call throws', async () => {
+    add(repoA, 'a1', '');
+    const throwing: GitRunner = vi.fn(async () => {
+      throw new Error('spawn failed');
+    });
+    await run(throwing);
+    await run(gitWith({ a1: 'later' }));
+    expect(messages()).toEqual(['later']);
+  });
+
   it('does not throw and does not record completion when the store read fails', async () => {
     const broken = { db: { prepare: () => { throw new Error('boom'); } } } as unknown as Store;
     const git = gitWith({});

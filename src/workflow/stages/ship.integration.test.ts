@@ -449,8 +449,8 @@ setTimeout(() => {
       ),
     ).rejects.toThrow(/ship produced nothing/);
 
-    expect(calls).toContainEqual(['log', '--reverse', '--format=%H%x00%s', 'develop..HEAD']);
-    expect(calls).not.toContainEqual(['log', '--reverse', '--format=%H%x00%s', 'main..HEAD']);
+    expect(calls).toContainEqual(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', 'develop..HEAD']);
+    expect(calls).not.toContainEqual(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', 'main..HEAD']);
   });
 
   // A worktree with NO persisted baseline must record unknown provenance even

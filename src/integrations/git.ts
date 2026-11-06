@@ -962,7 +962,7 @@ export async function listCommitsFrom(
   sinceSha: string | null,
 ): Promise<CommitSummary[]> {
   const range = sinceSha ? `${sinceSha}..HEAD` : 'HEAD';
-  const out = await git(['log', '--reverse', '--format=%H%x00%s', range], cwd);
+  const out = await git(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', range], cwd);
   if (out.exitCode !== 0) {
     throw new Error(describeGitFailure(`git log ${range}`, out));
   }

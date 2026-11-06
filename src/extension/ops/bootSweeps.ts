@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Store } from '../../store/db.js';
@@ -412,6 +412,12 @@ export interface ShipCommitSubjectSweepDeps {
   readonly logError: (message: string, err: unknown) => void;
 }
 
+const pathExists = (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
 const SHIP_SUBJECT_SWEEP_MARKER = 'ship-commit-subjects.done';
 
 /**
@@ -424,7 +430,7 @@ const SHIP_SUBJECT_SWEEP_MARKER = 'ship-commit-subjects.done';
 export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps): Promise<void> {
   const marker = join(deps.globalStorageRoot, SHIP_SUBJECT_SWEEP_MARKER);
   try {
-    if (existsSync(marker)) return;
+    if (await pathExists(marker)) return;
     const rows = listBlankBeforeShipCommits(deps.store);
     const bySha = new Map<string, { repo: string; sha: string; ids: number[] }>();
     for (const row of rows) {
@@ -436,14 +442,15 @@ export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps
     }
     const missingRepos = new Set<string>();
     let filled = 0;
+    let transientFailures = 0;
     for (const { repo, sha, ids } of bySha.values()) {
       try {
-        if (missingRepos.has(repo) || !existsSync(repo)) {
+        if (missingRepos.has(repo) || !(await pathExists(repo))) {
           missingRepos.add(repo);
           deps.debug(`karst: ship commit subject sweep: repository path missing, skipped ${repo}`);
           continue;
         }
-        const out = await deps.git(['show', '-s', '--format=%s', `${sha}^{commit}`], repo);
+        const out = await deps.git(['show', '-s', '--no-show-signature', '--format=%s', `${sha}^{commit}`], repo);
         const subject = out.stdout.trim();
         if (out.exitCode !== 0 || subject === '') {
           deps.debug(`karst: ship commit subject sweep: no subject for ${sha} in ${repo}, left blank`);
@@ -451,11 +458,15 @@ export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps
         }
         for (const id of ids) filled += fillBeforeShipMessage(deps.store, id, subject);
       } catch (err) {
+        transientFailures++;
         deps.debug(`karst: ship commit subject sweep: ${sha} in ${repo} failed: ${String(err)}`);
       }
     }
-    mkdirSync(deps.globalStorageRoot, { recursive: true });
-    writeFileSync(marker, new Date().toISOString());
+    // A git call that could not run at all (not "no such commit") may pass at a
+    // later boot, so the marker is withheld and the sweep tries again.
+    if (transientFailures > 0) return;
+    await mkdir(deps.globalStorageRoot, { recursive: true });
+    await writeFile(marker, new Date().toISOString());
     deps.debug(`karst: ship commit subject sweep done, ${filled} row(s) filled`);
   } catch (err) {
     deps.logError('karst: ship commit subject sweep failed', err);
