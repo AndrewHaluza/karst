@@ -3,6 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
+import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import { getAutopilotBudget, getAutopilotTicket, setAutopilotStopped, takeAutopilotAttempt } from '../../store/autopilot.js';
 import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './autopilotCommandOps.js';
@@ -39,6 +40,17 @@ describe('ticket picker', () => {
     const [picks, holder] = pickTicket.mock.calls[0] as unknown as [Array<{ label: string; ticketId: number }>, string];
     expect(holder).toBe('Set auto-fix mode for which ticket?');
     expect(picks.map((p) => p.ticketId).sort()).toEqual([id, early].sort());
+    expect(picks.map((p) => p.label).sort()).toEqual(['AP-1', 'AP-2']);
+  });
+  it('leaves out a finished ticket and labels a keyless ticket T<id>', async () => {
+    const done = createTicket(store, { key: 'AP-9', title: 'd', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(done);
+    const bare = createTicket(store, { key: null as never, title: 'b', projectId }).id;
+    const pickTicket = vi.fn(async () => undefined);
+    await stopCommand(deps({ pickTicket }));
+    const [picks] = pickTicket.mock.calls[0] as unknown as [Array<{ label: string; ticketId: number }>];
+    expect(picks.map((p) => p.ticketId)).not.toContain(done);
+    expect(picks.find((p) => p.ticketId === bare)?.label).toBe(`T${bare}`);
   });
   it('does not ask without a bound project', async () => {
     const pickTicket = vi.fn();
@@ -66,6 +78,16 @@ describe('setOverrideCommand', () => {
     expect(getAutopilotTicket(store, id).mode).toBe('off');
     await setOverrideCommand(deps({ pickTicket: async () => undefined }));
     await setOverrideCommand(deps({ projectId: () => undefined }));
+  });
+});
+
+describe('override and park block', () => {
+  it('an override change drops the auto-fix park block, a cancelled mode pick changes nothing', async () => {
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: ci 3/3', runAt: 'x', gates: [] });
+    await setOverrideCommand(deps({ pick: async () => undefined }), id);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci 3/3');
+    await setOverrideCommand(deps(), id, 'on');
+    expect(stageBlock(store, id, 'ship')?.reason).not.toMatch(/^auto-fix/);
   });
 });
 

@@ -307,6 +307,29 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci: auto-fix stopped: ci could not run (gh down)');
   });
 
+  it('never overwrites a foreign ship block that appears during a round', async () => {
+    seedPr(failing('build'));
+    const r = rig({
+      sendCiFailure: async () => {
+        parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'push-diverged', reason: 'push diverged', runAt: 'x', gates: [] });
+        return { kind: 'failed', reason: 'gh down' };
+      },
+    });
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'push-diverged', reason: 'push diverged' });
+    expect(r.notes).toEqual([]);
+  });
+
+  it('a full concurrency limit writes one exact note per signature and a debug line each tick', async () => {
+    seedPr(failing('build'));
+    const r = rig({ concurrencyFull: () => true });
+    await autopilotTick(r.deps);
+    await autopilotTick(r.deps);
+    expect(r.notes).toEqual([['Autopilot: ci round is waiting', 'AP-1: the ci round for r waits for a free sub-task slot; it starts when one is free.']]);
+    expect(r.debug).toHaveBeenCalledTimes(2);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci round for r is waiting for a free concurrency slot');
+  });
+
   it('the budget-spent note says what to do', async () => {
     seedPr(failing('build'));
     await spend(3);
