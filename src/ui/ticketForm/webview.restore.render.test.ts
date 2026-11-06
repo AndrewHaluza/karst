@@ -111,6 +111,40 @@ describe('ticket form — draft persistence', () => {
     expect(h.query<HTMLTextAreaElement>('#desc')!.value).toBe('');
   });
 
+  it('keeps the proposal identity after the form minted a draft row', () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 9, prefilled: true }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true } });
+  });
+  it('persists code that changed a field the user already edited', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    type(h, 'desc', 'typed');
+    await settle();
+    h.query<HTMLTextAreaElement>('#desc')!.value = 'typed, then improved';
+    h.receive({ type: 'busy', what: 'analyze', on: false });
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { desc: 'typed, then improved' } });
+  });
+  it('does not turn a host refill of an empty field into a draft', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ description: '' }) });
+    h.receive({ type: 'state', state: baseState({ description: 'host text' }) });
+    h.receive({ type: 'busy', what: 'analyze', on: false });
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' } });
+  });
+  it('keeps text typed while a save is in flight', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    type(h, 'title', 'Fix login');
+    h.query<HTMLButtonElement>('#saveBtn')!.click();
+    type(h, 'desc', 'typed during save');
+    h.receive({ type: 'busy', what: 'save', on: false });
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { desc: 'typed during save' } });
+  });
+
   it('saves the prefilled flag in the identity of a proposal review form', () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState({ prefilled: true }) });

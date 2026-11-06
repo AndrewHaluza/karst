@@ -670,6 +670,10 @@
     const dirty = new Set();
     // Field values the host rendered; a different value later came from the user or from code.
     const baseline = {};
+    // Field values last written to setState; code that changes a dirty field later differs from it.
+    const written = {};
+    // Field values at the moment Save/Submit started; text typed while it is in flight differs from it.
+    let commitSnapshot = null;
     let timer = null;
     let commitPending = false;
     let commitFailed = false;
@@ -677,7 +681,7 @@
     const write = () => {
       timer = null;
       const draft = {};
-      for (const f of dirty) draft[f] = el(f).value;
+      for (const f of dirty) { draft[f] = el(f).value; written[f] = draft[f]; }
       vscode.setState({
         ...(identity ? { karstPanel: identity } : {}),
         ...(dirty.size ? { draft } : {}),
@@ -692,9 +696,13 @@
       },
       /** Every host state push: track the identity; on the first one, lay the saved draft over it. */
       onHostState(state) {
-        identity = state.mode === 'edit' && Number.isInteger(state.ticketId)
-          ? { mode: 'edit', ticketId: state.ticketId }
-          : { mode: 'create', ...(state.prefilled === true ? { prefilled: true } : {}) };
+        // A proposal review form keeps its flag even after it minted a draft row (edit-shaped state):
+        // the host cannot re-link it, so it must restore as a proposal form, not a plain edit form.
+        identity = state.prefilled === true
+          ? { mode: 'create', prefilled: true }
+          : state.mode === 'edit' && Number.isInteger(state.ticketId)
+            ? { mode: 'edit', ticketId: state.ticketId }
+            : { mode: 'create' };
         if (!overlaid) {
           overlaid = true;
           for (const f of FIELDS) baseline[f] = el(f).value;
@@ -703,6 +711,8 @@
           }
           if (dirty.size) return true;
         }
+        // The host render is the baseline for fields the user has not changed (a host refill is not a draft).
+        for (const f of FIELDS) if (!dirty.has(f)) baseline[f] = el(f).value;
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
         return false;
@@ -714,11 +724,18 @@
         if (!overlaid) return;
         // `ref` is skipped: the Title derives it, so it is not text the user wrote.
         for (const f of FIELDS) {
-          if (f !== 'ref' && !dirty.has(f) && el(f).value !== baseline[f]) this.touch(f);
+          if (f === 'ref') continue;
+          const changed = dirty.has(f) ? el(f).value !== written[f] : el(f).value !== baseline[f];
+          if (changed) this.touch(f);
         }
       },
       /** Save or submit was started. */
-      commitStarted() { commitPending = true; commitFailed = false; },
+      commitStarted() {
+        commitPending = true;
+        commitFailed = false;
+        commitSnapshot = {};
+        for (const f of FIELDS) commitSnapshot[f] = el(f).value;
+      },
       /** The host reported an error: the pending save did not succeed, so the draft stays. */
       commitErrored() { commitFailed = true; },
       /** The save or submit finished: on success the typed text is saved, so drop the draft. */
@@ -726,8 +743,13 @@
         if (!commitPending) return;
         commitPending = false;
         if (commitFailed) return;
-        dirty.clear();
-        for (const f of FIELDS) baseline[f] = el(f).value;
+        // Only the text that was saved is dropped; a field typed into while the save ran stays a draft.
+        for (const f of FIELDS) {
+          if (commitSnapshot && el(f).value !== commitSnapshot[f]) continue;
+          dirty.delete(f);
+          baseline[f] = el(f).value;
+        }
+        commitSnapshot = null;
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
       },

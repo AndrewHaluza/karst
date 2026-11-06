@@ -30,7 +30,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 - Mirrored TS→HTML constants
 - React views (the Settings webview, since NDL-126)
 - Dashboard migration completed (2026-10-25)
-- Ticket-form migration exceptions (T690, T862, T926)
+- Ticket-form migration exceptions (T690, T862, T926, T972)
 END_DOC_BLOCK: [@ui:CONTENTS]
 
 ## [@ui:TITLE-KEY] The TITLE is a ticket's identity; the key is derived from it
@@ -239,7 +239,7 @@ panes and the archived toggle are pure view state kept in the webview state API
 (`view` beside the snapshot) and never posted.
 END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
 
-## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926)
+## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972)
 
-**One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration.
+**One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration. **Fourth recorded exception** (T972, 2026-11-06): the window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D372); it expires with the same migration.
 END_DOC_BLOCK: [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS]
