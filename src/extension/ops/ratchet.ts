@@ -192,7 +192,7 @@ export const CI_MISSING_MERGE_BASE_MESSAGE =
 // Only the CI workflow sets this flag (ci.yml, Unit tests step), because only it owns the
 // checkout depth. The Karst gate runner sets CI=1 and docker sandbox clones are shallow by
 // design, so the CI variable cannot decide the guard. Without the flag the ceiling fallback applies.
-export const REQUIRE_MERGE_BASE_ENV = 'KARST_REQUIRE_MERGE_BASE';
+export const REQUIRE_MERGE_BASE_ENV = 'RATCHET_REQUIRE_MERGE_BASE';
 
 export function assertMergeBaseInCi(
   result: ExtensionRatchetResult,

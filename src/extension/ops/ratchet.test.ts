@@ -378,7 +378,7 @@ describe('extension.ts ratchet live check', () => {
 
 describe('assertMergeBaseInCi', () => {
   const noBase = { ok: true, currentLines: 10, ceiling: 100 };
-  const CI_WORKFLOW = { KARST_REQUIRE_MERGE_BASE: '1' };
+  const CI_WORKFLOW = { RATCHET_REQUIRE_MERGE_BASE: '1' };
   it('throws naming the checkout when the CI workflow flag is set and no merge base', () => {
     expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/fetch-depth: 0/);
     expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/actions\/checkout/);
@@ -397,7 +397,7 @@ describe('assertMergeBaseInCi', () => {
     expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
   });
   it('does not treat other flag values as set', () => {
-    expect(() => assertMergeBaseInCi(noBase, { KARST_REQUIRE_MERGE_BASE: '0' })).not.toThrow();
+    expect(() => assertMergeBaseInCi(noBase, { RATCHET_REQUIRE_MERGE_BASE: '0' })).not.toThrow();
   });
   it('passes with the flag when a merge base exists', () => {
     expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, CI_WORKFLOW)).not.toThrow();
@@ -407,12 +407,14 @@ describe('assertMergeBaseInCi', () => {
 describe('ci.yml wiring', () => {
   const ci = readFileSync(join(process.cwd(), '.github', 'workflows', 'ci.yml'), 'utf8');
   it('sets the flag on the Unit tests step only', () => {
-    const flagLines = ci.split('\n').filter((l) => l.includes('KARST_REQUIRE_MERGE_BASE: '));
+    const flagLines = ci.split('\n').filter((l) => l.includes('RATCHET_REQUIRE_MERGE_BASE: '));
     expect(flagLines).toHaveLength(1);
-    expect(ci).toMatch(/- name: Unit tests\n\s+env:\n\s+KARST_REQUIRE_MERGE_BASE: '1'\n\s+run: npm run test:unit/);
+    expect(ci).toMatch(/- name: Unit tests\n\s+env:\n\s+RATCHET_REQUIRE_MERGE_BASE: '1'\n\s+run: npm run test:unit/);
   });
-  it('checks out full history in the verify job', () => {
-    expect(ci).toMatch(/- uses: actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
+  it('checks out full history in the job that has the flag', () => {
+    const verify = ci.slice(ci.indexOf('\n  verify:'), ci.indexOf('\n  integration:'));
+    expect(verify).toContain('RATCHET_REQUIRE_MERGE_BASE');
+    expect(verify).toMatch(/- uses: actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
   });
 });
 

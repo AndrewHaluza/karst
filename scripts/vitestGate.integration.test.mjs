@@ -19,7 +19,8 @@ const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' })
 const gate = (cwd = repo, baseRef = 'develop', extraEnv = {}) => {
   const env = { ...process.env, ...extraEnv, ...(baseRef ? { KARST_BASE_REF: baseRef } : {}) };
   if (!baseRef) delete env.KARST_BASE_REF;
-  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI']) delete env[k];
+  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI', 'GITHUB_ACTIONS']) delete env[k];
+  Object.assign(env, extraEnv);
   return spawnSync('node', [GATE, ...VITEST], { cwd, encoding: 'utf8', env });
 };
 const write = (name, body) => writeFileSync(join(repo, name), body);
@@ -51,6 +52,14 @@ describe('vitestGate base drift', () => {
     expect(again.status).toBe(0);
     expect(again.stderr).toContain('KARST-ALERT: develop-red');
     expect(again.stderr).not.toContain('re-running');
+  }, 120_000);
+
+  it('does not excuse a base-red failure on GitHub Actions', () => {
+    write('other.test.mjs', "import {it} from 'vitest';\nit('fine', () => {});\nit('more gha', () => {});\n");
+    const run = gate(repo, 'develop', { GITHUB_ACTIONS: 'true' });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('base check skipped: GitHub Actions never excuses');
+    expect(run.stderr).not.toContain('NOTICE: develop is red');
   }, 120_000);
 
   it('fails as today when the ticket touches the failing test file', () => {

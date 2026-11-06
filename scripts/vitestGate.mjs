@@ -132,6 +132,8 @@ async function redAtBase(cwd, sha, args, files) {
 
 async function judge(cwd, args, output) {
   const ids = failingTestIds(output);
+  // GitHub Actions enforces: a red develop push must fail the job, so no failure is excused as base drift.
+  if (process.env.GITHUB_ACTIONS === 'true') return skip('GitHub Actions never excuses a failure as base drift', ids);
   if (!allFailuresParsed(output, ids)) {
     console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
     return null;
