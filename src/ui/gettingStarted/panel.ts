@@ -34,7 +34,7 @@ export class GettingStartedManager {
   private panel: GettingStartedPanel | undefined;
 
   constructor(
-    private readonly loadState: () => GettingStartedState,
+    private readonly loadState: () => GettingStartedState | Promise<GettingStartedState>,
     private readonly host: GettingStartedPanelHost,
     private readonly actionsFactory: GettingStartedActionsFactory,
     private readonly logError: LogError = (m, e) => console.error(m, e),
@@ -62,7 +62,18 @@ export class GettingStartedManager {
     this.panel = panel;
 
     const pushState = (): void => {
-      panel.postMessage({ type: 'state', state: this.loadState() });
+      // The probe behind the state is async, so a slow tool never blocks the host.
+      const post = (state: GettingStartedState): void => panel.postMessage({ type: 'state', state });
+      try {
+        const loaded = this.loadState();
+        if (loaded instanceof Promise) {
+          loaded.then(post).catch((e: unknown) => this.logError('karst: getting started state failed', e));
+        } else {
+          post(loaded);
+        }
+      } catch (e) {
+        this.logError('karst: getting started state failed', e);
+      }
     };
     const ctx: GettingStartedActionsCtx = { pushState };
     const actions: GettingStartedActions = this.actionsFactory(ctx);

@@ -264,7 +264,7 @@ describe('extension activation', () => {
     expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
     expect(source).toContain('karst stage impl pass');
     expect(source.indexOf("activeGraph.status === 'completed-awaiting-impl-marker'")).toBeLessThan(
-      source.indexOf("if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch("),
+      source.indexOf("if (!options.providerReady && !(await guardCapability('sessions', ticketId))) return startGuards.failedLaunch("),
     );
   });
 
@@ -412,7 +412,7 @@ describe('extension activation', () => {
     // The park sweep must run before the stranded resume, or a dead run whose
     // stage was parked `failed` would read as a ticket that still needs one.
     expect(activationSource.indexOf('runBootSweeps({')).toBeLessThan(
-      activationSource.indexOf('resumeStrandedShips({'),
+      activationSource.indexOf('void resumeStrandedShips({'),
     );
   });
 
@@ -457,9 +457,9 @@ describe('extension activation', () => {
       /fixExecutionActive: listRecoveryRounds\(localStore, ticketId\)\s*\.some\(\(round\) => round\.status === 'fixing'\)/,
     );
     expect(source).toContain('modal: true');
-    expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
+    expect(source).toContain("guardProviderCapability('sessions', provider)");
     expect(source).toContain(
-      "if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch(",
+      "if (!options.providerReady && !(await guardCapability('sessions', ticketId))) return startGuards.failedLaunch(",
     );
     expect(source).toContain('sessions.disposeSession(ticketId)');
     expect(source).toContain("vscode.commands.executeCommand('karst.openSession', ticketId, options)");
@@ -584,7 +584,7 @@ describe('extension activation', () => {
 
   it('delegates configured Fix compatibility so only replacement paths probe before disposal or launch', () => {
     const source = readExtensionSources();
-    const fixStart = source.indexOf('function resumeFixSession(');
+    const fixStart = source.indexOf('async function resumeFixSession(');
     const fixEnd = source.indexOf('// The §5.4-safe driver nudge', fixStart);
     const fix = source.slice(fixStart, fixEnd);
 

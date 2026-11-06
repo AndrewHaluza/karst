@@ -444,7 +444,10 @@ import {
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
-import { ensureCapabilityAsync, commandOutputAsync } from './runtime/depsAsync.js';
+import { commandOutputAsync } from './runtime/depsAsync.js';
+import { createDependencyProbes } from './extension/ops/dependencyProbes.js';
+import { createCapabilityGuard, createProviderGuard, describeFaults } from './extension/ops/capabilityGuard.js';
+import { buildSetupStatusFromFaults } from './init/status.js';
 import {
   applyOpencode2Config,
   checkOpencode2Binary,
@@ -745,8 +748,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // and a stale row can name one that has since gone. Same handoff as the
     // dashboard's resolveConflicts: nudge a live session, else launch one
     // seeded with the brief (never drop the brief on an open terminal).
-    resolveConflicts: (id, repo) => {
-      if (!guardCapability('sessions', id)) return;
+    resolveConflicts: async (id, repo) => {
+      if (!(await guardCapability('sessions', id))) return;
       void resolveConflictClick({
         repo, label: formatId('ticket', id),
         probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }),
@@ -1476,7 +1479,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Live setup status for the Getting Started page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
   // no workspace folder → manifest counts as missing, provider defaults to claude.
-  const loadGettingStartedState = () => {
+  const loadGettingStartedState = async () => {
     let manifestExists = false;
     try {
       manifestExists = existsSync(manifestPathOrThrow());
@@ -1486,16 +1489,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const provider = (currentManifest()?.agentProvider ?? 'claude');
     // The panel's re-check button routes here; repaint the bar from the same
     // moment's truth, or installing a tool clears the checklist and leaves the
-    // status bar still claiming it's missing.
-    refreshDepsStatus();
+    // status bar still claiming it's missing. One probe pass feeds both.
+    const faults = await refreshDepsStatus({ recheck: true });
     return buildGettingStartedState(
-      buildSetupStatus({
-        manifestExists,
-        provider,
-        probe: binaryExists,
-        ready: commandSucceeds,
-        readOutput: readCommandOutput,
-      }),
+      buildSetupStatusFromFaults({ manifestExists, provider, faults }),
     );
   };
 
@@ -1518,15 +1515,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   depsStatus.command = 'karst.recheckDeps';
   context.subscriptions.push(depsStatus);
 
-  /** Reprobe, repaint the status bar, and report what is still unusable. */
-  const refreshDepsStatus = (): DependencyFault[] => {
+  const depProbes = createDependencyProbes();
+
+  /**
+   * Probe (async, bounded, cached ~60 s), repaint the status bar, and report what
+   * is still unusable. `recheck` is a user re-check: it drops the cache first.
+   */
+  const refreshDepsStatus = async (options: { recheck?: boolean } = {}): Promise<DependencyFault[]> => {
+    if (options.recheck) depProbes.clear();
     const provider = currentManifest()?.agentProvider ?? 'claude';
-    const faults = checkDependencyFaults(
-      dependencyRegistry(provider),
-      binaryExists,
-      commandSucceeds,
-      readCommandOutput,
-    );
+    const faults = await depProbes.faults(provider);
     const indicator = buildDepsIndicator(faults);
     if (!indicator) {
       depsStatus.hide();
@@ -1546,7 +1544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!e.affectsConfiguration('karst.opencode2.binaryPath')) return;
       applyOpencode2();
       checkOpencode2();
-      refreshDepsStatus();
+      void refreshDepsStatus({ recheck: true }).catch((e) => logError('karst: dependency re-check failed', e));
     }),
   );
 
@@ -1584,43 +1582,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * doesn't vary by agent provider, and passing it needlessly risks a
    * `getTicket` throw on a since-deleted ticket.
    */
-  const guardProviderCapability = (
-    capability: Capability,
-    agentProvider: AgentProvider,
-    silent = false,
-  ): boolean => {
-    const faults = ensureCapability(
-      capability,
-      dependencyRegistry(agentProvider),
-      binaryExists,
-      commandSucceeds,
-      readCommandOutput,
-    );
-    if (faults.length === 0) return true;
-    // The bar may predate this: a tool can go missing (or be installed) after
-    // activation, and a refusal is proof of what PATH says right now.
-    refreshDepsStatus();
-    for (const f of faults) logger.warn(`blocked: '${f.dep.binary}' is ${f.state}`);
-    if (!silent) {
-      const text = faults
-        .map((f) => renderDependencyFault(f.dep, f.state))
-        .filter((m): m is string => m !== null)
-        .join(' ');
-      void vscode.window.showErrorMessage(text, 'Open setup checklist').then((choice) => {
-        if (choice === 'Open setup checklist') gettingStarted.open();
-      });
-    }
-    return false;
+  const guardDeps = {
+    probes: depProbes,
+    // The bar may predate a refusal: a tool can go missing (or be installed) after
+    // activation, and a refusal is proof of what the probe says now.
+    onBlocked: () => void refreshDepsStatus().catch((e) => logError('karst: dependency status refresh failed', e)),
+    warn: (message: string) => logger.warn(message),
+    showError: async (text: string) =>
+      (await vscode.window.showErrorMessage(text, 'Open setup checklist')) === 'Open setup checklist',
+    openChecklist: () => gettingStarted.open(),
   };
-
-  const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
+  const guardProviderCapability = createProviderGuard(guardDeps);
+  const ticketProvider = (ticketId?: number): AgentProvider => {
     const ticket = ticketId === undefined ? undefined : getTicket(localStore, ticketId);
-    return guardProviderCapability(
-      capability,
-      resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {}),
-      silent,
-    );
+    return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {});
   };
+  const guardCapability = createCapabilityGuard({ ...guardDeps, providerFor: ticketProvider });
 
   /** Warn before an OpenCode v2 launch with no provider signed in (see opencode2AuthWarning.ts). False only when the user signs in first. */
   const opencode2AuthGate = (
@@ -1643,33 +1620,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       debug: (message) => logger.debug(message),
     });
-
-  /**
-   * Switch-only provider probe. Unlike the activation and ordinary action
-   * guards, this runs from an open dashboard and must never block the shared
-   * extension-host event loop while a candidate CLI answers (or hangs).
-   */
-  const guardProviderCapabilityAsync = async (
-    capability: Capability,
-    agentProvider: AgentProvider,
-  ): Promise<boolean> => {
-    const faults = await ensureCapabilityAsync(
-      capability,
-      dependencyRegistry(agentProvider),
-      undefined,
-      commandOutputAsync,
-    );
-    if (faults.length === 0) return true;
-    for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
-    const message = faults
-      .map((fault) => renderDependencyFault(fault.dep, fault.state))
-      .filter((text): text is string => text !== null)
-      .join(' ');
-    void vscode.window.showErrorMessage(message, 'Open setup checklist').then((choice) => {
-      if (choice === 'Open setup checklist') gettingStarted.open();
-    });
-    return false;
-  };
 
   const switchAgentSession = async (
     ticketId: number,
@@ -1698,7 +1648,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
-        isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
+        isProviderReady: (provider) => guardProviderCapability('sessions', provider),
         confirm: async ({ from, to, willReplaceSession }) => {
           const choice = await vscode.window.showWarningMessage(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
@@ -2892,7 +2842,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }) });
   const ciHost = (ticketId: number): CiHost => ({
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
-    handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), ...sessionSeams(ticketId) }),
+    handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
     deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
@@ -3162,8 +3112,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(ticketId);
       void driveGraphRunContinuation(graphRunId);
     },
-    (ticketId, repo) => {
-      if (!guardCapability('ship')) return;
+    async (ticketId, repo) => {
+      if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
         logError('karst: per-repo ship retry failed', e);
         provider.refresh();
@@ -3553,7 +3503,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeFix: (id, gate, attempts, roundId, process) =>
             snapshotThenResume(localStore, id, process === null ? null : roundId, defaultGitRunner,
               (err) => logError(`karst: fix-round HEAD snapshot for ticket ${id} failed`, err),
-              () => resumeFixSession(id, gate, attempts, roundId, process)),
+              () => void resumeFixSession(id, gate, attempts, roundId, process)
+                .catch((err) => logError(`karst: resuming the fix session for ticket ${id} failed`, err))),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
           // `vscode.diff`; that only fires once the human clicks a file row
@@ -3640,13 +3591,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the driver (`fixResumeDecision` / the committed recovery round) — this
   // function only runs once a resume has been granted, so reaching it IS the
   // decision.
-  function resumeFixSession(
+  async function resumeFixSession(
     ticketId: number,
     gate: GateStageKey,
     attempts: number,
     roundId: number | null,
     process: DriveProcessBundle | null,
-  ): void {
+  ): Promise<void> {
     const parkUnavailable = (why: string): void => {
       try {
         if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
@@ -3681,7 +3632,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // is delivered (the configured identity snapshot is captured into the
     // run); a closed session launches and the run opens when its SessionStart
     // is accepted. Neither path reveals the IDE.
-    const outcome = resumeConfiguredFixExecution(localStore, {
+    const outcome = await resumeConfiguredFixExecution(localStore, {
       ticketId,
       roundId,
       configuredIdentity: configured,
@@ -3728,7 +3679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // channel, the session-close sweep, and the activation sweep so a gate never
   // strands just because one trigger (e.g. an unreachable SessionEnd hook) was missed.
   let gateToolsWarned = false;
-  const maybeDrive = (ticketId: number, trigger: string): void => {
+  const maybeDriveChecked = async (ticketId: number, trigger: string): Promise<void> => {
     if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, trigger, (m) => logger.info(m))) return;
     const t = getTicket(localStore, ticketId);
     // Paused is the FIRST gate: a paused ticket must not spend a process, a
@@ -3752,13 +3703,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
     // every parked ticket, and N toasts say nothing the first one didn't.
-    if (!guardCapability('gates', undefined, gateToolsWarned)) {
+    if (!(await guardCapability('gates', undefined, gateToolsWarned))) {
       gateToolsWarned = true;
       logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
       return;
     }
     logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);
     void driveTicket(ticketId);
+  };
+  const maybeDrive = (ticketId: number, trigger: string): void => {
+    void maybeDriveChecked(ticketId, trigger).catch((e) => logError(`karst: stage driver trigger '${trigger}' failed for ticket ${ticketId}`, e));
   };
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
@@ -5642,7 +5596,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   if (startupProject) {
-    resumeStrandedShips({
+    void resumeStrandedShips({
       store: localStore,
       projectId: startupProject.id,
       isAlive: pidAlive,
@@ -5655,7 +5609,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider.refresh();
         dashboard.pushState(id);
       },
-    });
+    }).catch((e) => logError('karst: stranded ship recovery failed', e));
   }
 
   // PR status sync: `ship` writes every PR as 'open' and nothing ever revised it,
@@ -6006,7 +5960,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Startup dependency preflight: karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the
   // preflight and the Getting Started checklist drift apart.
-  const depFaults = refreshDepsStatus();
+  // Not awaited: a slow or hung tool must never hold up activation.
+  const depFaultsReady = refreshDepsStatus();
 
   // Fresh-install: auto-open the getting-started panel when this
   // workspace has no manifest yet and the user hasn't dismissed it. Per-workspace
@@ -6027,20 +5982,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // Suppress the toast when the panel already shows the same dependency status.
-  if (depFaults.length > 0 && !autoOpenedGettingStarted) {
-    for (const f of depFaults) logger.warn(`dependency '${f.dep.binary}' is ${f.state}`);
-    void vscode.window
-      .showWarningMessage(
-        depFaults
-          .map((f) => renderDependencyFault(f.dep, f.state))
-          .filter((m): m is string => m !== null)
-          .join(' '),
-        'Open setup checklist',
-      )
-      .then((choice) => {
-        if (choice === 'Open setup checklist') gettingStarted.open();
-      });
-  }
+  void depFaultsReady
+    .then((depFaults) => {
+      if (depFaults.length === 0 || autoOpenedGettingStarted) return;
+      for (const f of depFaults) logger.warn(`dependency '${f.dep.binary}' is ${f.timedOut ? 'not answering' : f.state}`);
+      void vscode.window
+        .showWarningMessage(describeFaults(depFaults), 'Open setup checklist')
+        .then((choice) => {
+          if (choice === 'Open setup checklist') gettingStarted.open();
+        });
+    })
+    .catch((e) => logError('karst: startup dependency preflight failed', e));
 
   // Shared entry: resolve the manifest, remember it for ticket-form actions, and
   // open the create-mode page. Backs the ticket-form command and the deprecated
@@ -6095,7 +6047,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
-      if (!options.providerReady && !guardCapability('sessions', ticketId)) return startGuards.failedLaunch(ticketId, 'the sessions capability is unavailable');
+      if (!options.providerReady && !(await guardCapability('sessions', ticketId))) return startGuards.failedLaunch(ticketId, 'the sessions capability is unavailable');
       // An opencode2 session with an empty isolated credential store opens into
       // "No provider selected"; warn first (real launches only).
       if (
@@ -6575,7 +6527,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       // A spin creates worktrees and installs deps into them; both tools fail
       // deep inside that, long after the user stopped watching.
-      if (!guardCapability('worktrees') || !guardCapability('gates')) return;
+      if (!(await guardCapability('worktrees')) || !(await guardCapability('gates'))) return;
 
       const manifest = await resolveManifest(logger.info);
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
@@ -6667,7 +6619,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // package.json says "karst"; a ticket's other repos are not launchable and
     // never appear.
     vscode.commands.registerCommand('karst.launchWorktreeExtension', async () => {
-      if (!guardCapability('worktrees')) return;
+      if (!(await guardCapability('worktrees'))) return;
       if (!launchWorktreeConfig().enabled) {
         void vscode.window.showWarningMessage(
           'Karst: launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
@@ -6950,8 +6902,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Reprobe on demand: the user installs a tool in a terminal, clicks the status
     // bar, and karst answers without a window reload. No polling — nothing else
     // knows when an install finishes, and a timer would probe PATH forever.
-    vscode.commands.registerCommand('karst.recheckDeps', () => {
-      const missing = refreshDepsStatus();
+    vscode.commands.registerCommand('karst.recheckDeps', async () => {
+      const missing = await refreshDepsStatus({ recheck: true });
       if (missing.length === 0) {
         void vscode.window.showInformationMessage('Karst has every tool it needs.');
         return;

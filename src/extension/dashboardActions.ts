@@ -248,8 +248,8 @@ export function makeDashboardActions(
     // arbitrary directory. It is also gated on the same config the button
     // renders from: an off switch must hold against a crafted message even
     // when no button is visible.
-    launchWorktreeExtension: (path) => {
-      if (!guardCapability('worktrees')) return;
+    launchWorktreeExtension: async (path) => {
+      if (!(await guardCapability('worktrees'))) return;
       if (!launchConfig().enabled) {
         void vscode.window.showWarningMessage(
           'Launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
@@ -277,8 +277,8 @@ export function makeDashboardActions(
     // saga run and its aftermath live in ONE host seam (`runShipSaga`), shared
     // with the stranded-ship recovery at activation — this click only adds the
     // capability guard and the failure toast.
-    shipTicket: () => {
-      if (!guardCapability('ship')) return;
+    shipTicket: async () => {
+      if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId).catch((e) => {
         logError('ship failed', e);
         // `shipTicket` already recorded the reason on the ship stage, so the
@@ -295,8 +295,8 @@ export function makeDashboardActions(
     },
     // The rail's "Retry ship": re-run ship for every repo whose latest step failed,
     // through the same per-repo saga path the Ship panel's Retry uses.
-    retryShip: () => {
-      if (!guardCapability('ship')) return;
+    retryShip: async () => {
+      if (!(await guardCapability('ship'))) return;
       const plan = planRetryShip(store, ticketId);
       if ('reason' in plan) {
         void vscode.window.showInformationMessage(`Retry ship: ${plan.reason}.`);
@@ -552,7 +552,7 @@ export function makeDashboardActions(
       store, ticketId, notify: vscodeNotify, debug,
       runShip: (id) => void runShipSaga(id).catch((e) => logError('push-diverged overwrite: ship failed', e)),
       redrive: driveAfterResume, refresh: afterServerChange,
-      handOff: guardedHandOff({ paused: () => getTicket(store, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), isGraphTicket: () => nudgeSurface(store.db, ticketId) === 'no-op', handOff: handOffToSession }),
+      handOff: guardedHandOff({ paused: () => getTicket(store, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), isGraphTicket: () => nudgeSurface(store.db, ticketId) === 'no-op', handOff: handOffToSession }),
     }),
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     ...usageLimitParks,
@@ -586,8 +586,8 @@ export function makeDashboardActions(
     // and which paths the probe named. karst runs no git itself here: the
     // worktree may still have a session sitting in it, and a half-applied merge
     // left by a button click is a state nobody asked for.
-    resolveConflicts: (repo) => {
-      if (!guardCapability('sessions', ticketId)) return;
+    resolveConflicts: async (repo) => {
+      if (!(await guardCapability('sessions', ticketId))) return;
       void askPausedModal(store, ticketId, 'resolving conflicts', 'Resolve conflicts', () => afterServerChange()).then((r) => (r === 'proceed' ? resolveConflictClick({
         repo, label: formatId('ticket', ticketId),
         probeSandbox: () => sandbox.bindings()?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
@@ -608,8 +608,8 @@ export function makeDashboardActions(
     // The dashboard is refreshed on EVERY exit — success, refusal, cancel, throw —
     // because the panel's pending state is cleared by a state push. Skipping the
     // push on the cancel path would leave the button stuck on "Merging…".
-    mergePr: (repo) => {
-      if (!guardCapability('ship')) return;
+    mergePr: async (repo) => {
+      if (!(await guardCapability('ship'))) return;
       void (async () => {
         try {
           // The store decides what is mergeable: `repo` arrived in a webview
@@ -689,8 +689,8 @@ export function makeDashboardActions(
     // danger-worded: it is reversible from the same row. The dashboard is
     // refreshed on every exit, for the same pending-state reason `mergePr`
     // documents.
-    dismissPr: (repo) => {
-      if (!guardCapability('ship')) return;
+    dismissPr: async (repo) => {
+      if (!(await guardCapability('ship'))) return;
       void (async () => {
         try {
           const pr = findTicketPr(store, ticketId, repo);
@@ -750,8 +750,8 @@ export function makeDashboardActions(
     // Undo a dismissal. Not confirmed: it only puts a pull request back in the
     // merge gate's way, which is the state the ticket was already in before the
     // dismissal, and it can never move a ticket forward.
-    undismissPr: (repo) => {
-      if (!guardCapability('ship')) return;
+    undismissPr: async (repo) => {
+      if (!(await guardCapability('ship'))) return;
       try {
         const result = undismissTicketPr(store, { ticketId, repo, debug });
         if (!result.ok) void vscode.window.showInformationMessage(result.reason);

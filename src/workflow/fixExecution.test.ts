@@ -305,9 +305,9 @@ describe('configured Fix session compatibility and readiness', () => {
     };
   }
 
-  it('nudges a proven matching live session without probing provider readiness', () => {
+  it('nudges a proven matching live session without probing provider readiness', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), { provider: 'codex', model: 'sol' }),
       providerReady: () => {
@@ -323,9 +323,9 @@ describe('configured Fix session compatibility and readiness', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('fixing');
   });
 
-  it('treats an unknown live identity as incompatible and preserves it when readiness fails', () => {
+  it('treats an unknown live identity as incompatible and preserves it when readiness fails', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), null),
       providerReady: () => (events.push('ready'), false),
@@ -340,9 +340,9 @@ describe('configured Fix session compatibility and readiness', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
-  it('probes immediately before replacing a divergent live session', () => {
+  it('probes immediately before replacing a divergent live session', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), { provider: 'claude', model: 'opus' }),
       providerReady: () => (events.push('ready'), true),
@@ -356,9 +356,9 @@ describe('configured Fix session compatibility and readiness', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
-  it('probes a closed launch path and never disposes or launches when it fails', () => {
+  it('probes a closed launch path and never disposes or launches when it fails', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), false),
       sessionIdentity: () => {
         throw new Error('a closed session has no identity to inspect');

@@ -129,7 +129,7 @@ export interface ResumeConfiguredFixExecutionOpts
   /** The recorded identity of the terminal `isLive` just proved, or null. */
   sessionIdentity: () => NonNullable<ResumeFixExecutionOpts['identity']> | null;
   /** Probe the configured provider only when a new terminal must be launched. */
-  providerReady: () => boolean;
+  providerReady: () => boolean | Promise<boolean>;
   /** Retire an incompatible live terminal after readiness has succeeded. */
   dispose: () => void;
 }
@@ -140,10 +140,10 @@ export interface ResumeConfiguredFixExecutionOpts
  * directly. Every other path proves the configured provider immediately before
  * it disposes or launches; a failed proof leaves the existing session intact.
  */
-export function resumeConfiguredFixExecution(
+export async function resumeConfiguredFixExecution(
   store: Store,
   opts: ResumeConfiguredFixExecutionOpts,
-): ResumeConfiguredFixOutcome {
+): Promise<ResumeConfiguredFixOutcome> {
   const live = opts.isLive();
   const activeIdentity = live ? opts.sessionIdentity() : null;
   const matches = activeIdentity !== null
@@ -158,7 +158,7 @@ export function resumeConfiguredFixExecution(
     });
   }
 
-  if (!opts.providerReady()) return 'unavailable';
+  if (!(await opts.providerReady())) return 'unavailable';
   if (live) opts.dispose();
   return resumeFixExecution(store, {
     ...opts,

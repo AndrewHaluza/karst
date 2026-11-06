@@ -4,6 +4,7 @@ import {
   dependencyState,
   renderDependencyFault,
   type Capability,
+  type DependencyFault,
   type DependencyProbe,
   type DependencyState,
   type OutputProbe,
@@ -53,8 +54,13 @@ export const AGENT_AUTH_REMINDER =
  * declares no readiness probe, so karst cannot see whether the user is logged in
  * and says so either way. Every other tool answers for itself.
  */
-function detailFor(dep: RequiredDependency, state: DependencyState, isAgent: boolean): string | null {
-  const fault = renderDependencyFault(dep, state);
+function detailFor(
+  dep: RequiredDependency,
+  state: DependencyState,
+  isAgent: boolean,
+  timedOut = false,
+): string | null {
+  const fault = renderDependencyFault(dep, state, timedOut);
   if (isAgent) return fault ? `${dep.install}\n\n${AGENT_AUTH_REMINDER}` : AGENT_AUTH_REMINDER;
   // A missing tool's row sits under a label that already said it isn't installed;
   // repeating the sentence adds nothing, so the row shows the install step alone.
@@ -62,14 +68,40 @@ function detailFor(dep: RequiredDependency, state: DependencyState, isAgent: boo
 }
 
 export function buildSetupStatus(input: SetupStatusInput): SetupItem[] {
+  // Probing the item's OWN binary is what keeps the checklist honest. It used
+  // to take a precomputed missing set, so a dependency the caller forgot to
+  // probe reported itself installed. Installed-but-unusable is a third answer:
+  // a logged-out gh fails ship exactly like an absent one.
+  return buildSetupItems(input, (dep) =>
+    dependencyState(dep, input.probe, input.ready, input.readOutput),
+  );
+}
+
+/** Input for a checklist built from faults an async probe already found: one probe pass, no second one. */
+export interface SetupStatusFromFaultsInput {
+  manifestExists: boolean;
+  provider: AgentProvider;
+  /** Every fault of the registry for the provider. A dependency with no fault is ready. */
+  faults: readonly DependencyFault[];
+}
+
+export function buildSetupStatusFromFaults(input: SetupStatusFromFaultsInput): SetupItem[] {
+  return buildSetupItems(
+    input,
+    (dep) => input.faults.find((f) => f.dep.binary === dep.binary)?.state ?? 'ok',
+    (dep) => input.faults.find((f) => f.dep.binary === dep.binary)?.timedOut === true,
+  );
+}
+
+function buildSetupItems(
+  input: { manifestExists: boolean; provider: AgentProvider },
+  stateOf: (dep: RequiredDependency) => DependencyState,
+  timedOut: (dep: RequiredDependency) => boolean = () => false,
+): SetupItem[] {
   const registry = dependencyRegistry(input.provider);
 
   const deps = registry.map((dep): SetupItem => {
-    // Probing the item's OWN binary is what keeps the checklist honest. It used
-    // to take a precomputed missing set, so a dependency the caller forgot to
-    // probe reported itself installed. Installed-but-unusable is a third answer:
-    // a logged-out gh fails ship exactly like an absent one.
-    const state = dependencyState(dep, input.probe, input.ready, input.readOutput);
+    const state = stateOf(dep);
     return {
       id: dep.binary,
       // Labels are used verbatim, never case-adjusted: 'npm' is lowercase by its
@@ -77,7 +109,7 @@ export function buildSetupStatus(input: SetupStatusInput): SetupItem[] {
       // no such name.
       label: `${dep.label} is installed`,
       done: state === 'ok',
-      detail: detailFor(dep, state, dep.enables === 'sessions'),
+      detail: detailFor(dep, state, dep.enables === 'sessions', timedOut(dep)),
       enables: dep.enables,
     };
   });
