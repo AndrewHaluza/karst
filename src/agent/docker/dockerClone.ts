@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BASE_REF_PREFIX, REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
-import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead } from '../cloneSyncClass.js';
+import { BEHIND_SUMMARY, THIN_BUNDLE_EXCLUDE, classifyCloneRelation, fetchSandboxBundleArgs, hostBundleHaves, resolveSandboxHead } from '../cloneSyncClass.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -41,6 +41,9 @@ export interface CloneContext {
 export type StepResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 const BUNDLE_DIR = '/bundle';
+
+/** In the helper: `$1` the output file, `$2` the branch, the rest host commits. A clone that has one gets a thin bundle, like sbx (`THIN_BUNDLE_EXCLUDE`). */
+export const THIN_OUT_SCRIPT = `set -e; g="git -c safe.directory=* -C ${CONTAINER_REPO}"; out=$1; br=$2; shift 2; ${THIN_BUNDLE_EXCLUDE}$g bundle create -q "$out" "$br" $ex`;
 
 function helper(ctx: CloneContext, extra: readonly string[], command: readonly string[]): string[] {
   return ['run', '--rm', '--network', 'none', ...HARDENING, ...userArgs(ctx.user), ...extra, OPENCODE_IMAGE, ...command];
@@ -138,10 +141,11 @@ export async function syncFromClone(ctx: CloneContext, input: CloneInput): Promi
 
 /** Bundle the clone's branch out of the volume and fetch it into the private `refs/karst/sandbox/<branch>` of the host worktree (FETCH_HEAD is never written). */
 async function fetchCloneBundle(ctx: CloneContext, input: CloneInput, dir: string): Promise<StepResult> {
+  const haves = await hostBundleHaves((args) => ctx.proc.run('git', ['-C', input.hostWorktreePath, ...args]), input.branch);
   const bundled = await ctx.proc.run(DOCKER_BIN, helper(
     ctx,
     [...volumeMounts(ctx.names, { repoReadonly: true }), '--mount', bindMount(dir, BUNDLE_DIR, false)],
-    ['git', '-c', 'safe.directory=*', '-C', CONTAINER_REPO, 'bundle', 'create', `${BUNDLE_DIR}/out.bundle`, input.branch],
+    ['sh', '-c', THIN_OUT_SCRIPT, 'karst-bundle', `${BUNDLE_DIR}/out.bundle`, input.branch, ...haves],
   ));
   if (bundled.code !== 0) return { ok: false, reason: `no sandbox clone to sync from: ${detail(bundled)}` };
   const fetched = await ctx.proc.run('git', ['-C', input.hostWorktreePath, ...fetchSandboxBundleArgs(join(dir, 'out.bundle'), input.branch)]);

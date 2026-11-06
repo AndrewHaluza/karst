@@ -35,6 +35,9 @@ import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 const ALL_TITLES = /.*/;
 const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
 
+// T992: one id per run. The webServer child inherits it and the cleanup reporter compares it; workers re-read this file and keep the id.
+process.env.KARST_VISUAL_RUN_ID ??= `${process.pid}-${Date.now()}`;
+
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
@@ -63,6 +66,7 @@ export default defineConfig({
   },
 
   webServer: {
+    // KARST_VISUAL_RUN_ID reaches serve.mjs, which records it; the cleanup reporter removes pages only of its own server.
     command: 'node tests/visual/serve.mjs',
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,
@@ -82,6 +86,8 @@ export default defineConfig({
     // run produced zero executed tests — a webServer/startup crash that used
     // to hide behind `continue-on-error: true` (NDL-218).  Gitignored.
     ['json', { outputFile: 'tests/visual/.results.json' }],
+    // T992: a passed run removes the ~800 MB of generated pages (tests/visual/.tmp); a failed run keeps them.
+    ['./tests/visual/tmpCleanupReporter.ts'],
   ],
 
   projects: [

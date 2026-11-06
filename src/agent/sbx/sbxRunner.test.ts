@@ -73,6 +73,8 @@ const HEAD_KEY = `${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{com
 const text = (c: { command: string; args: readonly string[] }) => [c.command, ...c.args].join(' ');
 
 const HOST_SHA = 'a'.repeat(40);
+/** The fake answers this for the private sandbox ref: the tip the last sync fetched. */
+const PREV_TIP = 'f'.repeat(40);
 
 describe('createSbxSessionRunner.sync thin bundle', () => {
   const run = async (revParse: { code?: number; stdout?: string }) => {
@@ -82,13 +84,13 @@ describe('createSbxSessionRunner.sync thin bundle', () => {
     return proc.calls.find((c) => c.command === 'sbx')!;
   };
 
-  it('passes the host HEAD so the sandbox excludes it (guarded by cat-file, tip==HEAD excludes parents)', async () => {
+  it('passes the host HEAD so the sandbox excludes it (guarded by cat-file, a tip at or behind HEAD excludes the tip parents)', async () => {
     const call = await run({ stdout: `${HOST_SHA}\n` });
-    expect(call.args.slice(-2)).toEqual(['feat/x', HOST_SHA]);
+    expect(call.args.slice(-3)).toEqual(['feat/x', HOST_SHA, PREV_TIP]);
     const script = call.args.find((a) => a.includes('bundle create'))!;
-    expect(script).toContain('cat-file -e "$2^{commit}"');
-    expect(script).toContain('"^$2"');
-    expect(script).toContain('"^$2^@"');
+    expect(script).toContain('cat-file -e "$c^{commit}"');
+    expect(script).toContain('ex="^$c"');
+    expect(script).toContain('ex="^$tip^@"');
   });
 
   it('creates the bundle temp file in the clone git dir, never in a read-only /tmp', async () => {
@@ -101,8 +103,8 @@ describe('createSbxSessionRunner.sync thin bundle', () => {
   });
 
   it('falls back to the full bundle (empty exclusion) when the host HEAD is unreadable', async () => {
-    expect((await run({ code: 128 })).args.slice(-2)).toEqual(['feat/x', '']);
-    expect((await run({ stdout: 'not-a-sha' })).args.slice(-2)).toEqual(['feat/x', '']);
+    expect((await run({ code: 128 })).args.slice(-2)).toEqual(['feat/x', PREV_TIP]);
+    expect((await run({ stdout: 'not-a-sha' })).args.slice(-2)).toEqual(['feat/x', PREV_TIP]);
   });
 });
 
@@ -113,9 +115,10 @@ describe('createSbxSessionRunner.sync', () => {
     await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: "fast-forwarded feat/x to the sbx sandbox's commits" });
     const [head, ...rest] = proc.calls.map(text);
     expect(head).toBe(`${G} rev-parse HEAD`);
-    const lines = rest;
-    expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x $`));
-    expect(proc.calls[1]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+    expect(rest[0]).toBe(`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`);
+    const lines = rest.slice(1);
+    expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x ${SHA}$`));
+    expect(proc.calls[2]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
     expect(lines[1]).toMatch(new RegExp(`^${G} fetch --no-write-fetch-head \\S+/out\\.bundle \\+refs/heads/feat/x:refs/karst/sandbox/feat/x$`));
     expect(lines.slice(2)).toEqual([`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`, `${G} merge-base --is-ancestor HEAD ${SHA}`, `${G} merge --ff-only ${SHA}`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
