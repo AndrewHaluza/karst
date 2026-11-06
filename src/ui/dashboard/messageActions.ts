@@ -1,7 +1,10 @@
 import type { StageKey } from '../../model/types.js';
 import type { GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
-import type { InsideActionResult, AgentProcessId } from './messages.js';
+import type { InsideActionResult, AgentProcessId, WebviewMessage } from './messages.js';
+
+/** One review-stall Apply, as the banner sends it. */
+export type StallApplyRequest = Omit<Extract<WebviewMessage, { type: 'stall-apply' }>, 'type'>;
 
 /**
  * The daemon-facing side-effects a dashboard can trigger.
@@ -68,12 +71,12 @@ export interface DashboardActions {
   sendBackToImplement: () => void | Promise<void>;
   /** Reset the failed gate stage and re-drive (host-confirmed). */
   resetStage: () => void | Promise<void>;
-  /** Review stall (T845): 'Redesign hint…' — note to the fix agent, counter reset, rounds resume. */
-  reviewStallHint: () => void | Promise<void>;
-  /** Review stall: 'Continue anyway' — counter reset, rounds resume. */
-  reviewStallContinue: () => void | Promise<void>;
-  /** Review stall: 'Re-scope' — open the ticket brief for edit. */
-  reviewStallRescope: () => void | Promise<void>;
+  /** Review stall: apply the chosen option in one host action. A refusal rejects with its reason. */
+  stallApply: (request: StallApplyRequest) => void | Promise<void>;
+  /** Review stall: generate the suggestion again after a failure. */
+  stallRetry: () => void | Promise<void>;
+  /** Review stall: open a planning session with the ticket key and the suggestion. */
+  stallPlanning: () => void | Promise<void>;
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;

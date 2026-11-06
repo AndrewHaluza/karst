@@ -9,13 +9,11 @@ import { openProcessRun, finishProcessRun } from '../store/processRuns.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listRecoveryRounds } from '../store/recoveryRounds.js';
 import { REVIEW_STALL_DETECTION_DEFAULTS } from '../manifest/qualityDefaults.js';
-import { redesignHintAction, continueAnywayAction, type ReviewStallActionDeps } from '../extension/ops/reviewStallActions.js';
-import { fixBriefForTicket } from '../extension/ops/fixBriefForTicket.js';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const D159 = 'src/workflow/usageLimitRerun.ts';
 
-describe('review stall — park and the three answers', () => {
+describe('review stall — park', () => {
   let store: Store;
   let id: number;
   beforeEach(() => {
@@ -110,41 +108,5 @@ describe('review stall — park and the three answers', () => {
     }
     expect(stageBlock(store, id, 'fix')).toBeNull();
     expect(listRecoveryRounds(store, id)).toHaveLength(3);
-  });
-
-  describe('answers', () => {
-    let deps: ReviewStallActionDeps;
-    beforeEach(() => {
-      failReview(1, [D159]);
-      backToReview();
-      failReview(2, [D159]);
-      backToReview();
-      failReview(3, [D159]);
-      deps = {
-        store, ticketId: id, afterServerChange: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(),
-        info: vi.fn(), error: vi.fn(), confirm: vi.fn(async () => true),
-        promptHint: vi.fn(async () => 'extract the rerun into its own module'),
-        now: () => '2026-07-30T11:00:00.000Z',
-      };
-    });
-
-    it('Continue anyway resumes review with a fresh counter: two more same-file rounds do not re-park', async () => {
-      continueAnywayAction(deps);
-      await flush();
-      expect(stageBlock(store, id, 'fix')).toBeNull();
-      expect(getTicket(store, id).stageCurrent).toBe('review');
-      failReview(4, [D159]);
-      expect(stageBlock(store, id, 'fix')).toBeNull();
-    });
-
-    it('Redesign hint reaches the fix brief and resumes rounds', async () => {
-      redesignHintAction(deps);
-      await flush();
-      expect(getTicket(store, id).stageCurrent).toBe('review');
-      failReview(4, [D159]);
-      expect(stageBlock(store, id, 'fix')).toBeNull();
-      expect(fixBriefForTicket(store, id)).toContain('extract the rerun into its own module');
-      expect(deps.drive).toHaveBeenCalled();
-    });
   });
 });

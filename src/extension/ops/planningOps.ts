@@ -144,7 +144,8 @@ export interface PlanningListItem extends PlanningSession {
 }
 
 export interface PlanningOps {
-  create(title: string): Promise<PlanningSession | undefined>;
+  /** `kickoff` replaces the empty first message of a fresh session (a stalled-review handoff). */
+  create(title: string, kickoff?: string): Promise<PlanningSession | undefined>;
   open(id: number): Promise<void>;
   archive(id: number): void;
   /** Back to `filed` when it produced tickets, else `active`. */
@@ -229,7 +230,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
   }
 
   /** Start the agent terminal. False (after a warning) when it could not. */
-  async function launch(session: PlanningSession): Promise<boolean> {
+  async function launch(session: PlanningSession, firstMessage?: string): Promise<boolean> {
     const manifest = deps.manifest();
     if (!manifest) {
       debug(`launch ${session.id} blocked: no manifest loaded`);
@@ -253,7 +254,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest), history }),
       );
       const historyChars = historySection(history).join('\n').length;
-      const kickoff = planningKickoff();
+      const kickoff = firstMessage ?? planningKickoff();
       const adapter = resolveAdapter(session.core as AgentProvider);
       // Trust the scratch dir before the core starts; a fresh planning-scratch
       // directory is untrusted too (T661). Passed the same `debug` the launch
@@ -314,7 +315,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
   }
 
   return {
-    async create(title) {
+    async create(title, kickoff) {
       const projectId = deps.projectId();
       if (projectId === undefined) {
         debug('create blocked: no active project');
@@ -329,7 +330,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         model: agent.model,
       });
       debug(`created ${session.id} (${session.core})`);
-      if (await launch(session)) return session;
+      if (await launch(session, kickoff)) return session;
       // Never leave an active session nobody can see started.
       deletePlanningSession(deps.store, session.id);
       debug(`create ${session.id} rolled back: launch failed`);

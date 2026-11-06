@@ -176,29 +176,90 @@ describe('BlockedBanner — resource kill (T853)', () => {
   });
 });
 
-describe('BlockedBanner — review stall (T845)', () => {
-  const stalled = () => blockedState(block('review-stalled', { resumable: false, reason: 'Review keeps finding new problems in a.ts (3 rounds) — likely a design problem, not a bug.' }));
+describe('BlockedBanner — review stall (T845, T1001)', () => {
+  const REASON = 'Review keeps finding new problems in a.ts (3 rounds) — likely a design problem, not a bug.';
+  const view = (over: Record<string, unknown> = {}) => ({
+    parkAt: 'P1', status: 'ready',
+    rounds: [{ attempt: 0, runAt: AT, findings: [{ severity: 'critical', file: 'a.ts', line: 3, title: 'Bad split' }, { severity: 'low', file: null, line: null, title: 'Nit' }] }],
+    diff: { fileCount: 2, stat: ' a.ts | 2 +-' }, current: { description: 'D', acceptanceCheck: 'C' }, cause: 'The scope is too wide.',
+    options: [
+      { kind: 'agent', label: 'Cut the scope', note: 'Remove the extra part.', description: 'New D', recommended: true },
+      { kind: 'agent', label: 'Keep it', note: 'Keep and fix.', recommended: false },
+    ],
+    ...over,
+  });
+  const stalled = (stall: unknown) => blockedState(block('review-stalled', { resumable: false, reason: REASON }), { stall });
 
-  it('names the stall, carries no Resume and offers the three answers in order', () => {
-    mountRail(stalled());
+  it('names the stall, carries no Resume and no old stall answers', () => {
+    mountRail(stalled(view()));
     expect(text('.ftitle')).toBe('Review is stalled');
     expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
-    const buttons = all<HTMLButtonElement>('#blocked .facts button');
-    expect(buttons.map((b) => b.dataset.act)).toEqual(['review-stall-hint', 'review-stall-continue', 'review-stall-rescope']);
-    expect(buttons.map((b) => b.textContent)).toEqual(['Redesign hint…', 'Continue anyway', 'Re-scope']);
+    expect(all('#blocked [data-act^="review-stall"]')).toHaveLength(0);
   });
 
-  it.each([
-    ['review-stall-hint', 'reviewStallHint'],
-    ['review-stall-continue', 'reviewStallContinue'],
-    ['review-stall-rescope', 'reviewStallRescope'],
-  ] as const)('%s posts once with a request id', (act, sender) => {
-    const h = mountRail(stalled());
-    const b = btn(act);
-    fireEvent.click(b);
-    fireEvent.click(b);
-    expect(h.send[sender]).toHaveBeenCalledTimes(1);
-    expect(h.send[sender]).toHaveBeenCalledWith('req-1');
+  it('shows the evidence first, worst finding first, then the cause and the options', () => {
+    mountRail(stalled(view()));
+    const parts = all('#blocked [data-region]').map((r) => r.getAttribute('data-region'));
+    expect(parts).toEqual(['stall-evidence', 'stall-options', 'stall-changes']);
+    expect(text('[data-region="stall-evidence"]')).toContain('1 review round');
+    expect(text('[data-region="stall-evidence"]')).toContain('2 files changed');
+    expect(text('[data-region="stall-evidence"] li li')).toContain('critical');
+    expect(banner().textContent).toContain('Likely cause: The scope is too wide.');
+  });
+
+  it('preselects the recommended option and shows one radio for one option', () => {
+    mountRail(stalled(view()));
+    const radios = all<HTMLInputElement>('#blocked input[type="radio"]');
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    cleanupRail();
+    mountRail(stalled(view({ options: [{ kind: 'agent', label: 'Only', note: 'N', recommended: true }] })));
+    expect(all('#blocked input[type="radio"]')).toHaveLength(1);
+  });
+
+  it('Apply posts the picked option with its edited note and one request id', () => {
+    const h = mountRail(stalled(view()));
+    fireEvent.click(all<HTMLInputElement>('#blocked input[type="radio"]')[1]!);
+    const note = must<HTMLTextAreaElement>('#blocked [data-region="stall-changes"] textarea');
+    fireEvent.change(note, { target: { value: 'My note' } });
+    fireEvent.click(btn('stall-apply'));
+    expect(h.send.stallApply).toHaveBeenCalledWith({ kind: 'agent', label: 'Keep it', note: 'My note' }, 'req-1');
+  });
+
+  it('sends a changed description only when the option changes it', () => {
+    const h = mountRail(stalled(view()));
+    fireEvent.click(btn('stall-apply'));
+    expect(h.send.stallApply).toHaveBeenCalledWith({ kind: 'agent', label: 'Cut the scope', note: 'Remove the extra part.', description: 'New D' }, 'req-1');
+  });
+
+  it('disables Apply with a reason when the note is empty', () => {
+    mountRail(stalled(view()));
+    fireEvent.change(must<HTMLTextAreaElement>('#blocked [data-region="stall-changes"] textarea'), { target: { value: ' ' } });
+    expect(btn('stall-apply').disabled).toBe(true);
+  });
+
+  it('says the findings stay unfixed for the accept option', () => {
+    mountRail(stalled(view({ options: [{ kind: 'accept-docs', label: 'Accept the report as it is', note: 'The findings stay unfixed.', recommended: false }] })));
+    expect(text('[data-region="stall-changes"]')).toContain('stay unfixed');
+    expect(q('#blocked [data-region="stall-changes"] textarea')).toBeNull();
+  });
+
+  it('shows generating while there is no suggestion yet', () => {
+    mountRail(stalled(null));
+    expect(text('.stall-generating')).toContain('writing a suggestion');
+    expect(q('#blocked [data-act="stall-apply"]')).toBeNull();
+    cleanupRail();
+    mountRail(stalled(view({ status: 'generating', options: [] })));
+    expect(q('#blocked [data-act="stall-apply"]')).toBeNull();
+  });
+
+  it('a failed suggestion offers Retry and planning, with no field', () => {
+    const h = mountRail(stalled(view({ status: 'failed', options: [], usageLimit: true })));
+    expect(banner().textContent).toContain('usage limit');
+    expect(q('#blocked textarea')).toBeNull();
+    fireEvent.click(btn('stall-retry'));
+    expect(h.send.stallRetry).toHaveBeenCalledWith('req-1');
+    fireEvent.click(btn('stall-planning'));
+    expect(h.send.stallPlanning).toHaveBeenCalledTimes(1);
   });
 });
 

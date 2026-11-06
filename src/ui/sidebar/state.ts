@@ -345,7 +345,6 @@ export function buildSidebarState(
         ...ticketActionFlags(
           t,
           t.subtaskParentId !== null ? listOpenSubtasks(store, t.id).length : 0,
-          stageBlock(store, t.id, 'fix')?.kind === 'review-stalled',
         ),
         conflicted: mergeGate?.kind === 'conflicted',
         ciFailing: ciFailingRepos.length > 0,

@@ -81,12 +81,12 @@ export function routeAction(
       return actions.sendBackToImplement();
     case 'reset-stage':
       return actions.resetStage();
-    case 'review-stall-hint':
-      return actions.reviewStallHint();
-    case 'review-stall-continue':
-      return actions.reviewStallContinue();
-    case 'review-stall-rescope':
-      return actions.reviewStallRescope();
+    case 'stall-apply':
+      return actions.stallApply({ kind: msg.kind, label: msg.label, note: msg.note, ...(msg.description === undefined ? {} : { description: msg.description }), ...(msg.acceptanceCheck === undefined ? {} : { acceptanceCheck: msg.acceptanceCheck }) });
+    case 'stall-retry':
+      return actions.stallRetry();
+    case 'stall-planning':
+      return actions.stallPlanning();
     case 'address-pr-feedback':
       return actions.addressPrFeedback();
     case 'send-ci-failure':

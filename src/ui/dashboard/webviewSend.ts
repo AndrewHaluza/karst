@@ -105,9 +105,9 @@ export function createSender(api: WebviewApi) {
     sendBackToImplement: (requestId?: string) =>
       send({ type: 'send-back-to-implement' }, requestId),
     resetStage: (requestId?: string) => send({ type: 'reset-stage' }, requestId),
-    reviewStallHint: (requestId?: string) => send({ type: 'review-stall-hint' }, requestId),
-    reviewStallContinue: (requestId?: string) => send({ type: 'review-stall-continue' }, requestId),
-    reviewStallRescope: (requestId?: string) => send({ type: 'review-stall-rescope' }, requestId),
+    stallApply: (request: Omit<Msg<'stall-apply'>, 'type'>, requestId?: string) => send({ type: 'stall-apply', ...request }, requestId),
+    stallRetry: (requestId?: string) => send({ type: 'stall-retry' }, requestId),
+    stallPlanning: (requestId?: string) => send({ type: 'stall-planning' }, requestId),
     addressPrFeedback: (requestId?: string) =>
       send({ type: 'address-pr-feedback' }, requestId),
     sendCiFailure: (requestId?: string) => send({ type: 'send-ci-failure' }, requestId),
