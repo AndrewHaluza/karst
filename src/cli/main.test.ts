@@ -921,6 +921,17 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
     expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: '9999' })).not.toThrow();
   });
 
+  it('says so on stderr when the manifest review floor cannot load, then uses the env floor', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = JSON.parse(runCli(['blocked', '--json', '--manifest', '/no/such/karst.yml'], { ...env(), KARST_REVIEW_FLOOR: 'medium' }));
+      expect(out.rows).toBeDefined();
+      expect(write.mock.calls.map((c) => String(c[0])).join('')).toContain('karst: manifest review floor skipped');
+    } finally {
+      write.mockRestore();
+    }
+  });
+
   it('leaves the store unwritten after a refused write', () => {
     expect(() => runCli(['stage', 'impl', 'pass', '--ticket', 'K-1'], env())).toThrow();
     const check = openStore(dbPath);

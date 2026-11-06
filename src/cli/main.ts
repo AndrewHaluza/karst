@@ -94,8 +94,9 @@ function readStallFloor(
   if (manifestPath) {
     try {
       return reviewBlockingFloor(loadManifestWithDiagnostics(manifestPath).manifest.review);
-    } catch {
-      // fall through to the env value
+    } catch (e) {
+      // Not fatal: fall through to the env value, but say why the manifest was skipped.
+      process.stderr.write(`karst: manifest review floor skipped (${(e as Error).message})\n`);
     }
   }
   const fromEnv = env[KARST_REVIEW_FLOOR_ENV];
@@ -350,7 +351,7 @@ export function runCli(
     }
     const store = openReadonlyStore(readDb);
     try {
-      return runContextCommand(store, manifest, parsed, readDb, process.argv[1], manifestPath);
+      return runContextCommand(store, manifest, parsed, readDb, process.argv[1], manifestPath, env);
     } finally {
       store.close();
     }

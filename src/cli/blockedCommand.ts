@@ -3,6 +3,17 @@ import { formatId } from '../model/entityId.js';
 import { reviewStallAttempts } from '../workflow/reviewStallRead.js';
 import type { Severity } from '../manifest/types.js';
 import { REVIEW_FINDINGS_DEFAULTS } from '../manifest/qualityDefaults.js';
+import {
+  FIX_PARKED_INTERRUPTED,
+  FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_REVIEW_STALLED,
+  FIX_PARKED_NO_RESUMABLE_ROUND,
+  FIX_PARKED_NO_FAILED_GATE,
+  FIX_PARKED_PROCESS_UNAVAILABLE,
+  FIX_PARKED_NO_EXECUTION,
+  FIX_PARKED_STALLED,
+  FIX_PARKED_LAUNCH_NEVER_STARTED,
+} from '../store/recoveryRounds.js';
 
 /**
  * `karst blocked [--kind <kind>] [--json]` — one row per open ticket with a
@@ -26,6 +37,23 @@ const DEFAULT_STALL_FLOOR = REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
 /** A ticket is open when it is not archived and not `done` or `closed`. */
 const OPEN_TICKET_SQL = "t.archived_at IS NULL AND COALESCE(t.stage_current, '') NOT IN ('done', 'closed')";
 const DAY_MS = 86_400_000;
+/**
+ * A ticket parked at fix keeps no `blocked_kind`: `parkFixStage` writes a failed
+ * fix row with one of these karst-authored verdicts. `blocked` reports it as the
+ * kind `fix-parked`, so a park shared by many tickets shows up in the count.
+ */
+const FIX_PARKED_KIND = 'fix-parked';
+const FIX_PARK_VERDICTS = [
+  FIX_PARKED_INTERRUPTED,
+  FIX_PARKED_EXHAUSTED,
+  FIX_PARKED_REVIEW_STALLED,
+  FIX_PARKED_NO_RESUMABLE_ROUND,
+  FIX_PARKED_NO_FAILED_GATE,
+  FIX_PARKED_PROCESS_UNAVAILABLE,
+  FIX_PARKED_NO_EXECUTION,
+  FIX_PARKED_STALLED,
+  FIX_PARKED_LAUNCH_NEVER_STARTED,
+];
 
 export interface ParsedBlocked {
   readonly kind?: string;
@@ -121,7 +149,21 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     )
     .all(...projectArgs) as BlockRow[];
 
-  const rows: BlockedRow[] = open.map((r) => ({
+  const parked = store.db
+    .prepare(
+      `SELECT t.id AS id, t.key AS key, s.stage_key AS stage_key, '${FIX_PARKED_KIND}' AS blocked_kind,
+              s.verdict AS blocked_reason, s.ended_at AS blocked_at, t.agent_state AS agent_state
+         FROM stages s JOIN tickets t ON t.id = s.ticket_id
+        WHERE s.stage_key = 'fix' AND s.status = 'failed' AND t.stage_current = 'fix'
+          AND s.blocked_kind IS NULL AND s.verdict IN (${FIX_PARK_VERDICTS.map(() => '?').join(', ')})
+          AND ${OPEN_TICKET_SQL}${projectSql}
+        ORDER BY s.ended_at, t.id`,
+    )
+    .all(...FIX_PARK_VERDICTS, ...projectArgs) as BlockRow[];
+
+  const rows: BlockedRow[] = [...open, ...parked]
+    .sort((a, b) => (a.blocked_at ?? '').localeCompare(b.blocked_at ?? '') || a.id - b.id)
+    .map((r) => ({
     key: r.key ?? formatId('ticket', r.id),
     stage: r.stage_key,
     kind: r.blocked_kind,
@@ -165,7 +207,8 @@ function filterKind(report: BlockedReport, kind: string | undefined): BlockedRep
 function summaryLine(summary: readonly BlockedCount[]): string {
   if (summary.length === 0) return 'Blocks by kind: none';
   const parts = summary.map((s) => `${s.kind} ${s.now} now / ${s.before} in the ${BASELINE_WINDOW_DAYS} days before`);
-  return `Blocks by kind: ${parts.join('; ')}`;
+  // Block history is not stored, so "before" counts only blocks still on file.
+  return `Blocks by kind: ${parts.join('; ')} (resolved blocks are not stored, so the earlier count is a floor)`;
 }
 
 function renderRow(r: BlockedRow): string[] {

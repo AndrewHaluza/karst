@@ -79,6 +79,7 @@ describe('karst blocked — report', () => {
     expect(text).toContain('K-1  stage=fix  kind=review-stalled');
     expect(text).toContain('round 2: src/a.ts:12');
     expect(text).toContain('review-stalled 1 now / 0 in the 14 days before');
+    expect(text).toContain('resolved blocks are not stored');
   });
 
   it('counts open blocks as now and only blocks on tickets no longer open as before', () => {
@@ -133,5 +134,30 @@ describe('karst blocked — report', () => {
     store.db.prepare('UPDATE tickets SET project_id = 7 WHERE id = ?').run(id);
     stall('K-2', '2026-11-05T12:00:00.000Z');
     expect(collectBlocked(store, { ...scope, projectId: 7 }).rows.map((r) => r.key)).toEqual(['K-1']);
+  });
+
+  it('lists a ticket parked at fix with its park verdict as a fix-parked block', () => {
+    const t = createTicket(store, { key: 'K-9', title: 'parked' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'fix', {
+      status: 'failed',
+      verdict: 'fix attempts exhausted',
+      endedAt: '2026-11-05T09:00:00.000Z',
+    });
+    const live = createTicket(store, { key: 'K-10', title: 'fixing' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(live.id);
+    setStage(store, live.id, 'fix', { status: 'running' });
+    const report = collectBlocked(store, scope);
+    expect(report.rows).toEqual([
+      {
+        key: 'K-9',
+        stage: 'fix',
+        kind: 'fix-parked',
+        since: '2026-11-05T09:00:00.000Z',
+        reason: 'fix attempts exhausted',
+        agentState: 'none',
+      },
+    ]);
+    expect(report.summary).toEqual([{ kind: 'fix-parked', now: 1, before: 0 }]);
   });
 });

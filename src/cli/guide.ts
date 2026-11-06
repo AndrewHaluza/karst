@@ -237,10 +237,12 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
 
 - \`blocked [--kind <kind>] [--json]\` — **read** every open ticket that has a
   stage block: key, stage, kind, since, reason and agent state; for
-  \`review-stalled\` also the blocking findings per review round. The last line
-  counts blocks per kind now and in the 14 days before (block history is not
-  stored, so "before" counts blocks that began then, are still stored and sit on
-  tickets no longer open; a planning session gets the finding severity floor from the host). Run
+  \`review-stalled\` also the blocking findings per review round. A ticket parked
+  at fix (for example "fix attempts exhausted") shows as kind \`fix-parked\`. The
+  last line counts blocks per kind now and in the 14 days before (block history
+  is not stored, so "before" counts blocks that began then, are still stored and
+  sit on tickets no longer open; it is a floor. A planning session gets the
+  finding severity floor from the host). Run
   it FIRST for a stuck or failing ticket: if many tickets share one kind, the
   cause is common. A planning session runs it, \`context\` and \`stats\` with no
   \`--db\`: the host sets \`KARST_DB_READONLY\`, which no write verb reads.
