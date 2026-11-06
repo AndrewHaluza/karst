@@ -50,6 +50,13 @@ describe('BlockedBanner — when it shows', () => {
     expect(banner().childElementCount).toBe(0);
   });
 
+  it('shows an autopilot park (awaiting-merge, reason starts with auto-fix) with its reason', () => {
+    mountRail(blockedState(block('awaiting-merge', { resumable: false, reason: 'auto-fix stopped: conflicts 2/2' })));
+    expect(shown()).toBe(true);
+    expect(banner().textContent).toContain('auto-fix stopped: conflicts 2/2');
+    expect(banner().querySelector('[data-act="stage-resume"]')).toBeNull();
+  });
+
   it('reads the real host path: an awaiting-merge park renders no banner, an unmapped repository offers Resume', () => {
     const park = (kind: string, stage: 'ship' | 'uat', reason: string) => {
       const store = openStore(':memory:');

@@ -351,7 +351,28 @@ process.stdin.on('end', () => {
       event === 'PostToolUse' && typeof raw.tool_name === 'string'
         ? { tool_name: raw.tool_name }
         : {};
-    posts.push({ ...mapped, ...toolName, cwd: raw.cwd, session_id: raw.session_id });
+    // T993: forward only the two narrow facts the host reads from a tool input
+    // (never the input itself): whether the tool ran in the background, and a
+    // Monitor's timeout. Both are re-validated by the host's parseHookPayload.
+    const input = raw.tool_input && typeof raw.tool_input === 'object' ? raw.tool_input : {};
+    const toolInput = {};
+    if (event === 'PostToolUse' && typeof input.run_in_background === 'boolean') {
+      toolInput.run_in_background = input.run_in_background;
+    }
+    if (event === 'PostToolUse' && raw.tool_name === 'Monitor' && typeof input.timeout_ms === 'number') {
+      toolInput.timeout_ms = input.timeout_ms;
+    }
+    const toolInputField = Object.keys(toolInput).length > 0 ? { tool_input: toolInput } : {};
+    // T993: claude wakes the agent for a finished background job with a
+    // UserPromptSubmit whose prompt starts with this tag. Forward ONLY the
+    // boolean; the prompt text never leaves the bridge.
+    const taskNotification =
+      event === 'UserPromptSubmit' &&
+      typeof raw.prompt === 'string' &&
+      raw.prompt.startsWith('<task-notification>')
+        ? { task_notification: true }
+        : {};
+    posts.push({ ...mapped, ...toolName, ...toolInputField, ...taskNotification, cwd: raw.cwd, session_id: raw.session_id });
   }
   const usage = usagePayload(raw) || (provider === 'codex' ? rolloutUsagePayload(raw) : null);
   if (usage) {

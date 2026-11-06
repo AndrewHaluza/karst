@@ -1,9 +1,11 @@
 // `npm run test:ui:docker -- <view>`: THE scoped pre-UAT check for a webview change.
 //
 // (a) the screenshot projects scoped to the view, then
-// (b) the FULL authoritative layout run. Ledger keys are global, so a scoped
-//     layout run would read every other entry as STALE: the verdict only counts
-//     from a full run. A grep-scoped test:visual:docker run is NOT a layout pass.
+// (b) the FULL authoritative layout run. A view-scoped layout run is sound for the
+//     routes it ran (matchLedger judges only those), but this check is the local
+//     way to see every route: the view is named by hand, not derived from the
+//     diff, and a shared import can reach other views. A grep-scoped
+//     test:visual:docker run says nothing about the routes it did not run.
 //
 // Both parts go through dockerGate.mjs (docker, or the baseline sandbox).
 

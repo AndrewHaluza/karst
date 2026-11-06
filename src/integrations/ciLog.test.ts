@@ -37,6 +37,49 @@ describe('buildExcerpt', () => {
     expect(out).toContain('noise 499');
     expect(out.split('\n').length).toBeLessThanOrEqual(MAX_EXCERPT_LINES + 1);
   });
+  it('job log: ##[error] lines survive when many earlier lines match the error filter', () => {
+    const ts = '2026-01-01T00:00:00.0Z';
+    const lines = [];
+    for (let i = 0; i < 300; i++) lines.push(`${ts} test error-handling case ${i}`);
+    lines.push(`${ts} ##[error]Process completed with exit code 1.`);
+    for (let i = 0; i < 300; i++) lines.push(`${ts} post step ${i}`);
+    const out = buildExcerpt(lines.join('\n'), { jobLog: true });
+    expect(out).toContain('##[error]Process completed with exit code 1.');
+    expect(out).toContain('post step 299');
+    expect(out).not.toContain(ts);
+    expect(out.split('\n').length).toBeLessThanOrEqual(MAX_EXCERPT_LINES + 1);
+  });
+  it('byte cap drops other lines before the ##[error] lines', () => {
+    const lines = ['##[error]first failure'];
+    for (let i = 0; i < 99; i++) lines.push(`${i} ${'x'.repeat(500)}`);
+    const out = buildExcerpt(lines.join('\n'));
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).toContain('##[error]first failure');
+    expect(out).toContain('98 xxx');
+  });
+  it('one line above the cap → not empty, keeps the end of the line', () => {
+    const out = buildExcerpt(`start ${'x'.repeat(MAX_EXCERPT_BYTES * 2)} END`);
+    expect(out.length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out.endsWith(' END')).toBe(true);
+  });
+  it('one ##[error] line above the cap with short lines → keeps the end of that line', () => {
+    const lines = ['short 1', `##[error]${'y'.repeat(MAX_EXCERPT_BYTES * 2)} CAUSE`, 'short 2', 'short 3'];
+    const out = buildExcerpt(lines.join('\n'));
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).toContain(' CAUSE');
+    expect(out).not.toContain('short');
+  });
+  it('multibyte text → cap held in bytes, no broken character', () => {
+    const out = buildExcerpt(`${'é'.repeat(MAX_EXCERPT_BYTES)}!`);
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).not.toContain('\ufffd');
+    expect(out.endsWith('é!')).toBe(true);
+    const many = Array.from({ length: 150 }, (_, i) => `${i} ${'日'.repeat(60)}`).join('\n');
+    const outMany = buildExcerpt(many);
+    expect(Buffer.byteLength(outMany)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(outMany).toContain('149 日');
+  });
   it('caps bytes, keeping the end', () => {
     const raw = Array.from({ length: 100 }, (_, i) => `${i} ${'x'.repeat(500)}`).join('\n');
     const out = buildExcerpt(raw);
@@ -84,12 +127,53 @@ describe('fetchCheckLog', () => {
     expect(calls[0]).toBeUndefined();
     expect(calls[1]).toEqual({ truncation: 'keep-tail', maxOutputBytes: 1024 * 1024 });
   });
-  it('in-progress run → pending note with failed step names', async () => {
-    const jobs = { status: 'in_progress', jobs: [{ name: 'b', steps: [{ name: 'Test', conclusion: 'failure' }, { name: 'Lint', conclusion: 'success' }] }] };
-    const { gh, calls } = run([ok(JSON.stringify(jobs))]);
-    const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
-    expect(r).toEqual({ kind: 'pending', name: 'build', steps: ['b: Test'] });
-    expect(calls).toHaveLength(1);
+  describe('in-progress run', () => {
+    const view = (job: Record<string, unknown>) =>
+      ok(JSON.stringify({ status: 'in_progress', jobs: [{ name: 'build', databaseId: 456, status: 'completed', steps: [{ name: 'Test', conclusion: 'failure' }], ...job }] }));
+    const jobLog = ok('2026-01-01T00:00:00.1Z start\n2026-01-01T00:00:01.2Z ##[error]boom\n2026-01-01T00:00:02.3Z Post step');
+
+    it('complete failed job → log without timestamps, step names on top', async () => {
+      const { gh, calls } = run([view({}), jobLog]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toEqual({ kind: 'log', name: 'build', text: 'Failed steps: build: Test\nstart\n##[error]boom\nPost step' });
+      expect(calls[1]).toEqual(['api', 'repos/o/r/actions/jobs/456/logs']);
+    });
+    it('header lists the failed steps of the matched job only', async () => {
+      const jobs = [
+        { name: 'lint', databaseId: 1, status: 'completed', steps: [{ name: 'Lint', conclusion: 'failure' }] },
+        { name: 'build', databaseId: 456, status: 'completed', steps: [{ name: 'Test', conclusion: 'failure' }] },
+      ];
+      const { gh } = run([ok(JSON.stringify({ status: 'in_progress', jobs })), jobLog]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toMatchObject({ kind: 'log' });
+      expect((r as { text: string }).text.split('\n')[0]).toBe('Failed steps: build: Test');
+    });
+    it('a matched job that passed → pending, no log fetch', async () => {
+      const { gh, calls } = run([view({ conclusion: 'success' })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r.kind).toBe('pending');
+      expect(calls).toHaveLength(1);
+    });
+    it('matches by job name when the url has no job id', async () => {
+      const { gh, calls } = run([view({ databaseId: 789 }), jobLog]);
+      await fetchCheckLog(gh, '/w', { name: 'build', url: 'https://github.com/o/r/actions/runs/123' });
+      expect(calls[1]).toEqual(['api', 'repos/o/r/actions/jobs/789/logs']);
+    });
+    it('job not complete → pending', async () => {
+      const { gh, calls } = run([view({ status: 'in_progress' })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toEqual({ kind: 'pending', name: 'build', steps: ['build: Test'] });
+      expect(calls).toHaveLength(1);
+    });
+    it('no job match → pending', async () => {
+      const { gh } = run([view({ name: 'other', databaseId: 1 })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: 'https://github.com/o/r/actions/runs/123' });
+      expect(r).toMatchObject({ kind: 'pending', name: 'build' });
+    });
+    it('gh failure on the job log throws', async () => {
+      const { gh } = run([view({}), { stdout: '', exitCode: 1, stderr: 'HTTP 403' }]);
+      await expect(fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB })).rejects.toThrow(/HTTP 403/);
+    });
   });
   it('gh failure throws a user-facing error', async () => {
     const { gh } = run([{ stdout: '', exitCode: 1, stderr: 'HTTP 401' }]);

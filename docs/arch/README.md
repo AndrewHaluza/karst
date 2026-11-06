@@ -18,6 +18,7 @@ covers: scripts/docsKeys.mjs
 |---|---|---|---|
 | ABI.md | ABI | manifest-and-settings.md | MS |
 | approaches.md | APP | prompt-metrics.md | PM |
+| autopilot.md | AP | | |
 | agent-cores.md | AC | stages-and-gates.md | SG |
 | cli.md | CLI | store-and-schema.md | ST |
 | debug-logging.md | DBG | worktrees-and-servers.md | WT |

@@ -22,13 +22,13 @@ export const RESTORED_VIEW_TYPES = [
   'karstDoctor',
   'karst.tokenUsage',
   'karst.resources',
+  'karst.ticketForm',
 ] as const;
 
 export type RestoredViewType = (typeof RESTORED_VIEW_TYPES)[number];
 
 /** View types that open panels but are deliberately not restored, with the reason. */
 export const UNRESTORED_VIEW_TYPES: Readonly<Record<string, string>> = {
-  'karst.ticketForm': 'separate draft: needs unsaved-field restore and has in-flight worktrees',
   'karst.serverLogs': 'per-ticket server logs panel; not in the restore scope of T963',
 };
 

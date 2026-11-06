@@ -396,6 +396,25 @@ describe('parseTicketFormMessage', () => {
     expect(seen).toEqual(['submit:true', 'save:false']);
   });
 
+  // T998: the router once listed the draft fields by hand and dropped intent,
+  // codePointers and agentBackend, so an edited Acceptance check never reached
+  // the store. Every field the page sends must reach the action.
+  it.each(['submit', 'save'] as const)('%s hands every draft field to the action', (type) => {
+    const fields = {
+      key: 'K-1', title: 'T', description: 'D', repos: ['fe', 'be'], approach: 'rpi',
+      agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex',
+      agentPreset: 'fast', ticketType: 'fix', agentBackend: 'host', createInProvider: true,
+      keyAutoDerived: true, baseRefs: { fe: 'epic/x' }, intent: 'NEW CHECK', codePointers: 'a.ts:1',
+    };
+    const received: Record<string, unknown>[] = [];
+    const actions = {
+      [type]: (i: Record<string, unknown>) => { received.push(i); },
+    } as unknown as TicketFormActions;
+    routeTicketFormAction({ type, ...fields, pullBase: true }, actions);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject(fields);
+  });
+
   it('rejects malformed shapes (trust boundary)', () => {
     expect(parseTicketFormMessage(null)).toBeNull();
     expect(parseTicketFormMessage({})).toBeNull();

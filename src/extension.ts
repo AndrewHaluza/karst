@@ -43,6 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
+import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -184,7 +185,7 @@ import {
   type ClaudeWatchState,
 } from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
-import { dispatchHook } from './hooks/dispatch.js';
+import { dispatchHook, TurnTracker } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { computeDriftNotes } from './context/drift.js';
@@ -201,7 +202,7 @@ import { renderGuideInstruction } from './cli/guide.js';
 import { renderServersInstruction } from './cli/serversCommand.js';
 import { buildWorkflowInvocation, renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
-import { TurnTracker } from './hooks/dispatch.js';
+import { startBackgroundWaitSweep } from './extension/ops/backgroundWaitWiring.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
@@ -831,6 +832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
   const recoveryLifecycle = new SessionRecoveryLifecycle();
+  const windowId = stableWindowId(context.workspaceState, randomUUID), syncSessionOwner = makeSessionOwnerSync(localStore, windowId, logError);
   const ownedSessionTickets = new Set(
     context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
   );
@@ -905,6 +907,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   pendingSessionRecoveryTasks.clear();
   const persistOwnedSessionTickets = (): Promise<void> => {
     const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
+    syncSessionOwner(snapshot);
     return ownershipWriter.enqueue(snapshot);
   };
   const sessions = new SessionManager(
@@ -1965,6 +1968,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
+  const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
+  context.subscriptions.push(startAutopilot({
+    store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
+    debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
+    isLive: (id) => sessions.isLive(id), windowId,
+    canLaunch: (id) => guardCapability('sessions', id, true),
+    takeLaunch: launches.take,
+    isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
+    ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
+  }));
+  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
     store: localStore,
@@ -2027,7 +2041,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
-    makeTicketFormPanelHost(context, brandIcon),
+    restoreHosts.track('ticketFormHost', makeTicketFormPanelHost(context, brandIcon)),
     buildTicketFormActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
@@ -2120,6 +2134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Same cache `setRepos` warms above, read fresh on every state push.
     () => Object.fromEntries(baseBranchCandidates),
     () => provider.refresh(),
+    (m) => logger.debug(m),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -2888,7 +2903,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
-  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }) });
+  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
   const ciHost = (ticketId: number): CiHost => ({
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), ...sessionSeams(ticketId) }),
@@ -3800,7 +3815,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
-  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded); context.subscriptions.push(startBackgroundWaitSweep(localStore, turnTracker, notifyHook, (m) => logger.debug(m)));
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
@@ -6958,7 +6973,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, ticketForm, proposalPrefill: proposalOps.prefillFor, proposalOutcome: proposalOps.outcomeFor, manifestReady: () => currentManifest() !== undefined, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-
@@ -7114,7 +7129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `session recovery: ticket ${ticketId} has no resumable session or worktree`,
     );
   }
-  if (ownershipChanged) await persistOwnedSessionTickets();
+  if (ownershipChanged || ownedSessionTickets.size > 0) await persistOwnedSessionTickets(); // republish: a closed window released its session_owner rows
   if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();

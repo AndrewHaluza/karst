@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
+import { AUTOPILOT_DDL } from './autopilot.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
@@ -2830,6 +2831,11 @@ function migrateLocked(db: Database): void {
       claimed_at TEXT NOT NULL,
       touched_at TEXT NOT NULL
     ); CREATE INDEX IF NOT EXISTS idx_gate_slots_project ON gate_slots(project_id);`);
+  }
+
+  if (current < 100) {
+    // v100: autopilot tables (`store/autopilot.ts`). Additive; an old db has none and every ticket inherits.
+    db.exec(AUTOPILOT_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

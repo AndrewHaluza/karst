@@ -210,6 +210,8 @@ export type TicketFormHostMessage =
   | { type: 'error'; message: string; usageLimitParkId?: number }
   // D159: a park was claimed/resolved — the page drops its action buttons.
   | { type: 'usage-limit-park-resolved' }
+  /** The Save or Submit text reached the store; the webview drops it from its unsaved draft, whatever happens next. */
+  | { type: 'draft-saved' }
   // D159: the agent/model picker was cancelled, so nothing was claimed — the
   // page must re-arm the buttons it disabled on click.
   | { type: 'usage-limit-park-cancelled' }
@@ -622,47 +624,22 @@ export function routeTicketFormAction(
     case 'open-dependency':
       void actions.openDependency(msg.ticketId);
       return;
-    case 'submit':
+    case 'submit': {
       // Fire-and-forget: `submit` reports its own outcome to the page (busy /
       // error / close), so the pump does not wait on the launch.
-      void actions.submit({
-        key: msg.key,
-        title: msg.title,
-        description: msg.description,
-        repos: msg.repos,
-        approach: msg.approach,
-        agent: msg.agent,
-        model: msg.model,
-        effort: msg.effort,
-        agentProvider: msg.agentProvider,
-        agentPreset: msg.agentPreset,
-        ticketType: msg.ticketType,
-        createInProvider: msg.createInProvider,
-        keyAutoDerived: msg.keyAutoDerived,
-        baseRefs: msg.baseRefs,
-        pullBase: msg.pullBase,
-      });
+      // Spread the parsed draft: a hand-written field list once dropped intent,
+      // codePointers and agentBackend, so an edit was accepted and never stored.
+      const { type: _type, ...draft } = msg;
+      void actions.submit(draft);
       return;
-    case 'save':
+    }
+    case 'save': {
       // Fire-and-forget, same as submit: `save` reports its own outcome via
       // busy/error posts.
-      void actions.save({
-        key: msg.key,
-        title: msg.title,
-        description: msg.description,
-        repos: msg.repos,
-        approach: msg.approach,
-        agent: msg.agent,
-        model: msg.model,
-        effort: msg.effort,
-        agentProvider: msg.agentProvider,
-        agentPreset: msg.agentPreset,
-        ticketType: msg.ticketType,
-        createInProvider: msg.createInProvider,
-        keyAutoDerived: msg.keyAutoDerived,
-        baseRefs: msg.baseRefs,
-      });
+      const { type: _type, ...draft } = msg;
+      void actions.save(draft);
       return;
+    }
     case 'request-state':
       actions.requestState();
       return;

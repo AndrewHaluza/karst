@@ -19,6 +19,7 @@ import type {
   SubtaskLimits,
 } from './types.js';
 import { ManifestError } from './error.js';
+import { validateAutopilot } from './autopilot.js';
 import { validateOutputs } from '../approaches/outputs.js';
 import { repoIdCollisions } from '../runtime/repoId.js';
 import {
@@ -827,6 +828,7 @@ export function validateManifest(raw: unknown): Manifest {
     agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend),
     sandboxMemory: validateSandboxMemory(raw.sandboxMemory),
     sandboxLimits: validateSandboxLimits(raw.sandboxLimits),
+    autopilot: validateAutopilot(raw.autopilot),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),

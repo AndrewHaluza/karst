@@ -20,7 +20,7 @@ import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
 import { transcriptLinkCommand } from './sbxTranscriptLink.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
-import { BEHIND_SUMMARY, classifyCloneRelation, fetchSandboxBundleArgs, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
+import { BEHIND_SUMMARY, THIN_BUNDLE_EXCLUDE, classifyCloneRelation, fetchSandboxBundleArgs, hostBundleHaves, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
 import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
@@ -60,16 +60,13 @@ export interface SbxRunnerOptions {
 
 /**
  * Runs in the sandbox: bundle `$1` into a temp file (in the clone's git dir: the sandbox /tmp can be read-only) and print it as base64 (no host path crosses).
- * `$2` is the host worktree's HEAD: when the clone has it, the bundle is thin (`^$2`, only what the host
- * lacks) so a big repo stays under MAX_BUNDLE_STDOUT_BYTES. A tip equal to `$2` excludes its parents instead
- * (git refuses an empty bundle). No `$2`, or one the clone lacks: the full bundle.
+ * `$2...` are host commits (`hostBundleHaves`): when the clone has one, the bundle is thin (only what the host lacks) so a big repo
+ * stays under MAX_BUNDLE_STDOUT_BYTES and the host fetch stores a small pack. None in the clone: the full bundle.
  */
 const BUNDLE_OUT = [
   'sh', '-c',
-  'set -e; g="git -c safe.directory=*"; t=$(mktemp "$($g rev-parse --git-dir)/karst-bundle.XXXXXX"); trap \'rm -f "$t"\' EXIT; '
-  + 'if [ -n "$2" ] && $g cat-file -e "$2^{commit}" 2>/dev/null; then '
-  + 'if [ "$($g rev-parse "$1")" = "$2" ]; then set -- "$1" "^$2^@"; else set -- "$1" "^$2"; fi; else set -- "$1"; fi; '
-  + '$g bundle create -q "$t" "$@"; base64 < "$t"',
+  'set -e; g="git -c safe.directory=*"; t=$(mktemp "$($g rev-parse --git-dir)/karst-bundle.XXXXXX"); trap \'rm -f "$t"\' EXIT; br=$1; shift; '
+  + `${THIN_BUNDLE_EXCLUDE}$g bundle create -q "$t" "$br" $ex; base64 < "$t"`,
   'karst-bundle',
 ] as const;
 
@@ -153,9 +150,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     withXfer(async (xfer) => {
       const writable = await ensureWritable({ hostWorktreePath: wt, branch });
       if (!writable.ok) return writable;
-      const head = await git(wt, ['rev-parse', 'HEAD']);
-      const have = head.code === 0 && SHA.test(head.stdout.trim()) ? head.stdout.trim() : '';
-      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch, have], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+      const haves = await hostBundleHaves((args) => git(wt, args), branch);
+      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch, ...haves], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
       if (made.code !== 0) return { ok: false as const, reason: `no sandbox clone to sync from: ${made.stderr.trim()}` };
       const bytes = Buffer.from(made.stdout, 'base64');
       if (bytes.length === 0) return { ok: false as const, reason: 'sandbox returned an empty bundle' };
