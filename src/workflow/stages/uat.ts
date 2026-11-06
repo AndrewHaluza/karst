@@ -729,7 +729,8 @@ export async function runUat(
       onGateComplete: (name, exitCode, startedAt, endedAt, index, output) => {
         const gate = resolution.gates[index];
         evidence.append([{
-          gateName: `${name} (${label})`,
+          // Index -1 is the regenerate row: its name already carries the repository.
+          gateName: index < 0 ? name : `${name} (${label})`,
           exitCode,
           startedAt,
           endedAt,
