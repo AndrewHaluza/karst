@@ -32,6 +32,10 @@ import { setStage } from './stages.js';
  * never allowed to overwrite a terminal state. The JSON blobs are parsed
  * through CLOSED TypeScript unions keyed by `step`; malformed/unknown data
  * parses to null (the caller's reconcile treats it as `ambiguous`).
+ *
+ * One exception to append-only: `fillBeforeShipMessage` writes the `message`
+ * of a `before-ship` row that was recorded blank by older builds. It never
+ * changes another column, another origin, or a message that is already set.
  */
 
 export type ShipStep = 'commit' | 'push' | 'describe' | 'pr';
@@ -494,6 +498,33 @@ export function recordShipCommit(store: Store, input: RecordShipCommitInput): vo
        VALUES (?, ?, ?, ?, ?)`,
     )
     .run(input.shipRunId, input.repo, input.sha, input.message, input.origin);
+}
+
+export interface BlankBeforeShipCommit {
+  id: number;
+  repo: string;
+  sha: string;
+}
+
+/** The `before-ship` rows that older builds recorded with an empty message. */
+export function listBlankBeforeShipCommits(store: Store): BlankBeforeShipCommit[] {
+  return store.db
+    .prepare(
+      "SELECT id, repo, sha FROM ship_commits WHERE origin = 'before-ship' AND message = '' ORDER BY id",
+    )
+    .all() as BlankBeforeShipCommit[];
+}
+
+/**
+ * Set the message of one blank `before-ship` row. The guard keeps this the
+ * only write that touches an existing `ship_commits` row. Returns rows changed.
+ */
+export function fillBeforeShipMessage(store: Store, id: number, message: string): number {
+  return store.db
+    .prepare(
+      "UPDATE ship_commits SET message = ? WHERE id = ? AND origin = 'before-ship' AND message = ''",
+    )
+    .run(message, id).changes;
 }
 
 export interface BeginShipOperationPreparationInput {

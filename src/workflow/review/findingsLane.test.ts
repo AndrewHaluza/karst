@@ -1228,6 +1228,13 @@ describe('artifacts block in the findings prompt', () => {
       buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high', { intent: null, spec: null, plan: null }),
     ).toBe(buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high'));
   });
+  it('description-only artifacts drop DIFF ONLY and survive custom instructions', () => {
+    const a = { intent: null, spec: null, plan: null, description: 'DESCBODY' };
+    expect(buildFindingsPrompt('api', 'main', 'b', undefined, undefined, undefined, undefined, undefined, a)).not.toMatch(/DIFF ONLY/);
+    const custom = buildFindingsPrompt('api', 'main', 'b', 'Be strict.', undefined, undefined, undefined, undefined, a);
+    expect(custom).toContain('DESCBODY');
+    expect(custom).toMatch(/scope data to judge against/);
+  });
   it('default strategy drops DIFF ONLY only when artifacts are present', () => {
     const withA = buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high', { intent: 'I', spec: null, plan: null });
     expect(withA).not.toMatch(/DIFF ONLY/);

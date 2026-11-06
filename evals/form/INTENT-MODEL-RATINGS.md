@@ -15,13 +15,47 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
 * **Material-UI**: `mui/material-ui:pr-23778` (Select disabled attribute), `mui/material-ui:pr-23786` (Switch `preventDefault`)
 * **Darkreader**: `darkreader/darkreader:pr-7241` (Base64 CSS padding), `darkreader/darkreader:pr-6747` (Generic `*` fix ordering)
 
+CAUTION: Do not use this leaderboard for a model decision. Its judges received no test code for 7 of the 12 tests, and they decided `not-in-issue` for each charter. No judge has rescored these rows. See section 1a.
+
 | Rank | Model | Provider / CLI | `raw` F2P Coverage | `improved` F2P Coverage | Full-Covered Tasks | Parse (1st / Nudge / Degrade) | GWT Adherence | Unsupported Scenarios | Avg Latency (`raw` / `improved`) | Reference Run |
 |:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
 | 🥇 | **Gemini 3.8 Flash Medium** | `agy` (Antigravity) | 45.8% | **60.0%** | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | ~30s / ~98s | [`form-14-41-51`](./references/form-2026-11-02T14-41-51-505Z/report.md) |
 | 🥈 | **Gemini 3.8 Flash Low** | `agy` (Antigravity) | **50.0%** | 58.3% | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | **~7.5s / ~15s** | [`form-15-11-26`](./references/form-2026-11-02T15-11-26-170Z/report.md) |
-| 🥉 | **Claude Haiku 5.5 (Medium)** | `claude` (Claude Code) | 37.5% | 37.5% | 3 / 6 (50.0%) | **6 / 0 / 0** | **100%** | 0.83 | ~13s / ~25s | [`form-15-51-52`](./references/form-2026-11-02T15-51-52-246Z/report.md) |
+| 🥉 | **Claude Haiku 5.5 (default effort)** | `claude` (Claude Code) | 37.5% | 37.5% | 3 / 6 (50.0%) | **6 / 0 / 0** | **100%** | 0.83 | ~13s / ~25s | [`form-15-51-52`](./references/form-2026-11-02T15-51-52-246Z/report.md) |
 
 *Judge models: `gemini-4-argon-low` for Gemini; `claude-sonnet-5-5` for Claude.*
+
+The results file of the Haiku row records `effort: medium`, but the runner ignored `--effort` at the time of that run. The row therefore shows the default effort.
+
+## 1a. Claude comparison (not a ranking)
+
+CAUTION: Do not use this table as a ranking. The differences between models and between judges are about the size of one or two tests.
+
+The table shows the same saved Opus and Sonnet charters with each judge. All rows use the 6 cases above, and each producer has 1 run. All judges use one shared scope, [`intent-issue-scope.json`](./intent-issue-scope.json), so each cell has the same denominator of 12 tests. A majority vote of Opus, Sonnet, and Haiku at medium effort made this scope.
+
+| Producer | Judge | `raw` F2P Coverage | `improved` F2P Coverage | Unsupported / charter | Judge errors | Source |
+|---|---|:---:|:---:|:---:|:---:|---|
+| Claude Opus 5.5 low | Opus 5.5 medium | 41.7% | 37.5% | 0.00 | 0 | [`opus-medium`](./references/rejudge-shared-scope-opus-medium/report.md) |
+| Claude Opus 5.5 low | Sonnet 5.5 high | 29.2% | 50.0% | 0.33 | 0 | [`sonnet-high`](./references/rejudge-shared-scope-sonnet-high/report.md) |
+| Claude Opus 5.5 low | Haiku 5.5 medium | 37.5% | 37.5% | 0.00 | 0 | [`haiku-medium`](./references/rejudge-shared-scope-haiku-medium/report.md) |
+| Claude Sonnet 5.5 high | Opus 5.5 medium | 41.7% | 41.7% | 0.08 | 0 | [`opus-medium`](./references/rejudge-shared-scope-opus-medium/report.md) |
+| Claude Sonnet 5.5 high | Sonnet 5.5 high | 37.5% | 37.5% | 0.33 | 0 | [`sonnet-high`](./references/rejudge-shared-scope-sonnet-high/report.md) |
+| Claude Sonnet 5.5 high | Haiku 5.5 medium | 45.8% | 41.7% | 0.08 | 0 | [`haiku-medium`](./references/rejudge-shared-scope-haiku-medium/report.md) |
+
+Each `labels.json` beside these reports has the label of each test. The judges give the same label on 120 of 144 pairwise comparisons (83%).
+
+Limits of this comparison:
+
+- The set has only 12 tests. One test that changes from `covered` to `missing` moves a cell by 8.3 points.
+- Each producer has 1 run, so these scores do not show the change from run to run.
+- The judges are not independent of the charters: each judge family also scored its own family's charters.
+- The scope is a majority vote, not proof. Sonnet stated no test in `vuejs/core:pr-8785`, and Opus stated no test in `darkreader/darkreader:pr-6747`. The other two judges stated all tests in those cases.
+- All 12 tests are stated in the shared scope, so this set does not exercise `not-in-issue`.
+- The improve step has no clear effect. The change is 0 points in 3 of the 6 rows, and its direction differs in the other rows.
+- The Sonnet judge flags more unsupported scenarios than the Opus and Haiku judges. No person checked which judge is correct.
+- This table does not include Haiku charters, because no judge rescored them with the shared scope.
+
+Older intent results in `references/` are not comparable with this table. Their judges decided `not-in-issue` for each charter. They also received no test code for test names of the form `file:title`, which affects 7 of the 12 tests in these 6 cases.
 
 ---
 
@@ -47,7 +81,7 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
 * **Tradeoffs**:
   * Lower reasoning budget on `darkreader:pr-6747` left unstated edge-case tests in the scoring denominator.
 
-### 🥉 Claude Haiku 5.5 (Medium) (`claude`) — *Detailed Scenario Coverage with Strict Validation*
+### 🥉 Claude Haiku 5.5 (default effort) (`claude`) — *Detailed Scenario Coverage with Strict Validation*
 * **Overall Rating**: 8.7 / 10
 * **Strengths**:
   * **Detailed, Granular Scenarios (3.3 scenarios/charter)**: Tends to generate separate explicit scenarios for dev vs production and individual event types.
@@ -75,10 +109,10 @@ While aggregate test coverage sits between 58% and 60%, **5 out of 6 tasks achie
 * The model appropriately avoided leaking internal implementation details, which caused the judge to mark the low-level parser assertions as missing.
 
 ### Guardrail Adherence
-Across all evaluated runs:
+Across the runs in the leaderboard:
 * **0 Test Leaks**: Ground-truth patch filenames and test identifiers never leaked into generated charters.
 * **0 Degraded Parses**: 100% first-attempt JSON/schema parsing without fallback retries.
-* **0 Hallucinations**: Zero unsupported or invented scenarios.
+* **Unsupported scenarios**: 0.00 for both Gemini rows, and 0.83 for the Haiku row.
 
 ---
 

@@ -80,8 +80,9 @@ The `layout` Playwright projects run inside the existing `visual` UAT gate (`tes
 
 - **Routes**: one per `SETTINGS_SECTIONS` member (reached by clicking the nav entry; there is no section deep link) plus the 7 Agents hashes (`#agents/roles`, `/roles/<role>`, `/roles?compare=<preset>`, `/profiles`, `/profiles/<long local>`, `/profiles/<approach>`, `/profiles/builtin:<role>`). `settingsRoutes.test.ts` fails when a section is missing.
 - **Widths**: 1280, 900, 700, 699, 480 at height 900: both sides of the tier boundary plus a narrow split. Tiers (`src/ui/layout/layoutBreakpoints.ts`): wide >= 1000, mid 700-999, narrow <= 699. `layoutBreakpoints.test.ts` pins the `@media` widths of the CSS files in `BREAKPOINT_PINNED_FILES` to those constants; the list is empty today (existing settings CSS uses 1024/768/800/700px) and grows as CSS migrates.
+- **Scope**: a local gate runs only the routes of the selected views; CI runs every route (`ui:LAYOUT-SCOPE`).
 - **Dark only**: geometry is theme-independent, so the `layout` project runs once, in dark.
-- **Projects**: `layout-setup` clears `tests/visual/.layout-shards/`; `layout` (`*.layout.ts`) runs one test per route x width and writes a shard, never failing on geometry; `layout-teardown` merges the shards into `tests/visual/.layout-report.json`, applies the ledger and fails on a new or stale entry. Filter a run by FILE, never `--grep`: a title filter can drop the teardown test.
+- **Projects**: `layout-setup` clears `tests/visual/.layout-shards/`; `layout` (`*.layout.ts`) runs one test per route x width and writes a shard, never failing on geometry; `layout-teardown` merges the shards into `tests/visual/.layout-report.json`, applies the ledger and fails on a new or stale entry. Filter a run by FILE or by `KARST_UI_GREP`, never `--grep`: a CLI title filter can drop the teardown test.
 - **Checks** (1px tolerance, pure functions in `src/ui/layout/layoutChecks.ts`, each with a positive and a negative unit fixture):
   - a `page-overflow`: `scrollWidth > clientWidth + 1`.
   - b `sibling-overlap`: in-flow siblings (static/relative/sticky) intersecting by more than 1px on both axes.
@@ -94,10 +95,17 @@ The `layout` Playwright projects run inside the existing `visual` UAT gate (`tes
   - h `section-spacing`: the gap between sibling `<section>`s must exceed the largest gap between items inside one.
   - i `state-survives-resize`: on each Agents hash, resize 1280 to 480 to 1280; the hash and the selected item are unchanged.
 - **Output**: failures print grouped as route, width, check, selector, numbers (teardown test output), and the full list is in `tests/visual/.layout-report.json` (gitignored with the shards).
-- **Ratchet ledger** `tests/visual/layout-known-failures.json` is the only exemption (no per-element opt-out attribute). Keys are `route|width|check|selector`. A failure not in the ledger fails the gate; a ledger entry that no longer reproduces ALSO fails the gate. Stale entries are judged only over routes x widths that ran. Docker is authoritative (host rendering differs): `npm run test:layout:docker:seed` seeds once (refused if the file exists), `npm run test:layout:docker:prune` removes stale entries only and never adds; both refuse on a filtered run and without `KARST_LAYOUT_AUTHORITATIVE=1`. Host `npm run test:layout` is advisory and cannot seed or prune. Never reseed to make a branch green.
-- **Gate**: `scripts/visual-sweep-gate.mjs` fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. In the other projects it also fails a **pull request's own** added/changed baseline that does not match its screenshot (`ui:RUNNING-SWEEP`); every other screenshot diff stays advisory.
+- **Ratchet ledger** `tests/visual/layout-known-failures.json` is the only exemption (no per-element opt-out attribute). Keys are `route|width|check|selector`. A failure not in the ledger fails the gate; a ledger entry that no longer reproduces ALSO fails the gate. Stale entries are judged only over routes x widths that ran, so a view-scoped run never reports an entry of a route that did not run. Docker is authoritative (host rendering differs): `npm run test:layout:docker:seed` seeds once (refused if the file exists), `npm run test:layout:docker:prune` removes stale entries only and never adds; both refuse on a filtered run and without `KARST_LAYOUT_AUTHORITATIVE=1`. Host `npm run test:layout` is advisory and cannot seed or prune. Never reseed to make a branch green.
+- **Gate**: `scripts/visual-sweep-gate.mjs` runs only in CI, on the full chain. It fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. In the other projects it also fails a **pull request's own** added/changed baseline that does not match its screenshot (`ui:RUNNING-SWEEP`); every other screenshot diff stays advisory.
 - **Cannot catch**: a wrong control in a sane-looking place (until a page ships region expectations), wrong copy, wrong colours, or a layout bug that only appears in a state the corpus does not render (add the state to the corpus).
 END_DOC_BLOCK: [@ui:LAYOUT-SANITY]
+
+## [@ui:LAYOUT-SCOPE] Layout chain scope in a local gate
+
+- **Scope**: `scripts/dockerGate.mjs` narrows `test:visual:docker` and `test:layout:docker` to the views that the ticket diff reaches (`selectViews`, `gateGrep` in `scripts/uiViews.mjs`). The `layout` project uses the same `KARST_UI_GREP` grep. `layout-setup` and `layout-teardown` take no filter, so the ledger verdict still runs on the selected routes for any grep, and a filtered seed or prune is refused. The selection line states the scope, with counts that include layout tests. These runs stay on the full chain: CI (variable unset), `test:ui:docker` (it passes `KARST_UI_GREP: ''` because its view is named by hand, not derived from the diff), a shared path (a move counts as both of its paths), `playwright.config.ts`, a change to the ledger (it also voids the repeat-pass skip, `@arch:GATE-REPEAT`), an unknown diff, seed and prune. CI is the backstop for a layout bug that a view-scoped run misses.
+- **No selected route**: `catalog` and `status` have no layout route. In that selection, `test:layout:docker` prints a skip line and exits 0, and in `test:visual:docker` the teardown accepts zero shards only if the grep matches no layout title. A run with selected routes and no shards still fails.
+- **Measured saving**: `docs/issues/2026-11-06-layout-chain-narrowing-timing.md` (`@issue:NARROW-01`).
+END_DOC_BLOCK: [@ui:LAYOUT-SCOPE]
 
 ## [@ui:VISUAL-VARIANTS] Variant matrix (UI-R57)
 
@@ -145,6 +153,35 @@ END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 
 **Local stale-fixture hazard.** `tests/visual/serve.mjs` regenerates `tests/visual/.tmp/` only when that directory is absent or empty, so a `.tmp/` left from an earlier run is served as-is and the sweep can pass against outdated pages. Run `rm -rf tests/visual/.tmp` before a local sweep that must be trusted. CI is immune: `.tmp/` is git-ignored, so every checkout starts clean.
 END_DOC_BLOCK: [@ui:RUNNING-SWEEP]
+
+## [@ui:WORKERS] Worker count for the visual sweep (PERF-MEASURE-2-3-PLAYWRIGHT)
+
+**Decision: keep 1 worker. The default does not change.** No count reached the 25% wall-time saving that the adoption rule needs.
+
+**The knob.** `KARST_VISUAL_WORKERS` sets `workers` in `playwright.config.ts` (see `tests/visual/visualWorkers.ts`). The default is 1. `test:visual:docker` passes the variable into the container. `test:visual:docker:update` does not pass it. CI and any `--update-snapshots` run are forced to 1, and an invalid value gives 1. Try a count with `KARST_VISUAL_WORKERS=2 npm run -s test:visual:docker`.
+
+**Distribution.** `fullyParallel` is not set, so Playwright parallelizes by file. The six screenshot projects each run the same 331 tests, so the (project, file) pairs already give parallel work. `pages.visual.ts` holds about half of the screenshot tests. The layout chain is one spec file (712 tests), so it always runs on one worker and its teardown writes the ledger verdict once. It is the longest single unit, so it caps the gain. No shared fixture write was found: `serve.mjs` regenerates `.tmp/` once at start, and the specs only read it. `fullyParallel` was not evaluated by measurement.
+
+**Method.** Pinned image `mcr.microsoft.com/playwright:v1.63.0-noble`, Docker VM about 7 GB and 6 CPUs, full sweep, `.tmp/` removed before each run, runs interleaved (1, 2, 3 workers, three rounds). Peak memory is the highest `docker stats` sample (2 s interval) of the container. Wall is the whole `npm run -s test:visual:docker` command. Playwright is the duration in the JSON report. **The host was not idle:** the load average was about 55 at the start, because other agents were running. Treat the times as noisy.
+
+| Workers | Round | Wall (s) | Playwright (s) | Peak memory (MiB) | Exit | Unexpected (diffs/failures) |
+|---|---|---|---|---|---|---|
+| 1 | 1 | 703 | 689 | 1196 | 0 | 0 |
+| 1 | 2 | 439 | 430 | 1159 | 0 | 0 |
+| 1 | 3 | 407 | 402 | 1169 | 0 | 0 |
+| 2 | 1 | 493 | 481 | 1616 | 0 | 0 |
+| 2 | 2 | 228 | 223 | 1738 | 0 | 0 |
+| 2 | 3 | 367 | 358 | 1597 | 0 | 0 |
+| 3 | 1 | 415 | 405 | 2055 | 0 | 0 |
+| 3 | 2 | 890 | 257 | 2055 | 0 | 0 |
+| 3 | 3 | 370 | 362 | 2040 | 0 | 0 |
+
+Every run: 1662 expected, 1038 skipped, 0 unexpected, 0 flaky, no 137 exit.
+
+**Result.** Median Playwright time: 1 worker 430 s, 2 workers 358 s (17% saving), 3 workers 362 s (16% saving). Median wall time: 439 s, 367 s (16%), 415 s (5%). Memory grows with the count (about 1.2, 1.6 and 2.05 GiB) and stays far below the VM limit. Safety was fine: zero diffs, zero kills at every count. The saving was the problem. It is below 25%, and the run-to-run spread at one count (228 s to 493 s at 2 workers) is larger than the gap between counts. Run 6 (3 workers, round 2) lost about 630 s outside the test run. The cause was not found.
+
+**Revisit** when the host is idle, or when the layout chain is split or shortened, since it caps the gain. A re-run needs the same 9-run table.
+END_DOC_BLOCK: [@ui:WORKERS]
 
 ## [@ui:UPDATE-BASELINE] How to update a baseline
 

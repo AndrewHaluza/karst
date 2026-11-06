@@ -20,6 +20,7 @@ import {
   parseOpencodeJsonl,
   type SpawnHeadless,
 } from './opencode.js';
+import { projectEndpointKey } from './hookFailureLog.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 
@@ -1199,7 +1200,7 @@ describe('OpencodeAdapter headless execution', () => {
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
     expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined, isolationEnv: killIsolationEnv });
-    expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
+    expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', finalMessage: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
   });
 
   it('pins the headless run to the worktree via --dir so a nested linked worktree is not mis-resolved', async () => {
@@ -1718,6 +1719,19 @@ describe('generated karst-bridge plugin — endpoint rebind (869ej1zpv G3)', () 
     } finally {
       await live.close();
     }
+  });
+
+  it('reads the endpoint file of the launching project only', () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    const projectKey = projectEndpointKey('proj-a');
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'http://127.0.0.1:1/hooks', configDir, projectKey },
+    });
+    const body = readFileSync(cmd.ownedPaths![0]!, 'utf8');
+    expect(body).toContain(join(configDir, 'opencode', `current-endpoint.${projectKey}`));
+    expect(body).not.toContain(JSON.stringify(join(configDir, 'opencode', 'current-endpoint')));
   });
 
   it('carries the launch generation onto the rebound endpoint', () => {

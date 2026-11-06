@@ -195,6 +195,7 @@ function appendHookArgs(args: string[], channel: HookChannel): void {
     JSON.stringify(bridgePath),
     JSON.stringify(endpointUrl),
     JSON.stringify(diagnosticsPath),
+    ...(channel.projectKey && !isFile ? [JSON.stringify('codex'), JSON.stringify(channel.projectKey)] : []),
   ].join(' ');
   // Remove every inherited hook before installing the complete event set
   // below. This makes the trust bypass authorize only Karst-authored commands,

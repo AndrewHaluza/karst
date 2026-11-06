@@ -1,3 +1,4 @@
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Store } from '../../store/db.js';
@@ -5,7 +6,7 @@ import { sweepHookSettings } from '../../agent/settingsSweep.js';
 import { reapStaleServers, describeReap } from '../../runtime/worktreeServers.js';
 import { reconcileStageRuns, describeStaleStageRun } from '../../store/stageRuns.js';
 import { reconcileProcessRuns, describeStaleProcessRun } from '../../store/processRuns.js';
-import { reconcileShipRuns, describeStaleShipRun } from '../../store/shipRuns.js';
+import { reconcileShipRuns, describeStaleShipRun, listBlankBeforeShipCommits, fillBeforeShipMessage } from '../../store/shipRuns.js';
 import { reconcileStrandedFixRounds, describeStrandedFixRound } from '../../store/recoveryRounds.js';
 import { compactArchivedWorktrees } from '../../runtime/archiveBulk.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from '../../approaches/graph/retention.js';
@@ -13,7 +14,7 @@ import { reapOrphanedArtifactDirs, describeArtifactReap } from '../../runtime/ar
 import { getProjectBySlug } from '../../store/projects.js';
 import { getTicket } from '../../store/tickets.js';
 import { allGraphRunsClosed } from '../../store/graph/graphRuns.js';
-import { defaultGitRunner } from '../../integrations/git.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { pidAlive } from '../../runtime/pidAlive.js';
 import { reconcileOnStart } from '../../recovery/reconcile.js';
 import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js';
@@ -292,6 +293,15 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   } catch (err) {
     deps.logError('karst: artifact-dir orphan sweep failed', err);
   }
+  // Background, one-time: fill blank before-ship commit messages from git.
+  // Not awaited, so activation never waits on it; it never throws.
+  void runShipCommitSubjectSweep({
+    store: deps.store,
+    globalStorageRoot: deps.globalStorageRoot,
+    git: defaultGitRunner,
+    debug: deps.debug,
+    logError: deps.logError,
+  });
   return { strandedFixResumes };
 }
 
@@ -399,5 +409,82 @@ export async function runSandboxReconcile(deps: SandboxReconcileDeps): Promise<R
   } catch (err) {
     deps.logError('karst: sandbox reconcile failed', err);
     return undefined;
+  }
+}
+
+export interface ShipCommitSubjectSweepDeps {
+  readonly store: Store;
+  /** The marker file that records completion lives here. */
+  readonly globalStorageRoot: string;
+  readonly git: GitRunner;
+  readonly debug: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+const pathExists = (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
+/** Exit code of a git `fatal:` error, such as an unknown object. */
+const GIT_FATAL_EXIT = 128;
+
+const SHIP_SUBJECT_SWEEP_MARKER = 'ship-commit-subjects.done';
+
+/**
+ * One-time fill of `before-ship` commit messages that older builds stored
+ * blank. Reads each subject from git, per repository path (a trailing slash
+ * is ignored). A missing path or sha is skipped, logged, and left blank.
+ * A marker file records completion, so a missing sha costs no git call at a
+ * later boot. Meant to run in the background; never throws.
+ */
+export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps): Promise<void> {
+  const marker = join(deps.globalStorageRoot, SHIP_SUBJECT_SWEEP_MARKER);
+  try {
+    if (await pathExists(marker)) return;
+    const rows = listBlankBeforeShipCommits(deps.store);
+    const bySha = new Map<string, { repo: string; sha: string; ids: number[] }>();
+    for (const row of rows) {
+      const repo = row.repo.length > 1 ? row.repo.replace(/\/+$/, '') : row.repo;
+      const key = `${repo}\0${row.sha}`;
+      const entry = bySha.get(key) ?? { repo, sha: row.sha, ids: [] };
+      entry.ids.push(row.id);
+      bySha.set(key, entry);
+    }
+    const missingRepos = new Set<string>();
+    let filled = 0;
+    let transientFailures = 0;
+    for (const { repo, sha, ids } of bySha.values()) {
+      try {
+        if (missingRepos.has(repo) || !(await pathExists(repo))) {
+          missingRepos.add(repo);
+          deps.debug(`karst: ship commit subject sweep: repository path missing, skipped ${repo}`);
+          continue;
+        }
+        const out = await deps.git(['show', '-s', '--no-show-signature', '--format=%s', `${sha}^{commit}`], repo);
+        const subject = out.stdout.trim();
+        // The runner never throws: a spawn error, timeout or abort comes back as
+        // exit 1, while git's own "no such commit / not a repository" is exit 128.
+        // Only the 128 answer is final; anything else may pass at a later boot.
+        if (out.exitCode !== 0 && out.exitCode !== GIT_FATAL_EXIT) transientFailures++;
+        if (out.exitCode !== 0 || subject === '') {
+          deps.debug(`karst: ship commit subject sweep: no subject for ${sha} in ${repo}, left blank`);
+          continue;
+        }
+        for (const id of ids) filled += fillBeforeShipMessage(deps.store, id, subject);
+      } catch (err) {
+        transientFailures++;
+        deps.debug(`karst: ship commit subject sweep: ${sha} in ${repo} failed: ${String(err)}`);
+      }
+    }
+    // A git call that could not run at all (not "no such commit") may pass at a
+    // later boot, so the marker is withheld and the sweep tries again.
+    if (transientFailures > 0) return;
+    await mkdir(deps.globalStorageRoot, { recursive: true });
+    await writeFile(marker, new Date().toISOString());
+    deps.debug(`karst: ship commit subject sweep done, ${filled} row(s) filled`);
+  } catch (err) {
+    deps.logError('karst: ship commit subject sweep failed', err);
   }
 }

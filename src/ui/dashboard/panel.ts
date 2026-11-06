@@ -18,7 +18,9 @@ import { SupplementalLoaders, type StoredArtifactsLoader, type SupplementalHost 
 import { DashboardConsole } from './consoleOutput.js';
 import { DashboardManagerBase } from './managerBase.js';
 import { LiveTicker } from './liveTicker.js';
-import { openNewPanel } from './panelOpen.js';
+import { attachPanel, openNewPanel, type PanelOpenDeps } from './panelOpen.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
+import { getTicket } from '../../store/tickets.js';
 import { PushMemory, pushSnapshot, type SnapshotPushDeps } from './snapshotPush.js';
 import type {
   ActionsFactory,
@@ -294,24 +296,7 @@ export class DashboardManager extends DashboardManagerBase {
     }
 
     const panel = openNewPanel(
-      {
-        store: this.store,
-        host: this.host,
-        actionsFor: this.actionsFor,
-        labelTemplate: this.labelTemplate,
-        onServerLogsDetach: this.onServerLogsDetach,
-        binding: this.binding,
-        onViewActivated: this.onViewActivated,
-        panels: this.panels,
-        ticks: this.ticks,
-        memory: this.memory,
-        loaders: this.loaders,
-        selections: this.selections,
-        registry: this.registry,
-        pushState: (id) => this.pushState(id),
-        repaint: (id) => this.repaint(id),
-        logError: this.logError,
-      },
+      this.openDeps(),
       ticketId,
       opts?.preserveFocus,
     );
@@ -322,6 +307,61 @@ export class DashboardManager extends DashboardManagerBase {
     // Same explicit report as the reveal path: creation focuses the panel, and
     // `onDidChangeViewState` fires on changes, not on the initial activation.
     if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
+  }
+
+  private openDeps(): PanelOpenDeps {
+    return {
+      store: this.store,
+      host: this.host,
+      actionsFor: this.actionsFor,
+      labelTemplate: this.labelTemplate,
+      onServerLogsDetach: this.onServerLogsDetach,
+      binding: this.binding,
+      onViewActivated: this.onViewActivated,
+      panels: this.panels,
+      ticks: this.ticks,
+      memory: this.memory,
+      loaders: this.loaders,
+      selections: this.selections,
+      registry: this.registry,
+      pushState: (id) => this.pushState(id),
+      repaint: (id) => this.repaint(id),
+      logError: this.logError,
+    };
+  }
+
+  /**
+   * Adopt a dashboard tab VS Code restored after a window reload. Does what
+   * `openDashboard` does for a new panel (register, icon, state, bind) without
+   * a reveal or a focus report: the tab is already where the user left it.
+   * A missing or archived ticket, a ticket that already has a panel in this
+   * window, or an absent ticket id closes the restored tab silently.
+   */
+  adoptDashboard(ticketId: number | undefined, restored: RestoredPanel<DashboardPanel>): boolean {
+    const reason = this.adoptRefusal(ticketId);
+    if (reason !== null || ticketId === undefined) {
+      this.debug?.debug(`[dashboard] restored tab closed: ${reason ?? 'no ticket id'}`);
+      restored.dispose();
+      return false;
+    }
+    const panel = attachPanel(this.openDeps(), ticketId, restored.wrap());
+    this.refreshIcon(ticketId, panel);
+    this.pushState(ticketId);
+    this.postBind(panel);
+    return true;
+  }
+
+  private adoptRefusal(ticketId: number | undefined): string | null {
+    if (ticketId === undefined) return 'state has no ticket id';
+    if (this.panels.has(ticketId)) return `ticket ${ticketId} already has a panel`;
+    let archivedAt: string | null;
+    try {
+      archivedAt = getTicket(this.store, ticketId).archivedAt;
+    } catch {
+      return `ticket ${ticketId} is missing`;
+    }
+    if (archivedAt) return `ticket ${ticketId} is archived`;
+    return null;
   }
 
   /**

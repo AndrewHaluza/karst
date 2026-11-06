@@ -1,0 +1,1142 @@
+[
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "vuejs/core:pr-8470",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "partial",
+          "scenario": 3,
+          "why": "The test checks that the compiler output lists both the extended event and the base event in the `emits` option. Scenarios 1-4 state the behaviour at runtime: no warning in development, events set up in production. Scenario 3 comes closest because it says the base events are set up as declared events. No scenario states that the compiled `emits` option contains both the base and the extended events, so the key part is missing."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "partial",
+          "scenario": 3,
+          "why": "Scenario 3 says base events are set up as declared events in a production build, which matches the issue's prod symptom. It does not say the compiled emits option must list both the base and the extended events, and it does not name the compile-time interface-with-extends case the test checks."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "vuejs/core:pr-8785",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": false,
+      "error": "judge-error: invalid JSON"
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 checks that the linked reproduction renders `<div>hello</div>`. That touches a props-bound component rendering correctly. It does not state the namespaced member form (Foo.Example) or the non-inline render mode, and it does not check that RESOLVE_COMPONENT is absent."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 checks that the linked reproduction renders `<div>hello</div>`. That touches a props-bound component rendering correctly. It does not state the namespaced member form (Foo.Example) or the inline render mode, and it does not check that RESOLVE_COMPONENT is absent."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23778",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The test checks that the input element has the disabled attribute when Select is disabled. Scenario 1 states that the `<input>` element of a disabled select field has the `disabled` attribute, which matches the ISSUE's expected behaviour."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 3,
+          "why": "The ISSUE only mentions that the native select is disabled as a comparison, in a parenthetical remark. It does not state an expected outcome for a native select, so this scenario is invented."
+        }
+      ]
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "Scenario 1 states that the input element of a disabled TextField select has the disabled attribute. The test checks the same property on the input of a disabled Select."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23786",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The test checks that a default-prevented event does not change the checkbox state. Scenario 1 states that a Switch with an onClick handler that calls preventDefault does not change state when clicked."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The scenario states that a Switch with an onClick handler calling event.preventDefault() keeps its previous state and its UI does not update after a click. The test checks the same behaviour: the checked class and the checked property stay unchanged. The scenario does not state that onChange is not called, but the test's main check is the unchanged state."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-7241",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the parser splits blocks correctly and keeps the `==` padded base64 CSS inside one block. Scenario 1 states no breakage on refresh, but it does not state that the CSS stays intact, nor that the `=`-run delimiter is ignored inside the CSS."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the parser keeps the base64 `==` padding inside the CSS block and splits blocks only at real delimiters. Scenarios 1 and 5 state a correct, working result at user level, but none states the parsed block structure."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 3,
+          "why": "The ticket says the entry is ignored when no open tab matches. Scenario 3 says the CSS has no effect on the tab, which restates that. This is supported, so it is not invented."
+        }
+      ]
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 says a matching-site page shows correct CSS with no breakage, but its entry is thisisnotarealwebsite.dummy, which does not match. It does not state that the parser keeps the CSS block intact and attaches it to a matching site."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 says a matching-site page shows correct CSS with no breakage, but its entry is thisisnotarealwebsite.dummy, which does not match. It does not state that the parser keeps the CSS block intact and attaches it to a matching site."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-6747",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the generic '*' fix comes first, before the site fix. The issue implies this order, since it says the code should check fixes[0]. The scenario only says fixes are applied and does not state the order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the generic '*' fix comes first when a domain appears many times in one record. The scenario covers only the general case of fixes being found. It does not state the order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The hunk moves the '*' fix to the first position in all expected results and adds a test for this. The issue implies the first position through fixes[0]. The scenario does not state it."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the generic '*' fix is first, before the wildcard and subdomain fixes. The issue implies this through fixes[0].url[0]. The scenario only says that fixes are shown for the site."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The test checks that the '*' fix comes first, before the fixes of other records that match the domain. The scenario does not state the order. It only states that site fixes are applied."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "missing",
+          "why": "The charter only requires that site-specific fixes appear on the page. No scenario states that the generic '*' fix must come first in the fix list, which is the ordering behaviour this test checks."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "missing",
+          "why": "No scenario covers the ordering of the generic '*' fix relative to a record that lists the same domain several times. The charter addresses only site-specific fixes being applied."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "missing",
+          "why": "The hidden diff changes the ordering of generic '*' fixes across several parse cases. No charter scenario states that the generic fix is ordered first. The charter only asks that site-specific fixes are shown."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "missing",
+          "why": "This test states the ordering rule directly: the generic '*' fix comes first, then the wildcard fix, then the most specific fix. No charter scenario states this ordering."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "missing",
+          "why": "No scenario covers the ordering of the generic '*' fix when the same domain appears in multiple records. The charter addresses only that site-specific fixes are applied."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "vuejs/core:pr-8470",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "partial",
+          "scenario": 3,
+          "why": "The issue states that defineEmits<ComponentEmits>() with an interface extending BaseEmits must set up the inherited events. The test checks that the compiled output has both 'bar' and 'foo' in emits. Scenarios 1 and 2 only check that the dev warning is absent. Scenario 3 says the extended emits are set up, but it names no concrete result. No scenario states that the compiled emits option includes the inherited events, so a key part is missing."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 3,
+          "why": "The scenario expects an unnamed production result and invents a production-only check. The issue reports that the emits are not set up, and it does not separate production behaviour from development behaviour."
+        }
+      ]
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 covers an inherited event (input-event from BaseEmits) being declared, shown by the absent dev warning. It does not state that the compiled emits option lists both the inherited and own events. The Goal states this, but no scenario does. Scenario 2 touches it the same way for change-event."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "vuejs/core:pr-8785",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue states that a `props.xxx` style component must render as a component, not as a literal element. Scenario 1 covers this only through the output of the linked reproduction. The test checks the non-inline compiled tag `_unref($props[\"Foo\"]).Example` and that no component resolve helper is used. The issue does not state this compiler output, and the charter does not state the non-inline mode."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue states that a namespaced component taken from props must render as a component. Scenario 1 covers this only through the render output of the linked reproduction. The test checks the inline compiled tag `_unref(__props[\"Foo\"]).Example` and that no component resolve helper is used. The issue does not state this compiler output, and the charter does not state the inline mode."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "Scenario 2 covers the symptom: the rendered output must not contain the literal info.icon element. It does not state the compiler fix. It does not say that a namespaced tag with a PROPS binding must compile to a props access, or that RESOLVE_COMPONENT is not used in non-inline mode."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "Scenario 2 covers the symptom: the rendered output must not contain the literal info.icon element. It does not state the compiler fix. It does not say that a namespaced tag with a PROPS binding must compile to a __props access, or that RESOLVE_COMPONENT is not used in inline mode."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23778",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The ISSUE says the <input> of a disabled select TextField should have the disabled attribute. Scenario 1 states this: the <input> element has the `disabled` attribute. The test hunk is not available, so this rests on the test name."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "Scenario 1 states that a page rendering `<TextField select disabled />` has a disabled attribute on the `<input>` element. The test checks the same behaviour on `<Select disabled>` for the input's disabled property."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23786",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The issue states that calling preventDefault in onClick should stop the Switch from updating. Scenario 1 states that the Switch stays in the same state after such a click."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The scenario covers a click on a Switch whose onClick calls preventDefault, and expects the UI and the Switch state to stay unchanged. The test checks the same outcome for the checked class and the checkbox property. The test also asserts that onChange is not called, which the scenario does not name directly, but it follows from the unchanged state."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-7241",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "The issue states that CSS with a '==' padded base64 string must be processed properly. Scenario 6 touches this, but only as 'processes the custom CSS properly'. No scenario says the CSS block stays whole and is not split at the base64 padding, or that a real '====' delimiter still splits blocks. The issue's domainPatterns symptom is also not covered at parser level."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "The test is the 'Base64 in CSS' parser regression test. It checks that the '==' padding inside a CSS line does not split the block, so the whole CSS is kept for example.com. It also checks that the '====' delimiter still separates the entries. Scenario 6 and scenario 4 cover only the visible outcomes: no error and proper processing. They do not state the block-splitting and CSS-preservation behaviour."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "Scenario 6 covers a site-matched custom CSS block with a ==-padded base64 image being processed properly, which is the behaviour under test. It does not state that the whole CSS block, including the base64 line and closing brace, must be kept intact, or that the blocks around it are split correctly."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "Scenario 6 covers a site-matched custom CSS block with a ==-padded base64 image being processed properly, which is the behaviour under test. It does not state that the whole CSS block, including the base64 line and closing brace, must be kept intact, or that the blocks around it are split correctly."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-opus-5-5",
+      "provider": "claude",
+      "effort": "low",
+      "oldJudge": "claude-sonnet-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-6747",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "missing",
+          "why": "The issue implies the generic '*' fix should be first in the fixes array (fixes[0].url[0] === '*'). The test checks this order in the getSitesFixesFor result. The scenario only says the fixes are applied on the page and never mentions the order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "missing",
+          "why": "The test expects the '*' fix first in the result. The issue implies this order through the fixes[0] suggestion. No scenario states the order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "missing",
+          "why": "The hunk moves the '*' fix to the first position in several expected results and adds a 'generic fix appears first' test. The issue implies this order. The scenario covers only the visible result, not the order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "missing",
+          "why": "The test checks that the generic '*' fix comes first. The issue implies this through the fixes[0] suggestion. The scenario does not state it."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "missing",
+          "why": "The test expects the '*' fix first, before the domain-specific records. The issue implies this order. No scenario states it."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "missing",
+          "why": "The charter does not state that the generic '*' fix must come first in the returned fixes list. Its only scenario describes the site-level result, not the order of fixes."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "missing",
+          "why": "The charter does not state the ordering of the generic '*' fix relative to a domain fix that repeats within one record. No scenario covers this ordering."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "missing",
+          "why": "This file-level hunk changes only the ordering of the generic '*' fix in the returned lists. The charter states no ordering rule, so no scenario covers it."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "missing",
+          "why": "The charter does not state that the generic '*' fix must appear first in the fixes list. This is the core behaviour of the test, and no scenario covers it."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "missing",
+          "why": "The charter does not state the ordering of the generic '*' fix when a domain appears in multiple records. No scenario covers this ordering."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "vuejs/core:pr-8470",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The test checks that an interface with extends yields both inherited and own events as declared emits. The issue states this expectation, and scenarios 1 to 4 and 6 state the behaviour at the black-box level: inherited and own events are accepted without a warning. The exact compiled output order is an implementation detail that the issue does not state."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 5,
+          "why": "The issue does not state a scenario with no parent listener as a separate criterion, and it does not require the absence of every Vue warning. However, the issue warning text implies that a declared event gives no warning when no prop exists, so this scenario is only weakly supported."
+        },
+        {
+          "scenario": 7,
+          "why": "The issue does not mention a type without extends and does not state a requirement that the behaviour stays the same."
+        }
+      ]
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 covers runtime delivery of an inherited event (input-event) to the parent listener, which needs the extended events in the emits option. It does not state that the compiled emits option lists both the base and own events for an interface in the same SFC. The test checks that compiled output, and the charter never names it."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "vuejs/core:pr-8785",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue title states that a props.xxx component must render, and the scenario checks a dotted tag that renders as the component. The scenario does not state that the component comes from a prop. The test also checks the non-inline generated tag `_unref($props[\"Foo\"]).Example` and no RESOLVE_COMPONENT helper, which the issue does not state."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue title states that a props.xxx component must render, and the scenario checks a dotted tag that renders as the component. The scenario does not state that the component comes from a prop. The test also checks the inline generated tag `_unref(__props[\"Foo\"]).Example` and no RESOLVE_COMPONENT helper, which the issue does not state."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 states that a dotted tag such as <info.icon> renders the component. It does not say that the namespace is a prop binding, and it does not cover the non-inline compile mode. The test checks the props-bound compile path, which the scenario leaves open."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 states that a dotted tag such as <info.icon> renders the component. It does not say that the namespace is a prop binding, and it does not cover the inline compile mode. The test checks the props-bound compile path, which the scenario leaves open."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23778",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The issue states that the input element of a disabled select must have the disabled attribute. Scenario 1 states this outcome. The test hunk is not available, so this decision uses the test name."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "Scenario 1 states that a select text field with disabled on has the disabled attribute on its input element, which is the behaviour the test checks."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23786",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The issue states that preventDefault in the onClick handler must stop the element from updating. Scenario 1 states that a Switch that is off stays off after a click with preventDefault. The test hunk is not available, so this verdict uses the test name only."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "Scenario 2 states that a Switch that is on keeps its on state after a preventDefault click, which matches the test's final checked assertion. It does not state that the onChange handler is not called, which the test asserts (callCount 0). The charter explicitly leaves onChange behaviour open, so that key part is missing."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-7241",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "The hunk for this name is listed under Test 2. The issue states that CSS with a base64 string padded by `==` must be properly processed and that the `==` must not act as a delimiter. Scenario 2 checks only that no regex error occurs. No scenario checks that the blocks split correctly or that the base64 CSS stays intact in the fix for a matching URL, and the charter puts matching tabs out of scope."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "The test checks that the parser splits blocks correctly and returns the wildcard fix and the example.com fix with the full base64 CSS. The issue states the delimiter fault and the need for proper processing. Scenarios 1, 2 and 4 check only for no error, no broken CSS and no CSS on non-matching tabs, not the parsed result for a matching site."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 covers the theme entry with a base64 url ending in `==` and expects no broken CSS. It does not state that the parser must keep the whole CSS block intact as one entry with the base64 padding included."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 2,
+          "why": "Scenario 2 covers the `Invalid regular expression` error from the ticket, which is the visible symptom of the parser splitting the CSS block. It does not state that the parser must split the theme into the correct blocks and keep the CSS content unchanged."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-6747",
+    "source": "raw",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "not-in-issue",
+          "why": "The test checks the order of the array that getSitesFixesFor returns, with the generic '*' fix first. The issue suggests that the code checks fixes[0], but it does not state this parser output or index behaviour. The charter scenarios only check browser results on one site."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "not-in-issue",
+          "why": "The test checks the '*' fix position and the handling of a domain that occurs many times in one record. The issue does not mention duplicate domains in a record or the returned order for this case."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue implies that the generic fix is at fixes[0] and that site fixes must apply. Scenario 1 states only the end result on the named site. It does not state the generic-fix-first order, which is the key part of the file's tests."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The issue suggests the check fixes[0].url[0] !== '*', so it implies the '*' fix is first. Scenario 1 touches the result that fixes apply, but no scenario states the generic-fix-first order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "not-in-issue",
+          "why": "The test checks the fixes that return when one domain occurs in many records, and the order of these fixes. The issue does not mention a domain in many records."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 says Dark Reader applies the site's fixes, which touches fix retrieval. It does not state that the generic '*' fix must come first in the returned list, which is the behaviour this test checks."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "missing",
+          "why": "No scenario states how fixes from one record that name the same domain several times are ordered, or that the generic fix goes first."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "The hunk includes the same 'Index config' ordering check. Scenario 1 touches fix application for a site but does not state the required fix order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 says fixes are applied for the site, which touches the fix list. No scenario states that the generic '*' fix must appear first, or that the wildcard and subdomain fixes follow in specificity order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "missing",
+          "why": "No scenario covers fixes for one domain that come from several records, or the ordering of those fixes relative to the generic fix."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "vuejs/core:pr-8470",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The test checks that the events from a base interface and an extending interface both become declared emits. The issue states this behaviour. Scenarios 1 and 6 state that base and extending events are declared and cause no warning. The exact compiled output and event order are implementation details that the issue does not state."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "Scenario 1 states that events declared in a base type, which a component's extending type inherits, are emitted in a development build with no undeclared-event warning. This is the behaviour the test checks: the compiled emits option must include the base event \"foo\" alongside the extending type's own event \"bar\". Scenario 2 covers the second base event. The charter does not name the compiled emits array, but the behaviour is stated."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "vuejs/core:pr-8785",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "not-in-issue",
+          "why": "The test checks the compiler output `_unref($props[\"Foo\"]).Example` and the absence of the RESOLVE_COMPONENT helper in non-inline mode. The issue states only the render output for a props.xxx component type. The issue text does not state compiler output, helper use, or inline modes."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "not-in-issue",
+          "why": "The test checks the compiler output `_unref(__props[\"Foo\"]).Example` and the absence of the RESOLVE_COMPONENT helper in inline mode. The issue states only the render output for a props.xxx component type. The issue text does not state compiler output, helper use, or inline modes."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 covers rendering a dotted-path component from the ticket and expects `<div>hello</div>`. It does not cover the compiled tag for props-bound namespaces in non-inline mode (`_unref($props[\"Foo\"]).Example`) or the absence of the RESOLVE_COMPONENT helper."
+        },
+        {
+          "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+          "coverage": "partial",
+          "scenario": 1,
+          "why": "Scenario 1 covers rendering a dotted-path component from the ticket. It does not cover the inline-mode compiled tag (`_unref(__props[\"Foo\"]).Example`) or the absence of the RESOLVE_COMPONENT helper, which the test checks."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23778",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The issue states that the input element of a disabled select should have the disabled prop. Scenario 1 states this exact outcome. The test hunk is not available, so this judgment uses the test name."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 4,
+          "why": "The issue describes the classes and aria-disabled on the div only as current behavior. It does not state that the field must still show as disabled after the change, and the charter's own Not in scope section says the issue does not state if they stay."
+        }
+      ]
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "Scenario 1 states that a disabled select's `<input>` element must have the `disabled` attribute, which is the behaviour the test checks."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "mui/material-ui:pr-23786",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 1,
+          "why": "The test name states that a default-prevented event must not change the checked state. The issue states this behaviour for the Switch, and scenario 1 states it. No test hunk was found, so this result comes from the test name only."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+          "coverage": "covered",
+          "scenario": 2,
+          "why": "Scenario 2 states that an on Switch with an onClick handler that calls event.preventDefault() stays on after a click. The test checks the same case with defaultChecked. The test also checks that onChange is not called, which the charter does not state, but the main behaviour is covered."
+        }
+      ],
+      "unsupported": []
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-7241",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "The issue states that the `==` padding must not break the parsing of the CSS and that the CSS is properly processed. Scenario 6 uses the same kind of base64 rule, but it checks only that the extension keeps working and that the page has no broken CSS. No scenario checks that the blocks split correctly or that a matching site gets the complete CSS, and the charter explicitly leaves the matching-site result undefined."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "This is the same regression test as the named test. The charter covers the absence of a crash and of a regex error for a base64 value padded with `==`. It does not state that a fix for a matching URL keeps the base64 CSS intact in its own block, separate from the `*` block."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "Scenario 6 covers a background-image url('data:...base64...==') rule and expects no broken CSS. It does not state that the parser keeps the whole CSS block together for the matching site, which is what the test checks."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "partial",
+          "scenario": 6,
+          "why": "Scenario 6 covers a background-image url('data:...base64...==') rule and expects no broken CSS. It does not state that the parser keeps the whole CSS block together for the matching site, which is what the test checks."
+        }
+      ],
+      "unsupported": [
+        {
+          "scenario": 7,
+          "why": "The ticket reports Chrome and Opera but does not say the two browsers give the same result. It also says the IGNORE INLINE STYLE line matters only sometimes, depending on the browser, so cross-browser equality is not supported."
+        }
+      ]
+    }
+  },
+  {
+    "producer": {
+      "model": "claude-sonnet-5-5",
+      "provider": "claude",
+      "effort": "high",
+      "oldJudge": "claude-opus-5-5"
+    },
+    "caseId": "darkreader/darkreader:pr-6747",
+    "source": "improved:builtin",
+    "run": 1,
+    "skip": null,
+    "oldJudge": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "not-in-issue",
+          "why": "The test requires that getSitesFixesFor returns the '*' fix before the 'example.com' fix. The ISSUE implies that fixes[0] is the generic entry only as a tentative suggestion. It does not state a required return order, and the charter states only that fixes apply on one site."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "not-in-issue",
+          "why": "The test checks the order of results when a domain appears more than once in one record, with '*' first. The ISSUE does not mention repeated domains in a record or a required result order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "not-in-issue",
+          "why": "The file-level test checks parser result order for several configs, with the generic fix first. The ISSUE states only a tentative code suggestion about fixes[0] and the visible symptom that fixes are not found on the site. It does not state the parser contract."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "not-in-issue",
+          "why": "The test requires the '*' fix first in the getSitesFixesFor result. The ISSUE questions the check of the last entry and suggests fixes[0] with 'likely' and a question mark. It does not state this ordering as required behaviour, and the charter has no scenario for it."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "not-in-issue",
+          "why": "The test checks the order of results when a domain appears in multiple records, with '*' first. The ISSUE does not mention a domain in multiple records or a required result order."
+        }
+      ],
+      "unsupported": []
+    },
+    "judged": {
+      "ok": true,
+      "tests": [
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Index config",
+          "coverage": "missing",
+          "why": "The scenario only says fixes for the site are applied. It does not state that the generic '*' fix comes first in the returned order."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+          "coverage": "missing",
+          "why": "The scenario does not mention a repeated domain in one record, nor the order of the generic '*' fix relative to site fixes."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts",
+          "coverage": "missing",
+          "why": "The scenario does not state the ordering of fixes returned for a site. The hidden test checks that the generic '*' fix is listed first."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+          "coverage": "missing",
+          "why": "The issue implies the generic '*' fix should be at index 0, but no scenario states that ordering. The scenario only covers applying the site's fixes."
+        },
+        {
+          "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+          "coverage": "missing",
+          "why": "The scenario does not mention a domain that appears in several records, nor the position of the generic '*' fix in the result."
+        }
+      ],
+      "unsupported": []
+    }
+  }
+]

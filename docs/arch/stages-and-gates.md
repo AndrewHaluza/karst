@@ -17,6 +17,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - DONE MEANS MERGED
 - A ticket waiting to land is BLOCKED, not pending
 - Gate results and reported phases are append-only evidence
+- A repeat UAT pass runs only the test delta
 - Evidence is written WHEN IT HAPPENS
 - Gate output is a LIVE stream and a post-run artifact
 - A gate may be switched off for ONE ticket
@@ -82,6 +83,34 @@ END_DOC_BLOCK: [@arch:BLOCKED]
 
 Gate results (`gate_runs`) and reported phases (`phase_marks`) are **append-only evidence** — `stages` is keyed `(ticket_id, stage_key)` and a retry overwrites it, so these are the only place a prior attempt survives. Both are written inside a transaction that commits with the stage outcome, whether that outcome is a verdict (`transition`'s `premutate`) or a block (`parkGateStage`, `store/stageBlocks.ts`) — `gate_runs` has two writers and both read `attempt` BEFORE any bump, so a run is filed under the attempt that ran. Surrogate `id` PK, deliberately: the natural key is not unique (a fail→fix→pass cycle files two invocations under one attempt), and `run_at` is what groups one invocation.
 END_DOC_BLOCK: [@arch:RESULTS]
+
+## [@arch:GATE-SCOPED] The sast and secrets review gates scan only the ticket's changes; CI runs the full scan
+covers: scripts/gateScope.mjs, scripts/sastGate.mjs, scripts/secretsGate.mjs
+
+A full `semgrep` run over `src` per ticket took most of the review gate time and slowed the gates of other tickets. `npm run -s gate:sast` (`scripts/sastGate.mjs`) and `npm run -s gate:secrets` (`scripts/secretsGate.mjs`) scan the ticket's changes only. Both share `scripts/gateScope.mjs`, which also serves `vitestGate.mjs`: the merge base follows the `KARST_BASE_REF` candidate order (@arch:GATE-OUTPUT), and the changed set is `git diff --name-only -z <merge-base>` plus `git ls-files -o --exclude-standard -z`.
+
+**sast.** `semgrep scan --config p/typescript --metrics=off --error --quiet --jobs 2` runs on the changed files that exist under `src`. If no such file exists, the gate prints one line and exits 0. If the base is not found, git fails, or `.semgrepignore` changed, the gate scans all of `src` and prints the reason.
+
+**secrets.** `gitleaks git --log-opts=<merge-base>..HEAD` scans every commit of the ticket, so a secret that a later commit removes still fails. `gitleaks dir` scans the uncommitted and untracked changed files in a temporary copy that keeps repo-relative paths. The cwd is the copy and `--config` is an absolute path, so the `.gitleaks.toml` path allowlist still matches. The copy is always removed. If the base is not found or `.gitleaks.toml` changed, the gate runs a full `gitleaks dir` scan of the repo and prints the reason.
+
+**Contract.** Each gate prints one scope line (`N files`, or `full` with the reason). A missing binary exits 127 and names the tool, so the gate parks as capability-missing (@arch:GATE-CAPABILITY). Any other exit code is the tool's. The gates are declared as `kind: command` with `npm run -s <script>`, so a stale branch gets the rebase park and not a false failure (@arch:DISCOVERY). The CI job `full-scan` (`.github/workflows/ci.yml`) runs the full scans with pinned tool versions on push to develop and on the schedule, never on pull requests.
+END_DOC_BLOCK: [@arch:GATE-SCOPED]
+
+## [@arch:GATE-REPEAT] A repeat UAT pass runs only the test delta, and the visual sweep is skipped when no UI path changed
+covers: scripts/gateState.mjs, scripts/vitestGate.mjs, scripts/dockerGate.mjs
+
+About 70% of UAT passes repeat the pass of a ticket, and each one ran the full suites again. The first pass stays full. A later pass narrows to what changed. CI remains the full backstop.
+
+**State.** After a completed run, the gate stores a state file under the git directory of the worktree (`karst-gate-state/<key>.json`, so it works in a host worktree and in a sandbox clone, and needs no store schema change). The key is the hash of the gate args. The state holds the tree snapshot, the merge base, a `clean` flag and the failed test files. The snapshot is taken BEFORE the run with a temporary `GIT_INDEX_FILE`, `git add -A` and `git write-tree`. The real index and the working tree are never touched. A file that the gate judged as base drift or flake still counts as failed for the next pass.
+
+**Unit and integration (`scripts/vitestGate.mjs`).** A later pass with valid state compares the snapshot with the current tree and runs `vitest related --run --passWithNoTests` on the changed code files under `src`, plus the stored failed files, through the same `run`, base check and flake logic. A docs-only delta selects no test and exits 0.
+
+**Full run.** The pass is full, with `full: <reason>` printed, when: there is no state; the state is unreadable or the snapshot object is missing; the merge base moved; a file was deleted or renamed; a lockfile, `package.json`, `tsconfig*.json`, `vitest*.config.*` or `scripts/vitest-*` changed; a path outside `src` and `docs` changed; a non-code file under `src` changed; the earlier run was killed, hung, or had failures that the gate could not parse; or `KARST_GATE_FULL=1` is set. Exit codes, the 137 handling and the worker retry are the same as on a full pass.
+
+**Visual and layout (`scripts/dockerGate.mjs`).** Only `test:visual:docker` and `test:layout:docker` store state, and only after a green run. A failed run stores no green state. A later pass with the same merge base and a delta that holds no UI path (`isUiPath` in `scripts/uiViews.mjs`, the paths `selectViews` counts) prints `skipped: no UI change since <sha>` and exits 0. Otherwise the sweep narrows as before, on the full branch diff. A seed, prune, update or externally scoped (`KARST_UI_GREP`) run never skips and never stores.
+
+**Scope line.** Each pass prints one line: `<gate>: N files, delta since <sha>`, `full: <reason>` or `skipped: no UI change since <sha>`. A scoped run therefore reads as scoped in the gate output and artifact (@arch:GATE-OUTPUT).
+END_DOC_BLOCK: [@arch:GATE-REPEAT]
 
 ## [@arch:EVIDENCE-WHEN] Evidence is written WHEN IT HAPPENS, not when the run ends
 
@@ -363,7 +392,7 @@ END_DOC_BLOCK: [@arch:BASELINE-REVIEW]
 
 Both are host-only, ship-stage, user-clicked actions. Neither is automatic (an automatic ship→fix on a red check is an unbounded fix→ship→fail loop) and neither is on the agent CLI.
 
-- **Send CI failure to agent** (`workflow/ciFailure.ts`, `extension/ops/ciFailureOps.ts`). Available when `sendBackState` is available, the stored rollup `prs.checks` of a current open PR is `failing`, and NO current open PR is `pending` (a pending rollup means CI runs on a head whose result is unknown, so the stored failure may belong to the head before a push). The host runs `gh run view <run> --log-failed` per failing check (`integrations/ciLog.ts`); a check with a null or non-Actions url is named "no Actions log (external check)" and skipped; an in-progress run falls back to failed step names. The excerpt strips ANSI and the gh prefix, keeps error lines plus a capped tail, and is untrusted data. It is written to `ci-failure-<pr>.log` in the artifacts dir (the sandbox mirror exposes it, `arch:AC-34`), and `sendBackToImplement(…, {reason})` moves the ticket to `impl` and posts the short summary plus the path as a host event in the SAME transaction. No new edge (`arch:BLOCKED`, `arch:STAGEMACH`). A `gh` failure is a user error and the ticket stays in ship.
+- **Send CI failure to agent** (`workflow/ciFailure.ts`, `extension/ops/ciFailureOps.ts`). Available when `sendBackState` is available, the stored rollup `prs.checks` of a current open PR is `failing`, and NO current open PR is `pending` (a pending rollup means CI runs on a head whose result is unknown, so the stored failure may belong to the head before a push). The host runs `gh run view <run> --log-failed` per failing check (`integrations/ciLog.ts`); a check with a null or non-Actions url is named "no Actions log (external check)" and skipped; an in-progress run reads the log of the failed job through `gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` when that job is complete (matched by job id, then by name), and falls back to failed step names only when no job matches or the job is not complete. The excerpt strips ANSI and the gh prefix, keeps error lines plus a capped tail, and is untrusted data. It is written to `ci-failure-<pr>.log` in the artifacts dir (the sandbox mirror exposes it, `arch:AC-34`), and `sendBackToImplement(…, {reason})` moves the ticket to `impl` and posts the short summary plus the path as a host event in the SAME transaction. No new edge (`arch:BLOCKED`, `arch:STAGEMACH`). A `gh` failure is a user error and the ticket stays in ship.
 - **Rebase on base** (`workflow/rebaseState.ts`, `extension/ops/rebaseOnBaseOps.ts`). Available when a current open PR has `merge_block='behind'`. Order: refuse while an agent turn is active (re-checked before the push and before the sandbox recreate); refuse with unsynced sandbox commits; host rebase onto `origin/<base>` (conflict → `rebase --abort`, nothing moves); run each command in the repository's `ship.regenerate` list (`arch:FIELDCHK`) and commit the outputs; read the PR head sha from `gh pr view --json headRefOid` and `git push --force-with-lease=<branch>:<sha>`; clear the stored rollup (`clearOpenPrProbe`, so a pre-rebase log can never be sent) and re-probe (`arch:GH-03`); recreate the sandbox through the no-sync Remove path after re-checking for unsynced commits. A rejected lease stops and does NOT recreate the sandbox. A failed recreate leaves the ticket in ship; the push stands.
 - **Regenerate before gates.** `ship.regenerate` is not rebase-only: `runGateList` (`workflow/gates/regenerate.ts`) runs it before each repo's gates and commits the output; rebase behavior is unchanged.
 - **The only force path.** `--force-with-lease` with an explicit expected sha is the one place karst force-pushes; it is scoped to this action and does not relax "never force" for Deliver-to-PR.

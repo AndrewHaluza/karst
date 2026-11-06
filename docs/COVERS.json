@@ -15,7 +15,8 @@
     "arch:MAP-00"
   ],
   "scripts/dockerGate.mjs": [
-    "arch:GATE-CAPABILITY"
+    "arch:GATE-CAPABILITY",
+    "arch:GATE-REPEAT"
   ],
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
@@ -39,13 +40,20 @@
     "arch:UATHOST-05"
   ],
   "scripts/evalForm/**": [
-    "arch:FORMEVAL"
+    "arch:FORMEVAL",
+    "arch:FORMEVAL-INTENT"
   ],
   "scripts/evalForm/draft*.mjs": [
     "arch:FORMEVAL-DRAFT"
   ],
   "scripts/evalForm/plan*.mjs": [
     "arch:FORMEVAL-PLAN"
+  ],
+  "scripts/gateScope.mjs": [
+    "arch:GATE-SCOPED"
+  ],
+  "scripts/gateState.mjs": [
+    "arch:GATE-REPEAT"
   ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
@@ -72,6 +80,12 @@
   ],
   "scripts/rebuild-better-sqlite3.mjs#materializeLocalCopyIfNeeded": [
     "arch:ABI-03"
+  ],
+  "scripts/sastGate.mjs": [
+    "arch:GATE-SCOPED"
+  ],
+  "scripts/secretsGate.mjs": [
+    "arch:GATE-SCOPED"
   ],
   "scripts/stage-vsix.mjs": [
     "arch:ABI-00"
@@ -103,6 +117,9 @@
   "scripts/uat-host/run.mjs": [
     "arch:UATHOST-01"
   ],
+  "scripts/vitestGate.mjs": [
+    "arch:GATE-REPEAT"
+  ],
   "src/agent/cliEnv.ts#cliTokensFor": [
     "arch:CLI-10"
   ],
@@ -122,7 +139,8 @@
     "arch:DIAG-03"
   ],
   "src/agent/hookFailureLog.ts#writeCurrentEndpoint": [
-    "arch:DIAG-03"
+    "arch:DIAG-03",
+    "arch:GLOBAL"
   ],
   "src/agent/instrumentedAdapter.ts#instrumentAdapter": [
     "arch:DBG-01"

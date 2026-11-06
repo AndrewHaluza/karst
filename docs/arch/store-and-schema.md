@@ -74,12 +74,14 @@ END_DOC_BLOCK: [@arch:SQLITE]
 covers: src/project/bind.ts#bindProject, src/project/slug.ts#resolveProjectSlug
 
 The DB lives in *global* storage — every window shares it — so every ticket query MUST be scoped or window A lists/drives window B's tickets. Identity is `projects.slug`, from manifest `id:` else a path-derived fallback (`project/slug.ts`); `bindProject` (`project/bind.ts`) registers it at activation. Pass `{ projectId }` to `listTickets`/`listArchivedTickets`/`getTicketByKey`/`createTicket`; unscoped is the deliberate all-projects view (recovery only). Ticket `key` is unique **per project**, not globally. Legacy `project_id IS NULL` rows are adopted once per install, guarded by a globalState flag AND "only one project exists".
+
+A host acts only on tickets of its own project. `dispatchHook` returns `admitted:false` and records `foreign-project` for a hook of another project (HTTP, sandbox bridge and agy watch share this rule); the local `driveTicket` refuses it too. Both use `isForeignProjectTicket` (`extension/ops/foreignProject.ts`). A ticket with `project_id NULL` is never foreign. The unmapped-repository reason names the manifest path and project that the host used.
 END_DOC_BLOCK: [@arch:PROJECTS]
 
 ## [@arch:GLOBAL] Global storage is shared by every window
-covers: src/agent/settings.ts#writeHookSettings, src/agent/settingsSweep.ts
+covers: src/agent/settings.ts#writeHookSettings, src/agent/settingsSweep.ts, src/agent/hookFailureLog.ts#writeCurrentEndpoint
 
-Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to.
+Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to. The `current-endpoint` fallback file is keyed by project, not by window: `writeCurrentEndpoint` writes `<provider>/current-endpoint.<key>` (`projectEndpointKey` = a digest of the project slug), because a reload changes the window's port and the new host of the same project must receive the live session. The launch carries the key (`HookChannel.projectKey`), so a bridge reads only its own project's file. The legacy unscoped `current-endpoint` is still written, for sessions launched before the key existed; the host guard protects those.
 END_DOC_BLOCK: [@arch:GLOBAL]
 
 ## [@arch:GRAPHRUN] Graph-run state reads and writes have one boundary

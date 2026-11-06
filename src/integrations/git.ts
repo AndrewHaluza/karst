@@ -950,25 +950,29 @@ export function describeGitFailure(
   return `${what} failed (exit ${result.exitCode}): ${detail}`;
 }
 
-/** Commits reachable from HEAD but not from `sinceSha`, oldest first. Null = all. */
+export interface CommitSummary {
+  readonly sha: string;
+  readonly subject: string;
+}
+
+/** Commits reachable from HEAD but not from `sinceSha`, oldest first, with subjects. Null = all. */
 export async function listCommitsFrom(
   git: GitRunner,
   cwd: string,
   sinceSha: string | null,
-): Promise<string[]> {
-  const args = sinceSha
-    ? ['rev-list', '--reverse', `${sinceSha}..HEAD`]
-    : ['rev-list', '--reverse', 'HEAD'];
-  const out = await git(args, cwd);
+): Promise<CommitSummary[]> {
+  const range = sinceSha ? `${sinceSha}..HEAD` : 'HEAD';
+  const out = await git(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', range], cwd);
   if (out.exitCode !== 0) {
-    throw new Error(
-      describeGitFailure(`git rev-list ${sinceSha ? `${sinceSha}..HEAD` : 'HEAD'}`, out),
-    );
+    throw new Error(describeGitFailure(`git log ${range}`, out));
   }
   return out.stdout
     .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '');
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      const [sha = '', ...rest] = line.split('\0');
+      return { sha: sha.trim(), subject: rest.join('\0').trim() };
+    });
 }
 
 /** Current HEAD sha, or null when the repo has no commits. */

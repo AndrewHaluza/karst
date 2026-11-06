@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 
 /**
  * Playwright config for the karst visual-regression sweep.
@@ -27,17 +28,22 @@ import { defineConfig, devices } from '@playwright/test';
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
-// A project-level grep overrides the global one. The layout chain must never be
-// filtered: a scoped run would drop the teardown and its ledger verdict (false green).
+// A project-level grep overrides the global one. Local gates narrow the layout routes with the
+// same grep as the screenshots. Setup and teardown hold one test each and take no filter, so any
+// grep keeps the ledger verdict on the routes that ran, and a filtered seed or prune is refused
+// (ui:LAYOUT-SCOPE).
 const ALL_TITLES = /.*/;
+const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
+
+// T992: one id per run. The webServer child inherits it and the cleanup reporter compares it; workers re-read this file and keep the id.
+process.env.KARST_VISUAL_RUN_ID ??= `${process.pid}-${Date.now()}`;
 
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
 
-  // Local gates narrow the screenshot projects to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
-  // The layout projects ignore it (ALL_TITLES).
-  ...(process.env['KARST_UI_GREP'] ? { grep: new RegExp(process.env['KARST_UI_GREP']) } : {}),
+  // Local gates narrow every project to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset (full chain).
+  ...(UI_GREP ? { grep: UI_GREP } : {}),
 
   snapshotPathTemplate:
     'tests/visual/__baselines__/{projectName}/{arg}{ext}',
@@ -60,6 +66,7 @@ export default defineConfig({
   },
 
   webServer: {
+    // KARST_VISUAL_RUN_ID reaches serve.mjs, which records it; the cleanup reporter removes pages only of its own server.
     command: 'node tests/visual/serve.mjs',
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,
@@ -68,7 +75,8 @@ export default defineConfig({
 
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: 1,
+  // KARST_VISUAL_WORKERS (default 1) raises it for the local docker gate only; see visualWorkers.ts.
+  workers: resolveVisualWorkers(process.env, process.argv),
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'tests/visual/.report' }],
@@ -78,6 +86,8 @@ export default defineConfig({
     // run produced zero executed tests — a webServer/startup crash that used
     // to hide behind `continue-on-error: true` (NDL-218).  Gitignored.
     ['json', { outputFile: 'tests/visual/.results.json' }],
+    // T992: a passed run removes the ~800 MB of generated pages (tests/visual/.tmp); a failed run keeps them.
+    ['./tests/visual/tmpCleanupReporter.ts'],
   ],
 
   projects: [
@@ -116,7 +126,7 @@ export default defineConfig({
     },
     {
       name: 'layout',
-      grep: ALL_TITLES,
+      grep: UI_GREP ?? ALL_TITLES,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },

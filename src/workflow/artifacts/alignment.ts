@@ -112,6 +112,8 @@ export async function runAlignment(
       result.raw,
       { repo: '', worktreePath: '/nonexistent', max: 20 },
       (m) => deps.debug?.(`[alignment] ${m}`),
+      undefined,
+      result.finalMessage,
     );
     // No file location is meaningful here; the finding itself is always kept.
     const clean = findings.map((f) => ({ ...f, file: null, line: null }));

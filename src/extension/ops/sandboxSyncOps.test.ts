@@ -247,7 +247,7 @@ describe('syncSandboxOp', () => {
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
     expect(r.infos).toEqual(["Karst: K-7 fast-forwarded feat/x to the docker sandbox's commits."]);
-    const bundle = dockerProc.calls[1]!;
+    const bundle = dockerProc.calls.find((c) => c.args.includes('karst-bundle'))!;
     expect(bundle.command).toBe('docker');
     expect(bundle.args.some((a) => new RegExp(`^type=volume,source=karst-[0-9a-f]{8}-7-${core}-repo,target=/work,readonly$`).test(a))).toBe(true);
     expect(bundle.args.join(' ')).not.toContain('--user');
@@ -257,7 +257,7 @@ describe('syncSandboxOp', () => {
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
     await syncSandboxOp({ notify: recorder().notify, projectRoot: '/p', dockerProc, temp, platform: 'linux' }, { ...target, core: 'opencode' });
-    expect(dockerProc.calls[1]!.args).toContain('--user');
+    expect(dockerProc.calls.find((c) => c.args.includes('karst-bundle'))!.args).toContain('--user');
   });
 });
 

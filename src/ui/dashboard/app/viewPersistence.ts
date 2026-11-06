@@ -36,6 +36,8 @@ export interface PersistedEnvelope {
   readonly artScrolls: ArtScrolls;
   /** Additive: the drill-down history Back walks through; an older envelope lacks it and restores empty. */
   readonly history: readonly OverlayView[];
+  /** Additive: names the ticket this tab shows so a window reload can re-attach it; absent when no snapshot arrived yet. */
+  readonly karstPanel?: { readonly ticketId: number };
 }
 
 const VIEW_KEYS = ['state', 'sel', 'shipWait', 'srvFilter', 'artView', 'artScrolls'];
@@ -115,6 +117,7 @@ export class ViewPersistence {
       artView: this.artView,
       artScrolls: this.artScrolls,
       history: this.history,
+      ...(this.lastState ? { karstPanel: { ticketId: this.lastState.ticketId } } : {}),
     });
   }
 }

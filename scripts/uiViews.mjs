@@ -33,6 +33,9 @@ const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 const VIEW_DIR_PATH = /^src\/ui\/([^/]+)\/(.+)$/;
 const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+)(?:--.*)?\.png$/;
 
+/** Whether a changed path can alter a render: the paths `selectViews` counts as UI. */
+export const isUiPath = (path) => UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path);
+
 /**
  * `{ all: true }` or `{ all: false, views }` (views sorted, possibly empty when
  * the diff holds no UI path at all).
@@ -41,10 +44,10 @@ export function selectViews(changedPaths) {
   const views = new Set();
   let sawUi = false;
   for (const path of changedPaths) {
-    if (path === 'tests/visual/layout-known-failures.json') continue;
-    if (!UI_PATH.some((p) => p.test(path))) continue;
-    if (TEST_FILE.test(path)) continue;
+    if (!isUiPath(path)) continue;
     sawUi = true;
+    // A path with no owning view selects every view. That includes the layout ledger:
+    // an edited entry can name any route, and only the full chain judges each entry.
     const match = VIEW_DIR_PATH.exec(path) ?? BASELINE_PATH.exec(path);
     const viewName = match ? match[1] : undefined;
     const owned = viewName ? (VIEW_DIRS[viewName] ?? (ALL_VIEWS.includes(viewName) ? [viewName] : undefined)) : undefined;
@@ -61,6 +64,12 @@ export function readSettingsSections(repo = process.cwd()) {
   const body = /SETTINGS_SECTIONS\s*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? '';
   return [...body.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }
+
+/** Views with screenshots but no layout route (uiViews.integration.test.mjs pins this against the real listing). */
+const VIEWS_WITHOUT_LAYOUT = ['catalog', 'status'];
+
+/** Whether a selection reaches at least one layout route. */
+export const selectsLayoutRoute = (selection) => selection.all || selection.views.some((view) => !VIEWS_WITHOUT_LAYOUT.includes(view));
 
 /** Layout setup/teardown must always run, or the ledger verdict is lost. */
 const LAYOUT_BOOKENDS = ['clear layout shards', 'layout ledger verdict'];
@@ -88,7 +97,9 @@ export function gateGrep(selection, settingsSections) {
 /** The line printed at the top of the gate output. */
 export function selectionLine(script, selection, counts = null) {
   const name = script.replace(/^test:/, '').replace(/:docker$/, '');
-  const tests = counts ? ` — ${counts.selected.toLocaleString('en-US')} of ${counts.total.toLocaleString('en-US')} tests` : '';
+  const count = (n) => n.toLocaleString('en-US');
+  const layout = counts?.layoutTotal === undefined ? '' : ` (${count(counts.layoutSelected)} of ${count(counts.layoutTotal)} layout)`;
+  const tests = counts ? ` — ${count(counts.selected)} of ${count(counts.total)} tests${layout}` : '';
   if (selection.all) return `${name}: running every view${tests}; full sweep also runs in CI`;
   return `${name}: running ${selection.views.join(', ')}${tests}; full sweep runs in CI`;
 }
@@ -97,4 +108,9 @@ export function selectionLine(script, selection, counts = null) {
 export function parseListTotal(output) {
   const match = /Total: (\d+) tests?/.exec(output);
   return match ? Number(match[1]) : null;
+}
+
+/** How many `layout` project tests a playwright listing holds (the setup and teardown projects do not count). */
+export function parseListLayout(output) {
+  return output.match(/^\s*\[layout\] ›/gm)?.length ?? 0;
 }

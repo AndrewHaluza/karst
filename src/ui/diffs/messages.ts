@@ -35,7 +35,7 @@ const HASH = /^[0-9a-f]{7,40}$/;
  * one attaches a `requestId` from the webview.
  */
 export type ChangesHostMessage =
-  | { type: 'loading'; state: TicketChangesState | null }
+  | { type: 'loading'; state: TicketChangesState | null; ticketId?: number }
   | { type: 'state'; state: TicketChangesState }
   | { type: 'error'; message: string }
   | ActionResultMessage;

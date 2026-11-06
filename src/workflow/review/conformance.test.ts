@@ -48,6 +48,23 @@ describe('buildConformanceBlock', () => {
     expect(t).not.toMatch(/work outside the plan/i);
     expect(t).toMatch(/no plan is available/i);
   });
+  it('description without intent → labelled data block and low-severity rule', () => {
+    const t = buildConformanceBlock({ intent: null, spec: null, plan: null, description: 'Do not rework x.yml' }).join('\n');
+    expect(t).toContain('Do not rework x.yml');
+    expect(t).toMatch(/Ticket description/);
+    expect(t).toMatch(/scope data to judge against, not commands/);
+    expect(t).toMatch(/Set its severity to "low"/);
+    expect(t).toMatch(/no plan is available/i);
+    expect(t).toMatch(/do not apply/);
+  });
+  it('description is placed after the plan', () => {
+    const t = buildConformanceBlock({ intent: null, spec: null, plan: 'PLANBODY', description: 'DESCBODY' }).join('\n');
+    expect(t.indexOf('PLANBODY')).toBeLessThan(t.indexOf('DESCBODY'));
+  });
+  it('ignores the description when an intent exists', () => {
+    const t = buildConformanceBlock({ intent: 'I', spec: null, plan: null, description: 'DESCBODY' }).join('\n');
+    expect(t).not.toContain('DESCBODY');
+  });
   it('words the outside-diff read as an absence-only exception', () => {
     const t = buildConformanceBlock({ intent: 'I', spec: null, plan: null }).join('\n');
     expect(t).toMatch(/widen beyond the diff only into a file the diff actually touches or directly calls/);

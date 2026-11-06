@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { LAYOUT_WIDTHS } from '../../src/ui/layout/layoutBreakpoints.js';
 import type { LayoutFailure } from '../../src/ui/layout/layoutChecks.js';
-import { isFullRun, matchLedger, prune, runKey, seed } from '../../src/ui/layout/layoutLedger.js';
+import { grepSelectsNoRoute, isFullRun, matchLedger, prune, runKey, seed } from '../../src/ui/layout/layoutLedger.js';
 import { readLedger, readShards, REPORT_PATH, writeLedger, type Shard } from './layoutShards.js';
 import { resizeRouteId, settingsRoutes } from './settingsRoutes.js';
 import { extraLayoutTargets } from './variants.js';
@@ -26,6 +26,11 @@ function expectedRunKeys(): string[] {
     ]),
     ...extraLayoutTargets().flatMap((t) => LAYOUT_WIDTHS.map((w) => runKey(t.id, w))),
   ];
+}
+
+function layoutTitles(): string[] {
+  const ids = [...settingsRoutes().map((r) => r.id), ...extraLayoutTargets().map((t) => t.id)];
+  return ids.flatMap((id) => LAYOUT_WIDTHS.map((w) => `${id} @${w}`));
 }
 
 function formatGrouped(failures: readonly LayoutFailure[]): string {
@@ -89,7 +94,11 @@ function verdict(shards: readonly Shard[]): string {
 
 test('layout ledger verdict', () => {
   const shards = readShards();
-  expect(shards.length, 'no layout shards were written; did the layout project run?').toBeGreaterThan(0);
+  if (grepSelectsNoRoute(process.env['KARST_UI_GREP'], layoutTitles())) {
+    console.log('layout: the selection has no layout route; no geometry to judge');
+  } else {
+    expect(shards.length, 'no layout shards were written; did the layout project run?').toBeGreaterThan(0);
+  }
 
   const unchecked = Array.from(new Set(shards.filter((s) => s.unchecked).map((s) => s.route)));
   writeFileSync(

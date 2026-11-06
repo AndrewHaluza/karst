@@ -35,6 +35,7 @@ import {
   renderOpencode2Bridge,
   writeOpencode2Bridge,
 } from './opencode2Bridge.js';
+import { projectEndpointKey } from './hookFailureLog.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { usageFromError } from './tokenUsage.js';
@@ -564,6 +565,15 @@ describe('renderOpencode2Bridge module shape', () => {
 });
 
 describe('writeOpencode2Bridge', () => {
+  it('reads the endpoint file of the launching project only, else the legacy file', () => {
+    const keyA = projectEndpointKey('proj-a');
+    const keyed = readFileSync(writeOpencode2Bridge(makeWorktree(), 'http://127.0.0.1:4567/hooks', '/cfg', undefined, keyA), 'utf8');
+    expect(keyed).toContain(`/cfg/opencode2/current-endpoint.${keyA}`);
+    const legacy = readFileSync(writeOpencode2Bridge(makeWorktree(), 'http://127.0.0.1:4567/hooks', '/cfg'), 'utf8');
+    expect(legacy).toContain('/cfg/opencode2/current-endpoint"');
+    expect(legacy).not.toContain('current-endpoint.');
+  });
+
   it('writes to .opencode/plugins/karst-bridge.js and is adapter-owned', () => {
     const worktree = makeWorktree();
     const pluginPath = writeOpencode2Bridge(worktree, 'http://127.0.0.1:4567/hooks');
@@ -660,5 +670,29 @@ describe('Opencode2Adapter interactive hook channel', () => {
         initialPrompt: 'go',
       }),
     ).toThrow(/loopback/i);
+  });
+});
+
+describe('parseOpencode2Jsonl finalMessage', () => {
+  const ev = (messageID: string, text: string): string =>
+    JSON.stringify({ type: 'text', sessionID: 'ses_f', part: { type: 'text', messageID, text } });
+
+  it('returns the last message with text and keeps raw joined', () => {
+    const out = [ev('m1', 'Looking. '), ev('m2', '[{"a":1}]')].join('\n');
+    const parsed = parseOpencode2Jsonl(out);
+    expect(parsed.raw).toBe('Looking. [{"a":1}]');
+    expect(parsed.finalMessage).toBe('[{"a":1}]');
+  });
+
+  it('joins parts of the same message and skips a trailing blank message', () => {
+    const out = [ev('m1', 'a'), ev('m2', '[1,'), ev('m2', '2]'), ev('m3', '  ')].join('\n');
+    expect(parseOpencode2Jsonl(out).finalMessage).toBe('[1,2]');
+  });
+
+  it('omits finalMessage on a run with no text', () => {
+    const out = JSON.stringify({ type: 'step_start', sessionID: 'ses_f', part: {} });
+    const parsed = parseOpencode2Jsonl(out);
+    expect(parsed.raw).toBe('');
+    expect(parsed.finalMessage).toBeUndefined();
   });
 });

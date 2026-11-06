@@ -17,6 +17,7 @@ export function makeReviewArtifactsBinding(deps: {
   const createStore = deps.createStore ?? createArtifactStore;
   return makeReviewArtifactsLoader({
     intentOf: (id) => getTicket(deps.registry, id).intent,
+    descriptionOf: (id) => getTicket(deps.registry, id).description,
     checksOf: (id) => {
       const approachId = getTicket(deps.registry, id).approach;
       const approach = deps.manifest()?.approaches?.find((a) => a.id === approachId);

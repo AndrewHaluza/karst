@@ -1,0 +1,547 @@
+{
+  "meta": {
+    "startedAt": "2026-11-06T00:27:03.038Z",
+    "pass": "intent",
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "judgeModel": "claude-sonnet-5-5",
+    "judgeEffort": "high",
+    "provider": "claude",
+    "runs": 1,
+    "sources": [
+      "raw",
+      "improved:builtin"
+    ]
+  },
+  "items": [
+    {
+      "id": "vuejs/core:pr-8470",
+      "title": "Vue 3.3.4. defineEmits doesn't setup extended events",
+      "type": "fix",
+      "brief": "Vue 3.3.4. defineEmits doesn't setup extended events\n\n### Vue version\n\n3.3.4\n\n### Link to minimal reproduction\n\nhttps://github.com/tragid/vue-default-export-error/tree/vue-3.3.4-emit-errors\n\n### Steps to reproduce\n\n1. Create BaseEmits type:\r\n```\r\nexport interface BaseEmits {\r\n  (e: 'input-event', value: string): void;\r\n  (e: 'change-event', value: string): void;\r\n}\r\n```\r\n2. Create component and defineEmits with extending BaseEmits\r\ninterface ComponentEmits extends BaseEmits {\r\n  (e: 'blur-event', value: string): void;\r\n  (e: 'focus-event', value: string): void;\r\n}\r\n\r\nconst emit = defineEmits<ComponentEmits>();\r\n\r\n3. Facing runtime exceptions on DEV and not setup extended emits on prod:\r\n```\r\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.\r\n\r\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.\r\n```\n\n### What is expected?\n\ndefineEmits can support extended events\n\n### What is actually happening?\n\nFacing runtime exceptions on DEV and not setup extended emits on prod:\r\n```\r\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.\r\n\r\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.\r\n```\n\n### System Info\n\n_No response_\n\n### Any additional comments?\n\n_No response_",
+      "f2p": [
+        "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)"
+      ],
+      "cwdKind": "empty"
+    },
+    {
+      "id": "vuejs/core:pr-8785",
+      "title": "Can not use props.xxx type render component",
+      "type": "fix",
+      "brief": "Can not use props.xxx type render component\n\n### Vue version\r\n\r\n3.3.4\r\n\r\n### Link to minimal reproduction\r\n\r\nhttps://play.vuejs.org/#eNqNVE1v2zAM/SucL0kBfxy6k5EG3YYetsNabDn64thMotSWBIlOUxj+76Pk2PHctRgQBBb1SD4+6akNvmgdnxoM0mBlCyM0gUVq9DqTotbKELRgcBdCiTsh8ZvioERJIRygg51RNSw4fTHCHeISjxO3cNV5O5OFkpZgg5bGKnA3r7tsMwncUZZoYHkDfukC1BgJh+WiFKdFCG0XwuKAVaUWNw7RZbLjj1XSz8DseUFY6yon5BXAyhNLhdypuyxoQTCddMamywJIGL1KxtQgDPrBojrX8dEqyUp5Utllw2ZBOtDMAh7WrbPgQKRtmiRFKTmtxEqcTCyREqnr5J5hiWkkiRqjUtX3t/Ft/DkphaVpOEZbR1ujXiwaLpIF4aRNwsETmqjXCs3/tp2lTVvPtt60H5RmUciyfjuxn0lSsJaiQvOoSfBx/yVNzqf18sPHyDQ4zlIcsHj+R/xoz/1MTwY9s8n8lJs9Ur/98Psnnvl73KxV2VSXY3hn8xdaVTWOYw/72siSaU9wnu13f8JC7jf24Uwo7TCUI+rV8Hh/Hu4avTf6lS6rPVFx8MfcfVDlcs/X1F2uN058MkpvXjWG4NRuCMuZEweraQba0WIuzfb2ciYY2RGXSuFxe8SCILdj+VUuX9cXObhC3lSUOkferWHZOrONrhv65duCuw2klj3Wk4hdR4/8yKF6TQdhgX+uhv/zvlwl7jliHR3oUxSBVDQ8EVHU57oGsfO0N/AEe8Gp5xHKNK/ID3BX5lf49GXo/gBCo8F3\r\n\r\n### Steps to reproduce\r\n\r\nplease see mini reproduction  [demo](https://play.vuejs.org/#eNqNVE1v2zAM/SucL0kBfxy6k5EG3YYetsNabDn64thMotSWBIlOUxj+76Pk2PHctRgQBBb1SD4+6akNvmgdnxoM0mBlCyM0gUVq9DqTotbKELRgcBdCiTsh8ZvioERJIRygg51RNSw4fTHCHeISjxO3cNV5O5OFkpZgg5bGKnA3r7tsMwncUZZoYHkDfukC1BgJh+WiFKdFCG0XwuKAVaUWNw7RZbLjj1XSz8DseUFY6yon5BXAyhNLhdypuyxoQTCddMamywJIGL1KxtQgDPrBojrX8dEqyUp5Utllw2ZBOtDMAh7WrbPgQKRtmiRFKTmtxEqcTCyREqnr5J5hiWkkiRqjUtX3t/Ft/DkphaVpOEZbR1ujXiwaLpIF4aRNwsETmqjXCs3/tp2lTVvPtt60H5RmUciyfjuxn0lSsJaiQvOoSfBx/yVNzqf18sPHyDQ4zlIcsHj+R/xoz/1MTwY9s8n8lJs9Ur/98Psnnvl73KxV2VSXY3hn8xdaVTWOYw/72siSaU9wnu13f8JC7jf24Uwo7TCUI+rV8Hh/Hu4avTf6lS6rPVFx8MfcfVDlcs/X1F2uN058MkpvXjWG4NRuCMuZEweraQba0WIuzfb2ciYY2RGXSuFxe8SCILdj+VUuX9cXObhC3lSUOkferWHZOrONrhv65duCuw2klj3Wk4hdR4/8yKF6TQdhgX+uhv/zvlwl7jliHR3oUxSBVDQ8EVHU57oGsfO0N/AEe8Gp5xHKNK/ID3BX5lf49GXo/gBCo8F3)\r\n\r\n### What is expected?\r\n\r\nexpect render output is:  '\\<div\\>hello\\<\\/div\\>'\r\n\r\n\r\n### What is actually happening?\r\n\r\nrender output is:  '<info.icon></info.icon>'\r\n\r\n### System Info\r\n\r\n_No response_\r\n\r\n### Any additional comments?\r\n\r\n_No response_",
+      "f2p": [
+        "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+        "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)"
+      ],
+      "cwdKind": "empty"
+    },
+    {
+      "id": "mui/material-ui:pr-23778",
+      "title": "[Select] When disabled the <input> element misses the disabled attribute",
+      "type": "fix",
+      "brief": "[Select] When disabled the <input> element misses the disabled attribute\n\n<!-- Provide a general summary of the issue in the Title above -->\r\n\r\n<!--\r\n  Thank you very much for contributing to Material-UI by creating an issue! ❤️\r\n  To avoid duplicate issues we ask you to check off the following list.\r\n-->\r\n\r\n<!-- Checked checkbox should look like this: [x] -->\r\n\r\n- [x] The issue is present in the latest release.\r\n- [x] I have searched the [issues](https://github.com/mui-org/material-ui/issues) of this repository and believe that this is not a duplicate.\r\n\r\n## Current Behavior 😯\r\n\r\nWhen you create a `<TextField select disabled />`, the `<input>` element does not have the disabled prop, classes and aria-disabled=\"true\" are added to the div to mark it as disabled  \r\n\r\n## Expected Behavior 🤔\r\n\r\nThe input element should have the disabled prop\r\n\r\n## Steps to Reproduce 🕹\r\n\r\nhttps://codesandbox.io/s/material-demo-forked-0n5s1?file=/demo.tsx\r\n\r\nIf you inspect the select field, the input element is not disabled, but it is disabled in the native select (though that's a select element)\r\n\r\n## Context 🔦\r\n\r\n<!--\r\n  What are you trying to accomplish? How has this issue affected you?\r\n  Providing context helps us come up with a solution that is most useful in the real world.\r\n-->\r\n\r\nWhen a form field is disabled, its value is not supposed to be submitted when a form is submitted. I wanted to use that property to submit partial data, conditionally. Also, testing aria-disabled=true to check if it's disabled does not seem idiomatic.\r\n\r\nNeither of these is very important, but the behaviour is unexpected when a regular TextField disables its input\r\n\r\n## Your Environment 🌎\r\n\r\n<!--\r\n  Include as many relevant details about the environment with which you experienced the bug.\r\n  If you encounter issues with TypeScript please include version and tsconfig.\r\n-->\r\n\r\n| Tech        | Version |\r\n| ----------- | ------- |\r\n| Material-UI | v5.0.0-alpha-17  |\r\n| React       |         |\r\n| Browser     |         |\r\n| TypeScript  |         |\r\n| etc.        |         |",
+      "f2p": [
+        "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled"
+      ],
+      "cwdKind": "empty"
+    },
+    {
+      "id": "mui/material-ui:pr-23786",
+      "title": "[Switch] preventDefault is ignored",
+      "type": "fix",
+      "brief": "[Switch] preventDefault is ignored\n\n<!-- Provide a general summary of the issue in the Title above -->\r\n\r\n<!--\r\n  Thank you very much for contributing to Material-UI by creating an issue! ❤️\r\n  To avoid duplicate issues we ask you to check off the following list.\r\n-->\r\n\r\n<!-- Checked checkbox should look like this: [x] -->\r\n\r\n- [x] The issue is present in the latest release.\r\n- [x] I have searched the [issues](https://github.com/mui-org/material-ui/issues) of this repository and believe that this is not a duplicate.\r\n\r\n## Current Behavior 😯\r\n\r\n<!-- Describe what happens instead of the expected behavior. -->\r\n\r\nUsing `preventDefault` does not prevent the Switch UI from updating.\r\n\r\n```jsx\r\n          <Switch\r\n            onClick={(event)=>{event.preventDefault();}}\r\n          />\r\n```\r\n\r\n## Expected Behavior 🤔\r\n\r\n<!-- Describe what should happen. -->\r\n\r\nUsing `preventDefault` in the `onClick` handler should stop the element from updating.\r\n\r\n## Steps to Reproduce 🕹\r\n\r\n<!--\r\n  Provide a link to a live example (you can use codesandbox.io) and an unambiguous set of steps to reproduce this bug.\r\n  Include code to reproduce, if relevant (which it most likely is).\r\n\r\n  You should use the official codesandbox template as a starting point: https://material-ui.com/r/issue-template\r\n\r\n  If you have an issue concerning TypeScript please start from this TypeScript playground: https://material-ui.com/r/ts-issue-template\r\n\r\n  Issues without some form of live example have a longer response time.\r\n-->\r\n\r\nSteps:\r\n\r\n1. Add a Switch from latest material-ui\r\n2. Call `preventDefault` inside `onClick`\r\n3. Watch the element change state\r\n\r\n## Context 🔦\r\n\r\n<!--\r\n  What are you trying to accomplish? How has this issue affected you?\r\n  Providing context helps us come up with a solution that is most useful in the real world.\r\n-->\r\n\r\n## Your Environment 🌎\r\n\r\n<!--\r\n  Include as many relevant details about the environment with which you experienced the bug.\r\n  If you encounter issues with TypeScript please include version and tsconfig.\r\n-->\r\n\r\n| Tech        | Version |\r\n| ----------- | ------- |\r\n| Material-UI | v4.11.0   |\r\n| React       |   v16.14.0       |",
+      "f2p": [
+        "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented"
+      ],
+      "cwdKind": "empty"
+    },
+    {
+      "id": "darkreader/darkreader:pr-7241",
+      "title": "[Bug] Base64 padding in themes breaks the extension",
+      "type": "fix",
+      "brief": "[Bug] Base64 padding in themes breaks the extension\n\n<!--\r\n  ⚠⚠ Do not delete this issue template! ⚠⚠\r\n  Reported issues must use this template and have all the necessary information provided.\r\n  Incomplete reports are likely to be ignored and closed.\r\n-->\r\n\r\n<!--\r\n  Thank you for taking the time to create a report about a bug.\r\n  Ensure that there are no other existing reports for this bug.\r\n  Please check if the issue is resolved after a restart of the browser.\r\n  Additionally, you should check if the issue persists in a new browser profile.\r\n  Remember to fill out every section on this report and remove any that are not needed.\r\n  Finally, place a brief description in the title of this report.\r\n-->\r\n\r\n\r\n# Bug Report\r\n\r\n## Bug Description\r\nUsing base64 encoded images in themes can sometimes break the extension if output is padded by `==`. This seems to be caused by the regex used on line 767:\r\n```js\r\nconst delimiterRegex = /\\s*={2,}\\s*/gm;\r\n```\r\nThe problem with that regex is that it matches certain selectors containing base64 encoded strings like this one here:\r\n```css\r\n.CodeMirror-merge-r-deleted, .CodeMirror-merge-l-deleted {\r\n    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;\r\n}\r\n```\r\nwhich results in `') !important;` being added into `domainPatterns` output property of `indexSitesFixesConfig()`, which in turn causes this error (only visible in 'background' inspect view):\r\n``` \r\nUncaught (in promise) SyntaxError: Invalid regular expression: /^(.*?\\:\\/{2,3})?([^/]*?\\.)?(') !important;)(\\/?.*?)$/: Unmatched ')'\r\n    at new RegExp (<anonymous>)\r\n    at createUrlRegex (index.js:587)\r\n    at isURLMatched (index.js:545)\r\n    at getSitesFixesFor (index.js:794)\r\n    at getDynamicThemeFixesFor (index.js:1420)\r\n    at TabManager.Extension.getTabMessage (index.js:4247)\r\n    at index.js:3082\r\n    at Array.forEach (<anonymous>)\r\n    at index.js:3081\r\n    at Array.forEach (<anonymous>)\r\n```\r\nThis happens even if there is a dummy entry in the theme containing a base64 string padded with `==` (see Steps To Reproduce).\r\n## Steps To Reproduce\r\n1. Make sure the extension is enabled. \r\n2. Add this text to any theme: \r\n```\r\n====\r\n\r\nthisisnotarealwebsite.dummy\r\n\r\nCSS\r\n.Not-A-Real-Selector {\r\n    not-a-real-CSS-property: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;\r\n}\r\n\r\nIGNORE INLINE STYLE\r\n.test\r\n\r\n```\r\n\r\n3. Refresh any tab with a website that has DarkReader enabled for it.\r\n4. Notice the broken CSS.\r\n5. Try turning the extension off and on repeatedly.\r\n6. Notice that the extension doesn't seem to function properly anymore.\r\n\r\n## Expected Behavior\r\nCustom CSS containing a base64 string padded with `==` is properly processed (ignored in this case, as there is no open tab matching the URL in the custom CSS).\r\n\r\n## Actual Behavior\r\nCustom CSS containing a base64 string padded with `==` breaks the extension.\r\n\r\n## System Information\r\n- OS: **Windows 10 20H2 (build 19042.1288)**\r\n- Browser: **Chrome 95.0.4638.54, Opera 81.0.4196.14 (Chromium 95.0.4638.32)**\r\n- Dark Reader Version: **4.9.39**\r\n\r\n## Additional Context\r\nThe 'IGNORE INLINE STYLE' line isn't required sometimes, probably depending on what browser you are using.",
+      "f2p": [
+        "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+        "tests/generators/utils/parse.tests.ts"
+      ],
+      "cwdKind": "empty"
+    },
+    {
+      "id": "darkreader/darkreader:pr-6747",
+      "title": "[Bug] Incorrect `*` checking",
+      "type": "fix",
+      "brief": "[Bug] Incorrect `*` checking\n\n<!--\r\n  ⚠⚠ Do not delete this issue template! ⚠⚠\r\n  Reported issues must use this template and have all the necessary information provided.\r\n  Incomplete reports are likely to be ignored and closed.\r\n-->\r\n\r\n<!--\r\n  Thank you for taking the time to create a report about a bug.\r\n  Ensure that there are no other existing reports for this bug.\r\n  Please check if the issue is resolved after a restart of the browser.\r\n  Additionally, you should check if the issue persists in a new browser profile.\r\n  Remember to fill out every section on this report and remove any that are not needed.\r\n  Finally, place a brief description in the title of this report.\r\n-->\r\n\r\n\r\n# Bug Report\r\n\r\n## Bug Description\r\nhttps://github.com/darkreader/darkreader/blob/d69522753bff6abea855bcbc7661642ffc950db4/src/generators/dynamic-theme.ts#L61\r\nseems to be wrong. As when #6738 is fixed, you will see that `fixes[fixes.length - 1].url[0] !== '*'` evaluate to true as it seems like likely meant to be `fixes[0].url[0] !== '*'`? As the last entry could be any domain from the `non-qualified domain` list.\r\n\r\n\r\n## Website Address\r\nhttps://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030\r\n\r\n## Steps To Reproduce\r\n- Go to the sites.\r\n- Observe fixes aren't applied.\r\n\r\n## Expected Behavior\r\nHave the fixes applied\r\n\r\n## Actual Behavior\r\nFixes aren't found.\r\n\r\n- OS: Arch Linux\r\n- Browser: Firefox Nightly 93.0a1 (2021-09-04) \r\n- Dark Reader Version: https://github.com/darkreader/darkreader/commit/d69522753bff6abea855bcbc7661642ffc950db4\r\n\r\n## Additional Context\r\nCC @bershanskiy \r\nBlocker for #6737",
+      "f2p": [
+        "tests/generators/utils/parse.tests.ts:Index config",
+        "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+        "tests/generators/utils/parse.tests.ts",
+        "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+        "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records"
+      ],
+      "cwdKind": "empty"
+    }
+  ],
+  "attempts": [
+    {
+      "caseId": "vuejs/core:pr-8470",
+      "source": "raw",
+      "run": 1,
+      "seconds": 6.669,
+      "charter": "## Goal\nA component that declares its events with `defineEmits` and an interface that extends a base interface has both the base events and the events of the extended interface set up. When the component emits a base event, the developer does not see a Vue warning in development, and the event is set up in production.\n\n## Scenarios\n- Given a component that uses `defineEmits<ComponentEmits>()` and `ComponentEmits` extends `BaseEmits`, which declares `input-event`, when the component emits `input-event` in development, then the console does not show the warning `Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.`\n- Given a component that uses `defineEmits<ComponentEmits>()` and `ComponentEmits` extends `BaseEmits`, which declares `change-event`, when the component emits `change-event` in development, then the console does not show the warning `Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.`\n- Given a production build of a component that uses `defineEmits<ComponentEmits>()` and `ComponentEmits` extends `BaseEmits`, when the component emits `input-event` or `change-event`, then the two events are set up as declared events of the component.\n- Given a component whose `ComponentEmits` interface declares `blur-event` and `focus-event` and extends `BaseEmits`, when the component emits `blur-event` or `focus-event` in development, then the console does not show a \"neither declared in the emits option\" warning for the event.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 4,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`defineEmits`",
+          "`defineEmits<ComponentEmits>()`",
+          "`ComponentEmits`",
+          "`BaseEmits`",
+          "`input-event`",
+          "`Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.`",
+          "`change-event`",
+          "`Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.`",
+          "`blur-event`",
+          "`focus-event`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+            "coverage": "partial",
+            "scenario": 3,
+            "why": "The test checks that the compiler output lists both the extended event and the base event in the `emits` option. Scenarios 1-4 state the behaviour at runtime: no warning in development, events set up in production. Scenario 3 comes closest because it says the base events are set up as declared events. No scenario states that the compiled `emits` option contains both the base and the extended events, so the key part is missing."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-8785",
+      "source": "raw",
+      "run": 1,
+      "seconds": 7.758,
+      "charter": "## Goal\nA component that a template references as `props.xxx` renders correctly. In the reported case, the render output is `<div>hello</div>`, not `<info.icon></info.icon>`. The ticket does not state the template, the props, or the render mode, because the details are only in the linked reproduction. The ticket also does not state the relation between `props.xxx` in the title and `info.icon` in the output. The ticket names Vue version 3.3.4 as the reported version, but does not state the fixed version or other affected versions.\n\n## Scenarios\n- Given the linked minimal reproduction on a version that includes the fix, when a user renders the reproduction, then the render output is `<div>hello</div>`.\n- Given the linked minimal reproduction on a version that includes the fix, when a user renders the reproduction, then the render output does not contain `<info.icon></info.icon>`.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 2,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`props.xxx`",
+          "`<div>hello</div>`",
+          "`<info.icon></info.icon>`",
+          "`info.icon`"
+        ]
+      },
+      "judge": {
+        "ok": false,
+        "error": "judge-error: invalid JSON"
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23778",
+      "source": "raw",
+      "run": 1,
+      "seconds": 8.35,
+      "charter": "## Goal\nWhen a developer renders a `<TextField select disabled />`, the `<input>` element of the field has the `disabled` attribute, as the `<input>` element of a regular disabled TextField does. A disabled select field thus does not submit its value with a form. The ticket does not state if the `aria-disabled=\"true\"` attribute and the disabled classes on the div must stay, so this is unknown.\n\n## Scenarios\n- Given a page that shows a `<TextField select disabled />`, when the user inspects the select field in the browser DOM, then the `<input>` element has the `disabled` attribute.\n- Given a form that contains a `<TextField select disabled />` with a value, when the user submits the form, then the submitted data does not contain the value of the disabled select field.\n- Given a page that shows a disabled native select field, when the user inspects the field in the browser DOM, then the `<select>` element has the `disabled` attribute.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 3,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`<TextField select disabled />`",
+          "`<input>`",
+          "`disabled`",
+          "`aria-disabled=\"true\"`",
+          "`<select>`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+            "coverage": "covered",
+            "scenario": 1,
+            "why": "The test checks that the input element has the disabled attribute when Select is disabled. Scenario 1 states that the `<input>` element of a disabled select field has the `disabled` attribute, which matches the ISSUE's expected behaviour."
+          }
+        ],
+        "unsupported": [
+          {
+            "scenario": 3,
+            "why": "The ISSUE only mentions that the native select is disabled as a comparison, in a parenthetical remark. It does not state an expected outcome for a native select, so this scenario is invented."
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23786",
+      "source": "raw",
+      "run": 1,
+      "seconds": 4.285,
+      "charter": "## Goal\nA Switch with an `onClick` handler that calls `preventDefault` does not change state when the user clicks it. The Switch UI stays in the state that it had before the click.\n\n## Scenarios\n- Given a Switch with an `onClick` handler that calls `event.preventDefault()`, when the user clicks the Switch, then the Switch UI does not update and the Switch stays in its previous state.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 1,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`onClick`",
+          "`preventDefault`",
+          "`event.preventDefault()`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+            "coverage": "covered",
+            "scenario": 1,
+            "why": "The test checks that a default-prevented event does not change the checkbox state. Scenario 1 states that a Switch with an onClick handler that calls preventDefault does not change state when clicked."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "darkreader/darkreader:pr-7241",
+      "source": "raw",
+      "run": 1,
+      "seconds": 12.739,
+      "charter": "## Goal\nA theme that contains a base64 string padded with `==` does not break the extension. Dark Reader continues to function, and pages show correct CSS. The ticket states the expected result only for an entry with no matching open tab: the extension ignores that entry. The ticket does not state the expected result on a website that matches the entry. The ticket does not state if the fix must apply to other padding or other browsers. The report names Chrome and Opera.\n\n## Scenarios\n- Given the extension is enabled and a theme contains the ticket's `thisisnotarealwebsite.dummy` entry with the `==` padded base64 string, when the user refreshes a tab with a website that has Dark Reader enabled, then the website shows correct CSS with no breakage.\n- Given the same entry is in a theme, when the user turns the extension off and on repeatedly, then the extension continues to function correctly on the open website.\n- Given the same entry is in a theme and no open tab matches `thisisnotarealwebsite.dummy`, when the user refreshes an open tab, then the CSS in the entry has no effect on that tab.\n- Given the same entry is in a theme and the 'background' inspect view is open, when the user refreshes a tab with a website that has Dark Reader enabled, then the view does not show `Uncaught (in promise) SyntaxError: Invalid regular expression`.\n- Given a theme contains the same entry without the `IGNORE INLINE STYLE` line, when the user refreshes a tab with a website that has Dark Reader enabled, then the website shows correct CSS and the extension continues to function correctly.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 5,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`==`",
+          "`thisisnotarealwebsite.dummy`",
+          "`Uncaught (in promise) SyntaxError: Invalid regular expression`",
+          "`IGNORE INLINE STYLE`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the parser splits blocks correctly and keeps the `==` padded base64 CSS inside one block. Scenario 1 states no breakage on refresh, but it does not state that the CSS stays intact, nor that the `=`-run delimiter is ignored inside the CSS."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the parser keeps the base64 `==` padding inside the CSS block and splits blocks only at real delimiters. Scenarios 1 and 5 state a correct, working result at user level, but none states the parsed block structure."
+          }
+        ],
+        "unsupported": [
+          {
+            "scenario": 3,
+            "why": "The ticket says the entry is ignored when no open tab matches. Scenario 3 says the CSS has no effect on the tab, which restates that. This is supported, so it is not invented."
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "darkreader/darkreader:pr-6747",
+      "source": "raw",
+      "run": 1,
+      "seconds": 9.89,
+      "charter": "## Goal\nA user who opens the reported site with Dark Reader sees the site-specific fixes applied to the page. At present, Dark Reader does not find these fixes. The ticket does not state which fixes apply to the site or how the page looks when they apply. The ticket says \"the sites\" but gives only one website address, so any other affected sites are unknown.\n\n## Scenarios\n- Given a Dark Reader version that has the #6738 fix, on Firefox Nightly, when the user goes to https://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030, then the page shows the site-specific fixes for the site (the ticket does not state the expected appearance, so the author must supply it).",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 1,
+        "nonGwt": 0,
+        "pathTokens": [
+          "https://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030,"
+        ],
+        "leaks": [],
+        "apiIdentifiers": []
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Index config",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the generic '*' fix comes first, before the site fix. The issue implies this order, since it says the code should check fixes[0]. The scenario only says fixes are applied and does not state the order."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the generic '*' fix comes first when a domain appears many times in one record. The scenario covers only the general case of fixes being found. It does not state the order."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The hunk moves the '*' fix to the first position in all expected results and adds a test for this. The issue implies the first position through fixes[0]. The scenario does not state it."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the generic '*' fix is first, before the wildcard and subdomain fixes. The issue implies this through fixes[0].url[0]. The scenario only says that fixes are shown for the site."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The test checks that the '*' fix comes first, before the fixes of other records that match the domain. The scenario does not state the order. It only states that site fixes are applied."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-8470",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 12.706,
+      "improved": "### Vue version\n\n3.3.4\n\n### Link to minimal reproduction\n\nhttps://github.com/tragid/vue-default-export-error/tree/vue-3.3.4-emit-errors\n\n### Steps to reproduce\n\n1. Create BaseEmits type:\n```\nexport interface BaseEmits {\n  (e: 'input-event', value: string): void;\n  (e: 'change-event', value: string): void;\n}\n```\n2. Create component and defineEmits with extending BaseEmits\n```\ninterface ComponentEmits extends BaseEmits {\n  (e: 'blur-event', value: string): void;\n  (e: 'focus-event', value: string): void;\n}\n\nconst emit = defineEmits<ComponentEmits>();\n```\n3. Facing runtime exceptions on DEV and not setup extended emits on prod (see below).\n\n### What is expected?\n\ndefineEmits can support extended events\n\n### What is actually happening?\n\nFacing runtime exceptions on DEV and not setup extended emits on prod:\n```\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.\n\nruntime-core.esm-bundler.js:41 [Vue warn]: Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.\n```",
+      "charter": "## Goal\nA component that declares its events with `defineEmits<ComponentEmits>()`, where `ComponentEmits` extends another interface, has the extended events and the events of the interface as declared events. In development, an emit of an inherited event does not show the \"neither declared in the emits option\" warning. In production, the extended emits are set up. The ticket does not state the observable production symptom or the production check.\n\n## Scenarios\n- Given a component whose `ComponentEmits` interface extends `BaseEmits`, which declares `input-event` and `change-event`, when the component emits `input-event` in a development build, then the console does not show `Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.`\n- Given the same component, when the component emits `change-event` in a development build, then the console does not show `Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.`\n- Given the same component in a production build, when the component emits `input-event` or `change-event`, then the extended emits are set up. Unknown: the ticket does not name the result that a user can observe in a production build.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 3,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`defineEmits<ComponentEmits>()`",
+          "`ComponentEmits`",
+          "`BaseEmits`",
+          "`input-event`",
+          "`change-event`",
+          "`Component emitted event \"input-event\" but it is neither declared in the emits option nor as an \"onInput-event\" prop.`",
+          "`Component emitted event \"change-event\" but it is neither declared in the emits option nor as an \"onChange-event\" prop.`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+            "coverage": "partial",
+            "scenario": 3,
+            "why": "The issue states that defineEmits<ComponentEmits>() with an interface extending BaseEmits must set up the inherited events. The test checks that the compiled output has both 'bar' and 'foo' in emits. Scenarios 1 and 2 only check that the dev warning is absent. Scenario 3 says the extended emits are set up, but it names no concrete result. No scenario states that the compiled emits option includes the inherited events, so a key part is missing."
+          }
+        ],
+        "unsupported": [
+          {
+            "scenario": 3,
+            "why": "The scenario expects an unnamed production result and invents a production-only check. The issue reports that the emits are not set up, and it does not separate production behaviour from development behaviour."
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-8785",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 29.073,
+      "improved": "### Vue version\n\n3.3.4\n\n### Link to minimal reproduction\n\nhttps://play.vuejs.org/#eNqNVE1v2zAM/SucL0kBfxy6k5EG3YYetsNabDn64thMotSWBIlOUxj+76Pk2PHctRgQBBb1SD4+6akNvmgdnxoM0mBlCyM0gUVq9DqTotbKELRgcBdCiTsh8ZvioERJIRygg51RNSw4fTHCHeISjxO3cNV5O5OFkpZgg5bGKnA3r7tsMwncUZZoYHkDfukC1BgJh+WiFKdFCG0XwuKAVaUWNw7RZbLjj1XSz8DseUFY6yon5BXAyhNLhdypuyxoQTCddMamywJIGL1KxtQgDPrBojrX8dEqyUp5Utllw2ZBOtDMAh7WrbPgQKRtmiRFKTmtxEqcTCyREqnr5J5hiWkkiRqjUtX3t/Ft/DkphaVpOEZbR1ujXiwaLpIF4aRNwsETmqjXCs3/tp2lTVvPtt60H5RmUciyfjuxn0lSsJaiQvOoSfBx/yVNzqf18sPHyDQ4zlIcsHj+R/xoz/1MTwY9s8n8lJs9Ur/98Psnnvl73KxV2VSXY3hn8xdaVTWOYw/72siSaU9wnu13f8JC7jf24Uwo7TCUI+rV8Hh/Hu4avTf6lS6rPVFx8MfcfVDlcs/X1F2uN058MkpvXjWG4NRuCMuZEweraQba0WIuzfb2ciYY2RGXSuFxe8SCILdj+VUuX9cXObhC3lSUOkferWHZOrONrhv65duCuw2klj3Wk4hdR4/8yKF6TQdhgX+uhv/zvlwl7jliHR3oUxSBVDQ8EVHU57oGsfO0N/AEe8Gp5xHKNK/ID3BX5lf49GXo/gBCo8F3\n\n### Steps to reproduce\n\nplease see mini reproduction demo (link above)\n\n### What is expected?\n\nexpect render output is:  '\\<div\\>hello\\<\\/div\\>'\n\n### What is actually happening?\n\nrender output is:  '<info.icon></info.icon>'",
+      "charter": "## Goal\nA component that a template renders through a `props.xxx` type reference, such as `info.icon`, shows its own output. The output does not contain a literal element with the name of the reference. The ticket gives `<div>hello</div>` as the expected render output and `<info.icon></info.icon>` as the actual render output on Vue 3.3.4. The ticket text does not state the exact template, the prop shape, or the render mode (browser or server). These details are only in the linked reproduction.\n\n## Scenarios\n- Given the linked reproduction on a version with the fix, when a user opens the reproduction and reads the render output, then the render output is `<div>hello</div>`.\n- Given the linked reproduction on a version with the fix, when a user opens the reproduction and reads the render output, then the render output does not contain `<info.icon></info.icon>`.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 2,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`props.xxx`",
+          "`info.icon`",
+          "`<div>hello</div>`",
+          "`<info.icon></info.icon>`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The issue states that a `props.xxx` style component must render as a component, not as a literal element. Scenario 1 covers this only through the output of the linked reproduction. The test checks the non-inline compiled tag `_unref($props[\"Foo\"]).Example` and that no component resolve helper is used. The issue does not state this compiler output, and the charter does not state the non-inline mode."
+          },
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+            "coverage": "partial",
+            "scenario": 1,
+            "why": "The issue states that a namespaced component taken from props must render as a component. Scenario 1 covers this only through the render output of the linked reproduction. The test checks the inline compiled tag `_unref(__props[\"Foo\"]).Example` and that no component resolve helper is used. The issue does not state this compiler output, and the charter does not state the inline mode."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23778",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 13.754,
+      "improved": "## Current Behavior\n\nWhen you create a `<TextField select disabled />`, the `<input>` element does not have the disabled prop. Classes and aria-disabled=\"true\" are added to the div to mark it as disabled.\n\n## Expected Behavior\n\nThe input element should have the disabled prop.\n\n## Steps to Reproduce\n\nhttps://codesandbox.io/s/material-demo-forked-0n5s1?file=/demo.tsx\n\nIf you inspect the select field, the input element is not disabled, but it is disabled in the native select (though that's a select element).\n\n## Context\n\nWhen a form field is disabled, its value is not supposed to be submitted when a form is submitted. I wanted to use that property to submit partial data, conditionally. Also, testing aria-disabled=true to check if it's disabled does not seem idiomatic.\n\nNeither of these is very important, but the behaviour is unexpected when a regular TextField disables its input.\n\n## Environment\n\nMaterial-UI: v5.0.0-alpha-17",
+      "charter": "## Goal\nWhen a user renders `<TextField select disabled />`, the `<input>` element has the `disabled` attribute, as the `<input>` element of a regular disabled TextField does. A form submission does not include the value of the disabled select field. The ticket does not state if the `aria-disabled=\"true\"` attribute and the classes on the div stay after the fix. The ticket also does not name the React version or the browser.\n\n## Scenarios\n- Given a page that renders `<TextField select disabled />`, when the user inspects the select field in the browser DOM, then the `<input>` element has the `disabled` attribute.\n- Given a form that contains `<TextField select disabled />` with a value, when the user submits the form, then the submitted data does not include the value of the disabled select field.\n- Given a page that renders a disabled native select TextField, when the user inspects the field in the browser DOM, then the `select` element has the `disabled` attribute.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 3,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`<TextField select disabled />`",
+          "`<input>`",
+          "`disabled`",
+          "`aria-disabled=\"true\"`",
+          "`select`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+            "coverage": "covered",
+            "scenario": 1,
+            "why": "The ISSUE says the <input> of a disabled select TextField should have the disabled attribute. Scenario 1 states this: the <input> element has the `disabled` attribute. The test hunk is not available, so this rests on the test name."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23786",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 10.373,
+      "improved": "## Current Behavior 😯\n\nUsing `preventDefault` does not prevent the Switch UI from updating.\n\n```jsx\n          <Switch\n            onClick={(event)=>{event.preventDefault();}}\n          />\n```\n\n## Expected Behavior 🤔\n\nUsing `preventDefault` in the `onClick` handler should stop the element from updating.\n\n## Steps to Reproduce 🕹\n\nSteps:\n\n1. Add a Switch from latest material-ui\n2. Call `preventDefault` inside `onClick`\n3. Watch the element change state\n\n## Your Environment 🌎\n\n| Tech        | Version |\n| ----------- | ------- |\n| Material-UI | v4.11.0   |\n| React       |   v16.14.0       |",
+      "charter": "## Goal\nA Switch with an `onClick` handler that calls `event.preventDefault()` does not change its state when the user clicks the Switch. The Switch UI stays as it was before the click. The ticket reports the fault on Material-UI v4.11.0 with React v16.14.0.\n\n## Scenarios\n- Given a Switch with an `onClick` handler that calls `event.preventDefault()`, when the user clicks the Switch, then the Switch UI does not update and the Switch stays in the same state as before the click.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 1,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`onClick`",
+          "`event.preventDefault()`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented",
+            "coverage": "covered",
+            "scenario": 1,
+            "why": "The issue states that calling preventDefault in onClick should stop the Switch from updating. Scenario 1 states that the Switch stays in the same state after such a click."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "darkreader/darkreader:pr-7241",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 26.934,
+      "improved": "## Bug Description\nUsing base64 encoded images in themes can sometimes break the extension if output is padded by `==`. This seems to be caused by the regex used on line 767:\n```js\nconst delimiterRegex = /\\s*={2,}\\s*/gm;\n```\nThe problem with that regex is that it matches certain selectors containing base64 encoded strings like this one here:\n```css\n.CodeMirror-merge-r-deleted, .CodeMirror-merge-l-deleted {\n    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;\n}\n```\nwhich results in `') !important;` being added into `domainPatterns` output property of `indexSitesFixesConfig()`, which in turn causes this error (only visible in 'background' inspect view):\n```\nUncaught (in promise) SyntaxError: Invalid regular expression: /^(.*?\\:\\/{2,3})?([^/]*?\\.)?(') !important;)(\\/?.*?)$/: Unmatched ')'\n    at new RegExp (<anonymous>)\n    at createUrlRegex (index.js:587)\n    at isURLMatched (index.js:545)\n    at getSitesFixesFor (index.js:794)\n    at getDynamicThemeFixesFor (index.js:1420)\n    at TabManager.Extension.getTabMessage (index.js:4247)\n    at index.js:3082\n    at Array.forEach (<anonymous>)\n    at index.js:3081\n    at Array.forEach (<anonymous>)\n```\nThis happens even if there is a dummy entry in the theme containing a base64 string padded with `==` (see Steps To Reproduce).\n\n## Steps To Reproduce\n1. Make sure the extension is enabled.\n2. Add this text to any theme:\n```\n====\n\nthisisnotarealwebsite.dummy\n\nCSS\n.Not-A-Real-Selector {\n    not-a-real-CSS-property: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;\n}\n\nIGNORE INLINE STYLE\n.test\n\n```\n\n3. Refresh any tab with a website that has DarkReader enabled for it.\n4. Notice the broken CSS.\n5. Try turning the extension off and on repeatedly.\n6. Notice that the extension doesn't seem to function properly anymore.\n\n## Expected Behavior\nCustom CSS containing a base64 string padded with `==` is properly processed (ignored in this case, as there is no open tab matching the URL in the custom CSS).\n\n## Actual Behavior\nCustom CSS containing a base64 string padded with `==` breaks the extension.\n\n## System Information\n- OS: **Windows 10 20H2 (build 19042.1288)**\n- Browser: **Chrome 95.0.4638.54, Opera 81.0.4196.14 (Chromium 95.0.4638.32)**\n- Dark Reader Version: **4.9.39**\n\n## Additional Context\nThe 'IGNORE INLINE STYLE' line isn't required sometimes, probably depending on what browser you are using.",
+      "charter": "## Goal\nA theme that contains a base64 string padded with `==` does not break the extension. The extension processes the custom CSS properly and continues to function. The ticket does not define what \"broken CSS\" and \"function properly\" look like on a page, so the tester must compare the page with the page before the theme change.\n\n## Scenarios\n- Given the extension is enabled and a theme contains the ticket's `thisisnotarealwebsite.dummy` entry with the `==`-padded base64 string and the `IGNORE INLINE STYLE` section, when the user refreshes a tab with a website that has Dark Reader enabled, then the page shows no broken CSS.\n- Given the same theme entry and no open tab that matches `thisisnotarealwebsite.dummy`, when the user refreshes a tab with a website that has Dark Reader enabled, then the entry has no effect on that tab.\n- Given the same theme entry is present, when the user turns the extension off and on repeatedly, then the extension continues to function properly.\n- Given the same theme entry is present and the 'background' inspect view is open, when the user refreshes a tab with a website that has Dark Reader enabled, then the view does not show `SyntaxError: Invalid regular expression` with `Unmatched ')'`.\n- Given the same theme entry without the `IGNORE INLINE STYLE` section, when the user refreshes a tab with a website that has Dark Reader enabled, then the page shows no broken CSS and the 'background' inspect view does not show the error. The ticket reports that this variant fails only sometimes and possibly depends on the browser, so the affected browsers are unknown.\n- Given a theme entry for a website that is open in a tab, with custom CSS that contains a `==`-padded base64 image, when the user refreshes the tab, then the extension processes the custom CSS properly and continues to function. The ticket does not state the expected appearance of the page for this case.",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 6,
+        "nonGwt": 0,
+        "pathTokens": [],
+        "leaks": [],
+        "apiIdentifiers": [
+          "`==`",
+          "`thisisnotarealwebsite.dummy`",
+          "`IGNORE INLINE STYLE`",
+          "`SyntaxError: Invalid regular expression`",
+          "`Unmatched ')'`"
+        ]
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+            "coverage": "partial",
+            "scenario": 6,
+            "why": "The issue states that CSS with a '==' padded base64 string must be processed properly. Scenario 6 touches this, but only as 'processes the custom CSS properly'. No scenario says the CSS block stays whole and is not split at the base64 padding, or that a real '====' delimiter still splits blocks. The issue's domainPatterns symptom is also not covered at parser level."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts",
+            "coverage": "partial",
+            "scenario": 6,
+            "why": "The test is the 'Base64 in CSS' parser regression test. It checks that the '==' padding inside a CSS line does not split the block, so the whole CSS is kept for example.com. It also checks that the '====' delimiter still separates the entries. Scenario 6 and scenario 4 cover only the visible outcomes: no error and proper processing. They do not state the block-splitting and CSS-preservation behaviour."
+          }
+        ],
+        "unsupported": []
+      }
+    },
+    {
+      "caseId": "darkreader/darkreader:pr-6747",
+      "source": "improved:builtin",
+      "run": 1,
+      "seconds": 16.341,
+      "improved": "## Bug Description\nhttps://github.com/darkreader/darkreader/blob/d69522753bff6abea855bcbc7661642ffc950db4/src/generators/dynamic-theme.ts#L61\nseems to be wrong. As when #6738 is fixed, you will see that `fixes[fixes.length - 1].url[0] !== '*'` evaluate to true as it seems like likely meant to be `fixes[0].url[0] !== '*'`? As the last entry could be any domain from the `non-qualified domain` list.\n\n## Website Address\nhttps://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030\n\n## Steps To Reproduce\n- Go to the sites.\n- Observe fixes aren't applied.\n\n## Expected Behavior\nHave the fixes applied\n\n## Actual Behavior\nFixes aren't found.\n\n## Environment\n- OS: Arch Linux\n- Browser: Firefox Nightly 93.0a1 (2021-09-04)\n- Dark Reader Version: https://github.com/darkreader/darkreader/commit/d69522753bff6abea855bcbc7661642ffc950db4\n\n## Additional Context\nCC @bershanskiy\nBlocker for #6737",
+      "charter": "## Goal\nWhen a user opens the reported website with Dark Reader active, Dark Reader applies the fixes for that website. At this time, Dark Reader does not find these fixes, and the user does not see them. The ticket does not name the fixes or their visible result on the page. The ticket says \"the sites\" but gives only one website address, so the full list of affected websites is unknown. The ticket also does not give the Dark Reader settings for the failure, for example the theme mode.\n\n## Scenarios\n- Given Dark Reader is active in a build that includes the fix for #6738, when the user opens https://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030, then the fixes for this website are applied to the page (the ticket does not name the visible result of these fixes, so the author must supply it before a tester can check this scenario).",
+      "checks": {
+        "outcome": "first-try",
+        "scenarios": 1,
+        "nonGwt": 0,
+        "pathTokens": [
+          "https://unix.stackexchange.com/questions/405783/why-does-man-print-gimme-gimme-gimme-at-0030,"
+        ],
+        "leaks": [],
+        "apiIdentifiers": []
+      },
+      "judge": {
+        "ok": true,
+        "tests": [
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Index config",
+            "coverage": "missing",
+            "why": "The issue implies the generic '*' fix should be first in the fixes array (fixes[0].url[0] === '*'). The test checks this order in the getSitesFixesFor result. The scenario only says the fixes are applied on the page and never mentions the order."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+            "coverage": "missing",
+            "why": "The test expects the '*' fix first in the result. The issue implies this order through the fixes[0] suggestion. No scenario states the order."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts",
+            "coverage": "missing",
+            "why": "The hunk moves the '*' fix to the first position in several expected results and adds a 'generic fix appears first' test. The issue implies this order. The scenario covers only the visible result, not the order."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+            "coverage": "missing",
+            "why": "The test checks that the generic '*' fix comes first. The issue implies this through the fixes[0] suggestion. The scenario does not state it."
+          },
+          {
+            "test": "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records",
+            "coverage": "missing",
+            "why": "The test expects the '*' fix first, before the domain-specific records. The issue implies this order. No scenario states it."
+          }
+        ],
+        "unsupported": []
+      }
+    }
+  ]
+}

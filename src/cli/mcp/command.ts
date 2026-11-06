@@ -7,6 +7,7 @@
  * cannot use the synchronous `runCli` contract.
  */
 
+import { DoctorExit } from '../doctorCommand.js';
 import { runCli, runCliAsync, type CliIo } from '../main.js';
 import type { McpGlobalFlags } from './config.js';
 import { resolveMcpConfig } from './config.js';
@@ -14,18 +15,33 @@ import { runMcpInstall } from './installCommand.js';
 import { runMcpServe, type McpToolRunner } from './server.js';
 
 /**
- * The real tool runner: a call is the SAME dispatch as a shell call. `servers`
- * and `setup verify` are the async verbs and route through `runCliAsync`;
- * everything else is the synchronous `runCli`, which opens and closes its store
- * per call.
+ * Verbs that only `runCliAsync` handles. The synchronous `runCli` throws
+ * `unknown command` for them. `runCliAsync` falls through to `runCli(argv)`
+ * with no `env` or `io`, so route ONLY these verbs there.
+ */
+function isAsyncVerb(argv: readonly string[]): boolean {
+  const [verb, sub] = argv;
+  if (verb === 'setup') return sub === 'verify' || sub === 'check';
+  return verb === 'servers' || verb === 'base' || verb === 'stage' || verb === 'artifact' || verb === 'doctor';
+}
+
+/**
+ * The real tool runner: a call is the SAME dispatch as a shell call. The async
+ * verbs (`servers`, `setup verify`, `setup check`, `base`, `stage`, `artifact`,
+ * `doctor`) route through `runCliAsync`; everything else is the synchronous
+ * `runCli`, which opens and closes its store per call.
  */
 export const defaultMcpRunner: McpToolRunner = {
   async run(argv: string[], env, io: CliIo): Promise<string> {
-    if (
-      argv[0] === 'servers' || (argv[0] === 'setup' && argv[1] === 'verify') || argv[0] === 'base' ||
-      argv[0] === 'stage'
-    ) {
-      return runCliAsync(argv, env);
+    if (isAsyncVerb(argv)) {
+      try {
+        return await runCliAsync(argv, env);
+      } catch (e) {
+        // `doctor` always leaves through `DoctorExit` (it carries a shell exit
+        // code). For a tool call the report IS the result, healthy or not.
+        if (e instanceof DoctorExit) return e.output;
+        throw e;
+      }
     }
     return runCli(argv, env, io);
   },

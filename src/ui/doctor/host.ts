@@ -11,9 +11,25 @@ export interface DoctorWiringDeps {
   cli: () => { cliEntry: string; dbPath: string; manifestPath?: string };
 }
 
+/** The doctor's viewType; the serializer and the activation event name it. */
+export const DOCTOR_VIEW_TYPE = 'karstDoctor';
+
+/** The doctor commands and the restore path for the one doctor tab. */
+export interface DoctorWiring {
+  command: vscode.Disposable;
+  /** Adopt the doctor tab VS Code restored after a reload; a duplicate is closed. */
+  restore(raw: vscode.WebviewPanel): Promise<void>;
+}
+
 /** 'Karst: Run Doctor' — on demand only; shows the report in a panel. */
-export function registerDoctorCommand(deps: DoctorWiringDeps): vscode.Disposable {
-  return vscode.commands.registerCommand('karst.runDoctor', async () => {
+export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
+  let current: vscode.WebviewPanel | undefined;
+  /** Configure a raw panel (new or restored), run the report into it. */
+  const adopt = async (panel: vscode.WebviewPanel): Promise<void> => {
+    current = panel;
+    panel.onDidDispose(() => {
+      if (current === panel) current = undefined;
+    });
     const { cliEntry, dbPath, manifestPath } = deps.cli();
     const runCli = (args: readonly string[]) =>
       new Promise<{ stdout: string; stderr: string }>((resolve) => {
@@ -22,7 +38,8 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): vscode.Disposable
         );
       });
     const opts = { runCli, db: dbPath, ...(manifestPath ? { manifest: manifestPath } : {}) };
-    const panel = vscode.window.createWebviewPanel('karstDoctor', 'Karst Doctor', vscode.ViewColumn.Active, { enableScripts: true });
+    // A restored panel arrives with default options.
+    panel.webview.options = { enableScripts: true };
     panel.iconPath = brandIconUri(deps.brandIcon);
     const show = async (fix: boolean): Promise<void> => {
       try {
@@ -35,5 +52,17 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): vscode.Disposable
       if (m.type === 'fix') void show(true);
     });
     await show(false);
-  });
+  };
+  return {
+    command: vscode.commands.registerCommand('karst.runDoctor', async () => {
+      await adopt(vscode.window.createWebviewPanel(DOCTOR_VIEW_TYPE, 'Karst Doctor', vscode.ViewColumn.Active, { enableScripts: true }));
+    }),
+    restore: async (raw) => {
+      if (current) {
+        raw.dispose();
+        return;
+      }
+      await adopt(raw);
+    },
+  };
 }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ResourcesPanel, ResourcesPanelHost } from './panel.js';
 import { makeSimplePanelHost } from '../shared/simplePanelHost.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 
 /**
@@ -10,6 +11,9 @@ import type { BrandIconPaths } from '../brandIcon.js';
  * fakes. Built on the shared single-instance panel host — a fresh CSP nonce
  * for every panel.
  */
-export function makeResourcesPanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): ResourcesPanelHost {
+export function makeResourcesPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): ResourcesPanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<ResourcesPanel> } {
   return makeSimplePanelHost<ResourcesPanel>(context, 'resources', 'karst.resources', brandIcon);
 }

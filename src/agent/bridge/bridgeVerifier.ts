@@ -61,6 +61,16 @@ function hookPayload(raw: Record<string, unknown>, expect: BridgeExpectation): H
     if (typeof value === 'string') payload[key] = value;
   }
   if (raw.stop_hook_active === true) payload.stop_hook_active = true;
+  // T993: the background-wait facts the hook bridge posts. The file channel
+  // skips parseHookPayload, so narrow them here: a boolean, and a positive
+  // finite Monitor timeout. Nothing else of tool_input crosses.
+  const toolInput = isRecord(raw.tool_input) ? raw.tool_input : {};
+  if (typeof toolInput.run_in_background === 'boolean') payload.run_in_background = toolInput.run_in_background;
+  const timeoutMs = toolInput.timeout_ms;
+  if (raw.tool_name === 'Monitor' && typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    payload.timeout_ms = timeoutMs;
+  }
+  if (typeof raw.task_notification === 'boolean') payload.task_notification = raw.task_notification;
   if (isRecord(raw.usage)) payload.usage = raw.usage;
   if (expect.launchId !== undefined) payload.launchId = expect.launchId;
   return payload as HookPayload;
