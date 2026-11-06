@@ -7,6 +7,7 @@
  * cannot use the synchronous `runCli` contract.
  */
 
+import { DoctorExit } from '../doctorCommand.js';
 import { runCli, runCliAsync, type CliIo } from '../main.js';
 import type { McpGlobalFlags } from './config.js';
 import { resolveMcpConfig } from './config.js';
@@ -33,7 +34,14 @@ function isAsyncVerb(argv: readonly string[]): boolean {
 export const defaultMcpRunner: McpToolRunner = {
   async run(argv: string[], env, io: CliIo): Promise<string> {
     if (isAsyncVerb(argv)) {
-      return runCliAsync(argv, env);
+      try {
+        return await runCliAsync(argv, env);
+      } catch (e) {
+        // `doctor` always leaves through `DoctorExit` (it carries a shell exit
+        // code). For a tool call the report IS the result, healthy or not.
+        if (e instanceof DoctorExit) return e.output;
+        throw e;
+      }
     }
     return runCli(argv, env, io);
   },
