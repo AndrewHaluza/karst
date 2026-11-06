@@ -57,6 +57,29 @@ describe('buildExcerpt', () => {
     expect(out).toContain('##[error]first failure');
     expect(out).toContain('98 xxx');
   });
+  it('one line above the cap → not empty, keeps the end of the line', () => {
+    const out = buildExcerpt(`start ${'x'.repeat(MAX_EXCERPT_BYTES * 2)} END`);
+    expect(out.length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out.endsWith(' END')).toBe(true);
+  });
+  it('one ##[error] line above the cap with short lines → keeps the end of that line', () => {
+    const lines = ['short 1', `##[error]${'y'.repeat(MAX_EXCERPT_BYTES * 2)} CAUSE`, 'short 2', 'short 3'];
+    const out = buildExcerpt(lines.join('\n'));
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).toContain(' CAUSE');
+    expect(out).not.toContain('short');
+  });
+  it('multibyte text → cap held in bytes, no broken character', () => {
+    const out = buildExcerpt(`${'é'.repeat(MAX_EXCERPT_BYTES)}!`);
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).not.toContain('\ufffd');
+    expect(out.endsWith('é!')).toBe(true);
+    const many = Array.from({ length: 150 }, (_, i) => `${i} ${'日'.repeat(60)}`).join('\n');
+    const outMany = buildExcerpt(many);
+    expect(Buffer.byteLength(outMany)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(outMany).toContain('149 日');
+  });
   it('caps bytes, keeping the end', () => {
     const raw = Array.from({ length: 100 }, (_, i) => `${i} ${'x'.repeat(500)}`).join('\n');
     const out = buildExcerpt(raw);

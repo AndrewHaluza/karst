@@ -52,24 +52,34 @@ export function buildExcerpt(raw: string, opts: { jobLog?: boolean } = {}): stri
   return fitBytes([...head, ...lines.slice(tailStart)]);
 }
 
-/** Drop the oldest lines until the text fits; ##[error] lines go last, so the failure text survives the cap. */
-function fitBytes(kept: string[]): string {
-  const size = (l: string): number => Buffer.byteLength(l) + 1;
-  let total = kept.reduce((n, l) => n + size(l), -1);
-  const dropped = new Set<number>();
-  const drop = (protectedPass: boolean): void => {
-    for (let i = 0; i < kept.length && total > MAX_EXCERPT_BYTES; i++) {
-      if (dropped.has(i) || kept[i]!.includes(ERROR_MARK) !== protectedPass) continue;
-      dropped.add(i);
-      total -= size(kept[i]!);
+/** The last `max` bytes of `text`, cut on a UTF-8 character boundary. */
+function tailBytes(text: string, max: number): string {
+  const buf = Buffer.from(text);
+  if (buf.length <= max) return text;
+  let start = buf.length - max;
+  while (start < buf.length && (buf[start]! & 0xc0) === 0x80) start++;
+  return buf.subarray(start).toString();
+}
+
+/**
+ * Fit the lines in MAX_EXCERPT_BYTES. A line over the cap keeps its end. The newest lines win,
+ * and ##[error] lines are picked before the others, so the failure text survives the cap.
+ */
+function fitBytes(lines: string[]): string {
+  const isError = lines.map((l) => l.includes(ERROR_MARK)); // before the clip removes the mark
+  const clipped = lines.map((l) => tailBytes(l, MAX_EXCERPT_BYTES));
+  const chosen = new Set<number>();
+  let total = -1; // the join adds one byte for each line but the first
+  for (const wantError of [true, false]) {
+    for (let i = clipped.length - 1; i >= 0; i--) {
+      if (isError[i] !== wantError) continue;
+      const size = Buffer.byteLength(clipped[i]!) + 1;
+      if (total + size > MAX_EXCERPT_BYTES) continue;
+      chosen.add(i);
+      total += size;
     }
-  };
-  drop(false);
-  drop(true);
-  const out = kept.filter((_, i) => !dropped.has(i)).join('\n');
-  // A single line longer than the cap: keep its end.
-  return Buffer.byteLength(out) > MAX_EXCERPT_BYTES ? out.slice(out.length - MAX_EXCERPT_BYTES) : out;
-  return out;
+  }
+  return clipped.filter((_, i) => chosen.has(i)).join('\n');
 }
 
 export type CheckLog =
