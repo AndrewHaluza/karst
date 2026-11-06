@@ -13,6 +13,9 @@ const DEFAULT_TIMEOUT_MS = 3_000;
 /** Bound for one dependency probe. A hung binary is a fault after this long. */
 export const PROBE_TIMEOUT_MS = 5_000;
 
+/** Most stdout characters a captured probe keeps. A version line is far shorter. */
+export const PROBE_OUTPUT_LIMIT = 64 * 1024;
+
 export interface AsyncCommandProbeOptions {
   timeoutMs?: number;
 }
@@ -206,7 +209,7 @@ export function runProbeAsync(
         ...probeEnvOption(env),
       });
       child.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString('utf8');
+        if (stdout.length < PROBE_OUTPUT_LIMIT) stdout = (stdout + chunk.toString('utf8')).slice(0, PROBE_OUTPUT_LIMIT);
       });
       child.once('error', () => settle({ stdout: '', exitCode: 1, timedOut: false }));
       child.once('close', (code) => settle({ stdout, exitCode: code ?? 1, timedOut: false }));

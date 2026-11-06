@@ -3,7 +3,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { DependencyProbeService } from './dependencyProbes.js';
 
 export interface CapabilityGuardDeps {
-  readonly probes: Pick<DependencyProbeService, 'capabilityFaults' | 'knownCapabilityFaults'>;
+  readonly probes: Pick<DependencyProbeService, 'capabilityFaults' | 'isCapabilityKnownReady'>;
   /** The agent provider that decides the registry for this ticket (or the manifest default). */
   readonly providerFor: (ticketId?: number) => AgentProvider;
   /** Repaint the dependency status bar from the faults of a refusal. */
@@ -16,8 +16,8 @@ export interface CapabilityGuardDeps {
 
 /**
  * Resolves true when the capability's tools are usable; otherwise tells the user why not.
- * `known` is a sync, silent view for a seam that cannot wait: it refuses only on a
- * fault an earlier probe already found, and it starts the probe it lacks.
+ * `known` is a sync, silent view for a seam that cannot wait: true only when an
+ * earlier probe settled with no fault. It starts the probe it lacks.
  */
 export interface AsyncCapabilityGuard {
   (capability: Capability, ticketId?: number, silent?: boolean): Promise<boolean>;
@@ -70,6 +70,6 @@ export function createCapabilityGuard(deps: CapabilityGuardDeps): AsyncCapabilit
     guard(capability, deps.providerFor(ticketId), silent);
   return Object.assign(guardTicket, {
     known: (capability: Capability, ticketId?: number): boolean =>
-      deps.probes.knownCapabilityFaults(capability, deps.providerFor(ticketId)).length === 0,
+      deps.probes.isCapabilityKnownReady(capability, deps.providerFor(ticketId)),
   });
 }

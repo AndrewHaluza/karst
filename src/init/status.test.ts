@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSetupStatus, AGENT_AUTH_REMINDER } from './status.js';
+import { buildSetupStatus, buildSetupStatusFromFaults, AGENT_AUTH_REMINDER } from './status.js';
 import { dependencyRegistry, agentDependency, GH_DEPENDENCY } from '../runtime/deps.js';
 
 /** Probe fake: everything present except the named binaries. */
@@ -79,6 +79,18 @@ describe('buildSetupStatus', () => {
     expect(cli.done).toBe(false);
     expect(cli.detail).toContain(dep.install);
     expect(cli.detail).toContain(AGENT_AUTH_REMINDER);
+  });
+
+  it('shows the timeout message, not install help, for a timed-out agent CLI', () => {
+    const dep = agentDependency('claude');
+    const items = buildSetupStatusFromFaults({
+      manifestExists: true,
+      provider: 'claude',
+      faults: [{ dep, state: 'not-ready', timedOut: true }],
+    } as Parameters<typeof buildSetupStatusFromFaults>[0]);
+    const cli = items.find((i) => i.id === 'claude')!;
+    expect(cli.detail).toContain(dep.binary);
+    expect(cli.detail).not.toContain(AGENT_AUTH_REMINDER);
   });
 
   // karst cannot check whether the agent CLI is logged in — no probe it declares

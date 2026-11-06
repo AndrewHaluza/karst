@@ -818,9 +818,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       globalStoragePath: settingsDir,
     });
   applyOpencode2();
-  const checkOpencode2 = (): void =>
-    checkOpencode2Binary({ readVersion: readCommandOutput, info: logger.info, warn: logger.warn });
-  checkOpencode2();
+  const checkOpencode2 = (): Promise<void> =>
+    checkOpencode2Binary({ readVersion: commandOutputAsync, info: logger.info, warn: logger.warn });
+  // Not awaited: a hung launcher must not hold up activation.
+  void checkOpencode2().catch((e) => logError('karst: opencode2 binary check failed', e));
   const { strandedFixResumes } = await runBootSweeps({
     store: localStore,
     globalStorageRoot: settingsDir,
@@ -1479,7 +1480,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Live setup status for the Getting Started page. Reads disk/PATH fresh on every call
   // (no caching) so re-check and post-scaffold pushes reflect reality. Guarded:
   // no workspace folder → manifest counts as missing, provider defaults to claude.
-  const loadGettingStartedState = async () => {
+  const loadGettingStartedState = async ({ recheck }: { recheck: boolean }) => {
     let manifestExists = false;
     try {
       manifestExists = existsSync(manifestPathOrThrow());
@@ -1490,7 +1491,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The panel's re-check button routes here; repaint the bar from the same
     // moment's truth, or installing a tool clears the checklist and leaves the
     // status bar still claiming it's missing. One probe pass feeds both.
-    const faults = await refreshDepsStatus({ recheck: true });
+    const faults = await refreshDepsStatus({ recheck });
     return buildGettingStartedState(
       buildSetupStatusFromFaults({ manifestExists, provider, faults }),
     );
@@ -1543,7 +1544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration('karst.opencode2.binaryPath')) return;
       applyOpencode2();
-      checkOpencode2();
+      void checkOpencode2().catch((e) => logError('karst: opencode2 binary check failed', e));
       void refreshDepsStatus({ recheck: true }).catch((e) => logError('karst: dependency re-check failed', e));
     }),
   );
@@ -3703,9 +3704,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
     // every parked ticket, and N toasts say nothing the first one didn't.
-    if (!(await guardCapability('gates', undefined, gateToolsWarned))) {
-      gateToolsWarned = true;
+    // Claim the one warning BEFORE the await: the activation sweep starts every
+    // ticket's check at once, and each would otherwise see the flag still unset.
+    const claimsWarning = !gateToolsWarned;
+    if (claimsWarning) gateToolsWarned = true;
+    const gatesOk = await guardCapability('gates', undefined, !claimsWarning);
+    if (!gatesOk) {
       logger.warn(`stage driver: ${trigger} → ticket ${ticketId} not driven, gate tools missing`);
+      return;
+    }
+    if (claimsWarning) gateToolsWarned = false;
+    // The guard awaited: the ticket may have been paused or handed to a graph meanwhile.
+    if (getTicket(localStore, ticketId).pausedAt != null || !shouldDriveGraphTicket(localStore.db, ticketId)) {
+      logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped after the gate check (paused or graph-owned)`);
       return;
     }
     logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);

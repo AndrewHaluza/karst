@@ -40,57 +40,57 @@ describe('applyOpencode2Config', () => {
 });
 
 describe('checkOpencode2Binary', () => {
-  it('probes nothing when no binary is configured', () => {
+  it('probes nothing when no binary is configured', async () => {
     configureOpencode2({ home: HOME });
     const readVersion = vi.fn();
     const info = vi.fn();
     const warn = vi.fn();
-    checkOpencode2Binary({ readVersion, info, warn });
+    await checkOpencode2Binary({ readVersion, info, warn });
     expect(readVersion).not.toHaveBeenCalled();
     expect(info).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('runs --version under the isolated XDG env and reports ok', () => {
+  it('runs --version under the isolated XDG env and reports ok', async () => {
     configureOpencode2({ binaryPath: BIN, home: HOME });
     const readVersion = vi.fn(() => ({ stdout: 'opencode v2.0.24\n', exitCode: 0 }));
     const info = vi.fn();
     const warn = vi.fn();
-    checkOpencode2Binary({ readVersion, info, warn });
+    await checkOpencode2Binary({ readVersion, info, warn });
     expect(readVersion).toHaveBeenCalledWith(BIN, ['--version'], XDG);
     expect(info).toHaveBeenCalledWith('[agent:opencode2] binary ok (2.0.24)');
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('warns (not info) when the binary is newer than the verified fixture', () => {
+  it('warns (not info) when the binary is newer than the verified fixture', async () => {
     configureOpencode2({ binaryPath: BIN, home: HOME });
     const readVersion = vi.fn(() => ({ stdout: 'opencode v2.5.0\n', exitCode: 0 }));
     const info = vi.fn();
     const warn = vi.fn();
-    checkOpencode2Binary({ readVersion, info, warn });
+    await checkOpencode2Binary({ readVersion, info, warn });
     expect(info).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain('newer than the verified 2.0.24');
     expect(warn.mock.calls[0]![0]).toContain('2.5.0');
   });
 
-  it('warns with the refusal reason for an unsupported (v1) binary', () => {
+  it('warns with the refusal reason for an unsupported (v1) binary', async () => {
     configureOpencode2({ binaryPath: BIN, home: HOME });
     const readVersion = vi.fn(() => ({ stdout: 'opencode 1.9.9\n', exitCode: 0 }));
     const info = vi.fn();
     const warn = vi.fn();
-    checkOpencode2Binary({ readVersion, info, warn });
+    await checkOpencode2Binary({ readVersion, info, warn });
     expect(info).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain('looks like opencode v1');
   });
 
-  it('warns when the probe fails to run', () => {
+  it('warns when the probe fails to run', async () => {
     configureOpencode2({ binaryPath: BIN, home: HOME });
     const readVersion = vi.fn(() => ({ stdout: '', exitCode: 1 }));
     const info = vi.fn();
     const warn = vi.fn();
-    checkOpencode2Binary({ readVersion, info, warn });
+    await checkOpencode2Binary({ readVersion, info, warn });
     expect(info).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain('Could not run');
@@ -98,12 +98,12 @@ describe('checkOpencode2Binary', () => {
 });
 
 describe('opencode2LoginCommand', () => {
-  it('is null when no binary is configured', () => {
+  it('is null when no binary is configured', async () => {
     configureOpencode2({ home: HOME });
     expect(opencode2LoginCommand()).toBeNull();
   });
 
-  it('quotes the path, runs a STANDALONE auth login, and carries the isolated env', () => {
+  it('quotes the path, runs a STANDALONE auth login, and carries the isolated env', async () => {
     // Without `--standalone` v2 hits the managed service and collides with the
     // user's own running OpenCode ("port 49374 already in use", live 2.0.27).
     configureOpencode2({ binaryPath: BIN, home: HOME });

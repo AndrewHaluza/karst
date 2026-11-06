@@ -61,6 +61,7 @@ function detailFor(
   timedOut = false,
 ): string | null {
   const fault = renderDependencyFault(dep, state, timedOut);
+  if (isAgent && timedOut) return fault;
   if (isAgent) return fault ? `${dep.install}\n\n${AGENT_AUTH_REMINDER}` : AGENT_AUTH_REMINDER;
   // A missing tool's row sits under a label that already said it isn't installed;
   // repeating the sentence adds nothing, so the row shows the install step alone.

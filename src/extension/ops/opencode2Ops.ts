@@ -33,7 +33,11 @@ export function applyOpencode2Config(host: Opencode2ConfigHost): void {
 
 export interface Opencode2CheckHost {
   /** Captures `<binary> --version` (real: `readCommandOutput`). */
-  readVersion: OutputProbe;
+  readVersion: (
+    binary: string,
+    args: readonly string[],
+    env?: Readonly<Record<string, string>>,
+  ) => ReturnType<OutputProbe> | Promise<ReturnType<OutputProbe>>;
   info: (message: string) => void;
   warn: (message: string) => void;
 }
@@ -42,12 +46,12 @@ export interface Opencode2CheckHost {
  * Accept `>=2.0.24 <3`; refuse v1 (the same launcher name) and warn when the
  * binary is newer than the version this core was live-verified against.
  */
-export function checkOpencode2Binary(host: Opencode2CheckHost): void {
+export async function checkOpencode2Binary(host: Opencode2CheckHost): Promise<void> {
   const binaryPath = opencode2BinaryPath();
   if (!binaryPath) return;
   // Even this `--version` is a v2 process: run it under the karst-owned dirs so
   // it cannot touch the user's real opencode state (criterion 2).
-  const { stdout, exitCode } = host.readVersion(
+  const { stdout, exitCode } = await host.readVersion(
     binaryPath,
     ['--version'],
     opencode2IsolationEnv(opencode2Config().home),

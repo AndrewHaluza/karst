@@ -45,12 +45,16 @@ describe('dependency probes', () => {
     expect(faults.every((f) => f.state === 'missing' && !f.timedOut)).toBe(true);
   });
 
-  it('knownCapabilityFaults never blocks and reports a settled fault', async () => {
-    const run: ProbeRunner = async () => ({ stdout: '', exitCode: 1, timedOut: false });
-    const probes = createDependencyProbes({ run });
-    expect(probes.knownCapabilityFaults('worktrees', 'claude')).toEqual([]);
-    await probes.capabilityFaults('worktrees', 'claude');
-    expect(probes.knownCapabilityFaults('worktrees', 'claude').length).toBeGreaterThan(0);
+  it('isCapabilityKnownReady is false cold, false after a fault, true after a clean probe', async () => {
+    const bad: ProbeRunner = async () => ({ stdout: '', exitCode: 1, timedOut: false });
+    const badProbes = createDependencyProbes({ run: bad });
+    expect(badProbes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    await badProbes.capabilityFaults('worktrees', 'claude');
+    expect(badProbes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    const good = createDependencyProbes({ run: ok });
+    expect(good.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    await good.capabilityFaults('worktrees', 'claude');
+    expect(good.isCapabilityKnownReady('worktrees', 'claude')).toBe(true);
   });
 });
 
@@ -69,14 +73,14 @@ describe('dependency probes, window edges', () => {
     expect(run).toHaveBeenCalledTimes(first * 2);
   });
 
-  it('does not report a stale fault as known and probes again', async () => {
+  it('does not report a stale result as known ready and probes again', async () => {
     let t = 5_000;
     const run = vi.fn<ProbeRunner>(async () => ({ stdout: '', exitCode: 1, timedOut: false }));
     const probes = createDependencyProbes({ run, now: () => t, ttlMs: 1_000 });
     await probes.capabilityFaults('worktrees', 'claude');
     const first = run.mock.calls.length;
     t = 6_000;
-    expect(probes.knownCapabilityFaults('worktrees', 'claude')).toEqual([]);
+    expect(probes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
     expect(run.mock.calls.length).toBeGreaterThan(first);
   });
 
@@ -169,12 +173,19 @@ describe('capability guard', () => {
     }
   });
 
-  it('exposes a sync view that refuses only on a fault already found', async () => {
+  it('exposes a sync view that is ready only after a clean probe', async () => {
     const fail: ProbeRunner = async () => ({ stdout: '', exitCode: 1, timedOut: false });
     const { guard } = build(fail);
-    expect(guard.known('worktrees')).toBe(true);
+    expect(guard.known('worktrees')).toBe(false);
     await guard('worktrees', undefined, true);
     expect(guard.known('worktrees')).toBe(false);
+  });
+
+  it('sync view turns ready once a clean probe settled', async () => {
+    const { guard } = build(ok);
+    expect(guard.known('worktrees')).toBe(false);
+    await guard('worktrees', undefined, true);
+    expect(guard.known('worktrees')).toBe(true);
   });
 
   it('allows the action when every probe passes', async () => {

@@ -236,6 +236,32 @@ describe('GettingStartedManager', () => {
     capturedCtx!.pushState();
     expect(loadState).toHaveBeenCalledTimes(2);
     expect(panels[0]!.posted).toHaveLength(2);
+    expect(loadState).toHaveBeenNthCalledWith(1, { recheck: false });
+    expect(loadState).toHaveBeenNthCalledWith(2, { recheck: true });
+  });
+
+  it('drops a slower, older load that settles after a newer one', async () => {
+    const { host, panels } = makeHost();
+    const resolvers: Array<(s: GettingStartedState) => void> = [];
+    const loadState = vi.fn(() => new Promise<GettingStartedState>((r) => resolvers.push(r)));
+    let ctxRef: GettingStartedActionsCtx | undefined;
+    const mgr = new GettingStartedManager(loadState, host, (ctx) => {
+      ctxRef = ctx;
+      return {
+        createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+        setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+      };
+    });
+    mgr.open();
+    ctxRef!.pushState();
+    const older = { ...fakeState(), tag: 'older' } as unknown as GettingStartedState;
+    const newer = { ...fakeState(), tag: 'newer' } as unknown as GettingStartedState;
+    resolvers[1]!(newer);
+    await Promise.resolve();
+    resolvers[0]!(older);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(panels[0]!.posted).toEqual([{ type: 'state', state: newer }]);
   });
 });
 

@@ -17,11 +17,12 @@ export interface DependencyProbeService {
   /** Faults of the dependencies one capability needs. */
   capabilityFaults(capability: Capability, provider: AgentProvider): Promise<DependencyFault[]>;
   /**
-   * Faults already known from a settled, fresh probe. Never waits and never
-   * blocks: it starts any probe it lacks, so the next call knows. For a sync
-   * seam only; an action guard uses `capabilityFaults`.
+   * True only when every dependency of the capability has a settled, fresh probe
+   * with no fault. Never waits: it starts any probe it lacks, so a cold cache
+   * answers false now and true after the probe settles. For a sync seam only; an
+   * action guard uses `capabilityFaults`.
    */
-  knownCapabilityFaults(capability: Capability, provider: AgentProvider): DependencyFault[];
+  isCapabilityKnownReady(capability: Capability, provider: AgentProvider): boolean;
   /** Drop every cached outcome. The next call runs new probes. */
   clear(): void;
 }
@@ -73,17 +74,14 @@ export function createDependencyProbes(options: DependencyProbeOptions = {}): De
     faults: (provider) => check(dependencyRegistry(provider)),
     capabilityFaults: (capability, provider) =>
       check(requiredFor(capability, dependencyRegistry(provider))),
-    knownCapabilityFaults: (capability, provider) => {
-      const known: DependencyFault[] = [];
+    isCapabilityKnownReady: (capability, provider) => {
+      let ready = true;
       for (const dep of requiredFor(capability, dependencyRegistry(provider))) {
         const hit = cache.get(cacheKey(dep));
-        if (!hit || now() - hit.at >= ttlMs) {
-          void probe(dep);
-        } else if (hit.settled?.fault) {
-          known.push(hit.settled.fault);
-        }
+        if (!hit || now() - hit.at >= ttlMs) void probe(dep);
+        if (!hit || now() - hit.at >= ttlMs || !hit.settled || hit.settled.fault) ready = false;
       }
-      return known;
+      return ready;
     },
     clear: () => {
       cache = new Map();
