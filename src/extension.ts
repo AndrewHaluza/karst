@@ -184,7 +184,7 @@ import {
   type ClaudeWatchState,
 } from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
-import { dispatchHook } from './hooks/dispatch.js';
+import { dispatchHook, TurnTracker } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { computeDriftNotes } from './context/drift.js';
@@ -201,7 +201,6 @@ import { renderGuideInstruction } from './cli/guide.js';
 import { renderServersInstruction } from './cli/serversCommand.js';
 import { buildWorkflowInvocation, renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
-import { TurnTracker } from './hooks/dispatch.js';
 import { startBackgroundWaitSweep } from './extension/ops/backgroundWaitWiring.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
