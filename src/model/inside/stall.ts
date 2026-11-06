@@ -29,7 +29,7 @@ function attemptsOf(findings: readonly Finding[], threshold: Severity | 'none'):
     .sort(([a], [b]) => a - b)
     .map(([attempt, rows]) => ({
       attempt,
-      findings: rows.map((r) => ({ file: r.file, identity: r.identity ?? null })),
+      findings: rows.map((r) => ({ file: r.file, line: r.line, identity: r.identity ?? null })),
     }));
 }
 

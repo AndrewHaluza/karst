@@ -648,14 +648,14 @@ describe('QualitySection — review stall detection', () => {
       stateWith({ review: partialReview({ maxFixAttempts: 5, ...INERT }) }),
     );
     expect(field('reviewStallEnabled').checked).toBe(true);
-    expect(field('reviewStallSameFileRounds').value).toBe('3');
+    expect(field('reviewStallSameFileRounds').value).toBe('5');
     expect(field('reviewStallRepeatedRounds').value).toBe('');
     act(() => {
       fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '2' } });
     });
     expect(reviewOf(probe)).toMatchObject({
       author: INERT.author,
-      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: 2 },
+      stallDetection: { enabled: true, sameFileRounds: 5, repeatedFindingRounds: 2 },
     });
     act(() => {
       fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '' } });

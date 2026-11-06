@@ -330,6 +330,14 @@ Findings are append-only and have no resolve path; a clean re-review records no 
 `uat_findings.process_run_id` is `NOT NULL`, so UAT has no fallback; `review_findings.process_run_id` is nullable and never backfilled, so review falls back to the newest batch of unattributed rows only. Two deliberate non-consumers: the ship stage's findings row and the review rerun's sibling-findings read, which scope by the review stage's `attempt` AND the current review cycle (`currentReviewCycleStart` / `scopeCycleFindings`: `attempt` resets to 0 on send-back, reset, PR-feedback and gate retry, so a bare attempt mixes cycles; a cycle opens at a review run whose attempt dropped, or held after a pass), under the ruling in `ui/dashboard/stateEvidence.ts`, and the fix-brief readers (`extension.ts`, `context/ticketContext.ts`, `cli/fixBriefCommand.ts`), which want the batch being fixed.
 END_DOC_BLOCK: [@arch:FINDINGS-SCOPE]
 
+## [@arch:REVIEW-STALL] The review stall guard parks on a repeated problem or a long same-file streak, and a clean round resets it
+covers: src/model/reviewStall.ts#evaluateReviewStall, src/workflow/reviewStallRead.ts#reviewStallAttempts, src/manifest/qualityDefaults.ts#REVIEW_STALL_DETECTION_DEFAULTS, src/store/findingIdentity.ts
+
+Blocking findings always open fix rounds up to `max_rounds`. The stall guard changes only the park: when the review loop shows no convergence, `commitGateOutcome` parks the ticket at fix (`review-stalled`, three banner actions). `evaluateReviewStall` (pure) reads `StallAttempt[]` from `reviewStallAttempts`, which covers the review attempts since the last `reset` recovery round, not only the findings. A review run that finished with no blocking finding is an empty attempt, and it breaks every streak. A stale, blocked or stopped run (usage-limit park) is not an attempt: it neither counts nor breaks.
+
+Two rules, two reason texts. A REPEAT (needs `repeatedFindingRounds`, default null = off) matches when each of the latest N attempts has the same finding identity, or a finding in the same file with a line within `REPEAT_LINE_WINDOW` (15, a constant, no manifest key) of the latest one. A finding with no line matches by identity only. The identity hashes file and title, and the reviewer rewords titles, so the line window catches the repeat the identity misses. Reason: `Review keeps reporting the same problem at <file>:<line> (<n> rounds).` plus the design-problem hint. A SAME-FILE streak (`sameFileRounds`, default 5) means the latest attempts all hit one file, which on a small ticket is often different bugs. Reason: `Review keeps finding new problems in <files> (<n> rounds).` with no design-problem hint. The repeat reason wins when both match. An explicit manifest value always wins over the defaults.
+END_DOC_BLOCK: [@arch:REVIEW-STALL]
+
 ## [@arch:EVIDENCE-STATE] Evidence is not the current state
 
 Every evidence table — `gate_runs`, `process_runs`, `review_findings`,

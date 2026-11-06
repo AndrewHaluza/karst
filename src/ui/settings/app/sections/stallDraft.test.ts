@@ -20,7 +20,7 @@ describe('stallDetection draft', () => {
     expect(next.review).toMatchObject({
       maxFixAttempts: 5,
       openChanges: true,
-      stallDetection: { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null },
+      stallDetection: { enabled: false, sameFileRounds: 5, repeatedFindingRounds: null },
     });
   });
   it('flags values the host validator would refuse', () => {

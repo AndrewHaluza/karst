@@ -38,8 +38,17 @@ describe('review stall — park and the three answers', () => {
       recoveryTrigger: {
         sourceProcessId: 'review', sourceStageRunId: evidence.runId, sourceProcessRunId: null,
         triggerKind: 'blocking-review-findings', triggerDetail: 'blocking review findings', maxRounds: 5,
-        stall: { config: { ...REVIEW_STALL_DETECTION_DEFAULTS, enabled }, blockingSeverity: 'high' },
+        stall: { config: { ...REVIEW_STALL_DETECTION_DEFAULTS, sameFileRounds: 3, enabled }, blockingSeverity: 'high' },
       },
+    });
+  }
+  /** One review run that finds nothing blocking and passes. */
+  function cleanReview(n: number) {
+    const runAt = `2026-07-30T10:00:0${n}.000Z`;
+    const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
+    commitGateOutcome(store, {
+      ticketId: id, stageKey: 'review', runAt, artifactPath: '', gates: [], stageRunId: evidence.runId,
+      now: () => runAt, findings: [], outcome: { kind: 'verdict', verdict: { kind: 'passed' } },
     });
   }
   const backToReview = () => {
@@ -57,10 +66,23 @@ describe('review stall — park and the three answers', () => {
     const block = stageBlock(store, id, 'fix');
     expect(block?.kind).toBe('review-stalled');
     expect(block?.reason).toBe(
-      `Review keeps finding new problems in ${D159} (3 rounds) — likely a design problem, not a bug.`,
+      `Review keeps finding new problems in ${D159} (3 rounds).`,
     );
     expect(listRecoveryRounds(store, id)).toHaveLength(2);
     expect(getTicket(store, id).stageCurrent).toBe('fix');
+  });
+
+  it('a clean review run between two blocking runs resets the same-file streak', () => {
+    failReview(1, [D159]);
+    backToReview();
+    failReview(2, [D159]);
+    backToReview();
+    cleanReview(3);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'again' });
+    transition(store, id, 'fix', { kind: 'passed' });
+    transition(store, id, 'uat', { kind: 'passed' });
+    failReview(4, [D159]);
+    expect(stageBlock(store, id, 'fix')).toBeNull();
   });
 
   it('never parks while findings move to different files', () => {
