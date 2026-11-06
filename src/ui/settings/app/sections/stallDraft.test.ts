@@ -8,26 +8,26 @@ describe('stallDetection draft', () => {
   it('reads defaults for an absent block', () => {
     expect(readStallDetection(draftOf())).toEqual({
       enabled: true,
-      sameFileRounds: 3,
+      sameFileRounds: 5,
       repeatedFindingRounds: null,
     });
   });
-  it('clamps the default sameFileRounds to a smaller maxFixAttempts', () => {
-    expect(readStallDetection(draftOf({ maxFixAttempts: 2 })).sameFileRounds).toBe(2);
+  it('keeps the default sameFileRounds at 5 under a smaller maxFixAttempts', () => {
+    expect(readStallDetection(draftOf({ maxFixAttempts: 2 })).sameFileRounds).toBe(5);
   });
   it('patches over defaults and keeps siblings', () => {
     const next = updateStallDetection(draftOf({ maxFixAttempts: 5, openChanges: true }), { enabled: false });
     expect(next.review).toMatchObject({
       maxFixAttempts: 5,
       openChanges: true,
-      stallDetection: { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null },
+      stallDetection: { enabled: false, sameFileRounds: 5, repeatedFindingRounds: null },
     });
   });
   it('flags values the host validator would refuse', () => {
     const review = { maxFixAttempts: 4 };
     expect(stallErrors({ enabled: true, sameFileRounds: 3, repeatedFindingRounds: null }, review.maxFixAttempts)).toEqual({});
     expect(stallErrors({ enabled: true, sameFileRounds: 0, repeatedFindingRounds: 5 }, 4)).toEqual({
-      sameFileRounds: 'Enter a whole number from 1 to 4.',
+      sameFileRounds: 'Enter a whole number of 1 or more.',
       repeatedFindingRounds: 'Enter a whole number from 1 to 4, or leave blank.',
     });
     expect(stallErrors({ enabled: true, sameFileRounds: 1.5, repeatedFindingRounds: null }, 4).sameFileRounds).toBeDefined();

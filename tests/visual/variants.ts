@@ -297,7 +297,7 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
-  qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 9, repeatedFindingRounds: 0 }),
+  qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
 ];
 
 // ----------------------------------------------------------------- others
