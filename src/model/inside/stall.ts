@@ -25,12 +25,22 @@ function attemptsOf(findings: readonly Finding[], threshold: Severity | 'none'):
     if (!isBlockingSeverity(f.severity, threshold)) continue;
     byAttempt.set(f.attempt, [...(byAttempt.get(f.attempt) ?? []), f]);
   }
-  return [...byAttempt.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([attempt, rows]) => ({
+  const sorted = [...byAttempt.entries()].sort(([a], [b]) => a - b);
+  // The attempt counter climbs on every failed review verdict, so a number
+  // missing between two blocking attempts is a round with no blocking finding:
+  // an empty attempt that breaks the streak, as the guard reads it.
+  return sorted.flatMap(([attempt, rows], i) => {
+    const prev = i === 0 ? attempt : sorted[i - 1]![0];
+    const clean = Array.from({ length: Math.max(0, attempt - prev - 1) }, (_, k) => ({
+      attempt: prev + 1 + k,
+      findings: [],
+    }));
+    const own = {
       attempt,
       findings: rows.map((r) => ({ file: r.file, line: r.line, identity: r.identity ?? null })),
-    }));
+    };
+    return [...clean, own];
+  });
 }
 
 /** Pure: the stall picture for the review findings, or `undefined` when there is nothing to show. */

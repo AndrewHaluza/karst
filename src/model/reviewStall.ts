@@ -20,7 +20,7 @@ export interface ReviewStall {
   /** Identities that recur in the latest attempts (0 when repeats are not tracked). */
   repeatedIdentities: number;
   /** The problem the latest attempts repeat (identity or line match), or null. */
-  repeat: { file: string; line: number | null } | null;
+  repeat: { file: string | null; line: number | null } | null;
   reason: string;
 }
 
@@ -68,7 +68,8 @@ export function evaluateReviewStall(
   if (repeat !== null) {
     const repeatRounds = cfg.repeatedFindingRounds ?? rounds;
     rounds = files[0]?.roundsHit ?? repeatRounds;
-    const at = repeat.line === null ? repeat.file : `${repeat.file}:${repeat.line}`;
+    const file = repeat.file ?? '(no file)';
+    const at = repeat.line === null ? file : `${file}:${repeat.line}`;
     reason = `Review keeps reporting the same problem at ${at} (${repeatRounds} rounds). This is likely a design problem, not a bug.`;
   }
   return { rounds, files, repeatedIdentities: repeated, repeat, reason };
@@ -78,16 +79,16 @@ export function evaluateReviewStall(
 function repeatedProblem(
   attempts: readonly StallAttempt[],
   r: number | null,
-): { file: string; line: number | null } | null {
+): { file: string | null; line: number | null } | null {
   if (r === null || attempts.length < r) return null;
   const window = attempts.slice(-r);
   const latest = window[window.length - 1]!;
   const others = window.slice(0, -1);
   for (const f of latest.findings) {
-    if (f.file === null) continue;
     const sameIdentity =
       f.identity !== null && others.every((a) => a.findings.some((g) => g.identity === f.identity));
     const sameLine =
+      f.file !== null &&
       typeof f.line === 'number' &&
       others.every((a) =>
         a.findings.some(

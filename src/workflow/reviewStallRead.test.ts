@@ -49,17 +49,26 @@ describe('reviewStallAttempts', () => {
   });
 
   describe('review runs', () => {
-    const run = (attempt: number, status: string, outcome: string | null) =>
-      store.db
+    const run = (attempt: number, status: string, outcome: string | null, reviewerPassed = false) => {
+      const { lastInsertRowid } = store.db
         .prepare(
           `INSERT INTO stage_runs (ticket_id, stage_key, attempt, run_at, status, outcome, started_at)
            VALUES (?, 'review', ?, ?, ?, ?, '2026-01-01T00:00:00Z')`,
         )
         .run(ticketId, attempt, `2026-01-01T00:00:0${attempt}Z`, status, outcome);
+      if (reviewerPassed) {
+        store.db
+          .prepare(
+            `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, stage_run_id, status, started_at)
+             VALUES (?, 'review', 'review', ?, ?, 'passed', '2026-01-01T00:00:00Z')`,
+          )
+          .run(ticketId, attempt, lastInsertRowid);
+      }
+    };
 
     it('a finished run without blocking findings is an empty attempt in order', () => {
       put(1, f());
-      run(2, 'finished', 'advanced');
+      run(2, 'finished', 'advanced', true);
       put(3, f());
       const out = reviewStallAttempts(store, ticketId, 'high');
       expect(out.map((a) => [a.attempt, a.findings.length])).toEqual([[1, 1], [2, 0], [3, 1]]);
@@ -69,6 +78,24 @@ describe('reviewStallAttempts', () => {
       run(2, 'stale', null);
       run(3, 'finished', 'blocked');
       run(4, 'finished', 'stopped');
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
+    });
+    it('a finished run whose reviewer never ran (red gate) is not a clean round', () => {
+      put(1, f());
+      run(2, 'finished', 'advanced', false);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
+    });
+    it('a rerun whose attempt still holds kept sibling findings is not a clean round', () => {
+      put(1, f());
+      run(1, 'finished', 'advanced', true);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => [a.attempt, a.findings.length])).toEqual([[1, 1]]);
+    });
+    it('findings of a stale or blocked run do not enter the attempts', () => {
+      put(1, f());
+      put(2, f());
+      put(3, f());
+      run(2, 'stale', null);
+      run(3, 'finished', 'blocked');
       expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
     });
     it('carries the finding line', () => {

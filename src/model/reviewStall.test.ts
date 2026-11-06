@@ -80,6 +80,11 @@ describe('evaluateReviewStall', () => {
       expect(evaluateReviewStall([at(1, R, null, 'a'), at(2, R, null, 'b')], c)).toBeNull();
       expect(evaluateReviewStall([at(1, R, null, 'a'), at(2, R, null, 'a')], c)?.reason).toContain(`at ${R} (2 rounds)`);
     });
+    it('a repeated identity on a finding with no file still parks', () => {
+      const nf = (n: number): StallAttempt => ({ attempt: n, findings: [{ file: null, line: null, identity: 'same' }] });
+      const stall = evaluateReviewStall([nf(1), nf(2)], { ...rep, repeatedFindingRounds: 2 });
+      expect(stall?.reason).toContain('same problem at (no file) (2 rounds)');
+    });
     it('does not match across different files', () => {
       expect(evaluateReviewStall([at(1, 'a.ts', 10, 'a'), at(2, 'b.ts', 10, 'b')], { ...rep, repeatedFindingRounds: 2 })).toBeNull();
     });

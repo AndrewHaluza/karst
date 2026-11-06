@@ -5,6 +5,7 @@ import { transition } from './machine.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome } from './gates/commit.js';
 import { getTicket } from '../store/tickets.js';
+import { openProcessRun, finishProcessRun } from '../store/processRuns.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listRecoveryRounds } from '../store/recoveryRounds.js';
 import { REVIEW_STALL_DETECTION_DEFAULTS } from '../manifest/qualityDefaults.js';
@@ -25,9 +26,16 @@ describe('review stall — park and the three answers', () => {
   afterEach(() => store.close());
 
   /** One failing review run with the given blocking findings; returns after the commit. */
-  function failReview(n: number, files: string[], enabled = true) {
+  function failReview(n: number, files: string[], enabled = true, reviewerRan = files.length === 0) {
     const runAt = `2026-07-30T10:00:0${n}.000Z`;
     const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
+    if (reviewerRan) {
+      const attempt = getTicket(store, id).stages.find((x) => x.stageKey === 'review')?.attempt ?? 0;
+      const pr = openProcessRun(store, {
+        ticketId: id, stageKey: 'review', processId: 'review', attempt, stageRunId: evidence.runId, startedAt: runAt,
+      });
+      finishProcessRun(store, pr.id, 'passed', runAt);
+    }
     commitGateOutcome(store, {
       ticketId: id, stageKey: 'review', runAt, artifactPath: '', gates: [], stageRunId: evidence.runId,
       now: () => runAt,
@@ -72,6 +80,17 @@ describe('review stall — park and the three answers', () => {
     backToReview();
     failReview(4, [D159]);
     expect(stageBlock(store, id, 'fix')).toBeNull();
+  });
+
+  it('a review run with a red gate, where the reviewer never ran, does not reset the streak', () => {
+    failReview(1, [D159]);
+    backToReview();
+    failReview(2, [D159]);
+    backToReview();
+    failReview(3, [], true, false);
+    backToReview();
+    failReview(4, [D159]);
+    expect(stageBlock(store, id, 'fix')?.kind).toBe('review-stalled');
   });
 
   it('never parks while findings move to different files', () => {

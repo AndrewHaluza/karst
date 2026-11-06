@@ -44,4 +44,8 @@ describe('stallView', () => {
   it('ignores non-blocking findings', () => {
     expect(stallView([f(1, 'a.ts', 'x', 'low'), f(2, 'a.ts', 'y', 'low')], 'high', cfg)).toBeUndefined();
   });
+  it('an attempt number with no blocking finding between two blocking attempts breaks the streak', () => {
+    const rows = [f(1, 'a.ts', 'x'), f(2, 'a.ts', 'y'), f(4, 'a.ts', 'z')];
+    expect(stallView(rows, 'high', cfg)).toBeUndefined();
+  });
 });
