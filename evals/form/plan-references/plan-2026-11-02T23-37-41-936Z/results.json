@@ -1,0 +1,210 @@
+{
+  "meta": {
+    "startedAt": "2026-11-02T23:37:41.936Z",
+    "pass": "plan",
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "judgeModel": "claude-sonnet-5-5",
+    "provider": "claude",
+    "judgeProvider": "claude",
+    "judgeEffort": "high"
+  },
+  "results": [
+    {
+      "caseId": "vuejs/core:pr-8470",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(compiler-sfc): keep call signatures from extended interfaces in defineEmits",
+          "description": "defineEmits<ComponentEmits>() drops the events of a base interface when ComponentEmits extends it. The compiled emits option lists only the events of the child interface. In DEV, Vue warns that 'input-event' and 'change-event' are not declared. In prod, the events are not set up.\n\nRoot cause: packages/compiler-sfc/src/script/resolveType.ts, function resolveInterfaceMembers. For each `extends` entry it resolves the base type but keeps only `props` (`const { props } = resolveTypeElements(...)`). It discards `calls`, which hold the call signatures `(e: 'x', ...): void` that defineEmits reads.\n\nFix: in resolveInterfaceMembers, also append the `calls` of each resolved base type to `base.calls` (create the array when it is missing). Do not change other functions.\n\nTest: add a case in packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts (or resolveType.spec.ts) where `interface Emits extends Base` and Base declares call signatures; assert that the emits output contains the base and child event names.",
+          "summary": "Decision: fix the root cause in resolveInterfaceMembers (resolveType.ts) so it merges `calls` of extended interfaces, the same way it merges `props`. Rejected: a workaround in defineEmits.ts (extractRuntimeEmits) — the data is already lost upstream in type resolution. Rejected: the /* @vue-ignore */ escape — that makes events fallthrough, not declared. Scope: only this merge plus one regression test; no refactor.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "Root cause: packages/compiler-sfc/src/script/resolveType.ts resolveInterfaceMembers drops `calls` from extends",
+            "Test must check: defineEmits<E>() with `interface E extends Base` emits ['base-event', ..., 'child-event'] (base call signatures included)",
+            "Test must check: the child interface own call signatures stay in the output",
+            "a989345"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 8,
+        "outputTokens": 1948,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 124005,
+        "cacheWriteTokens": 27481,
+        "totalTokens": 153442,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 34.716,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 106,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10153,
+          "cacheWriteTokens": 24825,
+          "totalTokens": 35086,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-9213",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(runtime-core): toggle between slot content and slot fallback when slot content uses v-if",
+          "description": "Root cause: packages/runtime-core/src/helpers/renderSlot.ts. The renderSlot function gives the slot Fragment the same key (`_${name}`) for the provided content and for the fallback content. When the `v-if` in the slot content changes, ensureValidVNode switches between the content and the fallback. Because the key and the type do not change, the renderer patches the old Fragment in place. The provided content uses PatchFlags.STABLE_FRAGMENT with dynamicChildren, so the patch compares only the dynamic children and does not replace the content with the fallback (or the reverse). Fix: give the fallback Fragment a different key, for example `_${name}` + (!validSlotContent && fallback ? '_fb' : ''), so that the renderer unmounts the old Fragment and mounts the new one. Keep the props.key and the createSlots branch key behavior unchanged. Add a test in packages/runtime-core/__tests__/helpers/renderSlot.spec.ts or the component slots spec.",
+          "summary": "Decision: change the Fragment key in renderSlot for the fallback case only. Rejected: change the patch flag to BAIL for all slots (removes the stable-fragment optimization; it is not the root cause). Rejected: compiler change (the compiled output is correct; the runtime key collision causes the bug). No docs/arch files exist in the repo; no other drafts exist.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "dadb363",
+            "Root cause file: packages/runtime-core/src/helpers/renderSlot.ts (fallback and content share key _<name>)",
+            "Test must check: parent slot content <div v-if=\"show\">content</div>, child <slot>fallback</slot>; show=true renders 'content'",
+            "Test must check: after show=false and nextTick, the child renders 'fallback'; after show=true again, it renders 'content'"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 9,
+        "outputTokens": 2501,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 164083,
+        "cacheWriteTokens": 27976,
+        "totalTokens": 194569,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 47.405,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "The gold fix marks the slot vnode with an `isSlotFallback` flag (set in renderSlot, declared in vnode.ts) and makes processFragment in renderer.ts unmount the old fragment when the flag changes. The drafts use a different fallback key and never touch renderer.ts or vnode.ts. This covers the same cases only if the key is not user-supplied."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "partial",
+        "f2pCoverage": [
+          {
+            "test": "packages/runtime-core/__tests__/components/Suspense.spec.ts > Suspense > nested suspense (w/ suspensible) switch several times before parent suspense resolve",
+            "coverage": "partial"
+          },
+          {
+            "test": "packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts > renderer: optimized mode > diff slot and slot fallback node",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 967,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10153,
+          "cacheWriteTokens": 25471,
+          "totalTokens": 36593,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23806",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[useMediaQuery] Return the real match on the first render after hydration",
+          "description": "Root cause: packages/material-ui/src/useMediaQuery/useMediaQuery.js, the React.useState initializer. It calls matchMedia(query) only when noSsr is true. Without noSsr, each new hook instance returns defaultMatches (or ssrMatchMedia) on its first render, also long after the page hydrated. The useEffect then corrects the value, so each mount renders twice with a wrong first value.",
+          "summary": "Decision: add a module-level flag in useMediaQuery.js (for example hydrationCompleted). Set the flag to true in the hook's useEffect after the first mount. In the useState initializer, call matchMedia(query).matches when (noSsr || hydrationCompleted) && supportMatchMedia. Keep the ssrMatchMedia/defaultMatches path for the first (hydration) render. Keep the existing useEffect listener logic. Add one test in useMediaQuery.test.js. Rejected: change the noSsr default to true (breaks SSR hydration match). Rejected: a new provider or context to report hydration (the issue does not ask for new API; larger change). Rejected: docs-only change (does not fix the behavior). No arch docs exist in this repo (docs/arch is absent).",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "Root cause file: packages/material-ui/src/useMediaQuery/useMediaQuery.js (useState initializer ignores matchMedia unless noSsr)",
+            "Test must check: after one useMediaQuery component mounted, a newly mounted component with noSsr=false gets the matchMedia value on its FIRST render (render count/values: no defaultMatches pass)",
+            "Test must check: the first render before any mount (hydration) still returns defaultMatches/ssrMatchMedia",
+            "21b4e26"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 6,
+        "outputTokens": 1740,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 86655,
+        "cacheWriteTokens": 27489,
+        "totalTokens": 115890,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 32.805,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "Replace React.useEffect with useEnhancedEffect (import from ../utils/useEnhancedEffect) in useMediaQuery.js, so the media query value is corrected before paint on the client. The drafts keep the existing useEffect."
+          },
+          {
+            "item": "Add a 'Client-side only rendering' section to use-media-query.md. It explains the double render and shows the noSsr option, both per call and globally through the theme's MuiUseMediaQuery defaultProps."
+          },
+          {
+            "item": "Reword the options.noSsr description in the docs. The first render returns false, the server value, and the second render returns the resolved value. Set noSsr to true for client-side only rendering."
+          }
+        ],
+        "unrequested": [
+          {
+            "change": "Add a module-level hydrationCompleted flag, set in the hook's effect. In the useState initializer, call matchMedia when (noSsr || hydrationCompleted) is true.",
+            "file": "packages/material-ui/src/useMediaQuery/useMediaQuery.js",
+            "why": "The gold fix does not change the useState initializer or add shared module state. It only switches the effect to useEnhancedEffect and updates the docs. The flag also persists across hook instances and tests."
+          }
+        ],
+        "reviewFix": [],
+        "verdict": "diverges",
+        "f2pCoverage": [
+          {
+            "test": "useMediaQuery server-side should use the ssr match media ponyfill",
+            "coverage": "none"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 908,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 10153,
+          "cacheWriteTokens": 25778,
+          "totalTokens": 36841,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    }
+  ]
+}

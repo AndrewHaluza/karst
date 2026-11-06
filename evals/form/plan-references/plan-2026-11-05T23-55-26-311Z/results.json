@@ -1,0 +1,410 @@
+{
+  "meta": {
+    "startedAt": "2026-11-05T23:55:26.311Z",
+    "pass": "plan",
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "judgeModel": "claude-sonnet-5-5",
+    "provider": "claude",
+    "judgeProvider": "claude",
+    "judgeEffort": "high"
+  },
+  "results": [
+    {
+      "caseId": "vuejs/core:pr-8470",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(compiler-sfc): keep call signatures from extended interfaces in defineEmits",
+          "description": "Root cause: `resolveInterfaceMembers` in `packages/compiler-sfc/src/script/resolveType.ts` (line 337) reads only `props` from each `extends` base type. It discards `calls`. Thus, `extractRuntimeEmits` in `packages/compiler-sfc/src/script/defineEmits.ts` does not receive the call signatures of the base interface, and the compiled `emits` option does not include the base events.\n\nFix: In the `extends` loop of `resolveInterfaceMembers`, also read `calls` from the result of `resolveTypeElements`. Append these calls to `base.calls`. Create `base.calls` if it does not exist. Do not change the merge of `props`.\n\nTest: Add one test to `packages/compiler-sfc/__tests__/compileScript/resolveType.spec.ts`, next to the `reference interface extends` test.",
+          "summary": "Decision: Fix the defect in `resolveInterfaceMembers`, because that function drops the `calls` value. `mergeElements` in the same file already keeps `calls` for union and intersection types. Rejected: A change in `defineEmits.ts`, because that file correctly reads `calls` and receives an incomplete result. Rejected: A runtime change in runtime-core, because the Vue warning is a correct result of the incomplete `emits` option that the compiler generates. Not verified: I did not run the reproduction or the tests in this session. The cause comes from code inspection. The linked reproduction was not opened. Out of scope: The `defineEmits` error for a mix of call signatures and property syntax stays unchanged.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "Test must check: for `interface Base { (e: 'foo'): void }` and `interface Emits extends Base { (e: 'bar'): void }`, `resolve()` returns 2 `calls` for `defineEmits<Emits>()`.",
+            "Test must fail before the fix, and pass after the fix.",
+            "Root cause file: packages/compiler-sfc/src/script/resolveType.ts, function resolveInterfaceMembers.",
+            "a989345",
+            "No docs/arch files exist in this repo, so no @arch key applies."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 16,
+        "outputTokens": 3364,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 294093,
+        "cacheWriteTokens": 35980,
+        "totalTokens": 333453,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 64.706,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 106,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 24247,
+          "totalTokens": 36789,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-8785",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(compiler-core): resolve member expression component tags from props bindings",
+          "description": "Root cause: packages/compiler-core/src/transforms/transformElement.ts. In script setup, `<info.icon />` does not render the component when `info` is a prop. resolveSetupReference() checks only the SETUP_* and LITERAL_CONST binding types. It does not check BindingTypes.PROPS, so the dot branch of resolveComponentType() (step 3) does not find a namespace. The tag then goes to step 5 and resolveComponent('info.icon') receives the full tag. That call finds no component and returns the tag string, so the output is `<info.icon></info.icon>`.\n\nFix: In the dot branch of resolveComponentType(), resolve a namespace with the PROPS binding type. Generate `_unref(__props[\"info\"]).icon` in inline mode. Generate `_unref($props[\"info\"]).icon` in non-inline mode. Register the UNREF helper with context.helperString. Keep the camelCase and PascalCase name match of resolveSetupReference().\n\nAdd the tests to packages/compiler-core/__tests__/transforms/transformElement.spec.ts, next to the current `<Foo.Example/>` tests.",
+          "summary": "Decisions:\n- Fix the compiler, not the runtime. `<abc.icon />` (a setup binding) and `<props.info.icon />` already render, so only the props lookup is missing.\n- SSR needs no separate change. ssrTransformComponent.ts calls the same resolveComponentType().\n- Use the PROPS lookup for dotted tags only. If the lookup also applied to tags with no dot, a prop `title` would replace a registered global component `<Title />`. The issue does not ask for that change.\n- Use unref on the prop value, the same as the handling of bindings that can be refs.\n\nRejected:\n- Tell users to write `<props.info.icon />` or `<component :is>`. This is a workaround and the issue reports it as the condition that works.\n- Change resolveComponent in runtime-core. The runtime has no binding data.\n- Add PROPS_ALIASED (destructured alias) support. The issue does not ask for it.\n\nEvidence and limits:\n- I decoded the reproduction from the playground link and read the code path. I did not run the reproduction or the tests, because the checkout has no node_modules.\n- The repository has no docs/arch directory, so this draft cites no @arch key. The session has no other drafts or ticket worktrees.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "fc772db",
+            "Test: `<Foo.Example/>` with bindingMetadata {Foo: BindingTypes.PROPS} and inline: false must give tag `_unref($props[\"Foo\"]).Example`.",
+            "Test: `<Foo.Example/>` with bindingMetadata {Foo: BindingTypes.PROPS} and inline: true must give tag `_unref(__props[\"Foo\"]).Example`.",
+            "Behavior to keep: `<Foo/>` with no dot and a PROPS binding must still use resolveComponent.",
+            "Behavior to keep: the current `<Foo.Example/>` tests for setup bindings must pass without a change."
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 5873,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 201354,
+        "cacheWriteTokens": 37318,
+        "totalTokens": 244557,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 79.667,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "The gold change is in resolveSetupReference(), so PROPS bindings also resolve for non-dotted component tags (step 4 lookup). Draft 1 explicitly limits the PROPS lookup to dotted tags. The gold's extra behavior for plain tags is not requested. The failing tests only check dotted tags."
+          }
+        ],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+            "coverage": "covered"
+          },
+          {
+            "test": "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 1033,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 25529,
+          "totalTokens": 38998,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "vuejs/core:pr-9213",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "fix(runtime-core): give slot fallback content a different fragment key in renderSlot",
+          "description": "Root cause file: packages/runtime-core/src/helpers/renderSlot.ts.\n\nThe renderSlot function uses the same Fragment key (`_${name}`) for provided slot content and for fallback content. When a compiled stable slot changes from a v-if comment to a real element, the renderer treats the old fallback Fragment and the new slot Fragment as the same vnode type (isSameVNodeType in vnode.ts). The new Fragment has the STABLE_FRAGMENT flag, so processFragment in renderer.ts calls patchBlockChildren and compares the two dynamicChildren lists by index.\n\nThese lists do not match. The old list contains the slot v-if comment, which was never mounted because ensureValidVNode rejected it, and then the fallback v-if vnode. The new list contains the slot element only. The patch therefore does not replace the fallback content.\n\nFix: add a suffix to the Fragment key when renderSlot uses the fallback, so that a change between the two content types unmounts the old Fragment and mounts the new Fragment.",
+          "summary": "Decisions:\n- Change the key computation in renderSlot only. Append `_fb` to the key when `!validSlotContent && fallback`.\n- Keep the existing key sources: props.key, then the createSlots branch key, then `_${name}`.\n- A string concatenation throws a TypeError for a symbol key. Use `_${name}` as the base key when the resolved key is a symbol.\n- Add one regression test in packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts. Build the slot and the fallback as compiled-style blocks with openBlock, createBlock and renderSlot, because the fault occurs only in optimized mode.\n\nRejected options:\n- Change the patch flag to BAIL when the previous vnode used the fallback: renderSlot does not have the previous vnode.\n- Add a check in processFragment or patchBlockChildren: the renderer cannot identify the mismatch, and the check adds cost to each block patch.\n- Stop the tracking of the slot call in the block: the change does not stop the same-key patch between different content.\n- Change the compiler output: the fault is in the runtime key, and the compiled output is correct.\n\nEvidence limits:\n- The reproduction was decoded from the issue link: Container.vue has `<slot><div v-if=\"showChildren\">Fallback Content</div></slot>`, and App.vue passes `<div v-if=\"show\">Provided Content</div>` with `:show-children=\"!show\"`.\n- The root cause comes from a read of the code. The checkout has no node_modules, so the failure was not run. Run the new test before the fix and confirm that it fails.",
+          "repos": [
+            "core"
+          ],
+          "constraints": [
+            "Test: a stable slot has a v-if and the fallback has an opposite v-if. Toggle true shows only the provided content.",
+            "Test: toggle back to false shows only the fallback content. Toggle again to confirm that each change gives the correct DOM.",
+            "No docs/arch directory exists in this checkout, so no @arch key applies.",
+            "dadb363"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 6374,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 191918,
+        "cacheWriteTokens": 34543,
+        "totalTokens": 232845,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 85.811,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [
+          {
+            "change": "Handle a symbol key by falling back to `_${name}` as the base key before the `_fb` suffix is appended.",
+            "file": "packages/runtime-core/src/helpers/renderSlot.ts",
+            "why": "The gold patch does not compute a key suffix, so it has no symbol-key case. This guard is a side effect of the drafts' different approach."
+          }
+        ],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "packages/runtime-core/__tests__/components/Suspense.spec.ts > Suspense > nested suspense (w/ suspensible) switch several times before parent suspense resolve",
+            "coverage": "partial"
+          },
+          {
+            "test": "packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts > renderer: optimized mode > diff slot and slot fallback node",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 968,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 25305,
+          "totalTokens": 38709,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23778",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[Select] Set the disabled attribute on the native input when Select is disabled",
+          "description": "Root cause: packages/material-ui/src/Select/SelectInput.js. SelectInput removes `disabled` from its props at line 38. Thus `{...other}` does not give `disabled` to the hidden `<input>` at line 397. The `disabled` value only sets aria-disabled, classes and handlers on the display div and the icon.\n\nWork:\n1. In SelectInput.js, add `disabled={disabled}` to the `<input>` element.\n2. In packages/material-ui/src/Select/Select.test.js, add the test that the constraints specify.\n\nThis also makes `<TextField select disabled />` correct, because TextField renders Select. A browser does not submit the value of a disabled input in a form, and this is the behavior that the issue asks for.",
+          "summary": "Decisions: Fix the cause in SelectInput.js with one attribute on the hidden input. Keep aria-disabled and the classes on the display div, because the existing tests and assistive technology use them.\n\nRejected: A change in TextField, because the defect is in SelectInput and also occurs with a standalone Select. A change that removes aria-disabled from the div, because the div has role=\"button\" and needs this state, and the issue does not ask for this change. A refactor of the prop flow, because the issue does not need it.\n\nChecks: The repository has no docs/arch or docs/ui directories, so no @arch or @ui keys apply. `draft list` showed no drafts, and no ticket worktrees exist. The local `main` ref does not exist, so the history check used HEAD. The fix was not run in this planning session.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "Test: <Select disabled value=\"\" /> renders an <input> element that has the disabled attribute. Find it with container.querySelector('input'), because the input is aria-hidden.",
+            "Test: <Select disabled={false} value=\"\" /> renders an <input> element that does not have the disabled attribute.",
+            "Existing aria-disabled tests in Select.test.js must continue to pass without change.",
+            "4f6c184"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 2760,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 180010,
+        "cacheWriteTokens": 29074,
+        "totalTokens": 211856,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 42.017,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 107,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 24117,
+          "totalTokens": 36660,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-24010",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[system] Apply style() transform to function and array theme mappings",
+          "description": "Root cause: in packages/material-ui-system/src/style.js, getValue() calls transform only in the final else branch (object theme mapping). When theme[themeKey] is a function or an array, getValue() returns the mapped value and does not call transform. The issue reproduces this with themeKey 'spacing', because theme.spacing is a function or an array.\n\nWork: In getValue() in packages/material-ui-system/src/style.js, move the `if (transform)` block out of the else branch, so that it runs after all three branches. Add the regression test to packages/material-ui-system/src/style.test.js.\n\nDo not change other files.",
+          "summary": "Decisions: Fix the branch structure in getValue(), because that is the root cause. transform receives the value that the theme mapping resolves, as the object branch does now. This matches the piece of closed PR #16439 that the issue cites.\n\nRejected: (1) A workaround in the user's theme or in a custom style function, because the defect stays in style(). (2) A call to transform on the raw prop value before the theme lookup, because this changes the existing object-mapping contract. (3) A refactor of the fallback lookup in style(), because the issue does not ask for it.\n\nChecked by code reading, not by a test run: built-in transforms in borders.js, sizing.js and display.js use the same getValue() path. The existing test with a function theme mapping (`borders: (value) => ...`) and a transform expects '4px solid'. That result does not change if the transform returns strings unchanged, as the transform in that test does. Function or array values for theme.borders now also go through getBorder; a numeric result becomes '<n>px solid'. No docs/arch directory exists in this repository, so no @arch key applies. `draft list` shows no other drafts, and .karst/worktrees shows no open ticket worktrees.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "Test: style() with transform and a function theme mapping returns transform(themeMapping(propValue)) in the CSS output.",
+            "Test: style() with transform and an array theme mapping returns transform(themeMapping[propValue]) in the CSS output.",
+            "Test: the array fallback also goes through transform when the index is missing from the theme array.",
+            "Existing style.test.js cases must still pass, which includes the object mapping and the no-theme transform.",
+            "3506dda"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 3455,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 193333,
+        "cacheWriteTokens": 34130,
+        "totalTokens": 230930,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 49.512,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [],
+        "unrequested": [],
+        "reviewFix": [],
+        "verdict": "matches",
+        "f2pCoverage": [
+          {
+            "test": "/home/material-ui/packages/material-ui-system/src/style.test.js:style should transform the property correctly using theme",
+            "coverage": "covered"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 92,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 24604,
+          "totalTokens": 37132,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    },
+    {
+      "caseId": "mui/material-ui:pr-23806",
+      "model": "claude-opus-5-5",
+      "status": "ok",
+      "drafts": [
+        {
+          "title": "[useMediaQuery] Read the real match value at first render after hydration",
+          "description": "Root cause: the `React.useState` initializer in `packages/material-ui/src/useMediaQuery/useMediaQuery.js` reads `matchMedia` only when `noSsr` is true. Without `noSsr`, each mount returns `defaultMatches` (or the `ssrMatchMedia` result) at the first render. The hook corrects the value only in `useEffect`. The hook thus does the hydration double render for each mount, also when no hydration can occur.\n\nWork:\n1. In `useMediaQuery.js`, add a private module-level flag `hydrationCompleted`, with the initial value false.\n2. In the existing `useEffect`, set the flag to true after the `supportMatchMedia` check.\n3. Change the initializer condition to `(noSsr || hydrationCompleted) && supportMatchMedia`.\n4. Add `export function testReset()` to `useMediaQuery.js`. Do not export it from `useMediaQuery/index.js`.\n5. In `useMediaQuery.test.js`, call `testReset()` in a `beforeEach`. Add the test in the constraints. Change the expected count in 'should try to reconcile each time', because the second mount now renders once.\n6. In `docs/src/pages/components/use-media-query/use-media-query.md`, update the `options.defaultMatches` and `options.noSsr` text: the default value applies only until the first `useMediaQuery` effect runs.",
+          "summary": "Decisions:\n- Fix the cause in the hook. The hook records that the hydration pass is complete, and later mounts read `matchMedia` at the first render. This is the `pastHydration` condition that the issue requests.\n- Set the flag in an effect. Effects do not run on the server, and all hooks in the hydration pass render before the first effect, so the first pass keeps the server value and hydration still matches.\n- Keep the flag private and add no public option. Use `testReset`, as `Tooltip.js:152` does, because the module state otherwise leaks between tests.\n\nRejected:\n- Default `noSsr` to true: this breaks hydration for SSR users.\n- Document the theme default prop `noSsr` only: this is a workaround and does not change the behavior.\n- A new provider or context to signal hydration: this adds public API that the issue does not need.\n\nKnown limits (accept these and state them in the PR):\n- The first mounted hooks of a client-only application still render twice, because the hook cannot detect client-only rendering before an effect runs. Applications that need one render from the start continue to set `noSsr`.\n- If a page calls `ReactDOM.hydrate` on a second root after effects of the first root ran, the second root reads the real value and a hydration mismatch can occur when that value differs from the server value. The issue names this partial hydration risk. Not verified by a run.\n\nCheck during implementation: `withWidth.test.js` indexes `matchMediaInstances`, and the later mounts now call `matchMedia` in the initializer. Run `withWidth` tests and the lab `ResponsiveWrapper` tests. Fix a failure only if the failure comes from this change.\n\nInvestigation limits: dependencies are not installed in the checkout, so no test ran and the bug was traced by reading the code. `main` does not resolve in this shallow checkout (HEAD is detached at 21b4e26), and the history has only that commit. The repository has no `docs/arch` directory, so this draft cites no @arch key. `draft list` showed no other drafts and no ticket worktrees exist.",
+          "repos": [
+            "material-ui"
+          ],
+          "constraints": [
+            "21b4e26",
+            "Root cause file: packages/material-ui/src/useMediaQuery/useMediaQuery.js (useState initializer)",
+            "Test must check: after a first mount's effect ran, a new mount with noSsr unset and defaultMatches:true returns the real matchMedia value at its first render and renders once",
+            "Test must check: the first mount with defaultMatches:true and no noSsr still returns the default at first render, then the real value (2 renders)",
+            "Precedent for test reset: Tooltip.js:152 testReset, called in Tooltip.test.js:39"
+          ]
+        }
+      ],
+      "invalid": [],
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 6265,
+        "reasoningTokens": 0,
+        "cacheReadTokens": 245411,
+        "cacheWriteTokens": 36228,
+        "totalTokens": 287916,
+        "model": "claude-opus-5-5",
+        "estimated": false
+      },
+      "seconds": 80.312,
+      "defects": [],
+      "judge": {
+        "ok": true,
+        "notDone": [
+          {
+            "item": "Replace React.useEffect with useEnhancedEffect (imported from ../utils/useEnhancedEffect) in useMediaQuery.js. The match state then updates synchronously, as a layout effect, on the client after the first render."
+          },
+          {
+            "item": "Add a 'Client-side only rendering' section to use-media-query.md. It explains the noSsr option and the global theme default through MuiUseMediaQuery defaultProps."
+          },
+          {
+            "item": "Rewrite the options.noSsr docs text. The new text says the hook renders twice: first with false, the server value, then with the resolved value. It also says to set noSsr for client-side only rendering."
+          }
+        ],
+        "unrequested": [
+          {
+            "change": "Add a module-level hydrationCompleted flag, set it in the effect, and change the useState initializer to (noSsr || hydrationCompleted) && supportMatchMedia",
+            "file": "packages/material-ui/src/useMediaQuery/useMediaQuery.js",
+            "why": "The gold does not change the initializer or add module state. It only makes the effect run synchronously. The flag adds shared module state and a possible hydration mismatch."
+          },
+          {
+            "change": "Export a testReset() function from useMediaQuery.js and call it in a beforeEach in the tests",
+            "file": "packages/material-ui/src/useMediaQuery/useMediaQuery.js",
+            "why": "The test-only reset is needed only because of the module flag. The gold has no module state."
+          },
+          {
+            "change": "Change the expected render count in 'should try to reconcile each time' and add a new test for the flag",
+            "file": "packages/material-ui/src/useMediaQuery/useMediaQuery.test.js",
+            "why": "These test changes follow from the flag behaviour, which the gold does not implement."
+          },
+          {
+            "change": "Check the withWidth and lab ResponsiveWrapper tests for breakage caused by the initializer change",
+            "file": "packages/material-ui/src/withWidth/withWidth.test.js",
+            "why": "This work exists only because of the out-of-scope initializer change."
+          }
+        ],
+        "reviewFix": [],
+        "verdict": "diverges",
+        "f2pCoverage": [
+          {
+            "test": "useMediaQuery server-side should use the ssr match media ponyfill",
+            "coverage": "none"
+          }
+        ],
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 1611,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 12434,
+          "cacheWriteTokens": 25937,
+          "totalTokens": 39984,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        }
+      }
+    }
+  ]
+}

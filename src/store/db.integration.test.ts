@@ -31,6 +31,7 @@ const EXPECTED_TABLES = [
   'baseline_refs',
   'baseline_pins',
   'fix_round_heads',
+  'gate_slots',
   'cloud_session_links',
   'servers',
   'prs',

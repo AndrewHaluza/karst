@@ -3927,3 +3927,36 @@ uat:
     }
   });
 });
+
+describe('sandboxLimits (sbx cpus, worker opt-out, gate slots)', () => {
+  const run = (extra: string): { value?: unknown; error?: string } => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}`);
+    try {
+      return { value: loadManifest(path).sandboxLimits };
+    } catch (err) {
+      return { error: (err as Error).message };
+    } finally {
+      cleanup();
+    }
+  };
+
+  it('is undefined when omitted or empty', () => {
+    expect(run('').value).toBeUndefined();
+    expect(run('sandboxLimits: {}\n').value).toBeUndefined();
+  });
+
+  it('parses every key, including gateSlots 0', () => {
+    expect(run('sandboxLimits:\n  cpus: 3\n  workers: false\n  gateSlots: 0\n').value).toEqual({ cpus: 3, workers: false, gateSlots: 0 });
+  });
+
+  it.each([['cpus: 0'], ['cpus: 1.5'], ['cpus: "2"']])('rejects %s', (line) => {
+    expect(run(`sandboxLimits:\n  ${line}\n`).error).toMatch(/sandboxLimits\.cpus must be a whole number/);
+  });
+
+  it('rejects a non-boolean workers, a negative gateSlots, an unknown key and a non-mapping', () => {
+    expect(run('sandboxLimits:\n  workers: "no"\n').error).toMatch(/sandboxLimits\.workers must be a boolean/);
+    expect(run('sandboxLimits:\n  gateSlots: -1\n').error).toMatch(/sandboxLimits\.gateSlots must be a whole number/);
+    expect(run('sandboxLimits:\n  nope: 1\n').error).toMatch(/sandboxLimits\.nope is not a known key/);
+    expect(run('sandboxLimits: 3\n').error).toMatch(/sandboxLimits must be a mapping/);
+  });
+});
