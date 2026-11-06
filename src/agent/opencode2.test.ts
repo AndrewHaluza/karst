@@ -35,6 +35,7 @@ import {
   renderOpencode2Bridge,
   writeOpencode2Bridge,
 } from './opencode2Bridge.js';
+import { projectEndpointKey } from './hookFailureLog.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { usageFromError } from './tokenUsage.js';
@@ -564,6 +565,15 @@ describe('renderOpencode2Bridge module shape', () => {
 });
 
 describe('writeOpencode2Bridge', () => {
+  it('reads the endpoint file of the launching project only, else the legacy file', () => {
+    const keyA = projectEndpointKey('proj-a');
+    const keyed = readFileSync(writeOpencode2Bridge(makeWorktree(), 'http://127.0.0.1:4567/hooks', '/cfg', undefined, keyA), 'utf8');
+    expect(keyed).toContain(`/cfg/opencode2/current-endpoint.${keyA}`);
+    const legacy = readFileSync(writeOpencode2Bridge(makeWorktree(), 'http://127.0.0.1:4567/hooks', '/cfg'), 'utf8');
+    expect(legacy).toContain('/cfg/opencode2/current-endpoint"');
+    expect(legacy).not.toContain('current-endpoint.');
+  });
+
   it('writes to .opencode/plugins/karst-bridge.js and is adapter-owned', () => {
     const worktree = makeWorktree();
     const pluginPath = writeOpencode2Bridge(worktree, 'http://127.0.0.1:4567/hooks');

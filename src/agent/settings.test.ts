@@ -6,6 +6,13 @@ import { buildHookSettings, writeHookSettings, hookUrl } from './settings.js';
 import { providerInteractiveUsage } from './provider.js';
 
 describe('buildHookSettings', () => {
+  it('passes the project key to the bridge command only when one is given', () => {
+    const keyed = JSON.stringify(buildHookSettings('http://127.0.0.1:4567/hooks', '/cfg', 'claude', undefined, 'abcdef0123456789'));
+    expect(keyed).toContain('\\"claude\\" \\"abcdef0123456789\\"');
+    const legacy = JSON.stringify(buildHookSettings('http://127.0.0.1:4567/hooks', '/cfg', 'claude'));
+    expect(legacy).not.toContain('abcdef0123456789');
+  });
+
   it('builds Claude hook settings from an explicit endpoint URL (no bridge, backward-compatible)', () => {
     const settings = JSON.parse(
       buildHookSettings('http://127.0.0.1:4567/hooks'),

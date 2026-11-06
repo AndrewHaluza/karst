@@ -7,8 +7,8 @@
 /**
  * The shared hook bridge script source. A standalone `.cjs` that:
  *  - Reads argv[2] (launch-time URL) and argv[3] (diagnostics/failure-log path)
- *  - Falls back to `<configDir>/<argv[4] || 'codex'>/current-endpoint` when
- *    the launch URL dies (VS Code reload rebinds the ephemeral hook port)
+ *  - Falls back to `<configDir>/<argv[4] || 'codex'>/current-endpoint[.<argv[5]>]`
+ *    (argv[5] = project key, own project only) when the launch URL dies (VS Code reload rebinds the ephemeral hook port)
  *  - Re-validates every fallback candidate against loopback (hook payloads
  *    carry session ids and worktree paths)
  *  - Carries the launch generation onto every candidate so the endpoint's
@@ -27,6 +27,15 @@ const path = require('node:path');
 let eventName = 'unknown';
 const diagnosticsPath = process.argv[3];
 const provider = process.argv[4] || 'codex';
+// argv[5] is the project key from the launch. With it the bridge reads only the
+// file of its own project; without it (a session launched before the key
+// existed) it reads the legacy file shared by all projects. A key that is not
+// plain hex is ignored, so it can never act as a path segment.
+const rawProjectKey = process.argv[5];
+const projectKeyValid = typeof rawProjectKey === 'string' && /^[0-9a-f]{16}$/.test(rawProjectKey);
+const projectKey = projectKeyValid ? rawProjectKey : '';
+// A key that was given but is malformed reads no file at all: fail closed.
+const keyRejected = rawProjectKey !== undefined && rawProjectKey !== '' && !projectKeyValid;
 // The reply channel's hard ceiling, deliberately BELOW the smallest Stop hook
 // timeout agents register (codex 3 s, claude 5 s): a hung endpoint must not
 // hold the agent's turn open. The endpoint answers synchronously, so this is a
@@ -44,9 +53,9 @@ const MAX_REPLY_BYTES = 64 * 1024;
 let argvEndpoint = process.argv[2];
 let fileEndpoint = null;
 try {
-  if (diagnosticsPath) {
+  if (diagnosticsPath && !keyRejected) {
     const configDir = path.dirname(path.dirname(diagnosticsPath));
-    const endpointFile = path.join(configDir, provider, 'current-endpoint');
+    const endpointFile = path.join(configDir, provider, projectKey ? 'current-endpoint.' + projectKey : 'current-endpoint');
     const content = fs.readFileSync(endpointFile, 'utf8').trim();
     if (content.length > 0) fileEndpoint = content;
   }

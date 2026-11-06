@@ -431,6 +431,7 @@ export function writeOpencode2Bridge(
   endpointUrl: string,
   configDir?: string,
   runDir?: string,
+  projectKey?: string,
 ): string {
   const fileMode = isFileChannel(endpointUrl, runDir);
   if (!fileMode) assertLoopbackEndpoint(endpointUrl);
@@ -443,7 +444,7 @@ export function writeOpencode2Bridge(
     : join(cwd, '.opencode', 'plugins', OPENCODE2_BRIDGE_FILENAME);
   const body = renderOpencode2Bridge(
     endpointUrl,
-    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode2') : null,
+    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode2', projectKey) : null,
   );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {

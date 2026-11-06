@@ -20,7 +20,7 @@ import {
   type SpawnHeadless,
 } from './codex.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
-import { writeCurrentEndpoint, readCurrentEndpoint, currentEndpointPath } from './hookFailureLog.js';
+import { writeCurrentEndpoint, readCurrentEndpoint, currentEndpointPath, projectEndpointKey } from './hookFailureLog.js';
 
 const okJsonl = [
   JSON.stringify({ type: 'thread.started', thread_id: 'thread-7' }),
@@ -77,9 +77,10 @@ function runBridge(
   input: string,
   provider?: string,
   env?: NodeJS.ProcessEnv,
+  projectKey?: string,
 ): Promise<{ exitCode: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const args = [bridgePath, endpointUrl ?? '', diagnosticsPath, provider ?? 'codex'];
+    const args = [bridgePath, endpointUrl ?? '', diagnosticsPath, provider ?? 'codex', ...(projectKey ? [projectKey] : [])];
     const child = spawn(resolveNodeExecutable(), args, {
       stdio: ['pipe', 'ignore', 'pipe'],
       ...(env !== undefined ? { env } : {}),
@@ -275,6 +276,20 @@ describe('CodexAdapter interactive commands', () => {
       args: ['--model', 'custom-model', '--config', 'model_reasoning_effort=high', '--', 'go'],
       env: {},
     });
+  });
+
+  it('passes the provider and project key to the codex hook command', () => {
+    const projectKey = projectEndpointKey('proj-a');
+    const withKey = new CodexAdapter().buildInteractiveCommand({
+      cwd: makeWorktree(),
+      hookChannel: { endpointUrl: 'http://127.0.0.1:4567/hooks', configDir: makeWorktree(), projectKey },
+    });
+    expect(withKey.args.join(' ')).toContain(`\\"codex\\" \\"${projectKey}\\"`);
+    const legacy = new CodexAdapter().buildInteractiveCommand({
+      cwd: makeWorktree(),
+      hookChannel: { endpointUrl: 'http://127.0.0.1:4567/hooks', configDir: makeWorktree() },
+    });
+    expect(legacy.args.join(' ')).not.toContain('codex\\"');
   });
 
   it('materializes Codex command hooks and passes the project config layer', () => {
@@ -1187,6 +1202,68 @@ describe('parameterized bridge provider', () => {
         cwd: '/wt',
         session_id: 'thread-1',
       });
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('falls back only to a host of its own project when the bridge carries a project key', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'claude', 'hook-failures.jsonl');
+    const own = await receiveOneHook();
+    const foreign = await receiveOneHook();
+    const keyA = projectEndpointKey('proj-a');
+    const keyB = projectEndpointKey('proj-b');
+    // Two projects write in turn: the legacy file ends up with the foreign URL.
+    writeCurrentEndpoint(configDir, own.endpointUrl, keyA);
+    writeCurrentEndpoint(configDir, foreign.endpointUrl, keyB);
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(bridgePath, 'http://127.0.0.1:1/hooks', diagnosticsPath,
+          JSON.stringify({ hook_event_name: 'Stop', session_id: 's', cwd: '/wt' }), 'claude', undefined, keyA),
+        own.received,
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(body).toMatchObject({ hook_event_name: 'Stop', session_id: 's' });
+      expect(foreign.urls).toEqual([]);
+    } finally {
+      await own.close();
+      await foreign.close();
+    }
+  });
+
+  it('fails open without a post to another project when no host of its project is live', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'claude', 'hook-failures.jsonl');
+    const foreign = await receiveOneHook();
+    writeCurrentEndpoint(configDir, foreign.endpointUrl, projectEndpointKey('proj-b'));
+    try {
+      const result = await runBridge(bridgePath, 'http://127.0.0.1:1/hooks', diagnosticsPath,
+        JSON.stringify({ hook_event_name: 'Stop', session_id: 's', cwd: '/wt' }), 'claude', undefined,
+        projectEndpointKey('proj-a'));
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(diagnosticsPath, 'utf8')).toContain('request-error');
+      expect(foreign.urls).toEqual([]);
+    } finally {
+      await foreign.close();
+    }
+  });
+
+  it('keeps a session without a project key on the legacy file', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'claude', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+    writeCurrentEndpoint(configDir, receiver.endpointUrl, projectEndpointKey('proj-a'));
+    try {
+      const [result] = await Promise.all([
+        runBridge(bridgePath, 'http://127.0.0.1:1/hooks', diagnosticsPath,
+          JSON.stringify({ hook_event_name: 'Stop', session_id: 's', cwd: '/wt' }), 'claude'),
+        receiver.received,
+      ]);
+      expect(result.exitCode).toBe(0);
     } finally {
       await receiver.close();
     }

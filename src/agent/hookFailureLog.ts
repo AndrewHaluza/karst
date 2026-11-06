@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
 /**
@@ -94,37 +95,59 @@ export function bridgeOutcomeDetail(
 }
 
 /**
+ * A filename-safe key for a project: 16 hex chars of the slug's digest. The
+ * slug is user-derived text, so it never becomes a path segment itself.
+ * Returns `undefined` for an unknown project (no key → legacy shared file).
+ */
+export function projectEndpointKey(slug: string | undefined): string | undefined {
+  if (slug === undefined || slug === '') return undefined;
+  return createHash('sha256').update(slug).digest('hex').slice(0, 16);
+}
+
+/**
  * Stable file the bridge reads to discover the current hook endpoint URL.
  * The extension writes this on every activation so revived Codex sessions —
  * whose bridge was configured with a stale port before the reload — POST to
  * the live endpoint instead of connection-refusing into `request-error`.
+ *
+ * With a `projectKey` the file is `current-endpoint.<key>`: one file for each
+ * project, so a fallback never reaches a host of another project. Without a
+ * key it is the legacy file shared by all projects, read by sessions that were
+ * launched before the key existed.
  */
 export function currentEndpointPath(
   configDir: string,
   provider: BridgeProvider = 'codex',
+  projectKey?: string,
 ): string {
-  return join(configDir, provider, 'current-endpoint');
+  const name = projectKey ? `current-endpoint.${projectKey}` : 'current-endpoint';
+  return join(configDir, provider, name);
 }
 
 /**
- * Write the current endpoint URL to the stable config file. Called once per
+ * Write the current endpoint URL to the stable config files. Called once per
  * activation after the hook endpoint binds. Best-effort: a write failure must
  * never block extension startup — old sessions fall back to `argv[2]`.
+ * Writes the legacy unscoped file always, and the project file when keyed.
  */
 export function writeCurrentEndpoint(
   configDir: string,
   endpointUrl: string,
+  projectKey?: string,
 ): void {
   // Written for EVERY bridge provider, not just codex: a revived opencode
   // session's plugin reads the same file, and the reload that rebinds the port
   // rebinds it for every live session at once.
+  const keys: (string | undefined)[] = projectKey ? [undefined, projectKey] : [undefined];
   for (const provider of BRIDGE_PROVIDERS) {
-    const target = currentEndpointPath(configDir, provider);
-    try {
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, endpointUrl, { mode: 0o600 });
-    } catch {
-      // Best-effort -- old bridge scripts fall back to their baked-in URL.
+    for (const key of keys) {
+      const target = currentEndpointPath(configDir, provider, key);
+      try {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, endpointUrl, { mode: 0o600 });
+      } catch {
+        // Best-effort -- old bridge scripts fall back to their baked-in URL.
+      }
     }
   }
 }
@@ -132,14 +155,16 @@ export function writeCurrentEndpoint(
 /**
  * Read the current endpoint URL from the stable config file. Returns
  * `undefined` when the file does not exist or cannot be read (the bridge
- * falls back to its command-line argument in that case).
+ * falls back to its command-line argument in that case). A keyed read never
+ * touches the legacy file.
  */
 export function readCurrentEndpoint(
   configDir: string,
   provider: BridgeProvider = 'codex',
+  projectKey?: string,
 ): string | undefined {
   try {
-    const text = readFileSync(currentEndpointPath(configDir, provider), 'utf8').trim();
+    const text = readFileSync(currentEndpointPath(configDir, provider, projectKey), 'utf8').trim();
     return text.length > 0 ? text : undefined;
   } catch {
     return undefined;
