@@ -43,9 +43,14 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   const owner = d.windowId;
   // A session launch is slow: after a round is sent, the ticket is left alone until the session shows up or the cooldown ends.
   const cooldown = new Map<number, number>();
+  // Keep the DB lease for the whole cooldown so a second window cannot send a duplicate round.
+  const armCooldown = (id: number): void => {
+    cooldown.set(id, now() + ROUND_COOLDOWN_MS);
+    claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS);
+  };
   const sent = async (id: number, outcome: Promise<FixOutcome>): Promise<FixOutcome> => {
     const result = await outcome;
-    if (result.kind === 'sent') cooldown.set(id, now() + ROUND_COOLDOWN_MS);
+    if (result.kind === 'sent') armCooldown(id);
     return result;
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
@@ -62,7 +67,7 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         sessionRunning: () => running(id),
         resolveRound: async (repo) => {
           const result = await resolveConflictRound(d.roundInput(id, repo));
-          if (result.kind === 'sent') cooldown.set(id, now() + ROUND_COOLDOWN_MS);
+          if (result.kind === 'sent') armCooldown(id);
           return result;
         },
         sendCi: () => sent(id, ciOutcome(d.ciInput(id))),
@@ -77,7 +82,6 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
 export interface CommandHost {
   readonly commands: { registerCommand(command: string, handler: (...args: never[]) => unknown): { dispose(): void } };
   readonly window: {
-    showInformationMessage(message: string): unknown;
     showQuickPick(items: readonly string[], options: { placeHolder: string }): PromiseLike<string | undefined>;
     showQuickPick<T extends { label: string }>(items: readonly T[], options: { placeHolder: string }): PromiseLike<T | undefined>;
   };
@@ -90,7 +94,7 @@ export function registerAutopilotCommands(
 ): Array<{ dispose(): void }> {
   const d: AutopilotCommandDeps = {
     ...base,
-    say: (m) => void host.window.showInformationMessage(m),
+    say: (m) => base.debug(`[ship] autopilot command: ${m}`),
     pickTicket: async (picks, placeHolder) => (await host.window.showQuickPick(picks, { placeHolder }))?.ticketId,
     pick: async <T extends string>(choices: readonly T[], placeHolder: string) => (await host.window.showQuickPick(choices, { placeHolder })) as T | undefined,
   };

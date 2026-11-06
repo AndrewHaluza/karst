@@ -1,6 +1,8 @@
 import type { Store } from '../../store/db.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { getTicket } from '../../store/tickets.js';
+import { getStage } from '../../store/stages.js';
+import { decideBudget, getAutopilotBudget } from '../../store/autopilot.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
@@ -85,11 +87,14 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
 
 interface Problem { readonly kind: AutopilotKind; readonly repo: string; readonly signature: string; readonly failing?: readonly string[] }
 
-function findProblem(d: AutopilotDeps): Problem | null {
+function findProblem(d: AutopilotDeps, maxRounds: number): Problem | null {
   const open = openPrRepos(d.store, d.ticketId);
-  const conflicted = listMergeChecksByTicket(d.store, d.ticketId).find((c) => c.state === 'conflicted' && open.has(c.repo));
+  const candidates = listMergeChecksByTicket(d.store, d.ticketId).filter((c) => c.state === 'conflicted' && open.has(c.repo) && c.baseSha);
   // A conflict with an unknown base head has no signature to count against: leave it to the manual click.
-  if (conflicted && conflicted.baseSha) return { kind: 'conflicts', repo: conflicted.repo, signature: conflicted.baseSha };
+  // A repo with a spent budget must not hide another conflicted PR of the ticket: prefer one with budget left.
+  const open1 = candidates.find((c) => decideBudget(getAutopilotBudget(d.store, d.ticketId, c.repo, 'conflicts'), c.baseSha!, maxRounds).decision.ok);
+  const conflicted = open1 ?? candidates[0];
+  if (conflicted) return { kind: 'conflicts', repo: conflicted.repo, signature: conflicted.baseSha! };
   const ci = ciFailureState(d.store, d.ticketId);
   if (!ci.available) return null;
   const names = ci.prs.flatMap((p) => p.failing.map((f) => f.name)).sort();
@@ -102,12 +107,19 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   const ticket = getTicket(d.store, d.ticketId);
   if (!cfg || ticket.stageCurrent !== 'ship' || !effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return { kind: 'off' };
   const state = getAutopilotTicket(d.store, d.ticketId);
-  if (state.stopAfter || state.pausedReason !== null) return { kind: 'idle' };
+  if (state.stopAfter || state.pausedReason !== null || ticket.pausedAt !== null) return { kind: 'idle' };
+  // A ship saga in flight owns the ticket: no round while it runs.
+  if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
 
-  const problem = findProblem(d);
-  if (!problem) return { kind: 'nothing' };
+  const problem = findProblem(d, cfg.conflicts.maxRounds);
+  if (!problem) {
+    // The problem is gone: a stale park block and stop reason must not stay.
+    if (state.stoppedReason !== null) setAutopilotStopped(d.store, d.ticketId, null);
+    clearParkBlock(d.store, d.ticketId);
+    return { kind: 'nothing' };
+  }
   const policy = problem.kind === 'conflicts' ? cfg.conflicts : cfg.ci;
   if (policy.policy === 'ask') return { kind: 'ask', reason: `${problem.kind} policy is ask` };
   if (problem.kind === 'ci' && !allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {

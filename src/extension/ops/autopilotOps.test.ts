@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, pauseTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { clearMergeCheck, setMergeCheck } from '../../store/mergeChecks.js';
@@ -356,6 +356,57 @@ describe('amber Needs you state', () => {
     seedPr();
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'waiting for review', runAt: 'x', gates: [] });
     approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('waiting for review');
+  });
+});
+
+describe('autopilotTick guards (review #615)', () => {
+  it('is idle for a paused ticket', async () => {
+    seedPr(); conflict();
+    pauseTicket(store, id);
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(r.resolve).not.toHaveBeenCalled();
+  });
+
+  it('is busy while the ship saga runs', async () => {
+    seedPr(); conflict();
+    setStage(store, id, 'ship', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'busy' });
+    expect(r.resolve).not.toHaveBeenCalled();
+  });
+
+  it('picks a conflicted repo with budget left when another repo has none', async () => {
+    seedPr(); conflict();
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 6, ?, ?)').run(id, 'r2', 'https://github.com/o/r2/pull/6', 'open');
+    setMergeCheck(store, { ticketId: id, repo: 'r2', state: 'conflicted', files: [], reason: null, headSha: 'h', baseSha: 'base2', baseRef: 'develop', checkedAt: 'x' });
+    const spent = rig();
+    await autopilotTick(spent.deps);
+    await autopilotTick(spent.deps);
+    expect(spent.resolve).toHaveBeenNthCalledWith(1, 'r');
+    expect(spent.resolve).toHaveBeenNthCalledWith(2, 'r');
+    const next = rig();
+    expect((await autopilotTick(next.deps)).kind).toBe('armed');
+    expect(next.resolve).toHaveBeenCalledWith('r2');
+  });
+
+  it('clears the park block and the stop reason when the problem is gone', async () => {
+    seedPr(); conflict();
+    await autopilotTick(rig().deps);
+    await autopilotTick(rig().deps);
+    expect((await autopilotTick(rig().deps)).kind).toBe('parked');
+    expect(stageBlock(store, id, 'ship')).not.toBeNull();
+    clearMergeCheck(store, id, 'r');
+    expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+
+  it('keeps a block that autopilot did not write', async () => {
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'waiting for review', runAt: 'x', gates: [] });
+    expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
     expect(stageBlock(store, id, 'ship')?.reason).toBe('waiting for review');
   });
 });

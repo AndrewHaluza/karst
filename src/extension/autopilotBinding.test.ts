@@ -99,6 +99,7 @@ describe('registerAutopilotCommands', () => {
       window: { showInformationMessage: vi.fn(), showQuickPick: vi.fn() },
     };
     const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => {} });
+    expect(host.window.showInformationMessage).not.toHaveBeenCalled();
     expect(names).toEqual(['karst.autopilot.setOverride', 'karst.autopilot.approveOne', 'karst.autopilot.stop']);
     expect(out).toHaveLength(3);
   });
@@ -115,5 +116,17 @@ describe('two windows on one database', () => {
     await vi.advanceTimersByTimeAsync(1000);
     ha.dispose(); hb.dispose();
     expect(a.roundInput.mock.calls.length + b.roundInput.mock.calls.length).toBe(1);
+  });
+  it('the other window stays out during the cooldown of the sending window', async () => {
+    const a = rig({ windowId: 'A' });
+    const b = rig({ windowId: 'B', store: a.deps.store, projectId: a.deps.projectId });
+    const ha = startAutopilot(a.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    a.release();
+    const hb = startAutopilot(b.deps);
+    await vi.advanceTimersByTimeAsync(60_000);
+    ha.dispose(); hb.dispose();
+    expect(a.roundInput).toHaveBeenCalledTimes(1);
+    expect(b.roundInput).not.toHaveBeenCalled();
   });
 });

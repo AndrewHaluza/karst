@@ -39,9 +39,9 @@ flowchart TD
 - Conflicts use Resolve conflicts only. Rebase on base, Integrate, Overwrite remote and Merge to base are never automatic.
 - CI uses Send CI failure to agent. An empty, unknown or renamed check asks. A gh failure parks and does not move the ticket.
 - Budget: `autopilot_budgets` keeps attempts, signature and extra attempts. A new signature (base head SHA, or the failing check names) resets the counter. Approve one more adds one extra attempt and does not reset.
-- A round never starts while a session runs, for a closed PR, or when the sub-task concurrency limit (@arch:CONCURRENCY) is full.
+- A round never starts while a session runs, while the ship saga runs, for a paused ticket, for a closed PR, or when the sub-task concurrency limit (@arch:CONCURRENCY) is full.
 - Sandbox: only the window that controls the ticket arms a round (AC-37). A read-only sandbox, a setup failure (AC-47) or a dirty or diverged clone (AC-46) parks at once as `auto-fix paused: sandbox <reason>`. It uses no attempt and is not retried. Autopilot never takes the host fallback (AC-31).
-- A park writes the ship block with kind `awaiting-merge` and the reason (amber Needs you). A sent round, an approval or an override change clears it. Commands: `karst.autopilot.setOverride`, `.approveOne`, `.stop`.
-- Two windows share one database: the controller holds a short lease (`claim_owner`, `claim_until`). A sent round has a cooldown, and one sweep runs at a time. Autopilot shows no toast: action text goes to the debug log.
+- A park writes the ship block with kind `awaiting-merge` and the reason (amber Needs you). The dashboard banner shows it. A sent round, an approval, an override change or a tick with no problem left clears it. A spent budget on one repo does not stop auto-fix for another conflicted PR of the ticket. A refused CI hand-off counts as sent: the ticket already moved to Implement. Commands: `karst.autopilot.setOverride`, `.approveOne`, `.stop`.
+- Two windows share one database: the controller holds a short lease (`claim_owner`, `claim_until`). A sent round has a cooldown, and the lease lasts through it. One sweep runs at a time. Autopilot shows no toast, also for the commands: action text goes to the debug log.
 - Every action and fallback writes a bulletin note. The debug line starts with `[ship] autopilot`. There is no toast.
 END_DOC_BLOCK: [@arch:AP-00]

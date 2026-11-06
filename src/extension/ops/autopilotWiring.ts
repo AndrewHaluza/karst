@@ -31,8 +31,8 @@ export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
 /**
  * Run "Send CI failure to agent" without the click: the confirm is answered yes.
  * Autopilot never shows a toast: the info and error text go to the debug log only.
- * A gh failure, a missing failure and a refused hand-off are NOT a sent round (the action
- * reports them as plain info text), so each becomes a `failed` outcome with its reason.
+ * A gh failure and a missing failure are NOT a sent round, so each becomes a `failed` outcome.
+ * A refused hand-off IS a sent round: the ticket already moved to Implement.
  */
 export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
   if (!ciFailureState(input.store, input.ticketId).available) return { kind: 'failed', reason: 'no failing CI to send' };
@@ -46,7 +46,8 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
     handOff: (prompt) => { refusal = input.handOff(prompt); return refusal; },
   });
   if (failure !== null) return { kind: 'failed', reason: failure };
-  if (refusal !== null) return { kind: 'failed', reason: `no session was started: ${refusal}` };
+  // The action already moved the ticket to Implement before the hand-off: a refused launch is still a sent round.
+  if (refusal !== null) input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: hand-off refused (${refusal}); the ticket is in Implement`);
   return { kind: 'sent' };
 }
 
