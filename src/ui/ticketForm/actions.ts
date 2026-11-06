@@ -25,6 +25,8 @@ import {
   list as listRelationViews,
 } from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { ALL_STAGE_KEYS } from '../../model/types.js';
 import {
   recordUsageLimitOpPark,
   claimUsageLimitPark,
@@ -444,6 +446,19 @@ function persistDraft(
   ctx.commitPrefill();
   deps.onChange();
   return ticketId;
+}
+
+/** The start refusal for a ticket parked on a review stall (shared wording for tests). */
+export const REVIEW_STALLED_START_MESSAGE =
+  'Saved. This ticket is parked on a review stall, so it cannot start here. Answer the stall on the dashboard (hint, continue or re-scope).';
+
+/** The refusal text when `ticketId` sits in a review-stalled park, else null. */
+function reviewStallRefusal(store: Store, ticketId: number): string | null {
+  const t = getTicket(store, ticketId);
+  const stageKey = ALL_STAGE_KEYS.find((k) => k === t.stageCurrent);
+  if (stageKey === undefined) return null;
+  const block = stageBlock(store, ticketId, stageKey);
+  return block?.kind === 'review-stalled' ? REVIEW_STALLED_START_MESSAGE : null;
 }
 
 /** The start refusal for a ticket with no selected repositories (shared with the host's start path). */
@@ -1450,6 +1465,16 @@ export function buildTicketFormActions(
           ctx.pushState();
           return;
         }
+      }
+
+      // A review-stalled park is answered only by the stall choices (hint /
+      // continue / re-scope, @arch:BLOCKED). The draft is stored above, so the
+      // edit is kept, but a start would open an agent session beside the park.
+      const parkRefusal = reviewStallRefusal(deps.store, ticketId);
+      if (parkRefusal) {
+        ctx.post({ type: 'error', message: parkRefusal });
+        ctx.pushState();
+        return;
       }
 
       // Finishing the ticket form hands the ticket off to the workflow: scope its
