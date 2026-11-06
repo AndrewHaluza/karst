@@ -291,6 +291,7 @@ import {
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
+import { guardHookNotify, refuseForeignProjectTicket } from './extension/ops/foreignProject.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { interruptImplementationRun } from './store/implementationRuns.js'; import { bindMemory, hostSbxMemory, type MemoryBinding } from './extension/memoryBinding.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
@@ -982,7 +983,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // never auto-drives a fix ticket, and `interrupted` is only ever true for
       // a round the interrupt above actually settled. Anything else takes the
       // normal gate-trigger path.
-      if (interrupted) {
+      if (interrupted && !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'session-closed', (m) => logger.info(m))) {
         logger.info(`stage driver: ticket ${ticketId} fix round interrupted — driving to reopen within budget`);
         void driveTicket(ticketId);
       } else {
@@ -3727,6 +3728,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // strands just because one trigger (e.g. an unreachable SessionEnd hook) was missed.
   let gateToolsWarned = false;
   const maybeDrive = (ticketId: number, trigger: string): void => {
+    if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, trigger, (m) => logger.info(m))) return;
     const t = getTicket(localStore, ticketId);
     // Paused is the FIRST gate: a paused ticket must not spend a process, a
     // token, or a terminal on any trigger — hook, sweep, session close, or an
@@ -3763,7 +3765,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The notify/barrier/provider closures are shared verbatim with the agy
   // conversation watch below: a watch event is a hook event, and the two
   // channels must never disagree about ownership, refresh or the generation.
-  const notifyHook = (ticketId: number, payload: HookPayload): void => {
+  const notifyHookUnguarded = (ticketId: number, payload: HookPayload): void => {
     // UsageUpdate changes only the token ledger. Refresh the two surfaces that
     // read it, then stop: usage is not lifecycle activity and must never kick
     // the stage driver or alter session ownership.
@@ -3798,9 +3800,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
-  };
-  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
-    shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean => !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) && shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
