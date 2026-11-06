@@ -897,8 +897,13 @@ describe('ship quarantine commit primitives', () => {
       const second = (await headCommit(defaultGitRunner, dir))!;
 
       expect(await headCommit(defaultGitRunner, dir)).toBe(second);
-      expect(await listCommitsFrom(defaultGitRunner, dir, null)).toEqual([first, second]);
-      expect(await listCommitsFrom(defaultGitRunner, dir, first)).toEqual([second]);
+      expect(await listCommitsFrom(defaultGitRunner, dir, null)).toEqual([
+        { sha: first, subject: 'one' },
+        { sha: second, subject: 'two' },
+      ]);
+      expect(await listCommitsFrom(defaultGitRunner, dir, first)).toEqual([
+        { sha: second, subject: 'two' },
+      ]);
 
       await runGit(['init', '--bare'], bare);
       await runGit(['remote', 'add', 'origin', bare], dir);
@@ -919,7 +924,7 @@ describe('ship quarantine commit primitives', () => {
       await listCommitsFrom(defaultGitRunner, dir, 'no-such-ref').catch((err: Error) => {
         message = err.message;
       });
-      expect(message).toMatch(/git rev-list no-such-ref\.\.HEAD failed \(exit 128\)/);
+      expect(message).toMatch(/git log no-such-ref\.\.HEAD failed \(exit 128\)/);
       // Bounded: the raw multi-line fatal prose is collapsed to one line.
       expect(message.split('\n')).toHaveLength(1);
     } finally {
@@ -939,8 +944,9 @@ describe('ship quarantine commit primitives', () => {
       // A branch name bounds exactly like the sha it names: `develop..HEAD`,
       // which is what ship passes when the persisted worktree baseline is a
       // branch. The two answers must never disagree.
-      expect(await listCommitsFrom(defaultGitRunner, dir, 'develop')).toEqual([head]);
-      expect(await listCommitsFrom(defaultGitRunner, dir, base)).toEqual([head]);
+      const expected = [{ sha: head, subject: 'ticket' }];
+      expect(await listCommitsFrom(defaultGitRunner, dir, 'develop')).toEqual(expected);
+      expect(await listCommitsFrom(defaultGitRunner, dir, base)).toEqual(expected);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

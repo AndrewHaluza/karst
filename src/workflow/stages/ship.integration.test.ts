@@ -410,6 +410,9 @@ setTimeout(() => {
     const commits = listShipEvidence(store, id).repos['/repo/frontend']?.commits ?? [];
     const beforeShip = commits.filter((c) => c.origin === 'before-ship').map((c) => c.sha);
     expect(beforeShip).toEqual([t1, t2]);
+    expect(
+      commits.filter((c) => c.origin === 'before-ship').map((c) => c.message),
+    ).toEqual(['ticket-1', 'ticket-2']);
     // The worktree was clean: the saga created nothing of its own.
     expect(commits.filter((c) => c.origin === 'created-by-ship')).toHaveLength(0);
   });
@@ -446,8 +449,8 @@ setTimeout(() => {
       ),
     ).rejects.toThrow(/ship produced nothing/);
 
-    expect(calls).toContainEqual(['rev-list', '--reverse', 'develop..HEAD']);
-    expect(calls).not.toContainEqual(['rev-list', '--reverse', 'main..HEAD']);
+    expect(calls).toContainEqual(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', 'develop..HEAD']);
+    expect(calls).not.toContainEqual(['log', '--no-show-signature', '--reverse', '--format=%H%x00%s', 'main..HEAD']);
   });
 
   // A worktree with NO persisted baseline must record unknown provenance even
@@ -480,7 +483,7 @@ setTimeout(() => {
       (event) => events.push(event),
     );
 
-    expect(calls.filter((args) => args[0] === 'rev-list')).toEqual([]);
+    expect(calls.filter((args) => args[0] === 'log' && args.includes('--reverse'))).toEqual([]);
     expect(events).toContainEqual({
       repo: '/repo/frontend',
       step: 'commit',
@@ -1644,6 +1647,9 @@ setTimeout(() => {
       };
       const git: GitRunner = async (args) => {
         if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'log' && args.includes('--reverse')) {
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
         if (args[0] === 'log') {
           expect(args).toEqual(['log', '--oneline', 'origin/develop..HEAD']);
           return { stdout: '* abc1234 add search\n', stderr: '', exitCode: 0 };
@@ -1710,7 +1716,7 @@ setTimeout(() => {
       };
       const git: GitRunner = async (args) => {
         if (args[0] === 'diff' && args[1] === '--quiet') return { stdout: '', stderr: '', exitCode: 1 };
-        if (['fetch', 'status', 'push', 'add', 'commit', 'rev-list'].includes(args[0]!)) {
+        if (['fetch', 'status', 'push', 'add', 'commit'].includes(args[0]!) || (args[0] === 'log' && args.includes('--reverse'))) {
           return { stdout: '', stderr: '', exitCode: 0 };
         }
         return { stdout: '', stderr: 'boom', exitCode: 128 };

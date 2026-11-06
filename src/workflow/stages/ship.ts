@@ -1014,12 +1014,12 @@ export async function shipTicket(
             detail: 'no baseline recorded — before-ship provenance unknown',
           });
         } else {
-          for (const sha of await listCommitsFrom(git, wt.path, provenanceBase)) {
+          for (const { sha, subject } of await listCommitsFrom(git, wt.path, provenanceBase)) {
             recordShipCommit(store, {
               shipRunId: run.id,
               repo: wt.repo,
               sha,
-              message: '',
+              message: subject,
               origin: 'before-ship',
             });
           }
