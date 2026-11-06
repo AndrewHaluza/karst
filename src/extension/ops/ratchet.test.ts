@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import {
@@ -12,6 +12,7 @@ import {
   checkExtensionRatchet,
   assertExtensionRatchet,
   extensionGrowthErrorMessage,
+  assertMergeBaseInCi,
 } from './ratchet.js';
 
 // Extension entry file growth is capped at ALLOWED_EXTENSION_GROWTH (15) net lines
@@ -361,7 +362,59 @@ describe('extension.ts ratchet fallback ceiling when base is unavailable', () =>
 
 describe('extension.ts ratchet live check', () => {
   it('src/extension.ts passes the ratchet against the merge base', async () => {
-    await assertExtensionRatchet({ git: defaultGitRunner });
+    const result = await checkExtensionRatchet({ git: defaultGitRunner });
+    // Run before the ok check: an over-ceiling file with no merge base must name the checkout.
+    assertMergeBaseInCi(result);
+    // fd 1 is written directly: vitest hides console output of a passing test, and the
+    // CI log must show that growth was measured against a merge base.
+    writeSync(
+      1,
+      `ratchet: mergeBase=${result.mergeBase ?? 'none'} baseLines=${result.baseLines ?? 'n/a'} currentLines=${result.currentLines} growth=${result.growth ?? 'n/a'}\n`,
+    );
+    expect(result.errorMessage).toBeUndefined();
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('assertMergeBaseInCi', () => {
+  const noBase = { ok: true, currentLines: 10, ceiling: 100 };
+  const CI_WORKFLOW = { RATCHET_REQUIRE_MERGE_BASE: '1' };
+  it('throws naming the checkout when the CI workflow flag is set and no merge base', () => {
+    expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/actions\/checkout/);
+  });
+  it('names the checkout even when the file is over the ceiling', () => {
+    const over = { ok: false, currentLines: 200, ceiling: 100, errorMessage: 'exceeds the coarse ceiling' };
+    expect(() => assertMergeBaseInCi(over, CI_WORKFLOW)).toThrow(/fetch-depth: 0/);
+  });
+  it('keeps the ceiling fallback in the unit gate (CI=1, no flag)', () => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: '1' })).not.toThrow();
+  });
+  it('keeps the ceiling fallback in a sandbox clone (CI=true, GITHUB_ACTIONS unset, no flag)', () => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).not.toThrow();
+  });
+  it('keeps the ceiling fallback when nothing is set', () => {
+    expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
+  });
+  it('does not treat other flag values as set', () => {
+    expect(() => assertMergeBaseInCi(noBase, { RATCHET_REQUIRE_MERGE_BASE: '0' })).not.toThrow();
+  });
+  it('passes with the flag when a merge base exists', () => {
+    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, CI_WORKFLOW)).not.toThrow();
+  });
+});
+
+describe('ci.yml wiring', () => {
+  const ci = readFileSync(join(process.cwd(), '.github', 'workflows', 'ci.yml'), 'utf8');
+  it('sets the flag on the Unit tests step only', () => {
+    const flagLines = ci.split('\n').filter((l) => l.includes('RATCHET_REQUIRE_MERGE_BASE: '));
+    expect(flagLines).toHaveLength(1);
+    expect(ci).toMatch(/- name: Unit tests\n\s+env:\n\s+RATCHET_REQUIRE_MERGE_BASE: '1'\n\s+run: npm run test:unit/);
+  });
+  it('checks out full history in the job that has the flag', () => {
+    const verify = ci.slice(ci.indexOf('\n  verify:'), ci.indexOf('\n  integration:'));
+    expect(verify).toContain('RATCHET_REQUIRE_MERGE_BASE');
+    expect(verify).toMatch(/- uses: actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
   });
 });
 

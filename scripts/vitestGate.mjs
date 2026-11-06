@@ -136,6 +136,12 @@ async function judge(cwd, args, output) {
     console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
     return null;
   }
+  // GitHub Actions enforces: a red develop push must fail the job. null keeps the vitest status,
+  // and also skips the flake re-run, so nothing is excused as base drift or flake.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.error('base check skipped: GitHub Actions never excuses a failure as base drift');
+    return null;
+  }
   const { sha, tried } = await mergeBase(cwd);
   if (sha === null) return skip(`no merge base for ${tried.join(', ')}`, ids);
   const changed = await changedSince(cwd, sha);
