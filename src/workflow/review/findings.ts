@@ -796,6 +796,78 @@ export interface FindingsParseResult {
   tier: FindingsExtractionTier;
 }
 
+const FENCED_BLOCK = /```[A-Za-z0-9_-]*\n([\s\S]*?)\n?```/g;
+const SINGLE_FENCE = /^```[A-Za-z0-9_-]*\n([\s\S]*?)\n?```$/;
+
+/** True for a literal empty result: `[]` or an object whose `findings` is `[]`. */
+function isEmptyContainer(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value !== 'object' || value === null) return false;
+  const findings = (value as Record<string, unknown>)['findings'];
+  return Array.isArray(findings) && findings.length === 0;
+}
+
+/** A non-array object without a `findings` key: one finding, not a container. */
+function isBareFindingObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && !('findings' in value);
+}
+
+/**
+ * The text of a final assistant message when it is one complete findings
+ * container (bare, the only content of a single fence, or the complete fenced
+ * blocks after prose, merged in order), else undefined.
+ * Fragments of a split answer, JSONL lines and stray arrays in prose (`see
+ * [1]`, a tool echo, an array of non-finding rows) never qualify. `[]` does
+ * only when it is the whole message: a clean pass is a real answer.
+ */
+function completeFinalBody(finalMessage: string | undefined): string | undefined {
+  if (finalMessage === undefined) return undefined;
+  const trimmed = finalMessage.trim();
+  const whole = completeBody(SINGLE_FENCE.exec(trimmed)?.[1] ?? trimmed, true);
+  if (whole !== undefined) return whole.body;
+  // Prose around the answer is common: EVERY complete fenced block counts, in
+  // document order. A reviewer may emit one block per area, so keeping only one
+  // block would drop the rest of the report.
+  const blocks: CompleteBody[] = [];
+  for (const match of trimmed.matchAll(FENCED_BLOCK)) {
+    const block = completeBody(match[1] ?? '', false);
+    if (block !== undefined) blocks.push(block);
+  }
+  if (blocks.length === 0) return undefined;
+  const [only] = blocks;
+  if (blocks.length === 1 && only !== undefined) return only.body;
+  return JSON.stringify(blocks.flatMap((block) => block.candidates));
+}
+
+interface CompleteBody {
+  readonly body: string;
+  readonly candidates: readonly unknown[];
+}
+
+/** True when a candidate looks like a finding (`severity` or `title`), not a status row or tool echo. */
+function isFindingShaped(candidate: unknown): boolean {
+  return isPlainRecord(candidate) && ('severity' in candidate || 'title' in candidate);
+}
+
+/**
+ * One text as a whole findings answer, else undefined. It must carry at least
+ * one finding-shaped object. `[]` counts only when `allowEmpty` (the message IS
+ * the answer): a fenced `[]` inside prose may be a tool echo, and must not hide
+ * findings that sit outside the fence.
+ */
+function completeBody(text: string, allowEmpty: boolean): CompleteBody | undefined {
+  const body = text.trim();
+  const value = tryParseJson(body);
+  if (value === undefined) return undefined;
+  // A lone finding object is one PIECE of an answer (one finding per message),
+  // never the answer: only an array or a `findings` object can be a whole one.
+  if (isBareFindingObject(value)) return undefined;
+  const found = findingCandidatesFrom(value);
+  const clean = allowEmpty && isEmptyContainer(value);
+  if (!clean && !found.candidates.some(isFindingShaped)) return undefined;
+  return { body, candidates: found.candidates };
+}
+
 /**
  * Parse one review invocation's raw output into findings ready for
  * `recordFindings`'s batch, plus the shape that produced them (see
@@ -807,6 +879,31 @@ export function parseFindingsResult(
   raw: string,
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
+  onTier?: (tier: FindingsExtractionTier) => void,
+  finalMessage?: string,
+): FindingsParseResult {
+  // The final assistant message (opencode cores join narration into `raw`)
+  // wins when it is ONE complete findings container with real findings (or a
+  // whole-message `[]`), so narration findings are not mixed into the answer and
+  // the winning tier is the final message's own. A `raw` that is itself one
+  // complete findings document keeps priority. Anything else falls to `raw`.
+  const finalBody = completeFinalBody(finalMessage);
+  if (finalBody !== undefined && !isCompleteFindingsDocument(raw)) {
+    return parseRawFindings(finalBody, ctx, warn, onTier);
+  }
+  return parseRawFindings(raw, ctx, warn, onTier);
+}
+
+/** True when the whole text is one JSON value that CARRIES findings. */
+function isCompleteFindingsDocument(text: string): boolean {
+  const value = tryParseJson(text.trim());
+  return value !== undefined && findingCandidatesFrom(value).strong;
+}
+
+function parseRawFindings(
+  raw: string,
+  ctx: ParseFindingsContext,
+  warn: WarnFn,
   onTier?: (tier: FindingsExtractionTier) => void,
 ): FindingsParseResult {
   // The extraction fallback is gated on "the primary read found no container

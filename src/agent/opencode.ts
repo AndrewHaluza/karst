@@ -1,3 +1,4 @@
+import { createOpencodeTextCollector } from './opencodeText.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
@@ -257,9 +258,9 @@ function stepFinishTokens(part: unknown): TokenUsage | undefined {
  */
 export function parseOpencodeJsonl(
   stdout: string,
-): { sessionId: string; raw: string; usage?: TokenUsage } {
+): { sessionId: string; raw: string; finalMessage?: string; usage?: TokenUsage } {
   let sessionId = '';
-  let raw = '';
+  const text = createOpencodeTextCollector();
   let usage: TokenUsage | undefined;
 
   for (const line of stdout.split(/\r?\n/)) {
@@ -279,7 +280,7 @@ export function parseOpencodeJsonl(
     if (event['type'] === 'text') {
       const part = asRecord(event['part']);
       if (part !== null && part['type'] === 'text' && typeof part['text'] === 'string') {
-        raw += part['text'];
+        text.add(part);
       }
     }
     if (event['type'] === 'step_finish') {
@@ -298,7 +299,7 @@ export function parseOpencodeJsonl(
   // decides what an empty answer means (the Tester re-asks once, then records
   // `unreadable-output`). A stream with no session id stays a hard failure —
   // that one is a broken stream, not a quiet model.
-  return { sessionId, raw, ...(usage ? { usage } : {}) };
+  return { sessionId, ...text.result(), ...(usage ? { usage } : {}) };
 }
 
 /**
@@ -1521,6 +1522,7 @@ export class OpencodeAdapter implements AgentAdapter {
       sessionId: parsed.sessionId,
       verdict: null,
       raw: parsed.raw,
+      ...(parsed.finalMessage !== undefined ? { finalMessage: parsed.finalMessage } : {}),
       ...(parsed.usage ? { usage: parsed.usage } : {}),
     };
   }
