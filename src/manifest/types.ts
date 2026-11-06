@@ -5,6 +5,7 @@
 
 import type { SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import type { SandboxLimitsConfig } from '../agent/sbx/sbxLimits.js';
+import type { AutopilotConfig } from './autopilot.js';
 import type { AgentBackends, CoreBackend } from '../agent/backendChoices.js';
 
 export interface PortSlot {
@@ -1048,6 +1049,8 @@ export interface Manifest {
    * node heap env), `gateSlots` (project-wide concurrent sandbox gates, default 2, 0 = unlimited).
    */
   sandboxLimits?: SandboxLimitsConfig;
+  /** Auto-fix of recoverable ship-stage problems (merge conflicts, allowlisted CI failures); absent = off (T973). */
+  autopilot?: AutopilotConfig;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"

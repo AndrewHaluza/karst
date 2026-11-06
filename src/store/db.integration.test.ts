@@ -32,6 +32,8 @@ const EXPECTED_TABLES = [
   'baseline_pins',
   'fix_round_heads',
   'gate_slots',
+  'autopilot_tickets',
+  'autopilot_budgets',
   'cloud_session_links',
   'servers',
   'prs',

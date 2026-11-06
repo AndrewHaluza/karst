@@ -45,6 +45,7 @@ const PROTECTED_FIELDS = [
   'agentBackends',
   'sandboxMemory',
   'sandboxLimits',
+  'autopilot',
   'closeDoneTerminalsWithTicket',
   'diffsInSourceControl',
   'stopServersOnDone',

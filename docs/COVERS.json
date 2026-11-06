@@ -357,6 +357,15 @@
   "src/extension/artifactCaptureWiring.ts": [
     "arch:APP-00"
   ],
+  "src/extension/autopilotBinding.ts": [
+    "arch:AP-00"
+  ],
+  "src/extension/ops/autopilotOps.ts": [
+    "arch:AP-00"
+  ],
+  "src/extension/ops/autopilotWiring.ts": [
+    "arch:AP-00"
+  ],
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
   ],
@@ -416,6 +425,9 @@
   ],
   "src/manifest/*.ts": [
     "arch:MS-00"
+  ],
+  "src/manifest/autopilot.ts": [
+    "arch:AP-00"
   ],
   "src/manifest/scaffoldStamp.ts#stampScaffold": [
     "arch:CLI-20"
@@ -587,6 +599,9 @@
   ],
   "src/store/**": [
     "arch:ST-00"
+  ],
+  "src/store/autopilot.ts": [
+    "arch:AP-00"
   ],
   "src/store/baselinePins.ts": [
     "arch:SERVERS-PANEL",

@@ -3960,3 +3960,52 @@ describe('sandboxLimits (sbx cpus, worker opt-out, gate slots)', () => {
     expect(run('sandboxLimits: 3\n').error).toMatch(/sandboxLimits must be a mapping/);
   });
 });
+
+describe('autopilot (auto-fix of ship-stage problems)', () => {
+  const run = (extra: string): { value?: unknown; error?: string } => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}`);
+    try {
+      return { value: loadManifest(path).autopilot };
+    } catch (err) {
+      return { error: (err as Error).message };
+    } finally {
+      cleanup();
+    }
+  };
+
+  it('is undefined when omitted', () => {
+    expect(run('').value).toBeUndefined();
+  });
+
+  it('defaults every key and stays disabled', () => {
+    expect(run('autopilot: {}\n').value).toEqual({
+      enabled: false,
+      conflicts: { policy: 'auto', maxRounds: 2 },
+      ci: { policy: 'auto', maxAttempts: 3, checks: [] },
+    });
+  });
+
+  it('parses every key and de-duplicates the check names', () => {
+    const yml = 'autopilot:\n  enabled: true\n  conflicts: { policy: ask, maxRounds: 4 }\n  ci: { policy: auto, maxAttempts: 5, checks: [lint, " lint ", unit] }\n';
+    expect(run(yml).value).toEqual({
+      enabled: true,
+      conflicts: { policy: 'ask', maxRounds: 4 },
+      ci: { policy: 'auto', maxAttempts: 5, checks: ['lint', 'unit'] },
+    });
+  });
+
+  it.each([
+    ['autopilot: 3\n', /autopilot must be a mapping/],
+    ['autopilot:\n  enabled: "yes"\n', /autopilot\.enabled must be a boolean/],
+    ['autopilot:\n  nope: 1\n', /autopilot\.nope is not a known key/],
+    ['autopilot:\n  conflicts: { policy: maybe }\n', /autopilot\.conflicts\.policy must be/],
+    ['autopilot:\n  conflicts: { maxRounds: 0 }\n', /autopilot\.conflicts\.maxRounds must be a whole number/],
+    ['autopilot:\n  conflicts: { extra: 1 }\n', /autopilot\.conflicts\.extra is not a known key/],
+    ['autopilot:\n  ci: { maxAttempts: 1.5 }\n', /autopilot\.ci\.maxAttempts must be a whole number/],
+    ['autopilot:\n  ci: { checks: lint }\n', /autopilot\.ci\.checks must be a list/],
+    ['autopilot:\n  ci: { checks: [""] }\n', /autopilot\.ci\.checks must hold non-empty strings/],
+    ['autopilot:\n  ci: [a]\n', /autopilot\.ci must be a mapping/],
+  ])('rejects %j', (yml, message) => {
+    expect(run(yml).error).toMatch(message);
+  });
+});
