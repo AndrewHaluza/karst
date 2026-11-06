@@ -39,7 +39,8 @@
     "arch:UATHOST-05"
   ],
   "scripts/evalForm/**": [
-    "arch:FORMEVAL"
+    "arch:FORMEVAL",
+    "arch:FORMEVAL-INTENT"
   ],
   "scripts/evalForm/draft*.mjs": [
     "arch:FORMEVAL-DRAFT"
