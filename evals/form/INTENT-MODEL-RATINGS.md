@@ -34,7 +34,7 @@ All rows use the 6 cases above. The first table has one judge model, `claude-son
 | Producer | Effort | Runs | `raw` F2P Coverage | `improved` F2P Coverage | Unsupported / charter | Judge errors | Source |
 |---|---|:---:|:---:|:---:|:---:|:---:|---|
 | Claude Sonnet 5.5 | high | 1 | 85.7% | 65.0% | 0.36 | 1 | [`rejudge-01-00-45`](./references/rejudge-2026-11-06T01-00-45-340Z/report.md) |
-| Claude Opus 5.5 | low | 1 | 60.0% | 37.5% | 0.27 | 0 | [`form-00-27-03`](./references/form-2026-11-06T00-27-03-038Z/report.md) |
+| Claude Opus 5.5 | low | 1 | 60.0% | 37.5% | 0.27 | 1 | [`form-00-27-03`](./references/form-2026-11-06T00-27-03-038Z/report.md) |
 | Claude Haiku 5.5 | medium | 3 | 50.0% (sd 0.14) | 38.9% (sd 0.02) | 0.28 | 0 | [`form-01-00-46`](./references/form-2026-11-06T01-00-46-261Z/report.md) |
 
 The second table shows the same Opus and Sonnet charters with each judge.
@@ -52,7 +52,7 @@ Limits of this comparison:
 - Sonnet judged its own charters in the first table, so its lead may be too high.
 - The Sonnet judge scored the rows at different times: the Opus row in the first run, and the Sonnet row in a later rejudge.
 - The run counts differ. Haiku has 3 runs, and Opus and Sonnet have 1 run each.
-- Sonnet has one judge error, which the score excludes.
+- Sonnet and Opus each have one judge error, which the scores exclude.
 - The Opus and Haiku difference is within the Haiku raw sd. Treat it as no clear difference.
 - The effect of the improve step depends on the judge. Coverage goes down for all three models with the Sonnet judge, and up with the Haiku judge.
 - The Haiku judge flags fewer unsupported scenarios (Opus 0.00, Sonnet 0.08) than the Sonnet judge. It can be a lenient judge.
