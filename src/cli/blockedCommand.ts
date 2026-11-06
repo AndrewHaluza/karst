@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js';
+import { formatId } from '../model/entityId.js';
 import { reviewStallAttempts } from '../workflow/reviewStallRead.js';
 
 /**
@@ -112,7 +113,7 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     .all(...projectArgs) as BlockRow[];
 
   const rows: BlockedRow[] = open.map((r) => ({
-    key: r.key ?? `#${r.id}`,
+    key: r.key ?? formatId('ticket', r.id),
     stage: r.stage_key,
     kind: r.blocked_kind,
     since: r.blocked_at ?? '',
