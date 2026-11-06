@@ -259,6 +259,8 @@ covers: src/store/blockerOutcome.ts#blockerOutcome, src/store/blockerOutcome.ts#
 When a blocker enters `done` (`store/blockerOutcome.ts`, emitted inside `setStage`'s savepoint like sub-task events), each live dependent gets ONE trusted `kind='event'` mailbox row (rendered `karst event:`). It carries the blocker's key and title, its brief, the merged paths per repo, the PR links and the blocker's bulletin notes. The row is capped at the 4096-char mailbox limit and ends with a `karst context <blocker-key>` pointer for the full text.
 
 The same outcome appears as the read-only `blockers` field and `## Blockers` section of `karst context`. It also rides the narrative seed of a ticket launched after its blockers have landed. Message send stays parent-to-child only.
+
+In a planning session (`KARST_PLANNING_SESSION` set) `karst context` still prints these fields. It scopes the ticket key to `KARST_PROJECT` when there is no manifest, and it omits the `## How this stage ends` section, because a stage marker is a write.
 END_DOC_BLOCK: [@arch:CLI-15]
 
 ## [@arch:CLI-16] `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
