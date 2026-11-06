@@ -42,15 +42,6 @@ describe('review stall — park and the three answers', () => {
       },
     });
   }
-  /** One review run that finds nothing blocking and passes. */
-  function cleanReview(n: number) {
-    const runAt = `2026-07-30T10:00:0${n}.000Z`;
-    const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
-    commitGateOutcome(store, {
-      ticketId: id, stageKey: 'review', runAt, artifactPath: '', gates: [], stageRunId: evidence.runId,
-      now: () => runAt, findings: [], outcome: { kind: 'verdict', verdict: { kind: 'passed' } },
-    });
-  }
   const backToReview = () => {
     transition(store, id, 'fix', { kind: 'passed' });
     transition(store, id, 'uat', { kind: 'passed' });
@@ -77,10 +68,8 @@ describe('review stall — park and the three answers', () => {
     backToReview();
     failReview(2, [D159]);
     backToReview();
-    cleanReview(3);
-    transition(store, id, 'uat', { kind: 'failed', reason: 'again' });
-    transition(store, id, 'fix', { kind: 'passed' });
-    transition(store, id, 'uat', { kind: 'passed' });
+    failReview(3, []);
+    backToReview();
     failReview(4, [D159]);
     expect(stageBlock(store, id, 'fix')).toBeNull();
   });
