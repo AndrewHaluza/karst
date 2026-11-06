@@ -450,7 +450,7 @@ function persistDraft(
 
 /** The start refusal for a ticket parked on a review stall (shared wording for tests). */
 export const REVIEW_STALLED_START_MESSAGE =
-  'Saved. This ticket is parked on a review stall, so it cannot start here. Use the stall choices on the dashboard.';
+  'Saved. This ticket is parked on a review stall, so it cannot start here. Your edit is stored. To go on, use Continue anyway or Redesign hint on the dashboard.';
 
 /** The refusal text when `ticketId` sits in a review-stalled park, else null. */
 function reviewStallRefusal(store: Store, ticketId: number): string | null {

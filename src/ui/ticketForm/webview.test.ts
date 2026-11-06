@@ -1283,13 +1283,31 @@ describe('ticket-form webview.html — intent and code pointers', () => {
   it('both submit and save payloads spread changedAnalysisFields()', () => {
     expect(HTML.match(/\.\.\.changedAnalysisFields\(\)/g)).toHaveLength(2);
   });
-  it('render(state) seeds the fields and lastIntent/lastPointers from the stored state', () => {
+  it('render(state) seeds the three fields through seedFromStore and keeps the pointers row rule', () => {
     const src = functionSource('render');
-    expect(src).toContain("el('intent').value = state.intent || ''");
-    // The change baseline follows the STORED value on every push, not only the first.
-    expect(src).toContain("lastIntent = state.intent || ''");
-    expect(src).toContain("el('codePointers').value = state.codePointers || ''");
-    expect(src).toContain("lastPointers = state.codePointers || ''");
+    expect(src).toContain("lastIntent = seedFromStore('intent', state.intent || '', lastIntent)");
+    expect(src).toContain("lastPointers = seedFromStore('codePointers', state.codePointers || '', lastPointers)");
+    expect(src).toContain("lastDesc = seedFromStore('desc', state.description || '', lastDesc)");
     expect(src).toContain("el('codePointersRow').hidden = !el('codePointers').value");
+  });
+  describe('seedFromStore (T998)', () => {
+    const run = (value: string, stored: string, last: string) => {
+      const box = { value };
+      const fn = loadFunction('seedFromStore', { el: () => box });
+      const baseline = fn('intent', stored, last);
+      return { value: box.value, baseline };
+    };
+    it('fills an untouched field on the first push', () => {
+      expect(run('', 'stored', '')).toEqual({ value: 'stored', baseline: 'stored' });
+    });
+    it('keeps a field the user emptied when the stored value did not change', () => {
+      expect(run('', 'old', 'old')).toEqual({ value: '', baseline: 'old' });
+    });
+    it('keeps text the user typed when the stored value changed underneath', () => {
+      expect(run('typed', 'new', 'old')).toEqual({ value: 'typed', baseline: 'new' });
+    });
+    it('follows a stored change when the user did not edit the field', () => {
+      expect(run('old', 'new', 'old')).toEqual({ value: 'new', baseline: 'new' });
+    });
   });
 });

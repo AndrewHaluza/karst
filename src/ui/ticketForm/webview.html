@@ -791,14 +791,9 @@
     if (!el('title').value) el('title').value = state.title || '';
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
-    if (!el('desc').value) el('desc').value = state.description || '';
-    if (!el('intent').value) el('intent').value = state.intent || '';
-    if (!el('codePointers').value) el('codePointers').value = state.codePointers || '';
-    // The baseline for "changed" is what the host STORES, refreshed on every push:
-    // after a Save the stored value equals the text, so editing back to the text
-    // that was first loaded still differs and is sent (T998).
-    lastIntent = state.intent || '';
-    lastPointers = state.codePointers || '';
+    lastDesc = seedFromStore('desc', state.description || '', lastDesc);
+    lastIntent = seedFromStore('intent', state.intent || '', lastIntent);
+    lastPointers = seedFromStore('codePointers', state.codePointers || '', lastPointers);
     el('codePointersRow').hidden = !el('codePointers').value;
     el('attachments').innerHTML = renderAttachments(state.attachments || []);
     const rels = state.relations || [];
@@ -1457,7 +1452,16 @@
   // submit send a field only when it differs, so an untouched reopen never
   // rewrites stored analysis output.
   let lastIntent = '';
+  let lastDesc = '';
   let lastPointers = '';
+  // Seed a field only when the HOST's stored value changed and the user has not
+  // edited it since the last push. A field the user emptied must stay empty:
+  // refilling it on an unrelated push would revert the edit unseen (T998).
+  // Returns the new baseline (the stored value).
+  function seedFromStore(id, stored, last) {
+    if (stored !== last && el(id).value === last) el(id).value = stored;
+    return stored;
+  }
   function changedAnalysisFields() {
     const out = {};
     const intent = el('intent').value;
