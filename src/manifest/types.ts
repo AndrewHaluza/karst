@@ -309,6 +309,7 @@ export const PRESET_CAPABILITIES = [
   'uatFix',
   'review',
   'reviewFix',
+  'stallSuggestion',
   'prDescription',
   'ticketAnalysis',
   'implementation',
@@ -851,6 +852,11 @@ export interface ProcessAssignmentsConfig {
    * agentProvider/defaultModel) apply, exactly like every other role.
    */
   ticketAnalysis?: ProcessAssignmentConfig;
+  /**
+   * The headless call that writes the suggestion for a review stall. Absent →
+   * the review resolution applies, exactly like every other role.
+   */
+  stallSuggestion?: ProcessAssignmentConfig;
   /**
    * The planning-session core/model (Settings → Agents, "Planner"). A planning
    * session is not a ticket and not a stage, so this is not a `process_runs`

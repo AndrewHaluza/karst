@@ -51,7 +51,7 @@ export interface PresetCapabilityGroup {
 
 /** Quality / Ticket / Graph roles — the §5 grouping, in render order. */
 export const PRESET_CAPABILITY_GROUPS: readonly PresetCapabilityGroup[] = [
-  { id: 'quality', label: 'Quality', capabilities: ['uatTester', 'uatFix', 'review', 'reviewFix'] },
+  { id: 'quality', label: 'Quality', capabilities: ['uatTester', 'uatFix', 'review', 'reviewFix', 'stallSuggestion'] },
   {
     id: 'ticket',
     label: 'Ticket',
@@ -72,6 +72,7 @@ export const PRESET_CAPABILITY_LABELS: Record<PresetCapability, string> = {
   reviewFix: 'Review Fix Agent',
   prDescription: 'PR description',
   ticketAnalysis: 'Ticket Analysis Agent',
+  stallSuggestion: 'Stall Suggestion Agent',
   implementation: 'Implementation',
   planning: 'Planner',
   graphExpert: 'Graph expert',

@@ -140,6 +140,7 @@ describe('validateProcessAssignments', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'stallSuggestion',
       'planning',
     ]);
     expect(PROCESS_ROLES).toEqual([
@@ -149,6 +150,7 @@ describe('validateProcessAssignments', () => {
       'review-fix',
       'pr-description',
       'ticket-analysis',
+      'stall-suggestion',
       'planning',
     ]);
   });

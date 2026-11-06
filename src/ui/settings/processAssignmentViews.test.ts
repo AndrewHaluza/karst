@@ -31,6 +31,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'stallSuggestion',
       'planning',
     ]);
     expect(all.map((v) => v.roleLabel)).toEqual([
@@ -40,6 +41,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Review Fix Agent',
       'PR description',
       'Ticket Analysis Agent',
+      'Stall Suggestion Agent',
       'Planner',
     ]);
     expect(all.map((v) => v.description)).toEqual([
@@ -49,6 +51,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Runs to fix a failed review gate',
       'Writes the pull request description at ship time',
       'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
+      'Writes the suggestion when a review stalls',
       'Model used by planning sessions',
     ]);
   });

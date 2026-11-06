@@ -127,6 +127,7 @@ export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
   review: 'Review Agent',
   'review-fix': 'Review Fix Agent',
   'ticket-analysis': 'Ticket Analysis Agent',
+  'stall-suggestion': 'Stall Suggestion Agent',
   planning: 'Planner',
 };
 
