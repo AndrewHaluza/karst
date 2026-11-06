@@ -97,10 +97,6 @@ describe('dependency probes, keys and defaults', () => {
     expect(run.mock.calls.some(([binary]) => binary === 'git')).toBe(true);
     expect(run.mock.calls.some(([binary]) => binary === 'gh')).toBe(true);
   });
-
-  it('uses the live runner by default', async () => {
-    await expect(createDependencyProbes().capabilityFaults('worktrees', 'claude')).resolves.toEqual([]);
-  });
 });
 
 describe('describeFaults', () => {

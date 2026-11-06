@@ -8,8 +8,11 @@ import type { GettingStartedActions } from './messages.js';
  */
 
 export interface GettingStartedActionsCtx {
-  /** Rebuild + push fresh state (the panel binds this to a fresh loadState). */
-  pushState(): void;
+  /**
+   * Rebuild + push fresh state (the panel binds this to a fresh loadState).
+   * Only a user re-check passes `recheck: true`; any other push reads the probe cache.
+   */
+  pushState(options?: { recheck?: boolean }): void;
 }
 
 export type GettingStartedActionsFactory = (ctx: GettingStartedActionsCtx) => GettingStartedActions;
@@ -33,7 +36,7 @@ export function buildGettingStartedActions(deps: GettingStartedActionsDeps): Get
       ctx.pushState(); // manifest item flips to done without closing the panel
     },
     recheckDeps(): void {
-      ctx.pushState();
+      ctx.pushState({ recheck: true });
     },
     openSettings(): void {
       deps.runCommand('karst.openSettings');

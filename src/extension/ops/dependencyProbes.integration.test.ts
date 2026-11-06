@@ -22,4 +22,8 @@ describe('dependency probes with a real child process', () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout.length).toBe(PROBE_OUTPUT_LIMIT);
   });
+
+  it('uses the live runner by default', async () => {
+    await expect(createDependencyProbes().capabilityFaults('worktrees', 'claude')).resolves.toEqual([]);
+  });
 });

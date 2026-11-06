@@ -80,7 +80,7 @@ export class GettingStartedManager {
         this.logError('karst: getting started state failed', e);
       }
     };
-    const ctx: GettingStartedActionsCtx = { pushState: () => pushState(true) };
+    const ctx: GettingStartedActionsCtx = { pushState: (options) => pushState(options?.recheck === true) };
     const actions: GettingStartedActions = this.actionsFactory(ctx);
 
     panel.onDidReceiveMessage((raw) => {
