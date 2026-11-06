@@ -15,11 +15,11 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 - Q1: The rise is real. It holds when UI-only and docs-only tickets are excluded.
 - Q2: The ticket mix does not explain the rise. The share of `fix` tickets is 51% in A and 51% in C. 11 of 41 tickets in C have no known type. For any assignment of those 11 tickets, the C block rate at the A mix is 46% to 54%, against an actual 47% to 54%. The A rate is 21%. The mix explains at most 4 of the 33 points of the rise.
 - Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context and the prompt tail did change. The `effort` parameter was `low` in nearly all runs. It was `medium` in 8 runs (1 in A, 7 in C).
-- Q4: The findings are mostly correct, with a limit. A later fix is weak evidence, because a blocking finding forces a fix. The classes below rest on the reasons in the sample rows. 29 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
+- Q4: The sample finds few wrong findings, but the count is weak. 26 of 30 reasons cite a later fix, and a blocking finding forces a fix, so those classes are circular. The classifier gave a reason from the code for each row, but the study did not check the reasons again. 29 of 30 sampled findings are classed real. 1 is wrong. 10 are real but below the stated severity.
 - Q5: No evidence that the earlier period missed bugs. Later fix-titled tickets that reference a ticket that passed review: A 5 of 70, C 3 of 38. The reference is a text match, and the defect origin was not verified. C is 1 to 2 days old, so the comparison has little power.
 - Store: this report is registered as a research artifact (karst `artifact add`, kind research). The docs file is the same file.
-- Cause: Not isolated. Two changes fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`. The study cannot separate these causes without a controlled re-run.
-- Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of the same 5 diffs from Oct 30 to Nov 1. The three factors are the Claude Code version (2.1.316 and 2.1.319), the loaded context (the Oct 30 user and repo CLAUDE.md and the current ones) and the prompt tail (with and without the Intent section). This covers both named causes, and all parts of cause (a). It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
+- Cause: Not isolated. Three candidates fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`; (c) the extension build (review driver and prompt assembly), which changed with merged tickets in the period and which the study did not test. The study cannot separate these causes without a controlled re-run.
+- Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of the same 5 diffs from Oct 30 to Nov 1. The three factors are the Claude Code version (2.1.316 and 2.1.319), the loaded context and the prompt tail (with and without the Intent section). The A context is no user CLAUDE.md (47 of 57 A runs), no session-start hook, and the repo CLAUDE.md from the commit before ab9d723c15f. The current context is the writing-style user rule and the current repo CLAUDE.md. The A context of the other 10 A runs (older user files, larger rules files, a hook) is not reproduced. This tests causes (a) and (b). It does not test the extension build (c), because all cells run the same extension code. It also does not vary the `effort` value. It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
 
 END_DOC_BLOCK: [@issue:RB-01]
 
@@ -92,7 +92,7 @@ How much the mix explains: the `fix` share is 51% in A and 51% in C. The 11 tick
 | None is `fix` | 10 of 21 (48%) | 12 of 20 (60%) | 54% |
 | Only the 30 typed tickets | 10 of 21 (48%) | 4 of 9 (44%) | 46% |
 
-The A rate is 21%. The C rate is 54% for all 41 tickets and 47% for the 30 typed tickets. The A mix gives C a rate of 46% to 54%. The difference between the actual and the A-mix rate is 0 to 4 points (4 if all 11 are `fix`, 0 if none is, 1 for the typed tickets). The mix explains at most 4 of the 33 points of the rise. Larger tickets in C (median lines 256 against 163, typed tickets only) are the one mix change in the direction of more findings. The study did not test this.
+The A rate is 21%. The C rate is 54% for all 41 tickets and 47% for the 30 typed tickets. The A mix gives C a rate of 46% to 54%. The difference between the actual and the A-mix rate is 0 to 4 points (4 if all 11 are `fix`, 0 if none is, 1 for the typed tickets). The mix explains at most 4 of the 33 points of the rise. This holds for the `fix` or other type only. The study did not control for size. Larger tickets in C (median lines 256 against 163, typed tickets only) are the one mix change in the direction of more findings. The study did not test this.
 
 Verdict: the mix does not explain the rise. The block rate rose inside both groups.
 
@@ -121,7 +121,7 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 
 The Q3 rows use the 118 runs whose transcript could be matched to a review run (57 of 73 in A, 35 of 41 in C, 26 in B). This study did not find a transcript for the other runs. The study did not check whether the matched runs are a fair sample of all runs.
 
-Repo CLAUDE.md change ab9d723c15f (2 lines): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. The step B to C also loaded the same repo file in all runs (hash ebf53bc7), B has runs on both sides of the change (Nov 2 runs before 19:06 used the old file; Nov 3 runs used the new file). The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
+Repo CLAUDE.md change ab9d723c15f (2 lines): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. All C runs loaded the new repo file (hash ebf53bc7). B has runs on both sides of the change: Nov 2 runs before 19:06 used the old file, and Nov 3 runs used the new file. The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
 
 Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticket description 100% (n=5). The Ticket description group is only 5 runs and gives no reliable rate. Inside the "no extra section" group the rate still rose: A 20%, B 27%, C 44%.
 
@@ -129,7 +129,7 @@ Block rate by Claude Code version: 2.1.317 about 221 thinking tokens, 33% blocke
 
 Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting may have changed on Nov 6. This is an inference. It affects 7 of 41 runs in C and cannot explain the rise that began before Nov 6. The repo reviewer definition did not change after Oct 10. The installed extension folder is karst.karst-1.0.0 at all times, so its version string cannot tell the builds apart. The study did not compare the extension build or its code between the periods. The extension code (the review driver and the prompt assembly) changed with merged tickets in this period, for example #955. It stays a candidate cause and is not tested.
 
-Verdict: the input changed in four ways. The step A to B (21% to 35%) fits the user context change and the Intent section. The step B to C (35% to 54%) fits the Claude Code 2.1.318 upgrade. These are correlations. The causes are confounded.
+Verdict: the input changed in five ways: the Claude Code version, the loaded user context, the repo CLAUDE.md, the prompt tail sections, and the `effort` value in 7 runs. The step A to B (21% to 35%) fits the user context change and the Intent section. The step B to C (35% to 54%) fits the Claude Code 2.1.318 upgrade. These are correlations. The causes are confounded.
 
 END_DOC_BLOCK: [@issue:RB-04]
 
@@ -187,7 +187,7 @@ Period C:
 
 Notes: sample A has 1 wrong finding (fid 1511: keeping the placement and the bridge dir is intended). Each sample was classified by one subagent, so the classes carry classifier bias. Sample A is 79% of its pool. 26 of 30 reasons cite a later fix or a later change. These classes are weak for that reason.
 
-Verdict: the sample does not show that the findings in C are noisier than in A. It does not show the opposite either. In C, 13 of 15 sampled findings are real at their stated severity, including 9 of 9 highs. In A, 6 of 15 are real at their stated severity (1 of 2 highs). The severity check for the highs rests on the fix basis, because the reasons for the C highs say "fixed later". A fix after review does not show that the severity was right. Treat the severity comparison as unproven. The count of real defects (29 of 30) is the firmer result.
+Verdict: the sample does not show that the findings in C are noisier than in A. It does not show the opposite either. In C, 13 of 15 sampled findings are real at their stated severity, including 9 of 9 highs. In A, 6 of 15 are real at their stated severity (1 of 2 highs). The severity check for the highs rests on the fix basis, because the reasons for the C highs say "fixed later". A fix after review does not show that the severity was right. Treat the severity comparison as unproven. The count of real defects (29 of 30) is also weak, because 26 of 30 reasons cite a later fix. Neither result is firm.
 
 END_DOC_BLOCK: [@issue:RB-08]
 
@@ -213,7 +213,7 @@ END_DOC_BLOCK: [@issue:RB-06]
 ## [@issue:RB-07] Proposals for a person
 
 1. Record the Claude Code version and the lane effort in `process_runs` for each review. Today the version is found only in transcripts.
-2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs from Oct 30 to Nov 1. Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This covers both named causes and every part of cause (a). Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
+2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs from Oct 30 to Nov 1. Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This tests causes (a) and (b). It does not test the extension build (c). The A context is no user CLAUDE.md, no hook, and the repo CLAUDE.md before ab9d723c15f. Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
 3. Decide on any prompt or `blockingSeverity` change only after step 2 (@arch:PRE-BASELINE). The sample shows the extra findings are mostly real.
 
 END_DOC_BLOCK: [@issue:RB-07]
