@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
-import { dispatchHook, parseHookPayload } from './dispatch.js';
+import { dispatchHook, expireBackgroundWaits, parseHookPayload } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import {
@@ -1501,10 +1501,11 @@ describe('dispatchHook — background-wait turn end', () => {
     expect(tracker.nudge(id)).not.toBeNull();
   });
 
-  it('new turn after bg Stop resets', () => {
+  it('a real prompt after bg Stop ends the wait (T993: a bare second Stop no longer does)', () => {
     const { id, send } = setup();
     send(bgBash);
     send({ hook_event_name: 'Stop' });
+    send({ hook_event_name: 'UserPromptSubmit' });
     send({ hook_event_name: 'Stop' });
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
@@ -1513,6 +1514,207 @@ describe('dispatchHook — background-wait turn end', () => {
     const { id, send } = setup();
     send(bgBash, 'codex');
     send({ hook_event_name: 'Stop' }, 'codex');
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+});
+
+describe('dispatchHook — background wait survives Stop (T993)', () => {
+  let store: Store;
+  const WT = '/repo/.karst/worktrees/y';
+  const T0 = new Date('2026-11-06T14:00:00.000Z');
+  const MIN = 60_000;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+    vi.useRealTimers();
+  });
+
+  function setup(): {
+    id: number;
+    tracker: TurnTracker;
+    send: (p: Record<string, unknown>, provider?: 'claude' | 'codex') => void;
+    sweep: () => void;
+  } {
+    const t = createTicket(store, { key: 'B', title: 'b' });
+    seedWorktree(store, t.id, WT);
+    openImplementationRun(store, { ticketId: t.id, attempt: 0, provider: 'claude', startedAt: '2026-11-06T13:59:00.000Z' });
+    const tracker = new TurnTracker();
+    const send = (p: Record<string, unknown>, provider: 'claude' | 'codex' = 'claude'): void => {
+      const parsed = parseHookPayload({ cwd: WT, ...p });
+      dispatchHook(store, parsed!, undefined, undefined, () => provider, undefined, undefined, tracker);
+    };
+    return { id: t.id, tracker, send, sweep: () => expireBackgroundWaits(store, tracker) };
+  }
+
+  const bgBash = { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { run_in_background: true } };
+  const monitor = { hook_event_name: 'PostToolUse', tool_name: 'Monitor', tool_input: { timeout_ms: 1_800_000 } };
+  const stop = { hook_event_name: 'Stop' };
+  const woken = { hook_event_name: 'UserPromptSubmit', task_notification: true };
+  const userPrompt = { hook_event_name: 'UserPromptSubmit' };
+
+  it('parseHookPayload forwards Monitor timeout_ms only when a positive finite number', () => {
+    const parse = (timeout_ms: unknown) =>
+      parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Monitor', tool_input: { timeout_ms } })?.timeout_ms;
+    expect(parse(1_800_000)).toBe(1_800_000);
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, '5000', null]) expect(parse(bad)).toBeUndefined();
+    expect(parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { timeout_ms: 5 } })?.timeout_ms).toBeUndefined();
+  });
+
+  it('parseHookPayload forwards task_notification only when boolean', () => {
+    expect(parseHookPayload({ hook_event_name: 'UserPromptSubmit', task_notification: true })?.task_notification).toBe(true);
+    expect(parseHookPayload({ hook_event_name: 'UserPromptSubmit', task_notification: 'yes' })?.task_notification).toBeUndefined();
+  });
+
+  it('Monitor then Stop -> running, no nudge, background-wait telemetry', () => {
+    const { id, tracker, send } = setup();
+    send(monitor);
+    send(stop);
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(tracker.nudge(id)).toBeNull();
+    expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+  });
+
+  it.each([
+    ['background Bash', bgBash],
+    ['Monitor', monitor],
+  ])('%s, Stop, a woken turn with no tools, Stop -> running', (_name, launch) => {
+    const { id, tracker, send } = setup();
+    send(launch);
+    send(stop);
+    send(woken);
+    send(stop);
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(tracker.nudge(id)).toBeNull();
+    expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+  });
+
+  it('a real user prompt ends the wait, and the next Stop reads waiting', () => {
+    const { id, send } = setup();
+    send(monitor);
+    send(stop);
+    send(userPrompt);
+    send(stop);
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('the done marker ends the wait', () => {
+    const { id, tracker, send } = setup();
+    send(bgBash);
+    send(stop);
+    completeImplementationRun(store, id, '2026-11-06T14:01:00.000Z');
+    send(stop);
+    expect(getTicket(store, id).agentState).toBe('idle');
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+  });
+
+  it('SessionEnd ends the wait', () => {
+    const { id, tracker, send } = setup();
+    send(bgBash);
+    send({ hook_event_name: 'SessionEnd' });
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+  });
+
+  it('the deadline flips running to waiting with no hook event', () => {
+    const { id, send, sweep } = setup();
+    send(bgBash);
+    send(stop);
+    vi.advanceTimersByTime(29 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('running');
+    vi.advanceTimersByTime(2 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('Monitor uses its own timeout_ms; a Monitor without a valid one uses 30 minutes', () => {
+    const a = setup();
+    a.send({ ...monitor, tool_input: { timeout_ms: 2 * MIN } });
+    a.send(stop);
+    vi.advanceTimersByTime(3 * MIN);
+    a.sweep();
+    expect(getTicket(store, a.id).agentState).toBe('waiting');
+    store.close();
+    store = openStore(':memory:');
+    const b = setup();
+    b.send({ ...monitor, tool_input: {} });
+    b.send(stop);
+    vi.advanceTimersByTime(29 * MIN);
+    b.sweep();
+    expect(getTicket(store, b.id).agentState).toBe('running');
+    vi.advanceTimersByTime(2 * MIN);
+    b.sweep();
+    expect(getTicket(store, b.id).agentState).toBe('waiting');
+  });
+
+  it('a new launch extends the deadline to the later value and never shortens it', () => {
+    const { id, send, sweep } = setup();
+    send({ ...monitor, tool_input: { timeout_ms: 60 * MIN } });
+    send(stop);
+    send(woken);
+    send({ ...monitor, tool_input: { timeout_ms: 2 * MIN } });
+    send(stop);
+    vi.advanceTimersByTime(40 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('running');
+    vi.advanceTimersByTime(21 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('activity after the last Stop stops the deadline flip', () => {
+    const { id, send, sweep } = setup();
+    send(bgBash);
+    send(stop);
+    send(woken);
+    send({ hook_event_name: 'PostToolUse', tool_name: 'Read' });
+    vi.advanceTimersByTime(31 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('the deadline does not flip when the marker is no longer pending or the state moved on', () => {
+    const a = setup();
+    a.send(bgBash);
+    a.send(stop);
+    completeImplementationRun(store, a.id, '2026-11-06T14:01:00.000Z');
+    vi.advanceTimersByTime(31 * MIN);
+    a.sweep();
+    expect(getTicket(store, a.id).agentState).not.toBe('waiting');
+    store.close();
+    store = openStore(':memory:');
+    const b = setup();
+    b.send(bgBash);
+    b.send(stop);
+    setAgentState(store, b.id, 'waiting');
+    vi.advanceTimersByTime(31 * MIN);
+    b.sweep();
+    expect(getTicket(store, b.id).agentState).toBe('waiting');
+  });
+
+  it('a remapped question Stop (idle_prompt) during a wait reads waiting', () => {
+    const { id, send } = setup();
+    send(monitor);
+    send(stop);
+    send(woken);
+    send({ hook_event_name: 'Notification', message: 'idle_prompt' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('a permission prompt during a wait reads waiting', () => {
+    const { id, send } = setup();
+    send(monitor);
+    send({ hook_event_name: 'Notification', message: 'permission_prompt' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('a core other than claude keeps its current behavior', () => {
+    const { id, send } = setup();
+    send(monitor, 'codex');
+    send(stop, 'codex');
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
 });

@@ -201,7 +201,7 @@ import { renderGuideInstruction } from './cli/guide.js';
 import { renderServersInstruction } from './cli/serversCommand.js';
 import { buildWorkflowInvocation, renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
-import { TurnTracker } from './hooks/dispatch.js';
+import { TurnTracker, expireBackgroundWaits, BACKGROUND_WAIT_SWEEP_INTERVAL_MS } from './hooks/dispatch.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
@@ -3801,6 +3801,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
   }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  // A claude background wait that reached its deadline leaves blue with no hook event (T993).
+  const backgroundWaitTimer = setInterval(() => { try { expireBackgroundWaits(localStore, turnTracker, notifyHook); } catch (e) { logger.debug(`[background-wait] sweep failed: ${String(e)}`); } }, BACKGROUND_WAIT_SWEEP_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(backgroundWaitTimer) });
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of

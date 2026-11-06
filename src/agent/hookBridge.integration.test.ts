@@ -319,6 +319,41 @@ describe('HOOK_BRIDGE mail reply', () => {
     }
   });
 
+  async function posted(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const bodies: Array<Record<string, unknown>> = [];
+    const r = await receiverOn((body, res) => {
+      bodies.push(body);
+      res.writeHead(204);
+      res.end();
+    });
+    try {
+      await runBridge(r.url, input);
+    } finally {
+      await r.close();
+    }
+    return bodies[0] ?? {};
+  }
+
+  it('forwards run_in_background and a Monitor timeout_ms, and no other tool input (T993)', async () => {
+    const base = { hook_event_name: 'PostToolUse', cwd: dir, session_id: 'sess-1' };
+    const bg = await posted({ ...base, tool_name: 'Bash', tool_input: { command: 'secret', run_in_background: true } });
+    expect(bg.tool_input).toEqual({ run_in_background: true });
+    const mon = await posted({ ...base, tool_name: 'Monitor', tool_input: { command: 'secret', timeout_ms: 5000 } });
+    expect(mon.tool_input).toEqual({ timeout_ms: 5000 });
+    const plain = await posted({ ...base, tool_name: 'Read', tool_input: { file_path: '/x', timeout_ms: 5 } });
+    expect(plain.tool_input).toBeUndefined();
+  });
+
+  it('forwards only a task_notification boolean for a UserPromptSubmit, never the prompt (T993)', async () => {
+    const base = { hook_event_name: 'UserPromptSubmit', cwd: dir, session_id: 'sess-1' };
+    const woken = await posted({ ...base, prompt: '<task-notification>\n<task-id>x</task-id>' });
+    expect(woken.task_notification).toBe(true);
+    expect(JSON.stringify(woken)).not.toContain('task-id');
+    const typed = await posted({ ...base, prompt: 'please continue' });
+    expect(typed.task_notification).toBeUndefined();
+    expect(JSON.stringify(typed)).not.toContain('please');
+  });
+
   it('fails open on a timeout below the Stop hook timeout', async () => {
     const r = await blackHole();
     try {
