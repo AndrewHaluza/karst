@@ -64,7 +64,12 @@ function validateFindings(raw: unknown): ReviewFindingsConfig {
 }
 
 function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewStallDetection {
-  const out: ReviewStallDetection = { ...REVIEW_STALL_DETECTION_DEFAULTS };
+  // The default is capped at the budget in every case: a manifest written back
+  // with the loaded value must pass this validator again.
+  const out: ReviewStallDetection = {
+    ...REVIEW_STALL_DETECTION_DEFAULTS,
+    sameFileRounds: Math.min(REVIEW_STALL_DETECTION_DEFAULTS.sameFileRounds, maxFixAttempts),
+  };
   if (raw === undefined) return out;
   if (!isObject(raw)) throw new ManifestError('review.stallDetection must be a mapping');
   if (raw.enabled !== undefined) {
@@ -82,7 +87,6 @@ function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewSta
     return value;
   };
   if (raw.sameFileRounds !== undefined) out.sameFileRounds = rounds('sameFileRounds', raw.sameFileRounds);
-  else if (out.sameFileRounds > maxFixAttempts) out.sameFileRounds = maxFixAttempts;
   if (raw.repeatedFindingRounds !== undefined && raw.repeatedFindingRounds !== null) {
     out.repeatedFindingRounds = rounds('repeatedFindingRounds', raw.repeatedFindingRounds);
   }

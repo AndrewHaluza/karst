@@ -6,6 +6,14 @@ describe('validateReview', () => {
     expect(validateReview(undefined, [])).toBeUndefined();
   });
 
+  it('a defaulted stallDetection, written back as loaded, validates again under any budget', () => {
+    for (const maxFixAttempts of [1, 3, 5, 10]) {
+      const loaded = validateReview({ maxFixAttempts }, []);
+      expect(loaded?.stallDetection.sameFileRounds).toBe(Math.min(5, maxFixAttempts));
+      expect(() => validateReview({ ...loaded }, [])).not.toThrow();
+    }
+  });
+
   it('defaults every field, including the findings lane ON at high severity', () => {
     expect(validateReview({}, [])).toEqual({
       maxFixAttempts: 3,
@@ -13,7 +21,7 @@ describe('validateReview', () => {
       requireIndependentSignal: true,
       openChanges: false,
       findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
-      stallDetection: { enabled: true, sameFileRounds: 5, repeatedFindingRounds: null },
+      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: null },
       repositories: {},
     });
   });
