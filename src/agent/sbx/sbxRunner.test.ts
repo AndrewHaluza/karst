@@ -2,6 +2,7 @@ import { mkdtempSync, symlinkSync, lstatSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type { GateProcessRunner, ProcessOutcome } from '../../workflow/gates/run.js';
 import { HOST_SESSION_RUNNER } from '../sessionRunner.js';
 import { fakeSbxProcess } from './fakeSbxProcess.js';
 import { createSbxSessionRunner, MAX_BUNDLE_STDOUT_BYTES, sandboxRemote } from './sbxRunner.js';
@@ -421,6 +422,61 @@ describe('createSbxSessionRunner damaged disk (EXT4 errors)', () => {
     const { runner, log } = make({});
     expect(await runner.ensureWritable!(ticket)).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
     expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe('createSbxSessionRunner cpu and worker limits', () => {
+  const mk = (existing: string[], extra: object = {}) =>
+    createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing, memory: '4g', cpus: 3, ...extra });
+
+  it('passes --cpus on create only', () => {
+    expect(mk([]).placeInteractive(spec()).shellArgs.slice(0, 12)).toEqual(['run', '--clone', '--memory', '4g', '--cpus', '3', '--env', 'VITEST_MAX_WORKERS=3', '--env', 'VITEST_MAX_THREADS=3', '--env', 'VITEST_MAX_FORKS=3']);
+    expect(mk([NAME]).placeInteractive(spec()).shellArgs).not.toContain('--cpus');
+  });
+
+  it('sets the worker and heap env on create and on reattach', () => {
+    for (const existing of [[], [NAME]]) {
+      const args = mk(existing).placeInteractive(spec()).shellArgs;
+      expect(args).toContain('VITEST_MAX_WORKERS=3');
+      expect(args).toContain('NODE_OPTIONS=--max-old-space-size=2048');
+    }
+  });
+
+  it('merges the session NODE_OPTIONS instead of replacing it', () => {
+    const args = mk([NAME]).placeInteractive({ ...spec(), env: { NODE_OPTIONS: '--trace-warnings' } }).shellArgs;
+    expect(args).toContain('NODE_OPTIONS=--trace-warnings --max-old-space-size=2048');
+  });
+
+  it('passes --memory and --cpus to the transcript-link sbx create, new sandbox only', async () => {
+    const created = async (existing: string[]): Promise<readonly string[] | undefined> => {
+      const proc = fakeSbxProcess();
+      const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing, memory: '4g', cpus: 3 });
+      await runner.linkTranscripts!({ bridgeDir: '/b', hostWorktreePath: '/wt' });
+      return proc.calls.find((c) => c.args[0] === 'create')?.args;
+    };
+    expect(await created([])).toEqual(expect.arrayContaining(['--clone', '--memory', '4g', '--cpus', '3']));
+    expect(await created([NAME])).toBeUndefined();
+  });
+
+  it('extends the guest NODE_OPTIONS read before the launch', async () => {
+    const proc = fakeSbxProcess({ [`sbx exec ${NAME} -- sh -c printf`]: { stdout: '--trace-warnings' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], memory: '4g', cpus: 3 });
+    await runner.ensureWritable!();
+    expect(runner.placeInteractive(spec()).shellArgs).toContain('NODE_OPTIONS=--trace-warnings --max-old-space-size=2048');
+  });
+
+  it('sets no env on opt-out but still passes --cpus', () => {
+    const args = mk([], { limitWorkers: false }).placeInteractive(spec()).shellArgs;
+    expect(args).toContain('--cpus');
+    expect(args.join(' ')).not.toContain('VITEST_MAX');
+  });
+
+  it('adds the limits to gate exec', async () => {
+    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' } as ProcessOutcome));
+    await mk([NAME], { gateProcess }).runGate!('npm', ['test'], '/wt');
+    expect(gateProcess.mock.calls[0]![1]).toEqual([
+      'exec', '--env', 'KARST_SANDBOX=1', '--env', 'VITEST_MAX_WORKERS=3', '--env', 'VITEST_MAX_THREADS=3', '--env', 'VITEST_MAX_FORKS=3', NAME, '--', 'sh', '-c', expect.stringContaining('--max-old-space-size=2048'), 'sh', 'npm', 'test',
+    ]);
   });
 });
 

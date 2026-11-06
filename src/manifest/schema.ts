@@ -1,5 +1,6 @@
 import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE } from './types.js';
 import { DOCKER_MEMORY_PATTERN, type SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
+import type { SandboxLimitsConfig } from '../agent/sbx/sbxLimits.js';
 import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
 import type {
   Manifest,
@@ -543,6 +544,32 @@ function validateSandboxMemory(raw: unknown): SandboxMemoryConfig | undefined {
   return Object.keys(out).length === 0 ? undefined : (out as SandboxMemoryConfig);
 }
 
+const SANDBOX_LIMITS_KEYS = ['cpus', 'workers', 'gateSlots'] as const;
+
+/** Parse `sandboxLimits` (absent → host-scaled CPUs, worker limits on, 2 gate slots). */
+function validateSandboxLimits(raw: unknown): SandboxLimitsConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new ManifestError('sandboxLimits must be a mapping');
+  const map = raw as Record<string, unknown>;
+  for (const key of Object.keys(map)) {
+    if (!(SANDBOX_LIMITS_KEYS as readonly string[]).includes(key)) throw new ManifestError(`sandboxLimits.${key} is not a known key`);
+  }
+  const out: { cpus?: number; workers?: boolean; gateSlots?: number } = {};
+  if (map.cpus !== undefined) {
+    if (typeof map.cpus !== 'number' || !Number.isInteger(map.cpus) || map.cpus < 1) throw new ManifestError('sandboxLimits.cpus must be a whole number of at least 1');
+    out.cpus = map.cpus;
+  }
+  if (map.workers !== undefined) {
+    if (typeof map.workers !== 'boolean') throw new ManifestError('sandboxLimits.workers must be a boolean');
+    out.workers = map.workers;
+  }
+  if (map.gateSlots !== undefined) {
+    if (typeof map.gateSlots !== 'number' || !Number.isInteger(map.gateSlots) || map.gateSlots < 0) throw new ManifestError('sandboxLimits.gateSlots must be a whole number, 0 or more (0 = unlimited)');
+    out.gateSlots = map.gateSlots;
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
 /**
  * Parse `closeDoneTerminalsWithTicket` (default undefined → closing a ticket
  * leaves its done terminals alone). Must be a boolean when present, like
@@ -799,6 +826,7 @@ export function validateManifest(raw: unknown): Manifest {
     agentSandbox: validateAgentSandbox(raw.agentSandbox),
     agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend),
     sandboxMemory: validateSandboxMemory(raw.sandboxMemory),
+    sandboxLimits: validateSandboxLimits(raw.sandboxLimits),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),
