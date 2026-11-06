@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -49,6 +49,9 @@ try {
   console.error('Failed to generate fixtures:', err);
   process.exit(1);
 }
+
+// T992: tell the reporter (tmpCleanup.ts) which run started this server; a run that reuses it must not remove its pages.
+if (process.env.KARST_VISUAL_RUN_ID) writeFileSync(join(ROOT, '.owner'), process.env.KARST_VISUAL_RUN_ID);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

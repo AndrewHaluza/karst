@@ -84,13 +84,13 @@ describe('createSbxSessionRunner.sync thin bundle', () => {
     return proc.calls.find((c) => c.command === 'sbx')!;
   };
 
-  it('passes the host HEAD so the sandbox excludes it (guarded by cat-file, tip==HEAD excludes parents)', async () => {
+  it('passes the host HEAD so the sandbox excludes it (guarded by cat-file, a tip at or behind HEAD excludes the tip parents)', async () => {
     const call = await run({ stdout: `${HOST_SHA}\n` });
     expect(call.args.slice(-3)).toEqual(['feat/x', HOST_SHA, PREV_TIP]);
     const script = call.args.find((a) => a.includes('bundle create'))!;
     expect(script).toContain('cat-file -e "$c^{commit}"');
     expect(script).toContain('ex="^$c"');
-    expect(script).toContain('ex="^$c^@"');
+    expect(script).toContain('ex="^$tip^@"');
   });
 
   it('creates the bundle temp file in the clone git dir, never in a read-only /tmp', async () => {

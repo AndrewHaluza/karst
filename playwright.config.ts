@@ -32,6 +32,9 @@ import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 // filtered: a scoped run would drop the teardown and its ledger verdict (false green).
 const ALL_TITLES = /.*/;
 
+// T992: one id per run. The webServer child inherits it and the cleanup reporter compares it; workers re-read this file and keep the id.
+process.env.KARST_VISUAL_RUN_ID ??= `${process.pid}-${Date.now()}`;
+
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
@@ -61,6 +64,7 @@ export default defineConfig({
   },
 
   webServer: {
+    // KARST_VISUAL_RUN_ID reaches serve.mjs, which records it; the cleanup reporter removes pages only of its own server.
     command: 'node tests/visual/serve.mjs',
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,

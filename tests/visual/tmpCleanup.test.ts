@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { writeFixtures } from './buildFixture.js';
-import { cleanTmpAfterRun, KEEP_TMP_ENV } from './tmpCleanup.js';
+import { resetFixtureDir } from './buildFixture.js';
+import { cleanTmpAfterRun, KEEP_TMP_ENV, OWNER_FILE, ownsPages, RUN_ID_ENV } from './tmpCleanup.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -45,12 +45,28 @@ describe('cleanTmpAfterRun', () => {
   });
 });
 
-describe('writeFixtures', () => {
-  it('clears pages left by an earlier (failed) run before it writes', () => {
+describe('resetFixtureDir', () => {
+  it('clears pages left by an earlier (failed) run', () => {
     const dir = fakeTmp();
     writeFileSync(join(dir, 'dark', 'stale-view.html'), 'stale');
-    writeFixtures(dir);
+    resetFixtureDir(dir);
     expect(existsSync(join(dir, 'dark', 'stale-view.html'))).toBe(false);
-    expect(existsSync(join(dir, 'catalog.html'))).toBe(true);
+    expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe('ownsPages', () => {
+  it('is true when the server of this run wrote the run id', () => {
+    const dir = fakeTmp();
+    writeFileSync(join(dir, OWNER_FILE), 'run-1\n');
+    expect(ownsPages(dir, { [RUN_ID_ENV]: 'run-1' })).toBe(true);
+  });
+
+  it('is false for a reused server (other id), no marker, or no run id', () => {
+    const dir = fakeTmp();
+    expect(ownsPages(dir, { [RUN_ID_ENV]: 'run-1' })).toBe(false);
+    writeFileSync(join(dir, OWNER_FILE), 'run-0');
+    expect(ownsPages(dir, { [RUN_ID_ENV]: 'run-1' })).toBe(false);
+    expect(ownsPages(dir, {})).toBe(false);
   });
 });

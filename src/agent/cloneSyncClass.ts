@@ -38,12 +38,12 @@ export async function classifyCloneRelation(sandboxSha: string, isAncestor: (old
  * Shell fragment for the clone side of a sync (sbx and docker share it). Needs `$g` (git with the clone's safe.directory),
  * `$br` (the branch) and the host's candidate commits as the positional args. It sets `$ex` to the first candidate the clone
  * has, as a bundle exclusion, so the bundle carries only what the host lacks (a thin bundle) and the host fetch stores a small
- * pack, not a copy of the history. A tip equal to the candidate excludes its parents (git refuses an empty bundle).
+ * pack, not a copy of the history. A tip that is the candidate or an ancestor of it (the clone is behind a host commit it has) excludes its own parents, so the bundle is never empty (git refuses an empty bundle).
  * No candidate in the clone: `$ex` stays empty and the bundle is full.
  */
 export const THIN_BUNDLE_EXCLUDE =
   'tip=$($g rev-parse "$br"); ex=; for c in "$@"; do [ -n "$c" ] || continue; $g cat-file -e "$c^{commit}" 2>/dev/null || continue; '
-  + 'if [ "$tip" = "$c" ]; then ex="^$c^@"; else ex="^$c"; fi; break; done; ';
+  + 'if [ -z "$($g rev-list -n1 "$tip" "^$c" 2>/dev/null)" ]; then ex="^$tip^@"; else ex="^$c"; fi; break; done; ';
 
 /**
  * Commits the host has that the clone may have too, best first: the worktree HEAD, then the tip fetched by the last sync

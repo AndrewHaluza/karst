@@ -121,6 +121,18 @@ describe('a repeated sandbox sync adds a small pack, not a copy of the history',
     expect(grown).toBeLessThan(historyBytes / 20);
   });
 
+  it('docker: a clone branch behind a host commit that the clone still has gives a small, non-empty bundle', async () => {
+    const { wt, clone, historyBytes } = makeHost('behind');
+    agentCommit(clone, 1);
+    git(wt, 'fetch', '-q', clone, BRANCH);
+    git(wt, 'merge', '-q', '--ff-only', 'FETCH_HEAD'); // the host HEAD is now the agent commit
+    git(clone, 'reset', '-q', '--hard', 'HEAD~1'); // the clone branch is behind it; the commit stays in the clone object store
+    const out = join(root, 'behind.bundle');
+    const script = THIN_OUT_SCRIPT.replace(`-C ${CONTAINER_REPO}`, `-C ${clone}`);
+    execFileSync('sh', ['-c', script, 'karst-bundle', out, BRANCH, git(wt, 'rev-parse', 'HEAD').trim()]);
+    expect(statSync(out).size).toBeLessThan(historyBytes / 20);
+  });
+
   it('control: without a candidate commit the bundle is full and the host stores a copy of the history', () => {
     const { clone, historyBytes } = makeHost('full');
     agentCommit(clone, 1);
