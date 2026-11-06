@@ -12,6 +12,7 @@ import {
   checkExtensionRatchet,
   assertExtensionRatchet,
   extensionGrowthErrorMessage,
+  assertMergeBaseInCi,
 } from './ratchet.js';
 
 // Extension entry file growth is capped at ALLOWED_EXTENSION_GROWTH (15) net lines
@@ -361,7 +362,26 @@ describe('extension.ts ratchet fallback ceiling when base is unavailable', () =>
 
 describe('extension.ts ratchet live check', () => {
   it('src/extension.ts passes the ratchet against the merge base', async () => {
-    await assertExtensionRatchet({ git: defaultGitRunner });
+    const result = await assertExtensionRatchet({ git: defaultGitRunner });
+    assertMergeBaseInCi(result);
+    // Printed so the CI log shows growth was measured against a merge base.
+    console.info(
+      `ratchet: mergeBase=${result.mergeBase ?? 'none'} baseLines=${result.baseLines ?? 'n/a'} currentLines=${result.currentLines} growth=${result.growth ?? 'n/a'}`,
+    );
+  });
+});
+
+describe('assertMergeBaseInCi', () => {
+  const noBase = { ok: true, currentLines: 10, ceiling: 100 };
+  it('throws naming the checkout when CI=true and no merge base', () => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/actions\/checkout/);
+  });
+  it('keeps the ceiling fallback when CI is unset', () => {
+    expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
+  });
+  it('passes in CI when a merge base exists', () => {
+    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, { CI: 'true' })).not.toThrow();
   });
 });
 

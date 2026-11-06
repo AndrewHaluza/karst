@@ -185,3 +185,15 @@ export async function assertExtensionRatchet(
   }
   return result;
 }
+
+export const CI_MISSING_MERGE_BASE_MESSAGE =
+  'CI has no merge base for src/extension.ts, so the ratchet cannot measure growth. Set fetch-depth: 0 on the actions/checkout step of the job that runs the unit tests in .github/workflows/ci.yml.';
+
+export function assertMergeBaseInCi(
+  result: ExtensionRatchetResult,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (env['CI'] === 'true' && !result.mergeBase) {
+    throw new Error(CI_MISSING_MERGE_BASE_MESSAGE);
+  }
+}
