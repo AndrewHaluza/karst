@@ -93,6 +93,14 @@ describe('runShipCommitSubjectSweep', () => {
     expect(messages()).toEqual(['later']);
   });
 
+  it('retries at the next boot when the runner reports a failed run (exit 1), not a missing sha', async () => {
+    add(repoA, 'a1', '');
+    const failed: GitRunner = vi.fn(async () => ({ stdout: '', stderr: 'timed out', exitCode: 1 }));
+    await run(failed);
+    await run(gitWith({ a1: 'later' }));
+    expect(messages()).toEqual(['later']);
+  });
+
   it('does not throw and does not record completion when the store read fails', async () => {
     const broken = { db: { prepare: () => { throw new Error('boom'); } } } as unknown as Store;
     const git = gitWith({});

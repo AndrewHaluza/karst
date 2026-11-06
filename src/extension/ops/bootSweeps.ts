@@ -418,6 +418,9 @@ const pathExists = (path: string): Promise<boolean> =>
     () => false,
   );
 
+/** Exit code of a git `fatal:` error, such as an unknown object. */
+const GIT_FATAL_EXIT = 128;
+
 const SHIP_SUBJECT_SWEEP_MARKER = 'ship-commit-subjects.done';
 
 /**
@@ -452,6 +455,10 @@ export async function runShipCommitSubjectSweep(deps: ShipCommitSubjectSweepDeps
         }
         const out = await deps.git(['show', '-s', '--no-show-signature', '--format=%s', `${sha}^{commit}`], repo);
         const subject = out.stdout.trim();
+        // The runner never throws: a spawn error, timeout or abort comes back as
+        // exit 1, while git's own "no such commit / not a repository" is exit 128.
+        // Only the 128 answer is final; anything else may pass at a later boot.
+        if (out.exitCode !== 0 && out.exitCode !== GIT_FATAL_EXIT) transientFailures++;
         if (out.exitCode !== 0 || subject === '') {
           deps.debug(`karst: ship commit subject sweep: no subject for ${sha} in ${repo}, left blank`);
           continue;
