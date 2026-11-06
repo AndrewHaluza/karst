@@ -59,6 +59,18 @@ describe('autopilotSweep', () => {
     isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const), ...over,
   });
 
+  it('a ticket with an implementation graph run parks and is not sent a round', async () => {
+    const { store, projectId, id } = shipTicket();
+    store.db.prepare("INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at) VALUES (?, 'impl', 1, 'a', 'closed', 'x')").run(id);
+    const s = seams();
+    await autopilotSweep({
+      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {},
+    });
+    expect(s.sendCi).not.toHaveBeenCalled();
+    expect((store.db.prepare('SELECT title FROM bulletin_notes').get() as { title: string }).title).toBe('Autopilot: auto-fix not run: graph ticket');
+  });
+
   it('arms a CI round for a ship ticket and writes a bulletin note', async () => {
     const { store, projectId } = shipTicket();
     const changed = vi.fn();

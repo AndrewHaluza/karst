@@ -41,7 +41,7 @@ function rig(over: Partial<AutopilotDeps> = {}, outcome: FixOutcome = { kind: 's
   const deps: AutopilotDeps = {
     store, ticketId: id, key: 'AP-1', config: () => CFG,
     controls: () => true, sessionRunning: () => false, concurrencyFull: () => false,
-    isHostTicket: async () => true, sendCiFailure: sendCi,
+    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi,
     note: (t, b) => void notes.push([t, b]), debug, ...over,
   };
   return { deps, notes, debug, sendCi };
@@ -350,6 +350,25 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     await autopilotTick(rig().deps);
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(2);
     expect(getAutopilotBudget(store, id, 'r2', 'ci').attempts).toBe(0);
+  });
+
+  it('checks the allowlist on every failing PR, because the action sends them all', async () => {
+    seedPr(failing('build'));
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', JSON.stringify(failing('deploy')));
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check deploy is not on the allowlist' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('parks a graph ticket with its own reason and uses no attempt', async () => {
+    seedPr(failing('build'));
+    const r = rig({ isGraphTicket: () => true });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: graph ticket' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(r.notes[0]![0]).toBe('Autopilot: auto-fix not run: graph ticket');
   });
 
   it('a second tick on an unchanged park does not report a new action', async () => {

@@ -9,6 +9,7 @@ import { listTickets } from '../../store/tickets.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
+import { graphRunIdsForTicket } from '../../store/graph/graphRuns.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 
 /**
@@ -139,6 +140,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         sessionRunning: seams.sessionRunning,
         concurrencyFull: () => concurrencyFullFor([...listSlotHolders(d.store, projectId), ...armed.values()], t, d.caps()),
         isHostTicket: seams.isHostTicket,
+        isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
         sendCiFailure: seams.sendCi,
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,

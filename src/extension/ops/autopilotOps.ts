@@ -41,6 +41,8 @@ export interface AutopilotDeps {
   readonly concurrencyFull: () => boolean;
   /** The ticket runs on the host. False for a sandboxed ticket and for a placement that cannot be read. */
   readonly isHostTicket: () => Promise<boolean>;
+  /** The ticket ran an implementation graph: a hand-off to Implement would reach no agent. */
+  readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
   readonly note: (title: string, body: string) => void;
@@ -57,6 +59,7 @@ export type AutopilotResult =
 const LOG = '[ship] autopilot';
 
 /** The park reason for a sandboxed ticket or an unknown placement. */
+const GRAPH_REASON = 'auto-fix not run: graph ticket';
 const SANDBOXED_REASON = 'auto-fix not run: sandboxed ticket';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
@@ -119,17 +122,20 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
 }
 
 interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly failing?: readonly string[]; readonly cutShort?: boolean }
+// `failing` and `cutShort` cover EVERY failing PR (the action sends them all); `repo` and `signature` follow the first PR.
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
 function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   const ci = ciFailureState(d.store, d.ticketId);
   if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
-  // One PR per round, the first one: its own failing names make the signature, so a change on another PR cannot reset it.
-  const pr = ci.prs[0]!;
-  const names = [...new Set(pr.failing.map((f) => f.name))].sort();
+  // The budget follows the first PR (its own failing names make the signature). The allowlist covers every failing PR,
+  // because the action sends the failures of all of them to the agent.
+  const first = ci.prs[0]!;
+  const own = [...new Set(first.failing.map((f) => f.name))].sort();
+  const all = [...new Set(ci.prs.flatMap((p) => p.failing.map((f) => f.name)))].sort();
   // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
-  const cutShort = (pr.failedTotal ?? 0) > pr.failing.length;
-  return { kind: 'ci', repo: pr.repo, signature: names.join('\n'), failing: names, cutShort };
+  const cutShort = ci.prs.some((p) => (p.failedTotal ?? 0) > p.failing.length);
+  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), failing: all, cutShort };
 }
 
 /**
@@ -189,6 +195,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
   // A sandboxed ticket, or a placement that cannot be read, gets no round (D482): park, write a note, spend no attempt.
+  if (d.isGraphTicket()) {
+    return park(d, 'ci', GRAPH_REASON, 'the ticket ran an implementation graph, so a hand-off to Implement would reach no agent. Send the failure by hand.');
+  }
   if (!(await d.isHostTicket().catch(() => false))) {
     return park(d, 'ci', SANDBOXED_REASON, 'the ticket is sandboxed or its placement is unknown; autopilot runs host tickets only. Send the failure to the agent by hand.');
   }

@@ -170,6 +170,24 @@ describe('who holds the session', () => {
     expect(r.debug).toHaveBeenCalledWith(`[ship] autopilot ticket ${r.id}: no round, the window that holds the session is not known`);
   });
 
+  it('starts no round while the live session waits on a prompt or a question', async () => {
+    const r = rig({ isLive: () => true });
+    setAgent(r, 'waiting');
+    await sweepOnce(r);
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
+  });
+
+  it('dispose releases the session rows of this window only', () => {
+    const r = rig();
+    syncAutopilotSessionOwner(r.store, r.deps.windowId, [r.id]);
+    const handle = startAutopilot(r.deps);
+    handle.dispose();
+    expect(getAutopilotSessionOwner(r.store, r.id)).toBeNull();
+    syncAutopilotSessionOwner(r.store, 'OTHER', [r.id]);
+    startAutopilot(r.deps).dispose();
+    expect(getAutopilotSessionOwner(r.store, r.id)).toBe('OTHER');
+  });
+
   it('starts no round when the store names another window as the holder', async () => {
     const r = rig();
     setAgent(r, 'running');

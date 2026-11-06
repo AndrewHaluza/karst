@@ -104,9 +104,13 @@ export interface AutopilotBindingDeps {
 export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   const now = d.now ?? Date.now;
   const owner = d.windowId;
-  // An open terminal with an idle or waiting agent is not a running session: it must not block a round or a park.
-  // The engine also refuses a ticket whose stored agent state is running (another window).
-  const running = (id: number): boolean => d.isLive(id) && getTicket(d.store, id).agentState === 'running';
+  // A live session whose agent runs, or waits on a permission prompt or a question, is in use: no round. An open terminal
+  // with an idle agent is not. The engine also refuses a ticket whose stored agent state is running (another window).
+  const running = (id: number): boolean => {
+    if (!d.isLive(id)) return false;
+    const state = getTicket(d.store, id).agentState;
+    return state === 'running' || state === 'waiting';
+  };
   /** Who holds the session: this window, another window, nobody, or unknown (the agent is active but the store names no window). */
   const holder = (id: number): 'self' | 'other' | 'none' | 'unknown' => {
     if (d.isLive(id)) return 'self';
@@ -168,7 +172,13 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };
   const timer = setInterval(sweep, d.intervalMs);
-  return { dispose: () => clearInterval(timer) };
+  return {
+    dispose: () => {
+      clearInterval(timer);
+      // A window that closes releases its session rows, so another window does not wait for a holder that is gone.
+      try { syncAutopilotSessionOwner(d.store, owner, []); } catch (err) { d.debug(`[ship] autopilot: release of the session rows failed (${err instanceof Error ? err.message : String(err)})`); }
+    },
+  };
 }
 
 /** The slice of the vscode API the command pickers need (structural, so this file never imports vscode). */
