@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import {
@@ -362,12 +362,17 @@ describe('extension.ts ratchet fallback ceiling when base is unavailable', () =>
 
 describe('extension.ts ratchet live check', () => {
   it('src/extension.ts passes the ratchet against the merge base', async () => {
-    const result = await assertExtensionRatchet({ git: defaultGitRunner });
+    const result = await checkExtensionRatchet({ git: defaultGitRunner });
+    // Run before the ok check: an over-ceiling file with no merge base must name the checkout.
     assertMergeBaseInCi(result);
-    // Printed so the CI log shows growth was measured against a merge base.
-    console.info(
-      `ratchet: mergeBase=${result.mergeBase ?? 'none'} baseLines=${result.baseLines ?? 'n/a'} currentLines=${result.currentLines} growth=${result.growth ?? 'n/a'}`,
+    // fd 1 is written directly: vitest hides console output of a passing test, and the
+    // CI log must show that growth was measured against a merge base.
+    writeSync(
+      1,
+      `ratchet: mergeBase=${result.mergeBase ?? 'none'} baseLines=${result.baseLines ?? 'n/a'} currentLines=${result.currentLines} growth=${result.growth ?? 'n/a'}\n`,
     );
+    expect(result.errorMessage).toBeUndefined();
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -376,6 +381,10 @@ describe('assertMergeBaseInCi', () => {
   it('throws naming the checkout when CI=true and no merge base', () => {
     expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/fetch-depth: 0/);
     expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/actions\/checkout/);
+  });
+  it('names the checkout in CI even when the file is over the ceiling', () => {
+    const over = { ok: false, currentLines: 200, ceiling: 100, errorMessage: 'exceeds the coarse ceiling' };
+    expect(() => assertMergeBaseInCi(over, { CI: 'true' })).toThrow(/fetch-depth: 0/);
   });
   it('keeps the ceiling fallback when CI is unset', () => {
     expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
