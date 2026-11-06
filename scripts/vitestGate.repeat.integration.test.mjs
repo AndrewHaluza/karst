@@ -24,7 +24,7 @@ const put = (name, body) => {
 };
 const gate = (env = {}) => {
   const e = { ...process.env, KARST_BASE_REF: 'develop', ...env };
-  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI']) delete e[k];
+  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI', 'GITHUB_ACTIONS']) delete e[k];
   return spawnSync('node', [GATE, ...VITEST], { cwd: dir, encoding: 'utf8', env: e });
 };
 const out = (r) => r.stdout + r.stderr;

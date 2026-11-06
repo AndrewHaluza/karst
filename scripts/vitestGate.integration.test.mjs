@@ -62,6 +62,16 @@ describe('vitestGate base drift', () => {
     expect(run.stderr).not.toContain('NOTICE: develop is red');
   }, 120_000);
 
+  it('fails on GitHub Actions when a failure has no parseable test id', () => {
+    write('crash.test.mjs', "import {it} from 'vitest';\nthrow new Error('file-level crash');\nit('x', () => {});\n");
+    try {
+      const run = gate(repo, 'develop', { GITHUB_ACTIONS: 'true' });
+      expect(run.status).not.toBe(0);
+    } finally {
+      rmSync(join(repo, 'crash.test.mjs'), { force: true });
+    }
+  }, 120_000);
+
   it('fails as today when the ticket touches the failing test file', () => {
     write('red.test.mjs', "import {it,expect} from 'vitest';\nit('is red on develop', () => expect(1).toBe(3));\n");
     const run = gate();
