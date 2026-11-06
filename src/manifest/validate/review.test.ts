@@ -9,7 +9,7 @@ describe('validateReview', () => {
   it('a defaulted stallDetection, written back as loaded, validates again under any budget', () => {
     for (const maxFixAttempts of [1, 3, 5, 10]) {
       const loaded = validateReview({ maxFixAttempts }, []);
-      expect(loaded?.stallDetection.sameFileRounds).toBe(Math.min(5, maxFixAttempts));
+      expect(loaded?.stallDetection.sameFileRounds).toBe(5);
       expect(() => validateReview({ ...loaded }, [])).not.toThrow();
     }
   });
@@ -21,7 +21,7 @@ describe('validateReview', () => {
       requireIndependentSignal: true,
       openChanges: false,
       findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
-      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: null },
+      stallDetection: { enabled: true, sameFileRounds: 5, repeatedFindingRounds: null },
       repositories: {},
     });
   });
@@ -37,8 +37,11 @@ describe('validateReview', () => {
         repeatedFindingRounds: 4,
       });
     });
-    it('clamps the default sameFileRounds to a small maxFixAttempts', () => {
-      expect(v({}, 2)?.sameFileRounds).toBe(2);
+    it('keeps the default sameFileRounds at 5 under a small maxFixAttempts', () => {
+      expect(v({}, 2)?.sameFileRounds).toBe(5);
+    });
+    it('accepts an explicit sameFileRounds above maxFixAttempts', () => {
+      expect(v({ sameFileRounds: 6 })?.sameFileRounds).toBe(6);
     });
     it('accepts an explicit null repeatedFindingRounds', () => {
       expect(v({ repeatedFindingRounds: null })?.repeatedFindingRounds).toBeNull();
@@ -48,8 +51,7 @@ describe('validateReview', () => {
       ['non-boolean enabled', { enabled: 'yes' }, /enabled must be a boolean/],
       ['zero', { sameFileRounds: 0 }, /sameFileRounds must be a positive integer/],
       ['fraction', { sameFileRounds: 1.5 }, /sameFileRounds/],
-      ['over maxFixAttempts', { sameFileRounds: 6 }, /no greater than review.maxFixAttempts \(5\)/],
-      ['repeated over max', { repeatedFindingRounds: 6 }, /repeatedFindingRounds/],
+      ['repeated over max', { repeatedFindingRounds: 6 }, /no greater than review.maxFixAttempts \(5\)/],
     ])('rejects %s', (_n, raw, msg) => {
       expect(() => v(raw)).toThrow(msg);
     });

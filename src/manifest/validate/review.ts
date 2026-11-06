@@ -64,12 +64,10 @@ function validateFindings(raw: unknown): ReviewFindingsConfig {
 }
 
 function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewStallDetection {
-  // The default is capped at the budget in every case: a manifest written back
-  // with the loaded value must pass this validator again.
-  const out: ReviewStallDetection = {
-    ...REVIEW_STALL_DETECTION_DEFAULTS,
-    sameFileRounds: Math.min(REVIEW_STALL_DETECTION_DEFAULTS.sameFileRounds, maxFixAttempts),
-  };
+  // The default sameFileRounds is NOT capped at the budget: a cap would bring the
+  // old 3-round park back. A same-file value above the budget is valid and
+  // dormant (the budget parks first), so a written-back manifest validates again.
+  const out: ReviewStallDetection = { ...REVIEW_STALL_DETECTION_DEFAULTS };
   if (raw === undefined) return out;
   if (!isObject(raw)) throw new ManifestError('review.stallDetection must be a mapping');
   if (raw.enabled !== undefined) {
@@ -79,7 +77,10 @@ function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewSta
     out.enabled = raw.enabled;
   }
   const rounds = (key: 'sameFileRounds' | 'repeatedFindingRounds', value: unknown): number => {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > maxFixAttempts) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new ManifestError(`review.stallDetection.${key} must be a positive integer`);
+    }
+    if (key === 'repeatedFindingRounds' && value > maxFixAttempts) {
       throw new ManifestError(
         `review.stallDetection.${key} must be a positive integer no greater than review.maxFixAttempts (${maxFixAttempts})`,
       );
