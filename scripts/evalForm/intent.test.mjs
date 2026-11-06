@@ -112,6 +112,26 @@ describe('intent cli + runner', () => {
     const bad = await run([{ name: 'improved:builtin', kind: 'improved' }], async () => ({ text: CHARTER, degraded: false }), async () => { throw new Error('nope'); });
     expect(bad[0].error).toBe('nope');
   });
+  it('passes --effort to improve and intent, and --judge-effort to the judge', async () => {
+    const seen = [];
+    const judgeCalls = [];
+    await runIntentEval({
+      opts: { runs: 1, model: 'm', judgeModel: 'j', effort: 'low', judgeEffort: 'high' }, items: [item],
+      modes: [{ name: 'improved:builtin', kind: 'improved', body: null }],
+      improve: async (_a, input) => { seen.push(input); return 'IMPROVED'; },
+      intent: async (_a, input) => { seen.push(input); return { text: CHARTER, degraded: false }; },
+      adapter: { runHeadless: async () => ({ raw: '' }) },
+      judgeAdapter: { runHeadless: async (input) => { judgeCalls.push(input); return { raw: judgeReply }; } },
+      makeEmptyDir: () => '/nonexistent-eval-dir',
+    });
+    expect(seen.map((x) => x.effort)).toEqual(['low', 'low']);
+    expect(judgeCalls[0].effort).toBe('high');
+  });
+  it('sends no effort when no effort is set', async () => {
+    const seen = [];
+    await run([{ name: 'raw', kind: 'raw' }], async (_a, input) => { seen.push(input); return { text: CHARTER, degraded: false }; });
+    expect(seen[0]).not.toHaveProperty('effort');
+  });
   it('degraded charter skips the judge', async () => {
     const a = await run([{ name: 'raw', kind: 'raw' }], async () => ({ text: null, degraded: true }));
     expect(a[0].judge).toBeUndefined();

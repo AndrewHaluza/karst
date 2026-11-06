@@ -99,3 +99,69 @@ Planner bench (real planner, headless, public issues; see `@arch:FORMEVAL-PLAN`)
 
 Re-score saved runs with one blind judge (no producer call): `npm run eval:form -- --rejudge evals/form/references --judge-model claude-opus-5-5 [--dry-run] [--max-calls N]`; output `eval-results/rejudge-<ts>/report.md`.
 
+## AI capability coverage (2026-11-06)
+
+This matrix shows the AI capabilities of karst and their eval state. The list comes from `src/agent/aiCallSites.ts`, the process roles, the preset capabilities, and the conflict session. Other paths, such as `ciFailure.ts`, were not checked for separate AI use.
+
+Legend for the model columns (Opus 5.5, Sonnet 5.5, Haiku 5.5, Non-Claude). Each symbol has one meaning:
+
+| Symbol | Meaning |
+|---|---|
+| ✅ | A saved result exists for at least one effort level. The effort is known. |
+| ⚠️ | A saved result exists, but the effort is not confirmed. |
+| ❌ | No saved result exists. |
+
+The Non-Claude column names the models that have a result. For this column, ✅ does not confirm the effort, because the effort of these runs was not checked.
+
+Legend for the other columns:
+
+| Column | Value | Meaning |
+|---|---|---|
+| Should evaluate? | Yes, high | The output controls later work or a verdict. |
+| | Yes | The output has an effect on the ticket, but it does not control later work or a verdict. |
+| | Optional | The capability is opt-in, gives a warning only, or has a small effect. |
+| Eval tool | A pass name, such as `intent` | Use `npm run -s eval:form -- --pass <name>`. |
+| | `npm run eval` | The full pipeline can exercise this capability. No run exists. |
+| | None | No eval tool exists. |
+
+| Stage | Capability | Should evaluate? | Eval tool | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 | Non-Claude |
+|---|---|---|---|---|---|---|---|
+| Ticket form | Classify (approach, repos, type) | Yes, high | None | ❌ | ❌ | ❌ | ❌ |
+| | Description improve | Yes | `improve` | ❌ | ⚠️ | ⚠️ | ✅ Gemini, GPT, Mimo, DeepSeek |
+| | Intent (test charter) | Yes, high | `intent` | ✅ | ✅ | ⚠️ | ✅ Gemini |
+| | Code pointers (opt-in) | Optional | None | ❌ | ❌ | ❌ | ❌ |
+| | Signal suggestion | Optional | None | ❌ | ❌ | ❌ | ❌ |
+| Planning | Planning session | Yes, high | `plan`, `draft` | ✅ | ✅ | ✅ | ✅ Gemini |
+| | Artifact alignment (warn only) | Optional | None | ❌ | ❌ | ❌ | ❌ |
+| Implementation | Implementation session | Yes, high | `npm run eval` | ❌ | ❌ | ❌ | ❌ |
+| Review | Review findings | Yes, high | None | ❌ | ❌ | ❌ | ❌ |
+| | Review fix | Yes | `npm run eval` | ❌ | ❌ | ❌ | ❌ |
+| UAT | UAT tester | Yes | None | ❌ | ❌ | ❌ | ❌ |
+| | UAT fix | Yes | `npm run eval` | ❌ | ❌ | ❌ | ❌ |
+| Ship | PR description | Optional | None | ❌ | ❌ | ❌ | ❌ |
+| | Conflict resolution session | Yes | None | ❌ | ❌ | ❌ | ❌ |
+| Graph | Graph planner | Yes | None | ❌ | ❌ | ❌ | ❌ |
+| | Graph node (expert, worker, fast) | Yes | None | ❌ | ❌ | ❌ | ❌ |
+
+- The "Should evaluate?" values are a judgment, not a rule.
+- The Opus low and Sonnet high intent results are only in `eval-results/`, which git ignores. Each model has a different judge, so do not compare their scores yet.
+- A ✅ does not mean that the capability is fully evaluated. Only Opus low and Sonnet high have repeat planner runs.
+- The `npm run eval` entries come from the design of the pipeline. Check which stages `buildSteps` runs, and if a variant can set the model and effort. This eval gives one result for the full pipeline, not a score for each capability.
+- The improve cells for Sonnet and Haiku show ⚠️ because `results.json` records no effort for those runs. The intent cell for Haiku shows ⚠️ because the runner ignored `--effort` at the time of that run.
+
+### Possible next steps
+
+The order is a recommendation. It puts existing tools and high-value capabilities first.
+
+| Order | Step | Capability | Work needed |
+|---|---|---|---|
+| 1 | Score the Opus low and Sonnet high intent results with one judge. Copy the results from `eval-results/` to `evals/form/references/`, and update `evals/form/INTENT-MODEL-RATINGS.md`. | Intent | No new code |
+| 2 | Run the Haiku intent pass again with `--effort`. Then correct the "Medium" label in `evals/form/INTENT-MODEL-RATINGS.md`. | Intent | No new code |
+| 3 | Add a pass that gives known-defect diffs to the reviewer, and counts the defects that it finds and the false findings. | Review findings | New pass and new cases |
+| 4 | Add a pass that compares the classify output with the known approach, repos, and type. | Classify | Small new pass and new cases |
+| 5 | Run `npm run -s eval:setup`. Check which stages `buildSteps` runs, and if a variant can set the model and effort. Then run `npm run eval` on 2 or 3 instances. | Implementation, review fix, UAT fix | Harness setup, possibly variant changes |
+| 6 | Record the effort for the improve pass in `results.json`, and pass `--judge-effort` to the improve judge in `scripts/evalForm/run.mjs`. Then run the improve pass for Opus, Sonnet, and Haiku. | Description improve | Small code change |
+| 7 | Make `--rejudge` read plan results, and score the Opus and Sonnet planner runs with one judge. | Planning | Small code change |
+| 8 | Design evals for the conflict resolution session, the UAT tester, the graph planner, and the graph node. | These 4 capabilities | New design and new cases |
+| 9 | Add evals for the optional capabilities only if a real problem occurs. | Code pointers, signal suggestion, artifact alignment, PR description | None for now |
+
