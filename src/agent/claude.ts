@@ -266,7 +266,7 @@ export class ClaudeAdapter implements AgentAdapter {
       };
       const hookSettingsPath = opts.hookChannel.runDir !== undefined
         ? writeFileHookSettings(opts.hookChannel, 'claude', extraSettings)
-        : writeHookSettings(opts.hookChannel.endpointUrl, opts.hookChannel.configDir, 'claude', extraSettings);
+        : writeHookSettings(opts.hookChannel.endpointUrl, opts.hookChannel.configDir, 'claude', extraSettings, opts.hookChannel.projectKey);
       // A file channel runs inside a runner sandbox that cannot see the host
       // settings path: its settings ride argv inline (arch:AC-34).
       if (opts.sandbox) args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));

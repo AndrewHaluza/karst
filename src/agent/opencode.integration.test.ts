@@ -20,6 +20,7 @@ import {
   parseOpencodeJsonl,
   type SpawnHeadless,
 } from './opencode.js';
+import { projectEndpointKey } from './hookFailureLog.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 
@@ -1718,6 +1719,19 @@ describe('generated karst-bridge plugin — endpoint rebind (869ej1zpv G3)', () 
     } finally {
       await live.close();
     }
+  });
+
+  it('reads the endpoint file of the launching project only', () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    const projectKey = projectEndpointKey('proj-a');
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'http://127.0.0.1:1/hooks', configDir, projectKey },
+    });
+    const body = readFileSync(cmd.ownedPaths![0]!, 'utf8');
+    expect(body).toContain(join(configDir, 'opencode', `current-endpoint.${projectKey}`));
+    expect(body).not.toContain(JSON.stringify(join(configDir, 'opencode', 'current-endpoint')));
   });
 
   it('carries the launch generation onto the rebound endpoint', () => {

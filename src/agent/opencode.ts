@@ -896,6 +896,7 @@ function writeKarstBridge(
   endpointUrl: string,
   configDir?: string,
   runDir?: string,
+  projectKey?: string,
 ): string {
   const fileMode = isFileChannel(endpointUrl, runDir);
   if (!fileMode) assertLoopbackEndpoint(endpointUrl);
@@ -910,7 +911,7 @@ function writeKarstBridge(
   // uses its launch-time URL alone, exactly as it did before.
   const body = renderHookBridge(
     endpointUrl,
-    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode') : null,
+    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode', projectKey) : null,
   );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {
@@ -1067,6 +1068,7 @@ export class OpencodeAdapter implements AgentAdapter {
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
         opts.hookChannel.runDir,
+        opts.hookChannel.projectKey,
       );
       if (opts.hookChannel.runDir === undefined) ownedPaths = [pluginPath];
       else {

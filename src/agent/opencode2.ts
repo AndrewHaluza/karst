@@ -443,6 +443,7 @@ export class Opencode2Adapter implements AgentAdapter {
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
         opts.hookChannel.runDir,
+        opts.hookChannel.projectKey,
       );
       if (opts.hookChannel.runDir === undefined) ownedPaths = [pluginPath];
       else {

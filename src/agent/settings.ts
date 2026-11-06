@@ -51,6 +51,7 @@ export function buildHookSettings(
   configDir?: string,
   provider?: BridgeProvider,
   extraSettings?: Record<string, unknown>,
+  projectKey?: string,
 ): string {
   const parsed = new URL(endpointUrl);
   if (
@@ -87,6 +88,7 @@ export function buildHookSettings(
         JSON.stringify(endpointUrl),
         JSON.stringify(diagnosticsPath),
         JSON.stringify(provider),
+        ...(projectKey ? [JSON.stringify(projectKey)] : []),
       ].join(' ');
       const bridgeHook = {
         type: 'command',
@@ -140,6 +142,7 @@ export function writeHookSettings(
   dir: string,
   provider?: BridgeProvider,
   extraSettings?: Record<string, unknown>,
+  projectKey?: string,
 ): string {
   const endpoint = new URL(endpointUrl);
   const port = endpoint.port;
@@ -151,6 +154,6 @@ export function writeHookSettings(
     dir,
     `karst-hooks.${port}${generation}.settings.json`,
   );
-  writeFileSync(path, buildHookSettings(endpointUrl, dir, provider, extraSettings));
+  writeFileSync(path, buildHookSettings(endpointUrl, dir, provider, extraSettings, projectKey));
   return path;
 }

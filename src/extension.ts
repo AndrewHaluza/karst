@@ -290,7 +290,7 @@ import {
 } from './store/graph/graphRuns.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
-import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
+import { projectEndpointKey, writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { guardHookNotify, refuseForeignProjectTicket } from './extension/ops/foreignProject.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { interruptImplementationRun } from './store/implementationRuns.js'; import { bindMemory, hostSbxMemory, type MemoryBinding } from './extension/memoryBinding.js';
@@ -919,7 +919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return {
         endpointUrl: hookEndpoint.toString(),
         configDir: settingsDir,
-        launchId,
+        launchId, projectKey: projectEndpointKey(currentProject()?.slug),
       };
     },
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
@@ -5536,7 +5536,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
-  writeCurrentEndpoint(settingsDir, endpoint.url);
+  writeCurrentEndpoint(settingsDir, endpoint.url, projectEndpointKey(currentProject()?.slug));
 
   // Activation sweep: resume any ticket already parked at a gate. Recovers a ticket
   // stranded when the trigger that would normally kick the driver never arrived

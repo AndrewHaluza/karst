@@ -272,6 +272,11 @@ export interface HookChannel {
   /** Opaque per-terminal generation used only to order lifecycle hooks. */
   launchId?: string;
   /**
+   * Key of the launching project (`projectEndpointKey`). The bridge reads the
+   * `current-endpoint.<key>` file of this project only. Absent → legacy shared file.
+   */
+  projectKey?: string;
+  /**
    * Set → the FILE channel (sandbox evidence bridge): `endpointUrl` is
    * `file://<runDir>/events.ndjson`, `configDir` is the HOST bridge dir that
    * scripts are written to, and `runDir` is that same dir as the agent sees it.

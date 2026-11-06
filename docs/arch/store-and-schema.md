@@ -79,9 +79,9 @@ A host acts only on tickets of its own project. `dispatchHook` returns `admitted
 END_DOC_BLOCK: [@arch:PROJECTS]
 
 ## [@arch:GLOBAL] Global storage is shared by every window
-covers: src/agent/settings.ts#writeHookSettings, src/agent/settingsSweep.ts
+covers: src/agent/settings.ts#writeHookSettings, src/agent/settingsSweep.ts, src/agent/hookFailureLog.ts#writeCurrentEndpoint
 
-Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to.
+Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to. The `current-endpoint` fallback file is keyed by project, not by window: `writeCurrentEndpoint` writes `<provider>/current-endpoint.<key>` (`projectEndpointKey` = a digest of the project slug), because a reload changes the window's port and the new host of the same project must receive the live session. The launch carries the key (`HookChannel.projectKey`), so a bridge reads only its own project's file. The legacy unscoped `current-endpoint` is still written, for sessions launched before the key existed; the host guard protects those.
 END_DOC_BLOCK: [@arch:GLOBAL]
 
 ## [@arch:GRAPHRUN] Graph-run state reads and writes have one boundary
