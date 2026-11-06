@@ -33,3 +33,28 @@ export async function classifyCloneRelation(sandboxSha: string, isAncestor: (old
   if (await isAncestor(sandboxSha, 'HEAD')) return 'behind';
   return 'diverged';
 }
+
+/**
+ * Shell fragment for the clone side of a sync (sbx and docker share it). Needs `$g` (git with the clone's safe.directory),
+ * `$br` (the branch) and the host's candidate commits as the positional args. It sets `$ex` to the first candidate the clone
+ * has, as a bundle exclusion, so the bundle carries only what the host lacks (a thin bundle) and the host fetch stores a small
+ * pack, not a copy of the history. A tip equal to the candidate excludes its parents (git refuses an empty bundle).
+ * No candidate in the clone: `$ex` stays empty and the bundle is full.
+ */
+export const THIN_BUNDLE_EXCLUDE =
+  'tip=$($g rev-parse "$br"); ex=; for c in "$@"; do [ -n "$c" ] || continue; $g cat-file -e "$c^{commit}" 2>/dev/null || continue; '
+  + 'if [ "$tip" = "$c" ]; then ex="^$c^@"; else ex="^$c"; fi; break; done; ';
+
+/**
+ * Commits the host has that the clone may have too, best first: the worktree HEAD, then the tip fetched by the last sync
+ * (the clone has it even when the host moved on with its own commits). Unresolvable ones are left out.
+ */
+export async function hostBundleHaves(git: (args: string[]) => Promise<{ code: number; stdout: string }>, branch: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const args of [['rev-parse', 'HEAD'], ['rev-parse', '--verify', '--quiet', `${sandboxHeadRef(branch)}^{commit}`]]) {
+    const out = await git(args);
+    const sha = out.stdout.trim();
+    if (out.code === 0 && SHA.test(sha) && !found.includes(sha)) found.push(sha);
+  }
+  return found;
+}

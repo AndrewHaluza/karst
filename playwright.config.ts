@@ -80,6 +80,8 @@ export default defineConfig({
     // run produced zero executed tests — a webServer/startup crash that used
     // to hide behind `continue-on-error: true` (NDL-218).  Gitignored.
     ['json', { outputFile: 'tests/visual/.results.json' }],
+    // T992: a passed run removes the ~800 MB of generated pages (tests/visual/.tmp); a failed run keeps them.
+    ['./tests/visual/tmpCleanupReporter.ts'],
   ],
 
   projects: [

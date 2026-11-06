@@ -16,7 +16,7 @@
  * The stub `acquireVsCodeApi()` provides `postMessage`, `getState`, and
  * `setState` — the page must never try to reach a real host.
  */
-import { readFileSync, mkdirSync, writeFileSync, cpSync } from 'node:fs';
+import { readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHAINS, type ViewId } from './chains.js';
@@ -181,6 +181,8 @@ function buildSeedScript(
  * For dashboard, iterates over all 6 scenarios (one page per scenario per theme).
  */
 export function writeFixtures(outDir: string = OUT_DIR): void {
+  // A failed run keeps its pages for diagnosis (tmpCleanup.ts); the next run starts clean so no stale page survives.
+  rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
   for (const theme of THEME_IDS) {

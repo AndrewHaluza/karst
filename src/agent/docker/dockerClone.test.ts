@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chownVolumes, ensureClone, ensureVolume, refreshClone, syncFromClone, type TempDirs } from './dockerClone.js';
+import { chownVolumes, ensureClone, ensureVolume, refreshClone, syncFromClone, THIN_OUT_SCRIPT, type TempDirs } from './dockerClone.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
@@ -137,7 +137,9 @@ describe('syncFromClone', () => {
       ok: true, summary: "fast-forwarded feat/x to the docker sandbox's commits",
     });
     expect(lines(proc)).toEqual([
-      `docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${RO} --mount type=bind,source=/tmp/k1,target=/bundle ${OPENCODE_IMAGE} git -c safe.directory=* -C /work/repo bundle create /bundle/out.bundle feat/x`,
+      'git -C /w t rev-parse HEAD',
+      'git -C /w t rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}',
+      `docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${RO} --mount type=bind,source=/tmp/k1,target=/bundle ${OPENCODE_IMAGE} sh -c ${THIN_OUT_SCRIPT} karst-bundle /bundle/out.bundle feat/x ${SHA}`,
       'git -C /w t fetch --no-write-fetch-head /tmp/k1/out.bundle +refs/heads/feat/x:refs/karst/sandbox/feat/x',
       'git -C /w t rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}',
       `git -C /w t merge-base --is-ancestor HEAD ${SHA}`,
