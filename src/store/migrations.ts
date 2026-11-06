@@ -2820,5 +2820,17 @@ function migrateLocked(db: Database): void {
     if (cols98.size > 0 && !cols98.has('memory_wait_owner')) db.exec('ALTER TABLE tickets ADD COLUMN memory_wait_owner TEXT');
   }
 
+  if (current < 99) {
+    // v99: project-wide gate slots (`store/gateSlots.ts`). Additive table; an old db has none.
+    db.exec(`CREATE TABLE IF NOT EXISTS gate_slots (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id  INTEGER NOT NULL,
+      project_id INTEGER,
+      owner      TEXT NOT NULL,
+      claimed_at TEXT NOT NULL,
+      touched_at TEXT NOT NULL
+    ); CREATE INDEX IF NOT EXISTS idx_gate_slots_project ON gate_slots(project_id);`);
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

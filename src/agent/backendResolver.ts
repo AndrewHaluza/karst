@@ -4,8 +4,9 @@ import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
 import { access, writeFile } from 'node:fs/promises';
-import { totalmem } from 'node:os';
+import { availableParallelism, totalmem } from 'node:os';
 import { resolveSbxMemory } from './sbx/sbxMemory.js';
+import { resolveSbxLimits, type SandboxLimitsConfig } from './sbx/sbxLimits.js';
 import type { SandboxMemoryConfig } from './docker/dockerMemory.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from './sbx/sbxRunner.js';
 import { resolveDocker, type DockerResolveDeps } from './docker/resolveDocker.js';
@@ -27,6 +28,10 @@ export interface ResolveBackendInput {
   readonly docker?: DockerResolveDeps;
   /** The manifest's `sandboxMemory`: `sbxMemory` overrides the default sbx ceiling. */
   readonly sandboxMemory?: SandboxMemoryConfig;
+  /** The manifest's `sandboxLimits`: sbx `--cpus`, worker opt-out. */
+  readonly sandboxLimits?: SandboxLimitsConfig;
+  /** Host CPU count (tests); default `os.availableParallelism()`. */
+  readonly hostCpus?: number;
   /** Host RAM in bytes (tests); default `os.totalmem()`. */
   readonly hostRamBytes?: number;
   /** Karst log sink for the sbx runner (damaged-disk EXT4 lines). */
@@ -78,7 +83,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const memory = resolveSbxMemory(input.hostRamBytes ?? totalmem(), input.sandboxMemory?.sbxMemory);
   await noteSandboxWithoutLimit(check.existing.includes(name), `${cloneDir}.sbx-memory`, name, memory, input.log);
   return {
-    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...(input.log ? { log: input.log } : {}) }),
+    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...resolveSbxLimits(input.hostCpus ?? availableParallelism(), input.sandboxLimits), ...(input.log ? { log: input.log } : {}) }),
     line: `sbx (${name})`,
   };
 }

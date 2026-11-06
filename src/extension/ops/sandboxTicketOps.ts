@@ -13,6 +13,10 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
+import { resolveGateSlots, resolveSbxLimits, type SandboxLimitsConfig } from '../../agent/sbx/sbxLimits.js';
+import { resolveSbxMemory } from '../../agent/sbx/sbxMemory.js';
+import { availableParallelism, totalmem } from 'node:os';
+import { withGateSlot, type GateSlotDeps } from './gateSlotOps.js';
 import { dockerKillContext } from '../../agent/backendProbe.js';
 import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
@@ -68,6 +72,10 @@ export interface TicketSandboxDeps {
   /** The manifest's `sandboxMemory` overrides and the Docker VM size (bytes, once known) behind a gate container's limits. */
   readonly sandboxMemory?: () => SandboxMemoryConfig | undefined;
   readonly memTotalBytes?: () => number | undefined;
+  /** The manifest's `sandboxLimits`: cpus and the worker opt-out for the sbx gate runner, gate slots for every sandbox gate. */
+  readonly sandboxLimits?: () => SandboxLimitsConfig | undefined;
+  /** Project-wide gate slots (absent = no slots, e.g. tests). */
+  readonly gateSlots?: Omit<GateSlotDeps, 'limit'>;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
@@ -94,6 +102,8 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, c
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({
       proc: deps.proc ?? NODE_SBX_PROCESS, core: core as 'claude' | 'codex', name, existing: [], cloneDir: sbxCloneDir(projectRoot, name),
+      memory: resolveSbxMemory(totalmem(), deps.sandboxMemory?.()?.sbxMemory),
+      ...resolveSbxLimits(availableParallelism(), deps.sandboxLimits?.()),
       ...(bridge ? { evidenceDir: bridge.dir } : {}),
     });
     return { runner, sandboxName: name };
@@ -157,12 +167,12 @@ export async function ticketSandboxContext(deps: TicketSandboxDeps, ticketId: nu
 
 /**
  * The ticket's gate boundary: inside its sandbox when it exists, else the host
- * `runProcess`. A ticket that HAS a sandbox never runs a gate on the host: with
+ * `runProcess`. Only `slotted` callers (real gates) take a project-wide slot; setup and clone checks do not. A ticket that HAS a sandbox never runs a gate on the host: with
  * no runner able to exec there, the gate is refused (`spawnFailed`, no verdict;
  * arch:AC-31/AC-32). Undefined when no sandbox backend is configured and the
  * session provider names no sandboxed core, so host tickets stay byte-identical.
  */
-export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number): GateProcessRunner | undefined {
+export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number, opts: { readonly slotted?: boolean } = {}): GateProcessRunner | undefined {
   if (deps.placementOf?.(ticketId)?.backend === 'host') return undefined;
   const legacy = ticketSandboxRunner(deps, ticketId);
   const listing = deps.inventory !== undefined && selectedSandboxBackends(deps.backends()).length > 0;
@@ -177,7 +187,10 @@ export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number): Ga
     }
     const inside = sandboxGate !== undefined && (listed !== undefined || (await found!.runner.hasSandbox?.()) === true);
     deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs ${inside ? `in ${found!.runner.kind} (${found!.sandboxName})` : 'on the host (no sandbox)'}`);
-    return inside ? sandboxGate!(command, args, cwd, options) : runProcess(command, args, cwd, options);
+    if (!inside) return runProcess(command, args, cwd, options);
+    // A sandbox gate takes a project-wide slot (agents do not): gates of different tickets cannot all build at once.
+    const slotted = opts.slotted && deps.gateSlots ? withGateSlot({ ...deps.gateSlots, limit: () => resolveGateSlots(deps.sandboxLimits?.()) }, ticketId, sandboxGate!) : sandboxGate!;
+    return slotted(command, args, cwd, options);
   };
 }
 
@@ -282,6 +295,8 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       return inv.sandboxes;
     }),
     sandboxMemory: () => input.manifest()?.sandboxMemory,
+    sandboxLimits: () => input.manifest()?.sandboxLimits,
+    gateSlots: input.gateSlots ?? { store: input.store, projectIdOf: (id) => getTicket(input.store, id).projectId, owner: String(process.pid), ...(input.debug ? { debug: input.debug } : {}) },
     memTotalBytes: () => {
       memProbe ??= queryDockerMemTotal(input.dockerProc ?? NODE_DOCKER_PROCESS).then((v) => { memTotal = v; });
       return memTotal;
@@ -345,7 +360,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         else uatGate.release(ticketId);
       },
     },
-    gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
+    gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId, { slotted: true }),
     /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
     provision: async (ticketId: number, opts: { readonly signal?: AbortSignal; readonly background?: boolean } = {}) => {
       // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
@@ -399,6 +414,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       })().catch(input.onError);
     },
     hostGateFor: (ticketId: number) => {
+      // Only start and dirty-check probes use this runner; the gate itself runs on the host, so it takes no slot.
       const sandboxGate = ticketGateProcess(deps, ticketId);
       const sync = input.ensureInSync;
       return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync, ...(input.hostEnded ? { hostEnded: input.hostEnded } : {}) }, ticketId, sandboxGate) : undefined;

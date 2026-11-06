@@ -1475,3 +1475,14 @@ CREATE TABLE IF NOT EXISTS fix_round_heads (
   head_sha          TEXT NOT NULL,
   PRIMARY KEY (recovery_round_id, worktree_path)
 );
+
+-- v99: running sandbox gates, one row each (`store/gateSlots.ts`). Not FK-bound: a row must outlive nothing but its heartbeat.
+CREATE TABLE IF NOT EXISTS gate_slots (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id  INTEGER NOT NULL,
+  project_id INTEGER,
+  owner      TEXT NOT NULL,
+  claimed_at TEXT NOT NULL,
+  touched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gate_slots_project ON gate_slots(project_id);

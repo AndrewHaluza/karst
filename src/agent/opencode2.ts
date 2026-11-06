@@ -404,6 +404,9 @@ export class Opencode2Adapter implements AgentAdapter {
         'docker backend (agentBackends: docker, arch:AC-33)',
     ),
     processKillDeny: SUPPORTED,
+    minimalHeadlessContext: unsupported(
+      'opencode2 has no per-run flag that drops the skill list or tool definitions; tools are set in its config, which karst does not rewrite per call',
+    ),
     headlessPolicy: SUPPORTED,
     interactiveGatePolicy: SUPPORTED,
     interactiveAttendedPolicy: SUPPORTED,

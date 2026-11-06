@@ -690,6 +690,31 @@ describe('runFindingsLane', () => {
     expect(runHeadless.mock.calls[0]![0].prompt).toContain('Check error handling.');
     expect(runHeadless.mock.calls[0]![0].prompt).toContain('Output rules (strict):');
   });
+
+  it.each([
+    ['context: minimal', 'minimal', 'skills-and-subagents'],
+    ['no key', undefined, undefined],
+  ] as const)('profile %s -> minimalContext %s', async (_n, context, expected) => {
+    const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter('[]'),
+      targets: [TARGET],
+      ticketId: 1,
+      process: {
+        assignment: { provider: 'claude', instructions: 'x', ...(context ? { context } : {}) },
+        adapter: { ...adapter('[]'), runHeadless },
+      },
+    });
+    expect(runHeadless.mock.calls[0]![0].minimalContext).toBe(expected);
+    expect('minimalContext' in runHeadless.mock.calls[0]![0]).toBe(expected !== undefined);
+  });
+
+  it('a run with no profile keeps full context', async () => {
+    const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+    await runFindingsLane({ config: CONFIG, adapter: { ...adapter('[]'), runHeadless }, targets: [TARGET], ticketId: 1 });
+    expect('minimalContext' in runHeadless.mock.calls[0]![0]).toBe(false);
+  });
 });
 
 /**

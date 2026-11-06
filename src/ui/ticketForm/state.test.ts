@@ -585,21 +585,30 @@ describe('buildTicketFormState — sandbox backend override', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
-  it('create mode reports the project backend and no opt-out', () => {
-    const state = buildTicketFormState(store, { ...MANIFEST, agentBackends: { claude: 'sbx' } }, () => [], () => []);
-    expect(state.projectBackend).toBe('sbx');
+  it('create mode reports the backend map and no opt-out', () => {
+    const state = buildTicketFormState(store, { ...MANIFEST, agentBackends: { codex: 'sbx', opencode: 'docker' } }, () => [], () => []);
+    expect(state.agentBackends).toEqual({ codex: 'sbx', opencode: 'docker' });
     expect(state.selectedBackend).toBeNull();
   });
 
-  it('project backend is null when unset', () => {
-    expect(buildTicketFormState(store, MANIFEST, () => [], () => []).projectBackend).toBeNull();
+  it('the backend map is empty when the manifest has none', () => {
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => []).agentBackends).toEqual({});
   });
 
-  it('edit mode surfaces the ticket host opt-out', () => {
+  it('reports the core of each preset, resolved like the launch', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      agentPresets: { fast: fullPreset('codex', 'gpt-5.5'), deep: fullPreset('claude', 'claude-opus-5') },
+    };
+    const state = buildTicketFormState(store, m, () => [], () => []);
+    expect(state.presetCores).toEqual({ fast: 'codex', deep: 'claude' });
+  });
+
+  it('edit mode surfaces the ticket host opt-out and the backend map', () => {
     const t = createTicket(store, { key: 'A-1', title: 'T' });
     updateTicketFields(store, t.id, { agentBackend: 'host' });
     const state = buildTicketFormState(store, { ...MANIFEST, agentBackends: { opencode: 'docker' } }, () => [], () => [], t.id);
-    expect(state.projectBackend).toBe('docker');
+    expect(state.agentBackends).toEqual({ opencode: 'docker' });
     expect(state.selectedBackend).toBe('host');
   });
 });

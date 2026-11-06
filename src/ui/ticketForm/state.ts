@@ -1,4 +1,3 @@
-import { selectedSandboxBackends } from '../../agent/backendChoices.js';
 import type { TicketFormPrefill } from './panel.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
@@ -227,8 +226,10 @@ export interface TicketFormState {
   defaultAgentPreset: string | null;
   /** Per-ticket preset override; null = inherit `manifest.defaultAgentPreset`. */
   selectedAgentPreset: string | null;
-  /** The project's first selected sandbox backend (`agentBackends`); null = every core on host. The webview shows the opt-out only for a sandbox backend. */
-  projectBackend: AgentBackend | null;
+  /** The manifest `agentBackends` map (empty when absent). The webview picks the entry of the session core (`backendForCore`) and shows the picker when any entry is a sandbox. */
+  agentBackends: Record<string, AgentBackend>;
+  /** Core each manifest preset resolves to for the implementation capability, by preset name. */
+  presetCores: Record<string, AgentProvider>;
   /** Per-ticket opt-out; `'host'` = run on host, null = follow the project. */
   selectedBackend: 'host' | null;
   /** Conventional-commit types offered by the type picker. */
@@ -348,6 +349,10 @@ export function buildTicketFormState(
   const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
   const agentPresetNames = Object.keys(manifest.agentPresets ?? {}).sort();
+  // Same resolution as the launch, so the form's backend label follows the core a preset would run.
+  const presetCores = Object.fromEntries(
+    agentPresetNames.map((name) => [name, resolvePresetDefaults(manifest, 'implementation', { ticketPreset: name }).provider]),
+  ) as Record<string, AgentProvider>;
   // Search needs a provider that can search AND a list to search: the manifest
   // toggle defaults ON, but a clickup provider with no listId configured has
   // nothing to list. `manual` never qualifies.
@@ -457,7 +462,8 @@ export function buildTicketFormState(
       agentPresetNames,
       defaultAgentPreset: manifest.defaultAgentPreset ?? null,
       selectedAgentPreset: null,
-      projectBackend: selectedSandboxBackends(manifest.agentBackends)[0] ?? null,
+      agentBackends: { ...manifest.agentBackends },
+      presetCores,
       selectedBackend: null,
       ticketTypes: [...TICKET_TYPES],
       selectedType: null,
@@ -527,7 +533,8 @@ export function buildTicketFormState(
     agentPresetNames,
     defaultAgentPreset: manifest.defaultAgentPreset ?? null,
     selectedAgentPreset: ticket.agentPreset ?? null,
-    projectBackend: selectedSandboxBackends(manifest.agentBackends)[0] ?? null,
+    agentBackends: { ...manifest.agentBackends },
+    presetCores,
     selectedBackend: ticket.agentBackend ?? null,
     ticketTypes: [...TICKET_TYPES],
     selectedType: ticket.type ?? null,
