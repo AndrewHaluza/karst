@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "judges": [
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5"
+    ],
+    "effort": "medium",
+    "createdAt": "2026-11-06T09:36:46.555Z"
+  },
+  "cases": {
+    "vuejs/core:pr-8470": {
+      "stated": [
+        "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": [
+            "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)"
+          ]
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": [
+            "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)"
+          ]
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "packages/compiler-sfc/__tests__/compileScript/defineEmits.spec.ts > defineEmits > w/ type (interface w/ extends)"
+          ]
+        }
+      ]
+    },
+    "vuejs/core:pr-8785": {
+      "stated": [
+        "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+        "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": [
+            "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+            "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)"
+          ]
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": []
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (non-inline)",
+            "packages/compiler-core/__tests__/transforms/transformElement.spec.ts > compiler: element transform > resolve namespaced component from props bindings (inline)"
+          ]
+        }
+      ]
+    },
+    "mui/material-ui:pr-23778": {
+      "stated": [
+        "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled"
+          ]
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled"
+          ]
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/Select/Select.test.js:<Select /> accessibility sets disabled attribute in input when component is disabled"
+          ]
+        }
+      ]
+    },
+    "mui/material-ui:pr-23786": {
+      "stated": [
+        "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented"
+          ]
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented"
+          ]
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "/home/material-ui/packages/material-ui/src/internal/SwitchBase.test.js:<SwitchBase /> handleInputChange() should not change checkbox state when event is default prevented"
+          ]
+        }
+      ]
+    },
+    "darkreader/darkreader:pr-7241": {
+      "stated": [
+        "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+        "tests/generators/utils/parse.tests.ts"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": [
+            "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+            "tests/generators/utils/parse.tests.ts"
+          ]
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": [
+            "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+            "tests/generators/utils/parse.tests.ts"
+          ]
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "tests/generators/utils/parse.tests.ts:Base64 in CSS",
+            "tests/generators/utils/parse.tests.ts"
+          ]
+        }
+      ]
+    },
+    "darkreader/darkreader:pr-6747": {
+      "stated": [
+        "tests/generators/utils/parse.tests.ts:Index config",
+        "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+        "tests/generators/utils/parse.tests.ts",
+        "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+        "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records"
+      ],
+      "notStated": [],
+      "votes": [
+        {
+          "judge": "claude-opus-5-5",
+          "stated": []
+        },
+        {
+          "judge": "claude-sonnet-5-5",
+          "stated": [
+            "tests/generators/utils/parse.tests.ts:Index config",
+            "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+            "tests/generators/utils/parse.tests.ts",
+            "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+            "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records"
+          ]
+        },
+        {
+          "judge": "claude-haiku-5-5",
+          "stated": [
+            "tests/generators/utils/parse.tests.ts:Index config",
+            "tests/generators/utils/parse.tests.ts:Domain appearing multiple times within the same record",
+            "tests/generators/utils/parse.tests.ts",
+            "tests/generators/utils/parse.tests.ts:The generic fix appears first",
+            "tests/generators/utils/parse.tests.ts:Domain appearing in multiple records"
+          ]
+        }
+      ]
+    }
+  }
+}
