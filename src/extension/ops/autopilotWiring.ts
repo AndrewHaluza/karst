@@ -146,7 +146,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         debug: d.debug,
       });
       if (result.kind === 'armed' && t.subtaskParentId !== null) armed.set(t.id, { id: t.id, subtaskParentId: t.subtaskParentId });
-      if (result.kind === 'armed' || result.kind === 'parked') acted += 1;
+      if (result.kind === 'armed' || result.kind === 'parked' || result.kind === 'cleared') acted += 1;
     } catch (err) {
       d.debug(`[ship] autopilot ticket ${t.key ?? formatId('ticket', t.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
     }

@@ -54,7 +54,8 @@ export type AutopilotResult =
   | { readonly kind: 'off' | 'idle' | 'not-controller' | 'busy' | 'queued' | 'nothing' }
   | { readonly kind: 'ask'; readonly reason: string }
   | { readonly kind: 'armed'; readonly problem: AutopilotKind; readonly used: number; readonly max: number }
-  | { readonly kind: 'parked'; readonly reason: string };
+  | { readonly kind: 'parked'; readonly reason: string }
+  | { readonly kind: 'cleared' };
 
 const LOG = '[ship] autopilot';
 
@@ -128,6 +129,8 @@ interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signatu
 function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   const ci = ciFailureState(d.store, d.ticketId);
   if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
+  // One failing PR does not make the others known: an open PR with an unknown or unreadable CI status keeps the ticket waiting.
+  if (hasUnknownCi(d)) return 'wait';
   // The budget follows the first PR (its own failing names make the signature). The allowlist covers every failing PR,
   // because the action sends the failures of all of them to the agent.
   const first = ci.prs[0]!;
@@ -136,6 +139,14 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
   const cutShort = ci.prs.some((p) => (p.failedTotal ?? 0) > p.failing.length);
   return { kind: 'ci', repo: first.repo, signature: own.join('\n'), failing: all, cutShort };
+}
+
+/** An open PR whose stored CI rollup is missing, unreadable or unknown. */
+function hasUnknownCi(d: AutopilotDeps): boolean {
+  const rows = d.store.db
+    .prepare("SELECT checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
+    .all(d.ticketId) as Array<{ checks: string | null }>;
+  return rows.some((r) => { const state = parseChecks(r.checks)?.state; return state === undefined || state === 'unknown'; });
 }
 
 /**
@@ -182,9 +193,11 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (problem === 'wait') return { kind: 'nothing' };
   if (!problem) {
     // The problem is gone: a stale park block and stop reason must not stay.
+    const parked = stageBlock(d.store, d.ticketId, 'ship')?.reason.startsWith('auto-fix') === true;
     if (state.stoppedReason !== null) setAutopilotStopped(d.store, d.ticketId, null);
     clearParkBlock(d.store, d.ticketId);
-    return { kind: 'nothing' };
+    // A cleared park changes what the views show: report it so the sweep refreshes them.
+    return parked ? { kind: 'cleared' } : { kind: 'nothing' };
   }
   if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
   if (problem.cutShort) {

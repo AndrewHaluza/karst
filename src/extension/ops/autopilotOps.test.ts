@@ -446,9 +446,23 @@ describe('autopilotTick guards', () => {
     expect(stageBlock(store, id, 'ship')?.reason).toMatch(/^auto-fix/);
     cleanMerge();
     store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(PASSING), id);
-    expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
+    expect((await autopilotTick(rig().deps)).kind).toBe('cleared');
     expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('is not merged yet') });
     expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+
+  it('waits when one PR fails and another open PR has an unknown or missing CI status', async () => {
+    for (const other of [undefined, { ...PASSING, state: 'unknown' }]) {
+      store.db.prepare('DELETE FROM prs').run();
+      seedPr(failing('build'));
+      store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+      store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', other === undefined ? null : JSON.stringify(other));
+      const r = rig();
+      expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+      expect(r.sendCi).not.toHaveBeenCalled();
+      store.db.prepare('DELETE FROM worktrees WHERE repo = ?').run('r2');
+    }
   });
 
   it('keeps the park when the CI status is unknown (no positive evidence)', async () => {
