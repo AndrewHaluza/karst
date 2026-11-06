@@ -122,8 +122,11 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
   return { kind: 'nothing' };
 }
 
-interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly failing?: readonly string[]; readonly cutShort?: boolean }
-// `failing` and `cutShort` cover EVERY failing PR (the action sends them all); `repo` and `signature` follow the first PR.
+/** One failing PR and the signature (its failing check names) its budget counts against. */
+interface BudgetTarget { readonly repo: string; readonly signature: string }
+
+interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly targets: readonly BudgetTarget[]; readonly failing?: readonly string[]; readonly cutShort?: boolean }
+// `failing` and `cutShort` cover EVERY failing PR (the action sends them all); `repo` and `signature` name the first PR in notes; `targets` holds the budget of EVERY failing PR.
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
 function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
@@ -131,14 +134,14 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
   // One failing PR does not make the others known: an open PR with an unknown or unreadable CI status keeps the ticket waiting.
   if (hasUnknownCi(d)) return 'wait';
-  // The budget follows the first PR (its own failing names make the signature). The allowlist covers every failing PR,
-  // because the action sends the failures of all of them to the agent.
+  // The allowlist and the budget cover every failing PR, because the action sends the failures of all of them to the agent.
   const first = ci.prs[0]!;
   const own = [...new Set(first.failing.map((f) => f.name))].sort();
   const all = [...new Set(ci.prs.flatMap((p) => p.failing.map((f) => f.name)))].sort();
   // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
   const cutShort = ci.prs.some((p) => (p.failedTotal ?? 0) > p.failing.length);
-  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), failing: all, cutShort };
+  const targets = ci.prs.map((p) => ({ repo: p.repo, signature: [...new Set(p.failing.map((f) => f.name))].sort().join('\n') }));
+  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, cutShort };
 }
 
 /** An open PR whose stored CI rollup is missing, unreadable or unknown. */
@@ -225,16 +228,26 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'queued' };
   }
 
-  const budget = takeAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind, problem.signature, cfg.ci.maxAttempts);
-  if (!budget.ok) {
-    return park(d, problem.kind, stoppedReason(problem.kind, budget.used, budget.max), `the budget for ${problem.repo} is spent; approve one more attempt or fix it by hand.`);
+  // One attempt per failing PR. A spent budget on any of them stops the round, and the attempts taken first are given back.
+  const taken: BudgetTarget[] = [];
+  let budget: { ok: true; used: number; max: number } | null = null;
+  for (const target of problem.targets) {
+    const b = takeAutopilotAttempt(d.store, d.ticketId, target.repo, problem.kind, target.signature, cfg.ci.maxAttempts);
+    if (!b.ok) {
+      for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, problem.kind);
+      return park(d, problem.kind, stoppedReason(problem.kind, b.used, b.max), `the budget for ${target.repo} is spent; approve one more attempt or fix it by hand.`);
+    }
+    taken.push(target);
+    if (target.repo === problem.repo) budget = b;
   }
+  if (budget === null) return { kind: 'nothing' };
+  const refundAll = (): void => { for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, problem.kind); };
   // An action that throws reached no agent: it costs no attempt and parks with the error, like a failed fetch.
   const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   if (outcome.kind === 'lease-lost') {
     // Another window owns the round now: give the attempt back and stay quiet.
-    refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
+    refundAll();
     return { kind: 'not-controller' };
   }
   if (outcome.kind === 'sent') {
@@ -246,7 +259,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'armed', problem: problem.kind, used: budget.used, max: budget.max };
   }
   // A failed action reached no agent: it costs no attempt and is not retried.
-  refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
+  refundAll();
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
     // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
     // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.

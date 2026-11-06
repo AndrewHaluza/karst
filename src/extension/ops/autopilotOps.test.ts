@@ -5,7 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
@@ -339,17 +339,26 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
   });
 
-  it('with two failing PRs the round and the signature follow the first PR only', async () => {
+  it('with two failing PRs every PR spends its own attempt', async () => {
     seedPr(failing('build'));
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
-    const other = (names: string[]) => store.db.prepare("UPDATE prs SET checks = ? WHERE repo = 'r2'").run(JSON.stringify(failing(...names)));
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', JSON.stringify(failing('lint')));
     await autopilotTick(rig().deps);
-    other(['lint', 'build']);
-    await autopilotTick(rig().deps);
-    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(2);
-    expect(getAutopilotBudget(store, id, 'r2', 'ci').attempts).toBe(0);
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(getAutopilotBudget(store, id, 'r2', 'ci').attempts).toBe(1);
+  });
+
+  it('a spent budget on a later PR parks the round and gives back the attempts taken first', async () => {
+    seedPr(failing('build'));
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', JSON.stringify(failing('lint')));
+    for (let i = 0; i < 3; i += 1) takeAutopilotAttempt(store, id, 'r2', 'ci', 'lint', 3);
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci 3/3' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
   });
 
   it('checks the allowlist on every failing PR, because the action sends them all', async () => {

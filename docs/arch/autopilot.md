@@ -39,7 +39,7 @@ flowchart TD
 - CI uses Send CI failure to agent. A check that is not on the allowlist parks. A gh failure parks and does not move the ticket. An unknown or pending CI status is never a pass. A closed PR is never fixed.
 - A ticket is a host ticket only when its recorded placement is `host`. A sandbox placement, a missing placement and an unlisted sandbox get no round.
 - A ticket that ran an implementation graph gets no round: it parks with `auto-fix not run: graph ticket`. A live session that runs, or waits on a prompt or a question, also blocks a round. A closing window releases its `session_owner` rows.
-- The allowlist covers every failing PR, because the action sends them all. The budget and the signature follow the first failing PR only.
+- The allowlist covers every failing PR, because the action sends them all. Each failing PR spends its own attempt. A spent budget on any of them parks the round and gives back the attempts taken first.
 - If the stored failing list is cut short (`failed` is larger than the list), the ticket parks with `auto-fix not run: the list of failing ci checks is cut short`.
 - A sandboxed ticket, or a ticket with an unknown placement, gets no round. When an allowlisted check fails on it, it parks with `auto-fix not run: sandboxed ticket`, writes a bulletin note and uses no attempt.
 - When a ticket ships again, the stored CI rollup and merge block of its open PRs are cleared, because they belong to the old head. A window that restores its sessions at start publishes them to `session_owner` again. Sub-tasks armed in one sweep count once against the concurrency limit.
