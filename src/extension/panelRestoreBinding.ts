@@ -46,7 +46,18 @@ export interface RestoreTargets<R extends RawPanel> {
   dashboardHost: Host<R, unknown>;
   changes: { adopt(ticketId: number | undefined, restored: RestoredPanel<unknown>, exists: (id: number) => boolean): unknown };
   changesHost: Host<R, unknown>;
-  ticketForm: { adopt(restored: RestoredPanel<unknown>, state: unknown, exists: (id: number) => boolean): unknown };
+  ticketForm: {
+    adopt(
+      restored: RestoredPanel<unknown>,
+      state: unknown,
+      exists: (id: number) => boolean,
+      proposalPrefill?: (draftId: number) => unknown,
+    ): unknown;
+  };
+  /** Builds the prefill of a pending planning proposal again; undefined when it is no longer pending in this project. */
+  proposalPrefill?: (draftId: number) => unknown;
+  /** True when the manifest loads. A restored form of a window without a usable manifest closes: a Save would clear its repositories. */
+  manifestReady?: () => boolean;
   ticketFormHost: Host<R, unknown>;
   settings: { adopt(restored: RestoredPanel<unknown>): unknown };
   settingsHost: Host<R, unknown>;
@@ -79,7 +90,11 @@ export function makeRestorers<R extends RawPanel>(t: RestoreTargets<R>): Restore
   return {
     'karst.dashboard': (raw, state) => void t.dashboard.adoptDashboard(restoredTicketId(state), t.dashboardHost.restore(raw as R)),
     'karst.changes': (raw, state) => void t.changes.adopt(restoredTicketId(state), t.changesHost.restore(raw as R), exists),
-    'karst.ticketForm': (raw, state) => void t.ticketForm.adopt(t.ticketFormHost.restore(raw as R), state, exists),
+    'karst.ticketForm': (raw, state) => {
+      const restored = t.ticketFormHost.restore(raw as R);
+      if (t.manifestReady && !t.manifestReady()) return restored.dispose();
+      void t.ticketForm.adopt(restored, state, exists, t.proposalPrefill);
+    },
     'karst.settings': async (raw) => void (await t.settings.adopt(t.settingsHost.restore(raw as R))),
     'karst.gettingStarted': (raw) => void t.gettingStarted.adopt(t.gettingStartedHost.restore(raw as R)),
     karstDoctor: (raw) => t.doctor.restore(raw as R),

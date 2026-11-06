@@ -1410,7 +1410,9 @@ describe('buildTicketFormActions', () => {
     expect(ctx.closes).toBe(1);
     // Busy brackets the start so the button can't be double-fired mid-launch,
     // and clears before the panel goes away.
-    expect(ctx.posted[0]).toEqual({ type: 'busy', what: 'submit', on: true });
+    // The store write is announced first, then busy brackets the start.
+    expect(ctx.posted[0]).toEqual({ type: 'draft-saved' });
+    expect(ctx.posted[1]).toEqual({ type: 'busy', what: 'submit', on: true });
     expect(ctx.posted.at(-1)).toEqual({ type: 'busy', what: 'submit', on: false });
   });
 

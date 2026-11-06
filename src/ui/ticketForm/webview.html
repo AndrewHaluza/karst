@@ -698,8 +698,17 @@
       onHostState(state) {
         // A proposal review form keeps its flag even after it minted a draft row (edit-shaped state):
         // the host cannot re-link it, so it must restore as a proposal form, not a plain edit form.
+        // The planning draft id and the draft row the form minted ride along, so the host can
+        // re-link the form to its proposal (the draft id is kept once seen: a bound page drops it).
+        const draftId = state.briefSource && state.briefSource.kind === 'draft' && Number.isInteger(state.briefSource.draftId)
+          ? state.briefSource.draftId
+          : identity && Number.isInteger(identity.draftId) ? identity.draftId : undefined;
         identity = state.prefilled === true
-          ? { mode: 'create', prefilled: true }
+          ? {
+            mode: 'create', prefilled: true,
+            ...(draftId !== undefined ? { draftId } : {}),
+            ...(state.mode === 'edit' && Number.isInteger(state.ticketId) ? { mintedTicketId: state.ticketId } : {}),
+          }
           : state.mode === 'edit' && Number.isInteger(state.ticketId)
             ? { mode: 'edit', ticketId: state.ticketId }
             : { mode: 'create' };
@@ -738,6 +747,12 @@
       },
       /** The host reported an error: the pending save did not succeed, so the draft stays. */
       commitErrored() { commitFailed = true; },
+      /** The host stored the text (persist succeeded): drop it from the draft, even if a later step fails. */
+      commitSaved() {
+        if (!commitPending) return;
+        commitFailed = false;
+        this.commitSettled();
+      },
       /** The save or submit finished: on success the typed text is saved, so drop the draft. */
       commitSettled() {
         if (!commitPending) return;
@@ -2938,6 +2953,7 @@
         if (msg.usageLimitParkId) showUsageLimitErr(msg.message, msg.usageLimitParkId);
         else showErr(msg.message);
         break;
+      case 'draft-saved': formPersist.commitSaved(); break;
       case 'usage-limit-park-resolved': clearErr(); break;
       case 'usage-limit-park-cancelled': rearmUsageLimitButtons(); break;
       case 'busy':

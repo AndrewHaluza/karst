@@ -36,6 +36,8 @@ export interface TicketFormPanel {
    * on this panel.
    */
   onDidChangeViewState(handler: (active: boolean) => void): void;
+  /** Whether the user is on this panel now (real: `panel.active`). A restored tab can already be active. Absent → false. */
+  isActive?(): boolean;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
@@ -174,7 +176,11 @@ function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | un
 }
 
 /** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
-export type RestoredTicketFormIdentity = { mode: 'create'; prefilled: boolean } | { mode: 'edit'; ticketId: number };
+export type RestoredTicketFormIdentity =
+  | { mode: 'create'; prefilled: boolean; draftId?: number; mintedTicketId?: number }
+  | { mode: 'edit'; ticketId: number };
+
+const positiveInt = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
 
 /** Read the `karstPanel` identity of a restored ticket-form state; undefined when it is invalid. */
 export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormIdentity | undefined {
@@ -182,7 +188,17 @@ export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormId
   const identity = (state as { karstPanel?: unknown }).karstPanel;
   if (typeof identity !== 'object' || identity === null) return undefined;
   const { mode, ticketId } = identity as { mode?: unknown; ticketId?: unknown };
-  if (mode === 'create') return { mode, prefilled: (identity as { prefilled?: unknown }).prefilled === true };
+  if (mode === 'create') {
+    const { prefilled, draftId, mintedTicketId } = identity as { prefilled?: unknown; draftId?: unknown; mintedTicketId?: unknown };
+    const draft = positiveInt(draftId);
+    const minted = positiveInt(mintedTicketId);
+    return {
+      mode,
+      prefilled: prefilled === true,
+      ...(draft !== undefined ? { draftId: draft } : {}),
+      ...(minted !== undefined ? { mintedTicketId: minted } : {}),
+    };
+  }
   if (mode === 'edit' && typeof ticketId === 'number' && Number.isInteger(ticketId) && ticketId > 0) {
     return { mode, ticketId };
   }
@@ -289,7 +305,12 @@ export class TicketFormManager {
    * closes the tab silently. The unsaved draft stays in the webview's own state, so
    * the host does not read it. Returns whether the tab was adopted.
    */
-  adopt(restored: RestoredPanel<TicketFormPanel>, state: unknown, exists: (ticketId: number) => boolean): boolean {
+  adopt(
+    restored: RestoredPanel<TicketFormPanel>,
+    state: unknown,
+    exists: (ticketId: number) => boolean,
+    proposalPrefill?: (draftId: number) => TicketFormPrefill | undefined,
+  ): boolean {
     const identity = restoredTicketFormIdentity(state);
     if (!identity) {
       this.debug('[restore] karst.ticketForm: invalid saved state, tab closed');
@@ -298,12 +319,20 @@ export class TicketFormManager {
     }
     if (identity.mode === 'create') {
       // A planning-proposal review form is linked to its proposal through an in-memory
-      // callback that a reload loses. Restoring it would show a form that no longer
-      // reports back, so it closes like any other form that cannot be adopted.
+      // callback that a reload loses. The saved draft id lets the host build the prefill
+      // again and so re-link the form. When the proposal is no longer pending, the form
+      // closes and the draft row it minted (if any) is discarded.
       if (identity.prefilled) {
-        this.debug('[restore] karst.ticketForm: proposal review form cannot be re-linked, tab closed');
-        restored.dispose();
-        return false;
+        const prefill = identity.draftId !== undefined ? proposalPrefill?.(identity.draftId) : undefined;
+        if (!prefill) {
+          this.debug('[restore] karst.ticketForm: proposal of the review form is gone, tab closed');
+          if (identity.mintedTicketId !== undefined) this.discardMintedRow(identity.mintedTicketId);
+          restored.dispose();
+          return false;
+        }
+        const minted = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
+        this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, minted);
+        return true;
       }
       this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
       return true;
@@ -328,6 +357,7 @@ export class TicketFormManager {
     ticketId?: number,
     prefill?: TicketFormPrefill,
     restored?: RestoredPanel<TicketFormPanel>,
+    mintedTicketId?: number,
   ): void {
     const existing = this.panels.get(key);
     if (existing) {
@@ -544,21 +574,7 @@ export class TicketFormManager {
     });
     panel.onDidDispose(() => {
       disposed = true;
-      if (prefill && !prefillCommitted && mintedId !== undefined) {
-        try {
-          const discardedId = mintedId;
-          deleteTicket(this.store, discardedId);
-          // The rows are gone; remove the minted ticket's attachment files too.
-          if (this.storageDir !== undefined) {
-            void reapAttachments(this.storageDir, discardedId).catch((e: unknown) =>
-              this.logError('karst: could not remove the discarded draft attachments', e),
-            );
-          }
-        } catch (e) {
-          this.logError('karst: could not discard the uncommitted draft row', e);
-        }
-        this.onDiscarded?.();
-      }
+      if (prefill && !prefillCommitted && mintedId !== undefined) this.discardMintedRow(mintedId);
       this.panels.delete(panelKey);
       this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
@@ -567,14 +583,32 @@ export class TicketFormManager {
       if (boundId !== undefined) this.onViewActivated?.(boundId, false);
     });
 
+    // A restored proposal form takes back the draft row it minted before the reload.
+    if (mintedTicketId !== undefined) ctx.bindTicket(mintedTicketId);
     pushState();
     // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
     // not on the initial activation — report it so the sidebar highlights it
     // (a create panel reports nothing until it has a ticket).
     // An adopted (restored) tab may be in the background: VS Code reports its
     // focus through onDidChangeViewState, so it claims nothing here.
-    panelActive = restored === undefined;
+    panelActive = restored === undefined ? true : panel.isActive?.() === true;
     if (panelActive && boundId !== undefined) this.onViewActivated?.(boundId, true);
+  }
+
+  /** Delete the draft row a proposal review form minted, with its attachment files; the sidebar refreshes. */
+  private discardMintedRow(ticketId: number): void {
+    try {
+      deleteTicket(this.store, ticketId);
+      // The rows are gone; remove the minted ticket's attachment files too.
+      if (this.storageDir !== undefined) {
+        void reapAttachments(this.storageDir, ticketId).catch((e: unknown) =>
+          this.logError('karst: could not remove the discarded draft attachments', e),
+        );
+      }
+    } catch (e) {
+      this.logError('karst: could not discard the uncommitted draft row', e);
+    }
+    this.onDiscarded?.();
   }
 
   /** Push the current catalog to every ticket-form panel that is still live. */

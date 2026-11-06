@@ -103,6 +103,27 @@ describe('ticket form — draft persistence', () => {
     expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { desc: 'improved by the agent' } });
   });
 
+  it('saves the planning draft id and the minted row in the identity of a proposal form', () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ prefilled: true, briefSource: { kind: 'draft', draftId: 5 } }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, draftId: 5 } });
+    // after the form minted a row the state is edit-shaped and no longer names the draft: the id is kept
+    h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 9, prefilled: true, briefSource: { kind: 'manual' } }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, draftId: 5, mintedTicketId: 9 } });
+  });
+
+  it('drops the saved text on draft-saved, even when the submit fails afterwards', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    type(h, 'title', 'Fix login');
+    h.query<HTMLButtonElement>('#submitBtn')!.click();
+    h.receive({ type: 'draft-saved' });
+    h.receive({ type: 'error', message: 'launch failed' });
+    h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 4, title: 'Fix login' }) });
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'edit', ticketId: 4 } });
+  });
+
   it('records the description the brief buttons wrote, and the undo', async () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState({ sourceRef: 'X1' }) });
@@ -129,7 +150,7 @@ describe('ticket form — draft persistence', () => {
   it('keeps the proposal identity after the form minted a draft row', () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 9, prefilled: true }) });
-    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true } });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, mintedTicketId: 9 } });
   });
   it('persists code that changed a field the user already edited', async () => {
     h = renderWebview('ticketForm');

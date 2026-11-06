@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, archiveTicket } from '../../store/tickets.js';
+import { createTicket, getTicket, archiveTicket } from '../../store/tickets.js';
 import { TicketFormManager, restoredTicketFormIdentity } from './panel.js';
 import type { TicketFormPanel, TicketFormPanelHost } from './panel.js';
 import type { TicketFormActions } from './messages.js';
@@ -152,13 +152,64 @@ describe('TicketFormManager.adopt', () => {
 
   it('reads the identity of a valid state', () => {
     expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create' }, draft: { title: 'x' } })).toEqual({ mode: 'create', prefilled: false });
+    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create', prefilled: true, draftId: 3, mintedTicketId: 8 } }))
+      .toEqual({ mode: 'create', prefilled: true, draftId: 3, mintedTicketId: 8 });
+    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create', prefilled: true, draftId: -1, mintedTicketId: 'x' } }))
+      .toEqual({ mode: 'create', prefilled: true });
     expect(restoredTicketFormIdentity({ karstPanel: { mode: 'edit', ticketId: 4 } })).toEqual({ mode: 'edit', ticketId: 4 });
   });
-  it('closes a proposal review form silently: its link to the proposal is lost on reload', () => {
-    const r = restored();
-    expect(mgr.adopt(r.restored, { karstPanel: { mode: 'create', prefilled: true } }, exists)).toBe(false);
-    expect(r.disposed()).toBe(true);
-    expect(r.wrapped()).toBe(false);
+  describe('proposal review form', () => {
+    const prefill = { title: 'Fix', description: 'd', summary: 's', repos: [], draftId: 5, onCreated: () => {} };
+    const state = (extra: Record<string, unknown> = {}) => ({ karstPanel: { mode: 'create', prefilled: true, draftId: 5, ...extra } });
+
+    it('re-links to its proposal: the form is adopted with the rebuilt prefill', () => {
+      const r = restored();
+      expect(mgr.adopt(r.restored, state(), exists, (id) => (id === 5 ? prefill : undefined))).toBe(true);
+      expect(r.wrapped()).toBe(true);
+      const pushed = (r.panel.posted[0] as { state: { prefilled?: boolean; title: string } }).state;
+      expect(pushed).toMatchObject({ prefilled: true, title: 'Fix' });
+    });
+
+    it('takes back the draft row it minted before the reload', () => {
+      const row = createTicket(store, { key: 'D-5', title: 'Fix' });
+      createdIds.add(row.id);
+      const r = restored();
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => prefill)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: row.id });
+      // closing the uncommitted form discards the row it minted
+      r.panel.dispose();
+      expect(() => getTicket(store, row.id)).toThrow();
+    });
+
+    it('closes when the proposal is not pending, and discards the row it minted', () => {
+      const row = createTicket(store, { key: 'D-6', title: 'Fix' });
+      createdIds.add(row.id);
+      const r = restored();
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => undefined)).toBe(false);
+      expect(r.disposed()).toBe(true);
+      expect(r.wrapped()).toBe(false);
+      expect(() => getTicket(store, row.id)).toThrow();
+      expect(logs.join('\n')).toContain('proposal of the review form is gone');
+    });
+
+    it('closes when the saved state has no draft id or no lookup is wired', () => {
+      const r = restored();
+      expect(mgr.adopt(r.restored, { karstPanel: { mode: 'create', prefilled: true } }, exists, () => prefill)).toBe(false);
+      const r2 = restored();
+      expect(mgr.adopt(r2.restored, state(), exists)).toBe(false);
+    });
+  });
+
+  it('reports an adopted form as the active view when VS Code already shows it as active', () => {
+    const t = createTicket(store, { key: 'P-9', title: 'thing' });
+    createdIds.add(t.id);
+    const calls: Array<[number, boolean]> = [];
+    (mgr as unknown as { onViewActivated: (id: number, active: boolean) => void }).onViewActivated =
+      (id, active) => void calls.push([id, active]);
+    const a = restored();
+    a.panel.isActive = () => true;
+    expect(mgr.adopt(a.restored, { karstPanel: { mode: 'edit', ticketId: t.id } }, exists)).toBe(true);
+    expect(calls).toEqual([[t.id, true]]);
   });
 
   it('sets the tab title of a restored edit form from the fresh ticket', () => {

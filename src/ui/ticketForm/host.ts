@@ -49,6 +49,7 @@ export function makeTicketFormPanelHost(
             undefined,
             context.subscriptions,
           ),
+        isActive: () => panel.active,
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
         dispose: () => panel.dispose(),
         setTitle: (t: string) => {

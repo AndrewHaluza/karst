@@ -6959,7 +6959,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, ticketForm, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, ticketForm, proposalPrefill: proposalOps.prefillFor, manifestReady: () => currentManifest() !== undefined, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-

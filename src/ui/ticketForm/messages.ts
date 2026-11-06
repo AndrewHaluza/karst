@@ -210,6 +210,8 @@ export type TicketFormHostMessage =
   | { type: 'error'; message: string; usageLimitParkId?: number }
   // D159: a park was claimed/resolved — the page drops its action buttons.
   | { type: 'usage-limit-park-resolved' }
+  /** The Save or Submit text reached the store; the webview drops it from its unsaved draft, whatever happens next. */
+  | { type: 'draft-saved' }
   // D159: the agent/model picker was cancelled, so nothing was claimed — the
   // page must re-arm the buttons it disabled on click.
   | { type: 'usage-limit-park-cancelled' }
