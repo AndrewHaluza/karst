@@ -84,12 +84,37 @@ describe('fetchCheckLog', () => {
     expect(calls[0]).toBeUndefined();
     expect(calls[1]).toEqual({ truncation: 'keep-tail', maxOutputBytes: 1024 * 1024 });
   });
-  it('in-progress run → pending note with failed step names', async () => {
-    const jobs = { status: 'in_progress', jobs: [{ name: 'b', steps: [{ name: 'Test', conclusion: 'failure' }, { name: 'Lint', conclusion: 'success' }] }] };
-    const { gh, calls } = run([ok(JSON.stringify(jobs))]);
-    const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
-    expect(r).toEqual({ kind: 'pending', name: 'build', steps: ['b: Test'] });
-    expect(calls).toHaveLength(1);
+  describe('in-progress run', () => {
+    const view = (job: Record<string, unknown>) =>
+      ok(JSON.stringify({ status: 'in_progress', jobs: [{ name: 'build', databaseId: 456, status: 'completed', steps: [{ name: 'Test', conclusion: 'failure' }], ...job }] }));
+    const jobLog = ok('2026-01-01T00:00:00.1Z start\n2026-01-01T00:00:01.2Z ##[error]boom\n2026-01-01T00:00:02.3Z Post step');
+
+    it('complete failed job → log without timestamps, step names on top', async () => {
+      const { gh, calls } = run([view({}), jobLog]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toEqual({ kind: 'log', name: 'build', text: 'Failed steps: build: Test\nstart\n##[error]boom\nPost step' });
+      expect(calls[1]).toEqual(['api', 'repos/o/r/actions/jobs/456/logs']);
+    });
+    it('matches by job name when the url has no job id', async () => {
+      const { gh, calls } = run([view({ databaseId: 789 }), jobLog]);
+      await fetchCheckLog(gh, '/w', { name: 'build', url: 'https://github.com/o/r/actions/runs/123' });
+      expect(calls[1]).toEqual(['api', 'repos/o/r/actions/jobs/789/logs']);
+    });
+    it('job not complete → pending', async () => {
+      const { gh, calls } = run([view({ status: 'in_progress' })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toEqual({ kind: 'pending', name: 'build', steps: ['build: Test'] });
+      expect(calls).toHaveLength(1);
+    });
+    it('no job match → pending', async () => {
+      const { gh } = run([view({ name: 'other', databaseId: 1 })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: 'https://github.com/o/r/actions/runs/123' });
+      expect(r).toMatchObject({ kind: 'pending', name: 'build' });
+    });
+    it('gh failure on the job log throws', async () => {
+      const { gh } = run([view({}), { stdout: '', exitCode: 1, stderr: 'HTTP 403' }]);
+      await expect(fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB })).rejects.toThrow(/HTTP 403/);
+    });
   });
   it('gh failure throws a user-facing error', async () => {
     const { gh } = run([{ stdout: '', exitCode: 1, stderr: 'HTTP 401' }]);
