@@ -131,7 +131,8 @@
     "arch:DIAG-03"
   ],
   "src/agent/hookFailureLog.ts#writeCurrentEndpoint": [
-    "arch:DIAG-03"
+    "arch:DIAG-03",
+    "arch:GLOBAL"
   ],
   "src/agent/instrumentedAdapter.ts#instrumentAdapter": [
     "arch:DBG-01"
