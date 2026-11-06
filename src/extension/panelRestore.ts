@@ -51,23 +51,56 @@ export class RestoreGate {
     this.resolveReady = resolve;
   });
 
-  constructor(
-    private readonly debug: Debug = () => {},
-    private readonly logError: (message: string, error: unknown) => void = () => {},
-  ) {}
+  private readonly inFlight = new Set<Promise<void>>();
+  private readonly timer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * `timeoutMs`: if activation never reaches `open`/`fail` (it threw), close the waiting tabs
+   * instead of leaving them blank forever. 0 disables the timer.
+   */
+  private readonly debug: Debug;
+  private readonly logError: (message: string, error: unknown) => void;
+
+  constructor(debug: Debug = () => {}, logError: (message: string, error: unknown) => void = () => {}, timeoutMs = 0) {
+    // The sinks may close over a logger that is built after the gate (still unset if activation failed early):
+    // a throwing sink must never break a restore.
+    this.debug = (m) => { try { debug(m); } catch { /* sink not ready */ } };
+    this.logError = (m, e) => { try { logError(m, e); } catch { /* sink not ready */ } };
+    if (timeoutMs > 0) {
+      this.timer = setTimeout(() => {
+        this.debug(`[restore] managers not ready after ${timeoutMs} ms, restored tabs closed`);
+        this.resolveReady(null);
+      }, timeoutMs);
+      this.timer.unref?.();
+    }
+  }
 
   /** The managers exist: release every waiting restore. */
   open(restorers: Restorers): void {
+    clearTimeout(this.timer);
     this.resolveReady(restorers);
   }
 
   /** Activation ended without managers (store failed to open): close every restored tab. */
   fail(): void {
+    clearTimeout(this.timer);
     this.resolveReady(null);
   }
 
+  /** Resolves once the gate is released and every restore that arrived so far has finished. */
+  async whenRestored(): Promise<void> {
+    await this.ready;
+    await Promise.allSettled([...this.inFlight]);
+  }
+
   /** The body of a serializer's `deserializeWebviewPanel`. Never rejects: a failed restore closes the tab. */
-  async restore(viewType: RestoredViewType, raw: RawPanel, state: unknown): Promise<void> {
+  restore(viewType: RestoredViewType, raw: RawPanel, state: unknown): Promise<void> {
+    const run = this.runRestore(viewType, raw, state).finally(() => this.inFlight.delete(run));
+    this.inFlight.add(run);
+    return run;
+  }
+
+  private async runRestore(viewType: RestoredViewType, raw: RawPanel, state: unknown): Promise<void> {
     const restorers = await this.ready;
     const restorer = restorers?.[viewType];
     if (!restorer) {

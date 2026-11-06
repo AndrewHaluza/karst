@@ -596,7 +596,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
-  let doctorWiring: ReturnType<typeof registerDoctorCommand>; const restoreGate = new RestoreGate(); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
+  let doctorWiring: ReturnType<typeof registerDoctorCommand>; const restoreGate = new RestoreGate((m) => logger.debug(m), (m, e) => logger.warn(`${m}: ${String(e)}`), 120_000); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -6010,7 +6010,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const dismissed = context.workspaceState.get<boolean>(GETTING_STARTED_DISMISSED_KEY) === true;
     if (!manifestExists && !dismissed) {
-      gettingStarted.open();
+      void restoreGate.whenRestored().then(() => gettingStarted.open()); // after restore: a restored tab is adopted, not replaced
       autoOpenedGettingStarted = true;
     }
   }

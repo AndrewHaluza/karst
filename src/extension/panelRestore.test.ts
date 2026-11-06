@@ -132,6 +132,11 @@ describe('restore conformance', () => {
     expect(ext).toContain('restoreGate.open(makeRestorers<vscode.WebviewPanel>(');
   });
 
+  it('opens the Getting Started auto-open only after the restores finished', () => {
+    const ext = read(join(root, 'src/extension.ts'));
+    expect(ext).toContain('restoreGate.whenRestored().then(() => gettingStarted.open())');
+  });
+
   it('registers one serializer per restored view type', () => {
     const registered: string[] = [];
     registerRestoreSerializers({ registerWebviewPanelSerializer: (type) => void registered.push(type) }, new RestoreGate());
@@ -177,5 +182,93 @@ describe('hostTracker', () => {
     const second = { n: 2 };
     t.track('usageHost', second);
     expect(t.hosts().usageHost).toBe(second);
+  });
+});
+
+describe('RestoreGate timeout, whenRestored and sinks', () => {
+  const rawPanel = () => ({ dispose: vi.fn() });
+
+  it('closes waiting tabs when activation never opens the gate', async () => {
+    vi.useFakeTimers();
+    try {
+      const debug = vi.fn();
+      const gate = new RestoreGate(debug, undefined, 1000);
+      const p = rawPanel();
+      const pending = gate.restore('karst.dashboard', p, null);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(p.dispose).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(p.dispose).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('1000 ms'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not close tabs on the timer once the gate is open', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = new RestoreGate(undefined, undefined, 1000);
+      gate.open({ 'karst.dashboard': () => undefined });
+      const p = rawPanel();
+      await vi.advanceTimersByTimeAsync(5000);
+      await gate.restore('karst.dashboard', p, null);
+      expect(p.dispose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not close tabs on the timer after fail()', async () => {
+    vi.useFakeTimers();
+    try {
+      const debug = vi.fn();
+      const gate = new RestoreGate(debug, undefined, 1000);
+      gate.fail();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(debug).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('whenRestored waits for the gate and for restores in flight', async () => {
+    const gate = new RestoreGate();
+    const order: string[] = [];
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    const restore = gate.restore('karst.settings', rawPanel(), null);
+    const done = gate.whenRestored().then(() => order.push('restored'));
+    gate.open({ 'karst.settings': async () => { await slow; order.push('adopted'); } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual([]);
+    release();
+    await restore;
+    await done;
+    expect(order).toEqual(['adopted', 'restored']);
+  });
+
+  it('whenRestored resolves even when a restore failed, and forgets finished restores', async () => {
+    const gate = new RestoreGate(undefined, () => {});
+    gate.open({ 'karst.settings': () => { throw new Error('x'); } });
+    await gate.restore('karst.settings', rawPanel(), null);
+    await expect(gate.whenRestored()).resolves.toBeUndefined();
+    expect((gate as unknown as { inFlight: Set<unknown> }).inFlight.size).toBe(0);
+  });
+
+  it('survives debug and error sinks that throw', async () => {
+    const boom = (): never => { throw new Error('logger not ready'); };
+    const gate = new RestoreGate(boom, boom);
+    const closed = rawPanel();
+    const failing = rawPanel();
+    gate.fail();
+    await expect(gate.restore('karst.dashboard', closed, null)).resolves.toBeUndefined();
+    expect(closed.dispose).toHaveBeenCalledTimes(1);
+    const gate2 = new RestoreGate(boom, boom);
+    gate2.open({ 'karst.settings': () => { throw new Error('x'); } });
+    await expect(gate2.restore('karst.settings', failing, null)).resolves.toBeUndefined();
+    expect(failing.dispose).toHaveBeenCalledTimes(1);
   });
 });
