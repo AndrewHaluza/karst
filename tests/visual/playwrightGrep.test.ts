@@ -19,9 +19,14 @@ describe('playwright.config KARST_UI_GREP scoping', () => {
     expect(String(config.grep)).toBe('/ticketForm/');
   });
 
-  it.each(LAYOUT_PROJECTS)('applies the grep to %s when the variable is set', async (name) => {
+  it('applies the grep to the layout routes when the variable is set', async () => {
     const config = await loadConfig('ticketForm');
-    expect(String(projectGrep(config, name))).toBe('/ticketForm/');
+    expect(String(projectGrep(config, 'layout'))).toBe('/ticketForm/');
+  });
+
+  it.each(['layout-setup', 'layout-teardown'])('never lets a grep filter %s (a scoped run must keep the ledger verdict)', async (name) => {
+    const config = await loadConfig('ticketForm');
+    expect(String(projectGrep(config, name))).toBe('/.*/');
   });
 
   it.each(LAYOUT_PROJECTS)('keeps %s on every title when the variable is empty or unset', async (name) => {

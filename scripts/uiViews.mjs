@@ -33,8 +33,10 @@ const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 const VIEW_DIR_PATH = /^src\/ui\/([^/]+)\/(.+)$/;
 const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+)(?:--.*)?\.png$/;
 
+const LAYOUT_LEDGER = 'tests/visual/layout-known-failures.json';
+
 /** Whether a changed path can alter a render: the paths `selectViews` counts as UI. */
-export const isUiPath = (path) => path !== 'tests/visual/layout-known-failures.json' && UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path);
+export const isUiPath = (path) => path !== LAYOUT_LEDGER && UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path);
 
 /**
  * `{ all: true }` or `{ all: false, views }` (views sorted, possibly empty when
@@ -44,6 +46,8 @@ export function selectViews(changedPaths) {
   const views = new Set();
   let sawUi = false;
   for (const path of changedPaths) {
+    // An edited ledger entry can name any route: only the full chain judges each entry.
+    if (path === LAYOUT_LEDGER) return { all: true, views: ALL_VIEWS };
     if (!isUiPath(path)) continue;
     sawUi = true;
     const match = VIEW_DIR_PATH.exec(path) ?? BASELINE_PATH.exec(path);

@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { ALL_VIEWS, gateGrep, readSettingsSections, selectsLayoutRoute } from './uiViews.mjs';
 
 /** The real listing for a grep: test titles per layout project. */
-function listLayout(grep) {
-  const run = spawnSync('npx', ['playwright', 'test', '--list'], {
+function listLayout(grep, args = []) {
+  const run = spawnSync('npx', ['playwright', 'test', '--list', ...args], {
     encoding: 'utf8',
     env: { ...process.env, KARST_UI_GREP: grep },
   });
@@ -31,6 +31,15 @@ const LAYOUT_ROUTE_PREFIX = {
   usage: /^usage\//,
   catalog: /^$/,
 };
+
+describe('a hand-written KARST_UI_GREP', () => {
+  it.each([[[]], [['--project=layout']]])('keeps the setup and teardown tests with args %j', (args) => {
+    const titles = listLayout('diffs/empty', args);
+    expect(titles['layout-setup']).toEqual(['clear layout shards']);
+    expect(titles['layout-teardown']).toEqual(['layout ledger verdict']);
+    expect(titles.layout.length).toBeGreaterThan(0);
+  });
+});
 
 describe('gateGrep against the real playwright listing', () => {
   const all = listLayout('').layout;

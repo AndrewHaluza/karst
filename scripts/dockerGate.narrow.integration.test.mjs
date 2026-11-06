@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const GATE = resolve('scripts/dockerGate.mjs');
+const GIT = spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout.trim();
+const EXIT_NO_DOCKER = 127;
 const IDS = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 let dir;
 let bin;
@@ -18,17 +20,17 @@ const runGate = (env) =>
   spawnSync(process.execPath, [GATE, 'run', '--rm', 'img'], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, npm_lifecycle_event: 'test:layout:docker', KARST_BASE_REF: 'develop', ...env },
+    env: { ...process.env, PATH: bin, npm_lifecycle_event: 'test:layout:docker', KARST_BASE_REF: 'develop', ...env },
   });
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'karst-narrow-'));
-  // Stubs: a gate that does not skip reaches these and never starts a real listing or container.
+  // The PATH holds git and a failing npx, and no docker: a gate that does not skip stops at
+  // the missing-docker exit, and never waits on the host-wide Playwright slot.
   bin = mkdtempSync(join(tmpdir(), 'karst-narrow-bin-'));
-  for (const tool of ['docker', 'npx']) {
-    writeFileSync(join(bin, tool), '#!/bin/sh\nexit 1\n');
-    chmodSync(join(bin, tool), 0o755);
-  }
+  symlinkSync(join(GIT, 'git'), join(bin, 'git'));
+  writeFileSync(join(bin, 'npx'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(bin, 'npx'), 0o755);
   mkdirSync(join(dir, 'src/ui/settings'), { recursive: true });
   writeFileSync(join(dir, 'src/ui/settings/sections.ts'), "export const SETTINGS_SECTIONS = ['general'] as const;\n");
   spawnSync('git', ['init', '-q', '-b', 'develop'], { cwd: dir });
@@ -58,6 +60,7 @@ describe('test:layout:docker with a selection that has no layout route', () => {
     git('add', '-A');
     git('commit', '-qm', 'diffs change');
     const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
     expect(run.stderr).toContain('layout: running diffs');
     expect(run.stderr).not.toContain('layout: skipped');
   });
@@ -67,6 +70,7 @@ describe('test:layout:docker with a selection that has no layout route', () => {
     git('add', '-A');
     git('commit', '-qm', 'catalog baseline');
     const run = runGate({ KARST_LAYOUT_PRUNE: '1' });
+    expect(run.status).toBe(EXIT_NO_DOCKER);
     expect(run.stderr).not.toContain('layout: skipped');
   });
 });

@@ -4,6 +4,7 @@ import {
   ALL_VIEWS,
   VIEW_DIRS,
   gateGrep,
+  isUiPath,
   readSettingsSections,
   selectViews,
   parseListLayout,
@@ -20,11 +21,17 @@ describe('selectViews', () => {
     });
   });
 
-  it('maps baseline changes to their owning view and ignores layout-known-failures.json', () => {
-    expect(selectViews(['tests/visual/__baselines__/dark/usage.png', 'tests/visual/layout-known-failures.json'])).toEqual({
-      all: false,
-      views: ['usage'],
-    });
+  it('maps baseline changes to their owning view', () => {
+    expect(selectViews(['tests/visual/__baselines__/dark/usage.png'])).toEqual({ all: false, views: ['usage'] });
+  });
+
+  it('selects every view when the layout ledger changed, so each edited entry is judged', () => {
+    expect(selectViews(['tests/visual/__baselines__/dark/usage.png', 'tests/visual/layout-known-failures.json']).all).toBe(true);
+    expect(selectViews(['tests/visual/layout-known-failures.json']).all).toBe(true);
+  });
+
+  it('does not count the layout ledger as a path that alters a render', () => {
+    expect(isUiPath('tests/visual/layout-known-failures.json')).toBe(false);
   });
 
   it('unions the views of several directories', () => {

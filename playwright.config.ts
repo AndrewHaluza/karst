@@ -27,12 +27,12 @@ import { defineConfig, devices } from '@playwright/test';
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
-// A project-level grep overrides the global one. Local gates narrow the layout chain with the
-// same grep as the screenshots: gateGrep keeps the setup and teardown titles, so the ledger verdict
-// still runs on the selected routes (ui:LAYOUT-SANITY). A grep without those titles gives no verdict.
+// A project-level grep overrides the global one. Local gates narrow the layout routes with the
+// same grep as the screenshots. Setup and teardown hold one test each and take no filter, so any
+// grep keeps the ledger verdict on the routes that ran, and a filtered seed or prune is refused
+// (ui:LAYOUT-SCOPE).
 const ALL_TITLES = /.*/;
 const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
-const LAYOUT_GREP = UI_GREP ?? ALL_TITLES;
 
 export default defineConfig({
   testDir: 'tests/visual',
@@ -112,20 +112,20 @@ export default defineConfig({
     // writes them (never fails on geometry), teardown renders the ledger verdict.
     {
       name: 'layout-setup',
-      grep: LAYOUT_GREP,
+      grep: ALL_TITLES,
       testMatch: '**/layout.setup.ts',
       teardown: 'layout-teardown',
     },
     {
       name: 'layout',
-      grep: LAYOUT_GREP,
+      grep: UI_GREP ?? ALL_TITLES,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'layout-teardown',
-      grep: LAYOUT_GREP,
+      grep: ALL_TITLES,
       testMatch: '**/layout.teardown.ts',
     },
   ],
