@@ -378,26 +378,41 @@ describe('extension.ts ratchet live check', () => {
 
 describe('assertMergeBaseInCi', () => {
   const noBase = { ok: true, currentLines: 10, ceiling: 100 };
-  const GHA = { CI: 'true', GITHUB_ACTIONS: 'true' };
-  it('throws naming the checkout when CI=true and no merge base', () => {
-    expect(() => assertMergeBaseInCi(noBase, GHA)).toThrow(/fetch-depth: 0/);
-    expect(() => assertMergeBaseInCi(noBase, GHA)).toThrow(/actions\/checkout/);
+  const CI_WORKFLOW = { KARST_REQUIRE_MERGE_BASE: '1' };
+  it('throws naming the checkout when the CI workflow flag is set and no merge base', () => {
+    expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(noBase, CI_WORKFLOW)).toThrow(/actions\/checkout/);
   });
-  it('names the checkout in CI even when the file is over the ceiling', () => {
+  it('names the checkout even when the file is over the ceiling', () => {
     const over = { ok: false, currentLines: 200, ceiling: 100, errorMessage: 'exceeds the coarse ceiling' };
-    expect(() => assertMergeBaseInCi(over, GHA)).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(over, CI_WORKFLOW)).toThrow(/fetch-depth: 0/);
   });
-  it.each([{ CI: '1' }, { CI: 'true' }, { CI: '1', GITHUB_ACTIONS: 'true' }])(
-    'keeps the ceiling fallback outside GitHub Actions (%j)',
-    (env) => {
-      expect(() => assertMergeBaseInCi(noBase, env)).not.toThrow();
-    },
-  );
-  it('keeps the ceiling fallback when CI is unset', () => {
+  it('keeps the ceiling fallback in the unit gate (CI=1, no flag)', () => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: '1' })).not.toThrow();
+  });
+  it('keeps the ceiling fallback in a sandbox clone (CI=true, GITHUB_ACTIONS unset, no flag)', () => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).not.toThrow();
+  });
+  it('keeps the ceiling fallback when nothing is set', () => {
     expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
   });
-  it('passes in CI when a merge base exists', () => {
-    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, GHA)).not.toThrow();
+  it('does not treat other flag values as set', () => {
+    expect(() => assertMergeBaseInCi(noBase, { KARST_REQUIRE_MERGE_BASE: '0' })).not.toThrow();
+  });
+  it('passes with the flag when a merge base exists', () => {
+    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, CI_WORKFLOW)).not.toThrow();
+  });
+});
+
+describe('ci.yml wiring', () => {
+  const ci = readFileSync(join(process.cwd(), '.github', 'workflows', 'ci.yml'), 'utf8');
+  it('sets the flag on the Unit tests step only', () => {
+    const flagLines = ci.split('\n').filter((l) => l.includes('KARST_REQUIRE_MERGE_BASE: '));
+    expect(flagLines).toHaveLength(1);
+    expect(ci).toMatch(/- name: Unit tests\n\s+env:\n\s+KARST_REQUIRE_MERGE_BASE: '1'\n\s+run: npm run test:unit/);
+  });
+  it('checks out full history in the verify job', () => {
+    expect(ci).toMatch(/- uses: actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
   });
 });
 

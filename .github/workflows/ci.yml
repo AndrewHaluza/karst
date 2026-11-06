@@ -100,7 +100,11 @@ jobs:
 
       # `pretest:unit` rebuilds better-sqlite3 for the Node ABI. This job runs
       # the unit suite only; the integration job below is self-sufficient.
+      # KARST_REQUIRE_MERGE_BASE makes the extension.ts ratchet fail when this checkout
+      # has no merge base. Only this workflow sets it.
       - name: Unit tests
+        env:
+          KARST_REQUIRE_MERGE_BASE: '1'
         run: npm run test:unit
 
   # Runs the `*.integration.test.*` and `*.e2e.test.*` suites as a parallel job.
