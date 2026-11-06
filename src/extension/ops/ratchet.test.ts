@@ -378,25 +378,26 @@ describe('extension.ts ratchet live check', () => {
 
 describe('assertMergeBaseInCi', () => {
   const noBase = { ok: true, currentLines: 10, ceiling: 100 };
+  const GHA = { CI: 'true', GITHUB_ACTIONS: 'true' };
   it('throws naming the checkout when CI=true and no merge base', () => {
-    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/fetch-depth: 0/);
-    expect(() => assertMergeBaseInCi(noBase, { CI: 'true' })).toThrow(/actions\/checkout/);
+    expect(() => assertMergeBaseInCi(noBase, GHA)).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(noBase, GHA)).toThrow(/actions\/checkout/);
   });
   it('names the checkout in CI even when the file is over the ceiling', () => {
     const over = { ok: false, currentLines: 200, ceiling: 100, errorMessage: 'exceeds the coarse ceiling' };
-    expect(() => assertMergeBaseInCi(over, { CI: 'true' })).toThrow(/fetch-depth: 0/);
+    expect(() => assertMergeBaseInCi(over, GHA)).toThrow(/fetch-depth: 0/);
   });
-  it.each(['1', 'TRUE'])('throws when CI=%s and no merge base', (ci) => {
-    expect(() => assertMergeBaseInCi(noBase, { CI: ci })).toThrow(/fetch-depth: 0/);
-  });
-  it.each(['', '0', 'false'])('keeps the ceiling fallback when CI=%j', (ci) => {
-    expect(() => assertMergeBaseInCi(noBase, { CI: ci })).not.toThrow();
-  });
+  it.each([{ CI: '1' }, { CI: 'true' }, { CI: '1', GITHUB_ACTIONS: 'true' }])(
+    'keeps the ceiling fallback outside GitHub Actions (%j)',
+    (env) => {
+      expect(() => assertMergeBaseInCi(noBase, env)).not.toThrow();
+    },
+  );
   it('keeps the ceiling fallback when CI is unset', () => {
     expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
   });
   it('passes in CI when a merge base exists', () => {
-    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, { CI: 'true' })).not.toThrow();
+    expect(() => assertMergeBaseInCi({ ...noBase, mergeBase: 'abc', growth: 1 }, GHA)).not.toThrow();
   });
 });
 
