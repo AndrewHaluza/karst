@@ -982,8 +982,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // never auto-drives a fix ticket, and `interrupted` is only ever true for
       // a round the interrupt above actually settled. Anything else takes the
       // normal gate-trigger path.
-      if (interrupted) {
-        if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'session-closed', (m) => logger.info(m))) return;
+      if (interrupted && !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'session-closed', (m) => logger.info(m))) {
         logger.info(`stage driver: ticket ${ticketId} fix round interrupted — driving to reopen within budget`);
         void driveTicket(ticketId);
       } else {
@@ -3801,11 +3800,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
   };
-  // A hook routed here for a ticket of another project is refused before any side effect.
   const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
-  // `dispatchHook` calls this before any store mutation, so refusing a ticket of
-  // another project here also keeps the foreign window from patching agent_state,
-  // session id or launch intent for it.
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
     !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) &&
     shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
