@@ -146,7 +146,7 @@ describe('TicketFormManager.adopt', () => {
   });
 
   it('sets the tab title of a restored edit form from the fresh ticket', () => {
-    const id = createTicket(store, { title: 'Fresh title', description: '' }).id;
+    const id = createTicket(store, { key: 'FRESH', title: 'Fresh title', description: '' }).id;
     createdIds.add(id);
     const r = restored();
     expect(mgr.adopt(r.restored, { karstPanel: { mode: 'edit', ticketId: id } }, exists)).toBe(true);
