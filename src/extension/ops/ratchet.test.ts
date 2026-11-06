@@ -386,6 +386,12 @@ describe('assertMergeBaseInCi', () => {
     const over = { ok: false, currentLines: 200, ceiling: 100, errorMessage: 'exceeds the coarse ceiling' };
     expect(() => assertMergeBaseInCi(over, { CI: 'true' })).toThrow(/fetch-depth: 0/);
   });
+  it.each(['1', 'TRUE'])('throws when CI=%s and no merge base', (ci) => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: ci })).toThrow(/fetch-depth: 0/);
+  });
+  it.each(['', '0', 'false'])('keeps the ceiling fallback when CI=%j', (ci) => {
+    expect(() => assertMergeBaseInCi(noBase, { CI: ci })).not.toThrow();
+  });
   it('keeps the ceiling fallback when CI is unset', () => {
     expect(() => assertMergeBaseInCi(noBase, {})).not.toThrow();
   });
