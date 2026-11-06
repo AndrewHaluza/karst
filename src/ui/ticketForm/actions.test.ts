@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
+import { setStage } from '../../store/stages.js';
+import { buildTicketFormState } from './state.js';
 import {
   createTicket,
   deleteTicket,
@@ -18,6 +20,7 @@ import {
   type TicketFormActionsDeps,
   type StartTicketResult,
   type StartTicketOptions,
+  REVIEW_STALLED_START_MESSAGE,
 } from './actions.js';
 import { addRelation, isBlocked, listBlockers } from '../../store/ticketRelations.js';
 import type { TicketFormActionsCtx } from './panel.js';
@@ -3011,6 +3014,87 @@ describe('buildTicketFormActions', () => {
     it('a plain create panel keeps the Untitled/manual placeholder', async () => {
       await buildTicketFormActions(deps)(mkCtx()).attachBytes('shot.png', Buffer.from('PNGDATA').toString('base64'));
       expect(only()).toMatchObject({ title: 'Untitled ticket', source: 'manual' });
+    });
+  });
+
+  // T998: the form once accepted an edited Acceptance check and dropped it
+  // (the router omitted intent), and Save and start opened an agent beside a
+  // review-stalled park.
+  describe('edit round trip and review-stalled park', () => {
+    const edited = {
+      key: 'RT-1', title: 'New title', description: 'New description',
+      repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high',
+      agentProvider: 'codex', agentPreset: 'fast', ticketType: 'fix', agentBackend: 'host' as const,
+      createInProvider: false, keyAutoDerived: false, baseRefs: { fe: 'epic/x', be: 'epic/x' },
+      intent: 'NEW ACCEPTANCE CHECK', codePointers: 'src/a.ts:1',
+    };
+
+    // The router fires save without awaiting it; let the action settle.
+    const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
+
+    function expectRoundTrip(id: number): void {
+      expect(getTicket(store, id)).toMatchObject({
+        title: 'New title', description: 'New description', selectedRepos: ['fe', 'be'],
+        approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex',
+        agentPreset: 'fast', type: 'fix', agentBackend: 'host', baseRefs: { fe: 'epic/x', be: 'epic/x' },
+        intent: 'NEW ACCEPTANCE CHECK', codePointers: 'src/a.ts:1',
+      });
+      // Reopen: the state the form is seeded from carries the saved values.
+      const reopened = buildTicketFormState(store, MANIFEST, () => ['rpi'], () => [], id);
+      expect(reopened).toMatchObject({
+        title: 'New title', description: 'New description', intent: 'NEW ACCEPTANCE CHECK',
+        codePointers: 'src/a.ts:1', selectedApproach: 'rpi', selectedAgent: 'reviewer',
+        selectedModel: 'claude-opus-4-8', selectedEffort: 'high',
+      });
+      expect(reopened.repos.filter((r) => r.selected).map((r) => r.service).sort()).toEqual(['be', 'fe']);
+    }
+
+    it('Save stores every field of a new ticket', async () => {
+      const ctx = mkCtx();
+      routeTicketFormAction({ type: 'save', ...edited }, buildTicketFormActions(deps)(ctx));
+      await settle();
+      expectRoundTrip(ctx.boundTicketId!);
+    });
+
+    it('Save stores every field of a ticket at fix with a review-stalled block', async () => {
+      const t = createTicket(store, { key: 'RT-1', title: 'old', description: 'old' });
+      updateTicketFields(store, t.id, { intent: 'OLD CHECK' });
+      setStageCurrent(store, t.id, 'fix');
+      setStage(store, t.id, 'fix', { blockedKind: 'review-stalled', blockedReason: 'stalled' });
+      routeTicketFormAction({ type: 'save', ...edited }, buildTicketFormActions(deps)(mkCtx(t.id)));
+      await settle();
+      expectRoundTrip(t.id);
+    });
+
+    it('Save and start on a review-stalled park stores the edit but starts no agent', async () => {
+      const t = createTicket(store, { key: 'RT-1', title: 'old' });
+      setStageCurrent(store, t.id, 'fix');
+      setStage(store, t.id, 'fix', { blockedKind: 'review-stalled', blockedReason: 'stalled' });
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).submit({ ...edited, pullBase: true });
+      expectRoundTrip(t.id);
+      expect(startTicket).not.toHaveBeenCalled();
+      expect(openDashboard).not.toHaveBeenCalled();
+      expect(ctx.closes).toBe(0);
+      expect(ctx.posted).toContainEqual({ type: 'error', message: REVIEW_STALLED_START_MESSAGE });
+    });
+
+    it('Save stores a description the user cleared in edit mode', async () => {
+      const t = createTicket(store, { key: 'RT-2', title: 'old', description: 'something' });
+      routeTicketFormAction({ type: 'save', ...edited, key: 'RT-2', description: '' }, buildTicketFormActions(deps)(mkCtx(t.id)));
+      await settle();
+      expect(getTicket(store, t.id).description).toBe('');
+    });
+
+    it('the refusal unlocks the page buttons before it reports the reason', async () => {
+      const t = createTicket(store, { key: 'RT-3', title: 'old' });
+      setStageCurrent(store, t.id, 'fix');
+      setStage(store, t.id, 'fix', { blockedKind: 'review-stalled', blockedReason: 'stalled' });
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).submit({ ...edited, pullBase: true });
+      const types = ctx.posted.map((m) => m.type);
+      expect(ctx.posted).toContainEqual({ type: 'busy', what: 'submit', on: false });
+      expect(types.indexOf('busy')).toBeLessThan(types.indexOf('error'));
     });
   });
 });
