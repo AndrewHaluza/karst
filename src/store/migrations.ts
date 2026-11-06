@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
 import { AUTOPILOT_DDL } from './autopilot.js';
+import { STALL_SUGGESTIONS_DDL } from './stallSuggestions.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
@@ -2836,6 +2837,12 @@ function migrateLocked(db: Database): void {
   if (current < 100) {
     // v100: autopilot tables (`store/autopilot.ts`). Additive; an old db has none and every ticket inherits.
     db.exec(AUTOPILOT_DDL);
+  }
+
+  if (current < 101) {
+    // v101: `review_stall_suggestions` — the written answer to a review stall, one row per ticket and park
+    // (`store/stallSuggestions.ts`). Additive table; a parked ticket gets its row when the dashboard opens it.
+    db.exec(STALL_SUGGESTIONS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

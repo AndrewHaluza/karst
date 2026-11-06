@@ -33,6 +33,7 @@ const EXPECTED_TABLES = [
   'fix_round_heads',
   'gate_slots',
   'autopilot_tickets',
+  'review_stall_suggestions',
   'autopilot_budgets',
   'cloud_session_links',
   'servers',

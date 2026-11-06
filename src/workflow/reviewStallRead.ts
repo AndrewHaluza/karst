@@ -5,6 +5,17 @@ import { listFindings } from '../store/reviewFindings.js';
 import { findingIdentity } from '../store/findingIdentity.js';
 import type { StallAttempt } from '../model/reviewStall.js';
 
+/** When the last `reset` review round ended an episode, or null (the stall window starts there). */
+export function reviewEpisodeStart(store: Store, ticketId: number): string | null {
+  const reset = store.db
+    .prepare(
+      `SELECT MAX(ended_at) AS at FROM recovery_rounds
+        WHERE ticket_id = ? AND source_stage = 'review' AND status = 'reset'`,
+    )
+    .get(ticketId) as { at: string | null } | undefined;
+  return reset?.at ?? null;
+}
+
 /**
  * A ticket's review attempts, oldest first (blocking findings grouped per attempt, plus clean runs, where the reviewer ran and found nothing, as empty attempts; one round per review run),
  * since the last `reset` review round ended an episode (the stall counter's
@@ -20,13 +31,7 @@ export function reviewStallAttempts(
 ): StallAttempt[] {
   if (blockingSeverity === 'none') return [];
   const floor = SEVERITIES.indexOf(blockingSeverity);
-  const reset = store.db
-    .prepare(
-      `SELECT MAX(ended_at) AS at FROM recovery_rounds
-        WHERE ticket_id = ? AND source_stage = 'review' AND status = 'reset'`,
-    )
-    .get(ticketId) as { at: string | null } | undefined;
-  const since = reset?.at ?? null;
+  const since = reviewEpisodeStart(store, ticketId);
 
   // Rounds are keyed by review run (its `runAt` batch stamp), not by the attempt
   // number: the number repeats across a park, a send-back and a reset. A run

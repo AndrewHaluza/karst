@@ -57,6 +57,8 @@ export const AI_CALL_SITES = [
    * measured interactive deltas attributed to a node run.
    */
   'graph-node',
+  /** The suggestion written when a ticket parks as review-stalled (cause and 1 to 3 options). */
+  'stall-suggestion',
   /** An instrumented call that declared no site (see the module doc). */
   'unknown',
 ] as const;
@@ -86,6 +88,7 @@ const LABELS: Record<AiCallSite, string> = {
   implementation: 'Implementation session',
   'graph-planner': 'Graph planner',
   'graph-node': 'Graph node',
+  'stall-suggestion': 'Stall suggestion',
   unknown: 'Undeclared',
 };
 

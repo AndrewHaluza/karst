@@ -1507,3 +1507,15 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   extra     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (ticket_id, repo, kind)
 );
+
+-- v101: the written answer to a review stall, per ticket and park (`store/stallSuggestions.ts`).
+CREATE TABLE IF NOT EXISTS review_stall_suggestions (
+  ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  park_at      TEXT NOT NULL,
+  status       TEXT NOT NULL CHECK (status IN ('generating', 'ready', 'failed')),
+  suggestion   TEXT,
+  error        TEXT,
+  usage_limit  INTEGER NOT NULL DEFAULT 0,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (ticket_id, park_at)
+);
