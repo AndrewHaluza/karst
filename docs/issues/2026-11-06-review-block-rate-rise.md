@@ -15,7 +15,7 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 - Q1: The rise is real. It holds when UI-only and docs-only tickets are excluded.
 - Q2: The ticket mix does not explain it. The rise appears inside the same ticket type.
 - Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context, the prompt tail and the lane effort did change.
-- Q4: The findings are mostly correct. 28 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
+- Q4: The findings are mostly correct. 29 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
 - Q5: No evidence that the earlier period missed bugs. The data for Nov 5 and 6 is too young to compare.
 - Cause: Not isolated. Two changes fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`. The study cannot separate these causes without a controlled re-run.
 - Next step (proposal for a person): run a controlled A/B re-run of the same 5 diffs with Claude Code 2.1.316 and 2.1.319, same context. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
