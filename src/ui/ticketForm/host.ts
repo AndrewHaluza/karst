@@ -7,6 +7,7 @@ import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
@@ -22,24 +23,15 @@ import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 export function makeTicketFormPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
-): TicketFormPanelHost {
+): TicketFormPanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<TicketFormPanel> } {
   const html = hydrateWebview('ticketForm', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'ticketForm', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title: string): TicketFormPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.ticketForm',
-        title,
-        vscode.ViewColumn.Active,
-        {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          // The HTML is inlined, so attachment media is the only local content
-          // this panel needs. Keep the grant narrower than VS Code's defaults.
-          localResourceRoots: [
-            vscode.Uri.file(attachmentsRoot(context.globalStorageUri.fsPath)),
-          ],
-        },
-      );
+  // The one place a raw panel (new or restored) is configured and wrapped.
+  const wrap = (panel: vscode.WebviewPanel): TicketFormPanel => {
+    // A restored panel arrives with default options.
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.file(attachmentsRoot(context.globalStorageUri.fsPath))],
+    };
       // The brand mark up front: a create-mode page has no ticket, so `setIcon`
       // never fires for it and the tab would otherwise stay unmarked for its
       // whole life. A bound panel repaints over this with its status glyph.
@@ -64,6 +56,19 @@ export function makeTicketFormPanelHost(
         },
         toWebviewUri: (p: string) => panel.webview.asWebviewUri(vscode.Uri.file(p)).toString(),
       };
+  };
+  return {
+    createPanel(title: string): TicketFormPanel {
+      return wrap(
+        vscode.window.createWebviewPanel('karst.ticketForm', title, vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          // The HTML is inlined, so attachment media is the only local content
+          // this panel needs. Keep the grant narrower than VS Code's defaults.
+          localResourceRoots: [vscode.Uri.file(attachmentsRoot(context.globalStorageUri.fsPath))],
+        }),
+      );
     },
+    restore: (raw) => ({ wrap: () => wrap(raw), dispose: () => raw.dispose() }),
   };
 }

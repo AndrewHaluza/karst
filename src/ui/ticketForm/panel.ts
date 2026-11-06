@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
@@ -170,6 +171,22 @@ function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | un
   return { entries, warnings };
 }
 
+/** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
+export type RestoredTicketFormIdentity = { mode: 'create' } | { mode: 'edit'; ticketId: number };
+
+/** Read the `karstPanel` identity of a restored ticket-form state; undefined when it is invalid. */
+export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormIdentity | undefined {
+  if (typeof state !== 'object' || state === null) return undefined;
+  const identity = (state as { karstPanel?: unknown }).karstPanel;
+  if (typeof identity !== 'object' || identity === null) return undefined;
+  const { mode, ticketId } = identity as { mode?: unknown; ticketId?: unknown };
+  if (mode === 'create') return { mode };
+  if (mode === 'edit' && typeof ticketId === 'number' && Number.isInteger(ticketId) && ticketId > 0) {
+    return { mode, ticketId };
+  }
+  return undefined;
+}
+
 export class TicketFormManager {
   private readonly panels = new Map<number, TicketFormPanel>();
   /** Live ticket binding for every edit or draft-bound create panel. */
@@ -245,6 +262,8 @@ export class TicketFormManager {
     private readonly branchCandidates: () => Record<string, string[]> = () => ({}),
     /** Called after an uncommitted minted draft row is discarded on close (sidebar refresh). */
     private readonly onDiscarded?: () => void,
+    /** Debug sink for the silent close of a restored form that cannot be adopted. */
+    private readonly debug: (message: string) => void = () => {},
   ) {}
 
   /**
@@ -261,7 +280,45 @@ export class TicketFormManager {
     this.open(ticketId, 'edit', ticketId);
   }
 
-  private open(key: number, mode: 'create' | 'edit', ticketId?: number, prefill?: TicketFormPrefill): void {
+  /**
+   * Re-attach a form tab VS Code restored after a window reload. An edit form goes
+   * back under its ticket id; a create form takes a fresh sentinel key. A missing or
+   * archived ticket, a form already open for the key, or an invalid saved state
+   * closes the tab silently. The unsaved draft stays in the webview's own state, so
+   * the host does not read it. Returns whether the tab was adopted.
+   */
+  adopt(restored: RestoredPanel<TicketFormPanel>, state: unknown, exists: (ticketId: number) => boolean): boolean {
+    const identity = restoredTicketFormIdentity(state);
+    if (!identity) {
+      this.debug('[restore] karst.ticketForm: invalid saved state, tab closed');
+      restored.dispose();
+      return false;
+    }
+    if (identity.mode === 'create') {
+      this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
+      return true;
+    }
+    if (this.panels.has(identity.ticketId)) {
+      this.debug(`[restore] karst.ticketForm: form for ticket ${identity.ticketId} already open, tab closed`);
+      restored.dispose();
+      return false;
+    }
+    if (!exists(identity.ticketId)) {
+      this.debug(`[restore] karst.ticketForm: ticket ${identity.ticketId} missing or archived, tab closed`);
+      restored.dispose();
+      return false;
+    }
+    this.open(identity.ticketId, 'edit', identity.ticketId, undefined, restored);
+    return true;
+  }
+
+  private open(
+    key: number,
+    mode: 'create' | 'edit',
+    ticketId?: number,
+    prefill?: TicketFormPrefill,
+    restored?: RestoredPanel<TicketFormPanel>,
+  ): void {
     const existing = this.panels.get(key);
     if (existing) {
       existing.reveal();
@@ -280,7 +337,7 @@ export class TicketFormManager {
       const ticket = getTicket(this.store, ticketId!);
       title = tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate)));
     }
-    const panel = this.host.createPanel(title);
+    const panel = restored ? restored.wrap() : this.host.createPanel(title);
     this.panels.set(key, panel);
     if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 

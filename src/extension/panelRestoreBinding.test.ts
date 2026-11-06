@@ -37,6 +37,7 @@ describe('makeRestorers', () => {
       store,
       dashboard: manager('dashboard'), dashboardHost: wrapped('dashboardHost'),
       changes: manager('changes'), changesHost: wrapped('changesHost'),
+      ticketForm: manager('ticketForm'), ticketFormHost: wrapped('ticketFormHost'),
       settings: manager('settings'), settingsHost: wrapped('settingsHost'),
       gettingStarted: manager('gs'), gettingStartedHost: wrapped('gsHost'),
       doctor: { restore: async (r) => void calls.push(['doctor', r]) },
@@ -65,6 +66,17 @@ describe('makeRestorers', () => {
     const [, id, panel, exists] = calls[0] as [string, number, unknown, (n: number) => boolean];
     expect(id).toBe(live.id);
     expect(panel).toEqual({ name: 'changesHost', r: raw });
+    expect([exists(live.id), exists(old.id), exists(999)]).toEqual([true, false, false]);
+  });
+
+  it('adopts a ticket form with the raw saved state and a liveness check over the store', async () => {
+    const { restorers, calls, live, old } = setup();
+    const saved = { karstPanel: { mode: 'edit', ticketId: live.id }, draft: { title: 'x' } };
+    await restorers['karst.ticketForm']!(raw, saved);
+    const [name, panel, passed, exists] = calls[0] as [string, unknown, unknown, (n: number) => boolean];
+    expect(name).toBe('ticketForm.adopt');
+    expect(panel).toEqual({ name: 'ticketFormHost', r: raw });
+    expect(passed).toBe(saved);
     expect([exists(live.id), exists(old.id), exists(999)]).toEqual([true, false, false]);
   });
 
