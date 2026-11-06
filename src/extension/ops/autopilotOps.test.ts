@@ -43,7 +43,7 @@ function rig(over: Partial<AutopilotDeps> = {}, outcome: FixOutcome = { kind: 's
   const deps: AutopilotDeps = {
     store, ticketId: id, key: 'AP-1', config: () => CFG,
     controls: () => true, sessionRunning: () => false, concurrencyFull: () => false,
-    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi, sendConflict, conflictRoundActive: () => false,
+    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi, sendConflict, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
     note: (t, b) => void notes.push([t, b]), debug, ...over,
   };
   return { deps, notes, debug, sendCi, sendConflict };
@@ -581,11 +581,11 @@ describe('conflicts', () => {
     seedPr(PASSING);
     conflict();
     const ask = rig({ config: () => ({ ...CFG, conflicts: { policy: 'ask', maxRounds: 2 } }) });
-    expect((await autopilotTick(ask.deps)).kind).toBe('ask');
+    expect((await autopilotTick(ask.deps)).kind).toBe('nothing');
     expect(ask.sendConflict).not.toHaveBeenCalled();
     conflict('r', null);
     const unknown = rig();
-    expect(await autopilotTick(unknown.deps)).toEqual({ kind: 'ask', reason: 'base head of the conflict is unknown' });
+    expect((await autopilotTick(unknown.deps)).kind).toBe('nothing');
     expect(unknown.sendConflict).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
@@ -702,5 +702,25 @@ describe('conflicts', () => {
     const lost = rig({}, { kind: 'lease-lost' });
     expect((await autopilotTick(lost.deps)).kind).toBe('not-controller');
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('drops a stalled round with a note, and the next attempt uses the budget', async () => {
+    seedPr(PASSING);
+    conflict();
+    const drop = vi.fn();
+    const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(r.notes.map((n) => n[0])).toContain('Autopilot: conflict round did not deliver');
+    expect(r.sendConflict).toHaveBeenCalledTimes(1);
+  });
+
+  it('a conflict that starts no round (ask policy) does not block a CI round', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const r = rig({ config: () => ({ ...CFG, conflicts: { policy: 'ask', maxRounds: 2 } }) });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+    expect(r.sendConflict).not.toHaveBeenCalled();
   });
 });

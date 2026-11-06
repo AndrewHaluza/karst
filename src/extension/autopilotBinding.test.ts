@@ -30,7 +30,7 @@ function rig(over: Partial<AutopilotBindingDeps> = {}) {
     store, projectId: () => project.id, manifest: () => ({ autopilot: cfg }) as never, caps: () => ({ perParent: 2, total: 4 }),
     debug, changed: vi.fn(), intervalMs: 1000, windowId: 'W', isLive: () => false,
     ciInput: (ticketId: number) => ({ store, ticketId, debug: () => {}, handOff: () => null }) as never,
-    conflictInput: () => ({}) as never, conflictRoundActive: () => false,
+    conflictInput: () => ({}) as never, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
     takeLaunch: () => undefined, isHostTicket: async () => true, ...over,
   };
   return { deps, store, id, debug };

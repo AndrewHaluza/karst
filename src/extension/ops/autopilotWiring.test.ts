@@ -57,7 +57,7 @@ describe('autopilotSweep', () => {
   const seams = (over: Partial<TicketSeams> = {}): TicketSeams => ({
     controls: () => true, sessionRunning: () => false,
     isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const),
-    sendConflict: vi.fn(async () => ({ kind: 'sent' }) as const), conflictRoundActive: () => false, ...over,
+    sendConflict: vi.fn(async () => ({ kind: 'sent' }) as const), conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {}, ...over,
   });
 
   it('a ticket with an implementation graph run parks and is not sent a round', async () => {

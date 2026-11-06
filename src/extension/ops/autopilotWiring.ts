@@ -63,6 +63,9 @@ export interface TicketSeams {
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
   readonly conflictRoundActive: () => boolean;
+  /** An armed round that never delivered (arch:AC-39). */
+  readonly conflictRoundStalled: () => boolean;
+  readonly dropConflictRound: () => void;
 }
 
 export interface AutopilotSweepDeps {
@@ -157,6 +160,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         sendCiFailure: seams.sendCi,
         sendConflict: seams.sendConflict,
         conflictRoundActive: seams.conflictRoundActive,
+        conflictRoundStalled: seams.conflictRoundStalled,
+        dropConflictRound: seams.dropConflictRound,
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,
       });

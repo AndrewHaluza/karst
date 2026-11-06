@@ -28,16 +28,20 @@ export interface ResolvedRound {
 export interface ConflictRounds {
   arm(ticketId: number, round: ResolvedRound): void;
   armed(ticketId: number): ResolvedRound | null;
+  /** When the round was armed (ms), or null. */
+  armedAt(ticketId: number): number | null;
   disarm(ticketId: number): void;
 }
 
 /** In memory on purpose: a reload loses the session too, and the manual Deliver button remains. */
 export function createConflictRounds(): ConflictRounds {
   const byTicket = new Map<number, ResolvedRound>();
+  const since = new Map<number, number>();
   return {
-    arm: (ticketId, round) => void byTicket.set(ticketId, round),
+    arm: (ticketId, round) => { byTicket.set(ticketId, round); since.set(ticketId, Date.now()); },
+    armedAt: (ticketId) => since.get(ticketId) ?? null,
     armed: (ticketId) => byTicket.get(ticketId) ?? null,
-    disarm: (ticketId) => void byTicket.delete(ticketId),
+    disarm: (ticketId) => { byTicket.delete(ticketId); since.delete(ticketId); },
   };
 }
 
@@ -82,6 +86,14 @@ const inFlight = new Set<number>();
 /** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
 export function isAutoDelivering(ticketId: number): boolean {
   return inFlight.has(ticketId);
+}
+
+/** An armed round with no agent and no delivery for this long never delivered (the agent left it unfinished, or a gate failed). */
+export const CONFLICT_ROUND_STALL_MS = 5 * 60_000;
+
+export function isConflictRoundStalled(rounds: ConflictRounds, ticketId: number, now: number = Date.now()): boolean {
+  const at = rounds.armedAt(ticketId);
+  return at !== null && !isAutoDelivering(ticketId) && now - at > CONFLICT_ROUND_STALL_MS;
 }
 
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */

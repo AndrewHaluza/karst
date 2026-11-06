@@ -87,6 +87,23 @@ describe('claimAutostart', () => {
     expect(claimAutostart(store, queued, { perParent: 1, total: 1 })).toBe(true);
   });
 
+  it('keeps the slot of an idle ship sub-task while its sent conflict round is not resolved, until a park or the probe frees it', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("INSERT INTO merge_checks (ticket_id, repo, state, files, base_sha, checked_at) VALUES (?, 'r', 'conflicted', '[]', 'b1', 'x')").run(round);
+    store.db.prepare("INSERT INTO autopilot_budgets (ticket_id, repo, kind, attempts, signature) VALUES (?, 'r', 'conflicts', 1, 'b1')").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+    // A park (spent budget) frees the slot.
+    store.db.prepare("INSERT INTO autopilot_tickets (ticket_id, stopped_reason) VALUES (?, 'auto-fix stopped: conflicts 2/2')").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 1 WHERE id = ?').run(queued);
+    store.db.prepare('DELETE FROM autopilot_tickets').run();
+    // The next probe finds the merge clean: the round is over.
+    store.db.prepare("UPDATE merge_checks SET state = 'clean'").run();
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
+  });
+
   it('enforces the project-wide cap in the same statement; 0 = unlimited', () => {
     const p2 = createTicket(store, { key: 'P-2', title: 'p', projectId }).id;
     setStageCurrent(store, p2, 'impl');

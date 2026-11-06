@@ -96,6 +96,8 @@ export interface AutopilotBindingDeps {
   readonly conflictInput: (ticketId: number, repo: string) => ResolveConflictInput;
   /** A conflict round is armed for the ticket, or karst delivers its resolved merge now. */
   readonly conflictRoundActive: (ticketId: number) => boolean;
+  readonly conflictRoundStalled: (ticketId: number) => boolean;
+  readonly dropConflictRound: (ticketId: number) => void;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
   /** The ticket runs on the host (no sandbox, placement readable). */
@@ -175,6 +177,8 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
         sendConflict: (repo) => sent(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
+        conflictRoundStalled: () => d.conflictRoundStalled(id),
+        dropConflictRound: () => d.dropConflictRound(id),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

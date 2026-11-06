@@ -50,6 +50,9 @@ export interface AutopilotDeps {
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
   readonly conflictRoundActive: () => boolean;
+  /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
+  readonly conflictRoundStalled: () => boolean;
+  readonly dropConflictRound: () => void;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
   readonly note: (title: string, body: string) => void;
   /** `[ship] autopilot ...` debug line. */
@@ -189,7 +192,13 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
-  if (d.conflictRoundActive()) {
+  // A round armed for a long time, with no agent and no delivery running, never delivered (the agent left the merge
+  // unfinished or a gate failed). Drop it with a note: the budget then bounds the next attempt.
+  if (d.conflictRoundStalled()) {
+    d.dropConflictRound();
+    d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
+    d.note('Autopilot: conflict round did not deliver', `${d.key}: the resolved merge was not delivered (the agent left it unfinished, or a gate failed). The round is dropped; the next attempt uses the conflict budget.`);
+  } else if (d.conflictRoundActive()) {
     d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
     return { kind: 'busy' };
   }
@@ -206,7 +215,11 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
 async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {
   // A conflict comes first: the CI result of a conflicted PR belongs to a head that is about to change.
   const conflicted = conflictedPrs(d);
-  if (conflicted.length > 0) return runConflictRound(d, cfg, conflicted);
+  if (conflicted.length > 0) {
+    const round = await runConflictRound(d, cfg, conflicted);
+    // Policy ask or an unknown base head starts no round: that conflict stays a click and must not block the CI path.
+    if (round.kind !== 'ask') return round;
+  }
   const problem = findProblem(d);
   if (problem === 'wait') return { kind: 'nothing' };
   if (!problem) {

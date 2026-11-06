@@ -6,6 +6,8 @@ import {
   armConflictRound,
   autoDeliverAfterConflict,
   isAutoDelivering,
+  isConflictRoundStalled,
+  CONFLICT_ROUND_STALL_MS,
   createConflictRounds,
   verifyMergeResolved,
   type AutoDeliverDeps,
@@ -236,5 +238,18 @@ describe('isAutoDelivering', () => {
     await autoDeliverAfterConflict(deps);
     expect(seen[0]).toBe(true);
     expect(isAutoDelivering(1)).toBe(false);
+  });
+});
+
+describe('isConflictRoundStalled', () => {
+  it('is true only for a round armed longer than the stall time with no delivery running', () => {
+    const rounds = createConflictRounds();
+    expect(isConflictRoundStalled(rounds, 9)).toBe(false);
+    rounds.arm(9, ROUND);
+    const at = rounds.armedAt(9)!;
+    expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS)).toBe(false);
+    expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS + 1)).toBe(true);
+    rounds.disarm(9);
+    expect(rounds.armedAt(9)).toBeNull();
   });
 });
