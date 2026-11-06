@@ -44,7 +44,7 @@ export function planningOutboxDir(scratch: string): string {
  * ticket and has no first user message to replay) — see `planningKickoff`.
  */
 
-export type PlanningManifest = Pick<Manifest, 'baselineBranch' | 'repositories'>;
+export type PlanningManifest = Pick<Manifest, 'baselineBranch' | 'repositories'> & Partial<Pick<Manifest, 'review'>>;
 
 /**
  * The project bulletin's index for this stack. Present only when `count > 0`

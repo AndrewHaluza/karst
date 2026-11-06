@@ -757,6 +757,11 @@ describe('planning launch: project notes index', () => {
     expect(env).not.toHaveProperty('KARST_DB');
   });
 
+  it('exports the review gate floor so `karst blocked` reads the configured one', async () => {
+    await createPlanningOps(depsFor()).create('Floor');
+    expect(created[0]!.opts.env).toEqual(expect.objectContaining({ KARST_REVIEW_FLOOR: 'high' }));
+  });
+
   it('omits KARST_DB_READONLY when the db path is unknown', async () => {
     await createPlanningOps(depsFor({ dbPath: undefined })).create('No path');
     expect(created[0]!.opts.env).not.toHaveProperty('KARST_DB_READONLY');

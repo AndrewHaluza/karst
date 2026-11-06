@@ -7,6 +7,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
+import { setStage } from '../store/stages.js';
 import { runNotesCommand } from './notesCommand.js';
 import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
@@ -888,6 +889,36 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
   it('still runs a read verb in a planning session with --db', () => {
     const planning = { KARST_PLANNING_SESSION: '3' };
     expect(() => runCli(['blocked', '--json', '--db', dbPath], planning)).not.toThrow();
+  });
+
+  it('refuses an async-only verb in a planning session too', async () => {
+    const planning = { ...env(), KARST_PLANNING_SESSION: '3' };
+    await expect(runCliAsync(['servers', 'list', '--db', dbPath], planning)).rejects.toThrow(/not available in a planning session/);
+    await expect(runCliAsync(['mcp', 'install'], planning)).rejects.toThrow(/not available in a planning session/);
+  });
+
+  it('still allows the `notes --repos` read that the planning preamble names', () => {
+    const planning = { KARST_PLANNING_SESSION: '3', KARST_PROJECT: '1' };
+    expect(() => runCli(['notes', '--repos', 'api', '--db', dbPath], planning)).not.toThrow(/not available in a planning session/);
+    expect(() => runCli(['notes', 'post', '--repos', 'api', '--title', 't', '--body', 'b', '--db', dbPath], planning)).toThrow(
+      /not available in a planning session/,
+    );
+  });
+
+  it('scopes blocked to KARST_PROJECT and reads KARST_REVIEW_FLOOR', () => {
+    const s = openStore(dbPath);
+    const a = upsertProject(s, { slug: 'a' });
+    const b = upsertProject(s, { slug: 'b' });
+    for (const [key, project] of [['A-1', a.id], ['B-1', b.id]] as const) {
+      const t = createTicket(s, { key, title: key });
+      s.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(project, t.id);
+      setStage(s, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'w', blockedAt: new Date().toISOString() });
+    }
+    s.close();
+    const out = JSON.parse(runCli(['blocked', '--json'], { ...env(), KARST_PROJECT: String(a.id), KARST_REVIEW_FLOOR: 'medium' }));
+    expect(out.rows.map((r: { key: string }) => r.key)).toEqual(['A-1']);
+    expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: String(a.id) })).not.toThrow();
+    expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: '9999' })).not.toThrow();
   });
 
   it('leaves the store unwritten after a refused write', () => {
