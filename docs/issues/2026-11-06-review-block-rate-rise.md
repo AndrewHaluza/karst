@@ -14,11 +14,11 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 
 - Q1: The rise is real. It holds when UI-only and docs-only tickets are excluded.
 - Q2: The ticket mix does not explain it. The rise appears inside the same ticket type.
-- Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context, the prompt tail and the lane effort did change.
-- Q4: The findings are mostly correct. 29 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
+- Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context and the prompt tail did change. The `effort` parameter was `low` in nearly all runs. It was `medium` in 8 runs (1 in A, 7 in C).
+- Q4: The findings are mostly correct, with a limit. A later fix is weak evidence, because a blocking finding forces a fix. The classes below rest on the reasons in the sample rows. 29 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
 - Q5: No evidence that the earlier period missed bugs. The data for Nov 5 and 6 is too young to compare.
 - Cause: Not isolated. Two changes fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`. The study cannot separate these causes without a controlled re-run.
-- Next step (proposal for a person): run a controlled A/B re-run of the same 5 diffs with Claude Code 2.1.316 and 2.1.319, same context. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
+- Next step (proposal for a person): run a controlled 2 by 2 re-run of the same 5 diffs from Oct 30 to Nov 1. The two factors are the Claude Code version (2.1.316 and 2.1.319) and the prompt tail (with and without the Intent section), with the same user context. This tests both named causes. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
 
 END_DOC_BLOCK: [@issue:RB-01]
 
@@ -47,13 +47,13 @@ Second table, without UI-only and docs-only tickets:
 | B | 24 | 38% | 0.54 |
 | C | 41 | 54% | 1.10 |
 
-The user figure of 90 tickets in A is higher than 73 here. The likely cause is other models or repeated runs in the user count. This study does not resolve the difference.
+The user figure of 90 tickets in A is higher than 73 here, and the user averages (0.15 to 0.32) differ from the 0.26 here. This study counts only the first review per ticket with claude-opus-5-5. The study did not find the cause of the difference. It stays open. The trend is the same in both counts.
 
 END_DOC_BLOCK: [@issue:RB-02]
 
 ## [@issue:RB-03] Q2: ticket mix
 
-Source: merged PR diffs. 6 tickets in C have no merge sha. A merged diff can differ from the reviewed diff.
+Source: merged PR diffs. 6 tickets in C have no merge sha. A merged diff can differ from the reviewed diff. The ticket asks for values per day. This study gives values per period, because a day has 8 to 34 tickets and the per-day values are noisy. The Q1 table has the per-day block rate.
 
 | Measure | A | B | C |
 |---|---|---|---|
@@ -70,7 +70,7 @@ END_DOC_BLOCK: [@issue:RB-03]
 
 ## [@issue:RB-04] Q3: reviewer input
 
-Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5, betas (19), `effort` parameter `low` in almost all runs.
+Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5 and betas (19). The `effort` parameter is `low` in nearly all runs. The exception is in the table below.
 
 | Item | A (Oct 29 to Nov 1) | C (Nov 5 to 6) |
 |---|---|---|
@@ -83,16 +83,18 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 | Repo CLAUDE.md | 12.5K to 12.6K chars | 12.6K chars (hash changed, size same) |
 | Prompt tail "Intent" section | 1 of 57 runs | 14 of 35 runs |
 | Prompt tail "Ticket description" section | 0 | 5 runs (Nov 6, after #955) |
-| Lane `effort` | `low`; `medium` in 1 run | `low`; `medium` in 7 runs, all Nov 6 |
+| Lane `effort` (parameter in the transcript) | `low`; `medium` in 1 run | `low`; `medium` in 7 runs, all Nov 6 |
 | Mean output tokens per run | about 1800 | about 6700 |
 | Mean thinking tokens per run | about 280 | about 3300 to 4000 |
 | Mean cost per run | $0.43 | $0.70 |
+
+The Q3 rows use the 118 runs whose transcript could be matched to a review run (57 of 73 in A, 35 of 41 in C, 26 in B). This study did not find a transcript for the other runs. The study did not check whether the matched runs are a fair sample of all runs.
 
 Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticket description 100% (n=5). Inside the "no extra section" group the rate still rose: A 20%, B 27%, C 44%.
 
 Block rate by Claude Code version: 2.1.317 about 221 thinking tokens, 33% blocked (n=6); 2.1.318 about 3170 thinking tokens, 65% (n=20); 2.1.319 about 4416, 47% (n=15). The cut-over is clean at run 5759 (Nov 5 12:13).
 
-Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting probably changed on Nov 6. This is an inference. The repo reviewer definition did not change after Oct 10. Extension version installed: karst.karst-1.0.0 (no change found).
+Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting may have changed on Nov 6. This is an inference. It affects 7 of 41 runs in C and cannot explain the rise that began before Nov 6. The repo reviewer definition did not change after Oct 10. Extension version installed: karst.karst-1.0.0 (no change found).
 
 Verdict: the input changed in four ways. The step A to B (21% to 35%) fits the user context change and the Intent section. The step B to C (35% to 54%) fits the Claude Code 2.1.318 upgrade. These are correlations. The causes are confounded.
 
@@ -100,7 +102,7 @@ END_DOC_BLOCK: [@issue:RB-04]
 
 ## [@issue:RB-05] Q4: finding sample
 
-Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. Each finding was checked against the PR history and the merged code. Basis "pre-fix code" means a later commit fixed the point after the review, which is evidence the finding was real. This basis can not prove the stated severity.
+Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. Each finding was checked against the PR history and the merged code. Basis "pre-fix code" means a later commit changed the code after the review. This is weak evidence, because a blocking finding forces a fix. A fix shows only that the finding was acted on. It does not show that the finding was right. The class and the "fits" column rest on the reason the classifier gave from the code, not on the fix alone. The stated-severity check is the weakest part.
 
 Counts A: {'REAL-LOWER': 8, 'REAL': 6, 'WRONG': 1}. Counts C: {'REAL': 13, 'REAL-LOWER': 2}.
 
@@ -146,7 +148,7 @@ Period C:
 
 Notes: sample A has 1 wrong finding (fid 1511: keeping the placement and the bridge dir is intended). Both samples were classified by one subagent each, so the classes carry classifier bias. Sample A is 79% of its pool.
 
-Verdict: the findings in C are not noisier than in A. In C, 13 of 15 are real at their severity. In A, 6 of 15 are real at their severity and 8 are real but lower. The rise in C is not caused by wrong findings.
+Verdict: the findings in C are not noisier than in A. In C, 13 of 15 are real at their severity. In A, 6 of 15 are real at their severity and 8 are real but lower. The sample does not show that wrong findings caused the rise in C. Because the fix basis is circular, treat this as low confidence. The comparison of A and C at the stated severity is indicative only.
 
 END_DOC_BLOCK: [@issue:RB-05]
 
@@ -156,7 +158,7 @@ Cohort: tickets whose review passed. A: 72 tickets, all merged. C: 37 tickets, 3
 
 | Measure | A | C |
 |---|---|---|
-| Later tickets that mention the key or PR number | 6 | 5 |
+| Later tickets that mention the key or PR number (fix tickets not separated from other tickets) | 6 | 5 |
 | Ship or CI failure after review pass | 1 | 0 |
 | Recovery rounds with source stage `ship` | 0 | 0 |
 
