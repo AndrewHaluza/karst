@@ -2,35 +2,30 @@ import type { Store } from '../../store/db.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
-import { decideBudget, getAutopilotBudget } from '../../store/autopilot.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
-import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, pausedReason, refundAutopilotAttempt,
+  effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, refundAutopilotAttempt,
   setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
 
 /**
- * Autopilot (T973): runs the SAME host actions a user clicks at ship, without the click.
+ * Autopilot (T973): runs the SAME host action a user clicks at ship, without the click:
+ * a failed CI check on the manifest allowlist -> Send CI failure to agent. Host tickets only.
  *
- *  - merge conflict on an open PR -> Resolve conflicts ONLY (never Rebase on base: it can drop unsynced sandbox commits);
- *  - failed CI check on the manifest allowlist -> Send CI failure to agent.
- *
- * Never auto: push diverged (Integrate / Overwrite remote), merge to base, a closed PR, a sandbox host fallback.
+ * Never auto: a merge conflict (D479), a sandboxed ticket (D482), push diverged, merge to base, a closed PR.
  * Every decision is a pure read of the store plus injected seams (`vscode`-free); a park writes a bulletin note, never a toast.
  */
 
-/** What a fix action reports back. `env-blocker` = a sandbox environment problem (read-only, setup failure, dirty/diverged clone). */
+/** What a fix action reports back. */
 export type FixOutcome =
   | { readonly kind: 'sent' }
   /** This window lost the lease before the round started: nothing ran, nothing is parked. */
   | { readonly kind: 'lease-lost' }
-  | { readonly kind: 'env-blocker'; readonly reason: string }
   | { readonly kind: 'failed'; readonly reason: string };
 
 export interface AutopilotDeps {
@@ -44,8 +39,8 @@ export interface AutopilotDeps {
   readonly sessionRunning: () => boolean;
   /** The sub-task concurrency limit has no free slot (arch:CONCURRENCY); an auto round counts against it. */
   readonly concurrencyFull: () => boolean;
-  /** Resolve conflicts for `repo`. Must never rebase and never fall back to the host. */
-  readonly resolveConflicts: (repo: string) => Promise<FixOutcome>;
+  /** The ticket runs on the host. False for a sandboxed ticket and for a placement that cannot be read. */
+  readonly isHostTicket: () => Promise<boolean>;
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
   readonly note: (title: string, body: string) => void;
@@ -60,6 +55,9 @@ export type AutopilotResult =
   | { readonly kind: 'parked'; readonly reason: string };
 
 const LOG = '[ship] autopilot';
+
+/** The park reason for a sandboxed ticket or an unknown placement. */
+const SANDBOXED_REASON = 'auto-fix not run: sandboxed ticket';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
   const rows = store.db
@@ -118,17 +116,10 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
   return { kind: 'parked', reason };
 }
 
-interface Problem { readonly kind: AutopilotKind; readonly repo: string; readonly signature: string; readonly failing?: readonly string[] }
+interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly failing?: readonly string[] }
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
-function findProblem(d: AutopilotDeps, maxRounds: number): Problem | 'wait' | null {
-  const open = openPrRepos(d.store, d.ticketId);
-  const candidates = listMergeChecksByTicket(d.store, d.ticketId).filter((c) => c.state === 'conflicted' && open.has(c.repo) && c.baseSha);
-  // A conflict with an unknown base head has no signature to count against: leave it to the manual click.
-  // A repo with a spent budget must not hide another conflicted PR of the ticket: prefer one with budget left.
-  const open1 = candidates.find((c) => decideBudget(getAutopilotBudget(d.store, d.ticketId, c.repo, 'conflicts'), c.baseSha!, maxRounds).decision.ok);
-  const conflicted = open1 ?? candidates[0];
-  if (conflicted) return { kind: 'conflicts', repo: conflicted.repo, signature: conflicted.baseSha! };
+function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   const ci = ciFailureState(d.store, d.ticketId);
   if (!ci.available) return ci.reason === 'not-failing' && provenClean(d) ? null : 'wait';
   const names = ci.prs.flatMap((p) => p.failing.map((f) => f.name)).sort();
@@ -175,8 +166,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
 }
 
 async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {
-
-  const problem = findProblem(d, cfg.conflicts.maxRounds);
+  const problem = findProblem(d);
   if (problem === 'wait') return { kind: 'nothing' };
   if (!problem) {
     // The problem is gone: a stale park block and stop reason must not stay.
@@ -184,11 +174,14 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     clearParkBlock(d.store, d.ticketId);
     return { kind: 'nothing' };
   }
-  const policy = problem.kind === 'conflicts' ? cfg.conflicts : cfg.ci;
-  if (policy.policy === 'ask') return { kind: 'ask', reason: `${problem.kind} policy is ask` };
-  if (problem.kind === 'ci' && !allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
+  if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
+  if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
     const reason = `auto-fix not run: ci check ${(problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)'} is not on the allowlist`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
+  }
+  // A sandboxed ticket, or a placement that cannot be read, gets no round (D482): park, write a note, spend no attempt.
+  if (!(await d.isHostTicket().catch(() => false))) {
+    return park(d, 'ci', SANDBOXED_REASON, 'the ticket is sandboxed or its placement is unknown; autopilot runs host tickets only. Send the failure to the agent by hand.');
   }
   if (d.concurrencyFull()) {
     // A waiting round must be visible: one note per signature (not per tick), plus a debug line each time.
@@ -201,13 +194,12 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'queued' };
   }
 
-  const max = problem.kind === 'conflicts' ? cfg.conflicts.maxRounds : cfg.ci.maxAttempts;
-  const budget = takeAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind, problem.signature, max);
+  const budget = takeAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind, problem.signature, cfg.ci.maxAttempts);
   if (!budget.ok) {
     return park(d, problem.kind, stoppedReason(problem.kind, budget.used, budget.max), `the budget for ${problem.repo} is spent; approve one more attempt or fix it by hand.`);
   }
   // An action that throws reached no agent: it costs no attempt and parks with the error, like a failed fetch.
-  const outcome: FixOutcome = await (problem.kind === 'conflicts' ? d.resolveConflicts(problem.repo) : d.sendCiFailure())
+  const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   if (outcome.kind === 'lease-lost') {
     // Another window owns the round now: give the attempt back and stay quiet.
@@ -215,30 +207,24 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'not-controller' };
   }
   if (outcome.kind === 'sent') {
-    // The stored CI rollup belongs to the head the resolved merge replaces: forget it, so a stale failure never starts a CI round.
-    if (problem.kind === 'conflicts') clearOpenPrProbe(d.store, d.ticketId, problem.repo);
     queuedNoted(d.store).clear();
     setAutopilotStopped(d.store, d.ticketId, null);
     clearParkBlock(d.store, d.ticketId);
-    d.note(`Autopilot: ${problem.kind} round ${budget.used}/${budget.max}`, `${d.key}: ran ${problem.kind === 'conflicts' ? 'Resolve conflicts' : 'Send CI failure to agent'} for ${problem.repo} (round ${budget.used}/${budget.max}).`);
+    d.note(`Autopilot: ${problem.kind} round ${budget.used}/${budget.max}`, `${d.key}: ran Send CI failure to agent for ${problem.repo} (round ${budget.used}/${budget.max}).`);
     d.debug(`${LOG} ticket ${d.key} ${problem.kind} round ${budget.used}/${budget.max} armed for ${problem.repo}`);
     return { kind: 'armed', problem: problem.kind, used: budget.used, max: budget.max };
   }
-  // Neither an environment blocker nor a failed fetch reached the agent: they cost no attempt and are not retried.
+  // A failed action reached no agent: it costs no attempt and is not retried.
   refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
     // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
     // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
-    // A sandbox environment blocker keeps the required `auto-fix paused: sandbox <reason>` wording (AC-47).
-    const reason = outcome.kind === 'env-blocker' ? pausedReason(outcome.reason) : `auto-fix paused: ${problem.kind} session did not start (${outcome.reason})`;
+    const reason = `auto-fix paused: ${problem.kind} session did not start (${outcome.reason})`;
     setAutopilotStopped(d.store, d.ticketId, reason);
     setAutopilotPaused(d.store, d.ticketId, reason);
     d.note(`Autopilot: ${reason}`, `${d.key}: the ${problem.kind} round for ${problem.repo} moved the ticket to Implement but no session started; no attempt was used. Start the agent by hand, then set the auto-fix mode again to resume.`);
     d.debug(`${LOG} ticket ${d.key} ${problem.kind} left ship before the failure: ${outcome.reason}`);
     return { kind: 'parked', reason };
-  }
-  if (outcome.kind === 'env-blocker') {
-    return park(d, problem.kind, pausedReason(outcome.reason), `the sandbox cannot run a round (${outcome.reason}); no attempt was used and the host fallback is never taken.`, true);
   }
   return park(d, problem.kind, `auto-fix stopped: ${problem.kind} could not run (${outcome.reason})`, `the action failed (${outcome.reason}); the ticket stays in ship and no attempt was used.`, true);
 }
@@ -249,8 +235,8 @@ export interface AutopilotCommandDeps {
   readonly key: string;
   readonly note: (title: string, body: string) => void;
   readonly debug: (message: string) => void;
-  /** "Stop now": end the running session through the existing stop path (a sandboxed ticket syncs sandbox -> host first, AC-37). */
-  readonly stopSession: () => Promise<void>;
+  /** "Stop now": end the session through the existing stop path. True when the stop reached a session this window holds; false when it did not. */
+  readonly stopSession: () => Promise<boolean>;
 }
 
 /** "Approve 1 more": a one-off +1 for this PR and kind. It never resets the counter. */
@@ -261,10 +247,23 @@ export function approveOneMore(d: Pick<AutopilotCommandDeps, 'store' | 'ticketId
   d.debug(`${LOG} ticket ${d.key} ${kind} +1 approved for ${repo}`);
 }
 
-/** "Stop after this round" sets the flag; "now" also ends the running session. */
-export async function stopAutopilot(d: AutopilotCommandDeps, when: 'after-round' | 'now'): Promise<void> {
+/** What a stop did: only the flag was set, the session ended, or the stop did not reach the session. */
+export type StopResult = 'flag-set' | 'ended' | 'not-reached';
+
+/** "Stop after this round" sets the flag; "now" also ends the running session when this window holds it. */
+export async function stopAutopilot(d: AutopilotCommandDeps, when: 'after-round' | 'now'): Promise<StopResult> {
   setAutopilotStopAfter(d.store, d.ticketId);
-  d.note(`Autopilot: stopped ${when === 'now' ? 'now' : 'after this round'}`, `${d.key}: a person stopped auto-fix ${when === 'now' ? 'and ended the session' : 'after the current round'}.`);
   d.debug(`${LOG} ticket ${d.key} stop ${when}`);
-  if (when === 'now') await d.stopSession();
+  if (when === 'after-round') {
+    d.note('Autopilot: stopped after this round', `${d.key}: a person stopped auto-fix after the current round.`);
+    return 'flag-set';
+  }
+  const reached = await d.stopSession();
+  d.note(
+    'Autopilot: stopped now',
+    reached
+      ? `${d.key}: a person stopped auto-fix and ended the session.`
+      : `${d.key}: a person stopped auto-fix. The stop did not reach the session: another window holds it, or none is open.`,
+  );
+  return reached ? 'ended' : 'not-reached';
 }

@@ -190,14 +190,18 @@ function parkAwaitingMerge(store: Store, ticketId: number, state: MergeGateState
   });
 }
 
+/** The reason of the block that waits for the settle sweep, once every PR has landed. */
+const LANDED_SETTLE_REASON = 'blocked: every pull request has landed — the ticket settles on the next merge sweep.';
+
 /**
- * Put the NORMAL awaiting-merge reason back on the ship row (autopilot cleared its own park, T973).
- * A landed state has no wait left, so the block is dropped and the settle path takes over.
+ * Put the NORMAL awaiting-merge block back on the ship row (autopilot cleared its own park, T973).
+ * The block is kept when every PR has landed: `settleShipGate` keys on it, so dropping it would strand
+ * the landed ticket at ship. The sweep then lands the ticket, with the sub-task release it needs.
  */
 export function restoreAwaitingMergeBlock(store: Store, ticketId: number): void {
   const state = mergeGateState(store, ticketId);
   if (isLanded(state)) {
-    setStage(store, ticketId, 'ship', { blockedKind: null, blockedReason: null, blockedAt: null });
+    setStage(store, ticketId, 'ship', { blockedKind: 'awaiting-merge', blockedReason: LANDED_SETTLE_REASON, blockedAt: nowIso() });
     return;
   }
   setStage(store, ticketId, 'ship', { blockedKind: 'awaiting-merge', blockedReason: describeAwaitingMerge(state), blockedAt: nowIso() });

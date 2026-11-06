@@ -1,22 +1,19 @@
 import { ManifestError } from './error.js';
 
 /**
- * The manifest's `autopilot:` block (T973): auto-fix of recoverable ship-stage
- * problems. Off by default. `ask` keeps today's human-approval click.
+ * The manifest's `autopilot:` block (T973): auto-fix of failed CI checks on host tickets at ship.
+ * Off by default. `ask` keeps today's human-approval click.
  */
 export type AutopilotPolicy = 'auto' | 'ask';
 
 export interface AutopilotConfig {
   readonly enabled: boolean;
-  readonly conflicts: { readonly policy: AutopilotPolicy; readonly maxRounds: number };
   readonly ci: { readonly policy: AutopilotPolicy; readonly maxAttempts: number; readonly checks: readonly string[] };
 }
 
-export const DEFAULT_AUTOPILOT_MAX_ROUNDS = 2;
 export const DEFAULT_AUTOPILOT_MAX_ATTEMPTS = 3;
 
-const TOP_KEYS = ['enabled', 'conflicts', 'ci'] as const;
-const CONFLICT_KEYS = ['policy', 'maxRounds'] as const;
+const TOP_KEYS = ['enabled', 'ci'] as const;
 const CI_KEYS = ['policy', 'maxAttempts', 'checks'] as const;
 
 function asMap(raw: unknown, path: string): Record<string, unknown> {
@@ -59,16 +56,10 @@ export function validateAutopilot(raw: unknown): AutopilotConfig | undefined {
   const map = asMap(raw, 'autopilot');
   rejectUnknown(map, TOP_KEYS, 'autopilot');
   if (map.enabled !== undefined && typeof map.enabled !== 'boolean') throw new ManifestError('autopilot.enabled must be a boolean');
-  const conflicts = map.conflicts === undefined ? {} : asMap(map.conflicts, 'autopilot.conflicts');
-  rejectUnknown(conflicts, CONFLICT_KEYS, 'autopilot.conflicts');
   const ci = map.ci === undefined ? {} : asMap(map.ci, 'autopilot.ci');
   rejectUnknown(ci, CI_KEYS, 'autopilot.ci');
   return {
     enabled: map.enabled === true,
-    conflicts: {
-      policy: policyOf(conflicts.policy, 'autopilot.conflicts'),
-      maxRounds: budgetOf(conflicts.maxRounds, 'autopilot.conflicts', 'maxRounds', DEFAULT_AUTOPILOT_MAX_ROUNDS),
-    },
     ci: {
       policy: policyOf(ci.policy, 'autopilot.ci'),
       maxAttempts: budgetOf(ci.maxAttempts, 'autopilot.ci', 'maxAttempts', DEFAULT_AUTOPILOT_MAX_ATTEMPTS),

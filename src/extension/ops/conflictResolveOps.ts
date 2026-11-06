@@ -43,55 +43,38 @@ export interface ResolveConflictInput {
 
 const DIRTY_HINT = ' Use "Stash and update" on the dashboard Sandbox card to park the sandbox changes, then click Resolve conflicts again.';
 
-/**
- * Why a round did not go out. `sandbox-sync` is an ENVIRONMENT blocker (dirty or diverged clone at the pre-round
- * refresh, AC-46): a retry cannot fix it. The others are not an agent failure either.
- */
-export type RoundRefusal = 'placement-unknown' | 'no-conflict' | 'sandbox-sync' | 'launch-failed' | 'lease-lost';
-
-export type ConflictRoundResult =
-  | { readonly kind: 'sent' }
-  | { readonly kind: 'refused'; readonly cause: RoundRefusal; readonly message: string; readonly reason: string };
-
-async function prepare(input: ResolveConflictInput): Promise<ConflictRoundResult | null> {
+async function prepare(input: ResolveConflictInput): Promise<string | null> {
   if (!input.prepareSandbox) return null;
   const result = await input.prepareSandbox().catch((err: unknown): EnsureSyncResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err), diverged: false }));
   if (result.ok) return null;
   const dirty = /uncommitted/i.test(result.reason);
-  return {
-    kind: 'refused', cause: 'sandbox-sync', reason: result.reason,
-    message: `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}`,
-  };
+  return `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}`;
 }
 
-/** The decision behind a Resolve-conflicts click, as data: the click toasts a refusal, autopilot parks on it. */
-export async function resolveConflictRound(input: ResolveConflictInput): Promise<ConflictRoundResult> {
+export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
   // A probe that REJECTS cannot say either: unknown, never "no sandbox".
   const probe = await input.probeSandbox().catch((err: unknown): SandboxProbe => ({ state: 'unknown', reason: err instanceof Error ? err.message : String(err) }));
   if (probe.state === 'unknown') {
-    return {
-      kind: 'refused', cause: 'placement-unknown', reason: probe.reason,
-      message: `Could not tell whether ticket ${input.label} runs in a sandbox, so no conflict brief was sent: ${probe.reason}. Make sure the sbx/docker CLI is on the PATH of the VS Code extension host.`,
-    };
+    input.notify(`Could not tell whether ticket ${input.label} runs in a sandbox, so no conflict brief was sent: ${probe.reason}. Make sure the sbx/docker CLI is on the PATH of the VS Code extension host.`);
+    return;
   }
   const sandboxed = probe.state === 'present';
   const brief = input.briefFor(sandboxed);
   if (brief === null) {
-    const message = `No merge conflict is recorded for "${input.repo}" on ticket ${input.label} — nothing to resolve.`;
-    return { kind: 'refused', cause: 'no-conflict', message, reason: message };
+    input.notify(
+      `No merge conflict is recorded for "${input.repo}" on ticket ${input.label} — nothing to resolve.`,
+    );
+    return;
   }
   if (sandboxed) {
     const failure = await prepare(input);
-    if (failure !== null) return failure;
+    if (failure !== null) {
+      input.notify(failure);
+      return;
+    }
   }
   input.arm?.(input.repo);
   input.deliver(brief, input.repo);
-  return { kind: 'sent' };
-}
-
-export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
-  const result = await resolveConflictRound(input);
-  if (result.kind === 'refused') input.notify(result.message);
 }
 
 /**

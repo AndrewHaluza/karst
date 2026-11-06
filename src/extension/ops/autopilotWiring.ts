@@ -1,5 +1,4 @@
 import type { AutopilotDeps, FixOutcome } from './autopilotOps.js';
-import type { ConflictRoundResult } from './conflictResolveOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
@@ -7,7 +6,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listTickets } from '../../store/tickets.js';
-import { postAgentNote } from '../../store/bulletinNotes.js';
+import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
@@ -16,19 +15,6 @@ import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
  * Binds the autopilot engine to the real ship actions. Only the mapping lives here:
  * the engine decides, the existing click paths act (no new sandbox code path).
  */
-
-/**
- * A refused conflict round maps to an outcome. A dirty or diverged clone at the
- * pre-round sync (AC-46) and a failed session launch are environment blockers. Every other refusal is a plain
- * failure. Neither path reaches a host fallback: the round runs where it is placed or it does not run.
- */
-export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
-  if (result.kind === 'sent') return { kind: 'sent' };
-  if (result.cause === 'lease-lost') return { kind: 'lease-lost' };
-  return result.cause === 'sandbox-sync' || result.cause === 'launch-failed'
-    ? { kind: 'env-blocker', reason: result.reason }
-    : { kind: 'failed', reason: result.reason };
-}
 
 /**
  * Run "Send CI failure to agent" without the click: the confirm is answered yes.
@@ -57,22 +43,11 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
   return { kind: 'sent' };
 }
 
-/** The engine seams that depend only on the two actions. */
-export function actionSeams(
-  resolveRound: (repo: string) => Promise<ConflictRoundResult>,
-  sendCi: () => Promise<FixOutcome>,
-): Pick<AutopilotDeps, 'resolveConflicts' | 'sendCiFailure'> {
-  return {
-    resolveConflicts: async (repo) => conflictOutcome(await resolveRound(repo)),
-    sendCiFailure: sendCi,
-  };
-}
-
-/** The per-ticket host seams: ownership, session state and the two actions. */
+/** The per-ticket host seams: ownership, session state, placement and the CI action. */
 export interface TicketSeams {
   readonly controls: () => boolean;
   readonly sessionRunning: () => boolean;
-  readonly resolveRound: (repo: string) => Promise<ConflictRoundResult>;
+  readonly isHostTicket: () => Promise<boolean>;
   readonly sendCi: () => Promise<FixOutcome>;
 }
 
@@ -91,15 +66,14 @@ export interface AutopilotSweepDeps {
 export interface SlotHolder { readonly id: number; readonly subtaskParentId: number }
 
 /**
- * Every sub-task of the project that holds a slot: the same rule the autostart picker uses (`HOLDS_SLOT_SQL`),
- * plus a sub-task whose agent still runs at ship (a conflict round does not leave ship but does use a seat).
+ * Every sub-task of the project that holds a slot: the same rule the autostart picker uses (`HOLDS_SLOT_SQL`).
  */
 export function listSlotHolders(store: Store, projectId: number): SlotHolder[] {
   const rows = store.db
     .prepare(
       `SELECT s.id AS id, s.subtask_parent_id AS parent FROM tickets s
         WHERE s.project_id = ? AND s.subtask_parent_id IS NOT NULL
-          AND (${HOLDS_SLOT_SQL} OR (s.archived_at IS NULL AND s.stage_current = 'ship' AND s.agent_state = 'running'))`,
+          AND ${HOLDS_SLOT_SQL}`,
     )
     .all(projectId) as Array<{ id: number; parent: number }>;
   return rows.map((r) => ({ id: r.id, subtaskParentId: r.parent }));
@@ -122,6 +96,30 @@ export function concurrencyFullFor(
   return caps.perParent > 0 && others.filter((h) => h.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
 }
 
+/** Cut `text` to `max` characters, ending with an ellipsis when it was longer. */
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}\u2026`;
+}
+
+/**
+ * Post a bulletin note that always fits the note rules: a one-line title of at most 120 characters,
+ * a body of at most 4096 characters, no control characters. A long or multi-line park reason
+ * (a gh error text) must not make the post throw and lose the note.
+ */
+export function postAutopilotNote(store: Store, projectId: number, ticketId: number, title: string, body: string, debug: (m: string) => void): void {
+  const clean = (t: string): string => t.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ');
+  const oneLine = clean(title).replace(/\s+/g, ' ').trim();
+  try {
+    postAgentNote(store, {
+      projectId, fromTicketId: ticketId,
+      title: clip(oneLine === '' ? 'Autopilot' : oneLine, BULLETIN_TITLE_MAX),
+      body: clip(clean(body).trim() === '' ? 'Autopilot' : clean(body).trim(), BULLETIN_BODY_MAX),
+    });
+  } catch (err) {
+    debug(`[ship] autopilot note failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** One pass over the ship tickets of the bound project. Never throws; a failure only delays the next pass. */
 export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
   const projectId = d.projectId();
@@ -140,8 +138,9 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         controls: seams.controls,
         sessionRunning: seams.sessionRunning,
         concurrencyFull: () => concurrencyFullFor([...listSlotHolders(d.store, projectId), ...armed.values()], t, d.caps()),
-        ...actionSeams(seams.resolveRound, seams.sendCi),
-        note: (title, body) => void postAgentNote(d.store, { projectId, fromTicketId: t.id, title, body }),
+        isHostTicket: seams.isHostTicket,
+        sendCiFailure: seams.sendCi,
+        note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,
       });
       if (result.kind === 'armed' && t.subtaskParentId !== null) armed.set(t.id, { id: t.id, subtaskParentId: t.subtaskParentId });

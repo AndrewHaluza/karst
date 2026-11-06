@@ -4,7 +4,7 @@ import type { Store } from './db.js';
  * Autopilot state (v100, T973): the per-ticket override, the stop/pause flags and one budget row per
  * (ticket, repo, kind). Store-only: nothing here runs git or gh.
  *
- * A PAUSED ticket (sandbox environment blocker) is a different state from a SPENT budget: a pause costs no
+ * A PAUSED ticket (a round that started no session) is a different state from a SPENT budget: a pause costs no
  * attempt and is cleared only by a person (override change, approve-one-more, resume).
  */
 export const AUTOPILOT_DDL = `
@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   paused_reason TEXT,
   stopped_reason TEXT,
   claim_owner   TEXT,
-  claim_until   INTEGER
+  claim_until   INTEGER,
+  session_owner TEXT
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -64,7 +65,7 @@ export function setAutopilotStopped(store: Store, ticketId: number, reason: stri
   store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = ? WHERE ticket_id = ?').run(reason, ticketId);
 }
 
-/** Give back an attempt that never reached the agent (an environment blocker or a failed fetch). Never below zero. */
+/** Give back an attempt that never reached the agent (a failed action). Never below zero. */
 export function refundAutopilotAttempt(store: Store, ticketId: number, repo: string, kind: AutopilotKind): void {
   store.db.prepare('UPDATE autopilot_budgets SET attempts = MAX(attempts - 1, 0) WHERE ticket_id = ? AND repo = ? AND kind = ?').run(ticketId, repo, kind);
 }
@@ -163,11 +164,6 @@ export function stoppedReason(kind: AutopilotKind, used: number, max: number): s
   return `auto-fix stopped: ${kind} ${used}/${max}`;
 }
 
-/** The park reason for a sandbox environment blocker. */
-export function pausedReason(reason: string): string {
-  return `auto-fix paused: sandbox ${reason}`;
-}
-
 /** The (repo, kind) pairs a ticket has a budget for, oldest first. Used to pick the target of "Approve 1 more". */
 export function listAutopilotBudgets(store: Store, ticketId: number): Array<{ repo: string; kind: AutopilotKind }> {
   return store.db.prepare('SELECT repo, kind FROM autopilot_budgets WHERE ticket_id = ? ORDER BY rowid').all(ticketId) as Array<{ repo: string; kind: AutopilotKind }>;
@@ -185,4 +181,26 @@ export function claimAutopilotTicket(store: Store, ticketId: number, owner: stri
     return r.changes > 0;
   });
   return run();
+}
+
+/**
+ * Record which window holds the live session of each owned ticket, and drop this window's claim on a ticket
+ * it no longer owns. Another window's claim is never touched. Call it after every change of the owned set.
+ */
+export function syncAutopilotSessionOwner(store: Store, windowId: string, ownedTicketIds: readonly number[]): void {
+  const run = store.db.transaction((): void => {
+    const set = store.db.prepare('INSERT OR IGNORE INTO autopilot_tickets (ticket_id) SELECT id FROM tickets WHERE id = ?');
+    const claim = store.db.prepare('UPDATE autopilot_tickets SET session_owner = ? WHERE ticket_id = ?');
+    for (const id of ownedTicketIds) { set.run(id); claim.run(windowId, id); }
+    const mine = store.db.prepare('SELECT ticket_id AS id FROM autopilot_tickets WHERE session_owner = ?').all(windowId) as Array<{ id: number }>;
+    const release = store.db.prepare('UPDATE autopilot_tickets SET session_owner = NULL WHERE ticket_id = ? AND session_owner = ?');
+    for (const { id } of mine) if (!ownedTicketIds.includes(id)) release.run(id, windowId);
+  });
+  run();
+}
+
+/** The window that holds the ticket's session, or null when the store names none. */
+export function getAutopilotSessionOwner(store: Store, ticketId: number): string | null {
+  const row = store.db.prepare('SELECT session_owner AS owner FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { owner: string | null } | undefined;
+  return row?.owner ?? null;
 }

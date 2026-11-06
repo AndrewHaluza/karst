@@ -108,19 +108,6 @@ describe('launchWithoutSilentHostFallback (F14)', () => {
     expect(i.removeSandbox).not.toHaveBeenCalled();
     expect(i.launch).toHaveBeenCalledTimes(1);
   });
-  it('fails closed before the listing: a failing listing never launches on the host', async () => {
-    const hasSandbox = vi.fn(async () => { throw new Error('sbx ls failed'); });
-    const i = base({ failClosed: true, hasSandbox });
-    expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'refused' });
-    expect(hasSandbox).not.toHaveBeenCalled();
-  });
-  it('fails closed for autopilot: no prompt, no removal, a refusal with a reason', async () => {
-    const i = base({ failClosed: true });
-    expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'refused' });
-    expect(i.choose).not.toHaveBeenCalled();
-    expect(i.confirmHost).not.toHaveBeenCalled();
-    expect(i.removeSandbox).not.toHaveBeenCalled();
-  });
   it('retry re-launches', async () => {
     const launch = vi.fn().mockResolvedValueOnce(host).mockResolvedValueOnce(box);
     const i = base({ launch, choose: vi.fn(async () => HOST_FALLBACK_RETRY) });

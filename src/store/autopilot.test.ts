@@ -3,8 +3,8 @@ import { openStore } from './db.js';
 import { createTicket } from './tickets.js';
 import {
   claimAutopilotTicket,
-  decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, pausedReason,
-  setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, takeAutopilotAttempt,
+  decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
+  setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
 describe('decideBudget', () => {
@@ -83,7 +83,6 @@ describe('autopilot store', () => {
 
   it('formats the park reasons', () => {
     expect(stoppedReason('ci', 3, 3)).toBe('auto-fix stopped: ci 3/3');
-    expect(pausedReason('is read-only')).toBe('auto-fix paused: sandbox is read-only');
   });
 });
 
@@ -96,5 +95,42 @@ describe('claimAutopilotTicket', () => {
     expect(claimAutopilotTicket(store, id, 'A', 1400, 500)).toBe(true);
     expect(claimAutopilotTicket(store, id, 'B', 1899, 500)).toBe(false);
     expect(claimAutopilotTicket(store, id, 'B', 1900, 500)).toBe(true);
+  });
+});
+
+describe('session owner', () => {
+  const two = () => {
+    const store = openStore(':memory:');
+    const a = createTicket(store, { key: 'S-1', title: 'a' }).id;
+    const b = createTicket(store, { key: 'S-2', title: 'b' }).id;
+    return { store, a, b };
+  };
+
+  it('stores the window that opened the session and reads it back', () => {
+    const { store, a } = two();
+    expect(getAutopilotSessionOwner(store, a)).toBeNull();
+    syncAutopilotSessionOwner(store, 'W1', [a]);
+    expect(getAutopilotSessionOwner(store, a)).toBe('W1');
+  });
+
+  it('releases a ticket this window no longer owns', () => {
+    const { store, a, b } = two();
+    syncAutopilotSessionOwner(store, 'W1', [a, b]);
+    syncAutopilotSessionOwner(store, 'W1', [b]);
+    expect(getAutopilotSessionOwner(store, a)).toBeNull();
+    expect(getAutopilotSessionOwner(store, b)).toBe('W1');
+  });
+
+  it('never releases a ticket that another window owns', () => {
+    const { store, a } = two();
+    syncAutopilotSessionOwner(store, 'W2', [a]);
+    syncAutopilotSessionOwner(store, 'W1', []);
+    expect(getAutopilotSessionOwner(store, a)).toBe('W2');
+  });
+
+  it('skips a ticket that does not exist', () => {
+    const { store } = two();
+    expect(() => syncAutopilotSessionOwner(store, 'W1', [9999])).not.toThrow();
+    expect(getAutopilotSessionOwner(store, 9999)).toBeNull();
   });
 });

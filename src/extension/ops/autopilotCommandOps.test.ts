@@ -16,7 +16,7 @@ function deps(over: Partial<AutopilotCommandDeps> = {}): AutopilotCommandDeps & 
   return {
     store, projectId: () => projectId, said, say: (m) => void said.push(m), debug: vi.fn(),
     pickTicket: async (picks) => picks[0]?.ticketId, pick: async (choices) => choices[0],
-    stopSession: vi.fn(async () => {}), ...over,
+    stopSession: vi.fn(async () => true), ...over,
   };
 }
 const notes = () => store.db.prepare('SELECT title FROM bulletin_notes ORDER BY rowid').all().map((r) => (r as { title: string }).title);
@@ -97,9 +97,9 @@ describe('approveCommand', () => {
   });
   it('asks which row when there are several, and says so when there is none', async () => {
     takeAutopilotAttempt(store, id, 'r', 'ci', 'build', 3);
-    takeAutopilotAttempt(store, id, 'r', 'conflicts', 'b1', 2);
+    takeAutopilotAttempt(store, id, 'r2', 'ci', 'b1', 2);
     await approveCommand(deps({ pick: async (c) => c[1] }));
-    expect(getAutopilotBudget(store, id, 'r', 'conflicts').extra).toBe(1);
+    expect(getAutopilotBudget(store, id, 'r2', 'ci').extra).toBe(1);
     expect(getAutopilotBudget(store, id, 'r', 'ci').extra).toBe(0);
     await approveCommand(deps({ pick: async () => undefined }));
     const none = deps();
@@ -127,5 +127,13 @@ describe('stopCommand', () => {
     expect(d.stopSession).toHaveBeenCalledWith(id);
     expect(d.said).toEqual(['Auto-fix stopped now for AP-1.']);
     await stopCommand(deps({ pick: async () => undefined }), id);
+  });
+  it('now from a window that does not hold the session says the stop did not reach it', async () => {
+    const d = deps({ stopSession: vi.fn(async () => false) });
+    await stopCommand(d, id, 'now');
+    expect(getAutopilotTicket(store, id).stopAfter).toBe(true);
+    expect(d.said).toHaveLength(1);
+    expect(d.said[0]).toMatch(/did not reach the session/);
+    expect(d.said[0]).not.toMatch(/stopped now/);
   });
 });

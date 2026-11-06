@@ -180,23 +180,15 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
   readonly confirmHost: (message: string) => Promise<boolean>;
   /** Sync (ff-only) then remove the sandbox; false when kept. */
   readonly removeSandbox: () => Promise<boolean>;
-  /** Autopilot (T973, AC-31): never offer the host fallback. No prompt is shown; the launch is refused with a reason. */
-  readonly failClosed?: boolean;
 }
 
-export type HostFallbackResult<T> =
-  | { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean }
-  | { readonly kind: 'cancelled' }
-  | { readonly kind: 'refused'; readonly reason: string };
+export type HostFallbackResult<T> = { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean } | { readonly kind: 'cancelled' };
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
 export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   for (;;) {
     const backend = await input.launch();
-    if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
-    // Fail closed BEFORE the listing: a listing that fails must not read as "no sandbox" and launch on the host (AC-31).
-    if (input.failClosed === true) return { kind: 'refused', reason: 'the sandbox backend is unavailable and auto-fix never runs on the host' };
-    if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
+    if (backend.sandboxed || !input.wantsSandbox || !(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
     const picked = await input.choose(
       `Karst: the sandbox backend for ${input.ticketLabel} is unavailable, but the ticket has a sandbox with the agent's work in it.`,
       [HOST_FALLBACK_RETRY, HOST_FALLBACK_HOST],

@@ -458,6 +458,7 @@ describe('restoreAwaitingMergeBlock', () => {
   beforeEach(() => {
     store = openStore(':memory:');
     id = createTicket(store, { key: 'T-9', title: 't' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
     setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
   });
   it('writes the normal awaiting-merge block while a PR is open', () => {
@@ -465,11 +466,13 @@ describe('restoreAwaitingMergeBlock', () => {
     restoreAwaitingMergeBlock(store, id);
     expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('api') });
   });
-  it('clears the block when every PR is merged', () => {
+  it('keeps an awaiting-merge block when every PR is merged, so the settle sweep lands the ticket', () => {
     seedPr(store, id, 'api', 'open');
     restoreAwaitingMergeBlock(store, id);
     store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
     restoreAwaitingMergeBlock(store, id);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge' });
+    expect(settleShipGate(store, id).advanced).toBe(true);
     expect(stageBlock(store, id, 'ship')).toBeNull();
   });
 });

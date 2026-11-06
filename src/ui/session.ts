@@ -134,8 +134,6 @@ export interface OpenSessionOptions {
    * no webview message can reach it.
    */
   seedPrompt?: string;
-  /** Autopilot launch (T973): the sandbox host-fallback prompt is never shown; an unavailable sandbox fails the launch (AC-31). Host-internal. */
-  failClosed?: boolean;
   /**
    * The repo the seed's brief is about, carried into the conflict kickoff as the
    * command's second argument (`<invocation> <key> <repo>`, arch:AC-20). Host-only

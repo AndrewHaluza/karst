@@ -16,8 +16,8 @@ export interface AutopilotCommandDeps {
   readonly pick: <T extends string>(choices: readonly T[], placeHolder: string) => Promise<T | undefined>;
   readonly say: (message: string) => void;
   readonly debug: (message: string) => void;
-  /** "Stop now": end the session, then sync the sandbox to the host before the runner stops (AC-37). A sync failure only warns. */
-  readonly stopSession: (ticketId: number) => Promise<void>;
+  /** "Stop now": end the session. True when the stop reached a session this window holds; false when it did not. */
+  readonly stopSession: (ticketId: number) => Promise<boolean>;
 }
 
 function keyOf(store: Store, ticketId: number): string {
@@ -79,6 +79,8 @@ export async function stopCommand(d: AutopilotCommandDeps, ticketId?: number, wh
   if (id === undefined) return;
   const choice = when ?? await d.pick(['after-round', 'now'] as const, 'Stop auto-fix');
   if (choice === undefined) return;
-  await stopAutopilot({ store: d.store, ticketId: id, key: keyOf(d.store, id), note: noteFor(d, id), debug: d.debug, stopSession: () => d.stopSession(id) }, choice);
-  d.say(`Auto-fix stopped ${choice === 'now' ? 'now' : 'after this round'} for ${keyOf(d.store, id)}.`);
+  const result = await stopAutopilot({ store: d.store, ticketId: id, key: keyOf(d.store, id), note: noteFor(d, id), debug: d.debug, stopSession: () => d.stopSession(id) }, choice);
+  const key = keyOf(d.store, id);
+  if (result === 'not-reached') d.say(`Auto-fix is stopped for ${key}. The stop did not reach the session: another window holds it, or none is open.`);
+  else d.say(`Auto-fix stopped ${choice === 'now' ? 'now' : 'after this round'} for ${key}.`);
 }

@@ -1,35 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { actionSeams, ciOutcome, conflictOutcome } from './autopilotWiring.js';
+import { ciOutcome } from './autopilotWiring.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
 
 vi.mock('./ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn() }));
 beforeEach(() => { vi.mocked(sendCiFailureAction).mockReset(); });
 
-
-describe('conflictOutcome', () => {
-  it('maps a sent round', () => {
-    expect(conflictOutcome({ kind: 'sent' })).toEqual({ kind: 'sent' });
-  });
-  it('maps a dirty or diverged sandbox clone (AC-46) to an environment blocker', () => {
-    expect(conflictOutcome({ kind: 'refused', cause: 'sandbox-sync', message: 'm', reason: 'clone diverged' })).toEqual({ kind: 'env-blocker', reason: 'clone diverged' });
-  });
-  it('maps a lost lease to lease-lost and a failed launch to an environment blocker', () => {
-    expect(conflictOutcome({ kind: 'refused', cause: 'lease-lost', message: 'm', reason: 'r' })).toEqual({ kind: 'lease-lost' });
-    expect(conflictOutcome({ kind: 'refused', cause: 'launch-failed', message: 'm', reason: 'no terminal' })).toEqual({ kind: 'env-blocker', reason: 'no terminal' });
-  });
-  it.each(['placement-unknown', 'no-conflict'] as const)('maps %s to a failure, never a host fallback', (cause) => {
-    expect(conflictOutcome({ kind: 'refused', cause, message: 'm', reason: 'r' })).toEqual({ kind: 'failed', reason: 'r' });
-  });
-});
-
-describe('actionSeams', () => {
-  it('maps the round result and passes the CI outcome through', async () => {
-    const send = vi.fn(async () => ({ kind: 'failed', reason: 'gh' }) as const);
-    const seams = actionSeams(async () => ({ kind: 'sent' }), send);
-    expect(await seams.resolveConflicts('r')).toEqual({ kind: 'sent' });
-    expect(await seams.sendCiFailure()).toEqual({ kind: 'failed', reason: 'gh' });
-  });
-});
 
 import { upsertProject } from '../../store/projects.js';
 import { openStore } from '../../store/db.js';
@@ -38,7 +13,8 @@ import { setStage } from '../../store/stages.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
-import { autopilotSweep, concurrencyFullFor, listSlotHolders, type TicketSeams } from './autopilotWiring.js';
+import { autopilotSweep, concurrencyFullFor, listSlotHolders, postAutopilotNote, type TicketSeams } from './autopilotWiring.js';
+import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX } from '../../store/bulletinNotes.js';
 
 describe('concurrencyFullFor', () => {
   const caps = { perParent: 1, total: 3 };
@@ -73,16 +49,17 @@ describe('autopilotSweep', () => {
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked: not merged yet', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r', '/w', 'b');
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 5, ?, ?)').run(id, 'r', 'https://github.com/o/r/pull/5', 'open');
-    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'conflicted', files: [], reason: null, headSha: 'h', baseSha: 'b1', baseRef: 'develop', checkedAt: 'x' });
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'b1', baseRef: 'develop', checkedAt: 'x' });
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: 'u' }] }), id);
     return { store, id, projectId: project.id };
   }
-  const cfg = { enabled: true, conflicts: { policy: 'auto' as const, maxRounds: 2 }, ci: { policy: 'auto' as const, maxAttempts: 3, checks: [] } };
+  const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 3, checks: ['build'] } };
   const seams = (over: Partial<TicketSeams> = {}): TicketSeams => ({
     controls: () => true, sessionRunning: () => false,
-    resolveRound: vi.fn(async () => ({ kind: 'sent' }) as const), sendCi: vi.fn(async () => ({ kind: 'sent' }) as const), ...over,
+    isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const), ...over,
   });
 
-  it('arms a conflict round for a ship ticket and writes a bulletin note', async () => {
+  it('arms a CI round for a ship ticket and writes a bulletin note', async () => {
     const { store, projectId } = shipTicket();
     const changed = vi.fn();
     const s = seams();
@@ -91,7 +68,7 @@ describe('autopilotSweep', () => {
       caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed,
     });
     expect(acted).toBe(1);
-    expect(s.resolveRound).toHaveBeenCalledWith('r');
+    expect(s.sendCi).toHaveBeenCalledTimes(1);
     expect(changed).toHaveBeenCalledTimes(1);
     expect((store.db.prepare('SELECT COUNT(*) AS n FROM bulletin_notes').get() as { n: number }).n).toBe(1);
   });
@@ -102,7 +79,7 @@ describe('autopilotSweep', () => {
     const base = { store, manifest: () => ({ autopilot: cfg }) as never, caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {} };
     expect(await autopilotSweep({ ...base, projectId: () => undefined })).toBe(0);
     expect(await autopilotSweep({ ...base, projectId: () => projectId })).toBe(0);
-    expect(s.resolveRound).not.toHaveBeenCalled();
+    expect(s.sendCi).not.toHaveBeenCalled();
   });
 });
 
@@ -188,15 +165,77 @@ describe('autopilotSweep edges', () => {
 });
 
 describe('listSlotHolders', () => {
-  it('lists sub-tasks only: running ship sub-tasks hold a slot, plain tickets and idle ones do not', () => {
+  it('lists sub-tasks in a slot stage only: a ship sub-task and a plain ticket hold no slot', () => {
     const store = openStore(':memory:');
     const project = upsertProject(store, { slug: 'p' });
     const parent = createTicket(store, { key: 'P-1', title: 'p', projectId: project.id }).id;
-    const running = createTicket(store, { key: 'S-1', title: 's', projectId: project.id, subtaskParentId: parent }).id;
-    const idle = createTicket(store, { key: 'S-2', title: 's', projectId: project.id, subtaskParentId: parent }).id;
+    const inImpl = createTicket(store, { key: 'S-1', title: 's', projectId: project.id, subtaskParentId: parent }).id;
+    const inShip = createTicket(store, { key: 'S-2', title: 's', projectId: project.id, subtaskParentId: parent }).id;
     const plain = createTicket(store, { key: 'T-1', title: 't', projectId: project.id }).id;
-    for (const tid of [running, idle, plain]) store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(tid);
-    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id IN (?, ?)").run(running, plain);
-    expect(listSlotHolders(store, project.id)).toEqual([{ id: running, subtaskParentId: parent }]);
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id IN (?, ?)").run(inImpl, plain);
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'running' WHERE id = ?").run(inShip);
+    expect(listSlotHolders(store, project.id)).toEqual([{ id: inImpl, subtaskParentId: parent }]);
+  });
+});
+
+describe('postAutopilotNote', () => {
+  function setup() {
+    const store = openStore(':memory:');
+    const project = upsertProject(store, { slug: 'p' });
+    const id = createTicket(store, { key: 'AP-7', title: 't', projectId: project.id }).id;
+    return { store, id, projectId: project.id };
+  }
+  const rows = (store: ReturnType<typeof openStore>) =>
+    store.db.prepare('SELECT title, body FROM bulletin_notes').all() as Array<{ title: string; body: string }>;
+
+  it('keeps the note when the park reason is long and has several lines', () => {
+    const { store, id, projectId } = setup();
+    const debug = vi.fn();
+    const reason = `auto-fix stopped: ci could not run (gh failed\n${'x'.repeat(400)})`;
+    postAutopilotNote(store, projectId, id, `Autopilot: ${reason}`, 'b'.repeat(BULLETIN_BODY_MAX + 50), debug);
+    const [row] = rows(store);
+    expect(row!.title).not.toContain('\n');
+    expect(row!.title.length).toBeLessThanOrEqual(BULLETIN_TITLE_MAX);
+    expect(row!.title.startsWith('Autopilot: auto-fix stopped: ci could not run (gh failed x')).toBe(true);
+    expect(row!.body.length).toBe(BULLETIN_BODY_MAX);
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('clips a long title to the title limit and ends it with an ellipsis', () => {
+    const { store, id, projectId } = setup();
+    postAutopilotNote(store, projectId, id, 'T'.repeat(BULLETIN_TITLE_MAX + 80), 'body', vi.fn());
+    const [row] = rows(store);
+    expect(row!.title).toHaveLength(BULLETIN_TITLE_MAX);
+    expect(row!.title.endsWith('\u2026')).toBe(true);
+  });
+
+  it('turns a multi-line title into one line', () => {
+    const { store, id, projectId } = setup();
+    postAutopilotNote(store, projectId, id, 'first\nsecond\r\n  third', 'body', vi.fn());
+    expect(rows(store)[0]!.title).toBe('first second third');
+  });
+
+  it('removes a control character from the title and the body', () => {
+    const { store, id, projectId } = setup();
+    const debug = vi.fn();
+    postAutopilotNote(store, projectId, id, 'bad\u0000\u0007title\u007f', 'bo\u0001dy', debug);
+    const [row] = rows(store);
+    expect(row!.title).toBe('bad title');
+    expect(row!.body).toBe('bo dy');
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a fixed title and body when both are blank', () => {
+    const { store, id, projectId } = setup();
+    postAutopilotNote(store, projectId, id, ' \n ', '  ', vi.fn());
+    expect(rows(store)[0]).toEqual({ title: 'Autopilot', body: 'Autopilot' });
+  });
+
+  it('logs and does not throw when the post still fails', () => {
+    const { store, id } = setup();
+    const debug = vi.fn();
+    postAutopilotNote(store, 9999, id, 't', 'b', debug);
+    expect(rows(store)).toHaveLength(0);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('[ship] autopilot note failed'));
   });
 });
