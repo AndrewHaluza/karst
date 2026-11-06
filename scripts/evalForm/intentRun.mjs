@@ -1,7 +1,7 @@
 // Intent pass loop: raw / improved source modes -> real generateIntent -> checks + judge. Strictly sequential.
 import { rmSync } from 'node:fs';
 import { checkCharter, countCalls, hunkForTest } from './intentChecks.mjs';
-import { judgeIntent } from './intentJudge.mjs';
+import { judgeIntent, judgeIssueScope } from './intentJudge.mjs';
 
 /** Instance (pinned set) -> eval item. testPatch/f2p go ONLY to the judge, never to the agent. */
 export function instanceItem({ task, row }) {
@@ -28,6 +28,7 @@ async function charterFor({ mode, item, opts, improve, intent, adapter, cwd }) {
 
 export async function runIntentEval({ opts, items, modes, improve, intent, adapter, judgeAdapter, now = () => Date.now(), makeEmptyDir, onProgress = () => {} }) {
   const attempts = [];
+  const scopes = new Map();
   const cwd = makeEmptyDir();
   try {
     for (const mode of modes) {
@@ -43,7 +44,10 @@ export async function runIntentEval({ opts, items, modes, improve, intent, adapt
             a.checks = checkCharter({ result, calls, f2p: item.f2p });
             if (result.text !== null) {
               const tests = item.f2p.map((test) => ({ test, hunk: hunkForTest(item.testPatch, test) }));
-              a.judge = await judgeIntent(judgeAdapter, { issue: item.brief, charter: result.text, tests, model: opts.judgeModel, effort: opts.judgeEffort, cwd });
+              const common = { issue: item.brief, tests, model: opts.judgeModel, effort: opts.judgeEffort, cwd };
+              const scope = scopes.get(item.id) ?? await judgeIssueScope(judgeAdapter, common);
+              if (scope.ok) scopes.set(item.id, scope); // a failed scope is not kept: the next charter of the case asks again
+              a.judge = await judgeIntent(judgeAdapter, { ...common, charter: result.text, scope });
             }
           } catch (e) {
             a.error = e instanceof Error ? e.message : String(e);

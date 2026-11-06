@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkCharter, countCalls, findLeaks, hunkForTest, parseOutcome, scenarioLines } from './intentChecks.mjs';
-import { buildIntentJudgePrompt, coverageScore, judgeIntent, parseIntentJudge } from './intentJudge.mjs';
+import { buildIntentJudgePrompt, buildIssueScopePrompt, coverageScore, judgeIntent, judgeIssueScope, parseIntentJudge, parseIssueScope } from './intentJudge.mjs';
 import { instanceItem, runIntentEval } from './intentRun.mjs';
 import { renderIntentReport, summarizeMode } from './intentReport.mjs';
 import { intentModes, parseArgs } from './run.mjs';
@@ -45,10 +45,24 @@ describe('intent checks', () => {
     expect(hunkForTest(PATCH, 'packages/a/__tests__/x.spec.ts > s > other title')).toContain('unrelated line');
     expect(hunkForTest(PATCH, 'nope.ts > s > t')).toMatch(/no hunk/);
   });
+  it('finds the hunk for a file:title test name, also from an absolute container path', () => {
+    const F = 'packages/a/__tests__/x.spec.ts';
+    const colon = hunkForTest(PATCH, `${F}:supports extended emits`);
+    expect(colon).toContain('supports extended emits');
+    expect(colon).not.toContain('unrelated line');
+    expect(hunkForTest(PATCH, `/home/repo/${F}:supports extended emits`)).toContain('supports extended emits');
+    expect(hunkForTest(PATCH, `/home/repo/${F}:<Describe /> group title`)).toContain('unrelated line');
+    expect(hunkForTest(PATCH, F)).toContain('unrelated line');
+    expect(hunkForTest(PATCH, `/home/repoa/__tests__/x.spec.ts:t`)).toMatch(/no hunk/);
+  });
+  it('flags the file and the title of a file:title test name', () => {
+    expect(findLeaks('see parse.tests.ts here', ['tests/parse.tests.ts:Index config value'])).toEqual(['file: tests/parse.tests.ts']);
+    expect(findLeaks('the index config value', ['tests/parse.tests.ts:Index config value'])).toEqual(['test: Index config value']);
+  });
 });
 
 describe('intent judge', () => {
-  const good = JSON.stringify({ tests: [{ test: 'a', coverage: 'covered', scenario: 1, why: 'w' }, { test: 'b', coverage: 'not-in-issue', why: '' }], unsupported: [{ scenario: 2, why: 'u' }] });
+  const good = JSON.stringify({ tests: [{ test: 'a', coverage: 'covered', scenario: 1, why: 'w' }, { test: 'b', coverage: 'missing', why: '' }], unsupported: [{ scenario: 2, why: 'u' }] });
   it('parses fenced JSON and orders by expected tests', () => {
     expect(parseIntentJudge('```json\n' + good + '\n```', ['b', 'a'])).toMatchObject({ ok: true, tests: [{ test: 'b' }, { test: 'a' }] });
   });
@@ -62,6 +76,10 @@ describe('intent judge', () => {
     expect(parseIntentJudge('{"tests":[{"test":"a","coverage":"great"}],"unsupported":[]}', ['a']).error).toMatch(/shape/);
     expect(parseIntentJudge(good, ['a', 'zzz']).error).toMatch(/missing/);
   });
+  it('the charter judge cannot move a test out of the denominator', () => {
+    expect(parseIntentJudge('{"tests":[{"test":"a","coverage":"not-in-issue"}],"unsupported":[]}', ['a']).error).toMatch(/shape/);
+    expect(buildIntentJudgePrompt({ issue: 'I', charter: 'C', tests: [] })).not.toContain('not-in-issue');
+  });
   it('scores covered=1 partial=0.5, excludes not-in-issue, null when nothing countable', () => {
     expect(coverageScore([{ coverage: 'covered' }, { coverage: 'partial' }, { coverage: 'missing' }, { coverage: 'not-in-issue' }]))
       .toMatchObject({ den: 3, pct: 0.5, notInIssue: 1, missing: 1 });
@@ -70,8 +88,65 @@ describe('intent judge', () => {
   it('prompt carries issue, charter and hunks; adapter failure is a judge-error', async () => {
     const p = buildIntentJudgePrompt({ issue: 'ISS', charter: 'CHR', tests: [{ test: 'a', hunk: 'HUNK' }] });
     expect(p).toMatch(/ISS[\s\S]*CHR[\s\S]*HUNK/);
-    const r = await judgeIntent({ runHeadless: async () => { throw new Error('boom'); } }, { issue: 'i', charter: 'c', tests: [], model: 'm', cwd: '/' });
+    const r = await judgeIntent({ runHeadless: async () => { throw new Error('boom'); } }, { issue: 'i', charter: 'c', tests: [], scope: { ok: true, stated: [], notStated: [] }, model: 'm', cwd: '/' });
     expect(r).toEqual({ ok: false, error: 'judge-error: boom' });
+  });
+});
+
+describe('issue scope', () => {
+  const tests = [{ test: 'a', hunk: 'HUNK-A' }, { test: 'b', hunk: 'HUNK-B' }];
+  const scopeReply = JSON.stringify({ tests: [{ test: 'a', inIssue: true, why: 'w' }, { test: 'b', inIssue: false, why: 'w' }] });
+  const coveredA = JSON.stringify({ tests: [{ test: 'a', coverage: 'covered' }], unsupported: [] });
+  const SCOPE = { ok: true, stated: ['a'], notStated: ['b'] };
+
+  it('prompt carries the issue and the hunks, and has no charter section', () => {
+    const p = buildIssueScopePrompt({ issue: 'ISS', tests });
+    expect(p).toMatch(/ISS[\s\S]*HUNK-A[\s\S]*HUNK-B/);
+    expect(p).not.toContain('## CHARTER');
+  });
+  it('parses stated and not-stated tests, and matches a shortened test name', () => {
+    expect(parseIssueScope('```json\n' + scopeReply + '\n```', ['b', 'a'])).toEqual({ ok: true, stated: ['a'], notStated: ['b'] });
+    expect(parseIssueScope('{"tests":[{"test":"leaf","inIssue":true}]}', ['suite > leaf'])).toEqual({ ok: true, stated: ['suite > leaf'], notStated: [] });
+  });
+  it('rejects bad replies as judge-error', () => {
+    expect(parseIssueScope('nope', ['a']).error).toMatch(/no JSON/);
+    expect(parseIssueScope('{"tests":[{"test":"a","inIssue":"yes"}]}', ['a']).error).toMatch(/shape/);
+    expect(parseIssueScope(scopeReply, ['a', 'zzz']).error).toMatch(/missing/);
+  });
+  it('makes no call without tests; adapter failure is a judge-error; passes the effort', async () => {
+    const calls = [];
+    const adapter = { runHeadless: async (o) => { calls.push(o); return { raw: scopeReply }; } };
+    expect(await judgeIssueScope(adapter, { issue: 'i', tests: [], model: 'm', cwd: '/' })).toEqual({ ok: true, stated: [], notStated: [] });
+    expect(calls).toHaveLength(0);
+    expect(await judgeIssueScope(adapter, { issue: 'i', tests, model: 'm', cwd: '/', effort: 'high' })).toEqual(SCOPE);
+    expect(calls[0]).toMatchObject({ model: 'm', effort: 'high', trustCwd: false });
+    const r = await judgeIssueScope({ runHeadless: async () => { throw new Error('boom'); } }, { issue: 'i', tests, model: 'm', cwd: '/' });
+    expect(r).toEqual({ ok: false, error: 'judge-error: issue scope: boom' });
+  });
+  it('a scope reply that does not parse names the step in the error', async () => {
+    const r = await judgeIssueScope({ runHeadless: async () => ({ raw: 'nope' }) }, { issue: 'i', tests, model: 'm', cwd: '/' });
+    expect(r).toEqual({ ok: false, error: 'judge-error: issue scope: no JSON object' });
+  });
+  it('the charter judge sees only stated tests; the others come back as not-in-issue in test order', async () => {
+    const prompts = [];
+    const adapter = { runHeadless: async (o) => { prompts.push(o.prompt); return { raw: coveredA }; } };
+    const r = await judgeIntent(adapter, { issue: 'i', charter: 'c', tests: [tests[1], tests[0]], scope: SCOPE, model: 'm', cwd: '/' });
+    expect(prompts[0]).toContain('HUNK-A');
+    expect(prompts[0]).not.toContain('HUNK-B');
+    expect(r.tests.map((t) => [t.test, t.coverage])).toEqual([['b', 'not-in-issue'], ['a', 'covered']]);
+    expect(coverageScore(r.tests)).toMatchObject({ den: 1, pct: 1, notInIssue: 1 });
+  });
+  it('still judges unsupported scenarios when the issue states no test', async () => {
+    const adapter = { runHeadless: async () => ({ raw: '{"tests":[],"unsupported":[{"scenario":1}]}' }) };
+    const r = await judgeIntent(adapter, { issue: 'i', charter: 'c', tests, scope: { ok: true, stated: [], notStated: ['a', 'b'] }, model: 'm', cwd: '/' });
+    expect(r.unsupported).toHaveLength(1);
+    expect(coverageScore(r.tests).pct).toBeNull();
+  });
+  it('a failed scope is a judge-error for the charter, with no charter call', async () => {
+    const calls = [];
+    const r = await judgeIntent({ runHeadless: async (o) => { calls.push(o); return { raw: '' }; } }, { issue: 'i', charter: 'c', tests, scope: { ok: false, error: 'judge-error: x' }, model: 'm', cwd: '/' });
+    expect(r).toEqual({ ok: false, error: 'judge-error: x' });
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -90,10 +165,36 @@ describe('intent cli + runner', () => {
 
   const item = { id: 'i1', title: 'T', type: 'fix', brief: 'issue text', f2p: [T1], testPatch: PATCH };
   const judgeReply = JSON.stringify({ tests: [{ test: T1, coverage: 'partial', scenario: 1, why: 'half' }], unsupported: [] });
-  const run = (modes, intent, improve = async () => 'IMPROVED') => runIntentEval({
+  const scopeReply = JSON.stringify({ tests: [{ test: T1, inIssue: true, why: 'stated' }] });
+  const judgeRaw = (prompt) => (String(prompt).includes('## CHARTER') ? judgeReply : scopeReply);
+  const run = (modes, intent, improve = async () => 'IMPROVED', judgeCalls = []) => runIntentEval({
     opts: { runs: 2, model: 'm', judgeModel: 'j' }, items: [item], modes, improve, intent,
-    adapter: { runHeadless: async () => ({ raw: '' }) }, judgeAdapter: { runHeadless: async () => ({ raw: judgeReply }) },
+    adapter: { runHeadless: async () => ({ raw: '' }) },
+    judgeAdapter: { runHeadless: async (o) => { judgeCalls.push(o); return { raw: judgeRaw(o.prompt) }; } },
     makeEmptyDir: () => '/nonexistent-eval-dir',
+  });
+
+  it('does not keep a failed issue scope: the next charter of the case asks again', async () => {
+    const judgeCalls = [];
+    const a = await runIntentEval({
+      opts: { runs: 2, model: 'm', judgeModel: 'j' }, items: [item], modes: [{ name: 'raw', kind: 'raw' }],
+      improve: async () => 'IMPROVED', intent: async () => ({ text: CHARTER, degraded: false }),
+      adapter: { runHeadless: async () => ({ raw: '' }) },
+      judgeAdapter: { runHeadless: async (o) => { judgeCalls.push(o); return { raw: judgeCalls.length === 1 ? 'nope' : judgeRaw(o.prompt) }; } },
+      makeEmptyDir: () => '/nonexistent-eval-dir',
+    });
+    expect(a[0].judge).toEqual({ ok: false, error: 'judge-error: issue scope: no JSON object' });
+    expect(a[1].judge.ok).toBe(true);
+    expect(judgeCalls).toHaveLength(3);
+  });
+  it('decides the issue scope once for a case over all modes and runs', async () => {
+    const judgeCalls = [];
+    const modes = [{ name: 'raw', kind: 'raw' }, { name: 'improved:builtin', kind: 'improved', body: null }];
+    const a = await run(modes, async () => ({ text: CHARTER, degraded: false }), async () => 'IMPROVED', judgeCalls);
+    expect(a).toHaveLength(4);
+    expect(judgeCalls.filter((c) => !c.prompt.includes('## CHARTER'))).toHaveLength(1);
+    expect(judgeCalls.filter((c) => c.prompt.includes('## CHARTER'))).toHaveLength(4);
+    expect(a.every((x) => x.judge.ok)).toBe(true);
   });
 
   it('raw mode: intent gets brief only, test data never reaches it', async () => {
@@ -121,11 +222,11 @@ describe('intent cli + runner', () => {
       improve: async (_a, input) => { seen.push(input); return 'IMPROVED'; },
       intent: async (_a, input) => { seen.push(input); return { text: CHARTER, degraded: false }; },
       adapter: { runHeadless: async () => ({ raw: '' }) },
-      judgeAdapter: { runHeadless: async (input) => { judgeCalls.push(input); return { raw: judgeReply }; } },
+      judgeAdapter: { runHeadless: async (input) => { judgeCalls.push(input); return { raw: judgeRaw(input.prompt) }; } },
       makeEmptyDir: () => '/nonexistent-eval-dir',
     });
     expect(seen.map((x) => x.effort)).toEqual(['low', 'low']);
-    expect(judgeCalls[0].effort).toBe('high');
+    expect(judgeCalls.map((c) => c.effort)).toEqual(['high', 'high']);
   });
   it('sends no effort when no effort is set', async () => {
     const seen = [];

@@ -45,7 +45,7 @@ export function summarizeMode(attempts) {
 export function renderIntentReport({ meta, items, attempts }) {
   const out = ['# Form intent eval', ''];
   out.push(`- pass: intent; provider ${meta.provider}; model \`${meta.model}\`; judge \`${meta.judgeModel}\`; runs ${meta.runs}; started ${meta.startedAt}`);
-  out.push('- F2P coverage: covered=1, partial=0.5; only tests whose behaviour the ISSUE states count (`not-in-issue` leaves the denominator). Spread = sd over runs.');
+  out.push('- F2P coverage: covered=1, partial=0.5; only tests whose behaviour the ISSUE states count (`not-in-issue` leaves the denominator; the judge decides it once per case, without a charter). Spread = sd over runs.');
   out.push('- judge-errors are counted and excluded, never 0; `pending` = not reported. Function/API identifiers are info only, not a violation. Leaks should be 0 (proves the guard).', '', '## Per source mode', '');
   out.push(table(
     ['source', 'calls', 'call errors', 'F2P coverage', 'sd', 'missing', 'not-in-issue', 'unsupported/charter', 'parse first/nudged/degraded', 'scenarios', 'non-GWT', 'charters w/ paths', 'leaks', 'judge errors', 'tokens/call', 's/call'],

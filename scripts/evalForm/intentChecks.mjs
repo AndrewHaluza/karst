@@ -26,8 +26,10 @@ export function parseOutcome({ text, degraded }, calls) {
 export const scenarioLines = (text) =>
   (text.split(/^## Scenarios[ \t]*$/m)[1] ?? '').split(/^## /m)[0].split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- '));
 
-const testFile = (t) => t.split(' > ')[0];
-const testTitle = (t) => t.split(' > ').at(-1);
+// F2P names have two forms: `file > suite > title` and `file:title`. The file can be an absolute container path.
+const COLON_TEST = /^(\S+?\.[cm]?[jt]sx?):(.+)$/;
+const testFile = (t) => t.match(COLON_TEST)?.[1] ?? t.split(' > ')[0];
+const testTitle = (t) => t.match(COLON_TEST)?.[2] ?? t.split(' > ').at(-1);
 
 /** F2P file paths or test titles appearing in the charter = leak flag (the guard should make this impossible). */
 export function findLeaks(text, f2p) {
@@ -71,7 +73,9 @@ export const MAX_HUNK_CHARS = 3000;
 
 /** The test_patch part for one F2P test: hunks of its file that mention its title, else the file's diff head. */
 export function hunkForTest(patch, test) {
-  const sec = splitDiff(patch).get(testFile(test));
+  const files = splitDiff(patch);
+  const file = testFile(test);
+  const sec = files.get(file) ?? [...files].find(([path]) => file.endsWith(`/${path}`))?.[1];
   if (!sec) return '(no hunk found in test_patch)';
   const hunks = sec.split(/^(?=@@ )/m);
   const header = hunks[0];

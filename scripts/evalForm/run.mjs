@@ -16,7 +16,7 @@ import { renderDraftReport } from './draftReport.mjs';
 import { runDraftEval } from './draftRun.mjs';
 import { gitRunner } from './draftChecks.mjs';
 import { parseJsonl } from './inputs.mjs';
-import { DEFAULT_JUDGE_EFFORT, DEFAULT_SEED, buildJobs, collectResultFiles, loadCaseMap, loadInstanceMap, pool, runRejudge } from './rejudge.mjs';
+import { DEFAULT_JUDGE_EFFORT, DEFAULT_SEED, buildJobs, collectResultFiles, countJudgeCalls, loadCaseMap, loadInstanceMap, pool, runRejudge } from './rejudge.mjs';
 import { renderRejudgeReport } from './rejudgeReport.mjs';
 import { renderPlanRatings, renderPlanReport } from './planReport.mjs';
 import { makeWork, runPlanEval } from './planRun.mjs';
@@ -274,7 +274,11 @@ async function mainRejudge(opts) {
   const results = collectResultFiles(opts.rejudge);
   const entries = pool(results, { seed: opts.seed, cases: loadCaseMap(opts.cases), instances: loadInstanceMap(opts.instances) });
   const jobs = buildJobs(entries, opts.judgeModels, opts.seed);
-  if (opts.dryRun) { console.log(`judge calls: ${jobs.length} (${jobs.length / opts.judgeModels.length} attempts x ${opts.judgeModels.length} judge(s))`); return; }
+  if (opts.dryRun) {
+    const { attempts, scopes, total } = countJudgeCalls(jobs);
+    console.log(`judge calls: ${total} (${attempts / opts.judgeModels.length} attempts x ${opts.judgeModels.length} judge(s), ${scopes} issue scope call(s))`);
+    return;
+  }
   const { resolveAdapter } = await import('../../src/agent/registry.ts');
   const adapters = opts.judgeModels.map((_, j) => { const p = opts.judgeProviders[j] ?? opts.judgeProviders[0] ?? 'claude'; return resolveAdapter(p === 'opencode' ? 'opencode2' : p); });
   const { stopped } = await runRejudge({ jobs, judges: opts.judgeModels, adapters, effort: opts.judgeEffort, maxCalls: opts.maxCalls, onProgress: (d, n) => console.error(`judged ${d}/${n}`) });
