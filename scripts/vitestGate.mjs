@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { changedSince, git as gitFn, mergeBase } from './gateScope.mjs';
+import { isCleanRun, loadPassInput, planScope, gitDirOf, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
 const git = gitFn;
@@ -67,11 +68,13 @@ function run(cmd, args, cwd) {
     }
     const child = spawn(execCmd, execArgs, { cwd, env });
     let timer;
+    let hung = false;
     const arm = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
         const last = out.trimEnd().split('\n').slice(-3).join(' | ');
         console.error(`gate hang: no output for ${Math.round(IDLE_MS / 1000)}s; killing vitest. Last output: ${last}`);
+        hung = true;
         child.kill('SIGKILL');
       }, IDLE_MS);
     };
@@ -83,10 +86,10 @@ function run(cmd, args, cwd) {
     arm();
     child.stdout.on('data', sink(process.stdout));
     child.stderr.on('data', sink(process.stderr));
-    child.on('error', () => (clearTimeout(timer), done({ status: 127, out })));
-    child.on('close', (status) => {
+    child.on('error', () => (clearTimeout(timer), done({ status: 127, out, hung, signaled: false })));
+    child.on('close', (status, signal) => {
       clearTimeout(timer);
-      done({ status: status ?? 1, out });
+      done({ status: status ?? 1, out, hung, signaled: signal !== null });
     });
   });
 }
@@ -180,11 +183,70 @@ async function flakeCheck(cwd, args, ids) {
   return breaks.length === 0;
 }
 
-const args = process.argv.slice(2);
-const first = await run(args[0], args.slice(1), process.cwd());
-for (const line of slowestLines(first.out)) console.error(line);
-if (first.status === 0) process.exit(0);
-const remaining = await judge(process.cwd(), args, first.out).catch(() => null);
-if (remaining === null || remaining.length === 0) process.exit(remaining === null ? first.status : 0);
-const ok = await flakeCheck(process.cwd(), args, remaining).catch(() => false);
-process.exit(ok ? 0 : first.status);
+/** The vitest args for a narrowed pass: `run` becomes `related --run --passWithNoTests`, then the files. Null when there is no `run`. */
+export function scopedArgs(args, files) {
+  const at = args.indexOf('run');
+  if (at === -1) return null;
+  return [...args.slice(0, at), 'related', ...args.slice(at + 1), '--run', '--passWithNoTests', ...files];
+}
+
+/** Decide the scope of this pass and print its one line. Never throws: any trouble makes the pass full. */
+async function planPass(cwd, args, key) {
+  const base = (await mergeBase(cwd)).sha;
+  const dir = await gitDirOf(cwd);
+  const tree = base === null || dir === null ? null : await snapshotTree(cwd);
+  const store = tree === null ? null : { dir, tree, base };
+  if (store === null) {
+    console.error('full: no merge base or tree snapshot, so the run cannot be stored');
+    return { store, runArgs: args, files: null };
+  }
+  const input = await loadPassInput(cwd, dir, key, base, tree);
+  const plan = planScope({ ...input, force: process.env.KARST_GATE_FULL === '1' });
+  if (plan.kind === 'full') {
+    console.error(scopeLine('', plan));
+    return { store, runArgs: args, files: null };
+  }
+  const files = [...new Set([...plan.paths, ...plan.failed])];
+  const runArgs = files.length === 0 ? args : scopedArgs(args, files);
+  if (runArgs === null) {
+    console.error('full: the vitest args have no run command to narrow');
+    return { store, runArgs: args, files: null };
+  }
+  console.error(scopeLine(process.env.npm_lifecycle_event ?? 'vitest', { ...plan, count: files.length }));
+  return { store, runArgs, files };
+}
+
+/** Store what this run covered. A failed file stays failed for the next pass even when the base check or the flake re-run excused it. */
+function storeRun(store, key, first) {
+  if (store === null) return;
+  const ids = failingTestIds(first.out);
+  const clean = isCleanRun({ status: first.status, hung: first.hung, signaled: first.signaled, parsedAllFailures: first.status === 0 || allFailuresParsed(first.out, ids) });
+  writeState(store.dir, key, { tree: store.tree, base: store.base, clean, failed: clean ? [...new Set(ids.map(fileOfId))] : [] });
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const cwd = process.cwd();
+  const key = stateKey(args);
+  const pass = await planPass(cwd, args, key).catch((error) => {
+    console.error(`full: scope planning failed: ${error.message}`);
+    return { store: null, runArgs: args, files: null };
+  });
+  if (pass.files !== null && pass.files.length === 0) {
+    storeRun(pass.store, key, { status: 0, out: '', hung: false, signaled: false });
+    process.exit(0);
+  }
+  const first = await run(pass.runArgs[0], pass.runArgs.slice(1), cwd);
+  for (const line of slowestLines(first.out)) console.error(line);
+  const finish = (code) => {
+    storeRun(pass.store, key, first);
+    process.exit(code);
+  };
+  if (first.status === 0) finish(0);
+  const remaining = await judge(cwd, args, first.out).catch(() => null);
+  if (remaining === null || remaining.length === 0) finish(remaining === null ? first.status : 0);
+  const ok = await flakeCheck(cwd, args, remaining).catch(() => false);
+  finish(ok ? 0 : first.status);
+}
+
+if (process.argv[1] && process.argv[1].endsWith('vitestGate.mjs')) await main();

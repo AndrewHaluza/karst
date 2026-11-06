@@ -17,6 +17,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - DONE MEANS MERGED
 - A ticket waiting to land is BLOCKED, not pending
 - Gate results and reported phases are append-only evidence
+- A repeat UAT pass runs only the test delta
 - Evidence is written WHEN IT HAPPENS
 - Gate output is a LIVE stream and a post-run artifact
 - A gate may be switched off for ONE ticket
@@ -94,6 +95,22 @@ A full `semgrep` run over `src` per ticket took most of the review gate time and
 
 **Contract.** Each gate prints one scope line (`N files`, or `full` with the reason). A missing binary exits 127 and names the tool, so the gate parks as capability-missing (@arch:GATE-CAPABILITY). Any other exit code is the tool's. The gates are declared as `kind: command` with `npm run -s <script>`, so a stale branch gets the rebase park and not a false failure (@arch:DISCOVERY). The CI job `full-scan` (`.github/workflows/ci.yml`) runs the full scans with pinned tool versions on push to develop and on the schedule, never on pull requests.
 END_DOC_BLOCK: [@arch:GATE-SCOPED]
+
+## [@arch:GATE-REPEAT] A repeat UAT pass runs only the test delta, and the visual sweep is skipped when no UI path changed
+covers: scripts/gateState.mjs, scripts/vitestGate.mjs, scripts/dockerGate.mjs
+
+About 70% of UAT passes repeat the pass of a ticket, and each one ran the full suites again. The first pass stays full. A later pass narrows to what changed. CI remains the full backstop.
+
+**State.** After a completed run, the gate stores a state file under the git directory of the worktree (`karst-gate-state/<key>.json`, so it works in a host worktree and in a sandbox clone, and needs no store schema change). The key is the hash of the gate args. The state holds the tree snapshot, the merge base, a `clean` flag and the failed test files. The snapshot is taken BEFORE the run with a temporary `GIT_INDEX_FILE`, `git add -A` and `git write-tree`. The real index and the working tree are never touched. A file that the gate judged as base drift or flake still counts as failed for the next pass.
+
+**Unit and integration (`scripts/vitestGate.mjs`).** A later pass with valid state compares the snapshot with the current tree and runs `vitest related --run --passWithNoTests` on the changed code files under `src`, plus the stored failed files, through the same `run`, base check and flake logic. A docs-only delta selects no test and exits 0.
+
+**Full run.** The pass is full, with `full: <reason>` printed, when: there is no state; the state is unreadable or the snapshot object is missing; the merge base moved; a file was deleted or renamed; a lockfile, `package.json`, `tsconfig*.json`, `vitest*.config.*` or `scripts/vitest-*` changed; a path outside `src` and `docs` changed; a non-code file under `src` changed; the earlier run was killed, hung, or had failures that the gate could not parse; or `KARST_GATE_FULL=1` is set. Exit codes, the 137 handling and the worker retry are the same as on a full pass.
+
+**Visual and layout (`scripts/dockerGate.mjs`).** Only `test:visual:docker` and `test:layout:docker` store state, and only after a green run. A failed run stores no green state. A later pass with the same merge base and a delta that holds no UI path (`isUiPath` in `scripts/uiViews.mjs`, the paths `selectViews` counts) prints `skipped: no UI change since <sha>` and exits 0. Otherwise the sweep narrows as before, on the full branch diff. A seed, prune, update or externally scoped (`KARST_UI_GREP`) run never skips and never stores.
+
+**Scope line.** Each pass prints one line: `<gate>: N files, delta since <sha>`, `full: <reason>` or `skipped: no UI change since <sha>`. A scoped run therefore reads as scoped in the gate output and artifact (@arch:GATE-OUTPUT).
+END_DOC_BLOCK: [@arch:GATE-REPEAT]
 
 ## [@arch:EVIDENCE-WHEN] Evidence is written WHEN IT HAPPENS, not when the run ends
 

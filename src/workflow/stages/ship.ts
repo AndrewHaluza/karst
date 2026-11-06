@@ -86,6 +86,7 @@ import {
   divergedReason,
   isNonFastForward,
   manualLeaseCommand,
+  pushWithServerErrorRetry,
   type ForeignCommit,
 } from './shipPushRecovery.js';
 import { checkMergeable } from '../mergeCheck.js';
@@ -176,7 +177,11 @@ export interface ShipOpts {
    * commits.
    */
   deliverToOpenPr?: boolean;
+  /** Waits `ms` before the one push retry after a GitHub server error. Absent → a real timer; tests inject a fake. */
+  wait?: (ms: number) => Promise<void>;
 }
+
+const defaultWait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface ShippedPr {
   repo: string;
@@ -1345,7 +1350,21 @@ export async function shipTicket(
           let diverged: { originSha: string; commits: ForeignCommit[] } | undefined;
           try {
             try {
-              await pushBranch(git, wt.path, { forceWithLease: lease });
+              await pushWithServerErrorRetry(
+                git,
+                wt.path,
+                { forceWithLease: lease },
+                {
+                  wait: opts.wait ?? defaultWait,
+                  onRetry: () =>
+                    onProgress({
+                      repo: wt.repo,
+                      step: 'push',
+                      status: 'note',
+                      detail: 'GitHub returned a server error; ship retries the push',
+                    }),
+                },
+              );
             } catch (pushErr) {
               // A plain push rejected as non-fast-forward: an agent rewrote the
               // branch without arming a lease. Classify origin before giving up.

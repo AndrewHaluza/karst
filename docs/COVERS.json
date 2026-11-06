@@ -15,7 +15,8 @@
     "arch:MAP-00"
   ],
   "scripts/dockerGate.mjs": [
-    "arch:GATE-CAPABILITY"
+    "arch:GATE-CAPABILITY",
+    "arch:GATE-REPEAT"
   ],
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
@@ -50,6 +51,9 @@
   ],
   "scripts/gateScope.mjs": [
     "arch:GATE-SCOPED"
+  ],
+  "scripts/gateState.mjs": [
+    "arch:GATE-REPEAT"
   ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
@@ -112,6 +116,9 @@
   ],
   "scripts/uat-host/run.mjs": [
     "arch:UATHOST-01"
+  ],
+  "scripts/vitestGate.mjs": [
+    "arch:GATE-REPEAT"
   ],
   "src/agent/cliEnv.ts#cliTokensFor": [
     "arch:CLI-10"

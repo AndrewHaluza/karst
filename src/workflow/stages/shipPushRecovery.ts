@@ -1,11 +1,52 @@
 import type { GitRunner } from '../../integrations/git.js';
-import { remoteRefSha } from '../../integrations/git.js';
+import { pushBranch, remoteRefSha, type PushBranchOptions } from '../../integrations/git.js';
 
 /** Matches git's rejection of a push that is not a fast-forward of the remote ref. */
 const NON_FAST_FORWARD = /non-fast-forward|fetch first|tip of your current branch is behind/i;
 
 export function isNonFastForward(err: unknown): boolean {
   return NON_FAST_FORWARD.test(err instanceof Error ? err.message : String(err));
+}
+
+/** Matches GitHub's temporary server-side refusal, e.g. `remote: fatal error in commit_refs_rules`. */
+const REMOTE_SERVER_ERROR = /remote rejected/i;
+const FATAL_ERROR = /fatal error/i;
+
+/** True only when the message holds both `remote rejected` and `fatal error`. */
+export function isRemoteServerError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return REMOTE_SERVER_ERROR.test(message) && FATAL_ERROR.test(message);
+}
+
+/** Delay before the one retry of a push that GitHub refused with a server error. */
+export const PUSH_SERVER_ERROR_RETRY_DELAY_MS = 30_000;
+
+export interface PushRetryDeps {
+  /** Waits `ms`; injected so a test does not wait for real time. */
+  wait: (ms: number) => Promise<void>;
+  /** Called once, before the wait. */
+  onRetry: () => void;
+}
+
+/**
+ * Push, and push one more time after a delay when GitHub returns a remote
+ * server error (`isRemoteServerError`). Maximum 2 attempts, same options each
+ * time; the error of the last attempt propagates.
+ */
+export async function pushWithServerErrorRetry(
+  git: GitRunner,
+  cwd: string,
+  opts: PushBranchOptions,
+  deps: PushRetryDeps,
+): Promise<void> {
+  try {
+    await pushBranch(git, cwd, opts);
+  } catch (err) {
+    if (!isRemoteServerError(err)) throw err;
+    deps.onRetry();
+    await deps.wait(PUSH_SERVER_ERROR_RETRY_DELAY_MS);
+    await pushBranch(git, cwd, opts);
+  }
 }
 
 export interface ForeignCommit {
