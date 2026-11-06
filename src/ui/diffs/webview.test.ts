@@ -223,7 +223,7 @@ function chipDouble(id: string): { id: string; attrs: Record<string, string> } &
   });
 }
 
-function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknown }): Harness {
+function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknown; karstPanel?: { ticketId: number } }): Harness {
   const posted: unknown[] = [];
   const saved: unknown[] = [];
   const summary = { textContent: '' };
@@ -814,15 +814,25 @@ describe('ticket changes webview protocol', () => {
     const harness = boot();
     const state = stateOf([worktreeView()], { commitCount: 0, pendingCount: 0 });
     harness.receive({ type: 'loading', state });
-    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'tree' });
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'tree', karstPanel: { ticketId: state.ticketId } });
 
     harness.clickView('flat');
-    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'flat' });
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'flat', karstPanel: { ticketId: state.ticketId } });
 
     const reloaded = boot({ state, loading: true, viewMode: 'flat' });
     expect(reloaded.refresh.disabled).toBe(true);
     expect(reloaded.summary.textContent).toBe('1 worktrees · 0 commits · 0 pending');
     expect(reloaded.repos.innerHTML).toContain('<strong>api</strong>');
+  });
+
+  it('records the host-named ticket as the panel identity before any state arrives, and keeps a restored one', () => {
+    const harness = boot();
+    harness.receive({ type: 'loading', state: null, ticketId: 41 });
+    expect(harness.saved.at(-1)).toMatchObject({ karstPanel: { ticketId: 41 } });
+
+    const reloaded = boot({ state: null, loading: true, viewMode: 'tree', karstPanel: { ticketId: 41 } });
+    reloaded.clickView('flat');
+    expect(reloaded.saved.at(-1)).toMatchObject({ viewMode: 'flat', karstPanel: { ticketId: 41 } });
   });
 
   it('keeps the loading flag across a filter keystroke without re-querying the host', () => {

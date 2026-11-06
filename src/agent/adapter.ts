@@ -166,6 +166,15 @@ export interface HeadlessResult {
   verdict: unknown;
   raw: string;
   /**
+   * The text of the LAST assistant message that has text, for cores whose `raw`
+   * joins narration with the answer (opencode, opencode2). Absent → `raw` is
+   * the answer. claude, codex and antigravity leave it unset on purpose
+   * (@arch:AC-08): codex already keeps only the last agent_message, and claude
+   * and antigravity already return the final answer as `raw`. `raw` stays
+   * unchanged, since re-asks quote it.
+   */
+  finalMessage?: string;
+  /**
    * Token counts the core reported for this run, parsed by the adapter from the
    * SAME stdout it read the answer out of. Absent means the core said nothing —
    * the instrumented wrapper decides whether that is worth an estimate. It is

@@ -1,6 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { SCHEMA_VERSION } from '../store/schemaVersion.js';
 
+/** Older registry: only the extension migrates, and only when it loads this build. */
+const RELOAD_HINT =
+  'Reload every IDE window that runs Karst, so that the extension loads this build ' +
+  'and migrates the registry, then retry.';
+
+/** Newer registry: a reload cannot downgrade it, so the CLI build must change. */
+const UPDATE_HINT =
+  'Update the CLI build to match the registry, then retry. A reload cannot downgrade a registry.';
+
 /**
  * Fail with an actionable message when the registry predates this CLI build.
  *
@@ -15,7 +24,7 @@ export function assertMigratedSchema(db: DatabaseSync, dbPath: string): void {
   if (version < SCHEMA_VERSION) {
     throw new Error(
       `karst registry at ${dbPath} is schema v${version}, but this build needs ` +
-        `v${SCHEMA_VERSION}. Open the Karst extension once to migrate it, then retry.`,
+        `v${SCHEMA_VERSION}. ${RELOAD_HINT}`,
     );
   }
 }
@@ -33,9 +42,10 @@ export function assertExactSchema(db: DatabaseSync, dbPath: string): void {
   const row = db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
   const version = row?.user_version ?? 0;
   if (version !== SCHEMA_VERSION) {
+    const hint = version > SCHEMA_VERSION ? UPDATE_HINT : RELOAD_HINT;
     throw new Error(
       `karst registry at ${dbPath} is schema v${version}, but this build requires ` +
-        `exactly v${SCHEMA_VERSION}. Open the Karst extension once to migrate it, then retry.`,
+        `exactly v${SCHEMA_VERSION}. ${hint}`,
     );
   }
 }

@@ -69,7 +69,8 @@ sequenceDiagram
 ### Fallbacks
 | Trigger | Behaviour | Recovery |
 |---|---|---|
-| Registry version behind `SCHEMA_VERSION` | `assertMigratedSchema` fails fast naming file and versions | Operator updates extension or runs migrations in IDE window |
+| Registry version behind `SCHEMA_VERSION` | `assertMigratedSchema` fails fast naming file and versions | Operator reloads every IDE window that runs Karst, so the extension loads this build and migrates the registry; then retries |
+| Registry ahead of `SCHEMA_VERSION` on a graph verb | `assertExactSchema` fails fast naming file and versions | Operator updates the CLI build; a reload cannot downgrade a registry |
 | Database write lock held by extension | `openWritableStore` waits out lock via 5 s `busy_timeout` | Automatically retries and succeeds once host transaction commits |
 | Ambiguous ticket key matches multiple rows | Refuses with error naming candidate IDs | Pass `--manifest` to scope to project, or specify numeric ticket ID |
 | `KARST_TICKET` unset on sender-attested verbs | Refuses execution (`message`, `inbox`, `notes post`, `fix-brief --ack`) | Session exports matching `KARST_TICKET` or operator sets it explicitly |
@@ -131,7 +132,7 @@ END_DOC_BLOCK: [@arch:CLI-07]
 ## [@arch:CLI-08] The CLI cannot migrate
 covers: src/cli/assertMigrated.ts#assertMigratedSchema, src/cli/assertMigrated.ts#assertExactSchema
 
-(it opens with `node:sqlite`, read-only for `context`). Both CLI stores assert `user_version >= SCHEMA_VERSION` up front (`cli/assertMigrated.ts`) and fail naming the file and both versions — otherwise a stale registry surfaces as a raw `no such column: repo` that tells the invoking agent nothing.
+(it opens with `node:sqlite`, read-only for `context`). Both CLI stores assert `user_version >= SCHEMA_VERSION` up front (`cli/assertMigrated.ts`) and fail naming the file and both versions — otherwise a stale registry surfaces as a raw `no such column: repo` that tells the invoking agent nothing. The error for an older registry says to reload every IDE window that runs Karst, so the extension loads this build and migrates the registry, then retry: opening the extension is not enough when its host runs stale code. The graph verbs use `assertExactSchema` (registry must equal `SCHEMA_VERSION`); for a NEWER registry it says to update the CLI build, because a reload cannot downgrade a registry.
 
 `dist/cli/main.js` is a second, separately bundled esbuild entrypoint (`scripts/build-extension.mjs`, alongside `dist/extension.js`), and `scripts/verify-build.mjs` smoke-runs `guide` after every build to catch it going missing.
 END_DOC_BLOCK: [@arch:CLI-08]

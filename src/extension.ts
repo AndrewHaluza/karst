@@ -17,7 +17,7 @@ import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
-import * as vscode from 'vscode';
+import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -291,6 +291,7 @@ import {
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
+import { guardHookNotify, refuseForeignProjectTicket } from './extension/ops/foreignProject.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { interruptImplementationRun } from './store/implementationRuns.js'; import { bindMemory, hostSbxMemory, type MemoryBinding } from './extension/memoryBinding.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
@@ -596,6 +597,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
+  let doctorWiring: ReturnType<typeof registerDoctorCommand>; const restoreGate = new RestoreGate((m) => logger.debug(m), (m, e) => logger.warn(`${m}: ${String(e)}`), 120_000); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -613,7 +615,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showErrorMessage(
       fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
     );
-    return;
+    return restoreGate.fail();
   }
   const localStore = store;
   registerProbeCommand(context, probeRecorder, () => store!, { deactivate, activate: () => activate(context) });
@@ -981,7 +983,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // never auto-drives a fix ticket, and `interrupted` is only ever true for
       // a round the interrupt above actually settled. Anything else takes the
       // normal gate-trigger path.
-      if (interrupted) {
+      if (interrupted && !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'session-closed', (m) => logger.info(m))) {
         logger.info(`stage driver: ticket ${ticketId} fix round interrupted — driving to reopen within budget`);
         void driveTicket(ticketId);
       } else {
@@ -1499,7 +1501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const gettingStarted = new GettingStartedManager(
     loadGettingStartedState,
-    makeGettingStartedPanelHost(context, brandIcon),
+    restoreHosts.track('gettingStartedHost', makeGettingStartedPanelHost(context, brandIcon)),
     buildGettingStartedActions({
       scaffoldManifest,
       setDismissed: () => void context.workspaceState.update(GETTING_STARTED_DISMISSED_KEY, true),
@@ -2182,7 +2184,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const settings = new SettingsManager(
     loadSettingsState,
     () => manifestPathOrThrow(),
-    makeSettingsPanelHost(context, brandIcon),
+    restoreHosts.track('settingsHost', makeSettingsPanelHost(context, brandIcon)),
     buildSettingsActions({
       writeManifest,
       reloadManifest,
@@ -2523,7 +2525,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const changes = new TicketChangesManager(
-    makeChangesPanelHost(context, brandIcon),
+    restoreHosts.track('changesHost', makeChangesPanelHost(context, brandIcon)),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
       return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
@@ -2616,7 +2618,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
-  const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context, brandIcon), {
+  const tokenUsagePanel = new UsagePanelManager(localStore, restoreHosts.track('usageHost', makeUsagePanelHost(context, brandIcon)), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
@@ -2696,7 +2698,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
   });
   const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
-  const resourcesPanel = new ResourcesPanelManager(makeResourcesPanelHost(context, brandIcon), {
+  const resourcesPanel = new ResourcesPanelManager(restoreHosts.track('resourcesHost', makeResourcesPanelHost(context, brandIcon)), {
     monitor: resourceMonitorInstance,
     disk: resourcesDisk,
     worktreePaths: () => {
@@ -2907,7 +2909,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
-    makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
+    restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -3497,7 +3499,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // seam lives in `workflow/driveTicket.ts`, which imports no vscode and is
   // therefore the only version of this logic under test.
   async function driveTicket(ticketId: number): Promise<void> {
-    if (!driver.begin(ticketId)) return; // a run is already in flight
+    if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'drive', (m) => logger.info(m)) || !driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
@@ -3506,7 +3508,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await driveTicketRun(
         {
           store: localStore,
-          manifest: currentManifest,
+          manifest: currentManifest, hostContext: () => `manifest ${cliEntryAndManifest(context).manifestPath ?? 'unknown'}, project ${currentProject()?.slug ?? 'unknown'}`,
           artifactDirFor,
           // Only a fallback: with a manifest, runUat plans its own multi-repository
           // targets and this path is not what decides where gates run.
@@ -3726,6 +3728,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // strands just because one trigger (e.g. an unreachable SessionEnd hook) was missed.
   let gateToolsWarned = false;
   const maybeDrive = (ticketId: number, trigger: string): void => {
+    if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, trigger, (m) => logger.info(m))) return;
     const t = getTicket(localStore, ticketId);
     // Paused is the FIRST gate: a paused ticket must not spend a process, a
     // token, or a terminal on any trigger — hook, sweep, session close, or an
@@ -3762,7 +3765,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The notify/barrier/provider closures are shared verbatim with the agy
   // conversation watch below: a watch event is a hook event, and the two
   // channels must never disagree about ownership, refresh or the generation.
-  const notifyHook = (ticketId: number, payload: HookPayload): void => {
+  const notifyHookUnguarded = (ticketId: number, payload: HookPayload): void => {
     // UsageUpdate changes only the token ledger. Refresh the two surfaces that
     // read it, then stop: usage is not lifecycle activity and must never kick
     // the stage driver or alter session ownership.
@@ -3797,9 +3800,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
-  };
-  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
-    shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
@@ -6018,7 +6020,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const dismissed = context.workspaceState.get<boolean>(GETTING_STARTED_DISMISSED_KEY) === true;
     if (!manifestExists && !dismissed) {
-      gettingStarted.open();
+      void restoreGate.whenRestored().then(() => gettingStarted.open()); // after restore: a restored tab is adopted, not replaced
       autoOpenedGettingStarted = true;
     }
   }
@@ -6855,7 +6857,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
-    registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) }),
+    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showAttention', async () => {
       const items = currentAttention();
@@ -6956,6 +6958,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-

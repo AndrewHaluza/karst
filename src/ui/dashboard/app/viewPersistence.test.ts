@@ -88,19 +88,19 @@ describe('ViewPersistence — what is written, and when', () => {
     const { vp, write } = make();
     vp.receive(push(snap(7)));
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith({ state: snap(7), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
+    expect(write).toHaveBeenCalledWith({ state: snap(7), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [], karstPanel: { ticketId: 7 } });
   });
 
   it('writes the restored view state back unchanged on the next push', () => {
     const { vp, write } = make(OLD_ENVELOPE);
     vp.receive(push(snap(8)));
-    expect(write).toHaveBeenCalledWith({ ...OLD_ENVELOPE, state: snap(8) });
+    expect(write).toHaveBeenCalledWith({ ...OLD_ENVELOPE, state: snap(8), karstPanel: { ticketId: 8 } });
   });
 
   it('upgrades a bare snapshot into the envelope on the next push', () => {
     const { vp, write } = make(snap(9));
     vp.receive(push(snap(9)));
-    expect(write).toHaveBeenCalledWith({ state: snap(9), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [] });
+    expect(write).toHaveBeenCalledWith({ state: snap(9), sel: null, shipWait: null, srvFilter: '', artView: null, artScrolls: FRESH_SCROLLS, history: [], karstPanel: { ticketId: 9 } });
   });
 
   it('holds a live repaint without writing it, and the next write carries it', () => {
@@ -109,6 +109,19 @@ describe('ViewPersistence — what is written, and when', () => {
     expect(write).not.toHaveBeenCalled();
     vp.filter('x');
     expect(write).toHaveBeenLastCalledWith(expect.objectContaining({ state: snap(1), srvFilter: 'x' }));
+  });
+
+  it('writes no panel identity before a snapshot is held', () => {
+    const { vp, write } = make();
+    vp.filter('abc');
+    expect(write).not.toHaveBeenCalledWith(expect.objectContaining({ karstPanel: expect.anything() }));
+  });
+
+  it('reads an older envelope without the identity key as before, and adds the key on the next push', () => {
+    expect(readPersisted(OLD_ENVELOPE)).not.toHaveProperty('karstPanel');
+    const { vp, write } = make(OLD_ENVELOPE);
+    vp.receive(push(snap(5)));
+    expect(write).toHaveBeenLastCalledWith(expect.objectContaining({ karstPanel: { ticketId: 5 } }));
   });
 
   it('writes a push whose live flag is false', () => {
@@ -149,7 +162,7 @@ describe('ViewPersistence — what is written, and when', () => {
     const { vp, write } = make(OLD_ENVELOPE);
     expect(write).not.toHaveBeenCalled();
     vp.selection({ sel: null, shipWait: OLD_ENVELOPE.shipWait });
-    expect(write).toHaveBeenCalledWith({ ...OLD_ENVELOPE, sel: null });
+    expect(write).toHaveBeenCalledWith({ ...OLD_ENVELOPE, sel: null, karstPanel: { ticketId: OLD_ENVELOPE.state.ticketId } });
   });
 
   it('writes a filter change even before any snapshot, as the old page did', () => {

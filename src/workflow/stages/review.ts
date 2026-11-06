@@ -109,6 +109,8 @@ export interface RunReviewOpts {
    * and worktrees affected through dependsOn relations are checked.
    */
   manifest?: Manifest;
+  /** Which manifest and project this host used; named in the unmapped-repository reason. */
+  hostContext?: string;
   /** One signal for the whole run, so a Stop reaches the gate in flight. */
   signal?: AbortSignal;
   /**
@@ -420,7 +422,8 @@ export async function runReview(
     if (planned.unmapped.length > 0) {
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
-        'add them to `repositories:` or re-scope the ticket';
+        'add them to `repositories:` or re-scope the ticket' +
+        (opts.hostContext ? ` (${opts.hostContext})` : '');
       opts.debug?.(
         `[gate] review ticket ${opts.ticketId}: zero targets — ${planned.unmapped.length} worktree(s) unmapped`,
       );
@@ -580,7 +583,8 @@ export async function runReview(
       onGateComplete: (name, exitCode, startedAt, endedAt, index, output) => {
         const gate = resolution.gates[index];
         evidence.append([{
-          gateName: `${name} (${label})`,
+          // Index -1 is the regenerate row: its name already carries the repository.
+          gateName: index < 0 ? name : `${name} (${label})`,
           exitCode,
           startedAt,
           endedAt,

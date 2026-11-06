@@ -39,7 +39,7 @@ export interface AgyWatchLoopDeps {
   /** Per-ticket memory of the usage watch (last emitted event id). */
   readonly agyUsageStates: Map<number, AgyUsageState>;
   readonly notifyHook: (ticketId: number, payload: HookPayload) => void;
-  readonly shouldApplyHookState: (ticketId: number, payload: HookPayload) => boolean;
+  readonly shouldApplyHookState: (ticketId: number, payload: HookPayload) => boolean | 'foreign-project';
   readonly sessionProviderFor: (ticketId: number) => AgentProvider | null;
   readonly hookChannelRecorder: HookChannelRecorder;
   readonly debug: (message: string) => void;

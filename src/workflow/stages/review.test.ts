@@ -23,6 +23,7 @@ import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
+import { regenerateGateName } from '../gates/regenerate.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import * as findingsLaneModule from '../review/findingsLane.js';
 import * as reviewSnapshotModule from '../reviewSnapshot.js';
@@ -120,6 +121,29 @@ describe('runReview', () => {
   afterEach(() => {
     store.close();
     rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  it('files the regenerate row with one repository suffix and keeps the suffix on an ordinary gate', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const t = now();
+          const regen = regenerateGateName('web');
+          opts?.onGateComplete?.(regen, 0, t, t, -1, 'ok');
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, 0, t, t, i);
+            return { name: g.name, exitCode: 0, output: 'ok', startedAt: t, endedAt: t };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+    const names = listGateRuns(store, id).map((r) => r.gateName);
+    expect(names).toContain('regenerate (web)');
+    expect(names.some((n) => n.startsWith('regenerate') && n !== 'regenerate (web)')).toBe(false);
+    expect(names).toContain('lint (/wt/web)');
   });
 
   it('every gate green -> advances to ship and records one row per gate', async () => {
@@ -343,6 +367,20 @@ describe('runReview', () => {
     expect(stageBlock(store, id, 'review')?.kind).toBe('unmapped-repository');
     expect(runGates).not.toHaveBeenCalled();
     expect(openDiff).not.toHaveBeenCalled();
+  });
+
+  it('names the manifest and project of the host in the unmapped-repository reason', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}), hostContext: 'manifest /p/karst.yml, project karst' },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: ['/unmapped'] }) }),
+    );
+    expect(res).toMatchObject({ blocker: 'unmapped-repository', reason: expect.stringContaining('manifest /p/karst.yml, project karst') });
   });
 
   it('passes with a note when every repository mapped and none has changes', async () => {

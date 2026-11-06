@@ -47,6 +47,9 @@
   "scripts/evalForm/plan*.mjs": [
     "arch:FORMEVAL-PLAN"
   ],
+  "scripts/gateScope.mjs": [
+    "arch:GATE-SCOPED"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"
@@ -72,6 +75,12 @@
   ],
   "scripts/rebuild-better-sqlite3.mjs#materializeLocalCopyIfNeeded": [
     "arch:ABI-03"
+  ],
+  "scripts/sastGate.mjs": [
+    "arch:GATE-SCOPED"
+  ],
+  "scripts/secretsGate.mjs": [
+    "arch:GATE-SCOPED"
   ],
   "scripts/stage-vsix.mjs": [
     "arch:ABI-00"

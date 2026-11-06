@@ -422,3 +422,36 @@ describe('ResourcesPanelManager', () => {
     expect(state.state.scopeLabel).toBe('Project karst · this window');
   });
 });
+
+describe('ResourcesPanelManager.adopt', () => {
+  const make = () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+    });
+    return { m, p, manager };
+  };
+
+  it('adopts a restored panel: wires the monitor and pushes state without a reveal', () => {
+    const { m, p, manager } = make();
+    const log: string[] = [];
+    expect(manager.adopt({ wrap: () => (log.push('wrap'), p.panel), dispose: () => void log.push('dispose') })).toBe(true);
+    expect(m.setPanelVisible).toHaveBeenCalledWith(true);
+    expect(p.posts.some((x) => x.type === 'state')).toBe(true);
+    expect(p.panel.reveal).not.toHaveBeenCalled();
+    manager.dispose();
+  });
+
+  it('closes a restored duplicate when the slot is held', () => {
+    const { p, manager } = make();
+    manager.open();
+    const log: string[] = [];
+    expect(manager.adopt({ wrap: () => (log.push('wrap'), fakePanel().panel), dispose: () => void log.push('dispose') })).toBe(false);
+    expect(log).toEqual(['dispose']);
+    manager.dispose();
+    void p;
+  });
+});

@@ -47,8 +47,14 @@ describe.each(CREATORS)('%s', (rel) => {
     // file that ends up minting three panels must brand all three.
     const parts = src.split('createWebviewPanel(').slice(1);
     expect(parts.length).toBeGreaterThan(0);
+    // A host may hand the raw panel to a shared configure step (`wrap(` / `adopt(`),
+    // which the restore path reuses; that step must set the icon.
+    const sharedStep = /\b(wrap|adopt)\s*=\s*(async\s*)?\(?[^\n]*=>[\s\S]*?\biconPath\s*=/;
+    const before = src.split('createWebviewPanel(');
     for (const [i, part] of parts.entries()) {
-      expect(part, `panel #${i + 1} in ${rel} has no iconPath`).toMatch(/\biconPath\s*=/);
+      const handedOn = /(?:wrap|adopt)\(\s*(?:vscode\.window\.)?$/.test(before[i]!);
+      const branded = /\biconPath\s*=/.test(part) || (handedOn && sharedStep.test(src));
+      expect(branded, `panel #${i + 1} in ${rel} has no iconPath`).toBe(true);
     }
   });
 });
