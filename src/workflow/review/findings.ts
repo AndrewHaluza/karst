@@ -812,12 +812,6 @@ function isBareFindingObject(value: unknown): boolean {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && !('findings' in value);
 }
 
-/** True when the whole text is one JSON value that CARRIES findings. */
-function isCompleteFindingsDocument(text: string): boolean {
-  const value = tryParseJson(text.trim());
-  return value !== undefined && findingCandidatesFrom(value).strong;
-}
-
 /**
  * The text of a final assistant message when it is one complete findings
  * container (bare, the only content of a single fence, or the complete fenced
@@ -876,13 +870,29 @@ export function parseFindingsResult(
   onTier?: (tier: FindingsExtractionTier) => void,
   finalMessage?: string,
 ): FindingsParseResult {
-  // The final assistant message is tried first (opencode cores join narration
-  // into `raw`). It wins only when it is ONE complete findings container, so a
-  // split or non-JSON final message loses nothing: `raw` is parsed as before.
-  const finalBody = completeFinalBody(finalMessage);
-  if (finalBody !== undefined && !isCompleteFindingsDocument(raw)) {
-    return parseFindingsResult(finalBody, ctx, warn, onTier);
+  // `raw` is always read first, exactly as before. The final assistant message
+  // (opencode cores join narration into `raw`) is only a FALLBACK: it is read
+  // when `raw` held no findings container at all, and then only if it is ONE
+  // complete findings container. It never overrides a `raw` that parsed, so it
+  // cannot hide findings that `raw` carries.
+  // Telemetry reports ONE tier per call: the raw attempt's tier is held back
+  // until it is known the fallback did not replace it.
+  let rawTier: FindingsExtractionTier = 'none';
+  const fromRaw = parseRawFindings(raw, ctx, warn, (t) => { rawTier = t; });
+  const finalBody = fromRaw.shape === 'unreadable' ? completeFinalBody(finalMessage) : undefined;
+  if (finalBody === undefined) {
+    onTier?.(rawTier);
+    return fromRaw;
   }
+  return parseRawFindings(finalBody, ctx, warn, onTier);
+}
+
+function parseRawFindings(
+  raw: string,
+  ctx: ParseFindingsContext,
+  warn: WarnFn,
+  onTier?: (tier: FindingsExtractionTier) => void,
+): FindingsParseResult {
   // The extraction fallback is gated on "the primary read found no container
   // that could CARRY findings" (a `strong` one), NOT on "nothing parsed at all"
   // and NOT on "any array at all". A single narration line that happens to be a
