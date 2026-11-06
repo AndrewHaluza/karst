@@ -72,11 +72,13 @@ const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocke
  * itself, so no flag opens a write path (@arch:CLI-13). Both `runCli` and
  * `runCliAsync` call it, so an async-only write verb is refused too.
  */
-function assertPlanningVerbAllowed(env: Readonly<Record<string, string | undefined>>, rest: readonly string[]): void {
+export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | undefined>>, rest: readonly string[]): void {
   if (env[KARST_PLANNING_SESSION_ENV] === undefined) return;
   const verb = rest[0] ?? '';
   const notesRead = verb === 'notes' && rest.includes('--repos') && !rest.includes('post');
-  if (PLANNING_VERBS.has(verb) || notesRead) return;
+  // `mcp serve` only hosts the tools; each tool call re-enters this guard.
+  const mcpServe = verb === 'mcp' && rest[1] === 'serve';
+  if (PLANNING_VERBS.has(verb) || notesRead || mcpServe) return;
   throw new Error(
     `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, guide, schema, notes --repos)`,
   );
@@ -387,7 +389,8 @@ export function runCli(
     const slug = loadProjectSlug(manifestPath, verbose);
     const store = openReadonlyStore(readDb);
     try {
-      const projectId = slug === undefined ? projectIdFromEnv(env) : getProjectBySlug(store, slug)?.id;
+      // A manifest slug with no project row scopes to nothing (id 0), never to every project.
+      const projectId = slug === undefined ? projectIdFromEnv(env) : (getProjectBySlug(store, slug)?.id ?? 0);
       return runBlockedCommand(store, parsed, {
         ...(projectId === undefined ? {} : { projectId }),
         ...(stallFloor === undefined ? {} : { stallFloor }),

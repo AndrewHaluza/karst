@@ -160,4 +160,11 @@ describe('karst blocked — report', () => {
     ]);
     expect(report.summary).toEqual([{ kind: 'fix-parked', now: 1, before: 0 }]);
   });
+
+  it('counts a park on a ticket that is no longer open as fix-parked before', () => {
+    const t = createTicket(store, { key: 'K-8', title: 'old park' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'fix', { status: 'failed', verdict: 'fix attempts exhausted', endedAt: '2026-11-03T09:00:00.000Z' });
+    expect(collectBlocked(store, scope).summary).toEqual([{ kind: 'fix-parked', now: 0, before: 1 }]);
+  });
 });

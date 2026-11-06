@@ -186,6 +186,18 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     )
     .all(windowStart, new Date(now).toISOString(), ...projectArgs) as { kind: string; n: number }[];
 
+  // Parks on tickets that are no longer open and still carry a park verdict.
+  const parkedBefore = store.db
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM stages s JOIN tickets t ON t.id = s.ticket_id
+        WHERE s.stage_key = 'fix' AND s.status = 'failed' AND s.blocked_kind IS NULL
+          AND s.verdict IN (${FIX_PARK_VERDICTS.map(() => '?').join(', ')})
+          AND s.ended_at >= ? AND s.ended_at < ? AND NOT (${OPEN_TICKET_SQL})${projectSql}`,
+    )
+    .get(...FIX_PARK_VERDICTS, windowStart, new Date(now).toISOString(), ...projectArgs) as { n: number };
+  if (parkedBefore.n > 0) recent.push({ kind: FIX_PARKED_KIND, n: parkedBefore.n });
+
   const counts = new Map<string, { now: number; before: number }>();
   const bump = (kind: string, field: 'now' | 'before', n: number): void => {
     const c = counts.get(kind) ?? { now: 0, before: 0 };

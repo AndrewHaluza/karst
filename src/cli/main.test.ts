@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
+import { assertPlanningVerbAllowed, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -919,6 +919,27 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
     expect(out.rows.map((r: { key: string }) => r.key)).toEqual(['A-1']);
     expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: String(a.id) })).not.toThrow();
     expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: '9999' })).not.toThrow();
+  });
+
+  it('allows `mcp serve` but not `mcp install` in a planning session', () => {
+    const planning = { KARST_PLANNING_SESSION: '3' };
+    expect(() => assertPlanningVerbAllowed(planning, ['mcp', 'serve'])).not.toThrow();
+    expect(() => assertPlanningVerbAllowed(planning, ['mcp', 'install'])).toThrow(/not available in a planning session/);
+  });
+
+  it('scopes blocked to nothing when the manifest slug has no project row', () => {
+    const s = openStore(dbPath);
+    setStage(s, createTicket(s, { key: 'Z-1', title: 'z' }).id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'w', blockedAt: new Date().toISOString() });
+    s.close();
+    const yml = join(dirname(dbPath), 'ghost.yml');
+    writeFileSync(yml, 'id: ghost\nhost: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nservices:\n  backend:\n    repoPath: ../backend\n    start: npm run dev\n    ports:\n      - { name: http, env: PORT, default: 3000 }\n');
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = JSON.parse(runCli(['blocked', '--json', '--manifest', yml], env()));
+      expect(out.rows).toEqual([]);
+    } finally {
+      write.mockRestore();
+    }
   });
 
   it('says so on stderr when the manifest review floor cannot load, then uses the env floor', () => {
