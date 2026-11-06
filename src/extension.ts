@@ -3803,7 +3803,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // A hook routed here for a ticket of another project is refused before any side effect.
   const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
+  // `dispatchHook` calls this before any store mutation, so refusing a ticket of
+  // another project here also keeps the foreign window from patching agent_state,
+  // session id or launch intent for it.
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
+    !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) &&
     shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
