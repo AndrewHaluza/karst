@@ -8,6 +8,8 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # Review block rate rise, Oct 29 to Nov 6 (T995)
 
+Times: store times (`started_at`) are UTC. Git commit times and file change times in this report (for example Nov 2 18:06 and 19:06) are local machine time, CET (UTC+1). The study did not convert them. A run near these times can fall on either side of a change. Projects: 5 of the 41 tickets in C belong to another project (mobile-app); see Q2.
+
 Research only. No prompt, reviewer definition, threshold or setting changed. Data: store `process_runs` + `review_findings`, first review per ticket, model claude-opus-5-5, blocking = critical, high or medium. Review transcripts: `~/.claude/projects/<worktree>/<uuid>.jsonl`.
 
 ## [@issue:RB-01] Summary and verdict
@@ -15,10 +17,10 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 - Q1: The rise is real. It holds when UI-only and docs-only tickets are excluded.
 - Q2: The ticket mix by type and size does not explain the rise. The share of `fix` tickets is 51% in A and 51% in C. 11 of 41 tickets in C have no known type. For the two extreme assignments of those 11 tickets (all `fix`, none `fix`), the C block rate at the A mix is 50% to 54%. The A rate is 21%. The type mix explains at most 4 of the 33 points. One ticket attribute did change: 15 of 41 tickets in C have an intent value, against 2 of 73 in A, and tickets with an intent block more often (50% against 25%). The study did not control for this. It may be a ticket mix effect and not a prompt effect.
 - Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context and the prompt tail did change. The `effort` parameter was `low` in nearly all runs. It was `medium` in 8 runs (1 in A, 7 in C).
-- Q4: The sample finds few wrong findings, but the count is weak. 25 of 30 reasons cite a later fix (keyword count), and a blocking finding forces a fix, so those classes are circular. The classifier gave a reason from the code for each row, but the study did not check the reasons again. 29 of 30 sampled findings are classed real. 1 is wrong. 10 are real but below the stated severity.
+- Q4: Only partly answered. No finding was classified against the code as the reviewer saw it, in A or in C. The sample finds few wrong findings, but the count is weak. 25 of 30 reasons cite a later fix (keyword count), and a blocking finding forces a fix, so those classes are circular. The classifier gave a reason from the code for each row, but the study did not check the reasons again. 29 of 30 sampled findings are classed real. 1 is wrong. 10 are real but below the stated severity.
 - Q5: No evidence that the earlier period missed bugs. Later fix-titled tickets that reference a ticket that passed review: A 5 of 70, C 3 of 38. The reference is a text match, and the defect origin was not verified. C is 1 to 2 days old, so the comparison has little power.
 - Store: this report is registered as a research artifact (karst `artifact add`, kind research). The docs file is the same file.
-- Cause: Not isolated. Three candidates fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`; (c) the extension build (review driver and prompt assembly), which changed with merged tickets in the period and which the study did not test. The study cannot separate these causes without a controlled re-run.
+- Cause: Not isolated. Three candidates fit the timing: (a) from Nov 2, the user context change and the more frequent "Intent" section in the prompt tail (1 of 57 A runs, 11 of 26 B runs, 14 of 35 C runs; it is a ticket attribute, see Q2); (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`; (c) the extension build (review driver and prompt assembly), which changed with merged tickets in the period and which the study did not test. The study cannot separate these causes without a controlled re-run.
 - Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of 5 diffs of tickets that have an intent value, from Oct 29 to Nov 3 (only 2 of the 73 A tickets have one, so the set must include B tickets; the study did not count the B tickets with an intent). The Intent factor cannot be tested on tickets without an intent. The three factors are the Claude Code version (2.1.316 and 2.1.319), the loaded context and the prompt tail (with and without the Intent section). The A context is no user CLAUDE.md (47 of 57 A runs), no session-start hook, and the repo CLAUDE.md from the commit before ab9d723c15f. The current context is the writing-style user rule and the current repo CLAUDE.md. The A context of the other 10 A runs (older user files, larger rules files, a hook) is not reproduced. This tests causes (a) and (b). It does not test the extension build (c), because all cells run the same extension code. It also does not vary the `effort` value. It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
 
 END_DOC_BLOCK: [@issue:RB-01]
@@ -50,7 +52,7 @@ Second table, without UI-only and docs-only tickets:
 
 11 of the 41 tickets in C have no merged diff, so the study could not classify them as UI-only or docs-only. They stay in the C row. Without them, C has 30 tickets with 47% blocked (14 of 30), against 22% in A. The rise holds in both views.
 
-The ticket figures (90 tickets, 19% blocked) match Oct 27 to Nov 1 in this table: 91 tickets, 17 blocked (19%), 0.23 average. They do not match Oct 29 to Nov 1, which has 73 tickets. The ticket text names the wrong start day. The daily averages of 0.15 to 0.32 in the ticket match the daily column here (0.11 to 0.29). The difference is small and has no known cause. The trend is the same in both counts.
+The ticket figures (90 tickets, 19% blocked) match Oct 27 to Nov 1 in this table: 91 tickets, 17 blocked (19%), 0.23 average. They do not match Oct 29 to Nov 1, which has 73 tickets. The ticket text probably names the wrong start day, but the study did not confirm this. The later days compare as follows (ticket against this study): Nov 2 35% and 0.40 against 33% and 0.39; Nov 3 38% and 0.75 against 38% and 0.75; Nov 5 52% and 1.00 against 55% and 1.05; Nov 6 52% and 1.14 against 52% and 1.14. These agree within 3 points. The user counts may also include other models or repeat reviews. The daily averages of 0.15 to 0.32 in the ticket match the daily column here (0.11 to 0.29). The difference is small and has no known cause. The trend is the same in both counts.
 
 END_DOC_BLOCK: [@issue:RB-02]
 
@@ -83,6 +85,8 @@ Per period:
 | Blocked, other tickets | 11 of 36 (31%) | 3 of 10 (30%) | 12 of 20 (60%), of which 11 have no type |
 
 Mix type B: `fix` 16, `feat` 5, `other` 3, `docs` 1, `Eval` 1. B has 9 blocked tickets of 26 (35%), the same count as Q1.
+
+Project: all tickets in A and B belong to the project of this repository (extention). 5 of the 41 tickets in C belong to another project (mobile-app, an iOS app); 2 of them were blocked. Without them C has 36 tickets with 20 blocked (56%), against 21% in A. The rise holds. The study did not split the other results (size, type, Q3 inputs) by project. Those 5 tickets also have no merged diff in this repository, so they are among the 11 untyped C tickets.
 
 How much the mix explains: the `fix` share is 51% in A and 51% in C. The 11 tickets in C without a type hide the real share, and 8 of the 11 were blocked. The study gives a bound:
 
@@ -121,7 +125,7 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 
 The Q3 rows use the 118 runs whose transcript could be matched to a review run (57 of 73 in A, 35 of 41 in C, 26 in B). This study did not find a transcript for the other runs. The study did not check whether the matched runs are a fair sample of all runs.
 
-Repo CLAUDE.md change ab9d723c15f (2 lines): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. All C runs loaded the new repo file (hash ebf53bc7). B has runs on both sides of the change: Nov 2 runs before 19:06 used the old file, and Nov 3 runs used the new file. The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
+Repo CLAUDE.md change ab9d723c15f (committed Nov 2 19:06 local time, CET; the store times are UTC, so the change is at 18:06 UTC): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. All C runs loaded the new repo file (hash ebf53bc7). B has runs on both sides of the change: Nov 2 runs before 19:06 used the old file, and Nov 3 runs used the new file. The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
 
 Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticket description 100% (n=5). The Ticket description group is only 5 runs and gives no reliable rate. Inside the "no extra section" group the rate still rose: A 20%, B 27%, C 44%.
 
@@ -135,7 +139,7 @@ END_DOC_BLOCK: [@issue:RB-04]
 
 ## [@issue:RB-05] Q4: finding sample
 
-Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. Each finding was checked against the PR history and the merged code. The "reason" column is the classifier's evidence from the code and the PR history. Basis "pre-fix code" means a later commit changed the code after the review. This is weak evidence, because a blocking finding forces a fix. A fix shows only that the finding was acted on. It does not show that the finding was right. The class and the "fits" column rest on the reason the classifier gave from the code, not on the fix alone. The stated-severity check is the weakest part.
+Random sample (seed 995) of 15 blocking first-review findings per period. Pool sizes: A 19, C 45. Each finding was checked against the PR history and the final merged code. No finding was checked against the code as the reviewer saw it, because the snapshot refs are gone. The "reason" column is the classifier's evidence from the code and the PR history. The label "pre-fix code" in the classifier output means only that the fix came after the review. It does not mean the classifier read the code at the reviewed commit. Basis "pre-fix code" means a later commit changed the code after the review. This is weak evidence, because a blocking finding forces a fix. A fix shows only that the finding was acted on. It does not show that the finding was right. The class and the "fits" column rest on the reason the classifier gave from the code, not on the fix alone. The stated-severity check is the weakest part.
 
 Counts A: {'REAL-LOWER': 8, 'REAL': 6, 'WRONG': 1}. Counts C: {'REAL': 13, 'REAL-LOWER': 2}.
 
@@ -215,7 +219,7 @@ END_DOC_BLOCK: [@issue:RB-06]
 ## [@issue:RB-07] Proposals for a person
 
 1. Record the Claude Code version and the lane effort in `process_runs` for each review. Today the version is found only in transcripts.
-2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs of tickets that have an intent value, from Oct 29 to Nov 3 (A has only 2 such tickets). Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This tests causes (a) and (b). It does not test the extension build (c). The A context is no user CLAUDE.md, no hook, and the repo CLAUDE.md before ab9d723c15f. Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
+2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs of tickets that have an intent value, from Oct 29 to Nov 3 (A has only 2 such tickets). The A context is the same as in the summary: no user CLAUDE.md, no session-start hook, and the repo CLAUDE.md from before ab9d723c15f. Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This tests causes (a) and (b). It does not test the extension build (c). The A context is no user CLAUDE.md, no hook, and the repo CLAUDE.md before ab9d723c15f. Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
 3. Decide on any prompt or `blockingSeverity` change only after step 2 (@arch:PRE-BASELINE). The sample is weak evidence that the extra findings are real (see Q4). It does not settle the question.
 
 END_DOC_BLOCK: [@issue:RB-07]
