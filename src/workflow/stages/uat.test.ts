@@ -22,6 +22,7 @@ import { UsageLimitError } from '../../agent/cliFailure.js';
 import { manifest, repo, svc, uat as uatConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
+import { regenerateGateName } from '../gates/regenerate.js';
 import { runUat, resolveTargetGates, testerTargets, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import type { ServerView } from '../../store/dashboard.js';
@@ -122,6 +123,29 @@ describe('runUat', () => {
     });
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  it('files the regenerate row with one repository suffix and keeps the suffix on an ordinary gate', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const t = now();
+          const regen = regenerateGateName('web');
+          opts?.onGateComplete?.(regen, 0, t, t, -1, 'ok');
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, 0, t, t, i);
+            return { name: g.name, exitCode: 0, output: 'ok', startedAt: t, endedAt: t };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+    const names = listGateRuns(store, id).map((r) => r.gateName);
+    expect(names).toContain('regenerate (web)');
+    expect(names.some((n) => n.startsWith('regenerate') && n !== 'regenerate (web)')).toBe(false);
+    expect(names).toContain('test (/wt/web)');
   });
 
   it('a failing gate -> routes to fix and files evidence under the attempt that ran', async () => {
