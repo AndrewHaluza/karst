@@ -49,6 +49,14 @@ describe('buildExcerpt', () => {
     expect(out).not.toContain(ts);
     expect(out.split('\n').length).toBeLessThanOrEqual(MAX_EXCERPT_LINES + 1);
   });
+  it('byte cap drops other lines before the ##[error] lines', () => {
+    const lines = ['##[error]first failure'];
+    for (let i = 0; i < 99; i++) lines.push(`${i} ${'x'.repeat(500)}`);
+    const out = buildExcerpt(lines.join('\n'));
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_EXCERPT_BYTES);
+    expect(out).toContain('##[error]first failure');
+    expect(out).toContain('98 xxx');
+  });
   it('caps bytes, keeping the end', () => {
     const raw = Array.from({ length: 100 }, (_, i) => `${i} ${'x'.repeat(500)}`).join('\n');
     const out = buildExcerpt(raw);
@@ -106,6 +114,22 @@ describe('fetchCheckLog', () => {
       const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
       expect(r).toEqual({ kind: 'log', name: 'build', text: 'Failed steps: build: Test\nstart\n##[error]boom\nPost step' });
       expect(calls[1]).toEqual(['api', 'repos/o/r/actions/jobs/456/logs']);
+    });
+    it('header lists the failed steps of the matched job only', async () => {
+      const jobs = [
+        { name: 'lint', databaseId: 1, status: 'completed', steps: [{ name: 'Lint', conclusion: 'failure' }] },
+        { name: 'build', databaseId: 456, status: 'completed', steps: [{ name: 'Test', conclusion: 'failure' }] },
+      ];
+      const { gh } = run([ok(JSON.stringify({ status: 'in_progress', jobs })), jobLog]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r).toMatchObject({ kind: 'log' });
+      expect((r as { text: string }).text.split('\n')[0]).toBe('Failed steps: build: Test');
+    });
+    it('a matched job that passed → pending, no log fetch', async () => {
+      const { gh, calls } = run([view({ conclusion: 'success' })]);
+      const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+      expect(r.kind).toBe('pending');
+      expect(calls).toHaveLength(1);
     });
     it('matches by job name when the url has no job id', async () => {
       const { gh, calls } = run([view({ databaseId: 789 }), jobLog]);

@@ -22,6 +22,8 @@ const GH_PREFIX = /^[^\t\n]*\t[^\t\n]*\t\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 const TS_PREFIX = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 const INTERESTING = /error|fail|assert|##\[error\]/i;
 const ERROR_MARK = '##[error]';
+// A matched job with one of these conclusions did not fail, so its log is not the failure text.
+const NOT_FAILED = new Set(['success', 'skipped', 'neutral']);
 
 export interface ActionsRef {
   runId: string;
@@ -47,11 +49,26 @@ export function buildExcerpt(raw: string, opts: { jobLog?: boolean } = {}): stri
   const errors = candidates.filter((c) => c.text.includes(ERROR_MARK)).slice(0, budget);
   const others = candidates.filter((c) => !c.text.includes(ERROR_MARK)).slice(0, budget - errors.length);
   const head = [...errors, ...others].sort((a, b) => a.index - b.index).map((c) => c.text);
-  let out = [...head, ...lines.slice(tailStart)].join('\n');
-  while (Buffer.byteLength(out) > MAX_EXCERPT_BYTES) {
-    out = out.slice(Math.max(1, out.length - Math.floor(MAX_EXCERPT_BYTES / 2)));
-    out = out.slice(out.indexOf('\n') + 1);
-  }
+  return fitBytes([...head, ...lines.slice(tailStart)]);
+}
+
+/** Drop the oldest lines until the text fits; ##[error] lines go last, so the failure text survives the cap. */
+function fitBytes(kept: string[]): string {
+  const size = (l: string): number => Buffer.byteLength(l) + 1;
+  let total = kept.reduce((n, l) => n + size(l), -1);
+  const dropped = new Set<number>();
+  const drop = (protectedPass: boolean): void => {
+    for (let i = 0; i < kept.length && total > MAX_EXCERPT_BYTES; i++) {
+      if (dropped.has(i) || kept[i]!.includes(ERROR_MARK) !== protectedPass) continue;
+      dropped.add(i);
+      total -= size(kept[i]!);
+    }
+  };
+  drop(false);
+  drop(true);
+  const out = kept.filter((_, i) => !dropped.has(i)).join('\n');
+  // A single line longer than the cap: keep its end.
+  return Buffer.byteLength(out) > MAX_EXCERPT_BYTES ? out.slice(out.length - MAX_EXCERPT_BYTES) : out;
   return out;
 }
 
@@ -88,16 +105,18 @@ function findJob(jobs: unknown, ref: ActionsRef, name: string): Record<string, u
 async function fetchJobLog(gh: GhRunner, cwd: string, check: FailingCheck, ref: ActionsRef, jobs: unknown): Promise<CheckLog> {
   const steps = failedSteps(jobs);
   const job = findJob(jobs, ref, check.name);
+  const jobPassed = job !== null && NOT_FAILED.has(String(job.conclusion ?? ''));
   const repo = ACTIONS_REPO.exec(check.url ?? '');
   const id = job === null ? null : String(job.databaseId ?? ref.jobId ?? '');
-  if (job === null || job.status !== 'completed' || !repo || !id) return { kind: 'pending', name: check.name, steps };
+  if (job === null || job.status !== 'completed' || jobPassed || !repo || !id) return { kind: 'pending', name: check.name, steps };
   const log = await gh(['api', `repos/${repo[1]}/${repo[2]}/actions/jobs/${id}/logs`], cwd, {
     truncation: 'keep-tail',
     maxOutputBytes: MAX_LOG_FETCH_BYTES,
   });
   if (log.exitCode !== 0) throw ghError(`fetch the CI log of job ${id}`, log);
   const note = log.truncated ? `[log truncated: kept last ${MAX_LOG_FETCH_BYTES / 1024} KiB of a larger log]\n` : '';
-  const head = steps.length > 0 ? `Failed steps: ${steps.join('; ')}\n` : '';
+  const jobSteps = failedSteps([job]);
+  const head = jobSteps.length > 0 ? `Failed steps: ${jobSteps.join('; ')}\n` : '';
   return { kind: 'log', name: check.name, text: `${head}${note}${buildExcerpt(log.stdout, { jobLog: true })}` };
 }
 
