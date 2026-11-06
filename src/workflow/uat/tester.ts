@@ -61,7 +61,7 @@ import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
-import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
+import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
@@ -1228,7 +1228,7 @@ async function runTesterBody(
             `${parseResult.findings.length - kept.length} disproven wrong-checkout claim(s)`,
         );
       }
-      const { coverage: targetCoverage, rest: keptRest } = splitCoverage(kept);
+      const { coverage: targetCoverage, rest: keptRest } = splitCoverage(stripCoverageLabel(kept));
       coverageRecords.push({
         ...coverageOrFallback(
           targetCoverage.map((f) => ({ severity: f.severity, repo: f.repo, file: null, line: null, title: f.title })),
