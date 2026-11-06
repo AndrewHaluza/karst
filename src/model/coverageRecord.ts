@@ -36,6 +36,18 @@ export function coverageStatus(title: string): CoverageStatus {
   return STATUSES.find((s) => rest.startsWith(s)) ?? 'NOT RUN';
 }
 
+/** A model-added uppercase label (for example `COGNITIVE: `) before the prefix. */
+const LABELLED_COVERAGE = /^[A-Z][A-Z ]{0,20}:\s*(?=COVERAGE \(reported\): )/;
+
+/**
+ * Ingest step before `splitCoverage`: drops a leading label so a labelled
+ * record is still read as coverage. The pattern is anchored, so a finding that
+ * only mentions the prefix later in its title is left unchanged.
+ */
+export function stripCoverageLabel<T extends { title: string }>(items: readonly T[]): T[] {
+  return items.map((i) => (LABELLED_COVERAGE.test(i.title) ? { ...i, title: i.title.replace(LABELLED_COVERAGE, '') } : i));
+}
+
 export function splitCoverage<T extends { title: string }>(items: readonly T[]): { coverage: T[]; rest: T[] } {
   const coverage: T[] = [];
   const rest: T[] = [];
