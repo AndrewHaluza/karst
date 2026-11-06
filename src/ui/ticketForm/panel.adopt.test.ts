@@ -171,7 +171,7 @@ describe('TicketFormManager.adopt', () => {
     });
 
     it('takes back the draft row it minted before the reload', () => {
-      const row = createTicket(store, { key: 'D-5', title: 'Fix' });
+      const row = createTicket(store, { key: '', title: 'Fix' });
       createdIds.add(row.id);
       const r = restored();
       expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => prefill)).toBe(true);
@@ -182,7 +182,7 @@ describe('TicketFormManager.adopt', () => {
     });
 
     it('closes when the proposal is not pending, and discards the row it minted', () => {
-      const row = createTicket(store, { key: 'D-6', title: 'Fix' });
+      const row = createTicket(store, { key: '', title: 'Fix' });
       createdIds.add(row.id);
       const r = restored();
       expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => undefined)).toBe(false);
@@ -190,6 +190,23 @@ describe('TicketFormManager.adopt', () => {
       expect(r.wrapped()).toBe(false);
       expect(() => getTicket(store, row.id)).toThrow();
       expect(logs.join('\n')).toContain('proposal of the review form is gone');
+    });
+
+    it('keeps a committed ticket when the saved identity still says proposal draft', () => {
+      const row = createTicket(store, { key: 'D-7', title: 'Fix' });
+      createdIds.add(row.id);
+      // proposal gone: the committed ticket still restores as an edit form and survives its close
+      const gone = restored();
+      expect(mgr.adopt(gone.restored, state({ mintedTicketId: row.id }), exists, () => undefined)).toBe(true);
+      expect((gone.panel.posted[0] as { state: { mode: string } }).state).toMatchObject({ mode: 'edit' });
+      gone.panel.dispose();
+      expect(getTicket(store, row.id).id).toBe(row.id);
+      // proposal pending: the form restores as the ticket's edit form and closing it keeps the ticket
+      const r = restored();
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => prefill)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: row.id });
+      r.panel.dispose();
+      expect(getTicket(store, row.id).id).toBe(row.id);
     });
 
     it('closes when the saved state has no draft id or no lookup is wired', () => {

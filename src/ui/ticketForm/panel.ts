@@ -323,15 +323,21 @@ export class TicketFormManager {
       // again and so re-link the form. When the proposal is no longer pending, the form
       // closes and the draft row it minted (if any) is discarded.
       if (identity.prefilled) {
+        // The saved identity can be older than the commit: the user's Save/Submit gives the
+        // minted row a key. A keyed row is a committed ticket, so it is never discarded and the
+        // form restores as its edit form. Only a row that still has no key is an uncommitted draft.
+        const mintedId = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
+        if (mintedId !== undefined && this.isCommittedRow(mintedId)) {
+          return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists, proposalPrefill);
+        }
         const prefill = identity.draftId !== undefined ? proposalPrefill?.(identity.draftId) : undefined;
         if (!prefill) {
           this.debug('[restore] karst.ticketForm: proposal of the review form is gone, tab closed');
-          if (identity.mintedTicketId !== undefined) this.discardMintedRow(identity.mintedTicketId);
+          if (mintedId !== undefined) this.discardMintedRow(mintedId);
           restored.dispose();
           return false;
         }
-        const minted = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
-        this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, minted);
+        this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId);
         return true;
       }
       this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
@@ -513,6 +519,8 @@ export class TicketFormManager {
         if (!prefill || prefillCommitted || boundId === undefined) return;
         prefillCommitted = true;
         prefill.onCreated(boundId);
+        // Push now so the webview rewrites its saved identity as a committed ticket, not a proposal draft.
+        pushState();
       },
       close: () => {
         if (disposed) return;
@@ -593,6 +601,11 @@ export class TicketFormManager {
     // focus through onDidChangeViewState, so it claims nothing here.
     panelActive = restored === undefined ? true : panel.isActive?.() === true;
     if (panelActive && boundId !== undefined) this.onViewActivated?.(boundId, true);
+  }
+
+  /** Whether a minted row was committed: Save/Submit gives it a key, an uncommitted draft has none. */
+  private isCommittedRow(ticketId: number): boolean {
+    return getTicket(this.store, ticketId).key !== '';
   }
 
   /** Delete the draft row a proposal review form minted, with its attachment files; the sidebar refreshes. */
