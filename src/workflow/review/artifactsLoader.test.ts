@@ -23,6 +23,24 @@ describe('makeReviewArtifactsLoader', () => {
     });
     expect(await load(1)).toBeUndefined();
   });
+  it('returns the description when the intent is blank and no artifacts exist', async () => {
+    const load = makeReviewArtifactsLoader({
+      intentOf: () => '  ',
+      descriptionOf: () => 'Do not rework x.yml',
+      checksOf: () => new Set(),
+      storeFor: () => null,
+    });
+    expect((await load(1))?.description).toBe('Do not rework x.yml');
+  });
+  it('omits the description when an intent exists', async () => {
+    const load = makeReviewArtifactsLoader({
+      intentOf: () => 'I',
+      descriptionOf: () => 'D',
+      checksOf: () => new Set(),
+      storeFor: () => null,
+    });
+    expect(await load(1)).toEqual({ intent: 'I', spec: null, plan: null });
+  });
   it('loads intent + latest spec/plan, ignoring other kinds', async () => {
     const load = makeReviewArtifactsLoader({
       intentOf: () => '## Goal\ng',

@@ -10,6 +10,8 @@ import { buildReviewArtifacts, type ReviewArtifacts } from './conformance.js';
 
 export interface ReviewArtifactsLoaderDeps {
   intentOf: (ticketId: number) => string | null;
+  /** The ticket description; the reviewer sees it only when the intent is blank. */
+  descriptionOf?: (ticketId: number) => string | null;
   /** Edges the ticket's approach verifies itself. */
   checksOf: (ticketId: number) => ReadonlySet<ChainEdge>;
   /** Null when the ticket has no artifact store (no project). */
@@ -23,13 +25,14 @@ export function makeReviewArtifactsLoader(
     const store = deps.storeFor(ticketId);
     const entries = store ? await loadChainEntries(store, ticketId) : [];
     const intent = deps.intentOf(ticketId);
-    if (!intent?.trim() && entries.length === 0) return undefined;
+    const description = intent?.trim() ? null : (deps.descriptionOf?.(ticketId)?.trim() ?? null);
+    if (!intent?.trim() && entries.length === 0 && !description) return undefined;
     const artifacts = buildReviewArtifacts({
       intent,
       entries,
       checks: deps.checksOf(ticketId),
       lastIntentSpecReport: store ? await readLastAlignmentReport(store, ticketId, 'intent-spec') : null,
     });
-    return artifacts;
+    return description ? { ...artifacts, description } : artifacts;
   };
 }
