@@ -868,6 +868,28 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
     expect(() => runCli(argv, env())).toThrow(/missing --db/);
   });
 
+  it.each([
+    [['pause', 'K-1']],
+    [['unpause', 'K-1']],
+    [['close', 'K-1', '--reason', 'x']],
+    [['reopen', 'K-1']],
+    [['stage', 'impl', 'pass', '--ticket', 'K-1']],
+    [['env', 'set', 'A', 'b', '--ticket', 'K-1']],
+    [['notes', 'post', '--title', 't', '--body', 'b', '--ticket', 'K-1']],
+  ])('refuses the write verb %j in a planning session even with --db', (argv) => {
+    const planning = { ...env(), KARST_PLANNING_SESSION: '3' };
+    expect(() => runCli([...argv, '--db', dbPath], planning)).toThrow(/not available in a planning session/);
+    const check = openStore(dbPath);
+    const row = check.db.prepare("SELECT stage_current AS s FROM tickets WHERE key = 'K-1'").get() as { s: string | null };
+    check.close();
+    expect(row.s).not.toBe('closed');
+  });
+
+  it('still runs a read verb in a planning session with --db', () => {
+    const planning = { KARST_PLANNING_SESSION: '3' };
+    expect(() => runCli(['blocked', '--json', '--db', dbPath], planning)).not.toThrow();
+  });
+
   it('leaves the store unwritten after a refused write', () => {
     expect(() => runCli(['stage', 'impl', 'pass', '--ticket', 'K-1'], env())).toThrow();
     const check = openStore(dbPath);

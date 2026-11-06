@@ -33,6 +33,7 @@ import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
 import { KARST_DB_READONLY_ENV } from '../agent/cliEnv.js';
+import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -59,6 +60,9 @@ import { installSqliteWarningFilter } from './suppressWarning.js';
 function writeManifestDiagnostics(diagnostics: readonly string[]): void {
   for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
 }
+
+/** The verbs a planning session may run after `manifest` and `draft`: reads only. */
+const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocked', 'guide', 'schema']);
 
 /**
  * The review gate's blocking-severity floor from a manifest, for `blocked`.
@@ -297,6 +301,12 @@ export function runCli(
   // session's read-only registry path. No write verb reads this, so a write in
   // a planning session still refuses with `missing --db` (@arch:CLI-13).
   const readDb = db ?? env[KARST_DB_READONLY_ENV];
+
+  // A planning session may run only the read verbs. It is refused here even
+  // when the caller passes `--db` itself, so no flag opens a write path (@arch:CLI-13).
+  if (env[KARST_PLANNING_SESSION_ENV] !== undefined && !PLANNING_VERBS.has(subcommand ?? '')) {
+    throw new Error(`'${subcommand ?? ''}' is not available in a planning session (read verbs only: context, stats, blocked, guide, schema)`);
+  }
 
   if (subcommand === 'context') {
     if (!readDb) throw new Error('missing --db <path>');
