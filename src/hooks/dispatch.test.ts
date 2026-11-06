@@ -1695,6 +1695,16 @@ describe('dispatchHook — background wait survives Stop (T993)', () => {
     expect(getTicket(store, b.id).agentState).toBe('waiting');
   });
 
+  it('a no-signal Notification after the last Stop does not cancel the deadline flip', () => {
+    const { id, send, sweep } = setup();
+    send(bgBash);
+    send(stop);
+    send({ hook_event_name: 'Notification', message: 'auth_success' });
+    vi.advanceTimersByTime(31 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
   it('a remapped question Stop (idle_prompt) during a wait reads waiting', () => {
     const { id, send } = setup();
     send(monitor);

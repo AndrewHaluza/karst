@@ -249,6 +249,16 @@ const ALWAYS_BACKGROUND_TOOL_NAMES: Record<AgentProvider, ReadonlySet<string>> =
 /** How often the host checks for background waits that reached their deadline. */
 export const BACKGROUND_WAIT_SWEEP_INTERVAL_MS = 30_000;
 
+/*
+ * T993 findings (claude background wait). A task-notification turn DOES send
+ * UserPromptSubmit with the same keys as a typed prompt; only the prompt text
+ * prefix "<task-notification>" separates them, so the hook bridge forwards a
+ * `task_notification` boolean and never the text. The hook bridge also used to
+ * drop tool_input, so `run_in_background` never reached this module. The wait
+ * lives in memory: a window reload loses it (accepted), and a direct HTTP hook
+ * without the node bridge never sets `task_notification`, so its woken turn
+ * ends the wait (accepted).
+ */
 /** How long a background wait holds a ticket blue when the tool gives no timeout. */
 export const BACKGROUND_WAIT_DEFAULT_MS = 30 * 60 * 1000;
 
@@ -743,7 +753,9 @@ export function dispatchHook(
   // PROMPT-15: track tool activity per turn and record marker-miss telemetry.
   if (tracker) {
     const isStop = payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle';
-    if (!isStop) tracker.markActivity(ticketId);
+    // Only an event that carries a liveness signal is activity; a no-signal one
+    // (an auth_success Notification) must not cancel the deadline flip.
+    if (!isStop && nextAgentState(payload, markerIsPending) !== null) tracker.markActivity(ticketId);
     // A real prompt, or a finished marker, ends the wait. A task-notification
     // prompt is the background job waking the agent and does not.
     if (
