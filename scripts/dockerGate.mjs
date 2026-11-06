@@ -26,7 +26,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, failingScreenshots, planBaseCheck, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
-import { gateGrep, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
+import { gitDirOf, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
+import { mergeBase } from './gateScope.mjs';
+import { gateGrep, isUiPath, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -232,8 +234,47 @@ export function baseRunArgv(rawArgv, baseDir, screenshots, name, volume = null) 
 
 const shellQuote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
 
-function main(argv) {
+/**
+ * The repeat-pass memo of a sweep gate: skip when nothing UI changed since the last green run, and keep the
+ * snapshot to store after the next green one. Seed, prune, an external grep and non-selecting scripts never
+ * skip or store. Any trouble means no skip.
+ */
+export async function planRepeat(script, argv, cwd = process.cwd()) {
+  const none = { memo: null, skip: null };
+  if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return none;
+  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return none;
+  try {
+    const base = (await mergeBase(cwd)).sha;
+    const dir = await gitDirOf(cwd);
+    const tree = base === null || dir === null ? null : await snapshotTree(cwd);
+    if (tree === null) return none;
+    const key = stateKey([script, ...argv]);
+    const memo = { dir, key, tree, base };
+    const input = await loadPassInput(cwd, dir, key, base, tree);
+    const plan = planSkip({ ...input, force: process.env.KARST_GATE_FULL === '1', isUiPath });
+    const name = script.replace(/^test:/, '').replace(/:docker$/, '');
+    if (plan.kind === 'skip') return { memo, skip: scopeLine(name, { kind: 'skipped', since: plan.since }) };
+    console.error(plan.reason ? scopeLine(name, { kind: 'full', reason: plan.reason }) : scopeLine(name, { kind: 'scoped', count: plan.delta, since: plan.since }));
+    return { memo, skip: null };
+  } catch (error) {
+    console.error(`full: scope planning failed: ${error.message}`);
+    return none;
+  }
+}
+
+/** Store the green state of a finished sweep. */
+export function storeGreen(memo, status) {
+  if (memo === null || status !== 0) return;
+  writeState(memo.dir, memo.key, { tree: memo.tree, base: memo.base, clean: true, failed: [] });
+}
+
+async function main(argv) {
   const script = process.env.npm_lifecycle_event ?? 'this gate';
+  const repeat = await planRepeat(script, argv);
+  if (repeat.skip !== null) {
+    console.error(repeat.skip);
+    process.exit(0);
+  }
   narrowSweep(script);
   const local = readLocalCommand(argv);
   const plan = gatePlan({
@@ -255,9 +296,10 @@ function main(argv) {
       stdio: 'inherit',
       env: { ...process.env, ...plan.env },
     });
+    storeGreen(repeat.memo, result.status ?? 1);
     process.exit(result.status ?? 1);
   }
-  runContainer(local ? local.rest : argv);
+  runContainer(local ? local.rest : argv, repeat.memo);
 }
 
 /** The lockfile hash of a directory, or null when it has none. */
@@ -285,7 +327,7 @@ function collectVolumes(cwd) {
   for (const name of volumesToRemove(volumes, referenced)) spawnSync('docker', ['volume', 'rm', name], { stdio: 'ignore' });
 }
 
-async function runContainer(rawArgv) {
+async function runContainer(rawArgv, memo = null) {
   const ticket = process.env.KARST_TICKET;
   const name = gateContainerName({ event: process.env.npm_lifecycle_event, ticket });
   const volume = lockVolume(process.cwd());
@@ -327,6 +369,7 @@ async function runContainer(rawArgv) {
       child.on('close', (status) => resolve(status ?? 1));
     });
   let status = await run(args);
+  storeGreen(memo, status);
   if (status !== 0) status = await judgeAgainstBase({ status, rawArgv, name, volume, run, results });
   cleanup();
   if (status === 0) collectVolumes(process.cwd());
