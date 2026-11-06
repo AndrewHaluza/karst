@@ -293,6 +293,15 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   } catch (err) {
     deps.logError('karst: artifact-dir orphan sweep failed', err);
   }
+  // Background, one-time: fill blank before-ship commit messages from git.
+  // Not awaited, so activation never waits on it; it never throws.
+  void runShipCommitSubjectSweep({
+    store: deps.store,
+    globalStorageRoot: deps.globalStorageRoot,
+    git: defaultGitRunner,
+    debug: deps.debug,
+    logError: deps.logError,
+  });
   return { strandedFixResumes };
 }
 
