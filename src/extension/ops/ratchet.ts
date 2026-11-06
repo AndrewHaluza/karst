@@ -185,3 +185,20 @@ export async function assertExtensionRatchet(
   }
   return result;
 }
+
+export const CI_MISSING_MERGE_BASE_MESSAGE =
+  'CI has no merge base for src/extension.ts, so the ratchet cannot measure growth. Set fetch-depth: 0 on the actions/checkout step of the job that runs the unit tests in .github/workflows/ci.yml.';
+
+// Only the CI workflow sets this flag (ci.yml, Unit tests step), because only it owns the
+// checkout depth. The Karst gate runner sets CI=1 and docker sandbox clones are shallow by
+// design, so the CI variable cannot decide the guard. Without the flag the ceiling fallback applies.
+export const REQUIRE_MERGE_BASE_ENV = 'RATCHET_REQUIRE_MERGE_BASE';
+
+export function assertMergeBaseInCi(
+  result: ExtensionRatchetResult,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (env[REQUIRE_MERGE_BASE_ENV] === '1' && !result.mergeBase) {
+    throw new Error(CI_MISSING_MERGE_BASE_MESSAGE);
+  }
+}

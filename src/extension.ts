@@ -832,8 +832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
   const recoveryLifecycle = new SessionRecoveryLifecycle();
-  const windowId = stableWindowId(context.workspaceState, randomUUID);
-  const syncSessionOwner = makeSessionOwnerSync(localStore, windowId, logError);
+  const windowId = stableWindowId(context.workspaceState, randomUUID), syncSessionOwner = makeSessionOwnerSync(localStore, windowId, logError);
   const ownedSessionTickets = new Set(
     context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
   );
@@ -2042,7 +2041,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
-    makeTicketFormPanelHost(context, brandIcon),
+    restoreHosts.track('ticketFormHost', makeTicketFormPanelHost(context, brandIcon)),
     buildTicketFormActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
@@ -2135,6 +2134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Same cache `setRepos` warms above, read fresh on every state push.
     () => Object.fromEntries(baseBranchCandidates),
     () => provider.refresh(),
+    (m) => logger.debug(m),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -6973,7 +6973,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
-  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, ticketForm, proposalPrefill: proposalOps.prefillFor, proposalOutcome: proposalOps.outcomeFor, manifestReady: () => currentManifest() !== undefined, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-

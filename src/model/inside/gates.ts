@@ -1015,7 +1015,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
   const blocking = batch.filter((f) => isBlockingFinding(f, threshold)).length;
   const stall = input.reviewStallDetection
-    ? stallView(input.findings, threshold, input.reviewStallDetection)
+    ? stallView(input.findings, threshold, input.reviewStallDetection, input.processRuns)
     : undefined;
   const scoped = scopeFindings(batch, input.findingsRepo);
   const ordered = sortBySeverityDesc(scoped.rows);

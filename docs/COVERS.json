@@ -450,6 +450,9 @@
   "src/manifest/autopilot.ts": [
     "arch:AP-00"
   ],
+  "src/manifest/qualityDefaults.ts#REVIEW_STALL_DETECTION_DEFAULTS": [
+    "arch:REVIEW-STALL"
+  ],
   "src/manifest/scaffoldStamp.ts#stampScaffold": [
     "arch:CLI-20"
   ],
@@ -476,6 +479,9 @@
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
+  ],
+  "src/model/reviewStall.ts#evaluateReviewStall": [
+    "arch:REVIEW-STALL"
   ],
   "src/model/ticketMessaging.ts#checkMessaging": [
     "arch:CLI-11"
@@ -646,6 +652,9 @@
   ],
   "src/store/db.ts": [
     "arch:ABI-00"
+  ],
+  "src/store/findingIdentity.ts": [
+    "arch:REVIEW-STALL"
   ],
   "src/store/fixDeliveries.ts#upsertFixDelivery": [
     "arch:V77"
@@ -894,6 +903,9 @@
   ],
   "src/workflow/review/findings.ts": [
     "arch:PM-00"
+  ],
+  "src/workflow/reviewStallRead.ts#reviewStallAttempts": [
+    "arch:REVIEW-STALL"
   ],
   "src/workflow/stages/implement.ts": [
     "arch:ADR-00"

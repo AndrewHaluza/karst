@@ -25,7 +25,8 @@
     "onWebviewPanel:karst.gettingStarted",
     "onWebviewPanel:karstDoctor",
     "onWebviewPanel:karst.tokenUsage",
-    "onWebviewPanel:karst.resources"
+    "onWebviewPanel:karst.resources",
+    "onWebviewPanel:karst.ticketForm"
   ],
   "scripts": {
     "eval": "node scripts/eval/run.mjs",

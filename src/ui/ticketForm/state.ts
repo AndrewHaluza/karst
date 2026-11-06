@@ -118,6 +118,8 @@ export type BriefSource =
 
 export interface TicketFormState {
   mode: 'create' | 'edit';
+  /** True while the page reviews a planning-proposal prefill that still has to report back. */
+  prefilled?: boolean;
   ticketId?: number;
   /**
    * Host-built id label for the page header: `T583 · KEY` for a ticket, `D88`

@@ -47,4 +47,79 @@ describe('reviewStallAttempts', () => {
       .run(ticketId);
     expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
   });
+
+  describe('review runs', () => {
+    const run = (attempt: number, status: string, outcome: string | null, reviewerPassed = false, second = attempt) => {
+      const { lastInsertRowid } = store.db
+        .prepare(
+          `INSERT INTO stage_runs (ticket_id, stage_key, attempt, run_at, status, outcome, started_at)
+           VALUES (?, 'review', ?, ?, ?, ?, '2026-01-01T00:00:00Z')`,
+        )
+        .run(ticketId, attempt, `2026-01-01T00:00:0${second}Z`, status, outcome);
+      if (reviewerPassed) {
+        store.db
+          .prepare(
+            `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, stage_run_id, status, started_at)
+             VALUES (?, 'review', 'review', ?, ?, 'passed', '2026-01-01T00:00:00Z')`,
+          )
+          .run(ticketId, attempt, lastInsertRowid);
+      }
+    };
+
+    it('a finished run without blocking findings is an empty attempt in order', () => {
+      put(1, f());
+      run(2, 'finished', 'advanced', true);
+      put(3, f());
+      const out = reviewStallAttempts(store, ticketId, 'high');
+      expect(out.map((a) => [a.attempt, a.findings.length])).toEqual([[1, 1], [2, 0], [3, 1]]);
+    });
+    it('stale, blocked and stopped runs neither count nor break', () => {
+      put(1, f());
+      run(2, 'stale', null);
+      run(3, 'finished', 'blocked');
+      run(4, 'finished', 'stopped');
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
+    });
+    it('a finished run whose reviewer never ran (red gate) is not a clean round', () => {
+      put(1, f());
+      run(2, 'finished', 'advanced', false);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
+    });
+    it('kept sibling findings of a blocked park count in the rerun that reaches a verdict', () => {
+      put(1, f({ file: 'a.ts' }));
+      run(1, 'finished', 'blocked');
+      run(1, 'finished', 'advanced', true, 2);
+      const out = reviewStallAttempts(store, ticketId, 'high');
+      expect(out.map((a) => [a.attempt, a.findings.map((x) => x.file)])).toEqual([[1, ['a.ts']]]);
+    });
+    it('findings of a stale run are obsolete in the next run, which stays clean', () => {
+      put(1, f({ file: 'a.ts' }));
+      run(1, 'stale', null);
+      run(1, 'finished', 'advanced', true, 2);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.findings.length)).toEqual([0]);
+    });
+    it('findings of a blocked run do not reach a later attempt', () => {
+      put(1, f({ file: 'a.ts' }));
+      run(1, 'finished', 'blocked');
+      run(2, 'finished', 'advanced', true, 3);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => [a.attempt, a.findings.length])).toEqual([[2, 0]]);
+    });
+    it('findings of a blocked run with no later verdict form no round', () => {
+      put(1, f());
+      put(2, f());
+      run(2, 'finished', 'blocked');
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.attempt)).toEqual([1]);
+    });
+    it('a clean run keeps its place when a blocking run shares its attempt number', () => {
+      put(1, f());
+      run(1, 'finished', 'advanced', true, 2);
+      recordFindings(store, { ticketId, attempt: 1, runAt: '2026-01-01T00:00:03Z', findings: [f({ file: 'b.ts' })] });
+      const out = reviewStallAttempts(store, ticketId, 'high');
+      expect(out.map((a) => a.findings.length)).toEqual([1, 0, 1]);
+    });
+    it('carries the finding line', () => {
+      put(1, f({ line: 42 }));
+      expect(reviewStallAttempts(store, ticketId, 'high')[0]!.findings[0]!.line).toBe(42);
+    });
+  });
 });

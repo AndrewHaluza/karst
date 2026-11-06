@@ -147,7 +147,7 @@ describe('restore conformance', () => {
     const host = { restore: () => ({ wrap: () => ({}), dispose: () => {} }) };
     const manager = { adopt: () => true, adoptDashboard: () => true };
     const restorers = makeRestorers({
-      store: {} as never, dashboard: manager, dashboardHost: host, changes: manager, changesHost: host, settings: manager,
+      store: {} as never, dashboard: manager, dashboardHost: host, changes: manager, changesHost: host, ticketForm: manager, ticketFormHost: host, settings: manager,
       settingsHost: host, gettingStarted: manager, gettingStartedHost: host, doctor: { restore: async () => {} },
       usage: manager, usageHost: host, resources: manager, resourcesHost: host,
     });
