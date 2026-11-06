@@ -185,7 +185,7 @@ async function mainIntent(opts) {
   const modes = intentModes(opts);
   const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
   const startedAt = new Date().toISOString();
-  const meta = { startedAt, pass: 'intent', model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
+  const meta = { startedAt, pass: 'intent', model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, judgeEffort: opts.judgeEffort, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
   const attempts = await runIntentEval({
     opts, items, modes, improve: improveDescription, intent: generateIntent, adapter, judgeAdapter: adapter,
     makeEmptyDir: () => mkdtempSync(join(tmpdir(), 'eval-form-')),

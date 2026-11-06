@@ -19,9 +19,43 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
 |:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|---|
 | 🥇 | **Gemini 3.8 Flash Medium** | `agy` (Antigravity) | 45.8% | **60.0%** | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | ~30s / ~98s | [`form-14-41-51`](./references/form-2026-11-02T14-41-51-505Z/report.md) |
 | 🥈 | **Gemini 3.8 Flash Low** | `agy` (Antigravity) | **50.0%** | 58.3% | **5 / 6 (83.3%)** | **6 / 0 / 0** | **100%** | **0.00** | **~7.5s / ~15s** | [`form-15-11-26`](./references/form-2026-11-02T15-11-26-170Z/report.md) |
-| 🥉 | **Claude Haiku 5.5 (Medium)** | `claude` (Claude Code) | 37.5% | 37.5% | 3 / 6 (50.0%) | **6 / 0 / 0** | **100%** | 0.83 | ~13s / ~25s | [`form-15-51-52`](./references/form-2026-11-02T15-51-52-246Z/report.md) |
+| 🥉 | **Claude Haiku 5.5 (default effort)** | `claude` (Claude Code) | 37.5% | 37.5% | 3 / 6 (50.0%) | **6 / 0 / 0** | **100%** | 0.83 | ~13s / ~25s | [`form-15-51-52`](./references/form-2026-11-02T15-51-52-246Z/report.md) |
 
 *Judge models: `gemini-4-argon-low` for Gemini; `claude-sonnet-5-5` for Claude.*
+
+The results file of the Haiku row records `effort: medium`, but the runner ignored `--effort` at the time of that run. The row therefore shows the default effort.
+
+## 1a. Claude comparison (not a ranking)
+
+CAUTION: Do not use these tables as a ranking. The judge changes the scores more than the model does.
+
+All rows use the 6 cases above. The first table has one judge model, `claude-sonnet-5-5` at high effort.
+
+| Producer | Effort | Runs | `raw` F2P Coverage | `improved` F2P Coverage | Unsupported / charter | Judge errors | Source |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| Claude Sonnet 5.5 | high | 1 | 85.7% | 65.0% | 0.36 | 1 | [`rejudge-01-00-45`](./references/rejudge-2026-11-06T01-00-45-340Z/report.md) |
+| Claude Opus 5.5 | low | 1 | 60.0% | 37.5% | 0.27 | 1 | [`form-00-27-03`](./references/form-2026-11-06T00-27-03-038Z/report.md) |
+| Claude Haiku 5.5 | medium | 3 | 50.0% (sd 0.14) | 38.9% (sd 0.02) | 0.28 | 0 | [`form-01-00-46`](./references/form-2026-11-06T01-00-46-261Z/report.md) |
+
+The second table shows the same Opus and Sonnet charters with each judge.
+
+| Producer | Judge | `raw` F2P Coverage | `improved` F2P Coverage | Source |
+|---|---|:---:|:---:|---|
+| Claude Opus 5.5 low | Sonnet 5.5 high | 60.0% | 37.5% | [`form-00-27-03`](./references/form-2026-11-06T00-27-03-038Z/report.md) |
+| Claude Opus 5.5 low | Haiku 5.5 medium | 66.7% | 72.2% | [`rejudge-00-58-16`](./references/rejudge-2026-11-06T00-58-16-370Z/report.md) |
+| Claude Sonnet 5.5 high | Opus 5.5 low | 66.7% | 80.0% | [`form-00-31-21`](./references/form-2026-11-06T00-31-21-439Z/report.md) |
+| Claude Sonnet 5.5 high | Sonnet 5.5 high | 85.7% | 65.0% | [`rejudge-01-00-45`](./references/rejudge-2026-11-06T01-00-45-340Z/report.md) |
+| Claude Sonnet 5.5 high | Haiku 5.5 medium | 41.7% | 75.0% | [`rejudge-00-58-16`](./references/rejudge-2026-11-06T00-58-16-370Z/report.md) |
+
+Limits of this comparison:
+
+- Sonnet judged its own charters in the first table, so its lead may be too high.
+- The Sonnet judge scored the rows at different times: the Opus row in the first run, and the Sonnet row in a later rejudge.
+- The run counts differ. Haiku has 3 runs, and Opus and Sonnet have 1 run each.
+- Sonnet and Opus each have one judge error, which the scores exclude.
+- The Opus and Haiku difference is within the Haiku raw sd. Treat it as no clear difference.
+- The effect of the improve step depends on the judge. Coverage goes down for all three models with the Sonnet judge, and up with the Haiku judge.
+- The Haiku judge flags fewer unsupported scenarios (Opus 0.00, Sonnet 0.08) than the Sonnet judge. It can be a lenient judge.
 
 ---
 
@@ -47,7 +81,7 @@ Evaluated across 6 representative TypeScript tasks from Vue, Material-UI, and Da
 * **Tradeoffs**:
   * Lower reasoning budget on `darkreader:pr-6747` left unstated edge-case tests in the scoring denominator.
 
-### 🥉 Claude Haiku 5.5 (Medium) (`claude`) — *Detailed Scenario Coverage with Strict Validation*
+### 🥉 Claude Haiku 5.5 (default effort) (`claude`) — *Detailed Scenario Coverage with Strict Validation*
 * **Overall Rating**: 8.7 / 10
 * **Strengths**:
   * **Detailed, Granular Scenarios (3.3 scenarios/charter)**: Tends to generate separate explicit scenarios for dev vs production and individual event types.
@@ -75,10 +109,10 @@ While aggregate test coverage sits between 58% and 60%, **5 out of 6 tasks achie
 * The model appropriately avoided leaking internal implementation details, which caused the judge to mark the low-level parser assertions as missing.
 
 ### Guardrail Adherence
-Across all evaluated runs:
+Across the runs in the leaderboard:
 * **0 Test Leaks**: Ground-truth patch filenames and test identifiers never leaked into generated charters.
 * **0 Degraded Parses**: 100% first-attempt JSON/schema parsing without fallback retries.
-* **0 Hallucinations**: Zero unsupported or invented scenarios.
+* **Unsupported scenarios**: 0.00 for both Gemini rows, and 0.83 for the Haiku row.
 
 ---
 

@@ -14,10 +14,11 @@ export const caseItem = (c) => ({ id: c.id, title: c.title, type: c.type, brief:
 /** The form's order (runAnalysis): improve first, then intent with brief + improvedDescription. */
 async function charterFor({ mode, item, opts, improve, intent, adapter, cwd }) {
   const counted = countCalls(adapter);
-  const base = { title: item.title, ticketType: item.type, brief: item.brief, model: opts.model };
+  const effort = opts.effort ? { effort: opts.effort } : {};
+  const base = { title: item.title, ticketType: item.type, brief: item.brief, model: opts.model, ...effort };
   if (mode.kind === 'improved') {
     const improved = await improve(adapter, {
-      instructions: mode.body ?? '', description: item.brief, title: item.title, ticketType: item.type, cwd, model: opts.model,
+      instructions: mode.body ?? '', description: item.brief, title: item.title, ticketType: item.type, cwd, model: opts.model, ...effort,
     });
     base.improvedDescription = improved;
   }
@@ -42,7 +43,7 @@ export async function runIntentEval({ opts, items, modes, improve, intent, adapt
             a.checks = checkCharter({ result, calls, f2p: item.f2p });
             if (result.text !== null) {
               const tests = item.f2p.map((test) => ({ test, hunk: hunkForTest(item.testPatch, test) }));
-              a.judge = await judgeIntent(judgeAdapter, { issue: item.brief, charter: result.text, tests, model: opts.judgeModel, cwd });
+              a.judge = await judgeIntent(judgeAdapter, { issue: item.brief, charter: result.text, tests, model: opts.judgeModel, effort: opts.judgeEffort, cwd });
             }
           } catch (e) {
             a.error = e instanceof Error ? e.message : String(e);
