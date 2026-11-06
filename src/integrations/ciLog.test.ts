@@ -37,6 +37,18 @@ describe('buildExcerpt', () => {
     expect(out).toContain('noise 499');
     expect(out.split('\n').length).toBeLessThanOrEqual(MAX_EXCERPT_LINES + 1);
   });
+  it('job log: ##[error] lines survive when many earlier lines match the error filter', () => {
+    const ts = '2026-01-01T00:00:00.0Z';
+    const lines = [];
+    for (let i = 0; i < 300; i++) lines.push(`${ts} test error-handling case ${i}`);
+    lines.push(`${ts} ##[error]Process completed with exit code 1.`);
+    for (let i = 0; i < 300; i++) lines.push(`${ts} post step ${i}`);
+    const out = buildExcerpt(lines.join('\n'), { jobLog: true });
+    expect(out).toContain('##[error]Process completed with exit code 1.');
+    expect(out).toContain('post step 299');
+    expect(out).not.toContain(ts);
+    expect(out.split('\n').length).toBeLessThanOrEqual(MAX_EXCERPT_LINES + 1);
+  });
   it('caps bytes, keeping the end', () => {
     const raw = Array.from({ length: 100 }, (_, i) => `${i} ${'x'.repeat(500)}`).join('\n');
     const out = buildExcerpt(raw);

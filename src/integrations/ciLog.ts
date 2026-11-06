@@ -21,6 +21,7 @@ const GH_PREFIX = /^[^\t\n]*\t[^\t\n]*\t\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 // Job log (`gh api .../jobs/<id>/logs`): `<iso timestamp> <line>`, no job or step columns.
 const TS_PREFIX = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 const INTERESTING = /error|fail|assert|##\[error\]/i;
+const ERROR_MARK = '##[error]';
 
 export interface ActionsRef {
   runId: string;
@@ -40,10 +41,12 @@ export function buildExcerpt(raw: string, opts: { jobLog?: boolean } = {}): stri
   const lines = raw.replace(/\r/g, '').split('\n').map((l) => l.replace(ANSI, '').replace(prefix, ''));
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop();
   const tailStart = Math.max(0, lines.length - Math.floor(MAX_EXCERPT_LINES / 2));
-  const head = lines
-    .slice(0, tailStart)
-    .filter((l) => INTERESTING.test(l))
-    .slice(0, MAX_EXCERPT_LINES - (lines.length - tailStart));
+  const budget = MAX_EXCERPT_LINES - (lines.length - tailStart);
+  const candidates = lines.slice(0, tailStart).map((text, index) => ({ text, index })).filter((c) => INTERESTING.test(c.text));
+  // ##[error] lines take the budget first: a job log has other matches that would crowd them out.
+  const errors = candidates.filter((c) => c.text.includes(ERROR_MARK)).slice(0, budget);
+  const others = candidates.filter((c) => !c.text.includes(ERROR_MARK)).slice(0, budget - errors.length);
+  const head = [...errors, ...others].sort((a, b) => a.index - b.index).map((c) => c.text);
   let out = [...head, ...lines.slice(tailStart)].join('\n');
   while (Buffer.byteLength(out) > MAX_EXCERPT_BYTES) {
     out = out.slice(Math.max(1, out.length - Math.floor(MAX_EXCERPT_BYTES / 2)));
