@@ -5,7 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { clearMergeCheck, setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter } from '../../store/autopilot.js';
+import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
@@ -295,6 +295,14 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
     conflict(null);
     expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
+  });
+
+  it('keeps the park while the CI status is pending', async () => {
+    seedPr({ ...failing('build'), state: 'pending' });
+    setAutopilotStopped(store, id, 'auto-fix stopped: x');
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: x', runAt: 'x', gates: [] });
+    expect((await autopilotTick(rig().deps)).kind).toBe('nothing');
+    expect(stageBlock(store, id, 'ship')).not.toBeNull();
   });
 
   it('an environment pause and a fetch failure both carry the reason in the note and the debug line', async () => {

@@ -18,12 +18,12 @@ import { autopilotTick } from './autopilotOps.js';
 
 /**
  * A refused conflict round maps to an outcome. A dirty or diverged clone at the
- * pre-round sync (AC-46) is an environment blocker. Every other refusal is a plain
+ * pre-round sync (AC-46) and a failed session launch are environment blockers. Every other refusal is a plain
  * failure. Neither path reaches a host fallback: the round runs where it is placed or it does not run.
  */
 export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
   if (result.kind === 'sent') return { kind: 'sent' };
-  return result.cause === 'sandbox-sync'
+  return result.cause === 'sandbox-sync' || result.cause === 'launch-failed'
     ? { kind: 'env-blocker', reason: result.reason }
     : { kind: 'failed', reason: result.reason };
 }
@@ -92,8 +92,10 @@ export function concurrencyFullFor(
   caps: AutostartCaps,
 ): boolean {
   const running = tickets.filter((t) => t.agentState === 'running' && t.id !== self.id);
-  if (running.length >= caps.total) return true;
-  return self.subtaskParentId !== null && running.filter((t) => t.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
+  // A cap of 0 (or less) means unlimited, as in pickSubtasksToStart.
+  if (caps.total > 0 && running.length >= caps.total) return true;
+  return caps.perParent > 0 && self.subtaskParentId !== null
+    && running.filter((t) => t.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
 }
 
 /** One pass over the ship tickets of the bound project. Never throws; a failure only delays the next pass. */

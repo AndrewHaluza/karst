@@ -5,7 +5,8 @@ import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { transition } from '../workflow/machine.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
-import { registerAutopilotCommands, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { makeLaunchTracker, registerAutopilotCommands, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { getAutopilotTicket } from '../store/autopilot.js';
 
 const cfg = { enabled: true, conflicts: { policy: 'auto' as const, maxRounds: 5 }, ci: { policy: 'auto' as const, maxAttempts: 3, checks: [] } };
 
@@ -26,7 +27,7 @@ function rig(over: Partial<AutopilotBindingDeps> = {}) {
   }) as never);
   const deps: AutopilotBindingDeps = {
     store, projectId: () => project.id, manifest: () => ({ autopilot: cfg }) as never, caps: () => ({ perParent: 2, total: 4 }),
-    debug: vi.fn(), changed: vi.fn(), intervalMs: 1000, windowId: 'W', isLive: () => false, roundInput, ciInput: vi.fn() as never, ...over,
+    debug: vi.fn(), changed: vi.fn(), intervalMs: 1000, windowId: 'W', isLive: () => false, roundInput, ciInput: vi.fn() as never, takeLaunch: () => undefined, ...over,
   };
   return { deps, roundInput, id, release: () => release() };
 }
@@ -64,6 +65,21 @@ describe('startAutopilot', () => {
     expect(r.roundInput).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(70_000);
     expect(r.roundInput).toHaveBeenCalledTimes(2);
+    handle.dispose();
+  });
+});
+
+describe('a failed session launch', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('parks the ticket and starts no cooldown', async () => {
+    const r = rig({ takeLaunch: async () => ({ kind: 'failed', reason: 'sandbox is read-only' }) });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    r.release();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(getAutopilotTicket(r.deps.store, r.id).pausedReason).toContain('sandbox is read-only');
     handle.dispose();
   });
 });
@@ -128,5 +144,15 @@ describe('two windows on one database', () => {
     ha.dispose(); hb.dispose();
     expect(a.roundInput).toHaveBeenCalledTimes(1);
     expect(b.roundInput).not.toHaveBeenCalled();
+  });
+});
+
+describe('makeLaunchTracker', () => {
+  it('hands out a launch once, and turns a rejected launch into a failed outcome', async () => {
+    const t = makeLaunchTracker(async () => { throw new Error('boom'); });
+    expect(t.take(1)).toBeUndefined();
+    t.open(1, 'p', 'r');
+    expect(await t.take(1)).toEqual({ kind: 'failed', reason: 'boom' });
+    expect(t.take(1)).toBeUndefined();
   });
 });

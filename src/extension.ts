@@ -43,7 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
+import { makeLaunchTracker, registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -1965,12 +1965,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   // Autopilot (T973): ship-stage auto-fix; the binding lives in extension/autopilotBinding.ts.
+  const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
+  const openSeeded = launches.open;
   context.subscriptions.push(startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
     isLive: (id) => sessions.isLive(id), windowId: `${process.pid}-${Date.now()}`,
     canLaunch: (id) => guardCapability('sessions', id, true),
-    roundInput: (id, repo) => ({ repo, label: formatId('ticket', id), probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed), arm: (r) => armConflictRound(localStore, conflictRounds, id, r), prepareSandbox: () => sandboxLife.ensureInSync(id), notify: (m) => logger.info(m), deliver: (brief) => { if (!sessions.nudge(id, brief)) void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo }); } }),
+    takeLaunch: launches.take,
+    roundInput: (id, repo) => ({ repo, label: formatId('ticket', id), probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed), arm: (r) => armConflictRound(localStore, conflictRounds, id, r), prepareSandbox: () => sandboxLife.ensureInSync(id), notify: (m) => logger.info(m), deliver: (brief) => { if (!sessions.nudge(id, brief)) openSeeded(id, brief, repo); } }),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
   }));
   context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: async (id) => { sessions.disposeSession(id); await sandboxLife.stop(id); } }));
@@ -2897,7 +2900,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
-  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }) });
+  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => openSeeded(ticketId, seedPrompt, seedRepo) });
   const ciHost = (ticketId: number): CiHost => ({
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), ...sessionSeams(ticketId) }),

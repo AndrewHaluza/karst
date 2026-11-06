@@ -8,7 +8,24 @@ import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandD
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket } from '../store/autopilot.js';
 import type { FixOutcome } from './ops/autopilotOps.js';
+import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
+
+/**
+ * Tracks the session launch a hand-off started, so autopilot can read a failed launch
+ * (read-only sandbox, setup failure) as an environment blocker instead of a sent round.
+ */
+export function makeLaunchTracker(
+  execute: (ticketId: number, options: { seedPrompt: string; seedRepo: string }) => Promise<SessionOutcome | undefined>,
+): { open(ticketId: number, seedPrompt: string, seedRepo: string): void; take(ticketId: number): Promise<SessionOutcome | undefined> | undefined } {
+  const pending = new Map<number, Promise<SessionOutcome | undefined>>();
+  return {
+    open: (ticketId, seedPrompt, seedRepo) => {
+      pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
+    },
+    take: (ticketId) => { const p = pending.get(ticketId); pending.delete(ticketId); return p; },
+  };
+}
 
 const LEASE_INTERVALS = 3;
 const ROUND_COOLDOWN_MS = 120_000;
@@ -30,6 +47,8 @@ export interface AutopilotBindingDeps {
   /** This window's lease owner id (unique per window). */
   readonly windowId: string;
   readonly ciInput: (ticketId: number) => CiActionsInput;
+  /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
+  readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
 }
 
 /**
@@ -48,9 +67,17 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
     cooldown.set(id, now() + ROUND_COOLDOWN_MS);
     claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS);
   };
+  /** A round is only sent when the opened session launched: a failed launch is an environment blocker (never a host fallback). */
+  const launchFailure = async (id: number): Promise<string | null> => {
+    const outcome = await d.takeLaunch(id);
+    return outcome?.kind === 'failed' ? outcome.reason : null;
+  };
   const sent = async (id: number, outcome: Promise<FixOutcome>): Promise<FixOutcome> => {
     const result = await outcome;
-    if (result.kind === 'sent') armCooldown(id);
+    if (result.kind !== 'sent') return result;
+    const failure = await launchFailure(id);
+    if (failure !== null) return { kind: 'env-blocker', reason: `session launch failed: ${failure}` };
+    armCooldown(id);
     return result;
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
@@ -67,7 +94,13 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         sessionRunning: () => running(id),
         resolveRound: async (repo) => {
           const result = await resolveConflictRound(d.roundInput(id, repo));
-          if (result.kind === 'sent') armCooldown(id);
+          if (result.kind !== 'sent') return result;
+          const failure = await launchFailure(id);
+          if (failure !== null) {
+            const reason = `session launch failed: ${failure}`;
+            return { kind: 'refused', cause: 'launch-failed', message: reason, reason };
+          }
+          armCooldown(id);
           return result;
         },
         sendCi: () => sent(id, ciOutcome(d.ciInput(id))),

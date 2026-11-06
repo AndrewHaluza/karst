@@ -43,6 +43,11 @@ describe('concurrencyFullFor', () => {
     expect(concurrencyFullFor(all, t(4, null), caps)).toBe(true);
     expect(concurrencyFullFor(all, t(3, 'running'), caps)).toBe(false);
   });
+  it('treats a cap of 0 as unlimited', () => {
+    const all = [t(1, 'running', 8), t(2, 'running', 8), t(3, 'running', 8), t(4, null, 8)];
+    expect(concurrencyFullFor(all, t(4, null, 8), { perParent: 0, total: 0 })).toBe(false);
+    expect(concurrencyFullFor(all, t(4, null, 8), { perParent: 0, total: 3 })).toBe(true);
+  });
   it('counts only running siblings of the same parent against the per-parent cap', () => {
     const all = [t(1, 'running', 8), t(2, null, 9)];
     expect(concurrencyFullFor(all, t(2, null, 9), caps)).toBe(false);

@@ -74,7 +74,8 @@ export function clearParkBlock(store: Store, ticketId: number): void {
 }
 
 function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
-  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason) {
+  // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
+  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
     setAutopilotStopped(d.store, d.ticketId, reason);
     if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
     // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
@@ -87,7 +88,8 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
 
 interface Problem { readonly kind: AutopilotKind; readonly repo: string; readonly signature: string; readonly failing?: readonly string[] }
 
-function findProblem(d: AutopilotDeps, maxRounds: number): Problem | null {
+/** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
+function findProblem(d: AutopilotDeps, maxRounds: number): Problem | 'wait' | null {
   const open = openPrRepos(d.store, d.ticketId);
   const candidates = listMergeChecksByTicket(d.store, d.ticketId).filter((c) => c.state === 'conflicted' && open.has(c.repo) && c.baseSha);
   // A conflict with an unknown base head has no signature to count against: leave it to the manual click.
@@ -96,7 +98,7 @@ function findProblem(d: AutopilotDeps, maxRounds: number): Problem | null {
   const conflicted = open1 ?? candidates[0];
   if (conflicted) return { kind: 'conflicts', repo: conflicted.repo, signature: conflicted.baseSha! };
   const ci = ciFailureState(d.store, d.ticketId);
-  if (!ci.available) return null;
+  if (!ci.available) return ci.reason === 'not-failing' || ci.reason === 'stage' ? null : 'wait';
   const names = ci.prs.flatMap((p) => p.failing.map((f) => f.name)).sort();
   return { kind: 'ci', repo: ci.prs[0]!.repo, signature: [...new Set(names)].join('\n'), failing: [...new Set(names)] };
 }
@@ -114,6 +116,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
 
   const problem = findProblem(d, cfg.conflicts.maxRounds);
+  if (problem === 'wait') return { kind: 'nothing' };
   if (!problem) {
     // The problem is gone: a stale park block and stop reason must not stay.
     if (state.stoppedReason !== null) setAutopilotStopped(d.store, d.ticketId, null);

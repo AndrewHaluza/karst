@@ -47,7 +47,7 @@ const DIRTY_HINT = ' Use "Stash and update" on the dashboard Sandbox card to par
  * Why a round did not go out. `sandbox-sync` is an ENVIRONMENT blocker (dirty or diverged clone at the pre-round
  * refresh, AC-46): a retry cannot fix it. The others are not an agent failure either.
  */
-export type RoundRefusal = 'placement-unknown' | 'no-conflict' | 'sandbox-sync';
+export type RoundRefusal = 'placement-unknown' | 'no-conflict' | 'sandbox-sync' | 'launch-failed';
 
 export type ConflictRoundResult =
   | { readonly kind: 'sent' }
