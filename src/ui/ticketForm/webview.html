@@ -668,6 +668,8 @@
     const savedDraft = first.draft && typeof first.draft === 'object' ? first.draft : {};
     let identity = first.karstPanel && typeof first.karstPanel === 'object' ? first.karstPanel : null;
     const dirty = new Set();
+    // Field values the host rendered; a different value later came from the user or from code.
+    const baseline = {};
     let timer = null;
     let commitPending = false;
     let commitFailed = false;
@@ -692,9 +694,10 @@
       onHostState(state) {
         identity = state.mode === 'edit' && Number.isInteger(state.ticketId)
           ? { mode: 'edit', ticketId: state.ticketId }
-          : { mode: 'create' };
+          : { mode: 'create', ...(state.prefilled === true ? { prefilled: true } : {}) };
         if (!overlaid) {
           overlaid = true;
+          for (const f of FIELDS) baseline[f] = el(f).value;
           for (const f of FIELDS) {
             if (typeof savedDraft[f] === 'string') { el(f).value = savedDraft[f]; dirty.add(f); }
           }
@@ -703,6 +706,16 @@
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
         return false;
+      },
+      /** True when the user changed the field and has not saved it: the host render must not refill it. */
+      isDirty(field) { return dirty.has(field); },
+      /** Catch text that code wrote without an input event (brief, improve, analysis). */
+      scan() {
+        if (!overlaid) return;
+        // `ref` is skipped: the Title derives it, so it is not text the user wrote.
+        for (const f of FIELDS) {
+          if (f !== 'ref' && !dirty.has(f) && el(f).value !== baseline[f]) this.touch(f);
+        }
       },
       /** Save or submit was started. */
       commitStarted() { commitPending = true; commitFailed = false; },
@@ -714,6 +727,7 @@
         commitPending = false;
         if (commitFailed) return;
         dirty.clear();
+        for (const f of FIELDS) baseline[f] = el(f).value;
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
       },
@@ -854,19 +868,19 @@
     // what the user is typing on a re-push). The single #ref field IS the key —
     // seed it from the identity (key), falling back to the board ref only if the
     // ticket has no key yet.
-    if (!el('ref').value) el('ref').value = state.key || state.sourceRef || '';
+    if (!el('ref').value && !formPersist.isDirty('ref')) el('ref').value = state.key || state.sourceRef || '';
     // A key that came from the state is the ticket's real identity — the Title
     // must never overwrite it on the next keystroke.
     if (el('ref').value) refTouched = true;
-    if (!el('title').value) el('title').value = state.title || '';
+    if (!el('title').value && !formPersist.isDirty('title')) el('title').value = state.title || '';
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
-    if (!el('desc').value) el('desc').value = state.description || '';
-    if (!el('intent').value) {
+    if (!el('desc').value && !formPersist.isDirty('desc')) el('desc').value = state.description || '';
+    if (!el('intent').value && !formPersist.isDirty('intent')) {
       el('intent').value = state.intent || '';
       lastIntent = el('intent').value;
     }
-    if (!el('codePointers').value) {
+    if (!el('codePointers').value && !formPersist.isDirty('codePointers')) {
       el('codePointers').value = state.codePointers || '';
       lastPointers = el('codePointers').value;
     }
@@ -2934,6 +2948,8 @@
       }
     }
   });
+  // Runs after the handler above: persist text that handler wrote without an input event.
+  window.addEventListener('message', () => formPersist.scan());
 
   // Turn a fetched ContextBrief into the same text shape the host persists.
   // Mirrors src/integrations/briefMarkdown.ts — a text PREVIEW only (the host

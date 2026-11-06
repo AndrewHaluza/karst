@@ -9,6 +9,7 @@ import { manifest as buildManifest } from '../../manifest/fixtures.js';
 
 interface FakePanel extends TicketFormPanel {
   posted: unknown[];
+  title?: string;
   disposeHandler?: () => void;
 }
 
@@ -17,6 +18,7 @@ function makePanel(): FakePanel {
     posted: [],
     reveal: () => {},
     setIcon: () => {},
+    setTitle: (t) => (panel.title = t),
     toWebviewUri: (p) => p,
     postMessage: (m) => panel.posted.push(m),
     onDidReceiveMessage: () => {},
@@ -133,7 +135,21 @@ describe('TicketFormManager.adopt', () => {
   );
 
   it('reads the identity of a valid state', () => {
-    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create' }, draft: { title: 'x' } })).toEqual({ mode: 'create' });
+    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create' }, draft: { title: 'x' } })).toEqual({ mode: 'create', prefilled: false });
     expect(restoredTicketFormIdentity({ karstPanel: { mode: 'edit', ticketId: 4 } })).toEqual({ mode: 'edit', ticketId: 4 });
+  });
+  it('closes a proposal review form silently: its link to the proposal is lost on reload', () => {
+    const r = restored();
+    expect(mgr.adopt(r.restored, { karstPanel: { mode: 'create', prefilled: true } }, exists)).toBe(false);
+    expect(r.disposed()).toBe(true);
+    expect(r.wrapped()).toBe(false);
+  });
+
+  it('sets the tab title of a restored edit form from the fresh ticket', () => {
+    const id = createTicket(store, { title: 'Fresh title', description: '' }).id;
+    createdIds.add(id);
+    const r = restored();
+    expect(mgr.adopt(r.restored, { karstPanel: { mode: 'edit', ticketId: id } }, exists)).toBe(true);
+    expect(r.panel.title).toContain('Fresh title');
   });
 });

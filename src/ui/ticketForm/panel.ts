@@ -41,6 +41,8 @@ export interface TicketFormPanel {
   dispose(): void;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
+  /** Update the tab title (real: `panel.title = title`). A restored tab keeps its old title until this runs. */
+  setTitle?(title: string): void;
   /**
    * Convert an absolute filesystem path into a URI this webview may load.
    *
@@ -172,7 +174,7 @@ function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | un
 }
 
 /** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
-export type RestoredTicketFormIdentity = { mode: 'create' } | { mode: 'edit'; ticketId: number };
+export type RestoredTicketFormIdentity = { mode: 'create'; prefilled: boolean } | { mode: 'edit'; ticketId: number };
 
 /** Read the `karstPanel` identity of a restored ticket-form state; undefined when it is invalid. */
 export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormIdentity | undefined {
@@ -180,7 +182,7 @@ export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormId
   const identity = (state as { karstPanel?: unknown }).karstPanel;
   if (typeof identity !== 'object' || identity === null) return undefined;
   const { mode, ticketId } = identity as { mode?: unknown; ticketId?: unknown };
-  if (mode === 'create') return { mode };
+  if (mode === 'create') return { mode, prefilled: (identity as { prefilled?: unknown }).prefilled === true };
   if (mode === 'edit' && typeof ticketId === 'number' && Number.isInteger(ticketId) && ticketId > 0) {
     return { mode, ticketId };
   }
@@ -295,6 +297,14 @@ export class TicketFormManager {
       return false;
     }
     if (identity.mode === 'create') {
+      // A planning-proposal review form is linked to its proposal through an in-memory
+      // callback that a reload loses. Restoring it would show a form that no longer
+      // reports back, so it closes like any other form that cannot be adopted.
+      if (identity.prefilled) {
+        this.debug('[restore] karst.ticketForm: proposal review form cannot be re-linked, tab closed');
+        restored.dispose();
+        return false;
+      }
       this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
       return true;
     }
@@ -338,6 +348,8 @@ export class TicketFormManager {
       title = tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate)));
     }
     const panel = restored ? restored.wrap() : this.host.createPanel(title);
+    // A restored tab still carries the title it had when the window closed.
+    if (restored) panel.setTitle?.(title);
     this.panels.set(key, panel);
     if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 
@@ -388,7 +400,9 @@ export class TicketFormManager {
       // from then on the stored ticket is the truth.
       const overlaid = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
       const dc = prefill ? designConstraintsView(prefill) : undefined;
-      const state = dc ? { ...overlaid, designConstraints: dc } : overlaid;
+      // The webview saves this flag with its identity so a reload can tell a proposal review form apart.
+      const flagged = prefill && !prefillCommitted ? { ...overlaid, prefilled: true } : overlaid;
+      const state = dc ? { ...flagged, designConstraints: dc } : flagged;
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
       // moment before the message leaves, so everything upstream stays

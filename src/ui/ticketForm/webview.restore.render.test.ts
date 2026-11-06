@@ -94,4 +94,26 @@ describe('ticket form — draft persistence', () => {
     await settle();
     expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { title: 'Fix login' } });
   });
+  it('persists text that code wrote without an input event', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    h.query<HTMLTextAreaElement>('#desc')!.value = 'improved by the agent';
+    h.receive({ type: 'busy', what: 'analyze', on: false });
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { desc: 'improved by the agent' } });
+  });
+
+  it('keeps a cleared field empty when a later state push arrives', () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 7, title: 'T', description: 'host text' }) });
+    type(h, 'desc', '');
+    h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 7, title: 'T', description: 'host text' }) });
+    expect(h.query<HTMLTextAreaElement>('#desc')!.value).toBe('');
+  });
+
+  it('saves the prefilled flag in the identity of a proposal review form', () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ prefilled: true }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true } });
+  });
 });

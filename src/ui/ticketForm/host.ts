@@ -51,6 +51,9 @@ export function makeTicketFormPanelHost(
           ),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
         dispose: () => panel.dispose(),
+        setTitle: (t: string) => {
+          panel.title = t;
+        },
         setIcon: (p: string) => {
           panel.iconPath = vscode.Uri.file(p);
         },
