@@ -196,7 +196,7 @@ describe('planning ops', () => {
       await ops.create('t');
       const { opts } = created[0]!;
       const launch = JSON.stringify({ args: opts.shellArgs, env: opts.env });
-      expect(launch).not.toMatch(/KARST_DB|KARST_MANIFEST|karst\.db|--db|--manifest/);
+      expect(launch.replaceAll('KARST_DB_READONLY', '')).not.toMatch(/KARST_DB|KARST_MANIFEST|--db|--manifest/);
     },
   );
 
@@ -748,6 +748,18 @@ describe('planning launch: project notes index', () => {
     expect(text).not.toContain('Project notes');
     expect(text).not.toContain('notes --repos');
     expect(created[0]!.opts.env).toEqual(expect.objectContaining({ KARST_PROJECT: String(projectId) }));
+  });
+
+  it('exports the registry path as KARST_DB_READONLY only, never KARST_DB, and omits it without a path', async () => {
+    await createPlanningOps(depsFor()).create('Reads');
+    const env = created[0]!.opts.env!;
+    expect(env).toEqual(expect.objectContaining({ KARST_DB_READONLY: '/store/karst.db' }));
+    expect(env).not.toHaveProperty('KARST_DB');
+  });
+
+  it('omits KARST_DB_READONLY when the db path is unknown', async () => {
+    await createPlanningOps(depsFor({ dbPath: undefined })).create('No path');
+    expect(created[0]!.opts.env).not.toHaveProperty('KARST_DB_READONLY');
   });
 
   it('launches with no notes section when the db path is unknown', async () => {

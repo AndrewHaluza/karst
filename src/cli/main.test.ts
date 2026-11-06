@@ -830,3 +830,49 @@ describe('runCliAsync — base', () => {
   });
 });
 
+
+describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-ro-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    createTicket(seed, { key: 'K-1', title: 'demo' });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const env = (): Record<string, string> => ({ KARST_DB_READONLY: dbPath });
+
+  it.each([
+    [['context', 'K-1', '--json']],
+    [['stats', '--json']],
+    [['blocked', '--json']],
+  ])('runs the read verb %j with only the read-only env', (argv) => {
+    expect(() => runCli(argv, env())).not.toThrow();
+  });
+
+  it('prints the block report through the read-only env', () => {
+    expect(JSON.parse(runCli(['blocked', '--json'], env()))).toEqual({ rows: [], summary: [] });
+  });
+
+  it.each([
+    [['stage', 'impl', 'pass', '--ticket', 'K-1']],
+    [['phase', 'plan', '--ticket', 'K-1']],
+    [['notes', 'post', '--title', 't', '--body', 'b', '--ticket', 'K-1']],
+    [['message', 'send', '--to', 'parent', '--body', 'b', '--ticket', 'K-1']],
+  ])('still refuses the write verb %j with the read-only env', (argv) => {
+    expect(() => runCli(argv, env())).toThrow(/missing --db/);
+  });
+
+  it('leaves the store unwritten after a refused write', () => {
+    expect(() => runCli(['stage', 'impl', 'pass', '--ticket', 'K-1'], env())).toThrow();
+    const check = openStore(dbPath);
+    const row = check.db.prepare("SELECT stage_current AS s FROM tickets WHERE key = 'K-1'").get() as { s: string };
+    check.close();
+    expect(row.s).toBe('scope');
+  });
+});

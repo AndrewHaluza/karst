@@ -19,6 +19,9 @@ describe('planningInstructions', () => {
     expect(text.split('P7').length - 1).toBe(1);
     expect(text).toContain('Cite drafts to the user as D<n>');
     expect(text).toContain('{"ok":true,"id":3,"ref":"D3"}');
+    expect(text).toContain(
+      'For a stuck or failing ticket, first run `node "$KARST_CLI" blocked` and compare the count of that block kind with earlier days, before you study one ticket.',
+    );
     expect(text).toContain('"dependsOn":["D3"]');
     expect(text).not.toMatch(/#N/);
   });

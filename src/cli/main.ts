@@ -31,6 +31,8 @@ import { runSubtaskCommand } from './subtaskCommand.js';
 import { runPauseCommand } from './pauseCommand.js';
 import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
+import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
+import { KARST_DB_READONLY_ENV } from '../agent/cliEnv.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -86,6 +88,7 @@ function loadProjectSlug(
  *
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
+ *   blocked:  `… blocked [--kind <kind>] [--json] --db <db>` (read-only; a planning session uses KARST_DB_READONLY)
  *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--planning] [--json]`
  *             the orchestration effectiveness report (read-only, node:sqlite):
  *             first-pass rate, rework loops, gate kills, cycle time, spend, and
@@ -263,7 +266,7 @@ export function runCli(
       // repeat the `karst:` prefix the wrapper adds.
       throw new Error(
         rest[1] === 'list'
-          ? 'draft list takes no arguments or flags'
+          ? 'draft list takes no arguments, only the optional --pending flag'
           : "draft propose takes no arguments or flags (usage: printf '%s' '<json>' | karst draft propose)",
       );
     }
@@ -276,8 +279,13 @@ export function runCli(
     });
   }
 
+  // READ verbs (`context`, `stats`, `blocked`) fall back to the planning
+  // session's read-only registry path. No write verb reads this, so a write in
+  // a planning session still refuses with `missing --db` (@arch:CLI-13).
+  const readDb = db ?? env[KARST_DB_READONLY_ENV];
+
   if (subcommand === 'context') {
-    if (!db) throw new Error('missing --db <path>');
+    if (!readDb) throw new Error('missing --db <path>');
     const parsed = parseContextArgs(effectiveRest);
     let manifest: Manifest | undefined;
     if (manifestPath) {
@@ -291,9 +299,9 @@ export function runCli(
         process.stderr.write(`karst: manifest load skipped (${(e as Error).message})\n`);
       }
     }
-    const store = openReadonlyStore(db);
+    const store = openReadonlyStore(readDb);
     try {
-      return runContextCommand(store, manifest, parsed, db, process.argv[1], manifestPath);
+      return runContextCommand(store, manifest, parsed, readDb, process.argv[1], manifestPath);
     } finally {
       store.close();
     }
@@ -304,12 +312,27 @@ export function runCli(
   // without one it falls back to the manifest's project so the default answer
   // is about the board the caller is standing on, not every board in the file.
   if (subcommand === 'stats') {
-    if (!db) throw new Error('missing --db <path>');
+    if (!readDb) throw new Error('missing --db <path>');
     const parsed = parseStatsArgs(effectiveRest);
     const fallbackSlug = loadProjectSlug(manifestPath, verbose);
-    const store = openReadonlyStore(db);
+    const store = openReadonlyStore(readDb);
     try {
       return runStatsCommand(store, parsed, fallbackSlug);
+    } finally {
+      store.close();
+    }
+  }
+
+  // `blocked` is READ-ONLY like `stats`; the project comes from the host's
+  // `KARST_PROJECT` when set (a planning session), else every project.
+  if (subcommand === 'blocked') {
+    if (!readDb) throw new Error('missing --db <path>');
+    const parsed = parseBlockedArgs(effectiveRest);
+    const projectEnv = env.KARST_PROJECT;
+    const projectId = projectEnv !== undefined && /^[1-9]\d*$/.test(projectEnv) ? Number(projectEnv) : undefined;
+    const store = openReadonlyStore(readDb);
+    try {
+      return runBlockedCommand(store, parsed, projectId === undefined ? {} : { projectId });
     } finally {
       store.close();
     }
@@ -615,7 +638,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 

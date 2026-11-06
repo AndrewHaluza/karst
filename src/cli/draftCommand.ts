@@ -94,9 +94,10 @@ function runPropose(deps: DraftProposeDeps): string {
   return JSON.stringify({ ok: true, file, id, ref: formatId('draft', id) });
 }
 
-function runList(deps: DraftProposeDeps): string {
+function runList(deps: DraftProposeDeps, pendingOnly: boolean): string {
   const dir = outboxDir(deps.outboxEnv);
-  const entries = readProposalIndex(scratchOf(dir));
+  const all = readProposalIndex(scratchOf(dir));
+  const entries = pendingOnly ? all.filter((e) => e.status === 'pending') : all;
   return JSON.stringify(entries.map(({ id, status, title }) => ({ id, ref: formatId('draft', id), status, title })));
 }
 
@@ -108,8 +109,9 @@ export function runDraftCommand(argv: string[], deps: DraftProposeDeps): string 
     return runPropose(deps);
   }
   if (sub === 'list') {
-    if (rest.length > 0) throw new Error('karst draft list takes no arguments or flags');
-    return runList(deps);
+    const pendingOnly = rest.length === 1 && rest[0] === '--pending';
+    if (rest.length > 0 && !pendingOnly) throw new Error('karst draft list takes no arguments, only the optional --pending flag');
+    return runList(deps, pendingOnly);
   }
   throw new Error(`karst draft: unknown subcommand '${sub ?? ''}' (want 'propose' or 'list')`);
 }

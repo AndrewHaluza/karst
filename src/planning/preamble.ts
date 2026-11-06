@@ -202,6 +202,8 @@ export function planningInstructions(input: PreambleInput): string {
     '',
     ...PRE_PROPOSAL_CHECKLIST,
     '',
+    `For a stuck or failing ticket, first run \`node ${cli} blocked\` and compare the count of that block kind with earlier days, before you study one ticket.`,
+    '',
     'When the user agrees on the work, propose it as one or more draft tickets. Each proposal is',
     'ONE shell command that pipes one JSON object to karst on stdin, e.g.:',
     `  printf '%s' '{"title":"…","description":"…","summary":"…","repos":["…"],"constraints":["@arch:…","<hash>","D<n>"]}' | node ${cli} draft propose`,

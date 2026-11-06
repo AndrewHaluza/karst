@@ -147,7 +147,8 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
  - \`draft list\` — ONLY inside a planning session. Reads the session's proposal
     index and prints its drafts as JSON \`[{"id":N,"status":…,"title":…}]\`; use
     it to re-read the ids and statuses (a draft a human already accepted or
-    discarded cannot be revised). It opens no store and takes no flags.
+    discarded cannot be revised). It opens no store. The one flag, \`--pending\`,
+    keeps only the drafts still pending; without it the output is unchanged.
  - \`setup discover [--root <path>] [--default-branch <branch>]\` — ONLY inside a
     setup session. Runs the deterministic discovery engine and prints the facts
     you reason over as JSON: every git repository under the root, each one's
@@ -234,6 +235,14 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     optional: a missing post is allowed. The note is always written as
     untrusted agent prose, and the merged diff decides who sees it.
 
+- \`blocked [--kind <kind>] [--json]\` — **read** every open ticket that has a
+  stage block: key, stage, kind, since, reason and agent state; for
+  \`review-stalled\` also the blocking findings per review round. The last line
+  counts blocks per kind now and in the 14 days before (block history is not
+  stored, so "before" counts blocks that began then and are still stored). Run
+  it FIRST for a stuck or failing ticket: if many tickets share one kind, the
+  cause is common. A planning session runs it, \`context\` and \`stats\` with no
+  \`--db\`: the host sets \`KARST_DB_READONLY\`, which no write verb reads.
 - \`stats [--project <slug>] [--since <iso>] [--planning] [--json]\` — **read** the
   orchestration effectiveness report for a project: first-pass rate, rework
   loops, gate kill distribution, cycle time, agent-active time, token spend by
