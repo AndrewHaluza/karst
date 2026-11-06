@@ -99,6 +99,8 @@ Planner bench (real planner, headless, public issues; see `@arch:FORMEVAL-PLAN`)
 
 Re-score saved runs with one blind judge (no producer call): `npm run eval:form -- --rejudge evals/form/references --judge-model claude-opus-5-5 [--dry-run] [--max-calls N]`; output `eval-results/rejudge-<ts>/report.md`.
 
+To compare intent judges, use one shared scope. Build it with a majority vote of an odd number of judges (at least 3): `npm run eval:form -- --rejudge <run> --judge-model <a> --judge-model <b> --judge-model <c> --judge-effort medium --build-scope evals/form/intent-issue-scope.json`. Then add `--scope-file evals/form/intent-issue-scope.json` to each rejudge or `--pass intent` run. A case or a test that is not in the file gives a `judge-error`.
+
 ## AI capability coverage (2026-11-06)
 
 This matrix shows the AI capabilities of karst and their eval state. The list comes from `src/agent/aiCallSites.ts`, the process roles, the preset capabilities, and the conflict session. Other paths, such as `ciFailure.ts`, were not checked for separate AI use.
@@ -144,7 +146,7 @@ Legend for the other columns:
 | | Graph node (expert, worker, fast) | Yes | None | ❌ | ❌ | ❌ | ❌ |
 
 - The "Should evaluate?" values are a judgment, not a rule.
-- The Opus low, Sonnet high, and Haiku medium intent results are in `evals/form/references/`. The judge changes these scores more than the model does, so do not rank the models from them. See section 1a of `evals/form/INTENT-MODEL-RATINGS.md`.
+- The Opus low, Sonnet high, and Haiku medium intent results are in `evals/form/references/`. Do not rank the models from them: the 12 hidden tests are too few, and only the Opus and Sonnet charters have scores from the shared scope. See section 1a of `evals/form/INTENT-MODEL-RATINGS.md`.
 - A ✅ does not mean that the capability is fully evaluated. Only Opus low and Sonnet high have repeat planner runs.
 - The `npm run eval` entries come from the design of the pipeline. Check which stages `buildSteps` runs, and if a variant can set the model and effort. This eval gives one result for the full pipeline, not a score for each capability.
 - The improve cells for Sonnet and Haiku show ⚠️ because `results.json` records no effort for those runs.
@@ -155,7 +157,7 @@ The order is a recommendation. It puts existing tools and high-value capabilitie
 
 | Order | Step | Capability | Work needed |
 |---|---|---|---|
-| 1 | Do not add more intent runs of the same kind. Check the judges against labels from a person, or add cases with more hidden tests. | Intent | New labels or new cases |
+| 1 | Do not add more intent runs of the same kind. Add cases with more hidden tests, and include them in the shared scope. Only labels from a person can show which judge is correct. | Intent | New cases, optional new labels |
 | 2 | Add a pass that gives known-defect diffs to the reviewer, and counts the defects that it finds and the false findings. | Review findings | New pass and new cases |
 | 3 | Add a pass that compares the classify output with the known approach, repos, and type. | Classify | Small new pass and new cases |
 | 4 | Run `npm run -s eval:setup`. Check which stages `buildSteps` runs, and if a variant can set the model and effort. Then run `npm run eval` on 2 or 3 instances. | Implementation, review fix, UAT fix | Harness setup, possibly variant changes |

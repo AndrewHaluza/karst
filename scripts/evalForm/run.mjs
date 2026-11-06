@@ -16,8 +16,9 @@ import { renderDraftReport } from './draftReport.mjs';
 import { runDraftEval } from './draftRun.mjs';
 import { gitRunner } from './draftChecks.mjs';
 import { parseJsonl } from './inputs.mjs';
-import { DEFAULT_JUDGE_EFFORT, DEFAULT_SEED, buildJobs, collectResultFiles, loadCaseMap, loadInstanceMap, pool, runRejudge } from './rejudge.mjs';
+import { DEFAULT_JUDGE_EFFORT, DEFAULT_SEED, buildJobs, collectResultFiles, countJudgeCalls, loadCaseMap, loadInstanceMap, pool, runRejudge } from './rejudge.mjs';
 import { renderRejudgeReport } from './rejudgeReport.mjs';
+import { buildIssueScopes, loadIssueScopes, scopeCases } from './issueScope.mjs';
 import { renderPlanRatings, renderPlanReport } from './planReport.mjs';
 import { makeWork, runPlanEval } from './planRun.mjs';
 import { buildPlanKickoff, buildPlanManifest } from './planPrompt.mjs';
@@ -25,6 +26,7 @@ import { buildPlanKickoff, buildPlanManifest } from './planPrompt.mjs';
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEFAULT_CASES = join(ROOT, 'evals/form/improve-cases.jsonl');
 export const DEFAULT_INSTANCES = join(ROOT, 'evals/instances/multi-swe-bench-ts-v1.jsonl');
+const MIN_SCOPE_JUDGES = 3;
 export const DEFAULT_RUNS = 3;
 export const DEFAULT_DRAFTS = join(ROOT, 'evals/form/local/drafts.jsonl');
 export const OWN_CASES = join(ROOT, 'evals/form/local/own-tickets.jsonl');
@@ -56,6 +58,8 @@ export function parseArgs(argv) {
     else if (a === '--db') o.db = need(i);
     else if (a === '--model') o.model = need(i);
     else if (a === '--rejudge') o.rejudge.push(need(i));
+    else if (a === '--build-scope') o.buildScope = need(i);
+    else if (a === '--scope-file') o.scopeFile = need(i);
     else if (a === '--judge-model') { o.judgeModel = need(i); o.judgeModels.push(o.judgeModel); }
     else if (a === '--judge-provider') o.judgeProviders.push(need(i));
     else if (a === '--judge-effort') o.judgeEffort = need(i);
@@ -68,6 +72,8 @@ export function parseArgs(argv) {
     else throw new Error(`unknown flag ${a}`);
     i++;
   }
+  if (o.buildScope && !o.rejudge.length) throw new Error('--build-scope needs --rejudge');
+  if (o.scopeFile && !o.rejudge.length && o.pass !== 'intent') throw new Error('--scope-file needs --rejudge or --pass intent');
   if (o.rejudge.length) return validateRejudge(o);
   if (o.dryRun) throw new Error('--dry-run needs --rejudge');
   if (!PASSES.includes(o.pass)) throw new Error(`--pass must be one of ${PASSES.join('|')}`);
@@ -107,6 +113,11 @@ function validateRejudge(o) {
   if (o.judgeProviders.some((p) => !PROVIDERS.includes(p))) throw new Error(`--judge-provider must be one of ${PROVIDERS.join('|')}`);
   if (!Number.isInteger(o.seed)) throw new Error('--seed must be an integer');
   if (o.maxCalls !== Infinity && (!Number.isInteger(o.maxCalls) || o.maxCalls < 1)) throw new Error('--max-calls must be a positive integer');
+  if (o.buildScope) {
+    if (o.judgeModels.length < MIN_SCOPE_JUDGES || o.judgeModels.length % 2 === 0) throw new Error(`--build-scope needs an odd number of at least ${MIN_SCOPE_JUDGES} judges`);
+    if (o.maxCalls !== Infinity) throw new Error('--build-scope does not take --max-calls');
+    if (o.scopeFile) throw new Error('--build-scope does not take --scope-file');
+  }
   if (o.cases.length === 0) o.cases = [DEFAULT_CASES, OWN_CASES];
   return o;
 }
@@ -185,9 +196,9 @@ async function mainIntent(opts) {
   const modes = intentModes(opts);
   const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
   const startedAt = new Date().toISOString();
-  const meta = { startedAt, pass: 'intent', model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, judgeEffort: opts.judgeEffort, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name) };
+  const meta = { startedAt, pass: 'intent', model: opts.model, ...(opts.effort ? { effort: opts.effort } : {}), judgeModel: opts.judgeModel, judgeEffort: opts.judgeEffort, provider: opts.provider, runs: opts.runs, sources: modes.map((m) => m.name), ...(opts.scopeFile ? { scopeFile: opts.scopeFile } : {}) };
   const attempts = await runIntentEval({
-    opts, items, modes, improve: improveDescription, intent: generateIntent, adapter, judgeAdapter: adapter,
+    opts, items, modes, improve: improveDescription, intent: generateIntent, adapter, judgeAdapter: adapter, fixedScopes: opts.scopeFile ? loadIssueScopes(opts.scopeFile) : null,
     makeEmptyDir: () => mkdtempSync(join(tmpdir(), 'eval-form-')),
     onProgress: (a) => console.error(`${a.source} ${a.caseId} run ${a.run}: ${a.error ? 'ERROR ' + a.error : 'done'}`),
   });
@@ -270,17 +281,39 @@ async function mainPlan(opts) {
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 }
 
+async function judgeAdapters(opts) {
+  const { resolveAdapter } = await import('../../src/agent/registry.ts');
+  return opts.judgeModels.map((_, j) => { const p = opts.judgeProviders[j] ?? opts.judgeProviders[0] ?? 'claude'; return resolveAdapter(p === 'opencode' ? 'opencode2' : p); });
+}
+
+async function mainBuildScope(opts, entries) {
+  const cases = scopeCases(entries);
+  if (opts.dryRun) { console.log(`judge calls: ${cases.length * opts.judgeModels.length} (${cases.length} case(s) x ${opts.judgeModels.length} judge(s))`); return; }
+  const { cases: scoped, failed } = await buildIssueScopes({
+    cases, judges: opts.judgeModels, adapters: await judgeAdapters(opts), effort: opts.judgeEffort, onProgress: (c, j) => console.error(`scope ${c} ${j}`),
+  });
+  if (failed.length) throw new Error(`issue scope failed, no file written: ${failed.map((f) => `${f.caseId} ${f.judge}: ${f.error}`).join('; ')}`);
+  const meta = { judges: opts.judgeModels, effort: opts.judgeEffort, createdAt: new Date().toISOString() };
+  writeFileSync(opts.buildScope, `${JSON.stringify({ meta, cases: scoped }, null, 2)}\n`);
+  console.log(`scope file: ${opts.buildScope}`);
+}
+
 async function mainRejudge(opts) {
   const results = collectResultFiles(opts.rejudge);
   const entries = pool(results, { seed: opts.seed, cases: loadCaseMap(opts.cases), instances: loadInstanceMap(opts.instances) });
+  if (opts.buildScope) return mainBuildScope(opts, entries);
+  const fixedScopes = opts.scopeFile ? loadIssueScopes(opts.scopeFile) : null;
   const jobs = buildJobs(entries, opts.judgeModels, opts.seed);
-  if (opts.dryRun) { console.log(`judge calls: ${jobs.length} (${jobs.length / opts.judgeModels.length} attempts x ${opts.judgeModels.length} judge(s))`); return; }
-  const { resolveAdapter } = await import('../../src/agent/registry.ts');
-  const adapters = opts.judgeModels.map((_, j) => { const p = opts.judgeProviders[j] ?? opts.judgeProviders[0] ?? 'claude'; return resolveAdapter(p === 'opencode' ? 'opencode2' : p); });
-  const { stopped } = await runRejudge({ jobs, judges: opts.judgeModels, adapters, effort: opts.judgeEffort, maxCalls: opts.maxCalls, onProgress: (d, n) => console.error(`judged ${d}/${n}`) });
+  if (opts.dryRun) {
+    const { attempts, scopes, total } = countJudgeCalls(jobs, fixedScopes);
+    console.log(`judge calls: ${total} (${attempts / opts.judgeModels.length} attempts x ${opts.judgeModels.length} judge(s), ${scopes} issue scope call(s))`);
+    return;
+  }
+  const adapters = await judgeAdapters(opts);
+  const { stopped } = await runRejudge({ jobs, judges: opts.judgeModels, adapters, effort: opts.judgeEffort, maxCalls: opts.maxCalls, fixedScopes, onProgress: (d, n) => console.error(`judged ${d}/${n}`) });
   const dir = join(ROOT, 'eval-results', `rejudge-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'report.md'), renderRejudgeReport({ judges: opts.judgeModels, entries, stopped, maxCalls: opts.maxCalls, files: results.length, seed: opts.seed, effort: opts.judgeEffort }));
+  writeFileSync(join(dir, 'report.md'), renderRejudgeReport({ judges: opts.judgeModels, entries, stopped, maxCalls: opts.maxCalls, files: results.length, seed: opts.seed, effort: opts.judgeEffort, scopeFile: opts.scopeFile ?? null }));
   console.log(`report: ${join(dir, 'report.md')}`);
 }
 
