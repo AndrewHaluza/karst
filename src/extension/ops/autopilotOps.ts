@@ -144,12 +144,12 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, cutShort };
 }
 
-/** An open PR whose stored CI rollup is missing, unreadable or unknown. */
+/** An open PR whose stored CI rollup is missing, unreadable or unknown, or still has pending checks (its failing list is partial). */
 function hasUnknownCi(d: AutopilotDeps): boolean {
   const rows = d.store.db
     .prepare("SELECT checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
     .all(d.ticketId) as Array<{ checks: string | null }>;
-  return rows.some((r) => { const state = parseChecks(r.checks)?.state; return state === undefined || state === 'unknown'; });
+  return rows.some((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'unknown' || c.pending > 0; });
 }
 
 /**

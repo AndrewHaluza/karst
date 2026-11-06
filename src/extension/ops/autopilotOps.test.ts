@@ -474,6 +474,14 @@ describe('autopilotTick guards', () => {
     }
   });
 
+  it('waits while a failing rollup still has pending checks, because its failing list is partial', async () => {
+    seedPr({ ...failing('build'), pending: 1 });
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+  });
+
   it('keeps the park when the CI status is unknown (no positive evidence)', async () => {
     seedPr(failing('build'));
     await spend(4);
