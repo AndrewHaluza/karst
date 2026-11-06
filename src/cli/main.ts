@@ -3,7 +3,7 @@ import { readSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
-import type { Manifest } from '../manifest/types.js';
+import type { Manifest, Severity } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
@@ -58,6 +58,20 @@ import { installSqliteWarningFilter } from './suppressWarning.js';
  */
 function writeManifestDiagnostics(diagnostics: readonly string[]): void {
   for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
+}
+
+/**
+ * The review gate's blocking-severity floor from a manifest, for `blocked`.
+ * An unreadable manifest gives undefined: the command falls back to the default.
+ */
+function readStallFloor(manifestPath: string): Severity | 'none' | undefined {
+  try {
+    const findings = loadManifestWithDiagnostics(manifestPath).manifest.review?.findings;
+    if (findings === undefined) return undefined;
+    return findings.enabled === false ? 'none' : findings.blockingSeverity;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -330,9 +344,13 @@ export function runCli(
     const parsed = parseBlockedArgs(effectiveRest);
     const projectEnv = env.KARST_PROJECT;
     const projectId = projectEnv !== undefined && /^[1-9]\d*$/.test(projectEnv) ? Number(projectEnv) : undefined;
+    const stallFloor = manifestPath ? readStallFloor(manifestPath) : undefined;
     const store = openReadonlyStore(readDb);
     try {
-      return runBlockedCommand(store, parsed, projectId === undefined ? {} : { projectId });
+      return runBlockedCommand(store, parsed, {
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(stallFloor === undefined ? {} : { stallFloor }),
+      });
     } finally {
       store.close();
     }

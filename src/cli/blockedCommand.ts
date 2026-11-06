@@ -1,6 +1,8 @@
 import type { Store } from '../store/db.js';
 import { formatId } from '../model/entityId.js';
 import { reviewStallAttempts } from '../workflow/reviewStallRead.js';
+import type { Severity } from '../manifest/types.js';
+import { REVIEW_FINDINGS_DEFAULTS } from '../manifest/qualityDefaults.js';
 
 /**
  * `karst blocked [--kind <kind>] [--json]` — one row per open ticket with a
@@ -10,13 +12,19 @@ import { reviewStallAttempts } from '../workflow/reviewStallRead.js';
  * `KARST_DB_READONLY` (@arch:CLI-13). Block history is NOT stored — a block is
  * cleared when it resolves (`stages.blocked_*` has no `unblocked_at`, see the
  * `unmeasurable` list in `store/metrics/index.ts`). So the "before" count is
- * the blocks that BEGAN in the 14 days before `now` and are still stored,
- * including ones on tickets since archived or done. It is a floor, not a total.
+ * the blocks that BEGAN in the 14 days before `now`, are still stored and sit on
+ * tickets that are no longer open (archived, done or closed). Open blocks are
+ * only in the "now" count. It is a floor, not a total.
  */
 
 export const BASELINE_WINDOW_DAYS = 14;
-/** Severity floor for the review-stalled findings: the review gate's default. */
-const STALL_FINDING_FLOOR = 'high' as const;
+/**
+ * Severity floor for the review-stalled findings when the caller gives none:
+ * the review gate's default. A caller with a manifest passes its configured one.
+ */
+const DEFAULT_STALL_FLOOR = REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
+/** A ticket is open when it is not archived and not `done` or `closed`. */
+const OPEN_TICKET_SQL = "t.archived_at IS NULL AND COALESCE(t.stage_current, '') NOT IN ('done', 'closed')";
 const DAY_MS = 86_400_000;
 
 export interface ParsedBlocked {
@@ -44,7 +52,7 @@ export interface BlockedCount {
   readonly kind: string;
   /** Open blocks now. */
   readonly now: number;
-  /** Blocks that began in the 14 days before now (still stored). */
+  /** Blocks that began in the 14 days before now on tickets no longer open (still stored). */
   readonly before: number;
 }
 
@@ -57,6 +65,8 @@ export interface BlockedScope {
   /** `KARST_PROJECT`: restrict to one project id. Absent = every project. */
   readonly projectId?: number;
   readonly now?: () => Date;
+  /** The manifest's `review.findings` floor (`'none'` = no findings); absent = the default. */
+  readonly stallFloor?: Severity | 'none';
 }
 
 const KIND_RE = /^[a-z][a-z0-9-]{0,63}$/;
@@ -88,8 +98,8 @@ interface BlockRow {
   agent_state: string | null;
 }
 
-function roundsFor(store: Store, ticketId: number): BlockedRound[] {
-  return reviewStallAttempts(store, ticketId, STALL_FINDING_FLOOR).map((a) => ({
+function roundsFor(store: Store, ticketId: number, floor: Severity | 'none'): BlockedRound[] {
+  return reviewStallAttempts(store, ticketId, floor).map((a) => ({
     attempt: a.attempt,
     findings: a.findings.map((f) => (f.file === null ? '(no file)' : f.line == null ? f.file : `${f.file}:${f.line}`)),
   }));
@@ -106,8 +116,7 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
       `SELECT t.id AS id, t.key AS key, s.stage_key AS stage_key, s.blocked_kind AS blocked_kind,
               s.blocked_reason AS blocked_reason, s.blocked_at AS blocked_at, t.agent_state AS agent_state
          FROM stages s JOIN tickets t ON t.id = s.ticket_id
-        WHERE s.blocked_kind IS NOT NULL AND t.archived_at IS NULL
-          AND COALESCE(t.stage_current, '') <> 'done'${projectSql}
+        WHERE s.blocked_kind IS NOT NULL AND ${OPEN_TICKET_SQL}${projectSql}
         ORDER BY s.blocked_at, t.id`,
     )
     .all(...projectArgs) as BlockRow[];
@@ -119,15 +128,18 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     since: r.blocked_at ?? '',
     reason: r.blocked_reason ?? '',
     agentState: r.agent_state,
-    ...(r.blocked_kind === 'review-stalled' ? { rounds: roundsFor(store, r.id) } : {}),
+    ...(r.blocked_kind === 'review-stalled' ? { rounds: roundsFor(store, r.id, scope.stallFloor ?? DEFAULT_STALL_FLOOR) } : {}),
   }));
 
   // `blocked_at` is written as an ISO-8601 UTC string, so string order is time order.
+  // Only blocks on tickets that are NOT open count as "before": an open block is
+  // already in "now", and counting it twice would hide a spike.
   const recent = store.db
     .prepare(
       `SELECT s.blocked_kind AS kind, COUNT(*) AS n
          FROM stages s JOIN tickets t ON t.id = s.ticket_id
-        WHERE s.blocked_kind IS NOT NULL AND s.blocked_at >= ? AND s.blocked_at < ?${projectSql}
+        WHERE s.blocked_kind IS NOT NULL AND s.blocked_at >= ? AND s.blocked_at < ?
+          AND NOT (${OPEN_TICKET_SQL})${projectSql}
         GROUP BY s.blocked_kind`,
     )
     .all(windowStart, new Date(now).toISOString(), ...projectArgs) as { kind: string; n: number }[];

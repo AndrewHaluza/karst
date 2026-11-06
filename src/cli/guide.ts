@@ -239,7 +239,8 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
   stage block: key, stage, kind, since, reason and agent state; for
   \`review-stalled\` also the blocking findings per review round. The last line
   counts blocks per kind now and in the 14 days before (block history is not
-  stored, so "before" counts blocks that began then and are still stored). Run
+  stored, so "before" counts blocks that began then, are still stored and sit on
+  tickets no longer open; \`--manifest\` sets the finding severity floor). Run
   it FIRST for a stuck or failing ticket: if many tickets share one kind, the
   cause is common. A planning session runs it, \`context\` and \`stats\` with no
   \`--db\`: the host sets \`KARST_DB_READONLY\`, which no write verb reads.

@@ -78,31 +78,54 @@ describe('karst blocked — report', () => {
     const text = runBlockedCommand(store, { json: false }, scope);
     expect(text).toContain('K-1  stage=fix  kind=review-stalled');
     expect(text).toContain('round 2: src/a.ts:12');
-    expect(text).toContain('review-stalled 1 now / 1 in the 14 days before');
+    expect(text).toContain('review-stalled 1 now / 0 in the 14 days before');
   });
 
-  it('counts blocks per kind now and in the 14 days before, and filters by kind', () => {
+  it('counts open blocks as now and only blocks on tickets no longer open as before', () => {
     stall('K-1', '2026-11-05T12:00:00.000Z');
-    stall('K-2', '2026-10-30T12:00:00.000Z');
-    stall('K-3', '2026-09-01T12:00:00.000Z'); // older than 14 days: now only
+    stall('K-2', '2026-10-30T12:00:00.000Z'); // open: in "now", never in "before"
+    const gone = stall('K-3', '2026-11-01T12:00:00.000Z');
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(gone);
+    const old = stall('K-5', '2026-09-01T12:00:00.000Z'); // older than 14 days: neither
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(old);
     const t = createTicket(store, { key: 'K-4', title: 'x' });
     setStage(store, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'w', blockedAt: '2026-11-04T00:00:00.000Z' });
     const report = collectBlocked(store, scope);
+    expect(report.rows.map((r) => r.key).sort()).toEqual(['K-1', 'K-2', 'K-4']);
     expect(report.summary).toEqual([
-      { kind: 'review-stalled', now: 3, before: 2 },
-      { kind: 'awaiting-merge', now: 1, before: 1 },
+      { kind: 'review-stalled', now: 2, before: 1 },
+      { kind: 'awaiting-merge', now: 1, before: 0 },
     ]);
     const only = JSON.parse(runBlockedCommand(store, { json: true, kind: 'awaiting-merge' }, scope));
     expect(only.rows.map((r: { key: string }) => r.key)).toEqual(['K-4']);
     expect(only.summary).toHaveLength(1);
   });
 
-  it('skips archived and done tickets from the rows', () => {
-    const id = stall('K-1', '2026-11-05T12:00:00.000Z');
-    store.db.prepare("UPDATE tickets SET archived_at = '2026-11-05' WHERE id = ?").run(id);
+  it('skips archived, done and closed tickets from the rows', () => {
+    const a = stall('K-1', '2026-11-05T12:00:00.000Z');
+    const d = stall('K-2', '2026-11-05T12:00:00.000Z');
+    const c = stall('K-3', '2026-11-05T12:00:00.000Z');
+    store.db.prepare("UPDATE tickets SET archived_at = '2026-11-05' WHERE id = ?").run(a);
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(d);
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(c);
     const report = collectBlocked(store, scope);
     expect(report.rows).toEqual([]);
-    expect(report.summary).toEqual([{ kind: 'review-stalled', now: 0, before: 1 }]);
+    expect(report.summary).toEqual([{ kind: 'review-stalled', now: 0, before: 3 }]);
+  });
+
+  it('reads the findings with the configured floor', () => {
+    const id = stall('K-1', '2026-11-05T12:00:00.000Z');
+    recordFindings(store, {
+      ticketId: id,
+      attempt: 3,
+      runAt: '2026-11-05T12:30:00.000Z',
+      findings: [{ severity: 'medium', repo: 'r', file: 'src/m.ts', line: 1, title: 't', detail: 'd', source: 'agent' }],
+    });
+    const files = (floor?: 'medium' | 'none'): string[] =>
+      (collectBlocked(store, { ...scope, ...(floor ? { stallFloor: floor } : {}) }).rows[0]!.rounds ?? []).flatMap((r) => [...r.findings]);
+    expect(files()).not.toContain('src/m.ts:1');
+    expect(files('medium')).toContain('src/m.ts:1');
+    expect(files('none')).toEqual([]);
   });
 
   it('scopes to one project when given', () => {
