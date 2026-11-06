@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1190,6 +1190,96 @@ setTimeout(() => {
       await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
         /git push --force-with-lease=karst\/x:<sha> origin HEAD/,
       );
+    });
+  });
+
+  describe('remote server error on the first push', () => {
+    const SERVER_ERROR = 'remote: fatal error in commit_refs_rules\n ! [remote rejected] HEAD -> karst/x (failure)';
+
+    /** Fake git: the n-th push (1-based) fails with `errors[n-1]` when present, else lands. */
+    function pushFailingGit(errors: string[]) {
+      const calls: string[][] = [];
+      let pushes = 0;
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'b'.repeat(40), stderr: '', exitCode: 0 };
+        if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+          return { stdout: 'a'.repeat(40), stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'push') {
+          const err = errors[pushes++];
+          return err === undefined ? { stdout: '', stderr: '', exitCode: 0 } : { stdout: '', stderr: err, exitCode: 1 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      return { git, pushes: () => calls.filter((a) => a[0] === 'push') };
+    }
+
+    it('pushes twice, waits once, notes the retry and records the push step as passed', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { git, pushes } = pushFailingGit([SERVER_ERROR]);
+      const { gh } = fakeGh();
+      const wait = vi.fn(async () => {});
+      const events: ShipStepEvent[] = [];
+      await shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), git, (e) => events.push(e));
+
+      expect(pushes()).toHaveLength(2);
+      expect(wait).toHaveBeenCalledExactlyOnceWith(30_000);
+      expect(events.filter((e) => e.step === 'push' && e.status === 'note')).toHaveLength(1);
+      expect(events.some((e) => e.step === 'push' && e.status === 'pass')).toBe(true);
+      const step = store.db
+        .prepare(`SELECT status FROM ship_repo_steps WHERE step = 'push'`)
+        .all() as { status: string }[];
+      expect(step.map((r) => r.status)).toEqual(['passed']);
+    });
+
+    it('fails with the error of the second attempt when both attempts fail', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { git, pushes } = pushFailingGit([SERVER_ERROR, SERVER_ERROR.replace('commit_refs_rules', 'second_rules')]);
+      const { gh } = fakeGh();
+      const wait = vi.fn(async () => {});
+      await expect(shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), git)).rejects.toThrow(/second_rules/);
+
+      expect(pushes()).toHaveLength(2);
+      const step = store.db
+        .prepare(`SELECT status, detail FROM ship_repo_steps WHERE step = 'push'`)
+        .all() as { status: string; detail: string }[];
+      expect(step).toHaveLength(1);
+      expect(step[0]!.status).toBe('failed');
+      expect(step[0]!.detail).toContain('second_rules');
+    });
+
+    it('does not retry or wait on a non-fast-forward error', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { git, pushes } = pushFailingGit(['! [rejected] HEAD -> karst/x (non-fast-forward)']);
+      const { gh } = fakeGh();
+      const wait = vi.fn(async () => {});
+      // The error goes to classifyRejectedPush; origin is unreadable here, so ship fails as before.
+      await expect(shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), git)).rejects.toThrow();
+
+      expect(wait).not.toHaveBeenCalled();
+      expect(pushes()[0]).toEqual(['push', '-u', 'origin', 'HEAD']);
+    });
+
+    it('sends the same lease on the retry and takes the lease one time only', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      store.db
+        .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+        .run(id, '/repo/frontend');
+      const { git, pushes } = pushFailingGit([SERVER_ERROR]);
+      const { gh } = fakeGh();
+      await shipTicket(store, { ticketId: id, wait: async () => {} }, gh, fakeAdapter(), git);
+
+      const lease = `--force-with-lease=karst/x:${'a'.repeat(40)}`;
+      expect(pushes()).toEqual([
+        ['push', '-u', lease, 'origin', 'HEAD'],
+        ['push', '-u', lease, 'origin', 'HEAD'],
+      ]);
+      const row = store.db
+        .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+        .get(id, '/repo/frontend') as { needs_force_push: number | null };
+      expect(row.needs_force_push).toBeFalsy();
     });
   });
 
