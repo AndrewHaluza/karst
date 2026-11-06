@@ -85,6 +85,11 @@ describe('evaluateReviewStall', () => {
       const stall = evaluateReviewStall([nf(1), nf(2)], { ...rep, repeatedFindingRounds: 2 });
       expect(stall?.reason).toContain('same problem at (no file) (2 rounds)');
     });
+    it('the whole repeat spans at most 15 lines, not 15 either side of the latest', () => {
+      const c = { ...rep, repeatedFindingRounds: 3 };
+      expect(evaluateReviewStall([at(1, R, 85, 'a'), at(2, R, 100, 'b'), at(3, R, 115, 'c')], c)).toBeNull();
+      expect(evaluateReviewStall([at(1, R, 100, 'a'), at(2, R, 108, 'b'), at(3, R, 115, 'c')], c)).not.toBeNull();
+    });
     it('does not match across different files', () => {
       expect(evaluateReviewStall([at(1, 'a.ts', 10, 'a'), at(2, 'b.ts', 10, 'b')], { ...rep, repeatedFindingRounds: 2 })).toBeNull();
     });

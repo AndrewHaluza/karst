@@ -6,7 +6,7 @@ import { findingIdentity } from '../store/findingIdentity.js';
 import type { StallAttempt } from '../model/reviewStall.js';
 
 /**
- * A ticket's review attempts, oldest first (blocking findings grouped per attempt, plus clean runs, where the reviewer ran and found nothing, as empty attempts),
+ * A ticket's review attempts, oldest first (blocking findings grouped per attempt, plus clean runs, where the reviewer ran and found nothing, as empty attempts; one round per review run),
  * since the last `reset` review round ended an episode (the stall counter's
  * reset marker — "Continue anyway" and a redesign hint both end the episode).
  * Only agent findings at or above `blockingSeverity` count; `'none'` blocks
@@ -28,46 +28,55 @@ export function reviewStallAttempts(
     .get(ticketId) as { at: string | null } | undefined;
   const since = reset?.at ?? null;
 
-  // Runs that never reached a verdict (stale, blocked, stopped) neither count nor break.
-  const unfinished = new Set(
-    (
-      store.db
-        .prepare(
-          `SELECT run_at AS runAt FROM stage_runs
-            WHERE ticket_id = ? AND stage_key = 'review'
-              AND (status = 'stale' OR (status = 'finished' AND outcome IN ('blocked','stopped')))`,
-        )
-        .all(ticketId) as { runAt: string }[]
-    ).map((r) => r.runAt),
-  );
-  const byAttempt = new Map<number, { runAt: string; findings: StallAttempt['findings'][number][] }>();
+  // Rounds are keyed by review run (its `runAt` batch stamp), not by the attempt
+  // number: the number repeats across a park, a send-back and a reset. A run
+  // that never reached a verdict (stale, blocked, stopped) is not a round and
+  // neither counts nor breaks, but the blocking findings it recorded (the kept
+  // siblings of a usage-limit park) belong to the next run that reaches one.
+  const findingsByRun = new Map<string, { attempt: number; findings: StallAttempt['findings'][number][] }>();
   for (const f of listFindings(store, ticketId)) {
     if (f.source !== 'agent' || SEVERITIES.indexOf(f.severity) > floor) continue;
     if (since !== null && f.runAt <= since) continue;
-    if (unfinished.has(f.runAt)) continue;
-    const entry = byAttempt.get(f.attempt) ?? { runAt: f.runAt, findings: [] };
+    const entry = findingsByRun.get(f.runAt) ?? { attempt: f.attempt, findings: [] };
     entry.findings.push({ file: f.file, line: f.line, identity: f.identity ?? findingIdentity(f) });
-    if (f.runAt > entry.runAt) entry.runAt = f.runAt;
-    byAttempt.set(f.attempt, entry);
+    findingsByRun.set(f.runAt, entry);
   }
-  const rounds = [...byAttempt.entries()].map(([attempt, e]) => ({ attempt, runAt: e.runAt, findings: e.findings }));
-  // A clean round is a finished review run whose reviewer ran and passed and
-  // that has no blocking finding under its attempt (kept sibling findings of a
-  // usage-limit rerun share the attempt, so they keep the round blocking).
-  // A run with a red gate where the reviewer never ran is not clean.
-  const finished = store.db
+  const runs = new Map<string, { attempt: number; verdict: boolean; reviewerPassed: boolean }>();
+  const stageRuns = store.db
     .prepare(
-      `SELECT s.attempt AS attempt, s.run_at AS runAt FROM stage_runs s
-        WHERE s.ticket_id = ? AND s.stage_key = 'review' AND s.status = 'finished' AND s.outcome = 'advanced'
-          AND EXISTS (SELECT 1 FROM process_runs p
-                       WHERE p.stage_run_id = s.id AND p.stage_key = 'review' AND p.status = 'passed')`,
+      `SELECT s.attempt AS attempt, s.run_at AS runAt, s.status AS status, s.outcome AS outcome,
+              EXISTS (SELECT 1 FROM process_runs p
+                       WHERE p.stage_run_id = s.id AND p.stage_key = 'review' AND p.status = 'passed') AS reviewerPassed
+         FROM stage_runs s WHERE s.ticket_id = ? AND s.stage_key = 'review'`,
     )
-    .all(ticketId) as { attempt: number; runAt: string }[];
-  for (const run of finished) {
-    if (byAttempt.has(run.attempt) || (since !== null && run.runAt <= since)) continue;
-    rounds.push({ attempt: run.attempt, runAt: run.runAt, findings: [] });
+    .all(ticketId) as { attempt: number; runAt: string; status: string; outcome: string | null; reviewerPassed: number }[];
+  for (const r of stageRuns) {
+    if (since !== null && r.runAt <= since) continue;
+    runs.set(r.runAt, {
+      attempt: r.attempt,
+      // The run being committed is still `running` when the guard reads.
+      verdict: !(r.status === 'stale' || (r.status === 'finished' && r.outcome !== 'advanced')),
+      reviewerPassed: r.reviewerPassed === 1,
+    });
   }
-  return rounds
-    .sort((a, b) => (a.runAt < b.runAt ? -1 : a.runAt > b.runAt ? 1 : a.attempt - b.attempt))
-    .map(({ attempt, findings }) => ({ attempt, findings }));
+  // A findings batch with no stage run (a row written before stage runs) is a verdict.
+  for (const [runAt, e] of findingsByRun) {
+    if (!runs.has(runAt)) runs.set(runAt, { attempt: e.attempt, verdict: true, reviewerPassed: false });
+  }
+  const out: StallAttempt[] = [];
+  let carried: StallAttempt['findings'][number][] = [];
+  for (const runAt of [...runs.keys()].sort()) {
+    const run = runs.get(runAt)!;
+    const own = findingsByRun.get(runAt)?.findings ?? [];
+    if (!run.verdict) {
+      carried = [...carried, ...own];
+      continue;
+    }
+    const findings = [...carried, ...own];
+    carried = [];
+    // Clean: the reviewer ran and passed and nothing blocks. A red gate where
+    // the reviewer never ran is no evidence about the review.
+    if (findings.length > 0 || run.reviewerPassed) out.push({ attempt: run.attempt, findings });
+  }
+  return out;
 }

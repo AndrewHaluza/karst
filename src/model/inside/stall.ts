@@ -2,6 +2,7 @@ import type { Severity } from '../../manifest/types.js';
 import type { ReviewStallDetection } from '../../manifest/types.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import { evaluateReviewStall, type StallAttempt } from '../reviewStall.js';
+import type { ProcessRun } from '../../store/processRuns.js';
 import { isBlockingSeverity } from '../severityOrder.js';
 
 /** What the Inside review view shows about repeated blocking findings. */
@@ -18,29 +19,31 @@ export interface InsideStallView {
 /** Display threshold: a file or finding that has already repeated once is worth showing. */
 const WATCH_ROUNDS = 2;
 
-/** Blocking findings per attempt, oldest first. */
-function attemptsOf(findings: readonly Finding[], threshold: Severity | 'none'): StallAttempt[] {
+/**
+ * Blocking findings per attempt, oldest first. A review process run that passed
+ * under an attempt with no blocking finding is a clean round: an empty attempt
+ * that breaks the streak, as the guard reads it.
+ */
+function attemptsOf(
+  findings: readonly Finding[],
+  threshold: Severity | 'none',
+  processRuns: readonly ProcessRun[],
+): StallAttempt[] {
   const byAttempt = new Map<number, Finding[]>();
   for (const f of findings) {
     if (!isBlockingSeverity(f.severity, threshold)) continue;
     byAttempt.set(f.attempt, [...(byAttempt.get(f.attempt) ?? []), f]);
   }
-  const sorted = [...byAttempt.entries()].sort(([a], [b]) => a - b);
-  // The attempt counter climbs on every failed review verdict, so a number
-  // missing between two blocking attempts is a round with no blocking finding:
-  // an empty attempt that breaks the streak, as the guard reads it.
-  return sorted.flatMap(([attempt, rows], i) => {
-    const prev = i === 0 ? attempt : sorted[i - 1]![0];
-    const clean = Array.from({ length: Math.max(0, attempt - prev - 1) }, (_, k) => ({
-      attempt: prev + 1 + k,
-      findings: [],
-    }));
-    const own = {
-      attempt,
-      findings: rows.map((r) => ({ file: r.file, line: r.line, identity: r.identity ?? null })),
-    };
-    return [...clean, own];
-  });
+  const attempts: StallAttempt[] = [...byAttempt.entries()].map(([attempt, rows]) => ({
+    attempt,
+    findings: rows.map((r) => ({ file: r.file, line: r.line, identity: r.identity ?? null })),
+  }));
+  for (const p of processRuns) {
+    if (p.stageKey === 'review' && p.processId === 'review' && p.status === 'passed' && !byAttempt.has(p.attempt)) {
+      attempts.push({ attempt: p.attempt, findings: [] });
+    }
+  }
+  return attempts.sort((a, b) => a.attempt - b.attempt);
 }
 
 /** Pure: the stall picture for the review findings, or `undefined` when there is nothing to show. */
@@ -48,9 +51,10 @@ export function stallView(
   findings: readonly Finding[],
   threshold: Severity | 'none',
   cfg: ReviewStallDetection,
+  processRuns: readonly ProcessRun[] = [],
 ): InsideStallView | undefined {
   if (!cfg.enabled) return undefined;
-  const attempts = attemptsOf(findings, threshold);
+  const attempts = attemptsOf(findings, threshold, processRuns);
   const watch = evaluateReviewStall(attempts, {
     enabled: true,
     sameFileRounds: WATCH_ROUNDS,

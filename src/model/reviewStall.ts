@@ -87,20 +87,25 @@ function repeatedProblem(
   for (const f of latest.findings) {
     const sameIdentity =
       f.identity !== null && others.every((a) => a.findings.some((g) => g.identity === f.identity));
-    const sameLine =
-      f.file !== null &&
-      typeof f.line === 'number' &&
-      others.every((a) =>
-        a.findings.some(
-          (g) =>
-            g.file === f.file &&
-            typeof g.line === 'number' &&
-            Math.abs(g.line - (f.line as number)) <= REPEAT_LINE_WINDOW,
-        ),
-      );
+    const sameLine = f.file !== null && typeof f.line === 'number' && lineWindowHolds(f.file, f.line, others);
     if (sameIdentity || sameLine) return { file: f.file, line: f.line ?? null };
   }
   return null;
+}
+
+/**
+ * True when a single window of `REPEAT_LINE_WINDOW` lines holds the latest
+ * finding's line and one same-file line from each earlier attempt, so the
+ * whole repeat spans at most the window, not twice of it.
+ */
+function lineWindowHolds(file: string, line: number, others: readonly StallAttempt[]): boolean {
+  const linesOf = (a: StallAttempt): number[] =>
+    a.findings.flatMap((g) => (g.file === file && typeof g.line === 'number' ? [g.line] : []));
+  for (let lo = line - REPEAT_LINE_WINDOW; lo <= line; lo++) {
+    const hi = lo + REPEAT_LINE_WINDOW;
+    if (others.every((a) => linesOf(a).some((l) => l >= lo && l <= hi))) return true;
+  }
+  return false;
 }
 
 function repeatedIdentityCount(attempts: readonly StallAttempt[], r: number | null): number {

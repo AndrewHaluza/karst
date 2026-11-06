@@ -1,3 +1,4 @@
+import type { ProcessRun } from '../../store/processRuns.js';
 import { describe, it, expect } from 'vitest';
 import type { Finding } from '../../store/reviewFindings.js';
 import { stallView } from './stall.js';
@@ -44,8 +45,12 @@ describe('stallView', () => {
   it('ignores non-blocking findings', () => {
     expect(stallView([f(1, 'a.ts', 'x', 'low'), f(2, 'a.ts', 'y', 'low')], 'high', cfg)).toBeUndefined();
   });
-  it('an attempt number with no blocking finding between two blocking attempts breaks the streak', () => {
+  it('a passed review process run under an attempt with no blocking finding breaks the streak', () => {
+    const run = (attempt: number, status: ProcessRun['status']) =>
+      ({ stageKey: 'review', processId: 'review', attempt, status }) as ProcessRun;
     const rows = [f(1, 'a.ts', 'x'), f(2, 'a.ts', 'y'), f(4, 'a.ts', 'z')];
-    expect(stallView(rows, 'high', cfg)).toBeUndefined();
+    expect(stallView(rows, 'high', cfg, [run(3, 'passed')])).toBeUndefined();
+    const four = [f(1, 'a.ts', 'x'), f(2, 'a.ts', 'y'), f(4, 'a.ts', 'z'), f(5, 'a.ts', 'w')];
+    expect(stallView(four, 'high', cfg, [run(3, 'passed')])).toMatchObject({ stalled: false, rounds: 2 });
   });
 });
