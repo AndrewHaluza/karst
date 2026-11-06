@@ -165,6 +165,19 @@ describe('ticket form — draft persistence', () => {
     expect(derived.toLowerCase()).toContain('other');
   });
 
+  it('derives the key of a restored proposal form from the restored Title, not from the proposal title', () => {
+    h = renderWebview('ticketForm', {
+      persistedState: { karstPanel: { mode: 'create', prefilled: true, draftId: 5 }, draft: { title: 'Zebra crossing' } },
+    });
+    h.receive({ type: 'state', state: baseState({ prefilled: true, title: 'Proposal original', briefSource: { kind: 'draft', draftId: 5 } }) });
+    const key = h.query<HTMLInputElement>('#ref')!.value.toLowerCase();
+    expect(key).toContain('zebra');
+    expect(key).not.toContain('proposal');
+    // still follows the Title: the key was never taken over
+    type(h, 'title', 'Giraffe');
+    expect(h.query<HTMLInputElement>('#ref')!.value.toLowerCase()).toContain('giraffe');
+  });
+
   it('keeps a key the user typed in the draft', async () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState() });

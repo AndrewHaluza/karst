@@ -378,7 +378,9 @@ export class TicketFormManager {
     }
     const prefill = outcome?.status === 'pending' && draftId !== undefined ? proposalPrefill?.(draftId) : undefined;
     if (!prefill) {
-      if (mintedId !== undefined) this.discardMintedRow(mintedId);
+      // Restore never deletes a row: another form may have saved it since the reload. The row
+      // stays as the edit form of its ticket, and the user decides what to do with it.
+      if (mintedId !== undefined) return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists);
       return close('proposal of the review form is gone');
     }
     if ((mintedId !== undefined && this.panels.has(mintedId)) || (draftId !== undefined && this.openDrafts.has(draftId))) {
@@ -515,7 +517,8 @@ export class TicketFormManager {
         return prefill ? { title: prefill.title, description: prefill.description } : undefined;
       },
       bindTicket: (id: number) => {
-        if (prefill && boundId === undefined) mintedId = id;
+        // The row a restored form takes back is not this panel's own: restore never deletes it.
+        if (prefill && boundId === undefined && id !== mintedTicketId) mintedId = id;
         boundId = id;
         this.ticketByPanel.set(panel, id);
         // A prefilled review page owns the proposal summary as the draft's

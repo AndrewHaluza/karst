@@ -187,9 +187,9 @@ describe('TicketFormManager.adopt', () => {
       expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => linked, pending)).toBe(true);
       expect((r.panel.posted[0] as { state: { mode: string; ticketId: number; prefilled?: boolean } }).state)
         .toMatchObject({ mode: 'edit', ticketId: rowId, prefilled: true });
-      // a keyed row is NOT a committed ticket: closing the uncommitted form discards it
+      // restore never deletes a row: another form may have saved it since the reload
       r.panel.dispose();
-      expect(() => getTicket(store, rowId)).toThrow();
+      expect(getTicket(store, rowId).id).toBe(rowId);
     });
 
     it('restores a saved proposal form as the edit form of its ticket and never deletes the ticket', () => {
@@ -232,14 +232,20 @@ describe('TicketFormManager.adopt', () => {
       expect(adoptPending(restored())).toBe(true);
     });
 
-    it('closes when the proposal is no longer pending, and discards the row it minted', () => {
+    it('keeps the row as an edit form when the proposal is no longer pending', () => {
       const rowId = mint('FETCHED-3');
       const r = restored();
       const discarded = () => ({ status: 'discarded' as const, ticketId: null });
-      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => undefined, discarded)).toBe(false);
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => undefined, discarded)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: rowId });
+      r.panel.dispose();
+      expect(getTicket(store, rowId).id).toBe(rowId);
+    });
+
+    it('closes when the proposal is gone and the form minted no row', () => {
+      const r = restored();
+      expect(mgr.adopt(r.restored, state(), exists, () => undefined, () => ({ status: 'discarded', ticketId: null }))).toBe(false);
       expect(r.disposed()).toBe(true);
-      expect(r.wrapped()).toBe(false);
-      expect(() => getTicket(store, rowId)).toThrow();
       expect(logs.join('\n')).toContain('proposal of the review form is gone');
     });
 

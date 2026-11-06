@@ -2129,8 +2129,10 @@
   // Called once, right after the first state push of a restored form: re-derive what the
   // restored text drives (key preview, code-pointer row, submit gate).
   function applyRestoredDraft() {
-    if (el('ref').value.trim() !== '') refTouched = true;
-    else if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    // The render derived the key from the host's title. Only a key the user typed (saved in the
+    // draft) or a key the host holds is the user's: a derived key follows the restored Title.
+    if (formPersist.isDirty('ref') && el('ref').value.trim() !== '') refTouched = true;
+    if (!refTouched) el('ref').value = deriveKey(el('title').value);
     // lastIntent/lastPointers stay at the host values, so a restored edit still counts as changed on save.
     el('codePointersRow').hidden = !el('codePointers').value;
     syncSubmitGate();
