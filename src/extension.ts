@@ -17,7 +17,7 @@ import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
-import * as vscode from 'vscode';
+import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -597,6 +597,7 @@ const driver = new DriverController();
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
+  let doctorWiring: ReturnType<typeof registerDoctorCommand>; const restoreGate = new RestoreGate((m) => logger.debug(m), (m, e) => logger.warn(`${m}: ${String(e)}`), 120_000); const restoreHosts = hostTracker<vscode.WebviewPanel>(); context.subscriptions.push(...registerRestoreSerializers(vscode.window, restoreGate)); // register NOW (sync); restores wait for the managers
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -614,7 +615,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showErrorMessage(
       fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
     );
-    return;
+    return restoreGate.fail();
   }
   const localStore = store;
   registerProbeCommand(context, probeRecorder, () => store!, { deactivate, activate: () => activate(context) });
@@ -1500,7 +1501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const gettingStarted = new GettingStartedManager(
     loadGettingStartedState,
-    makeGettingStartedPanelHost(context, brandIcon),
+    restoreHosts.track('gettingStartedHost', makeGettingStartedPanelHost(context, brandIcon)),
     buildGettingStartedActions({
       scaffoldManifest,
       setDismissed: () => void context.workspaceState.update(GETTING_STARTED_DISMISSED_KEY, true),
@@ -2183,7 +2184,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const settings = new SettingsManager(
     loadSettingsState,
     () => manifestPathOrThrow(),
-    makeSettingsPanelHost(context, brandIcon),
+    restoreHosts.track('settingsHost', makeSettingsPanelHost(context, brandIcon)),
     buildSettingsActions({
       writeManifest,
       reloadManifest,
@@ -2524,7 +2525,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const changes = new TicketChangesManager(
-    makeChangesPanelHost(context, brandIcon),
+    restoreHosts.track('changesHost', makeChangesPanelHost(context, brandIcon)),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
       return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
@@ -2617,7 +2618,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
-  const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context, brandIcon), {
+  const tokenUsagePanel = new UsagePanelManager(localStore, restoreHosts.track('usageHost', makeUsagePanelHost(context, brandIcon)), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
@@ -2697,7 +2698,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
   });
   const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
-  const resourcesPanel = new ResourcesPanelManager(makeResourcesPanelHost(context, brandIcon), {
+  const resourcesPanel = new ResourcesPanelManager(restoreHosts.track('resourcesHost', makeResourcesPanelHost(context, brandIcon)), {
     monitor: resourceMonitorInstance,
     disk: resourcesDisk,
     worktreePaths: () => {
@@ -2908,7 +2909,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
-    makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
+    restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -3801,9 +3802,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
-  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
-    !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) &&
-    shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean => !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) && shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
@@ -6022,7 +6021,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const dismissed = context.workspaceState.get<boolean>(GETTING_STARTED_DISMISSED_KEY) === true;
     if (!manifestExists && !dismissed) {
-      gettingStarted.open();
+      void restoreGate.whenRestored().then(() => gettingStarted.open()); // after restore: a restored tab is adopted, not replaced
       autoOpenedGettingStarted = true;
     }
   }
@@ -6859,7 +6858,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
-    registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) }),
+    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showAttention', async () => {
       const items = currentAttention();
@@ -6960,6 +6959,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       gettingStarted.open();
     }),
   );
+  restoreGate.open(makeRestorers<vscode.WebviewPanel>({ store: localStore, dashboard, changes, settings, gettingStarted, doctor: doctorWiring, usage: tokenUsagePanel, resources: resourcesPanel, ...restoreHosts.hosts() }));
 
   // VS Code restores terminal tabs across an extension-host reload, but the old
   // host's SessionManager cannot be restored with them. Adopt visible current-

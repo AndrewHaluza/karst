@@ -1,3 +1,4 @@
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { LogError } from '../../logging/logger.js';
 import type { FileChangeStatus } from './gitParsers.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
@@ -96,7 +97,29 @@ export class TicketChangesManager {
       return;
     }
 
-    const panel = this.host.createPanel(this.titleFor(ticketId), ticketId);
+    this.attach(ticketId, this.host.createPanel(this.titleFor(ticketId), ticketId));
+  }
+
+  /**
+   * Adopt a changes tab VS Code restored after a window reload. Loads and
+   * wires it like `open` but never reveals or reports focus: the tab is where
+   * the user left it. `exists` says whether the ticket is live (present and
+   * not archived); a stale ticket, a duplicate or a missing id closes the tab.
+   */
+  adopt(
+    ticketId: number | undefined,
+    restored: RestoredPanel<ChangesPanel>,
+    exists: (ticketId: number) => boolean,
+  ): boolean {
+    if (ticketId === undefined || this.sessions.has(ticketId) || !exists(ticketId)) {
+      restored.dispose();
+      return false;
+    }
+    this.attach(ticketId, restored.wrap(), false);
+    return true;
+  }
+
+  private attach(ticketId: number, panel: ChangesPanel, focused = true): void {
     const session: PanelSession = {
       panel,
       requestId: 0,
@@ -145,7 +168,7 @@ export class TicketChangesManager {
     this.refresh(ticketId, session);
     // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
     // not on the initial activation — report it so the sidebar highlights it.
-    this.onViewActivated?.(ticketId, true);
+    if (focused) this.onViewActivated?.(ticketId, true);
   }
 
   isOpen(ticketId: number): boolean {
@@ -183,7 +206,7 @@ export class TicketChangesManager {
     const requestId = ++session.requestId;
     const controller = new AbortController();
     session.controller = controller;
-    session.panel.postMessage({ type: 'loading', state: session.snapshot?.state ?? null });
+    session.panel.postMessage({ type: 'loading', state: session.snapshot?.state ?? null, ticketId });
 
     void Promise.resolve().then(() => {
       if (controller.signal.aborted) throw abortError();

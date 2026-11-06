@@ -1,3 +1,4 @@
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { Manifest, ApproachDef, OutputDef } from '../../manifest/types.js';
 import {
   parseSettingsMessage,
@@ -84,7 +85,23 @@ export class SettingsManager {
       this.panel.reveal();
       return;
     }
-    const panel = this.host.createPanel('Karst Settings');
+    await this.start(this.host.createPanel('Karst Settings'));
+  }
+
+  /**
+   * Adopt the settings tab VS Code restored after a window reload. A second
+   * copy (the slot is already held) is closed. Never reveals or focuses.
+   */
+  async adopt(restored: RestoredPanel<SettingsPanel>): Promise<boolean> {
+    if (this.panel) {
+      restored.dispose();
+      return false;
+    }
+    await this.start(restored.wrap());
+    return true;
+  }
+
+  private async start(panel: SettingsPanel): Promise<void> {
     this.panel = panel;
 
     const actions: SettingsActions = this.actionsFactory({

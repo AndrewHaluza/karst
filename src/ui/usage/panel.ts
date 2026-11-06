@@ -1,3 +1,4 @@
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { Store } from '../../store/db.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildUsageState, type UsageState, type UsageTab } from './state.js';
@@ -75,7 +76,20 @@ export class UsagePanelManager {
       this.push();
       return;
     }
-    const panel = this.host.createPanel('Token usage');
+    this.start(this.host.createPanel('Token usage'));
+  }
+
+  /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
+  adopt(restored: RestoredPanel<UsagePanel>): boolean {
+    if (this.panel) {
+      restored.dispose();
+      return false;
+    }
+    this.start(restored.wrap());
+    return true;
+  }
+
+  private start(panel: UsagePanel): void {
     this.panel = panel;
     panel.onDidDispose(() => {
       this.panel = undefined;

@@ -662,3 +662,27 @@ describe('Opencode2Adapter interactive hook channel', () => {
     ).toThrow(/loopback/i);
   });
 });
+
+describe('parseOpencode2Jsonl finalMessage', () => {
+  const ev = (messageID: string, text: string): string =>
+    JSON.stringify({ type: 'text', sessionID: 'ses_f', part: { type: 'text', messageID, text } });
+
+  it('returns the last message with text and keeps raw joined', () => {
+    const out = [ev('m1', 'Looking. '), ev('m2', '[{"a":1}]')].join('\n');
+    const parsed = parseOpencode2Jsonl(out);
+    expect(parsed.raw).toBe('Looking. [{"a":1}]');
+    expect(parsed.finalMessage).toBe('[{"a":1}]');
+  });
+
+  it('joins parts of the same message and skips a trailing blank message', () => {
+    const out = [ev('m1', 'a'), ev('m2', '[1,'), ev('m2', '2]'), ev('m3', '  ')].join('\n');
+    expect(parseOpencode2Jsonl(out).finalMessage).toBe('[1,2]');
+  });
+
+  it('omits finalMessage on a run with no text', () => {
+    const out = JSON.stringify({ type: 'step_start', sessionID: 'ses_f', part: {} });
+    const parsed = parseOpencode2Jsonl(out);
+    expect(parsed.raw).toBe('');
+    expect(parsed.finalMessage).toBeUndefined();
+  });
+});

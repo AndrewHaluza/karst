@@ -6,6 +6,7 @@ import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
@@ -21,16 +22,12 @@ import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 export function makeSettingsPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
-): SettingsPanelHost {
+): SettingsPanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<SettingsPanel> } {
   const html = hydrateWebview('settings', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'settings', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title: string): SettingsPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.settings',
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
+  /** Configure a raw panel (new or restored) and wrap it. */
+  const wrap = (panel: vscode.WebviewPanel): SettingsPanel => {
+      // A restored panel arrives with default options.
+      panel.webview.options = { enableScripts: true };
       // Settings carries no ticket, so the mark is the status-free brand one.
       panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
@@ -42,6 +39,15 @@ export function makeSettingsPanelHost(
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
       };
-    },
+  };
+  return {
+    createPanel: (title: string) =>
+      wrap(
+        vscode.window.createWebviewPanel('karst.settings', title, vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+        }),
+      ),
+    restore: (raw) => ({ wrap: () => wrap(raw), dispose: () => raw.dispose() }),
   };
 }

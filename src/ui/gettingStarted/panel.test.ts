@@ -238,3 +238,34 @@ describe('GettingStartedManager', () => {
     expect(panels[0]!.posted).toHaveLength(2);
   });
 });
+
+describe('GettingStartedManager.adopt', () => {
+  const actions = () => ({
+    createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+    setupAgent: vi.fn(), reportIssue: vi.fn(),
+  }) as never;
+  const restoredOf = (panel: FakePanel) => {
+    const log: string[] = [];
+    return { log, restored: { wrap: () => (log.push('wrap'), panel), dispose: () => void log.push('dispose') } };
+  };
+
+  it('adopts a restored panel, pushes state and never reveals', () => {
+    const { host } = makeHost();
+    const mgr = new GettingStartedManager(fakeState, host, actions);
+    const panel = new FakePanel();
+    const r = restoredOf(panel);
+    expect(mgr.adopt(r.restored)).toBe(true);
+    expect(mgr.isOpen()).toBe(true);
+    expect(panel.posted[0]?.type).toBe('state');
+    expect(panel.revealed).toBe(0);
+  });
+
+  it('closes a restored duplicate when the slot is held', () => {
+    const { host } = makeHost();
+    const mgr = new GettingStartedManager(fakeState, host, actions);
+    mgr.open();
+    const r = restoredOf(new FakePanel());
+    expect(mgr.adopt(r.restored)).toBe(false);
+    expect(r.log).toEqual(['dispose']);
+  });
+});

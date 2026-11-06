@@ -1,3 +1,4 @@
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { LogError } from '../../logging/logger.js';
 import {
   parseGettingStartedMessage,
@@ -44,7 +45,20 @@ export class GettingStartedManager {
       this.panel.reveal();
       return;
     }
-    const panel = this.host.createPanel('Karst — Getting Started');
+    this.start(this.host.createPanel('Karst — Getting Started'));
+  }
+
+  /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
+  adopt(restored: RestoredPanel<GettingStartedPanel>): boolean {
+    if (this.panel) {
+      restored.dispose();
+      return false;
+    }
+    this.start(restored.wrap());
+    return true;
+  }
+
+  private start(panel: GettingStartedPanel): void {
     this.panel = panel;
 
     const pushState = (): void => {

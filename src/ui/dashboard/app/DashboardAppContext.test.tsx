@@ -126,6 +126,7 @@ describe('DashboardAppContext', () => {
         artView: null,
         artScrolls: { ticket: 0, index: 0, detail: {} },
         history: [],
+        karstPanel: { ticketId: 2 },
       });
     });
 

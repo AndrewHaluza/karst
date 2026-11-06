@@ -50,6 +50,11 @@ export function openNewPanel(
     ticketId,
     preserveFocus,
   );
+  return attachPanel(o, ticketId, panel);
+}
+
+/** Register a panel (new or restored) for a ticket and wire its pump, visibility and disposal. */
+export function attachPanel(o: PanelOpenDeps, ticketId: number, panel: DashboardPanel): DashboardPanel {
   o.panels.set(ticketId, panel);
 
   // The factory's actions plus the detach callback bound to THIS ticket: the
