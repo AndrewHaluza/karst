@@ -28,7 +28,6 @@ import type {
 } from '../../../../manifest/types.js';
 import {
   REVIEW_FINDINGS_DEFAULTS,
-  REVIEW_MAX_FIX_ATTEMPTS,
   REVIEW_STALL_DETECTION_DEFAULTS,
 } from '../../../../manifest/qualityDefaults.js';
 
@@ -110,14 +109,10 @@ export function updateFindings(
   });
 }
 
-/** `review.stallDetection` as the validator would default it (sameFileRounds capped at maxFixAttempts). */
+/** `review.stallDetection` as the validator would default it (sameFileRounds is not capped at the budget). */
 export function readStallDetection(draft: Manifest): ReviewStallDetection {
   const review = blocksOf(draft).review;
-  const max = review?.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS;
-  const base = { ...REVIEW_STALL_DETECTION_DEFAULTS, ...(review?.stallDetection ?? {}) };
-  return review?.stallDetection?.sameFileRounds === undefined
-    ? { ...base, sameFileRounds: Math.min(base.sameFileRounds, max) }
-    : base;
+  return { ...REVIEW_STALL_DETECTION_DEFAULTS, ...(review?.stallDetection ?? {}) };
 }
 
 /** Write one `review.stallDetection` field, merged over what the validator would default. */
@@ -130,13 +125,14 @@ export interface StallErrors {
   repeatedFindingRounds?: string;
 }
 
-/** Mirrors `validate/review.ts`: positive whole numbers no greater than `maxFixAttempts`; none while disabled. */
+/** Mirrors `validate/review.ts`: sameFileRounds is a positive whole number; repeatedFindingRounds is also no greater than `maxFixAttempts`; none while disabled. */
 export function stallErrors(stall: ReviewStallDetection, maxFixAttempts: number): StallErrors {
   if (!stall.enabled) return {};
-  const ok = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= maxFixAttempts;
+  const whole = (n: number): boolean => Number.isInteger(n) && n >= 1;
+  const ok = (n: number): boolean => whole(n) && n <= maxFixAttempts;
   const errors: StallErrors = {};
-  if (!ok(stall.sameFileRounds)) {
-    errors.sameFileRounds = `Enter a whole number from 1 to ${maxFixAttempts}.`;
+  if (!whole(stall.sameFileRounds)) {
+    errors.sameFileRounds = 'Enter a whole number of 1 or more.';
   }
   if (stall.repeatedFindingRounds !== null && !ok(stall.repeatedFindingRounds)) {
     errors.repeatedFindingRounds = `Enter a whole number from 1 to ${maxFixAttempts}, or leave blank.`;

@@ -648,14 +648,14 @@ describe('QualitySection — review stall detection', () => {
       stateWith({ review: partialReview({ maxFixAttempts: 5, ...INERT }) }),
     );
     expect(field('reviewStallEnabled').checked).toBe(true);
-    expect(field('reviewStallSameFileRounds').value).toBe('3');
+    expect(field('reviewStallSameFileRounds').value).toBe('5');
     expect(field('reviewStallRepeatedRounds').value).toBe('');
     act(() => {
       fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '2' } });
     });
     expect(reviewOf(probe)).toMatchObject({
       author: INERT.author,
-      stallDetection: { enabled: true, sameFileRounds: 3, repeatedFindingRounds: 2 },
+      stallDetection: { enabled: true, sameFileRounds: 5, repeatedFindingRounds: 2 },
     });
     act(() => {
       fireEvent.change(field('reviewStallRepeatedRounds'), { target: { value: '' } });
@@ -676,16 +676,17 @@ describe('QualitySection — review stall detection', () => {
     expect(field('reviewStallRepeatedRounds').disabled).toBe(true);
   });
 
-  it('shows an inline error for a value above maxFixAttempts', () => {
+  it('accepts a sameFileRounds above maxFixAttempts but flags a repeat count above it', () => {
     mountQuality(
       stateWith({
         review: partialReview({
           maxFixAttempts: 3,
-          stallDetection: { enabled: true, sameFileRounds: 9, repeatedFindingRounds: null },
+          stallDetection: { enabled: true, sameFileRounds: 9, repeatedFindingRounds: 9 },
         }),
       }),
     );
-    expect(field('reviewStallSameFileRounds').getAttribute('aria-invalid')).toBe('true');
-    expect(document.body.textContent).toContain('Enter a whole number from 1 to 3.');
+    expect(field('reviewStallSameFileRounds').getAttribute('aria-invalid')).not.toBe('true');
+    expect(field('reviewStallRepeatedRounds').getAttribute('aria-invalid')).toBe('true');
+    expect(document.body.textContent).toContain('Enter a whole number from 1 to 3, or leave blank.');
   });
 });

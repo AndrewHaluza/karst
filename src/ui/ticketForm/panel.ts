@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
@@ -35,11 +36,15 @@ export interface TicketFormPanel {
    * on this panel.
    */
   onDidChangeViewState(handler: (active: boolean) => void): void;
+  /** Whether the user is on this panel now (real: `panel.active`). A restored tab can already be active. Absent → false. */
+  isActive?(): boolean;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
+  /** Update the tab title (real: `panel.title = title`). A restored tab keeps its old title until this runs. */
+  setTitle?(title: string): void;
   /**
    * Convert an absolute filesystem path into a URI this webview may load.
    *
@@ -170,6 +175,42 @@ function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | un
   return { entries, warnings };
 }
 
+/** What the store says about a planning proposal: only `accepted` means the user saved its ticket. */
+export interface ProposalOutcome {
+  status: 'pending' | 'accepted' | 'discarded';
+  ticketId: number | null;
+}
+
+/** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
+export type RestoredTicketFormIdentity =
+  | { mode: 'create'; prefilled: boolean; draftId?: number; mintedTicketId?: number }
+  | { mode: 'edit'; ticketId: number };
+
+const positiveInt = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
+
+/** Read the `karstPanel` identity of a restored ticket-form state; undefined when it is invalid. */
+export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormIdentity | undefined {
+  if (typeof state !== 'object' || state === null) return undefined;
+  const identity = (state as { karstPanel?: unknown }).karstPanel;
+  if (typeof identity !== 'object' || identity === null) return undefined;
+  const { mode, ticketId } = identity as { mode?: unknown; ticketId?: unknown };
+  if (mode === 'create') {
+    const { prefilled, draftId, mintedTicketId } = identity as { prefilled?: unknown; draftId?: unknown; mintedTicketId?: unknown };
+    const draft = positiveInt(draftId);
+    const minted = positiveInt(mintedTicketId);
+    return {
+      mode,
+      prefilled: prefilled === true,
+      ...(draft !== undefined ? { draftId: draft } : {}),
+      ...(minted !== undefined ? { mintedTicketId: minted } : {}),
+    };
+  }
+  if (mode === 'edit' && typeof ticketId === 'number' && Number.isInteger(ticketId) && ticketId > 0) {
+    return { mode, ticketId };
+  }
+  return undefined;
+}
+
 export class TicketFormManager {
   private readonly panels = new Map<number, TicketFormPanel>();
   /** Live ticket binding for every edit or draft-bound create panel. */
@@ -177,6 +218,8 @@ export class TicketFormManager {
   private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
+  /** Draft ids of the proposal review forms that are open. */
+  private readonly openDrafts = new Set<number>();
 
   /**
    * `manifest` is a getter, not a fixed value, so each open (and each state push
@@ -245,6 +288,8 @@ export class TicketFormManager {
     private readonly branchCandidates: () => Record<string, string[]> = () => ({}),
     /** Called after an uncommitted minted draft row is discarded on close (sidebar refresh). */
     private readonly onDiscarded?: () => void,
+    /** Debug sink for the silent close of a restored form that cannot be adopted. */
+    private readonly debug: (message: string) => void = () => {},
   ) {}
 
   /**
@@ -261,7 +306,98 @@ export class TicketFormManager {
     this.open(ticketId, 'edit', ticketId);
   }
 
-  private open(key: number, mode: 'create' | 'edit', ticketId?: number, prefill?: TicketFormPrefill): void {
+  /**
+   * Re-attach a form tab VS Code restored after a window reload. An edit form goes
+   * back under its ticket id; a create form takes a fresh sentinel key. A missing or
+   * archived ticket, a form already open for the key, or an invalid saved state
+   * closes the tab silently. The unsaved draft stays in the webview's own state, so
+   * the host does not read it. Returns whether the tab was adopted.
+   */
+  adopt(
+    restored: RestoredPanel<TicketFormPanel>,
+    state: unknown,
+    exists: (ticketId: number) => boolean,
+    proposalPrefill?: (draftId: number) => TicketFormPrefill | undefined,
+    proposalOutcome?: (draftId: number) => ProposalOutcome | undefined,
+  ): boolean {
+    const identity = restoredTicketFormIdentity(state);
+    if (!identity) {
+      this.debug('[restore] karst.ticketForm: invalid saved state, tab closed');
+      restored.dispose();
+      return false;
+    }
+    if (identity.mode === 'create') {
+      if (identity.prefilled) return this.adoptProposalForm(restored, identity, exists, proposalPrefill, proposalOutcome);
+      this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
+      return true;
+    }
+    if (this.panels.has(identity.ticketId)) {
+      this.debug(`[restore] karst.ticketForm: form for ticket ${identity.ticketId} already open, tab closed`);
+      restored.dispose();
+      return false;
+    }
+    if (!exists(identity.ticketId)) {
+      this.debug(`[restore] karst.ticketForm: ticket ${identity.ticketId} missing or archived, tab closed`);
+      restored.dispose();
+      return false;
+    }
+    this.open(identity.ticketId, 'edit', identity.ticketId, undefined, restored);
+    return true;
+  }
+
+  /**
+   * Re-attach a planning-proposal review form. The saved identity can be older than the
+   * user's Save/Submit, so it never decides whether the form was committed: the proposal
+   * row does (`accepted` is written by `onCreated` when the user saves). A committed form
+   * restores as the edit form of its ticket, which restore never deletes. A pending
+   * proposal rebuilds the prefill, so the form keeps its proposal link. Every path that
+   * opens a form checks first that no form is open for the same row or the same draft.
+   */
+  private adoptProposalForm(
+    restored: RestoredPanel<TicketFormPanel>,
+    identity: Extract<RestoredTicketFormIdentity, { mode: 'create' }>,
+    exists: (ticketId: number) => boolean,
+    proposalPrefill?: (draftId: number) => TicketFormPrefill | undefined,
+    proposalOutcome?: (draftId: number) => ProposalOutcome | undefined,
+  ): boolean {
+    const draftId = identity.draftId;
+    const outcome = draftId !== undefined ? proposalOutcome?.(draftId) : undefined;
+    const close = (why: string): false => {
+      this.debug(`[restore] karst.ticketForm: ${why}, tab closed`);
+      restored.dispose();
+      return false;
+    };
+    if (outcome?.status === 'accepted') {
+      if (outcome.ticketId === null) return close('accepted proposal has no ticket');
+      return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: outcome.ticketId } }, exists);
+    }
+    const mintedId = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
+    // Without a proposal verdict the row cannot be proven uncommitted, so it is kept as an edit form.
+    if (outcome === undefined && mintedId !== undefined) {
+      return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists);
+    }
+    const prefill = outcome?.status === 'pending' && draftId !== undefined ? proposalPrefill?.(draftId) : undefined;
+    if (!prefill) {
+      // Restore never deletes a row: another form may have saved it since the reload. The row
+      // stays as the edit form of its ticket, and the user decides what to do with it.
+      if (mintedId !== undefined) return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists);
+      return close('proposal of the review form is gone');
+    }
+    if ((mintedId !== undefined && this.panels.has(mintedId)) || (draftId !== undefined && this.openDrafts.has(draftId))) {
+      return close('form for this proposal already open');
+    }
+    this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId);
+    return true;
+  }
+
+  private open(
+    key: number,
+    mode: 'create' | 'edit',
+    ticketId?: number,
+    prefill?: TicketFormPrefill,
+    restored?: RestoredPanel<TicketFormPanel>,
+    mintedTicketId?: number,
+  ): void {
     const existing = this.panels.get(key);
     if (existing) {
       existing.reveal();
@@ -280,8 +416,11 @@ export class TicketFormManager {
       const ticket = getTicket(this.store, ticketId!);
       title = tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate)));
     }
-    const panel = this.host.createPanel(title);
+    const panel = restored ? restored.wrap() : this.host.createPanel(title);
+    // A restored tab still carries the title it had when the window closed.
+    if (restored) panel.setTitle?.(title);
     this.panels.set(key, panel);
+    if (prefill?.draftId !== undefined) this.openDrafts.add(prefill.draftId);
     if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 
     // Mutable so persist-on-fetch can bind a create panel to its new draft
@@ -331,7 +470,9 @@ export class TicketFormManager {
       // from then on the stored ticket is the truth.
       const overlaid = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
       const dc = prefill ? designConstraintsView(prefill) : undefined;
-      const state = dc ? { ...overlaid, designConstraints: dc } : overlaid;
+      // The webview saves this flag with its identity so a reload can tell a proposal review form apart.
+      const flagged = prefill && !prefillCommitted ? { ...overlaid, prefilled: true } : overlaid;
+      const state = dc ? { ...flagged, designConstraints: dc } : flagged;
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
       // moment before the message leaves, so everything upstream stays
@@ -376,7 +517,8 @@ export class TicketFormManager {
         return prefill ? { title: prefill.title, description: prefill.description } : undefined;
       },
       bindTicket: (id: number) => {
-        if (prefill && boundId === undefined) mintedId = id;
+        // The row a restored form takes back is not this panel's own: restore never deletes it.
+        if (prefill && boundId === undefined && id !== mintedTicketId) mintedId = id;
         boundId = id;
         this.ticketByPanel.set(panel, id);
         // A prefilled review page owns the proposal summary as the draft's
@@ -412,6 +554,8 @@ export class TicketFormManager {
         if (!prefill || prefillCommitted || boundId === undefined) return;
         prefillCommitted = true;
         prefill.onCreated(boundId);
+        // Push now so the webview rewrites its saved identity as a committed ticket, not a proposal draft.
+        pushState();
       },
       close: () => {
         if (disposed) return;
@@ -473,22 +617,9 @@ export class TicketFormManager {
     });
     panel.onDidDispose(() => {
       disposed = true;
-      if (prefill && !prefillCommitted && mintedId !== undefined) {
-        try {
-          const discardedId = mintedId;
-          deleteTicket(this.store, discardedId);
-          // The rows are gone; remove the minted ticket's attachment files too.
-          if (this.storageDir !== undefined) {
-            void reapAttachments(this.storageDir, discardedId).catch((e: unknown) =>
-              this.logError('karst: could not remove the discarded draft attachments', e),
-            );
-          }
-        } catch (e) {
-          this.logError('karst: could not discard the uncommitted draft row', e);
-        }
-        this.onDiscarded?.();
-      }
+      if (prefill && !prefillCommitted && mintedId !== undefined) this.discardMintedRow(mintedId);
       this.panels.delete(panelKey);
+      if (prefill?.draftId !== undefined) this.openDrafts.delete(prefill.draftId);
       this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
       // The ACTIVE view can be closed while focused; the dispose is the only
@@ -496,12 +627,32 @@ export class TicketFormManager {
       if (boundId !== undefined) this.onViewActivated?.(boundId, false);
     });
 
+    // A restored proposal form takes back the draft row it minted before the reload.
+    if (mintedTicketId !== undefined) ctx.bindTicket(mintedTicketId);
     pushState();
     // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
     // not on the initial activation — report it so the sidebar highlights it
     // (a create panel reports nothing until it has a ticket).
-    panelActive = true;
-    if (boundId !== undefined) this.onViewActivated?.(boundId, true);
+    // An adopted (restored) tab may be in the background: VS Code reports its
+    // focus through onDidChangeViewState, so it claims nothing here.
+    panelActive = restored === undefined ? true : panel.isActive?.() === true;
+    if (panelActive && boundId !== undefined) this.onViewActivated?.(boundId, true);
+  }
+
+  /** Delete the draft row a proposal review form minted, with its attachment files; the sidebar refreshes. */
+  private discardMintedRow(ticketId: number): void {
+    try {
+      deleteTicket(this.store, ticketId);
+      // The rows are gone; remove the minted ticket's attachment files too.
+      if (this.storageDir !== undefined) {
+        void reapAttachments(this.storageDir, ticketId).catch((e: unknown) =>
+          this.logError('karst: could not remove the discarded draft attachments', e),
+        );
+      }
+    } catch (e) {
+      this.logError('karst: could not discard the uncommitted draft row', e);
+    }
+    this.onDiscarded?.();
   }
 
   /** Push the current catalog to every ticket-form panel that is still live. */

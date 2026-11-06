@@ -64,6 +64,9 @@ function validateFindings(raw: unknown): ReviewFindingsConfig {
 }
 
 function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewStallDetection {
+  // The default sameFileRounds is NOT capped at the budget: a cap would bring the
+  // old 3-round park back. A same-file value above the budget is valid and
+  // dormant (the budget parks first), so a written-back manifest validates again.
   const out: ReviewStallDetection = { ...REVIEW_STALL_DETECTION_DEFAULTS };
   if (raw === undefined) return out;
   if (!isObject(raw)) throw new ManifestError('review.stallDetection must be a mapping');
@@ -74,7 +77,10 @@ function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewSta
     out.enabled = raw.enabled;
   }
   const rounds = (key: 'sameFileRounds' | 'repeatedFindingRounds', value: unknown): number => {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > maxFixAttempts) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new ManifestError(`review.stallDetection.${key} must be a positive integer`);
+    }
+    if (key === 'repeatedFindingRounds' && value > maxFixAttempts) {
       throw new ManifestError(
         `review.stallDetection.${key} must be a positive integer no greater than review.maxFixAttempts (${maxFixAttempts})`,
       );
@@ -82,7 +88,6 @@ function validateStallDetection(raw: unknown, maxFixAttempts: number): ReviewSta
     return value;
   };
   if (raw.sameFileRounds !== undefined) out.sameFileRounds = rounds('sameFileRounds', raw.sameFileRounds);
-  else if (out.sameFileRounds > maxFixAttempts) out.sameFileRounds = maxFixAttempts;
   if (raw.repeatedFindingRounds !== undefined && raw.repeatedFindingRounds !== null) {
     out.repeatedFindingRounds = rounds('repeatedFindingRounds', raw.repeatedFindingRounds);
   }
