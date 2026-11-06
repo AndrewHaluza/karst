@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { ProjectScope } from '../store/tickets.js';
 import { getTicket, listTickets } from '../store/tickets.js';
-import { listCurrentPrsByTicket } from '../store/prs.js';
+import { clearOpenPrProbe, listCurrentPrsByTicket } from '../store/prs.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage, setStage } from '../store/stages.js';
@@ -310,6 +310,9 @@ export function resolveShipLanding(
     // `shippedWithoutBlock`), repairing the block on its next sweep; a
     // re-ship (the normal recovery path for a ship failure) re-establishes it
     // too. So the swallow no longer strands the ticket.
+    // Ship's tail just pushed: a stored CI rollup belongs to the head before this ship, so it must not feed a CI round
+    // (autopilot) before the re-probe writes the new one.
+    for (const pr of listCurrentPrsByTicket(store, ticketId)) if (pr.status === 'open') clearOpenPrProbe(store, ticketId, pr.repo);
     parkAwaitingMerge(store, ticketId, state);
   } catch {
     // Swallowed deliberately — see comment above. The PRs are already open;

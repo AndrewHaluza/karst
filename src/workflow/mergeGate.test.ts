@@ -176,6 +176,14 @@ describe('resolveShipLanding', () => {
     expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-merge');
   });
 
+  it('forgets the stored CI rollup of an open PR when ship re-ships, because it belongs to the old head', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open');
+    store.db.prepare("UPDATE prs SET checks = ?, merge_block = 'BLOCKED' WHERE ticket_id = ?").run('{"state":"failing"}', id);
+    resolveShipLanding(store, id);
+    expect(store.db.prepare('SELECT checks, merge_block FROM prs WHERE ticket_id = ?').get(id)).toEqual({ checks: null, merge_block: null });
+  });
+
   // The block reason is what "surface a clear reason naming the unmerged PR"
   // means in practice — the dashboard's blocked banner and rail read it verbatim.
   it('names the unmerged repo in the block reason', () => {

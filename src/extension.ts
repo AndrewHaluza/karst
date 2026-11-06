@@ -7129,7 +7129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `session recovery: ticket ${ticketId} has no resumable session or worktree`,
     );
   }
-  if (ownershipChanged) await persistOwnedSessionTickets();
+  if (ownershipChanged || ownedSessionTickets.size > 0) await persistOwnedSessionTickets(); // republish: a closed window released its session_owner rows
   if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();

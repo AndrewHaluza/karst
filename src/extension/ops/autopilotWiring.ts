@@ -138,7 +138,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         config: () => d.manifest()?.autopilot,
         controls: seams.controls,
         sessionRunning: seams.sessionRunning,
-        concurrencyFull: () => concurrencyFullFor([...listSlotHolders(d.store, projectId), ...armed.values()], t, d.caps()),
+        concurrencyFull: () => concurrencyFullFor([...new Map([...listSlotHolders(d.store, projectId), ...armed.values()].map((h) => [h.id, h])).values()], t, d.caps()),
         isHostTicket: seams.isHostTicket,
         isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
         sendCiFailure: seams.sendCi,
