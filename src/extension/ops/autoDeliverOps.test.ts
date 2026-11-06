@@ -5,6 +5,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import {
   armConflictRound,
   autoDeliverAfterConflict,
+  isAutoDelivering,
   createConflictRounds,
   verifyMergeResolved,
   type AutoDeliverDeps,
@@ -224,5 +225,16 @@ describe('armConflictRound', () => {
     const rounds = createConflictRounds();
     armConflictRound(store, rounds, id, 'api');
     expect(rounds.armed(id)).toBeNull();
+  });
+});
+
+describe('isAutoDelivering', () => {
+  it('is true only while the auto-deliver of the ticket runs', async () => {
+    const seen: boolean[] = [];
+    const { deps } = rig({ verifyMerge: async () => { seen.push(isAutoDelivering(1)); return 'stop'; } });
+    expect(isAutoDelivering(1)).toBe(false);
+    await autoDeliverAfterConflict(deps);
+    expect(seen[0]).toBe(true);
+    expect(isAutoDelivering(1)).toBe(false);
   });
 });

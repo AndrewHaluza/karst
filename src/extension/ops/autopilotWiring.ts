@@ -11,6 +11,7 @@ import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
 import { graphRunIdsForTicket } from '../../store/graph/graphRuns.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
+import { resolveConflictRound, type ResolveConflictInput } from './conflictResolveOps.js';
 
 /**
  * Binds the autopilot engine to the real ship actions. Only the mapping lives here:
@@ -44,12 +45,24 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
   return { kind: 'sent' };
 }
 
-/** The per-ticket host seams: ownership, session state, placement and the CI action. */
+/**
+ * Run "Resolve conflicts" without the click (T996): the same `resolveConflictRound` the click uses. A decline
+ * (no recorded conflict, a probe that cannot answer) reached no agent, so it is a `failed` outcome; no toast shows.
+ */
+export async function conflictOutcome(input: ResolveConflictInput): Promise<FixOutcome> {
+  const round = await resolveConflictRound(input);
+  return round.kind === 'sent' ? { kind: 'sent' } : { kind: 'failed', reason: round.reason };
+}
+
+/** The per-ticket host seams: ownership, session state, placement and the CI and conflict actions. */
 export interface TicketSeams {
   readonly controls: () => boolean;
   readonly sessionRunning: () => boolean;
   readonly isHostTicket: () => Promise<boolean>;
   readonly sendCi: () => Promise<FixOutcome>;
+  readonly sendConflict: (repo: string) => Promise<FixOutcome>;
+  /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
+  readonly conflictRoundActive: () => boolean;
 }
 
 export interface AutopilotSweepDeps {
@@ -142,6 +155,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         isHostTicket: seams.isHostTicket,
         isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
         sendCiFailure: seams.sendCi,
+        sendConflict: seams.sendConflict,
+        conflictRoundActive: seams.conflictRoundActive,
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,
       });

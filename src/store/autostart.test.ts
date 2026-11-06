@@ -75,6 +75,18 @@ describe('claimAutostart', () => {
     expect(pending(store, c!)).toBe(1);
   });
 
+  it('counts a ship-stage sub-task with a running agent as a slot (a conflict round), with a limit of 1', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+    expect(claimAutostart(store, queued, { perParent: 0, total: 1 })).toBe(false);
+    // The round ends (agent idle): the slot is free again.
+    store.db.prepare("UPDATE tickets SET agent_state = 'idle' WHERE id = ?").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 1 })).toBe(true);
+  });
+
   it('enforces the project-wide cap in the same statement; 0 = unlimited', () => {
     const p2 = createTicket(store, { key: 'P-2', title: 'p', projectId }).id;
     setStageCurrent(store, p2, 'impl');

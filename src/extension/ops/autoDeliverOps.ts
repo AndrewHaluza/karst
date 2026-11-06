@@ -79,6 +79,11 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
 
 const inFlight = new Set<number>();
 
+/** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
+export function isAutoDelivering(ticketId: number): boolean {
+  return inFlight.has(ticketId);
+}
+
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
   const round = d.rounds.armed(d.ticketId);

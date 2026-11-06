@@ -1,6 +1,6 @@
 import type { SandboxProbe } from '../../agent/sessionRunner.js';
 import { describe, it, expect, vi } from 'vitest';
-import { resolveConflictClick, makeSessionHandOff } from './conflictResolveOps.js';
+import { resolveConflictClick, resolveConflictRound, makeSessionHandOff } from './conflictResolveOps.js';
 
 function click(over: Partial<Parameters<typeof resolveConflictClick>[0]> = {}) {
   const notify = vi.fn();
@@ -181,5 +181,29 @@ describe('resolveConflictClick arm', () => {
     const { input } = click({ arm, briefFor: () => null });
     await resolveConflictClick(input);
     expect(arm).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveConflictRound', () => {
+  it('reports sent after it arms and delivers the brief', async () => {
+    const order: string[] = [];
+    const { input } = click({ arm: (r) => order.push(`arm:${r}`), deliver: () => order.push('deliver') });
+    expect(await resolveConflictRound(input)).toEqual({ kind: 'sent' });
+    expect(order).toEqual(['arm:/repos/api', 'deliver']);
+  });
+  it('declines with the reason, and notifies nobody, when the store has no conflict', async () => {
+    const { input, deliver, notify } = click({ briefFor: () => null });
+    expect(await resolveConflictRound(input)).toEqual({
+      kind: 'declined',
+      reason: 'No merge conflict is recorded for "/repos/api" on ticket T7 — nothing to resolve.',
+    });
+    expect(deliver).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+  it('declines with the probe reason when the sandbox state is unknown', async () => {
+    const { input, deliver } = click({ probeSandbox: async () => ({ state: 'unknown', reason: 'sbx ls failed' }) });
+    const out = await resolveConflictRound(input);
+    expect(out).toMatchObject({ kind: 'declined', reason: expect.stringContaining('sbx ls failed') });
+    expect(deliver).not.toHaveBeenCalled();
   });
 });

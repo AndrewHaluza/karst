@@ -24,8 +24,11 @@ export const SLOT_STAGES = ['impl', 'fix', 'uat', 'review'] as const;
 
 export const SLOT_STAGES_SQL = `(${SLOT_STAGES.map((s) => `'${s}'`).join(', ')})`;
 
-/** SQL predicate (alias `s`) for "this sub-task row holds a slot". */
-export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR s.autostart_pending = ${AUTOSTART_STARTING})`;
+/**
+ * SQL predicate (alias `s`) for "this sub-task row holds a slot". A ship-stage sub-task holds one only while its
+ * agent runs: an auto conflict round (T996) works at ship, where the stage alone does not show a round.
+ */
+export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR (s.stage_current = 'ship' AND s.agent_state = 'running') OR s.autostart_pending = ${AUTOSTART_STARTING})`;
 
 /** The order the autostart sweep claims queued sub-tasks in: blockers of the parent first, then oldest. Aliased `c`. */
 export const AUTOSTART_ORDER_SQL = 'COALESCE(c.blocks_parent, 0) DESC, c.id ASC';
