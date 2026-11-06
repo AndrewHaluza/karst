@@ -43,7 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { makeLaunchTracker, registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
+import { makeCiPreflight, makeLaunchTracker, registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -1964,7 +1964,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
-  // Autopilot (T973): ship-stage auto-fix; the binding lives in extension/autopilotBinding.ts.
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
   const openSeeded = launches.open;
   context.subscriptions.push(startAutopilot({
@@ -1973,13 +1972,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLive: (id) => sessions.isLive(id), windowId: `${process.pid}-${Date.now()}`,
     canLaunch: (id) => guardCapability('sessions', id, true),
     takeLaunch: launches.take, roundLaunching: launches.markRound,
-    ciPreflight: async (id) => {
-      const probe = await (sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }));
-      if (probe.state === 'unknown') return `placement unknown: ${probe.reason}`;
-      if (probe.state === 'absent') return null;
-      const synced = await sandboxLife.ensureInSync(id);
-      return synced.ok ? null : synced.reason;
-    },
+    ciPreflight: makeCiPreflight({ probe: (id) => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), ensureInSync: (id) => sandboxLife.ensureInSync(id) }),
     setupStateFile: (id) => sandboxB?.deps.bridgeOf?.(id)?.setupStateFile,
     roundInput: (id, repo) => ({ repo, label: formatId('ticket', id), probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed), arm: (r) => armConflictRound(localStore, conflictRounds, id, r), prepareSandbox: () => sandboxLife.ensureInSync(id), notify: (m) => logger.info(m), deliver: (brief) => { if (!sessions.nudge(id, brief)) openSeeded(id, brief, repo); } }),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),

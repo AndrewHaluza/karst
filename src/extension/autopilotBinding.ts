@@ -10,6 +10,7 @@ import { claimAutopilotTicket } from '../store/autopilot.js';
 import { readSetupFailure } from '../agent/sandboxSetup.js';
 import type { FixOutcome } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
+import type { SandboxProbe } from '../agent/sessionRunner.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 
 /**
@@ -32,6 +33,23 @@ export function makeLaunchTracker(
       pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo, ...(rounds.has(ticketId) ? { failClosed: true as const } : {}) }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
     },
     take: (ticketId) => { const p = pending.get(ticketId); pending.delete(ticketId); return p; },
+  };
+}
+
+/**
+ * The pre-hand-off check of a CI round: an unreadable sandbox placement, or a dirty or diverged clone at the
+ * pre-round sync (AC-46), is an environment blocker. A host ticket (no sandbox) passes.
+ */
+export function makeCiPreflight(h: {
+  probe: (ticketId: number) => Promise<SandboxProbe>;
+  ensureInSync: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+}): (ticketId: number) => Promise<string | null> {
+  return async (id) => {
+    const probe = await h.probe(id);
+    if (probe.state === 'unknown') return `placement unknown: ${probe.reason}`;
+    if (probe.state === 'absent') return null;
+    const synced = await h.ensureInSync(id);
+    return synced.ok ? null : synced.reason;
   };
 }
 

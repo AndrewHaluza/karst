@@ -6,7 +6,7 @@ import { setStage } from '../store/stages.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
-import { makeLaunchTracker, registerAutopilotCommands, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { makeCiPreflight, makeLaunchTracker, registerAutopilotCommands, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
 import { getAutopilotTicket } from '../store/autopilot.js';
 import { sendCiFailureAction } from './ops/ciActionsWiring.js';
 
@@ -101,6 +101,23 @@ describe('a launch that opened no session', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(getAutopilotTicket(r.deps.store, r.id).pausedReason).toContain('no session opened (cancelled)');
     handle.dispose();
+  });
+});
+
+describe('makeCiPreflight', () => {
+  const sync = { ok: true } as const;
+  it('passes a host ticket without a sync', async () => {
+    const ensureInSync = vi.fn(async () => sync);
+    expect(await makeCiPreflight({ probe: async () => ({ state: 'absent' }), ensureInSync })(1)).toBeNull();
+    expect(ensureInSync).not.toHaveBeenCalled();
+  });
+  it('blocks on an unknown placement', async () => {
+    expect(await makeCiPreflight({ probe: async () => ({ state: 'unknown', reason: 'no docker' }), ensureInSync: async () => sync })(1)).toBe('placement unknown: no docker');
+  });
+  it('blocks on a dirty clone and passes a synced one', async () => {
+    const probe = async () => ({ state: 'present' as const });
+    expect(await makeCiPreflight({ probe, ensureInSync: async () => ({ ok: false, reason: 'clone is dirty' }) })(1)).toBe('clone is dirty');
+    expect(await makeCiPreflight({ probe, ensureInSync: async () => sync })(1)).toBeNull();
   });
 });
 
