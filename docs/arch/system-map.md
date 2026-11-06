@@ -461,6 +461,8 @@ erDiagram
   approach_node_runs
   approach_planner_runs
   approach_resource_leases
+  autopilot_budgets
+  autopilot_tickets
   baseline_decisions
   baseline_pins
   baseline_refs
@@ -523,6 +525,8 @@ erDiagram
   process_runs ||--o{ approach_planner_runs : process_run_id
   approach_graph_runs ||--o{ approach_resource_leases : graph_run_id
   approach_node_runs ||--o{ approach_resource_leases : owner_node_run_id
+  tickets ||--o{ autopilot_budgets : ticket_id
+  tickets ||--o{ autopilot_tickets : ticket_id
   tickets ||--o{ baseline_decisions : ticket_id
   bulletin_notes ||--o{ bulletin_context_shown : note_id
   tickets ||--o{ bulletin_context_shown : reader_ticket_id
