@@ -43,6 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
+import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -831,6 +832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
   const recoveryLifecycle = new SessionRecoveryLifecycle();
+  const windowId = stableWindowId(context.workspaceState, randomUUID), syncSessionOwner = makeSessionOwnerSync(localStore, windowId, logError);
   const ownedSessionTickets = new Set(
     context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
   );
@@ -905,6 +907,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   pendingSessionRecoveryTasks.clear();
   const persistOwnedSessionTickets = (): Promise<void> => {
     const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
+    syncSessionOwner(snapshot);
     return ownershipWriter.enqueue(snapshot);
   };
   const sessions = new SessionManager(
@@ -1965,6 +1968,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
+  const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
+  context.subscriptions.push(startAutopilot({
+    store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
+    debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
+    isLive: (id) => sessions.isLive(id), windowId,
+    canLaunch: (id) => guardCapability('sessions', id, true),
+    takeLaunch: launches.take,
+    isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
+    ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
+  }));
+  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
     store: localStore,
@@ -2889,7 +2903,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
-  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }) });
+  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
   const ciHost = (ticketId: number): CiHost => ({
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), ...sessionSeams(ticketId) }),
@@ -7115,7 +7129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `session recovery: ticket ${ticketId} has no resumable session or worktree`,
     );
   }
-  if (ownershipChanged) await persistOwnedSessionTickets();
+  if (ownershipChanged || ownedSessionTickets.size > 0) await persistOwnedSessionTickets(); // republish: a closed window released its session_owner rows
   if (backgroundRecoveryPlan.idle.length > 0) {
     provider.refresh();
     dashboard.pushAll();

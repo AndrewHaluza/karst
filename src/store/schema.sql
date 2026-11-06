@@ -1486,3 +1486,24 @@ CREATE TABLE IF NOT EXISTS gate_slots (
   touched_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gate_slots_project ON gate_slots(project_id);
+
+-- v100: autopilot (T973, `store/autopilot.ts`). Per-ticket override + stop/pause flags, and one budget row per (ticket, repo, kind).
+CREATE TABLE IF NOT EXISTS autopilot_tickets (
+  ticket_id     INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
+  mode          TEXT NOT NULL DEFAULT 'inherit' CHECK (mode IN ('inherit', 'on', 'off')),
+  stop_after    INTEGER NOT NULL DEFAULT 0,   -- 1 = "stop after this round": no new round is armed
+  paused_reason TEXT,                         -- a round that moved the ticket on but started no session; NOT a spent budget
+  stopped_reason TEXT,                        -- last park reason autopilot wrote (dedupes repeat notes)
+  claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
+  claim_until INTEGER,                        -- lease end, epoch ms
+  session_owner TEXT                          -- window that holds the ticket's session; set at session open, cleared at close
+);
+CREATE TABLE IF NOT EXISTS autopilot_budgets (
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  repo      TEXT NOT NULL,
+  kind      TEXT NOT NULL CHECK (kind IN ('conflicts', 'ci')),
+  attempts  INTEGER NOT NULL DEFAULT 0,
+  signature TEXT,
+  extra     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ticket_id, repo, kind)
+);

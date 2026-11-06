@@ -9,7 +9,7 @@ import { transition } from './machine.js';
 import { setStage } from '../store/stages.js';
 import { dismissPr } from '../store/prs.js';
 import { openShipRun, closeShipRun } from '../store/shipRuns.js';
-import { mergeGateState, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
+import { mergeGateState, restoreAwaitingMergeBlock, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
 
 // Wrapped rather than stubbed (`vi.fn(actual.x)`), so every OTHER test in this
 // file — which drives tickets through real transitions and real stage writes —
@@ -174,6 +174,14 @@ describe('resolveShipLanding', () => {
     expect(res.advanced).toBe(false);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
     expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-merge');
+  });
+
+  it('forgets the stored CI rollup of an open PR when ship re-ships, because it belongs to the old head', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open');
+    store.db.prepare("UPDATE prs SET checks = ?, merge_block = 'BLOCKED' WHERE ticket_id = ?").run('{"state":"failing"}', id);
+    resolveShipLanding(store, id);
+    expect(store.db.prepare('SELECT checks, merge_block FROM prs WHERE ticket_id = ?').get(id)).toEqual({ checks: null, merge_block: null });
   });
 
   // The block reason is what "surface a clear reason naming the unmerged PR"
@@ -449,5 +457,30 @@ describe('settleShipGates', () => {
     store.db.prepare('DELETE FROM tickets WHERE id = ?').run(broken);
 
     expect(settleShipGates(store)).toEqual([good]);
+  });
+});
+
+describe('restoreAwaitingMergeBlock', () => {
+  let store: Store;
+  let id: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'T-9', title: 't' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
+    setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+  });
+  it('writes the normal awaiting-merge block while a PR is open', () => {
+    seedPr(store, id, 'api', 'open');
+    restoreAwaitingMergeBlock(store, id);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: expect.stringContaining('api') });
+  });
+  it('keeps an awaiting-merge block when every PR is merged, so the settle sweep lands the ticket', () => {
+    seedPr(store, id, 'api', 'open');
+    restoreAwaitingMergeBlock(store, id);
+    store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
+    restoreAwaitingMergeBlock(store, id);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge' });
+    expect(settleShipGate(store, id).advanced).toBe(true);
+    expect(stageBlock(store, id, 'ship')).toBeNull();
   });
 });

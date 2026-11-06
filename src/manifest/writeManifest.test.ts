@@ -297,6 +297,10 @@ describe('writeManifest', () => {
             },
           },
         ],
+        autopilot: {
+          enabled: true,
+          ci: { policy: 'ask', maxAttempts: 4, checks: ['build'] },
+        },
         agents: {
           implement: {
             role: 'implement',

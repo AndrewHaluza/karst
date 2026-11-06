@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { ProjectScope } from '../store/tickets.js';
 import { getTicket, listTickets } from '../store/tickets.js';
-import { listCurrentPrsByTicket } from '../store/prs.js';
+import { clearOpenPrProbe, listCurrentPrsByTicket } from '../store/prs.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage, setStage } from '../store/stages.js';
@@ -190,6 +190,23 @@ function parkAwaitingMerge(store: Store, ticketId: number, state: MergeGateState
   });
 }
 
+/** The reason of the block that waits for the settle sweep, once every PR has landed. */
+const LANDED_SETTLE_REASON = 'blocked: every pull request has landed — the ticket settles on the next merge sweep.';
+
+/**
+ * Put the NORMAL awaiting-merge block back on the ship row (autopilot cleared its own park, T973).
+ * The block is kept when every PR has landed: `settleShipGate` keys on it, so dropping it would strand
+ * the landed ticket at ship. The sweep then lands the ticket, with the sub-task release it needs.
+ */
+export function restoreAwaitingMergeBlock(store: Store, ticketId: number): void {
+  const state = mergeGateState(store, ticketId);
+  if (isLanded(state)) {
+    setStage(store, ticketId, 'ship', { blockedKind: 'awaiting-merge', blockedReason: LANDED_SETTLE_REASON, blockedAt: nowIso() });
+    return;
+  }
+  setStage(store, ticketId, 'ship', { blockedKind: 'awaiting-merge', blockedReason: describeAwaitingMerge(state), blockedAt: nowIso() });
+}
+
 /**
  * Whether a ticket at `ship` has PROVABLY shipped but lost its `awaiting-merge`
  * block to a failed terminal write.
@@ -293,6 +310,9 @@ export function resolveShipLanding(
     // `shippedWithoutBlock`), repairing the block on its next sweep; a
     // re-ship (the normal recovery path for a ship failure) re-establishes it
     // too. So the swallow no longer strands the ticket.
+    // Ship's tail just pushed: a stored CI rollup belongs to the head before this ship, so it must not feed a CI round
+    // (autopilot) before the re-probe writes the new one.
+    for (const pr of listCurrentPrsByTicket(store, ticketId)) if (pr.status === 'open') clearOpenPrProbe(store, ticketId, pr.repo);
     parkAwaitingMerge(store, ticketId, state);
   } catch {
     // Swallowed deliberately — see comment above. The PRs are already open;

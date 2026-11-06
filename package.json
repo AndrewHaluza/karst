@@ -132,6 +132,9 @@
         "command": "karst.openDashboard",
         "title": "Karst: Open Dashboard"
       },
+      { "command": "karst.autopilot.setOverride", "title": "Karst: Set Auto-Fix Mode for Ticket" },
+      { "command": "karst.autopilot.approveOne", "title": "Karst: Approve One More Auto-Fix Attempt" },
+      { "command": "karst.autopilot.stop", "title": "Karst: Stop Auto-Fix" },
       {
         "command": "karst.openSession",
         "title": "Karst: Open AI Session",
