@@ -255,3 +255,18 @@ describe('UsagePanelManager', () => {
     expect(state.quota.rows[0]).toMatchObject({ core: 'codex', label: 'Codex', readAgo: '3m ago' });
   });
 });
+
+describe('UsagePanelManager.adopt', () => {
+  it('adopts a restored panel, pushes state and never reveals; a duplicate is closed', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    const first = host.createPanel('x') as FakePanel;
+    const log: string[] = [];
+    const restored = (panel: FakePanel) => ({ wrap: () => (log.push('wrap'), panel), dispose: () => void log.push('dispose') });
+    expect(mgr.adopt(restored(first))).toBe(true);
+    expect(first.posted.length).toBeGreaterThan(0);
+    expect(first.revealed).toBe(0);
+    expect(mgr.adopt(restored(host.createPanel('y') as FakePanel))).toBe(false);
+    expect(log).toEqual(['wrap', 'dispose']);
+  });
+});

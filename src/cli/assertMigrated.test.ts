@@ -39,7 +39,7 @@ describe('CLI schema guard', () => {
     const path = dbAt(9);
     expect(() => openReadonlyStore(path)).toThrow(/schema v9/);
     expect(() => openReadonlyStore(path)).toThrow(new RegExp(`v${SCHEMA_VERSION}`));
-    expect(() => openReadonlyStore(path)).toThrow(/Open the Karst extension once to migrate/);
+    expect(() => openReadonlyStore(path)).toThrow(/Reload every IDE window that runs Karst/);
   });
 
   it('names the offending file', () => {
@@ -79,6 +79,8 @@ describe('CLI schema guard', () => {
       new RegExp(`schema v${SCHEMA_VERSION + 1}`),
     );
     expect(() => openGraphWritableStore(path)).toThrow(new RegExp(`exactly v${SCHEMA_VERSION}`));
+    expect(() => openGraphWritableStore(path)).toThrow(/Update the CLI build/);
+    expect(() => openGraphWritableStore(path)).toThrow(/cannot downgrade/);
   });
 
   it('assertExactSchema rejects an OLDER registry naming the file and both versions', () => {
@@ -94,6 +96,7 @@ describe('CLI schema guard', () => {
       new RegExp(`schema v${SCHEMA_VERSION - 1}`),
     );
     expect(() => openGraphWritableStore(path)).toThrow(new RegExp(`v${SCHEMA_VERSION}`));
+    expect(() => openGraphWritableStore(path)).toThrow(/Reload every IDE window that runs Karst/);
   });
 
   it('assertExactSchema accepts a registry at this build version', () => {

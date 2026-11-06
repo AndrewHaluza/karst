@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { UsagePanel, UsagePanelHost } from './panel.js';
 import { makeSimplePanelHost } from '../shared/simplePanelHost.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 
 /**
@@ -9,6 +10,9 @@ import type { BrandIconPaths } from '../brandIcon.js';
  * to the token-usage manager; everything below it is tested with fakes. Built
  * on the shared single-instance panel host — a fresh CSP nonce for every panel.
  */
-export function makeUsagePanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): UsagePanelHost {
+export function makeUsagePanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): UsagePanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<UsagePanel> } {
   return makeSimplePanelHost<UsagePanel>(context, 'usage', 'karst.tokenUsage', brandIcon);
 }

@@ -1,7 +1,7 @@
 import { nowIso } from '../../model/time.js';
 import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
-import { runRegenerate, type RegenerateSpec } from './regenerate.js';
+import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
 import { runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
@@ -111,7 +111,7 @@ export async function runGateList(
   const results: GateResult[] = [];
   const onDebug = opts.onDebug;
   if (opts.regenerate && opts.regenerate.commands.length > 0) {
-    const regenName = `regenerate (${opts.regenerate.repo})`;
+    const regenName = regenerateGateName(opts.regenerate.repo);
     opts.onGateStart?.(regenName);
     const regen = await runRegenerate(
       opts.regenerate,

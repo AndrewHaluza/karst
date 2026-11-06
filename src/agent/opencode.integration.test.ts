@@ -1199,7 +1199,7 @@ describe('OpencodeAdapter headless execution', () => {
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
     expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined, isolationEnv: killIsolationEnv });
-    expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
+    expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', finalMessage: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
   });
 
   it('pins the headless run to the worktree via --dir so a nested linked worktree is not mis-resolved', async () => {

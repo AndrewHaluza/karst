@@ -6,6 +6,7 @@ import {
   coverageStatus,
   isCoverageRecord,
   splitCoverage,
+  stripCoverageLabel,
   coverageOrFallback,
 } from './coverageRecord.js';
 
@@ -48,5 +49,29 @@ describe('coverageRecord', () => {
       expect(r).not.toMatch(/verified/i);
     }
     expect(COVERAGE_RULE_UAT).toContain('uat:host');
+  });
+});
+
+describe('stripCoverageLabel', () => {
+  it('strips a leading label so the record reads as coverage, not a fallback', () => {
+    const labelled = rec('COGNITIVE: COVERAGE (reported): SKIPPED — not reachable', 'low');
+    const { coverage, rest } = splitCoverage(stripCoverageLabel([labelled]));
+    expect(rest).toEqual([]);
+    expect(coverage).toHaveLength(1);
+    expect(coverageStatus(coverage[0]!.title)).toBe('SKIPPED');
+    expect(coverageOrFallback(coverage).title).toBe('COVERAGE (reported): SKIPPED — not reachable');
+  });
+
+  it('keeps a real finding that mentions the prefix later in its title', () => {
+    const f = rec('Bug: see COVERAGE (reported): PASS claim', 'high');
+    const out = stripCoverageLabel([f]);
+    expect(out).toEqual([f]);
+    expect(splitCoverage(out).rest).toEqual([f]);
+  });
+
+  it('leaves an unlabelled record and a lowercase or long label alone', () => {
+    for (const t of ['COVERAGE (reported): PASS — x', 'note: COVERAGE (reported): PASS', `${'A'.repeat(30)}: COVERAGE (reported): PASS`]) {
+      expect(stripCoverageLabel([rec(t)])).toEqual([rec(t)]);
+    }
   });
 });

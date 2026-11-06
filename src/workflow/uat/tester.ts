@@ -61,7 +61,7 @@ import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
-import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
+import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
@@ -643,7 +643,7 @@ const SILENT_WARN: WarnFn = () => {};
 async function recoverStoppedTarget(
   captured: string,
   context: { repo: string; worktreePath: string; max: number },
-  reask: (text: string) => Promise<{ raw: string }>,
+  reask: (text: string) => Promise<{ raw: string; finalMessage?: string }>,
   warn: WarnFn | undefined,
   outerSignal: AbortSignal | undefined,
   form: StructuredOutputForm | undefined,
@@ -654,7 +654,7 @@ async function recoverStoppedTarget(
   }
   try {
     const answer = await reask(buildWrapUpNudge(captured, form));
-    const reparsed = parseFindingsResult(answer.raw, context, warn);
+    const reparsed = parseFindingsResult(answer.raw, context, warn, undefined, answer.finalMessage);
     // A still-unreadable re-ask keeps the salvage's record of what the run said.
     return reparsed.shape === 'unreadable' && reparsed.findings.length === 0
       ? { parse: salvaged, raw: captured }
@@ -1070,7 +1070,7 @@ async function runTesterBody(
         text: string,
         signal: AbortSignal | undefined,
         timeoutMs: number,
-      ): Promise<{ raw: string }> =>
+      ): Promise<{ raw: string; finalMessage?: string }> =>
         opts.adapter.runHeadless({
           prompt: text,
           cwd: target.worktreePath,
@@ -1096,7 +1096,7 @@ async function runTesterBody(
       // A caller Stop still forwards, so the two are distinguishable: the
       // caller's signal is the authority, this timer is only the budget.
       const soft = linkedAbort(opts.signal, softTimeoutMs);
-      let result: { raw: string } = { raw: '' };
+      let result: { raw: string; finalMessage?: string } = { raw: '' };
       let stopped = false;
       try {
         result = await ask(prompt, soft.signal, hardTimeoutMs);
@@ -1169,7 +1169,7 @@ async function runTesterBody(
           result = await ask(`${prompt}\n${testerSilenceNudge(outputForm)}`, opts.signal, hardTimeoutMs);
         }
         if (opts.signal?.aborted) break;
-        parseResult = parseFindingsResult(result.raw, parseContext, opts.warn);
+        parseResult = parseFindingsResult(result.raw, parseContext, opts.warn, undefined, result.finalMessage);
         // UNREADABLE prose is re-asked ONCE, for reformatting only (UAT-19) —
         // the core already answered and may have found something real; only
         // the shape is wrong. Quoting its own prose back and asking for
@@ -1189,7 +1189,7 @@ async function runTesterBody(
           );
           if (!opts.signal?.aborted) {
             result = reformatted;
-            parseResult = parseFindingsResult(result.raw, parseContext, opts.warn);
+            parseResult = parseFindingsResult(result.raw, parseContext, opts.warn, undefined, result.finalMessage);
           }
         }
       }
@@ -1228,7 +1228,7 @@ async function runTesterBody(
             `${parseResult.findings.length - kept.length} disproven wrong-checkout claim(s)`,
         );
       }
-      const { coverage: targetCoverage, rest: keptRest } = splitCoverage(kept);
+      const { coverage: targetCoverage, rest: keptRest } = splitCoverage(stripCoverageLabel(kept));
       coverageRecords.push({
         ...coverageOrFallback(
           targetCoverage.map((f) => ({ severity: f.severity, repo: f.repo, file: null, line: null, title: f.title })),

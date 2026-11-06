@@ -756,3 +756,72 @@ describe('bindings read the recorded placement from the store (D245)', () => {
     expect(await b.hasSandbox(id)).toBe(true);
   });
 });
+
+describe('a sandbox gate takes a project-wide gate slot', () => {
+  const LIVE = (id: number): ReturnType<typeof fakeSbxProcess> => fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${sbxName({ projectRoot: '/p', ticketId: id, core: 'claude' })}\n` }, 'sbx exec': { code: 0 } });
+  const slotsDuringGate = async (run: () => Promise<unknown>, store: ReturnType<typeof openStore>): Promise<{ projectId: number | null }[]> => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    let seen: { projectId: number | null }[] = [];
+    vi.mocked(runProcess).mockImplementationOnce(() => {
+      seen = store.db.prepare('SELECT project_id AS projectId FROM gate_slots').all() as { projectId: number | null }[];
+      return Promise.resolve({ kind: 'completed', exitCode: 0, output: 'sandbox' });
+    });
+    await run();
+    return seen;
+  };
+  const slotDeps = (store: ReturnType<typeof openStore>) => ({ store, projectIdOf: () => 1, owner: 'w' });
+
+  it('holds a slot only for a slotted gate, and releases it after the gate', async () => {
+    const store = openStore(':memory:');
+    const over = { proc: LIVE(7), gateSlots: slotDeps(store), sandboxLimits: () => ({ workers: false, gateSlots: 1 }) };
+    await expect(slotsDuringGate(() => ticketGateProcess(deps(over), 7, { slotted: true })!('npm', [], '/wt'), store)).resolves.toEqual([{ projectId: 1 }]);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM gate_slots').get()).toEqual({ n: 0 });
+    await expect(slotsDuringGate(() => ticketGateProcess(deps(over), 7)!('npm', [], '/wt'), store)).resolves.toEqual([]);
+  });
+
+  it('runs a slotted gate with no slot row when the limit is 0', async () => {
+    const store = openStore(':memory:');
+    const over = { proc: LIVE(7), gateSlots: slotDeps(store), sandboxLimits: () => ({ gateSlots: 0 }) };
+    await expect(slotsDuringGate(() => ticketGateProcess(deps(over), 7, { slotted: true })!('npm', [], '/wt'), store)).resolves.toEqual([]);
+  });
+
+  it('uses the default limit when the deps have no sandbox limits', async () => {
+    const store = openStore(':memory:');
+    const { sandboxLimits: _unused, ...noLimits } = deps({ proc: LIVE(7), gateSlots: slotDeps(store) });
+    await expect(slotsDuringGate(() => ticketGateProcess(noLimits, 7, { slotted: true })!('npm', [], '/wt'), store)).resolves.toEqual([{ projectId: 1 }]);
+  });
+
+  describe('createTicketSandboxBindings', () => {
+    const setup = async (limits?: { gateSlots: number }, debug?: (m: string) => void) => {
+      const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+      const { upsertProject } = await import('../../store/projects.js');
+      const store = openStore(':memory:');
+      const projectId = upsertProject(store, { slug: 'p', rootPath: '/p' }).id;
+      const id = createTicket(store, { key: 'K-1', title: 't', projectId }).id;
+      const manifest = { repositories: {}, ...(limits ? { sandboxLimits: limits } : {}) } as unknown as Manifest;
+      const b = createTicketSandboxBindings({ ...deps({ proc: LIVE(id) }), store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => undefined, ...(debug ? { debug } : {}) });
+      return { b, store, id, projectId };
+    };
+
+    it('gateProcessFor takes a slot in the project of the ticket', async () => {
+      const { b, store, id, projectId } = await setup();
+      await expect(slotsDuringGate(() => b.gateProcessFor(id)!('npm', [], '/wt'), store)).resolves.toEqual([{ projectId }]);
+    });
+
+    it('reads the slot limit from the manifest', async () => {
+      const { b, store, id } = await setup({ gateSlots: 0 });
+      await expect(slotsDuringGate(() => b.gateProcessFor(id)!('npm', [], '/wt'), store)).resolves.toEqual([]);
+    });
+
+    it('passes its debug callback to the slot waiter', async () => {
+      const debug = vi.fn();
+      const { b, store, id, projectId } = await setup({ gateSlots: 1 }, debug);
+      store.db.prepare("INSERT INTO gate_slots (ticket_id, project_id, owner, claimed_at, touched_at) VALUES (99, ?, 'other', strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))").run(projectId);
+      const ctl = new AbortController();
+      const waiting = b.gateProcessFor(id)!('npm', [], '/wt', { signal: ctl.signal });
+      await vi.waitFor(() => expect(debug).toHaveBeenCalledWith(`[gate] ticket ${id}: Waiting for a gate slot (1 running)`));
+      ctl.abort();
+      await expect(waiting).resolves.toEqual({ kind: 'aborted', output: '' });
+    });
+  });
+});

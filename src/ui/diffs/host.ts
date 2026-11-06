@@ -8,6 +8,7 @@ import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import { DisposableBag } from './hostResources.js';
+import type { RestoredPanel } from '../shared/restoredPanel.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -24,16 +25,12 @@ import { DisposableBag } from './hostResources.js';
 export function makeChangesPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
-): ChangesPanelHost {
+): ChangesPanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<ChangesPanel> } {
   const html = hydrateWebview('diffs', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'diffs', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title, _ticketId): ChangesPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.changes',
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
+  /** Configure a raw panel (new or restored) and wrap it in the `ChangesPanel` interface. */
+  const wrap = (panel: vscode.WebviewPanel): ChangesPanel => {
+      // A restored panel arrives with default options.
+      panel.webview.options = { enableScripts: true };
       // The panel itself, not only its listeners: without this the webview
       // outlives extension unload with no owner. VS Code tolerates a second
       // dispose of an already-closed panel.
@@ -66,6 +63,15 @@ export function makeChangesPanelHost(
           }));
         },
       };
-    },
+  };
+  return {
+    createPanel: (title, _ticketId) =>
+      wrap(
+        vscode.window.createWebviewPanel('karst.changes', title, vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+        }),
+      ),
+    restore: (raw) => ({ wrap: () => wrap(raw), dispose: () => raw.dispose() }),
   };
 }

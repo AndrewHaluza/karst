@@ -94,14 +94,14 @@ describe('TicketChangesManager', () => {
     const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, () => load.promise, async () => {}, () => {});
 
     manager.open(41);
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
 
     const current = snapshot(41, 'first:1', target('src/first.ts'));
     load.resolve(current);
     await settle();
 
     expect(panels[0]!.posted).toEqual([
-      { type: 'loading', state: null },
+      { type: 'loading', state: null, ticketId: expect.any(Number) },
       { type: 'state', state: current.state },
     ]);
   });
@@ -125,6 +125,7 @@ describe('TicketChangesManager', () => {
     expect(panels[0]!.posted.at(-1)).toEqual({
       type: 'loading',
       state: snapshot(41, 'first:1', target('src/first.ts')).state,
+      ticketId: 41,
     });
     second.resolve(snapshot(41, 'second:1', target('src/second.ts')));
     await settle();
@@ -145,7 +146,7 @@ describe('TicketChangesManager', () => {
     await settle();
     panels[0]!.emit({ type: 'refresh' });
 
-    expect(panels[0]!.posted.at(-1)).toEqual({ type: 'loading', state: initial.state });
+    expect(panels[0]!.posted.at(-1)).toEqual({ type: 'loading', state: initial.state, ticketId: 41 });
     second.resolve(snapshot(41, 'second:1', target('src/second.ts')));
     await settle();
   });
@@ -422,7 +423,7 @@ describe('TicketChangesManager', () => {
     await settle();
 
     expect(panels[0]!.posted).toEqual([
-      { type: 'loading', state: null },
+      { type: 'loading', state: null, ticketId: expect.any(Number) },
       { type: 'error', message: 'Load exploded' },
     ]);
     expect(logError).toHaveBeenCalledWith(
@@ -474,7 +475,7 @@ describe('TicketChangesManager', () => {
     panels[0]!.dispose();
     first.resolve(snapshot(41, 'old:1', target('src/old.ts')));
     await settle();
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
     expect(manager.isOpen(41)).toBe(false);
 
     manager.open(41);
@@ -482,7 +483,7 @@ describe('TicketChangesManager', () => {
     second.resolve(snapshot(41, 'new:1', target('src/new.ts')));
     await settle();
     expect(panels[1]!.posted).toEqual([
-      { type: 'loading', state: null },
+      { type: 'loading', state: null, ticketId: expect.any(Number) },
       { type: 'state', state: snapshot(41, 'new:1', target('src/new.ts')).state },
     ]);
   });
@@ -525,7 +526,7 @@ describe('TicketChangesManager', () => {
     await settle();
 
     expect(load).toHaveBeenCalledTimes(1);
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
     expect(logError).not.toHaveBeenCalled();
   });
 
@@ -551,11 +552,11 @@ describe('TicketChangesManager', () => {
     pending.resolve(snapshot(41, 'late:1', target('src/late.ts')));
     await settle();
 
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
     // A disposed manager must not resurrect a session either.
     panels[0]!.emit({ type: 'refresh' });
     await settle();
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
   });
 
   it('never leaks an unhandled rejection when the panel throws while posting state', async () => {
@@ -668,7 +669,7 @@ describe('TicketChangesManager', () => {
 
     expect(signal?.aborted).toBe(true);
     expect(logError).not.toHaveBeenCalled();
-    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null }]);
+    expect(panels[0]!.posted).toEqual([{ type: 'loading', state: null, ticketId: expect.any(Number) }]);
   });
 
   /**
@@ -951,5 +952,56 @@ describe('TicketChangesManager', () => {
 
       expect(unstageFile).toHaveBeenCalledWith('current:1');
     });
+  });
+});
+
+describe('TicketChangesManager.adopt', () => {
+  const settled = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  const setup = () => {
+    const { host, panels } = makeHost();
+    const activated: Array<[number, boolean]> = [];
+    const load = vi.fn(async (id: number) => snapshot(id, 'c:1', target('a.ts')));
+    const manager = new TicketChangesManager(
+      host, (id) => `Changes ${id}`, load, async () => {}, () => {}, undefined, undefined,
+      (id, active) => void activated.push([id, active]),
+    );
+    const log: string[] = [];
+    const restored = () => {
+      const panel = new FakePanel();
+      return { panel, restored: { wrap: () => (log.push('wrap'), panel), dispose: () => void log.push('dispose') } };
+    };
+    return { manager, panels, activated, load, log, restored };
+  };
+
+  it('adopts a live ticket: loads its changes, never reveals or reports focus', async () => {
+    const { manager, activated, restored, load } = setup();
+    const r = restored();
+    expect(manager.adopt(7, r.restored, () => true)).toBe(true);
+    await settled();
+    expect(load).toHaveBeenCalledWith(7, expect.anything());
+    expect(r.panel.posted.map((m) => m.type)).toEqual(['loading', 'state']);
+    expect(r.panel.revealed).toBe(0);
+    expect(activated).toEqual([]);
+    expect(manager.isOpen(7)).toBe(true);
+  });
+
+  it('closes the tab for a missing or archived ticket (not live)', () => {
+    const { manager, restored, log } = setup();
+    expect(manager.adopt(7, restored().restored, () => false)).toBe(false);
+    expect(log).toEqual(['dispose']);
+    expect(manager.isOpen(7)).toBe(false);
+  });
+
+  it('closes the tab when the state carried no ticket id', () => {
+    const { manager, restored, log } = setup();
+    expect(manager.adopt(undefined, restored().restored, () => true)).toBe(false);
+    expect(log).toEqual(['dispose']);
+  });
+
+  it('closes a duplicate when the ticket already has a changes panel', () => {
+    const { manager, restored, log } = setup();
+    manager.open(7);
+    expect(manager.adopt(7, restored().restored, () => true)).toBe(false);
+    expect(log).toEqual(['dispose']);
   });
 });

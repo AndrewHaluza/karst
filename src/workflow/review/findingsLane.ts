@@ -33,7 +33,7 @@ import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
-import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage } from '../../model/coverageRecord.js';
+import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
 import {
@@ -457,6 +457,8 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           result.raw,
           { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
           opts.warn,
+          undefined,
+          result.finalMessage,
         );
         if (tier !== undefined) parseTiers.push(tier);
         if (shape === 'unreadable') unreadable.push(target.repo);
@@ -468,7 +470,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         // git call.
         // The advisory coverage record is persisted for display but never
         // joins `findings`, so `aggregateReview` cannot see it.
-        const { coverage: coverageRows, rest: realFindings } = splitCoverage(rawFindings);
+        const { coverage: coverageRows, rest: realFindings } = splitCoverage(stripCoverageLabel(rawFindings));
         const coverageRecord = coverageOrFallback(coverageRows, (title) => ({
           severity: 'info' as Severity,
           repo: target.repo,

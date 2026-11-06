@@ -2,40 +2,17 @@
 // Usage: node scripts/vitestGate.mjs <vitest args...>   (see scripts/vitestDrift.mjs)
 // Exit: the vitest status, or 0 when every failure also fails at the base (develop drift).
 
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
+import { changedSince, git as gitFn, mergeBase } from './gateScope.mjs';
 import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
-const exec = promisify(execFile);
-const git = async (cwd, args) => {
-  try {
-    return (await exec('git', args, { cwd, maxBuffer: 1 << 26 })).stdout;
-  } catch {
-    return null;
-  }
-};
+const git = gitFn;
 
 // No output for this long means a hung test file: kill the run and name the last output, not wait for the gate wall.
 const IDLE_MS = Number(process.env.KARST_GATE_IDLE_MS) || 10 * 60_000;
-
-const BASE_CANDIDATES = ['origin/develop', 'develop', 'origin/main', 'main', 'refs/karst/base/develop', 'refs/karst/base/main'];
-
-/** KARST_BASE_REF=X → X, the sandbox clone's refs/karst/base/X, then origin/X; unset → the fixed candidates. */
-function baseRefCandidates(baseRef) {
-  return baseRef ? [baseRef, `refs/karst/base/${baseRef}`, `origin/${baseRef}`] : BASE_CANDIDATES;
-}
-
-async function mergeBase(cwd) {
-  const tried = baseRefCandidates(process.env.KARST_BASE_REF);
-  for (const ref of tried) {
-    const out = await git(cwd, ['merge-base', ref, 'HEAD']);
-    if (out) return { sha: out.trim(), tried };
-  }
-  return { sha: null, tried };
-}
 
 const skip = (reason, ids) => {
   console.error(`base check skipped: ${reason}`);
@@ -158,10 +135,9 @@ async function judge(cwd, args, output) {
   }
   const { sha, tried } = await mergeBase(cwd);
   if (sha === null) return skip(`no merge base for ${tried.join(', ')}`, ids);
-  const changed = await git(cwd, ['diff', '--name-only', '-z', sha]);
-  const untracked = await git(cwd, ['ls-files', '-o', '--exclude-standard', '-z']);
-  if (changed === null || untracked === null) return skip('git diff failed', ids);
-  const touched = new Set(`${changed}\0${untracked}`.split('\0').filter(Boolean));
+  const changed = await changedSince(cwd, sha);
+  if (changed === null) return skip('git diff failed', ids);
+  const touched = new Set(changed);
   const plan = planBaseCheck(ids, touched);
   if (plan.kind !== 'run') {
     console.error(`base check skipped: ${plan.reason}`);

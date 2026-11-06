@@ -493,3 +493,33 @@ jobs:
             exit 1
           fi
           echo "OK: develop contains every non-merge commit on main."
+
+  # The review gates `sast` and `secrets` scan only a ticket's changes (scripts/sastGate.mjs,
+  # scripts/secretsGate.mjs). This job is the full scan: it is the only place a new rule or
+  # allowlist reaches files no ticket touched. It never runs on pull requests.
+  full-scan:
+    name: Full sast and secrets scan
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SEMGREP_VERSION: '1.182.0'
+      GITLEAKS_VERSION: '8.30.1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install semgrep
+        run: python3 -m pip install "semgrep==${SEMGREP_VERSION}"
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tgz
+          tar -xzf gitleaks.tgz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          rm gitleaks.tgz gitleaks
+
+      - name: semgrep, full src
+        run: semgrep scan --config p/typescript --metrics=off --error --quiet --jobs 2 src
+
+      - name: gitleaks, full repo
+        run: gitleaks dir --config .gitleaks.toml --no-banner --redact .
