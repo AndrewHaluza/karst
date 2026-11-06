@@ -387,7 +387,7 @@ import { makeResourcesPanelHost } from './ui/resources/host.js';
 import { ServerLogsManager } from './ui/serverLogs/panel.js';
 import { makeServerLogsPanelHost } from './ui/serverLogs/host.js';
 import { readApproachPackage, uninstallApproach, readArtifactBody, listArtifacts, setPendingOutputs, type ApproachPackage } from './approaches/pkg.js';
-import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
+import { readAgentFile, writeAgentFile, removeAgentFile, resolveProfileContext } from './agents/pkg.js';
 import { buildAgentPool, poolAgentBody, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
@@ -1317,6 +1317,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       promptBearingRoles.has(role) && assignment.agent
         ? (soloAgentBody(assignment.agent) ?? undefined)
         : undefined;
+    // `context: minimal` rides beside `instructions`, parsed from the same body.
+    // An unknown value keeps full context and is reported as a warning.
+    const profileContext = resolveProfileContext(assignment.agent, instructions, logger.warn);
     if (instructions !== undefined) {
       logger.debug(
         `[process] ${role} for ticket ${ticketId === undefined ? '(none yet)' : formatId('ticket', ticketId)} runs through Settings profile ` +
@@ -1325,7 +1328,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return {
       assignment:
-        instructions === undefined ? assignment : { ...assignment, instructions },
+        instructions === undefined
+          ? assignment
+          : {
+              ...assignment,
+              instructions,
+              ...(profileContext ? { context: profileContext } : {}),
+            },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here
@@ -6269,7 +6278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider; if (!options.recovery && !sessions.isOpen(ticketId) && wantsSbxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && listWorktreesByTicket(localStore, ticketId).length <= 1 && memoryGuard && !(await memoryGuard.admitLaunch(ticketId, options))) return { kind: 'not-applicable', reason: 'cancelled' }; // queued: 'Waiting for memory'; a recovery relaunch is never queued (recoverSession would count it as failed)
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session

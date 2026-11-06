@@ -232,6 +232,7 @@ export async function analyzeTicket(
       prompt: p,
       cwd,
       trustCwd: false,
+      minimalContext: true,
       model: input.model,
       effort: input.effort,
       tracking: {

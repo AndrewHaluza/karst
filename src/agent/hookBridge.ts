@@ -213,6 +213,65 @@ function usagePayload(raw) {
   return payload;
 }
 
+// Codex hooks carry no usage object. The session rollout file (named by
+// transcript_path) holds cumulative token_count events instead. The rollout is
+// an UNDOCUMENTED codex source: the shape was checked against codex-cli 0.147.0
+// (rollout written) and 0.166.0 (installed). transcript_path is agent-authored
+// input, so it is accepted only when it resolves inside <CODEX_HOME>/sessions
+// and names this session; the read is a bounded tail of a regular file.
+const ROLLOUT_TAIL_BYTES = 512 * 1024;
+function rolloutUsagePayload(raw) {
+  try {
+    const transcript = raw.transcript_path;
+    if (typeof transcript !== 'string' || transcript.length === 0) return null;
+    const home = process.env.CODEX_HOME || path.join(require('node:os').homedir(), '.codex');
+    const root = fs.realpathSync(path.join(home, 'sessions'));
+    const real = fs.realpathSync(transcript);
+    if (!real.startsWith(root + path.sep) || !real.endsWith('-' + raw.session_id + '.jsonl')) return null;
+    const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    let text;
+    try {
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) return null;
+      const start = Math.max(0, st.size - ROLLOUT_TAIL_BYTES);
+      const buf = Buffer.alloc(st.size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+      if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const lines = text.split('\n');
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if (!lines[i].includes('"token_count"')) continue;
+      let entry;
+      try { entry = JSON.parse(lines[i]); } catch { continue; }
+      const payload = entry && entry.payload;
+      const total = payload && payload.type === 'token_count' && payload.info ? payload.info.total_token_usage : null;
+      if (!total || typeof total !== 'object') continue;
+      const inputTokens = usageCount(total.input_tokens);
+      const output = usageCount(total.output_tokens);
+      if (inputTokens === null || output === null) continue;
+      const cacheRead = usageCount(total.cached_input_tokens) || 0;
+      const marker = typeof entry.ordinal === 'number' ? entry.ordinal : usageCount(total.total_tokens);
+      if (marker === null) continue;
+      const result = {
+        event_id: 'rollout-' + marker,
+        // codex input_tokens includes the cached part; karst input excludes cache.
+        input: Math.max(0, inputTokens - cacheRead),
+        output,
+        cache_read: cacheRead,
+      };
+      const cacheWrite = usageCount(total.cache_write_input_tokens);
+      const sum = usageCount(total.total_tokens);
+      if (cacheWrite !== null) result.cache_write = cacheWrite;
+      if (sum !== null) result.total = sum;
+      return result;
+    }
+  } catch {}
+  return null;
+}
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -285,7 +344,7 @@ process.stdin.on('end', () => {
         : {};
     posts.push({ ...mapped, ...toolName, cwd: raw.cwd, session_id: raw.session_id });
   }
-  const usage = usagePayload(raw);
+  const usage = usagePayload(raw) || (provider === 'codex' ? rolloutUsagePayload(raw) : null);
   if (usage) {
     posts.push({ hook_event_name: 'UsageUpdate', cwd: raw.cwd, session_id: raw.session_id, usage });
   }

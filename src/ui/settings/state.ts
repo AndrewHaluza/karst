@@ -162,7 +162,7 @@ export function buildSettingsState(
     ),
     presetInheritance: buildPresetInheritanceViews(manifest, models),
     presetGroups: buildPresetCapabilityGroups(),
-    builtInPrompts: buildBuiltInPrompts(),
+    builtInPrompts: buildBuiltInPrompts(manifest),
     manifestPath,
     projectSlug,
     version,

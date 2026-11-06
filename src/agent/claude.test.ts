@@ -1105,6 +1105,147 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
+  // The tool-form output rule tells the agent to write NO findings as text, so
+  // on a `--json-schema` run the answer is the envelope's `structured_output`
+  // and `result` may be a bare "Done." — the adapter must hand the parser the
+  // structured document, not the prose.
+  it('returns the structured_output document as raw when a schema run produced one', async () => {
+    const findings = { findings: [{ severity: 'high', title: 't', detail: 'd' }] };
+    const adapter = new ClaudeAdapter(
+      fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'Done.', structured_output: findings }), exitCode: 0 }),
+    );
+    const res = await adapter.runHeadless({ prompt: 'go', cwd: '/wt', outputSchema: { type: 'object' } });
+    expect(JSON.parse(res.raw)).toEqual(findings);
+  });
+
+  it('keeps the result text when the envelope has no structured_output', async () => {
+    const adapter = new ClaudeAdapter(fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'plain' }), exitCode: 0 }));
+    const res = await adapter.runHeadless({ prompt: 'go', cwd: '/wt' });
+    expect(res.raw).toBe('plain');
+  });
+
+  it('ignores a null or non-object structured_output', async () => {
+    for (const structured_output of [null, 'x', 7]) {
+      const adapter = new ClaudeAdapter(
+        fakeSpawn({ stdout: JSON.stringify({ session_id: 's', result: 'plain', structured_output }), exitCode: 0 }),
+      );
+      expect((await adapter.runHeadless({ prompt: 'go', cwd: '/wt' })).raw).toBe('plain');
+    }
+  });
+
+  describe('minimalContext', () => {
+    const OK = JSON.stringify({ session_id: 's', result: 'x' });
+    it('adds --disable-slash-commands and an empty --tools only when asked', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const adapter = new ClaudeAdapter(spawn);
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: true });
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt' });
+      await adapter.runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: false });
+      const on = seen[0]!;
+      expect(on).toContain('--disable-slash-commands');
+      expect(on[on.indexOf('--tools') + 1]).toBe('');
+      expect(on.indexOf('--tools')).toBeLessThan(on.indexOf('--'));
+      expect(on.slice(-2)).toEqual(['--', 'go']);
+      for (const off of [seen[1]!, seen[2]!]) {
+        expect(off).not.toContain('--disable-slash-commands');
+        expect(off).not.toContain('--tools');
+      }
+    });
+    it("'skills-and-subagents' adds only --disable-slash-commands and --disallowedTools Agent", async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: 'skills-and-subagents' });
+      const a = seen[0]!;
+      expect(a).toContain('--disable-slash-commands');
+      expect(a.some((x, i) => x === '--disallowedTools' && a[i + 1] === 'Agent')).toBe(true);
+      expect(a).not.toContain('--tools');
+      expect(a.slice(-2)).toEqual(['--', 'go']);
+    });
+    it("retries without the flags when the CLI rejects --disallowedTools", async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return seen.length === 1
+          ? { stdout: '', stderr: 'error: unknown option --disallowedTools', exitCode: 1 }
+          : { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', minimalContext: 'skills-and-subagents' });
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).not.toContain('Agent');
+      expect(seen[1]).not.toContain('--disable-slash-commands');
+    });
+    it('keeps --json-schema beside the flags', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        minimalContext: true,
+        outputSchema: { type: 'array' },
+      });
+      expect(seen[0]).toEqual(expect.arrayContaining(['--json-schema', '--tools', '--disable-slash-commands']));
+    });
+    it('retries once without the flags when the CLI rejects them, and logs a debug line', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return args.includes('--tools')
+          ? { stdout: '', stderr: "error: unknown option '--disable-slash-commands'", exitCode: 1 }
+          : { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const debug = vi.fn();
+      const r = await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        minimalContext: true,
+        debug,
+      });
+      expect(r.raw).toBe('x');
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).not.toContain('--tools');
+      expect(seen[1]).not.toContain('--disable-slash-commands');
+      expect(seen[1]!.slice(-2)).toEqual(['--', 'go']);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('retrying once without them'));
+    });
+    it('does not retry an unrelated failure, nor a run without minimalContext', async () => {
+      const calls: string[][] = [];
+      const fail = (stderr: string): SpawnHeadless => async (_c, args) => {
+        calls.push(args);
+        return { stdout: '', stderr, exitCode: 1 };
+      };
+      await expect(
+        new ClaudeAdapter(fail('boom')).runHeadless({ prompt: 'g', cwd: '/w', minimalContext: true }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+      calls.length = 0;
+      await expect(
+        new ClaudeAdapter(fail("unknown option '--tools'")).runHeadless({ prompt: 'g', cwd: '/w' }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+    });
+    it('retries only once when the second run also fails', async () => {
+      const calls: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        calls.push(args);
+        return { stdout: '', stderr: "unknown option '--tools'", exitCode: 1 };
+      };
+      await expect(
+        new ClaudeAdapter(spawn).runHeadless({ prompt: 'g', cwd: '/w', minimalContext: true }),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(2);
+    });
+  });
+
   it('refuses an unsandboxed bypassPermissions but keeps other modes (AC-31)', async () => {
     const seen: string[][] = [];
     const spawn: SpawnHeadless = async (_cmd, args) => {

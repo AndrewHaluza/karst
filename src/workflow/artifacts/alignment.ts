@@ -5,7 +5,8 @@
  */
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ChainEdge } from '../../approaches/checks.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, outputRulesBase, perForm } from '../../agent/promptText.js';
+import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { parseFindingsResult, type Finding } from '../review/findings.js';
 import { withEmptyCwd } from '../classify/sandbox.js';
@@ -22,6 +23,8 @@ export function buildAlignmentPrompt(
   parentText: string,
   childText: string,
   paths?: { parent?: string[]; child?: string[] },
+  /** How the core returns structured output; absent → the prose rules. */
+  outputForm?: StructuredOutputForm,
 ): string {
   const [parent, child] = NAMES[edge];
   return [
@@ -37,8 +40,12 @@ export function buildAlignmentPrompt(
     ]),
     ``,
     OUTPUT_RULES_HEADING,
-    ...OUTPUT_RULES_BASE,
-    `- Fully aligned → output exactly [].`,
+    ...outputRulesBase(outputForm),
+    perForm(outputForm, {
+      none: `- Fully aligned → output exactly [].`,
+      tool: `- Fully aligned → call the StructuredOutput tool with an empty \`findings\` array.`,
+      'final-document': `- Fully aligned → make the \`findings\` array empty: {"findings": []}.`,
+    }),
   ].join('\n');
 }
 
@@ -83,9 +90,16 @@ export async function runAlignment(
   try {
     const result = await withEmptyCwd((cwd) =>
       deps.adapter.runHeadless({
-        prompt: buildAlignmentPrompt(input.edge, input.parentText, input.childText, input.paths),
+        prompt: buildAlignmentPrompt(
+          input.edge,
+          input.parentText,
+          input.childText,
+          input.paths,
+          structuredOutputFormOf(deps.adapter),
+        ),
         cwd,
         trustCwd: false,
+        minimalContext: true,
         model: deps.model,
         effort: deps.effort,
         ...(deps.adapter.surfaces?.structuredOutput?.supported === true

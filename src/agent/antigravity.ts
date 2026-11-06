@@ -222,6 +222,9 @@ export class AntigravityAdapter implements AgentAdapter {
       '`agy --sandbox` restricts only terminal commands; file edits and the agent tools run ' +
         'uncontained, so it is not an enforced sandbox of the session',
     ),
+    minimalHeadlessContext: unsupported(
+      'agy -p has no flag that drops skills or tool definitions from a headless run, so the option is ignored',
+    ),
     headlessPolicy: unsupported(
       'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
         '`--dangerously-skip-permissions`, and its rules live in the user-global settings file ' +

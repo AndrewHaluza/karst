@@ -24,7 +24,7 @@ const SBX = sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' });
 const bridge = { dir: '/g/events/7', runDir: '/karst-bridge/7' } as never;
 
 function deps(over: Partial<TicketSandboxDeps> = {}): TicketSandboxDeps {
-  return { backends: () => ({ claude: 'sbx', codex: 'sbx' }), projectRoot: () => '/p', coreOf: () => 'claude', ...over };
+  return { backends: () => ({ claude: 'sbx', codex: 'sbx' }), projectRoot: () => '/p', coreOf: () => 'claude', sandboxLimits: () => ({ workers: false }), ...over };
 }
 
 describe('ticketSandboxRunner (arch:AC-32)', () => {

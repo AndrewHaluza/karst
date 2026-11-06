@@ -47,7 +47,7 @@ import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { endedOnBackgroundCommand, backgroundEndedDetail } from './backgroundCommand.js';
 import { gateScriptsOf } from '../review/declaredGates.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, type NamedGate } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, outputRulesBase, perForm, nudgeDelivery, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE, NO_DANGLING_COMMAND_RULE, noGatesRule, type NamedGate } from '../../agent/promptText.js';
 import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -60,6 +60,7 @@ import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
+import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage } from '../../model/coverageRecord.js';
 
 /**
@@ -401,10 +402,17 @@ export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
  * nothing else: the strategy, the target context and the output rules are
  * already above it in the same prompt.
  */
-export const TESTER_SILENCE_NUDGE =
-  'Your previous answer was empty. Whatever you have observed so far, write it ' +
-  'down NOW as the JSON array described above — output exactly [] if there is ' +
-  'nothing worth reporting. Output the array and nothing else.';
+export const TESTER_SILENCE_NUDGE = testerSilenceNudge(undefined);
+
+/** The silence nudge worded for the core's structured-output form. */
+export function testerSilenceNudge(form: StructuredOutputForm | undefined): string {
+  const d = nudgeDelivery(form);
+  return (
+    `Your previous answer was empty. Whatever you have observed so far, write it ` +
+    `down NOW as ${d.what} described above — ${d.empty} if there is ` +
+    `nothing worth reporting. ${d.only}`
+  );
+}
 
 /**
  * T663: the instruction half of the ONE re-ask a STOPPED target gets. It is the
@@ -415,11 +423,18 @@ export const TESTER_SILENCE_NUDGE =
  * bare "report what you observed" would ask an agent to report observations it
  * never made in THIS call and could return a fresh, unrelated test result.
  */
-export const TESTER_WRAP_UP_NUDGE =
-  'You have reached the testing budget for this run and it has been stopped. Do ' +
-  'not run any more commands, read any more files, or start any more checks. ' +
-  'Report the observations in your output so far as the JSON array described ' +
-  'above, and nothing else — output exactly [] if there is nothing worth reporting.';
+export const TESTER_WRAP_UP_NUDGE = testerWrapUpNudge(undefined);
+
+/** The wrap-up nudge worded for the core's structured-output form. */
+export function testerWrapUpNudge(form: StructuredOutputForm | undefined): string {
+  const d = nudgeDelivery(form);
+  return (
+    'You have reached the testing budget for this run and it has been stopped. Do ' +
+    'not run any more commands, read any more files, or start any more checks. ' +
+    `Report the observations in your output so far as ${d.what} described ` +
+    `above, and nothing else — ${d.empty} if there is nothing worth reporting.`
+  );
+}
 
 /**
  * The default soft time budget for one Tester call, as a FRACTION of the hard
@@ -452,14 +467,15 @@ const REFORMAT_NUDGE_QUOTE_MAX = 4_000;
  * the instructions are. Fired at most once per target; a still-unreadable
  * second answer parks the stage (`stages/uat.ts`).
  */
-function buildReformatNudge(raw: string): string {
+function buildReformatNudge(raw: string, form: StructuredOutputForm | undefined): string {
+  const d = nudgeDelivery(form);
   const quoted = collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX).replaceAll('"""', "'''");
   return (
-    'Your previous answer was not a valid JSON array of findings — it was:\n' +
+    `Your previous answer was not ${d.valid} — it was:\n` +
     `"""${quoted}"""\n` +
     'Do not observe or test anything new. Reformat exactly what you already ' +
-    'reported above as the JSON array described earlier — output exactly [] ' +
-    'if there was nothing worth reporting. Output the array and nothing else.'
+    `reported above as ${d.what} described earlier — ${d.empty} ` +
+    `if there was nothing worth reporting. ${d.only}`
   );
 }
 
@@ -472,9 +488,9 @@ function buildReformatNudge(raw: string): string {
  * new test. Never built without a non-empty quote — a stopped run that produced
  * nothing is not re-asked at all.
  */
-function buildWrapUpNudge(captured: string): string {
+function buildWrapUpNudge(captured: string, form: StructuredOutputForm | undefined): string {
   const quoted = collapseDiagnostic(captured, REFORMAT_NUDGE_QUOTE_MAX).replaceAll('"""', "'''");
-  return `${TESTER_WRAP_UP_NUDGE}\nYour output so far:\n"""${quoted}"""`;
+  return `${testerWrapUpNudge(form)}\nYour output so far:\n"""${quoted}"""`;
 }
 
 /**
@@ -630,13 +646,14 @@ async function recoverStoppedTarget(
   reask: (text: string) => Promise<{ raw: string; finalMessage?: string }>,
   warn: WarnFn | undefined,
   outerSignal: AbortSignal | undefined,
+  form: StructuredOutputForm | undefined,
 ): Promise<{ parse: ReturnType<typeof parseFindingsResult>; raw: string }> {
   const salvaged = parseFindingsResult(captured, context, SILENT_WARN);
   if (salvaged.findings.length > 0 || captured.trim() === '') {
     return { parse: salvaged, raw: captured };
   }
   try {
-    const answer = await reask(buildWrapUpNudge(captured));
+    const answer = await reask(buildWrapUpNudge(captured, form));
     const reparsed = parseFindingsResult(answer.raw, context, warn, undefined, answer.finalMessage);
     // A still-unreadable re-ask keeps the salvage's record of what the run said.
     return reparsed.shape === 'unreadable' && reparsed.findings.length === 0
@@ -705,6 +722,8 @@ export interface TesterPromptExtra {
   core?: string | null;
   /** Core or provider key alias. */
   provider?: AgentProvider | string | null;
+  /** How the core returns structured output; absent → the prose rules. */
+  outputForm?: StructuredOutputForm;
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
@@ -811,9 +830,13 @@ export function buildTesterPrompt(
     }),
     ``,
     OUTPUT_RULES_HEADING,
-    ...OUTPUT_RULES_BASE,
+    ...outputRulesBase(extra?.outputForm),
     ...OUTPUT_RULES_UAT,
-    `- No observations worth reporting → output only the coverage entry above.`,
+    perForm(extra?.outputForm, {
+      none: `- No observations worth reporting → output only the coverage entry above.`,
+      tool: `- No observations worth reporting → put only the coverage entry above in the \`findings\` array.`,
+      'final-document': `- No observations worth reporting → put only the coverage entry above in the \`findings\` array.`,
+    }),
     `- These are OBSERVATIONS, not verdicts: you cannot pass or fail the ticket; you report what you found.`,
   ].join('\n');
 }
@@ -1023,6 +1046,7 @@ async function runTesterBody(
           debug: opts.debug,
           core: opts.assignment.provider,
           provider: opts.assignment.provider,
+          outputForm: structuredOutputFormOf(opts.adapter),
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
@@ -1034,6 +1058,7 @@ async function runTesterBody(
       // four-adapter seam rule holds. Unsupported cores get the schema-less
       // prose prompt, unchanged.
       const structured = opts.adapter.surfaces?.structuredOutput?.supported === true;
+      const outputForm = structuredOutputFormOf(opts.adapter);
       // Every stdout chunk the adapter streams for THIS target, kept so a run
       // the budget stops still yields whatever the agent had already written.
       const captured: string[] = [];
@@ -1054,6 +1079,7 @@ async function runTesterBody(
           signal,
           timeoutMs,
           policy: 'uat-tester',
+          ...(opts.assignment.context === 'minimal' ? { minimalContext: 'skills-and-subagents' as const } : {}),
           gateScripts: gateScriptsOf(target.gates),
           onOutput: captureOutput,
           ...(structured ? { outputSchema: TESTER_OUTPUT_SCHEMA } : {}),
@@ -1122,6 +1148,7 @@ async function runTesterBody(
           (text) => ask(text, opts.signal, wrapUpTimeoutMs),
           opts.warn,
           opts.signal,
+          outputForm,
         );
         parseResult = recovered.parse;
         result = { raw: recovered.raw };
@@ -1139,7 +1166,7 @@ async function runTesterBody(
           debug?.(
             `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} answered nothing — re-asking once`,
           );
-          result = await ask(`${prompt}\n${TESTER_SILENCE_NUDGE}`, opts.signal, hardTimeoutMs);
+          result = await ask(`${prompt}\n${testerSilenceNudge(outputForm)}`, opts.signal, hardTimeoutMs);
         }
         if (opts.signal?.aborted) break;
         parseResult = parseFindingsResult(result.raw, parseContext, opts.warn, undefined, result.finalMessage);
@@ -1156,7 +1183,7 @@ async function runTesterBody(
             `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} answered unreadable output — re-asking once for reformatting`,
           );
           const reformatted = await ask(
-            `${prompt}\n${buildReformatNudge(result.raw)}`,
+            `${prompt}\n${buildReformatNudge(result.raw, outputForm)}`,
             opts.signal,
             hardTimeoutMs,
           );
