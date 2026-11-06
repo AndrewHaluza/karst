@@ -5,7 +5,7 @@ import type { AutostartCaps } from '../workflow/subtaskAutostart.js';
 import { autopilotSweep, ciOutcome } from './ops/autopilotWiring.js';
 import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
-import { claimAutopilotTicket, getAutopilotSessionOwner } from '../store/autopilot.js';
+import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import type { FixOutcome } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
@@ -23,6 +23,49 @@ export function makeLaunchTracker(
       pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
     },
     take: (ticketId) => { const p = pending.get(ticketId); pending.delete(ticketId); return p; },
+  };
+}
+
+const WINDOW_ID_KEY = 'karst.windowId';
+
+/** This window's stable id: it names the window that holds a ticket's session in the shared store. */
+export function stableWindowId(
+  state: { get<T>(key: string): T | undefined; update(key: string, value: unknown): PromiseLike<void> },
+  make: () => string,
+): string {
+  const id = state.get<string>(WINDOW_ID_KEY) ?? make();
+  void state.update(WINDOW_ID_KEY, id);
+  return id;
+}
+
+/** Write the sessions this window holds into the shared store, so another window starts no round beside them. */
+export function makeSessionOwnerSync(
+  store: Store,
+  windowId: string,
+  logError: (message: string, err: unknown) => void,
+): (ownedTicketIds: readonly number[]) => void {
+  return (ids) => {
+    try { syncAutopilotSessionOwner(store, windowId, ids); } catch (err) { logError('karst: session owner sync failed', err); }
+  };
+}
+
+/** A sandboxed ticket gets no round. A placement that cannot be read is not a host ticket either (D482). */
+export function makeHostTicketCheck(
+  probe: (ticketId: number) => Promise<{ state: string }> | undefined,
+): (ticketId: number) => Promise<boolean> {
+  return async (id) => ((await probe(id)) ?? { state: 'absent' }).state === 'absent';
+}
+
+/** Stop now: only the window that holds the session can end it. Another window reports that the stop did not reach it. */
+export function makeStopSession(d: {
+  isLive: (ticketId: number) => boolean;
+  stop: (ticketId: number) => Promise<void>;
+  debug: (message: string) => void;
+}): (ticketId: number) => Promise<boolean> {
+  return async (id) => {
+    if (!d.isLive(id)) { d.debug(`[ship] autopilot ticket ${id}: stop now did not reach a session (this window does not hold it)`); return false; }
+    await d.stop(id);
+    return true;
   };
 }
 

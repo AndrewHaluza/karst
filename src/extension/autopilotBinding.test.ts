@@ -5,8 +5,8 @@ import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
-import { makeLaunchTracker, registerAutopilotCommands, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
-import { getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
+import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { sendCiFailureAction } from './ops/ciActionsWiring.js';
 
 vi.mock('./ops/ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(async () => {}) }));
@@ -259,5 +259,45 @@ describe('registerAutopilotCommands', () => {
     expect(calls[1]![1].placeHolder).toBe('Auto-fix mode');
     expect(getAutopilotTicket(store, id).mode).toBe(calls[1]![0][0]);
     expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[ship\] autopilot command: /));
+  });
+});
+
+describe('window helpers', () => {
+  it('stableWindowId keeps a stored id and stores a new one', () => {
+    const data = new Map<string, unknown>();
+    const state = { get: <T,>(k: string) => data.get(k) as T | undefined, update: async (k: string, v: unknown) => { data.set(k, v); } };
+    expect(stableWindowId(state, () => 'new')).toBe('new');
+    expect(data.get('karst.windowId')).toBe('new');
+    expect(stableWindowId(state, () => 'other')).toBe('new');
+  });
+
+  it('makeSessionOwnerSync writes the owner, and logs a store error instead of throwing', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'W-1', title: 't' }).id;
+    const logError = vi.fn();
+    makeSessionOwnerSync(store, 'W', logError)([id]);
+    expect(getAutopilotSessionOwner(store, id)).toBe('W');
+    expect(logError).not.toHaveBeenCalled();
+    store.db.close();
+    makeSessionOwnerSync(store, 'W', logError)([id]);
+    expect(logError).toHaveBeenCalledWith('karst: session owner sync failed', expect.anything());
+  });
+
+  it('makeHostTicketCheck is true only for an absent sandbox', async () => {
+    expect(await makeHostTicketCheck(async () => ({ state: 'absent' }))(1)).toBe(true);
+    expect(await makeHostTicketCheck(() => undefined)(1)).toBe(true);
+    expect(await makeHostTicketCheck(async () => ({ state: 'running' }))(1)).toBe(false);
+    await expect(makeHostTicketCheck(async () => { throw new Error('x'); })(1)).rejects.toThrow('x');
+  });
+
+  it('makeStopSession ends a held session, and reports a session this window does not hold', async () => {
+    const stop = vi.fn(async () => {});
+    const debug = vi.fn();
+    expect(await makeStopSession({ isLive: () => true, stop, debug })(7)).toBe(true);
+    expect(stop).toHaveBeenCalledWith(7);
+    stop.mockClear();
+    expect(await makeStopSession({ isLive: () => false, stop, debug })(7)).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket 7: stop now did not reach a session (this window does not hold it)');
   });
 });

@@ -43,7 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { makeLaunchTracker, registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
+import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -401,7 +401,6 @@ import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
-import { syncAutopilotSessionOwner } from './store/autopilot.js';
 import { getTicket, ticketLabel, listTickets, listArchivedTickets, setAgentState, setSessionId, updateTicketFields, clearApproachFromTickets, pauseTicket, unpauseTicket } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
@@ -502,8 +501,6 @@ const GETTING_STARTED_DISMISSED_KEY = 'karst.welcomeDismissed';
 const HOOK_PORT_KEY = 'karst.hookPort';
 /** Tickets whose terminals this window launched, including hidden terminals. */
 const OWNED_SESSION_TICKETS_KEY = 'karst.ownedSessionTickets';
-/** This window's stable id: it names the window that holds a ticket's session in the shared store (T973). */
-const WINDOW_ID_KEY = 'karst.windowId';
 /**
  * The pid this window launched each ticket's terminal under.
  *
@@ -835,8 +832,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // No manifest is resolved yet at this point in activation; only 'claude' is
   // functional today (see agent/registry.ts) so the fallback is always correct.
   const recoveryLifecycle = new SessionRecoveryLifecycle();
-  const windowId = context.workspaceState.get<string>(WINDOW_ID_KEY) ?? randomUUID();
-  void context.workspaceState.update(WINDOW_ID_KEY, windowId);
+  const windowId = stableWindowId(context.workspaceState, randomUUID);
+  const syncSessionOwner = makeSessionOwnerSync(localStore, windowId, logError);
   const ownedSessionTickets = new Set(
     context.workspaceState.get<number[]>(OWNED_SESSION_TICKETS_KEY) ?? [],
   );
@@ -911,8 +908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   pendingSessionRecoveryTasks.clear();
   const persistOwnedSessionTickets = (): Promise<void> => {
     const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
-    // The shared store names the window that holds each session, so another window never starts an auto round beside it.
-    try { syncAutopilotSessionOwner(localStore, windowId, snapshot); } catch (err) { logError('karst: session owner sync failed', err); }
+    syncSessionOwner(snapshot);
     return ownershipWriter.enqueue(snapshot);
   };
   const sessions = new SessionManager(
@@ -1974,22 +1970,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
-  const openSeeded = launches.open;
   context.subscriptions.push(startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
     isLive: (id) => sessions.isLive(id), windowId,
     canLaunch: (id) => guardCapability('sessions', id, true),
     takeLaunch: launches.take,
-    // A sandboxed ticket gets no round. A placement that cannot be read is not a host ticket either (D482).
-    isHostTicket: async (id) => ((await (sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }))).state) === 'absent',
+    isHostTicket: makeHostTicketCheck((id) => sandboxB?.probeSandbox(id)),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
   }));
-  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: async (id) => {
-    // Only the window that holds the session can end it. Another window must say that the stop did not reach the session.
-    if (!sessions.isLive(id)) { logger.debug(`[ship] autopilot ticket ${id}: stop now did not reach a session (this window does not hold it)`); return false; }
-    driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); return true;
-  } }));
+  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
     store: localStore,
@@ -2913,7 +2903,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
-  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => openSeeded(ticketId, seedPrompt, seedRepo) });
+  const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
   const ciHost = (ticketId: number): CiHost => ({
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability('sessions', ticketId, true), ...sessionSeams(ticketId) }),
