@@ -63,6 +63,12 @@ export function readSettingsSections(repo = process.cwd()) {
   return [...body.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }
 
+/** Views with screenshots but no layout route (uiViews.integration.test.mjs pins this against the real listing). */
+const VIEWS_WITHOUT_LAYOUT = ['catalog', 'status'];
+
+/** Whether a selection reaches at least one layout route. */
+export const selectsLayoutRoute = (selection) => selection.all || selection.views.some((view) => !VIEWS_WITHOUT_LAYOUT.includes(view));
+
 /** Layout setup/teardown must always run, or the ledger verdict is lost. */
 const LAYOUT_BOOKENDS = ['clear layout shards', 'layout ledger verdict'];
 
@@ -89,7 +95,9 @@ export function gateGrep(selection, settingsSections) {
 /** The line printed at the top of the gate output. */
 export function selectionLine(script, selection, counts = null) {
   const name = script.replace(/^test:/, '').replace(/:docker$/, '');
-  const tests = counts ? ` — ${counts.selected.toLocaleString('en-US')} of ${counts.total.toLocaleString('en-US')} tests` : '';
+  const count = (n) => n.toLocaleString('en-US');
+  const layout = counts?.layoutTotal === undefined ? '' : ` (${count(counts.layoutSelected)} of ${count(counts.layoutTotal)} layout)`;
+  const tests = counts ? ` — ${count(counts.selected)} of ${count(counts.total)} tests${layout}` : '';
   if (selection.all) return `${name}: running every view${tests}; full sweep also runs in CI`;
   return `${name}: running ${selection.views.join(', ')}${tests}; full sweep runs in CI`;
 }
@@ -98,4 +106,9 @@ export function selectionLine(script, selection, counts = null) {
 export function parseListTotal(output) {
   const match = /Total: (\d+) tests?/.exec(output);
   return match ? Number(match[1]) : null;
+}
+
+/** How many `layout` project tests a playwright listing holds (the setup and teardown projects do not count). */
+export function parseListLayout(output) {
+  return output.match(/^\s*\[layout\] ›/gm)?.length ?? 0;
 }

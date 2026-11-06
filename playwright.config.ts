@@ -27,17 +27,19 @@ import { defineConfig, devices } from '@playwright/test';
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
-// A project-level grep overrides the global one. The layout chain must never be
-// filtered: a scoped run would drop the teardown and its ledger verdict (false green).
+// A project-level grep overrides the global one. Local gates narrow the layout chain with the
+// same grep as the screenshots: gateGrep keeps the setup and teardown titles, so the ledger verdict
+// still runs on the selected routes (ui:LAYOUT-SANITY). A grep without those titles gives no verdict.
 const ALL_TITLES = /.*/;
+const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
+const LAYOUT_GREP = UI_GREP ?? ALL_TITLES;
 
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
 
-  // Local gates narrow the screenshot projects to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
-  // The layout projects ignore it (ALL_TITLES).
-  ...(process.env['KARST_UI_GREP'] ? { grep: new RegExp(process.env['KARST_UI_GREP']) } : {}),
+  // Local gates narrow every project to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset (full chain).
+  ...(UI_GREP ? { grep: UI_GREP } : {}),
 
   snapshotPathTemplate:
     'tests/visual/__baselines__/{projectName}/{arg}{ext}',
@@ -110,20 +112,20 @@ export default defineConfig({
     // writes them (never fails on geometry), teardown renders the ledger verdict.
     {
       name: 'layout-setup',
-      grep: ALL_TITLES,
+      grep: LAYOUT_GREP,
       testMatch: '**/layout.setup.ts',
       teardown: 'layout-teardown',
     },
     {
       name: 'layout',
-      grep: ALL_TITLES,
+      grep: LAYOUT_GREP,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'layout-teardown',
-      grep: ALL_TITLES,
+      grep: LAYOUT_GREP,
       testMatch: '**/layout.teardown.ts',
     },
   ],

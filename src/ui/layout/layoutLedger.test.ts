@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { failureKey, type LayoutFailure } from './layoutChecks.js';
-import { isFullRun, matchLedger, prune, runKey, seed } from './layoutLedger.js';
+import { grepSelectsNoRoute, isFullRun, matchLedger, prune, runKey, seed } from './layoutLedger.js';
 
 const failure = (selector: string, route = 'agents#agents/roles', width = 700): LayoutFailure => ({
   route, width, check: 'containment', selector, rects: [], detail: 'x',
@@ -37,6 +37,20 @@ describe('isFullRun', () => {
     const expected = [runKey('a', 1), runKey('b', 1)];
     expect(isFullRun(ran(['a', 1], ['b', 1]), expected)).toBe(true);
     expect(isFullRun(ran(['a', 1]), expected)).toBe(false);
+  });
+});
+
+describe('grepSelectsNoRoute', () => {
+  const titles = ['general @1280', 'diffs/empty @480'];
+
+  it('is true only for a grep that matches no layout title', () => {
+    expect(grepSelectsNoRoute('catalog:|layout ledger verdict', titles)).toBe(true);
+    expect(grepSelectsNoRoute('diffs[/:]|layout ledger verdict', titles)).toBe(false);
+  });
+
+  it('is false on a full run, so zero shards still fail there', () => {
+    expect(grepSelectsNoRoute(undefined, titles)).toBe(false);
+    expect(grepSelectsNoRoute('', titles)).toBe(false);
   });
 });
 

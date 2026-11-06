@@ -8,8 +8,8 @@
  *
  * Check i (state survives a 1280→480→1280 resize) runs once per Agents hash.
  * Geometry is theme-independent, so only the dark `layout` project runs this.
- * Filter by FILE (`playwright test --project=layout <file>`), never --grep: a
- * title filter can drop the layout-teardown test.
+ * Filter by FILE (`playwright test --project=layout <file>`) or a gateGrep grep,
+ * never --grep: a title filter without the bookends drops the layout-teardown test.
  */
 import { test } from './fixtures.js';
 import { LAYOUT_HEIGHT, LAYOUT_WIDTHS, tierFor } from '../../src/ui/layout/layoutBreakpoints.js';

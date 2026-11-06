@@ -28,7 +28,7 @@ import { baseRerunArgv, classifyFailures, failingScreenshots, planBaseCheck, rep
 import { hasBinary } from './onPath.mjs';
 import { gitDirOf, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
-import { gateGrep, isUiPath, parseListTotal, readSettingsSections, selectViews, selectionLine } from './uiViews.mjs';
+import { gateGrep, isUiPath, parseListLayout, parseListTotal, readSettingsSections, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -189,20 +189,25 @@ export function changedPaths(cwd = process.cwd(), base = process.env.KARST_BASE_
 /** `playwright test --list` totals with and without the grep, or null (best effort: the line just omits counts). */
 function countTests(script, grep) {
   const project = script === 'test:layout:docker' ? ['--project=layout'] : [];
-  const total = (env) => {
+  const list = (env) => {
     const run = spawnSync('npx', ['playwright', 'test', '--list', ...project], { encoding: 'utf8', env });
-    return run.status === 0 ? parseListTotal(run.stdout) : null;
+    const total = run.status === 0 ? parseListTotal(run.stdout) : null;
+    return total === null ? null : { total, layout: parseListLayout(run.stdout) };
   };
-  const all = total({ ...process.env, KARST_UI_GREP: '' });
-  const selected = grep === null ? all : total({ ...process.env, KARST_UI_GREP: grep });
-  return all === null || selected === null ? null : { selected, total: all };
+  const all = list({ ...process.env, KARST_UI_GREP: '' });
+  const selected = grep === null ? all : list({ ...process.env, KARST_UI_GREP: grep });
+  if (all === null || selected === null) return null;
+  return { selected: selected.total, total: all.total, layoutSelected: selected.layout, layoutTotal: all.layout };
 }
 
-/** Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full. */
+/**
+ * Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full.
+ * Returns the line to print when the gate has nothing to run, else null.
+ */
 export function narrowSweep(script) {
-  if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return;
+  if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return null;
   // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
-  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return;
+  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return null;
   const paths = changedPaths();
   const selection = paths === null ? { all: true, views: [] } : selectViews(paths);
   let grep = null;
@@ -211,10 +216,15 @@ export function narrowSweep(script) {
   } catch {
     // Unreadable section list: run the full sweep.
   }
+  // `--project=layout` with no route is playwright's "No tests found" (exit 1): nothing to judge here.
+  if (grep !== null && script === 'test:layout:docker' && !selectsLayoutRoute(selection)) {
+    return `layout: skipped, ${selection.views.join(', ')} has no layout route; full sweep runs in CI`;
+  }
   if (grep !== null) process.env.KARST_UI_GREP = grep;
   console.error(
     selectionLine(script, grep === null ? { all: true, views: [] } : selection, countTests(script, grep)),
   );
+  return null;
 }
 
 /**
@@ -275,7 +285,11 @@ async function main(argv) {
     console.error(repeat.skip);
     process.exit(0);
   }
-  narrowSweep(script);
+  const nothingToRun = narrowSweep(script);
+  if (nothingToRun !== null) {
+    console.error(nothingToRun);
+    process.exit(0);
+  }
   const local = readLocalCommand(argv);
   const plan = gatePlan({
     docker: hasDocker(),

@@ -48,6 +48,16 @@ export function isFullRun(ran: ReadonlySet<string>, expected: readonly string[])
   return expected.every((key) => ran.has(key));
 }
 
+/**
+ * True when a `KARST_UI_GREP` selection matches no layout title (`catalog`, `status`):
+ * zero shards are then correct. Every other run with zero shards is a harness failure.
+ */
+export function grepSelectsNoRoute(grep: string | undefined, titles: readonly string[]): boolean {
+  if (!grep) return false;
+  const selected = new RegExp(grep);
+  return !titles.some((title) => selected.test(title));
+}
+
 export interface LedgerGuard {
   readonly authoritative: boolean;
   readonly fullRun: boolean;
@@ -58,7 +68,7 @@ function requireGuard(op: 'seed' | 'prune', guard: LedgerGuard): void {
     throw new Error(`layout ledger ${op} refused: run it via npm run test:layout:docker:${op} (KARST_LAYOUT_AUTHORITATIVE=1)`);
   }
   if (!guard.fullRun) {
-    throw new Error(`layout ledger ${op} refused: the run was filtered; run every route (no file filter)`);
+    throw new Error(`layout ledger ${op} refused: the run was filtered; run every route (no file or grep filter)`);
   }
 }
 
