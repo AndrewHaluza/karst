@@ -92,6 +92,18 @@ describe('reviewStallAttempts', () => {
       const out = reviewStallAttempts(store, ticketId, 'high');
       expect(out.map((a) => [a.attempt, a.findings.map((x) => x.file)])).toEqual([[1, ['a.ts']]]);
     });
+    it('findings of a stale run are obsolete in the next run, which stays clean', () => {
+      put(1, f({ file: 'a.ts' }));
+      run(1, 'stale', null);
+      run(1, 'finished', 'advanced', true, 2);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => a.findings.length)).toEqual([0]);
+    });
+    it('findings of a blocked run do not reach a later attempt', () => {
+      put(1, f({ file: 'a.ts' }));
+      run(1, 'finished', 'blocked');
+      run(2, 'finished', 'advanced', true, 3);
+      expect(reviewStallAttempts(store, ticketId, 'high').map((a) => [a.attempt, a.findings.length])).toEqual([[2, 0]]);
+    });
     it('findings of a blocked run with no later verdict form no round', () => {
       put(1, f());
       put(2, f());
