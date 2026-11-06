@@ -18,7 +18,7 @@ export function guardedHandOff(deps: GuardedHandOffDeps): (prompt: string) => st
   return (prompt) => {
     if (deps.paused()) return 'the ticket is paused. Unpause it, then open a session.';
     if (deps.isGraphTicket?.() === true) return 'the graph coordinator owns the sessions of a graph ticket.';
-    if (!deps.sessionsAvailable()) return "the agent core of this ticket is not ready for sessions, or not checked yet. Try again in a moment.";
+    if (!deps.sessionsAvailable()) return "the agent core of this ticket does not support sessions.";
     deps.handOff(prompt, '');
     return null;
   };

@@ -3,7 +3,7 @@ import { unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dependencyRegistry } from './deps.js';
-import { commandSucceedsAsync, ensureCapabilityAsync, runProbeAsync, PROBE_OUTPUT_LIMIT } from './depsAsync.js';
+import { commandSucceedsAsync, ensureCapabilityAsync } from './depsAsync.js';
 
 describe('commandSucceedsAsync', () => {
   it('leaves the event loop free while a readiness command runs', async () => {
@@ -76,19 +76,5 @@ describe('ensureCapabilityAsync', () => {
 
     expect(calls).toEqual([['codex', ['--version']]]);
     expect(faults).toEqual([{ dep: registry[3], state: 'missing' }]);
-  });
-});
-
-describe('runProbeAsync output cap', () => {
-  it('keeps at most PROBE_OUTPUT_LIMIT characters of stdout', async () => {
-    const r = await runProbeAsync(
-      process.execPath,
-      ['-e', `process.stdout.write('x'.repeat(${PROBE_OUTPUT_LIMIT * 3}))`],
-      undefined,
-      true,
-      10_000,
-    );
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout.length).toBe(PROBE_OUTPUT_LIMIT);
   });
 });

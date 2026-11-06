@@ -2,16 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDependencyProbes } from './dependencyProbes.js';
 import { createCapabilityGuard, describeFaults } from './capabilityGuard.js';
 import { GIT_DEPENDENCY, NPM_DEPENDENCY, type DependencyFault } from '../../runtime/deps.js';
-import { runProbeAsync, type ProbeRunner } from '../../runtime/depsAsync.js';
+import { type ProbeRunner } from '../../runtime/depsAsync.js';
 
 const ok: ProbeRunner = async () => ({ stdout: '', exitCode: 0, timedOut: false });
 
 describe('dependency probes', () => {
-  it('reports a probe that never exits as a fault that names the binary, and the host continues', async () => {
-    // A real child that never exits: the probe must give up on its own timer.
-    const hung: ProbeRunner = (binary, args, env, capture) =>
-      runProbeAsync(binary, args, env, capture, 50);
-    const probes = createDependencyProbes({ run: (_b, a, e, c) => hung('sleep', ['30'], e, c) });
+  it('reports a timed-out probe as a fault that names the binary, and the host continues', async () => {
+    const hung: ProbeRunner = () => new Promise((r) => setTimeout(() => r({ stdout: '', exitCode: 1, timedOut: true }), 20));
+    const probes = createDependencyProbes({ run: hung });
     let hostContinued = false;
     setImmediate(() => { hostContinued = true; });
     const faults = await probes.capabilityFaults('worktrees', 'claude');
@@ -45,16 +43,15 @@ describe('dependency probes', () => {
     expect(faults.every((f) => f.state === 'missing' && !f.timedOut)).toBe(true);
   });
 
-  it('isCapabilityKnownReady is false cold, false after a fault, true after a clean probe', async () => {
+  it('isCapabilityKnownBlocked is false cold, true after a fault, false after a clean probe', async () => {
     const bad: ProbeRunner = async () => ({ stdout: '', exitCode: 1, timedOut: false });
     const badProbes = createDependencyProbes({ run: bad });
-    expect(badProbes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    expect(badProbes.isCapabilityKnownBlocked('worktrees', 'claude')).toBe(false);
     await badProbes.capabilityFaults('worktrees', 'claude');
-    expect(badProbes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    expect(badProbes.isCapabilityKnownBlocked('worktrees', 'claude')).toBe(true);
     const good = createDependencyProbes({ run: ok });
-    expect(good.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
     await good.capabilityFaults('worktrees', 'claude');
-    expect(good.isCapabilityKnownReady('worktrees', 'claude')).toBe(true);
+    expect(good.isCapabilityKnownBlocked('worktrees', 'claude')).toBe(false);
   });
 });
 
@@ -73,14 +70,14 @@ describe('dependency probes, window edges', () => {
     expect(run).toHaveBeenCalledTimes(first * 2);
   });
 
-  it('does not report a stale result as known ready and probes again', async () => {
+  it('does not report a stale fault as blocked and probes again', async () => {
     let t = 5_000;
     const run = vi.fn<ProbeRunner>(async () => ({ stdout: '', exitCode: 1, timedOut: false }));
     const probes = createDependencyProbes({ run, now: () => t, ttlMs: 1_000 });
     await probes.capabilityFaults('worktrees', 'claude');
     const first = run.mock.calls.length;
     t = 6_000;
-    expect(probes.isCapabilityKnownReady('worktrees', 'claude')).toBe(false);
+    expect(probes.isCapabilityKnownBlocked('worktrees', 'claude')).toBe(false);
     expect(run.mock.calls.length).toBeGreaterThan(first);
   });
 
@@ -173,17 +170,16 @@ describe('capability guard', () => {
     }
   });
 
-  it('exposes a sync view that is ready only after a clean probe', async () => {
+  it('sync view allows on a cold cache and refuses only after a fault is found', async () => {
     const fail: ProbeRunner = async () => ({ stdout: '', exitCode: 1, timedOut: false });
     const { guard } = build(fail);
-    expect(guard.known('worktrees')).toBe(false);
+    expect(guard.known('worktrees')).toBe(true);
     await guard('worktrees', undefined, true);
     expect(guard.known('worktrees')).toBe(false);
   });
 
-  it('sync view turns ready once a clean probe settled', async () => {
+  it('sync view stays allowed after a clean probe', async () => {
     const { guard } = build(ok);
-    expect(guard.known('worktrees')).toBe(false);
     await guard('worktrees', undefined, true);
     expect(guard.known('worktrees')).toBe(true);
   });

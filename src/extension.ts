@@ -1522,10 +1522,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Probe (async, bounded, cached ~60 s), repaint the status bar, and report what
    * is still unusable. `recheck` is a user re-check: it drops the cache first.
    */
+  let depsPassSeq = 0;
   const refreshDepsStatus = async (options: { recheck?: boolean } = {}): Promise<DependencyFault[]> => {
     if (options.recheck) depProbes.clear();
     const provider = currentManifest()?.agentProvider ?? 'claude';
+    const pass = ++depsPassSeq;
     const faults = await depProbes.faults(provider);
+    // An older pass that settles after a newer one must not repaint the bar.
+    if (pass !== depsPassSeq) return faults;
     const indicator = buildDepsIndicator(faults);
     if (!indicator) {
       depsStatus.hide();
