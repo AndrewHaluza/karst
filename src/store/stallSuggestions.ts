@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   suggestion   TEXT,
   error        TEXT,
   usage_limit  INTEGER NOT NULL DEFAULT 0,
+  diff         TEXT,
   updated_at   TEXT NOT NULL,
   PRIMARY KEY (ticket_id, park_at)
 );
@@ -77,4 +78,33 @@ export function failStallSuggestion(store: Store, ticketId: number, parkAt: stri
   store.db
     .prepare("UPDATE review_stall_suggestions SET status = 'failed', suggestion = NULL, error = ?, usage_limit = ?, updated_at = ? WHERE ticket_id = ? AND park_at = ?")
     .run(error, usageLimit ? 1 : 0, now, ticketId, parkAt);
+}
+
+/** The diff a suggestion was written against: the changed files and the stat text. */
+export interface StoredStallDiff {
+  files: string[];
+  stat: string;
+}
+
+export function saveStallDiff(store: Store, ticketId: number, parkAt: string, diff: StoredStallDiff): void {
+  store.db
+    .prepare('UPDATE review_stall_suggestions SET diff = ? WHERE ticket_id = ? AND park_at = ?')
+    .run(JSON.stringify(diff), ticketId, parkAt);
+}
+
+/** The stored diff of the park, or null when none was saved or it is unreadable. */
+export function getStallDiff(store: Store, ticketId: number, parkAt: string): StoredStallDiff | null {
+  const r = store.db
+    .prepare('SELECT diff FROM review_stall_suggestions WHERE ticket_id = ? AND park_at = ?')
+    .get(ticketId, parkAt) as { diff: string | null } | undefined;
+  if (r?.diff == null) return null;
+  try {
+    const v = JSON.parse(r.diff) as unknown;
+    if (typeof v !== 'object' || v === null) return null;
+    const { files, stat } = v as { files?: unknown; stat?: unknown };
+    if (!Array.isArray(files) || !files.every((x) => typeof x === 'string') || typeof stat !== 'string') return null;
+    return { files: files as string[], stat };
+  } catch {
+    return null;
+  }
 }

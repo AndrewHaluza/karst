@@ -52,7 +52,7 @@ function runGit(git: GitRunner, args: readonly string[], cwd: string, signal?: A
  * not a price a passive counter may charge. A clone with no remote-tracking ref
  * falls back to the local branch rather than reporting nothing.
  */
-async function resolveMergeBase(
+export async function resolveMergeBase(
   git: GitRunner,
   worktree: WorktreeView,
   baseRef: string,

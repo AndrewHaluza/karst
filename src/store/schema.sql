@@ -1516,6 +1516,7 @@ CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   suggestion   TEXT,
   error        TEXT,
   usage_limit  INTEGER NOT NULL DEFAULT 0,
+  diff         TEXT,
   updated_at   TEXT NOT NULL,
   PRIMARY KEY (ticket_id, park_at)
 );

@@ -5,7 +5,7 @@ import type { Severity } from '../manifest/types.js';
 import { SEVERITIES } from '../manifest/qualityDefaults.js';
 import { listFindings } from '../store/reviewFindings.js';
 import { getTicket } from '../store/tickets.js';
-import { claimStallSuggestion, failStallSuggestion, saveStallSuggestion } from '../store/stallSuggestions.js';
+import { claimStallSuggestion, failStallSuggestion, saveStallDiff, saveStallSuggestion } from '../store/stallSuggestions.js';
 import { reviewEpisodeStart } from './reviewStallRead.js';
 import { parseStallSuggestion } from '../model/stallSuggestion.js';
 import { classifyFailure, failureText } from '../agent/failureClass.js';
@@ -146,6 +146,7 @@ export async function generateStallSuggestion(
     deps.debug?.(`[stall-suggestion] ticket ${ticketId}: skipped (already ${retry ? 'ready or running' : 'claimed'})`);
     return 'skipped';
   }
+  saveStallDiff(store, ticketId, parkAt, { files: [...deps.diff.files], stat: deps.diff.stat });
   const ticket = getTicket(store, ticketId);
   const prompt = buildStallPrompt({
     description: ticket.description ?? '',
