@@ -13,10 +13,10 @@ Research only. No prompt, reviewer definition, threshold or setting changed. Dat
 ## [@issue:RB-01] Summary and verdict
 
 - Q1: The rise is real. It holds when UI-only and docs-only tickets are excluded.
-- Q2: The ticket mix does not explain the rise. The share of `fix` tickets is 51% in A and 51% in C. With the A mix, the C block rate is still 54%, so the mix explains about 0 of the 33 points of the rise.
+- Q2: The ticket mix does not explain the rise. The share of `fix` tickets is 51% in A and 51% in C. 11 of 41 tickets in C have no known type. For any assignment of those 11 tickets, the C block rate at the A mix is 46% to 54%, against an actual 47% to 54%. The A rate is 21%. The mix explains at most 4 of the 33 points of the rise.
 - Q3: The reviewer input changed. The reviewer prompt text and the model did not change. Claude Code, the loaded user context and the prompt tail did change. The `effort` parameter was `low` in nearly all runs. It was `medium` in 8 runs (1 in A, 7 in C).
 - Q4: The findings are mostly correct, with a limit. A later fix is weak evidence, because a blocking finding forces a fix. The classes below rest on the reasons in the sample rows. 29 of 30 sampled findings are real. 1 is wrong. 10 are real but below the stated severity.
-- Q5: No evidence that the earlier period missed bugs. Later fix-titled tickets that reference a ticket of the period: A 5 of 73, C 3 of 41. The reference is a text match, and the defect origin was not verified. C is 1 to 2 days old, so the comparison has little power.
+- Q5: No evidence that the earlier period missed bugs. Later fix-titled tickets that reference a ticket that passed review: A 5 of 70, C 3 of 38. The reference is a text match, and the defect origin was not verified. C is 1 to 2 days old, so the comparison has little power.
 - Store: this report is registered as a research artifact (karst `artifact add`, kind research). The docs file is the same file.
 - Cause: Not isolated. Two changes fit the timing: (a) Nov 2, the user context change and the new "Intent" section in the prompt tail; (b) Nov 5 12:13, the Claude Code upgrade to 2.1.318, where thinking tokens rose about 12 times at the same `effort: low`. The study cannot separate these causes without a controlled re-run.
 - Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of the same 5 diffs from Oct 30 to Nov 1. The three factors are the Claude Code version (2.1.316 and 2.1.319), the loaded context (the Oct 30 user and repo CLAUDE.md and the current ones) and the prompt tail (with and without the Intent section). This covers both named causes, and all parts of cause (a). It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
@@ -48,6 +48,8 @@ Second table, without UI-only and docs-only tickets:
 | B | 24 | 38% | 0.54 |
 | C | 41 | 54% | 1.10 |
 
+11 of the 41 tickets in C have no merged diff, so the study could not classify them as UI-only or docs-only. They stay in the C row. Without them, C has 30 tickets with 47% blocked (14 of 30), against 22% in A. The rise holds in both views.
+
 The ticket figures (90 tickets, 19% blocked) match Oct 27 to Nov 1 in this table: 91 tickets, 17 blocked (19%), 0.23 average. They do not match Oct 29 to Nov 1, which has 73 tickets. The ticket text names the wrong start day. The daily averages of 0.15 to 0.32 in the ticket match the daily column here (0.11 to 0.29). The difference is small and has no known cause. The trend is the same in both counts.
 
 END_DOC_BLOCK: [@issue:RB-02]
@@ -78,11 +80,19 @@ Per period:
 | Median lines changed | 163 | 146 | 256 |
 | `fix` tickets | 37 of 73 (51%) | 16 of 26 (62%) | 21 of 41 (51%) |
 | Blocked, `fix` tickets | 4 of 37 (11%) | 6 of 16 (38%) | 10 of 21 (48%) |
-| Blocked, other tickets | 11 of 36 (31%) | 4 of 10 (40%) | 12 of 20 (60%) |
+| Blocked, other tickets | 11 of 36 (31%) | 3 of 10 (30%) | 12 of 20 (60%), of which 11 have no type |
 
-Mix type B: `fix` 16, `feat` 5, `other` 3, `docs` 1, `Eval` 1. The block rate in B is 35% overall.
+Mix type B: `fix` 16, `feat` 5, `other` 3, `docs` 1, `Eval` 1. B has 9 blocked tickets of 26 (35%), the same count as Q1.
 
-How much the mix explains: the `fix` share is 51% in A and 51% in C. If C had its own block rates by group (`fix`, other) and the A mix, the C rate would be 54%. The A rate is 21%. The mix explains about 0 of the 33 points of the rise. The mix of B (more `fix` tickets, 62%) gives at most a few points of the A to B step. Larger tickets in C (median lines 256 against 163) are the one mix change in the direction of more findings. The study did not test this. The 11 tickets without a diff limit the size values for C.
+How much the mix explains: the `fix` share is 51% in A and 51% in C. The 11 tickets in C without a type hide the real share, and 8 of the 11 were blocked. The study gives a bound:
+
+| Assumption for the 11 untyped C tickets | `fix` rate in C | Other rate in C | C rate at the A mix |
+|---|---|---|---|
+| All are `fix` | 18 of 32 (56%) | 4 of 9 (44%) | 50% |
+| None is `fix` | 10 of 21 (48%) | 12 of 20 (60%) | 54% |
+| Only the 30 typed tickets | 10 of 21 (48%) | 4 of 9 (44%) | 46% |
+
+The A rate is 21%. The C rate is 54% for all 41 tickets and 47% for the 30 typed tickets. The A mix gives C a rate of 46% to 54%. The difference between the actual and the A-mix rate is 0 to 4 points (4 if all 11 are `fix`, 0 if none is, 1 for the typed tickets). The mix explains at most 4 of the 33 points of the rise. Larger tickets in C (median lines 256 against 163, typed tickets only) are the one mix change in the direction of more findings. The study did not test this.
 
 Verdict: the mix does not explain the rise. The block rate rose inside both groups.
 
@@ -111,13 +121,13 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 
 The Q3 rows use the 118 runs whose transcript could be matched to a review run (57 of 73 in A, 35 of 41 in C, 26 in B). This study did not find a transcript for the other runs. The study did not check whether the matched runs are a fair sample of all runs.
 
-Repo CLAUDE.md change ab9d723c15f (2 lines): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. The step B to C also loaded the same repo file in all runs (hash ebf53bc7), so this change cannot explain the step from B to C.
+Repo CLAUDE.md change ab9d723c15f (2 lines): it added one rule (a gate passes only when its exact command exits 0 in the ticket worktree). It removed the file-size guide and the "do not overengineer" guidance. Size is the same. The removed guidance could make the reviewer less lenient about extra code. This is a hypothesis. The study did not test it. The step B to C also loaded the same repo file in all runs (hash ebf53bc7), B has runs on both sides of the change (Nov 2 runs before 19:06 used the old file; Nov 3 runs used the new file). The change can therefore contribute to the step A to B and to part of the step B to C. The study did not split the B block rate by the repo file hash.
 
 Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticket description 100% (n=5). The Ticket description group is only 5 runs and gives no reliable rate. Inside the "no extra section" group the rate still rose: A 20%, B 27%, C 44%.
 
 Block rate by Claude Code version: 2.1.317 about 221 thinking tokens, 33% blocked (n=6); 2.1.318 about 3170 thinking tokens, 65% (n=20); 2.1.319 about 4416, 47% (n=15). These n are small. The 95% interval of each rate is wide (more than 30 points). The 2.1.319 rate is lower than the 2.1.318 rate, so the thinking tokens alone do not predict the block rate. The cut-over is clean at run 5759 (Nov 5 12:13).
 
-Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting may have changed on Nov 6. This is an inference. It affects 7 of 41 runs in C and cannot explain the rise that began before Nov 6. The repo reviewer definition did not change after Oct 10. Extension version installed: karst.karst-1.0.0 (no change found).
+Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting may have changed on Nov 6. This is an inference. It affects 7 of 41 runs in C and cannot explain the rise that began before Nov 6. The repo reviewer definition did not change after Oct 10. The installed extension folder is karst.karst-1.0.0 at all times, so its version string cannot tell the builds apart. The study did not compare the extension build or its code between the periods. The extension code (the review driver and the prompt assembly) changed with merged tickets in this period, for example #955. It stays a candidate cause and is not tested.
 
 Verdict: the input changed in four ways. The step A to B (21% to 35%) fits the user context change and the Intent section. The step B to C (35% to 54%) fits the Claude Code 2.1.318 upgrade. These are correlations. The causes are confounded.
 
@@ -177,26 +187,26 @@ Period C:
 
 Notes: sample A has 1 wrong finding (fid 1511: keeping the placement and the bridge dir is intended). Each sample was classified by one subagent, so the classes carry classifier bias. Sample A is 79% of its pool. 26 of 30 reasons cite a later fix or a later change. These classes are weak for that reason.
 
-Verdict: the findings in C are not noisier than in A. In C, 13 of 15 are real at their severity. In A, 6 of 15 are real at their severity and 8 are real but lower. The sample does not show that wrong findings caused the rise in C. Because the fix basis is circular, treat this as low confidence. The comparison of A and C at the stated severity is indicative only.
+Verdict: the sample does not show that the findings in C are noisier than in A. It does not show the opposite either. In C, 13 of 15 sampled findings are real at their stated severity, including 9 of 9 highs. In A, 6 of 15 are real at their stated severity (1 of 2 highs). The severity check for the highs rests on the fix basis, because the reasons for the C highs say "fixed later". A fix after review does not show that the severity was right. Treat the severity comparison as unproven. The count of real defects (29 of 30) is the firmer result.
 
 END_DOC_BLOCK: [@issue:RB-08]
 
 ## [@issue:RB-06] Q5: missed bugs
 
-Cohort: all first-review tickets of the period (A 73, C 41). A text match finds later tickets that name the key, the PR number or the parent ticket of the earlier ticket. The study read the title of each later ticket. It did not verify that the later ticket fixes a defect of the earlier ticket.
+Cohort: tickets of the period with a validated review run (A 70, C 38). Tickets that never passed review are not in the cohort. A text match finds later tickets that name the key, the PR number or the parent ticket of the earlier ticket. The study read the title of each later ticket. It did not verify that the later ticket fixes a defect of the earlier ticket.
 
 | Measure | A | C |
 |---|---|---|
 | Later tickets that reference a ticket of the period (distinct) | 7 | 5 (7 matches; ticket 966 matches 3 times) |
 | Of these, tickets with a `fix` title | 5 | 3 |
 | Of these, other tickets (`test`, `perf`, `ci`) | 2 | 2 |
-| Fix-titled later tickets per ticket of the period | 5 of 73 (7%) | 3 of 41 (7%) |
+| Fix-titled later tickets per ticket of the cohort | 5 of 70 (7%) | 3 of 38 (8%) |
 | Ship or CI failure after review pass | 1 | 0 |
 | Recovery rounds with source stage `ship` | 0 | 0 |
 
 Fix-titled later tickets in A: 880, 870, 876, 993, 910. In C: 959, 985, 993. Ticket 993 references one ticket in A (892) and one in C (987), so it is in both lists. Some C references use PR numbers of another repository (iOS). `karst stats` shows 0 follow-ups for escaped defects, which is not a usable signal. The C tickets are 1 to 2 days old.
 
-Verdict: no evidence that A missed bugs. The fix-titled follow-up rate is 7% in both periods. The comparison has little power, because C had 1 to 2 days to show follow-ups and the counts are small.
+Verdict: no evidence that A missed bugs. The fix-titled follow-up rate is 7% in A and 8% in C. The comparison has little power, because C had 1 to 2 days to show follow-ups and the counts are small.
 
 END_DOC_BLOCK: [@issue:RB-06]
 
