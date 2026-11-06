@@ -360,6 +360,9 @@
   "src/extension/autopilotBinding.ts": [
     "arch:AP-00"
   ],
+  "src/extension/ops/autopilotCommandOps.ts": [
+    "arch:AP-00"
+  ],
   "src/extension/ops/autopilotOps.ts": [
     "arch:AP-00"
   ],
