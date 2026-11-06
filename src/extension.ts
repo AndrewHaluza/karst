@@ -3499,7 +3499,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // seam lives in `workflow/driveTicket.ts`, which imports no vscode and is
   // therefore the only version of this logic under test.
   async function driveTicket(ticketId: number): Promise<void> {
-    if (!driver.begin(ticketId)) return; // a run is already in flight
+    if (refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'drive', (m) => logger.info(m)) || !driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
@@ -3508,7 +3508,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await driveTicketRun(
         {
           store: localStore,
-          manifest: currentManifest,
+          manifest: currentManifest, hostContext: () => `manifest ${cliEntryAndManifest(context).manifestPath ?? 'unknown'}, project ${currentProject()?.slug ?? 'unknown'}`,
           artifactDirFor,
           // Only a fallback: with a manifest, runUat plans its own multi-repository
           // targets and this path is not what decides where gates run.
@@ -3801,7 +3801,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }
   }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded);
-  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean => !refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) && shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
