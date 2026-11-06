@@ -113,6 +113,8 @@ export interface RunUatOpts {
   cwd: string;
   artifactDir: string;
   manifest?: Manifest;
+  /** Which manifest and project this host used; named in the unmapped-repository reason. */
+  hostContext?: string;
   /** One signal for the whole run, so a Stop reaches the gate in flight. */
   signal?: AbortSignal;
   /**
@@ -546,7 +548,8 @@ export async function runUat(
     if (planned.unmapped.length > 0) {
       const reason =
         `these worktrees match no repository in karst.yml: ${planned.unmapped.join(', ')} — ` +
-        'add them to `repositories:` or re-scope the ticket';
+        'add them to `repositories:` or re-scope the ticket' +
+        (opts.hostContext ? ` (${opts.hostContext})` : '');
       opts.debug?.(
         `[gate] uat ticket ${opts.ticketId}: zero targets — ${planned.unmapped.length} worktree(s) unmapped`,
       );

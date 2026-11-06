@@ -74,6 +74,8 @@ END_DOC_BLOCK: [@arch:SQLITE]
 covers: src/project/bind.ts#bindProject, src/project/slug.ts#resolveProjectSlug
 
 The DB lives in *global* storage — every window shares it — so every ticket query MUST be scoped or window A lists/drives window B's tickets. Identity is `projects.slug`, from manifest `id:` else a path-derived fallback (`project/slug.ts`); `bindProject` (`project/bind.ts`) registers it at activation. Pass `{ projectId }` to `listTickets`/`listArchivedTickets`/`getTicketByKey`/`createTicket`; unscoped is the deliberate all-projects view (recovery only). Ticket `key` is unique **per project**, not globally. Legacy `project_id IS NULL` rows are adopted once per install, guarded by a globalState flag AND "only one project exists".
+
+A host acts only on tickets of its own project. `dispatchHook` returns `admitted:false` and records `foreign-project` for a hook of another project (HTTP, sandbox bridge and agy watch share this rule); the local `driveTicket` refuses it too. Both use `isForeignProjectTicket` (`extension/ops/foreignProject.ts`). A ticket with `project_id NULL` is never foreign. The unmapped-repository reason names the manifest path and project that the host used.
 END_DOC_BLOCK: [@arch:PROJECTS]
 
 ## [@arch:GLOBAL] Global storage is shared by every window

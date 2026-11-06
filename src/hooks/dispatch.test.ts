@@ -66,6 +66,26 @@ describe('dispatchHook', () => {
     });
   });
 
+  it('records foreign-project and writes nothing when the host refuses a ticket of another project', () => {
+    const recorder = createHookChannelRecorder();
+    const id = ticketAt();
+    const notify = vi.fn();
+    const result = dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'foreign-sess' },
+      notify,
+      () => 'foreign-project',
+      undefined,
+      recorder,
+    );
+    expect(result).toEqual({ admitted: false });
+    expect(recorder.snapshot().outcomes).toEqual({ 'foreign-project': 1 });
+    expect(getTicket(store, id).agentState).not.toBe('running');
+    expect(getTicket(store, id).sessionId).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM stage_runs').get()).toEqual({ n: 0 });
+  });
+
   it('SessionEnd flips agent_state to idle', () => {
     const id = ticketAt();
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });

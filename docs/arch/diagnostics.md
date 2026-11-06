@@ -47,7 +47,7 @@ flowchart TD
 |---|---|---|
 | Counter recording throws | Swallowed at the call site | Endpoint still answers 2xx fast. |
 | Hook body over 1 MiB | Declined (204 / exit 0), counted | Report shows `too-large` / `input-too-large`. |
-| Launch-time endpoint URL dead after reload | Bridge falls back to `current-endpoint` | Silent; only the last failure is logged. |
+| Launch-time endpoint URL dead after reload | Bridge falls back to `current-endpoint`, a file shared by all projects. The receiving host can belong to another project | Silent; only the last failure is logged. A host of another project refuses the hook: no write, outcome `foreign-project`. The owner host handles the next hook. |
 
 ### Rules
 @arch:DIAG-02 · @arch:DIAG-03 · @arch:DIAG-04 · @arch:DIAG-05

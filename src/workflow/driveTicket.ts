@@ -77,6 +77,8 @@ export function fixResumeDecision(
 export interface DriveTicketDeps {
   store: Store;
   manifest: () => Manifest | undefined;
+  /** Names the manifest path and project this host uses, for gate block reasons. */
+  hostContext?: () => string | undefined;
   artifactDirFor: (ticketId: number) => string;
   worktreeFor: (ticketId: number) => string | null;
   onProgress: (ticketId: number, stage: StageKey, status: DriverStatus) => void;
@@ -362,6 +364,7 @@ export async function driveTicket(
               cwd,
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
+              hostContext: deps.hostContext?.(),
               signal: controller.signal,
               debug: deps.debug,
               contextCommand: deps.contextCommand,
@@ -455,6 +458,7 @@ export async function driveTicket(
               cwd,
               artifactDir: deps.artifactDirFor(id),
               manifest: deps.manifest(),
+              hostContext: deps.hostContext?.(),
               signal: controller.signal,
               debug: deps.debug,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'review', name, chunk),

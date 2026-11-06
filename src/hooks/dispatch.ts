@@ -90,7 +90,7 @@ export type SessionProviderFor = (ticketId: number) => AgentProvider | null;
 export type ShouldApplyHookState = (
   ticketId: number,
   payload: HookPayload,
-) => boolean;
+) => boolean | 'foreign-project';
 
 /**
  * What a hook dispatch resolved to. `admitted` is true only when the worktree
@@ -520,8 +520,9 @@ export function dispatchHook(
   // Generation ownership guards every lifecycle mutation, including session_id.
   // Checking only before agent_state let a rejected stale SessionStart replace
   // the current conversation id even though its running state was ignored.
-  if (shouldApplyState && !shouldApplyState(ticketId, payload)) {
-    observe('stale-generation');
+  const applyVerdict = shouldApplyState ? shouldApplyState(ticketId, payload) : true;
+  if (applyVerdict !== true) {
+    observe(applyVerdict === 'foreign-project' ? 'foreign-project' : 'stale-generation');
     return { admitted: false };
   }
 

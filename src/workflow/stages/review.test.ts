@@ -369,6 +369,20 @@ describe('runReview', () => {
     expect(openDiff).not.toHaveBeenCalled();
   });
 
+  it('names the manifest and project of the host in the unmapped-repository reason', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/unmapped', '/wt/unmapped', 'b', 'develop', 'inherited')",
+      )
+      .run(id);
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}), hostContext: 'manifest /p/karst.yml, project karst' },
+      deps({ planTargets: async () => ({ kind: 'targets', targets: [], unmapped: ['/unmapped'] }) }),
+    );
+    expect(res).toMatchObject({ blocker: 'unmapped-repository', reason: expect.stringContaining('manifest /p/karst.yml, project karst') });
+  });
+
   it('passes with a note when every repository mapped and none has changes', async () => {
     store.db
       .prepare(

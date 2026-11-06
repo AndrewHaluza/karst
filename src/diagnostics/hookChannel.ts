@@ -42,6 +42,8 @@ export const HOOK_DISPATCH_OUTCOMES = [
   'stale-generation',
   /** A known event that carries no liveness signal. */
   'no-signal',
+  /** The ticket belongs to another project than this host's; nothing was written. */
+  'foreign-project',
 ] as const;
 
 export type HookRequestOutcome = (typeof HOOK_REQUEST_OUTCOMES)[number];
