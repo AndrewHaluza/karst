@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 
 /**
  * Playwright config for the karst visual-regression sweep.
@@ -68,7 +69,8 @@ export default defineConfig({
 
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: 1,
+  // KARST_VISUAL_WORKERS (default 1) raises it for the local docker gate only; see visualWorkers.ts.
+  workers: resolveVisualWorkers(process.env, process.argv),
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'tests/visual/.report' }],
