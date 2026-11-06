@@ -49,6 +49,16 @@ describe('planRepeat', () => {
     expect(console.error).toHaveBeenCalledWith('full: no earlier green run');
   });
 
+  it('runs after a green run when only the layout ledger changed', async () => {
+    put('tests/visual/layout-known-failures.json', '[]');
+    commit('ledger');
+    await green();
+    put('tests/visual/layout-known-failures.json', '["a|1|b|c"]');
+    const r = await planRepeat(SCRIPT, ARGV, dir);
+    expect(r.skip).toBeNull();
+    expect(r.memo).not.toBeNull();
+  });
+
   it('skips after a green run when only a non-UI path changed', async () => {
     await green();
     put('docs/x.md', 'changed');

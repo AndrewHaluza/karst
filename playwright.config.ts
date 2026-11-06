@@ -28,17 +28,19 @@ import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
-// A project-level grep overrides the global one. The layout chain must never be
-// filtered: a scoped run would drop the teardown and its ledger verdict (false green).
+// A project-level grep overrides the global one. Local gates narrow the layout routes with the
+// same grep as the screenshots. Setup and teardown hold one test each and take no filter, so any
+// grep keeps the ledger verdict on the routes that ran, and a filtered seed or prune is refused
+// (ui:LAYOUT-SCOPE).
 const ALL_TITLES = /.*/;
+const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
 
 export default defineConfig({
   testDir: 'tests/visual',
   testMatch: '**/*.visual.ts',
 
-  // Local gates narrow the screenshot projects to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset.
-  // The layout projects ignore it (ALL_TITLES).
-  ...(process.env['KARST_UI_GREP'] ? { grep: new RegExp(process.env['KARST_UI_GREP']) } : {}),
+  // Local gates narrow every project to the views the ticket touched (scripts/uiViews.mjs); CI leaves it unset (full chain).
+  ...(UI_GREP ? { grep: UI_GREP } : {}),
 
   snapshotPathTemplate:
     'tests/visual/__baselines__/{projectName}/{arg}{ext}',
@@ -118,7 +120,7 @@ export default defineConfig({
     },
     {
       name: 'layout',
-      grep: ALL_TITLES,
+      grep: UI_GREP ?? ALL_TITLES,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },

@@ -4,10 +4,13 @@ import {
   ALL_VIEWS,
   VIEW_DIRS,
   gateGrep,
+  isUiPath,
   readSettingsSections,
   selectViews,
+  parseListLayout,
   parseListTotal,
   selectionLine,
+  selectsLayoutRoute,
 } from './uiViews.mjs';
 
 describe('selectViews', () => {
@@ -18,11 +21,17 @@ describe('selectViews', () => {
     });
   });
 
-  it('maps baseline changes to their owning view and ignores layout-known-failures.json', () => {
-    expect(selectViews(['tests/visual/__baselines__/dark/usage.png', 'tests/visual/layout-known-failures.json'])).toEqual({
-      all: false,
-      views: ['usage'],
-    });
+  it('maps baseline changes to their owning view', () => {
+    expect(selectViews(['tests/visual/__baselines__/dark/usage.png'])).toEqual({ all: false, views: ['usage'] });
+  });
+
+  it('selects every view when the layout ledger changed, so each edited entry is judged', () => {
+    expect(selectViews(['tests/visual/__baselines__/dark/usage.png', 'tests/visual/layout-known-failures.json']).all).toBe(true);
+    expect(selectViews(['tests/visual/layout-known-failures.json']).all).toBe(true);
+  });
+
+  it('counts the layout ledger as a UI path, so an edit after a green pass still runs the gate', () => {
+    expect(isUiPath('tests/visual/layout-known-failures.json')).toBe(true);
   });
 
   it('unions the views of several directories', () => {
@@ -101,6 +110,28 @@ describe('gateGrep', () => {
   });
 });
 
+describe('gateGrep layout bookends', () => {
+  const setup = 'layout-setup layout.setup.ts clear layout shards';
+  const teardown = 'layout-teardown layout.teardown.ts layout ledger verdict';
+  const sections = readSettingsSections();
+
+  it.each([...ALL_VIEWS.map((view) => [[view]]), [['dashboard', 'status']], [ALL_VIEWS]])('keeps the setup and teardown titles for %j', (views) => {
+    const re = new RegExp(gateGrep({ all: false, views }, sections));
+    expect(re.test(setup)).toBe(true);
+    expect(re.test(teardown)).toBe(true);
+  });
+});
+
+describe('selectsLayoutRoute', () => {
+  it('is false only when every selected view has no layout route', () => {
+    expect(selectsLayoutRoute({ all: false, views: ['catalog'] })).toBe(false);
+    expect(selectsLayoutRoute({ all: false, views: ['status'] })).toBe(false);
+    expect(selectsLayoutRoute({ all: false, views: ['catalog', 'status'] })).toBe(false);
+    expect(selectsLayoutRoute({ all: false, views: ['catalog', 'diffs'] })).toBe(true);
+    expect(selectsLayoutRoute({ all: true, views: [] })).toBe(true);
+  });
+});
+
 describe('selectionLine', () => {
   it('names the views and the CI backstop', () => {
     expect(selectionLine('test:visual:docker', { all: false, views: ['dashboard', 'status'] })).toBe(
@@ -113,6 +144,27 @@ describe('selectionLine', () => {
     expect(selectionLine('test:visual:docker', { all: false, views: ['dashboard'] }, { selected: 212, total: 1850 })).toBe(
       'visual: running dashboard — 212 of 1,850 tests; full sweep runs in CI',
     );
+  });
+
+  it('states the layout scope with its own counts when known', () => {
+    expect(
+      selectionLine('test:visual:docker', { all: false, views: ['diffs'] }, { selected: 60, total: 1850, layoutSelected: 25, layoutTotal: 712 }),
+    ).toBe('visual: running diffs — 60 of 1,850 tests (25 of 712 layout); full sweep runs in CI');
+    expect(
+      selectionLine('test:visual:docker', { all: true, views: [] }, { selected: 1850, total: 1850, layoutSelected: 712, layoutTotal: 712 }),
+    ).toBe('visual: running every view — 1,850 of 1,850 tests (712 of 712 layout); full sweep also runs in CI');
+  });
+
+  it('counts only the layout project in a playwright listing, not its setup and teardown', () => {
+    const listing = [
+      '  [layout-setup] › layout.setup.ts:8:1 › clear layout shards',
+      '  [layout] › layout.layout.ts:62:5 › diffs/empty @1280',
+      '  [layout] › layout.layout.ts:62:5 › diffs/empty @900',
+      '  [dark] › pages.visual.ts:9:3 › diffs/empty: full-page screenshot',
+      '  [layout-teardown] › layout.teardown.ts:90:1 › layout ledger verdict',
+    ].join('\n');
+    expect(parseListLayout(listing)).toBe(2);
+    expect(parseListLayout('boom')).toBe(0);
   });
 
   it('reads the total from a playwright listing', () => {
