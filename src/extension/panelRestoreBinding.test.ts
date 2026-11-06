@@ -37,6 +37,7 @@ describe('makeRestorers', () => {
       store,
       dashboard: manager('dashboard'), dashboardHost: wrapped('dashboardHost'),
       changes: manager('changes'), changesHost: wrapped('changesHost'),
+      ticketForm: manager('ticketForm'), ticketFormHost: wrapped('ticketFormHost'),
       settings: manager('settings'), settingsHost: wrapped('settingsHost'),
       gettingStarted: manager('gs'), gettingStartedHost: wrapped('gsHost'),
       doctor: { restore: async (r) => void calls.push(['doctor', r]) },
@@ -66,6 +67,44 @@ describe('makeRestorers', () => {
     expect(id).toBe(live.id);
     expect(panel).toEqual({ name: 'changesHost', r: raw });
     expect([exists(live.id), exists(old.id), exists(999)]).toEqual([true, false, false]);
+  });
+
+  it('adopts a ticket form with the raw saved state and a liveness check over the store', async () => {
+    const { restorers, calls, live, old } = setup();
+    const saved = { karstPanel: { mode: 'edit', ticketId: live.id }, draft: { title: 'x' } };
+    await restorers['karst.ticketForm']!(raw, saved);
+    const [name, panel, passed, exists] = calls[0] as [string, unknown, unknown, (n: number) => boolean];
+    expect(name).toBe('ticketForm.adopt');
+    expect(panel).toEqual({ name: 'ticketFormHost', r: raw });
+    expect(passed).toBe(saved);
+    expect([exists(live.id), exists(old.id), exists(999)]).toEqual([true, false, false]);
+  });
+
+  it('closes a restored ticket form when the manifest does not load, and adopts it when it does', async () => {
+    const mk = (ready: boolean) => {
+      const closed: unknown[] = [];
+      const adopted: unknown[][] = [];
+      const prefill = (): unknown => undefined;
+      const outcome = (): unknown => undefined;
+      const restorers = makeRestorers({
+        store: openStore(':memory:'),
+        ticketForm: { adopt: (...a: unknown[]) => void adopted.push(a) },
+        ticketFormHost: { restore: () => ({ wrap: () => ({}), dispose: () => void closed.push(1) }) as never },
+        manifestReady: () => ready,
+        proposalPrefill: prefill,
+        proposalOutcome: outcome,
+      } as never);
+      return { restorers, closed, adopted, prefill, outcome };
+    };
+    const off = mk(false);
+    await off.restorers['karst.ticketForm']!({} as never, { karstPanel: { mode: 'create' } });
+    expect(off.closed).toHaveLength(1);
+    expect(off.adopted).toHaveLength(0);
+    const on = mk(true);
+    await on.restorers['karst.ticketForm']!({} as never, { karstPanel: { mode: 'create' } });
+    expect(on.closed).toHaveLength(0);
+    expect(on.adopted[0]![3]).toBe(on.prefill);
+    expect(on.adopted[0]![4]).toBe(on.outcome);
   });
 
   it('adopts each singleton and the doctor with the raw panel', async () => {

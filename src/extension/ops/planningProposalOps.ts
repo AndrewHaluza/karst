@@ -6,6 +6,7 @@ import {
   markProposalAccepted,
   proposalPayloadEquals,
   type PlanningProposal,
+  type ProposalStatus,
 } from '../../store/planningProposals.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import { formatId } from '../../model/entityId.js';
@@ -38,6 +39,16 @@ export interface PlanningProposalOpsDeps {
 export interface PlanningProposalOps {
   announce(p: PlanningProposal, change?: 'updated'): Promise<void>;
   review(id: number): Promise<void>;
+  /**
+   * The review form prefill of a proposal that is pending in this project, built silently
+   * (no notification). A restored review form uses it to link itself to its proposal again.
+   */
+  prefillFor(id: number): TicketFormPrefill | undefined;
+  /**
+   * The stored verdict on a proposal of this project. `accepted` is written when the user saves
+   * the review form, so a restored form reads it to tell a committed ticket from a draft row.
+   */
+  outcomeFor(id: number): { status: ProposalStatus; ticketId: number | null } | undefined;
   discard(id: number): Promise<void>;
 }
 
@@ -99,35 +110,24 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       else if (choice === 'discard') await ops.discard(p.id);
     },
 
+    prefillFor(id) {
+      const p = getProposal(deps.store, id);
+      const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
+      if (!p || p.status !== 'pending' || !session || session.projectId !== deps.projectId()) return undefined;
+      return prefillOf(p);
+    },
+
+    outcomeFor(id) {
+      const p = getProposal(deps.store, id);
+      const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
+      if (!p || !session || session.projectId !== deps.projectId()) return undefined;
+      return { status: p.status, ticketId: p.ticketId };
+    },
+
     async review(id) {
       const p = await pending(id);
       if (!p) return;
-      const { title, description, summary, repos, constraints = [] } = p.payload;
-      const reviewed = p.payload;
-      deps.openForm({
-        draftId: id,
-        title,
-        description,
-        summary,
-        repos,
-        constraints,
-        constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
-        warnings: p.warnings,
-        onCreated: (ticketId) =>
-          void guarded('link', id, () => {
-            const current = getProposal(deps.store, id);
-            markProposalAccepted(deps.store, id, ticketId, reviewed);
-            // The form's ticket is what the human saw and saved, so it is
-            // linked regardless; but if the agent revised the draft while the
-            // form was open, say so rather than dropping it silently.
-            if (current && !proposalPayloadEquals(current.payload, reviewed)) {
-              deps.notify.warn(
-                `Draft ${formatId('draft', id)} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
-              );
-            }
-            refresh(p.sessionId);
-          }),
-      });
+      deps.openForm(prefillOf(p));
     },
 
     async discard(id) {
@@ -145,4 +145,35 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     },
   };
   return ops;
+
+  /** The review form prefill of a proposal; `onCreated` links the saved ticket to it. */
+  function prefillOf(p: PlanningProposal): TicketFormPrefill {
+    const id = p.id;
+    const { title, description, summary, repos, constraints = [] } = p.payload;
+    const reviewed = p.payload;
+    return {
+      draftId: id,
+      title,
+      description,
+      summary,
+      repos,
+      constraints,
+      constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
+      warnings: p.warnings,
+      onCreated: (ticketId) =>
+        void guarded('link', id, () => {
+          const current = getProposal(deps.store, id);
+          markProposalAccepted(deps.store, id, ticketId, reviewed);
+          // The form's ticket is what the human saw and saved, so it is
+          // linked regardless; but if the agent revised the draft while the
+          // form was open, say so rather than dropping it silently.
+          if (current && !proposalPayloadEquals(current.payload, reviewed)) {
+            deps.notify.warn(
+              `Draft ${formatId('draft', id)} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
+            );
+          }
+          refresh(p.sessionId);
+        }),
+    };
+  }
 }

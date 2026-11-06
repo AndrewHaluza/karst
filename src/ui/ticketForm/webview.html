@@ -648,6 +648,134 @@
 
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
+
+  // Window-reload persistence — the ONLY code that calls vscode.getState/setState.
+  // The saved state is {karstPanel: {mode, ticketId?}, draft: {<field>: text}}: the
+  // identity lets the host re-adopt the tab, the draft holds the text fields the user
+  // changed and has not saved. It lives in this window's webview state only; it is
+  // never sent to the host and never written to the DB. Pending attachments are NOT
+  // part of the draft: their local file handles may be gone after a reload, so they
+  // are dropped on restore.
+  const formPersist = (() => {
+    const FIELDS = ['title', 'ref', 'desc', 'intent', 'codePointers'];
+    const DEBOUNCE_MS = 300;
+    const read = () => {
+      let st = null;
+      try { st = vscode.getState(); } catch { st = null; }
+      return st && typeof st === 'object' ? st : {};
+    };
+    const first = read();
+    const savedDraft = first.draft && typeof first.draft === 'object' ? first.draft : {};
+    let identity = first.karstPanel && typeof first.karstPanel === 'object' ? first.karstPanel : null;
+    const dirty = new Set();
+    // Field values the host rendered; a different value later came from the user or from code.
+    const baseline = {};
+    // Field values last written to setState; code that changes a dirty field later differs from it.
+    const written = {};
+    // Field values at the moment Save/Submit started; text typed while it is in flight differs from it.
+    let commitSnapshot = null;
+    let timer = null;
+    let commitPending = false;
+    let commitFailed = false;
+    let overlaid = false;
+    const write = () => {
+      timer = null;
+      const draft = {};
+      for (const f of dirty) {
+        // A key the Title derived is not text the user owns: it stays out of the draft, so a
+        // restore derives it again from the restored Title instead of locking the old one.
+        if (f === 'ref' && !refTouched) continue;
+        draft[f] = el(f).value;
+        written[f] = draft[f];
+      }
+      vscode.setState({
+        ...(identity ? { karstPanel: identity } : {}),
+        ...(Object.keys(draft).length ? { draft } : {}),
+      });
+    };
+    return {
+      /** A user edit of one text field: record it and write the state (debounced). */
+      touch(field) {
+        dirty.add(field);
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(write, DEBOUNCE_MS);
+      },
+      /** Every host state push: track the identity; on the first one, lay the saved draft over it. */
+      onHostState(state) {
+        // A proposal review form keeps its flag even after it minted a draft row (edit-shaped state):
+        // the host cannot re-link it, so it must restore as a proposal form, not a plain edit form.
+        // The planning draft id and the draft row the form minted ride along, so the host can
+        // re-link the form to its proposal (the draft id is kept once seen: a bound page drops it).
+        const draftId = state.briefSource && state.briefSource.kind === 'draft' && Number.isInteger(state.briefSource.draftId)
+          ? state.briefSource.draftId
+          : identity && Number.isInteger(identity.draftId) ? identity.draftId : undefined;
+        identity = state.prefilled === true
+          ? {
+            mode: 'create', prefilled: true,
+            ...(draftId !== undefined ? { draftId } : {}),
+            ...(state.mode === 'edit' && Number.isInteger(state.ticketId) ? { mintedTicketId: state.ticketId } : {}),
+          }
+          : state.mode === 'edit' && Number.isInteger(state.ticketId)
+            ? { mode: 'edit', ticketId: state.ticketId }
+            : { mode: 'create' };
+        if (!overlaid) {
+          overlaid = true;
+          for (const f of FIELDS) baseline[f] = el(f).value;
+          for (const f of FIELDS) {
+            if (typeof savedDraft[f] === 'string') { el(f).value = savedDraft[f]; dirty.add(f); }
+          }
+          if (dirty.size) return true;
+        }
+        // The host render is the baseline for fields the user has not changed (a host refill is not a draft).
+        for (const f of FIELDS) if (!dirty.has(f)) baseline[f] = el(f).value;
+        if (timer !== null) { clearTimeout(timer); timer = null; }
+        write();
+        return false;
+      },
+      /** True when the user changed the field and has not saved it: the host render must not refill it. */
+      isDirty(field) { return dirty.has(field); },
+      /** Catch text that code wrote without an input event (brief, improve, analysis). */
+      scan() {
+        if (!overlaid) return;
+        // `ref` is skipped: the Title derives it, so it is not text the user wrote.
+        for (const f of FIELDS) {
+          if (f === 'ref') continue;
+          const changed = dirty.has(f) ? el(f).value !== written[f] : el(f).value !== baseline[f];
+          if (changed) this.touch(f);
+        }
+      },
+      /** Save or submit was started. */
+      commitStarted() {
+        commitPending = true;
+        commitFailed = false;
+        commitSnapshot = {};
+        for (const f of FIELDS) commitSnapshot[f] = el(f).value;
+      },
+      /** The host reported an error: the pending save did not succeed, so the draft stays. */
+      commitErrored() { commitFailed = true; },
+      /** The host stored the text (persist succeeded): drop it from the draft, even if a later step fails. */
+      commitSaved() {
+        if (!commitPending) return;
+        commitFailed = false;
+        this.commitSettled();
+      },
+      /** The save or submit finished: on success the typed text is saved, so drop the draft. */
+      commitSettled() {
+        if (!commitPending) return;
+        commitPending = false;
+        if (commitFailed) return;
+        // Only the text that was saved is dropped; a field typed into while the save ran stays a draft.
+        for (const f of FIELDS) {
+          if (commitSnapshot && el(f).value !== commitSnapshot[f]) continue;
+          dirty.delete(f);
+          baseline[f] = el(f).value;
+        }
+        commitSnapshot = null;
+        if (timer !== null) { clearTimeout(timer); timer = null; }
+        write();
+      },
+    };
+  })();
   // Live title/description, so a draft row minted by an action seeds from what the user typed.
   const liveDraft = () => ({ title: el('title').value, description: el('desc').value });
   const el = (id) => document.getElementById(id);
@@ -783,19 +911,19 @@
     // what the user is typing on a re-push). The single #ref field IS the key —
     // seed it from the identity (key), falling back to the board ref only if the
     // ticket has no key yet.
-    if (!el('ref').value) el('ref').value = state.key || state.sourceRef || '';
+    if (!el('ref').value && !formPersist.isDirty('ref')) el('ref').value = state.key || state.sourceRef || '';
     // A key that came from the state is the ticket's real identity — the Title
     // must never overwrite it on the next keystroke.
     if (el('ref').value) refTouched = true;
-    if (!el('title').value) el('title').value = state.title || '';
+    if (!el('title').value && !formPersist.isDirty('title')) el('title').value = state.title || '';
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
-    if (!el('desc').value) el('desc').value = state.description || '';
-    if (!el('intent').value) {
+    if (!el('desc').value && !formPersist.isDirty('desc')) el('desc').value = state.description || '';
+    if (!el('intent').value && !formPersist.isDirty('intent')) {
       el('intent').value = state.intent || '';
       lastIntent = el('intent').value;
     }
-    if (!el('codePointers').value) {
+    if (!el('codePointers').value && !formPersist.isDirty('codePointers')) {
       el('codePointers').value = state.codePointers || '';
       lastPointers = el('codePointers').value;
     }
@@ -1155,6 +1283,7 @@
   function useBriefAsPrompt() {
     promptUndo = { prev: el('desc').value };
     el('desc').value = briefDescription();
+    formPersist.touch('desc'); // code wrote the text without an input event
     syncAnalyzeBtn();
     renderBrief();
     const u = el('briefUndo');
@@ -1170,6 +1299,7 @@
     if (t.closest('#briefUndo')) {
       el('desc').value = promptUndo ? promptUndo.prev : el('desc').value;
       promptUndo = null;
+      formPersist.touch('desc'); // code wrote the text without an input event
       syncAnalyzeBtn();
       renderBrief();
       el('desc').focus();
@@ -1950,6 +2080,7 @@
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
+    formPersist.commitStarted();
     setSubmitBusy(true);
     const baseRefs = collectBaseRefs();
     improveUndo = []; syncRevertBtn();
@@ -1981,6 +2112,7 @@
     const agentProvider = (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null;
     const agentPreset = (draft.agentPreset ?? lastSelectedAgentPreset) || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
+    formPersist.commitStarted();
     setSaveBusy(true);
     const baseRefs = collectBaseRefs();
     improveUndo = []; syncRevertBtn();
@@ -1991,6 +2123,22 @@
   // key field doubles as a search combobox, typing also schedules the dropdown
   // search (debounced) — but only for text the USER typed: a key derived from
   // the Title is not a query, it is the derive preview.
+  for (const f of ['title', 'ref', 'desc', 'intent', 'codePointers']) {
+    el(f).addEventListener('input', () => formPersist.touch(f));
+  }
+  // Called once, right after the first state push of a restored form: re-derive what the
+  // restored text drives (key preview, code-pointer row, submit gate).
+  function applyRestoredDraft() {
+    // The render derived the key from the host's title. Only a key the user typed (saved in the
+    // draft) or a key the host holds is the user's: a derived key follows the restored Title.
+    if (formPersist.isDirty('ref') && el('ref').value.trim() !== '') refTouched = true;
+    if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    // lastIntent/lastPointers stay at the host values, so a restored edit still counts as changed on save.
+    el('codePointersRow').hidden = !el('codePointers').value;
+    syncSubmitGate();
+    syncAnalyzeBtn();
+  }
+
   el('ref').addEventListener('input', () => {
     // Own the field while it has content; empty hands it back to the Title.
     refTouched = el('ref').value.trim() !== '';
@@ -2674,7 +2822,12 @@
     const msg = e.data;
     if (!msg) return;
     switch (msg.type) {
-      case 'state': render(msg.state); vscode.setState(msg.state); break;
+      case 'state': {
+        render(msg.state);
+        // First push after a reload: the saved draft fields go over the fresh data.
+        if (formPersist.onHostState(msg.state)) applyRestoredDraft();
+        break;
+      }
       case 'brief': {
         const b = msg.brief || {};
         // Prefill the Prompt from the fetched brief's short summary, only when
@@ -2750,7 +2903,7 @@
         // Snapshot the inputs this analysis covered (read AFTER applying the
         // prompt) so the button disables until brief/prompt/repos move again.
         lastAnalyzed = currentParts();
-        const state = vscode.getState();
+        const state = lastState;
         renderRepos(lastRepos, lastRepoBases);
         renderApproaches(
           state ? state.approaches : lastApproaches,
@@ -2804,12 +2957,17 @@
         break;
       }
       case 'error':
+        formPersist.commitErrored();
         if (msg.usageLimitParkId) showUsageLimitErr(msg.message, msg.usageLimitParkId);
         else showErr(msg.message);
         break;
+      case 'draft-saved': formPersist.commitSaved(); break;
       case 'usage-limit-park-resolved': clearErr(); break;
       case 'usage-limit-park-cancelled': rearmUsageLimitButtons(); break;
-      case 'busy': setBusy(msg.what, msg.on); break;
+      case 'busy':
+        setBusy(msg.what, msg.on);
+        if (!msg.on && (msg.what === 'save' || msg.what === 'submit')) formPersist.commitSettled();
+        break;
       case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;
       case 'provider-ticket-created': {
         // Bound at last: clear the inline error; the state push that follows
@@ -2817,7 +2975,7 @@
         // so a page that missed the push still knows what happened.
         createInError = '';
         createInOn = false;
-        const state = vscode.getState();
+        const state = lastState;
         if (state) renderCreateIn(state);
         break;
       }
@@ -2832,12 +2990,14 @@
           el('createInBtn').removeAttribute('aria-busy');
           el('createInBtn').disabled = false;
         }
-        const state = vscode.getState();
+        const state = lastState;
         if (state) renderCreateIn(state);
         break;
       }
     }
   });
+  // Runs after the handler above: persist text that handler wrote without an input event.
+  window.addEventListener('message', () => formPersist.scan());
 
   // Turn a fetched ContextBrief into the same text shape the host persists.
   // Mirrors src/integrations/briefMarkdown.ts — a text PREVIEW only (the host
@@ -2889,8 +3049,6 @@
     return lines.join('\n');
   }
 
-  const prev = vscode.getState();
-  if (prev) render(prev);
   post({ type: 'request-state' });
 </script>
 

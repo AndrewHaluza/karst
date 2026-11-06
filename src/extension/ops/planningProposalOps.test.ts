@@ -59,7 +59,7 @@ describe('planningProposalOps', () => {
   }
 
   it('exposes only announce/review/discard — no read-only view and no direct create', () => {
-    expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'review']);
+    expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'outcomeFor', 'prefillFor', 'review']);
   });
 
   it('announce names the plan, the draft, the title and the sizes', async () => {
@@ -99,6 +99,27 @@ describe('planningProposalOps', () => {
     expect(changes).toBeGreaterThan(0);
     // No dependents → no prune warning.
     expect(warns).toEqual([]);
+  });
+
+  it('prefillFor builds the review prefill silently for a pending proposal, and not for a resolved or unknown one', async () => {
+    expect(ops().prefillFor(proposalId)).toMatchObject({ title: 'Fix login', summary: 'sum', repos: ['api'], draftId: proposalId });
+    expect(ops().prefillFor(proposalId + 999)).toBeUndefined();
+    choice = 'discard';
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(ops().prefillFor(proposalId)).toBeUndefined();
+  });
+
+  it('outcomeFor reports the stored status: pending, then accepted with the ticket the user saved', async () => {
+    expect(ops().outcomeFor(proposalId)).toEqual({ status: 'pending', ticketId: null });
+    expect(ops().outcomeFor(proposalId + 999)).toBeUndefined();
+    expect(ops({ projectId: () => projectId + 1 }).outcomeFor(proposalId)).toBeUndefined();
+    choice = 'review';
+    await ops().announce(getProposal(store, proposalId)!);
+    // The row the form minted on Fetch carries a key, but it is not committed until the user saves.
+    const t = createTicket(store, { key: 'FETCHED-1', title: 'Fix login', projectId });
+    expect(ops().outcomeFor(proposalId)).toEqual({ status: 'pending', ticketId: null });
+    forms[0]!.onCreated(t.id);
+    expect(ops().outcomeFor(proposalId)).toEqual({ status: 'accepted', ticketId: t.id });
   });
 
   it('Review opens a prefilled form; nothing is created until it saves, and the save carries the summary as brief', async () => {

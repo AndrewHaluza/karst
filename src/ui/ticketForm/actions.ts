@@ -1429,6 +1429,7 @@ export function buildTicketFormActions(
         ctx.post({ type: 'error', message: errorMessage(e) });
         return;
       }
+      ctx.post({ type: 'draft-saved' });
 
       // The create-mode "Also create in ClickUp" checkbox: mint + bind the
       // provider task BEFORE the launch. The Karst ticket is already persisted
@@ -1523,6 +1524,7 @@ export function buildTicketFormActions(
       ctx.post({ type: 'busy', what: 'save', on: true });
       try {
         const ticketId = persistDraft(ctx, deps, input);
+        ctx.post({ type: 'draft-saved' });
         // Spill oversized descriptions to the attachment shelf at ingest.
         if (input.description) {
           const spillResult = await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir);
