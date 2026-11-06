@@ -494,8 +494,9 @@
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="field">
     <label for="intent" title="The reviewer and the UAT tester both judge the ticket against this">Acceptance check</label>
-    <textarea id="intent" class="k-input" rows="6" aria-label="Acceptance check" title="The reviewer and the UAT tester both judge the ticket against this"></textarea>
+    <textarea id="intent" class="k-input" rows="6" aria-label="Acceptance check" aria-describedby="intentHelp" title="The reviewer and the UAT tester both judge the ticket against this"></textarea>
   </div>
+  <span id="intentHelp" hidden>The reviewer and the UAT tester both judge the ticket against this text. It is a black-box test charter.</span>
   <div id="codePointersRow" class="field" hidden>
     <label for="codePointers">Code pointers</label>
     <textarea id="codePointers" class="k-input" rows="4" aria-label="Code pointers" title="Unverified hints — implementer only"></textarea>
@@ -791,14 +792,13 @@
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     if (!el('desc').value) el('desc').value = state.description || '';
-    if (!el('intent').value) {
-      el('intent').value = state.intent || '';
-      lastIntent = el('intent').value;
-    }
-    if (!el('codePointers').value) {
-      el('codePointers').value = state.codePointers || '';
-      lastPointers = el('codePointers').value;
-    }
+    if (!el('intent').value) el('intent').value = state.intent || '';
+    if (!el('codePointers').value) el('codePointers').value = state.codePointers || '';
+    // The baseline for "changed" is what the host STORES, refreshed on every push:
+    // after a Save the stored value equals the text, so editing back to the text
+    // that was first loaded still differs and is sent (T998).
+    lastIntent = state.intent || '';
+    lastPointers = state.codePointers || '';
     el('codePointersRow').hidden = !el('codePointers').value;
     el('attachments').innerHTML = renderAttachments(state.attachments || []);
     const rels = state.relations || [];

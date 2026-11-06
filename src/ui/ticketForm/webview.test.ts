@@ -1286,9 +1286,10 @@ describe('ticket-form webview.html — intent and code pointers', () => {
   it('render(state) seeds the fields and lastIntent/lastPointers from the stored state', () => {
     const src = functionSource('render');
     expect(src).toContain("el('intent').value = state.intent || ''");
-    expect(src).toContain("lastIntent = el('intent').value");
+    // The change baseline follows the STORED value on every push, not only the first.
+    expect(src).toContain("lastIntent = state.intent || ''");
     expect(src).toContain("el('codePointers').value = state.codePointers || ''");
-    expect(src).toContain("lastPointers = el('codePointers').value");
+    expect(src).toContain("lastPointers = state.codePointers || ''");
     expect(src).toContain("el('codePointersRow').hidden = !el('codePointers').value");
   });
 });

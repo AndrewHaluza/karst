@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { setStage } from '../../store/stages.js';
+import { buildTicketFormState } from './state.js';
 import {
   createTicket,
   deleteTicket,
@@ -3020,7 +3021,7 @@ describe('buildTicketFormActions', () => {
   describe('edit round trip and review-stalled park', () => {
     const edited = {
       key: 'RT-1', title: 'New title', description: 'New description',
-      repos: ['fe', 'be'], approach: 'rpi', agent: null, model: 'claude-opus-4-8', effort: 'high',
+      repos: ['fe', 'be'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high',
       agentProvider: 'codex', agentPreset: 'fast', ticketType: 'fix', agentBackend: 'host' as const,
       createInProvider: false, keyAutoDerived: false, baseRefs: { fe: 'epic/x', be: 'epic/x' },
       intent: 'NEW ACCEPTANCE CHECK', codePointers: 'src/a.ts:1',
@@ -3032,10 +3033,18 @@ describe('buildTicketFormActions', () => {
     function expectRoundTrip(id: number): void {
       expect(getTicket(store, id)).toMatchObject({
         title: 'New title', description: 'New description', selectedRepos: ['fe', 'be'],
-        approach: 'rpi', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex',
+        approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex',
         agentPreset: 'fast', type: 'fix', agentBackend: 'host', baseRefs: { fe: 'epic/x', be: 'epic/x' },
         intent: 'NEW ACCEPTANCE CHECK', codePointers: 'src/a.ts:1',
       });
+      // Reopen: the state the form is seeded from carries the saved values.
+      const reopened = buildTicketFormState(store, MANIFEST, () => ['rpi'], () => [], id);
+      expect(reopened).toMatchObject({
+        title: 'New title', description: 'New description', intent: 'NEW ACCEPTANCE CHECK',
+        codePointers: 'src/a.ts:1', selectedApproach: 'rpi', selectedAgent: 'reviewer',
+        selectedModel: 'claude-opus-4-8', selectedEffort: 'high',
+      });
+      expect(reopened.repos.filter((r) => r.selected).map((r) => r.service).sort()).toEqual(['be', 'fe']);
     }
 
     it('Save stores every field of a new ticket', async () => {
@@ -3066,6 +3075,24 @@ describe('buildTicketFormActions', () => {
       expect(openDashboard).not.toHaveBeenCalled();
       expect(ctx.closes).toBe(0);
       expect(ctx.posted).toContainEqual({ type: 'error', message: REVIEW_STALLED_START_MESSAGE });
+    });
+
+    it('Save stores a description the user cleared in edit mode', async () => {
+      const t = createTicket(store, { key: 'RT-2', title: 'old', description: 'something' });
+      routeTicketFormAction({ type: 'save', ...edited, key: 'RT-2', description: '' }, buildTicketFormActions(deps)(mkCtx(t.id)));
+      await settle();
+      expect(getTicket(store, t.id).description).toBe('');
+    });
+
+    it('the refusal unlocks the page buttons before it reports the reason', async () => {
+      const t = createTicket(store, { key: 'RT-3', title: 'old' });
+      setStageCurrent(store, t.id, 'fix');
+      setStage(store, t.id, 'fix', { blockedKind: 'review-stalled', blockedReason: 'stalled' });
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).submit({ ...edited, pullBase: true });
+      const types = ctx.posted.map((m) => m.type);
+      expect(ctx.posted).toContainEqual({ type: 'busy', what: 'submit', on: false });
+      expect(types.indexOf('busy')).toBeLessThan(types.indexOf('error'));
     });
   });
 });

@@ -407,9 +407,9 @@ function persistDraft(
   let ticketId: number;
   if (ctx.ticketId !== undefined) {
     updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
-    if (input.description) {
-      updateTicketFields(deps.store, ctx.ticketId, { description: input.description });
-    }
+    // Always written: a description the user cleared must be stored as empty,
+    // not silently kept (T998).
+    updateTicketFields(deps.store, ctx.ticketId, { description: input.description });
     ticketId = ctx.ticketId;
   } else {
     const t = createTicketFlow(deps.store, {
@@ -450,7 +450,7 @@ function persistDraft(
 
 /** The start refusal for a ticket parked on a review stall (shared wording for tests). */
 export const REVIEW_STALLED_START_MESSAGE =
-  'Saved. This ticket is parked on a review stall, so it cannot start here. Answer the stall on the dashboard (hint, continue or re-scope).';
+  'Saved. This ticket is parked on a review stall, so it cannot start here. Use the stall choices on the dashboard.';
 
 /** The refusal text when `ticketId` sits in a review-stalled park, else null. */
 function reviewStallRefusal(store: Store, ticketId: number): string | null {
@@ -1472,6 +1472,8 @@ export function buildTicketFormActions(
       // edit is kept, but a start would open an agent session beside the park.
       const parkRefusal = reviewStallRefusal(deps.store, ticketId);
       if (parkRefusal) {
+        // The page locked Save and start when it posted; unlock it before the error.
+        ctx.post({ type: 'busy', what: 'submit', on: false });
         ctx.post({ type: 'error', message: parkRefusal });
         ctx.pushState();
         return;
