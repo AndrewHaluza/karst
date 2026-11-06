@@ -47,8 +47,12 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
     handOff: (prompt) => { refusal = input.handOff(prompt); return refusal; },
   });
   if (failure !== null) return { kind: 'failed', reason: failure };
-  // The action already moved the ticket to Implement before the hand-off: a refused launch is still a sent round.
-  if (refusal !== null) input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: hand-off refused (${refusal}); the ticket is in Implement`);
+  // The ticket already moved to Implement, but no session got the task: the round did not reach the agent.
+  // The engine refunds the attempt and pauses autopilot with a visible reason (it cannot park the ship row any more).
+  if (refusal !== null) {
+    input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: hand-off refused (${refusal}); the ticket is in Implement`);
+    return { kind: 'failed', reason: refusal };
+  }
   return { kind: 'sent' };
 }
 

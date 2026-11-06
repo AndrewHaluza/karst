@@ -148,6 +148,18 @@ describe('two windows on one database', () => {
 });
 
 describe('makeLaunchTracker', () => {
+  it('passes failClosed only while an autopilot round marks the ticket', async () => {
+    const execute = vi.fn(async () => ({ kind: 'launched' as const }));
+    const t = makeLaunchTracker(execute);
+    t.open(1, 'p', 'r');
+    t.markRound(1, true);
+    t.open(1, 'p', 'r');
+    t.markRound(1, false);
+    t.open(1, 'p', 'r');
+    expect(execute.mock.calls.map((c) => (c as unknown[])[1])).toEqual([
+      { seedPrompt: 'p', seedRepo: 'r' }, { seedPrompt: 'p', seedRepo: 'r', failClosed: true }, { seedPrompt: 'p', seedRepo: 'r' },
+    ]);
+  });
   it('hands out a launch once, and turns a rejected launch into a failed outcome', async () => {
     const t = makeLaunchTracker(async () => { throw new Error('boom'); });
     expect(t.take(1)).toBeUndefined();

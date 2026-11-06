@@ -30,15 +30,15 @@ beforeEach(() => {
 });
 
 describe('ticket picker', () => {
-  it('offers only the ship tickets of the project, labelled by key', async () => {
-    createTicket(store, { key: 'AP-2', title: 'other', projectId });
+  it('offers every open ticket of the project (not only ship), labelled by key', async () => {
+    const early = createTicket(store, { key: 'AP-2', title: 'other', projectId }).id;
     const other = upsertProject(store, { slug: 'q' }).id;
-    const shipElsewhere = createTicket(store, { key: 'AP-3', title: 'x', projectId: other }).id;
-    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, shipElsewhere, from, { kind: 'passed' });
-    setStage(store, shipElsewhere, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    createTicket(store, { key: 'AP-3', title: 'x', projectId: other });
     const pickTicket = vi.fn(async () => undefined);
     await setOverrideCommand(deps({ pickTicket }));
-    expect(pickTicket).toHaveBeenCalledWith([{ label: 'AP-1', ticketId: id }], 'Set auto-fix mode for which ticket?');
+    const [picks, holder] = pickTicket.mock.calls[0] as unknown as [Array<{ label: string; ticketId: number }>, string];
+    expect(holder).toBe('Set auto-fix mode for which ticket?');
+    expect(picks.map((p) => p.ticketId).sort()).toEqual([id, early].sort());
   });
   it('does not ask without a bound project', async () => {
     const pickTicket = vi.fn();

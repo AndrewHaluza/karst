@@ -16,12 +16,19 @@ import type { CiActionsInput } from './ops/ciActionsWiring.js';
  * (read-only sandbox, setup failure) as an environment blocker instead of a sent round.
  */
 export function makeLaunchTracker(
-  execute: (ticketId: number, options: { seedPrompt: string; seedRepo: string }) => Promise<SessionOutcome | undefined>,
-): { open(ticketId: number, seedPrompt: string, seedRepo: string): void; take(ticketId: number): Promise<SessionOutcome | undefined> | undefined } {
+  execute: (ticketId: number, options: { seedPrompt: string; seedRepo: string; failClosed?: true }) => Promise<SessionOutcome | undefined>,
+): {
+  open(ticketId: number, seedPrompt: string, seedRepo: string): void;
+  take(ticketId: number): Promise<SessionOutcome | undefined> | undefined;
+  /** While an autopilot round runs for a ticket, its launch fails closed (no sandbox host-fallback prompt, AC-31). A manual click keeps its prompt. */
+  markRound(ticketId: number, on: boolean): void;
+} {
   const pending = new Map<number, Promise<SessionOutcome | undefined>>();
+  const rounds = new Set<number>();
   return {
+    markRound: (ticketId, on) => { if (on) rounds.add(ticketId); else rounds.delete(ticketId); },
     open: (ticketId, seedPrompt, seedRepo) => {
-      pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
+      pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo, ...(rounds.has(ticketId) ? { failClosed: true as const } : {}) }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
     },
     take: (ticketId) => { const p = pending.get(ticketId); pending.delete(ticketId); return p; },
   };
@@ -49,6 +56,8 @@ export interface AutopilotBindingDeps {
   readonly ciInput: (ticketId: number) => CiActionsInput;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
+  /** Marks the ticket while an autopilot round may open its session: that launch never offers the sandbox host fallback (AC-31). */
+  readonly roundLaunching?: (ticketId: number, on: boolean) => void;
 }
 
 /**
@@ -82,12 +91,17 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   };
   const sent = async (id: number, outcome: () => Promise<FixOutcome>): Promise<FixOutcome> => {
     if (!beginRound(id)) return { kind: 'lease-lost' };
-    const result = await outcome();
-    if (result.kind !== 'sent') { abandonRound(id); return result; }
-    const failure = await launchFailure(id);
-    // The CI hand-off already moved the ticket to Implement: the cooldown stays, the engine does not park on ship.
-    if (failure !== null) return { kind: 'env-blocker', reason: `session launch failed: ${failure}` };
-    return result;
+    d.roundLaunching?.(id, true);
+    try {
+      const result = await outcome();
+      if (result.kind !== 'sent') { abandonRound(id); return result; }
+      const failure = await launchFailure(id);
+      // The CI hand-off already moved the ticket to Implement: the cooldown stays, the engine pauses with a visible reason.
+      if (failure !== null) return { kind: 'env-blocker', reason: `session launch failed: ${failure}` };
+      return result;
+    } finally {
+      d.roundLaunching?.(id, false);
+    }
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
   // One sweep at a time: overlapping sweeps must not spend the budget twice.

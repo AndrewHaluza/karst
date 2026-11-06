@@ -131,11 +131,11 @@ describe('ciOutcome', () => {
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket T1 ci error: gh down');
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket T1 ci: hello');
   });
-  it('a refused hand-off is still a sent round: the ticket already moved to Implement', async () => {
+  it('a refused hand-off is a failed round: no session got the task', async () => {
     const r = rig();
     (r.input as { handOff: unknown }).handOff = vi.fn(() => 'no seat');
     vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { i.handOff('p'); });
-    expect(await ciOutcome(r.input)).toEqual({ kind: 'sent' });
+    expect(await ciOutcome(r.input)).toEqual({ kind: 'failed', reason: 'no seat' });
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket T1 ci: hand-off refused (no seat); the ticket is in Implement');
   });
 });

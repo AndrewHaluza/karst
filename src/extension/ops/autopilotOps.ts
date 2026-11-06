@@ -5,6 +5,7 @@ import { getStage } from '../../store/stages.js';
 import { decideBudget, getAutopilotBudget } from '../../store/autopilot.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import {
   effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, pausedReason, refundAutopilotAttempt,
@@ -84,6 +85,19 @@ function foreignBlock(store: Store, ticketId: number): boolean {
 /** Tickets with a round in flight in this process: a second tick for the same ticket must not start another round. */
 const inFlight = new Set<string>();
 
+/** Queued rounds already announced with a note (one per signature), so a waiting tick stays quiet after the first. */
+const queuedNotedByStore = new WeakMap<Store, Set<string>>();
+
+function queuedNoted(store: Store): Set<string> {
+  let set = queuedNotedByStore.get(store);
+  if (!set) { set = new Set(); queuedNotedByStore.set(store, set); }
+  return set;
+}
+
+function flightKeyOf(d: Pick<AutopilotDeps, 'store' | 'ticketId'>): string {
+  return `${d.store.db.name}:${d.ticketId}`;
+}
+
 function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
   // Another writer's block (push-diverged) owns the ship row: leave it untouched.
   if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
@@ -129,7 +143,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
-  const flightKey = `${d.store.db.name}:${d.ticketId}`;
+  const flightKey = flightKeyOf(d);
   if (inFlight.has(flightKey)) return { kind: 'busy' };
   inFlight.add(flightKey);
   try {
@@ -155,7 +169,16 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     const reason = `auto-fix not run: ci check ${(problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)'} is not on the allowlist`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
-  if (d.concurrencyFull()) return { kind: 'queued' };
+  if (d.concurrencyFull()) {
+    // A waiting round must be visible: one note per signature (not per tick), plus a debug line each time.
+    const waitKey = `${flightKeyOf(d)}:${problem.kind}:${problem.repo}:${problem.signature}`;
+    d.debug(`${LOG} ticket ${d.key} ${problem.kind} round for ${problem.repo} is waiting for a free concurrency slot`);
+    if (!queuedNoted(d.store).has(waitKey)) {
+      queuedNoted(d.store).add(waitKey);
+      d.note(`Autopilot: ${problem.kind} round is waiting`, `${d.key}: the ${problem.kind} round for ${problem.repo} waits for a free sub-task slot; it starts when one is free.`);
+    }
+    return { kind: 'queued' };
+  }
 
   const max = problem.kind === 'conflicts' ? cfg.conflicts.maxRounds : cfg.ci.maxAttempts;
   const budget = takeAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind, problem.signature, max);
@@ -169,6 +192,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'not-controller' };
   }
   if (outcome.kind === 'sent') {
+    // The stored CI rollup belongs to the head the resolved merge replaces: forget it, so a stale failure never starts a CI round.
+    if (problem.kind === 'conflicts') clearOpenPrProbe(d.store, d.ticketId, problem.repo);
+    queuedNoted(d.store).clear();
     setAutopilotStopped(d.store, d.ticketId, null);
     clearParkBlock(d.store, d.ticketId);
     d.note(`Autopilot: ${problem.kind} round ${budget.used}/${budget.max}`, `${d.key}: ran ${problem.kind === 'conflicts' ? 'Resolve conflicts' : 'Send CI failure to agent'} for ${problem.repo} (round ${budget.used}/${budget.max}).`);
@@ -176,13 +202,17 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return { kind: 'armed', problem: problem.kind, used: budget.used, max: budget.max };
   }
   // Neither an environment blocker nor a failed fetch reached the agent: they cost no attempt and are not retried.
-  if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
-    // The action already moved the ticket on (CI hand-off to Implement): the attempt is spent and the ship row is not ours to park.
-    d.note(`Autopilot: ${problem.kind} round could not start`, `${d.key}: the round for ${problem.repo} was sent but the session did not start (${outcome.reason}); the ticket is no longer in ship.`);
-    d.debug(`${LOG} ticket ${d.key} ${problem.kind} left ship before the failure: ${outcome.reason}`);
-    return { kind: 'nothing' };
-  }
   refundAutopilotAttempt(d.store, d.ticketId, problem.repo, problem.kind);
+  if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
+    // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
+    // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
+    const reason = `auto-fix paused: ${problem.kind} session did not start (${outcome.reason})`;
+    setAutopilotStopped(d.store, d.ticketId, reason);
+    setAutopilotPaused(d.store, d.ticketId, reason);
+    d.note(`Autopilot: ${reason}`, `${d.key}: the ${problem.kind} round for ${problem.repo} moved the ticket to Implement but no session started; no attempt was used. Start the agent by hand, then set the auto-fix mode again to resume.`);
+    d.debug(`${LOG} ticket ${d.key} ${problem.kind} left ship before the failure: ${outcome.reason}`);
+    return { kind: 'parked', reason };
+  }
   if (outcome.kind === 'env-blocker') {
     return park(d, problem.kind, pausedReason(outcome.reason), `the sandbox cannot run a round (${outcome.reason}); no attempt was used and the host fallback is never taken.`, true);
   }

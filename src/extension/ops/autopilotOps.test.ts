@@ -447,11 +447,34 @@ describe('autopilotTick review #4 guards', () => {
     expect(stageBlock(store, id, 'ship')).toBeNull();
   });
 
-  it('does not park on ship when the ticket already left ship', async () => {
+  it('pauses with a visible reason and refunds the attempt when the ticket left ship before the launch failed', async () => {
     seedPr(failing('build'));
-    const r = rig({ sendCiFailure: async () => { setStageCurrent(store, id, 'impl'); return { kind: 'env-blocker', reason: 'read-only' }; } });
-    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    const r = rig({ sendCiFailure: async () => { setStageCurrent(store, id, 'impl'); return { kind: 'failed', reason: 'no seat' }; } });
+    const result = await autopilotTick(r.deps);
+    expect(result.kind).toBe('parked');
     expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: ci session did not start (no seat)');
     expect(r.notes.length).toBe(1);
+  });
+
+  it('forgets the stored CI rollup after a conflict round, so a stale failure from the old head starts no CI round', async () => {
+    seedPr(failing('build')); conflict();
+    expect((await autopilotTick(rig().deps)).kind).toBe('armed');
+    clearMergeCheck(store, id, 'r');
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+  });
+
+  it('shows a round that waits for the concurrency limit: one note per signature, a debug line per tick', async () => {
+    seedPr(); conflict();
+    const r = rig({ concurrencyFull: () => true });
+    expect((await autopilotTick(r.deps)).kind).toBe('queued');
+    expect((await autopilotTick(r.deps)).kind).toBe('queued');
+    expect(r.notes.length).toBe(1);
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('waiting for a free concurrency slot')).length).toBe(2);
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
 });

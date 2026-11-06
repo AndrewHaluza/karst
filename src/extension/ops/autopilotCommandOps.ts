@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { formatId } from '../../model/entityId.js';
+import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import {
@@ -27,7 +28,8 @@ async function resolveTicket(d: AutopilotCommandDeps, given: number | undefined,
   if (given !== undefined) return given;
   const projectId = d.projectId();
   if (projectId === undefined) return undefined;
-  const picks = listTickets(d.store, { projectId }).filter((t) => t.stageCurrent === 'ship')
+  // Any open ticket: an override or a stop must reach a ticket that is not at ship yet (or was sent back to Implement).
+  const picks = listTickets(d.store, { projectId }).filter((t) => !isFinishedStage(t.stageCurrent))
     .map((t) => ({ label: t.key ?? formatId('ticket', t.id), ticketId: t.id }));
   return d.pickTicket(picks, placeHolder);
 }
