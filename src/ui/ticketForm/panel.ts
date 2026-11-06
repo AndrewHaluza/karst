@@ -571,8 +571,10 @@ export class TicketFormManager {
     // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
     // not on the initial activation — report it so the sidebar highlights it
     // (a create panel reports nothing until it has a ticket).
-    panelActive = true;
-    if (boundId !== undefined) this.onViewActivated?.(boundId, true);
+    // An adopted (restored) tab may be in the background: VS Code reports its
+    // focus through onDidChangeViewState, so it claims nothing here.
+    panelActive = restored === undefined;
+    if (panelActive && boundId !== undefined) this.onViewActivated?.(boundId, true);
   }
 
   /** Push the current catalog to every ticket-form panel that is still live. */

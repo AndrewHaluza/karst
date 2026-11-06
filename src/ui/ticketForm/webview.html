@@ -1262,6 +1262,7 @@
   function useBriefAsPrompt() {
     promptUndo = { prev: el('desc').value };
     el('desc').value = briefDescription();
+    formPersist.touch('desc'); // code wrote the text without an input event
     syncAnalyzeBtn();
     renderBrief();
     const u = el('briefUndo');
@@ -1277,6 +1278,7 @@
     if (t.closest('#briefUndo')) {
       el('desc').value = promptUndo ? promptUndo.prev : el('desc').value;
       promptUndo = null;
+      formPersist.touch('desc'); // code wrote the text without an input event
       syncAnalyzeBtn();
       renderBrief();
       el('desc').focus();

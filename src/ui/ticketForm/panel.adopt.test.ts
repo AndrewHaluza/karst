@@ -95,6 +95,22 @@ describe('TicketFormManager.adopt', () => {
     expect(mgr.adopt(restored().restored, { karstPanel: { mode: 'edit', ticketId: t.id } }, exists)).toBe(true);
   });
 
+  it('does not report an adopted edit form as the active view; a later focus change does', () => {
+    const t = createTicket(store, { key: 'P-2', title: 'thing' });
+    createdIds.add(t.id);
+    const calls: Array<[number, boolean]> = [];
+    // The report callback is a private constructor parameter; set it on the instance.
+    (mgr as unknown as { onViewActivated: (id: number, active: boolean) => void }).onViewActivated =
+      (id, active) => void calls.push([id, active]);
+    const a = restored();
+    let viewState: ((active: boolean) => void) | undefined;
+    a.panel.onDidChangeViewState = (h) => { viewState = h; };
+    expect(mgr.adopt(a.restored, { karstPanel: { mode: 'edit', ticketId: t.id } }, exists)).toBe(true);
+    expect(calls).toEqual([]);
+    viewState?.(true);
+    expect(calls).toEqual([[t.id, true]]);
+  });
+
   it('closes silently when the ticket is missing', () => {
     const a = restored();
     expect(mgr.adopt(a.restored, { karstPanel: { mode: 'edit', ticketId: 999 } }, exists)).toBe(false);

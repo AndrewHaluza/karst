@@ -103,6 +103,21 @@ describe('ticket form — draft persistence', () => {
     expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { desc: 'improved by the agent' } });
   });
 
+  it('records the description the brief buttons wrote, and the undo', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState({ sourceRef: 'X1' }) });
+    type(h, 'desc', 'my text');
+    h.receive({ type: 'brief', brief: { title: 'T', description: 'D body', tags: [], comments: [], attachments: [], url: 'https://x.test/1' } });
+    await settle();
+    h.click('#briefUse');
+    await settle();
+    // The fetched brief also fills the empty Title; the test is about the description.
+    expect((h.state as { draft: Record<string, string> }).draft.desc).toBe('D body');
+    h.click('#briefUndo');
+    await settle();
+    expect((h.state as { draft: Record<string, string> }).draft.desc).toBe('my text');
+  });
+
   it('keeps a cleared field empty when a later state push arrives', () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 7, title: 'T', description: 'host text' }) });
