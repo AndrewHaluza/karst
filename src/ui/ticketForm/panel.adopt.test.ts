@@ -161,57 +161,100 @@ describe('TicketFormManager.adopt', () => {
   describe('proposal review form', () => {
     const prefill = { title: 'Fix', description: 'd', summary: 's', repos: [], draftId: 5, onCreated: () => {} };
     const state = (extra: Record<string, unknown> = {}) => ({ karstPanel: { mode: 'create', prefilled: true, draftId: 5, ...extra } });
+    const pending = (id: number) => (id === 5 ? { status: 'pending' as const, ticketId: null } : undefined);
+    const lookupPrefill = (id: number) => (id === 5 ? prefill : undefined);
+    const mint = (key: string): number => {
+      const row = createTicket(store, { key, title: 'Fix' });
+      createdIds.add(row.id);
+      return row.id;
+    };
+    const adoptPending = (r: ReturnType<typeof restored>, extra: Record<string, unknown> = {}): boolean =>
+      mgr.adopt(r.restored, state(extra), exists, lookupPrefill, pending);
 
     it('re-links to its proposal: the form is adopted with the rebuilt prefill', () => {
       const r = restored();
-      expect(mgr.adopt(r.restored, state(), exists, (id) => (id === 5 ? prefill : undefined))).toBe(true);
+      expect(adoptPending(r)).toBe(true);
       expect(r.wrapped()).toBe(true);
       const pushed = (r.panel.posted[0] as { state: { prefilled?: boolean; title: string } }).state;
       expect(pushed).toMatchObject({ prefilled: true, title: 'Fix' });
     });
 
-    it('takes back the draft row it minted before the reload', () => {
-      const row = createTicket(store, { key: '', title: 'Fix' });
-      createdIds.add(row.id);
+    it('keeps the proposal link of a form that fetched a keyed draft row: Save still accepts the proposal', () => {
+      const onCreated: number[] = [];
+      const linked = { ...prefill, onCreated: (id: number) => void onCreated.push(id) };
+      const rowId = mint('FETCHED-1');
       const r = restored();
-      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => prefill)).toBe(true);
-      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: row.id });
-      // closing the uncommitted form discards the row it minted
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => linked, pending)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number; prefilled?: boolean } }).state)
+        .toMatchObject({ mode: 'edit', ticketId: rowId, prefilled: true });
+      // a keyed row is NOT a committed ticket: closing the uncommitted form discards it
       r.panel.dispose();
-      expect(() => getTicket(store, row.id)).toThrow();
+      expect(() => getTicket(store, rowId)).toThrow();
     });
 
-    it('closes when the proposal is not pending, and discards the row it minted', () => {
-      const row = createTicket(store, { key: '', title: 'Fix' });
-      createdIds.add(row.id);
+    it('restores a saved proposal form as the edit form of its ticket and never deletes the ticket', () => {
+      const rowId = mint('');
+      const accepted = () => ({ status: 'accepted' as const, ticketId: rowId });
       const r = restored();
-      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => undefined)).toBe(false);
+      // the saved identity is older than the save: it still names the draft and the minted row
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => undefined, accepted)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: rowId });
+      r.panel.dispose();
+      expect(getTicket(store, rowId).id).toBe(rowId);
+      // a ticket that was archived since closes the tab and still deletes nothing
+      archivedIds.add(rowId);
+      const gone = restored();
+      expect(mgr.adopt(gone.restored, state({ mintedTicketId: rowId }), exists, () => undefined, accepted)).toBe(false);
+      expect(gone.disposed()).toBe(true);
+      expect(getTicket(store, rowId).id).toBe(rowId);
+    });
+
+    it('closes a second restored form for a row that already has an open form', () => {
+      const rowId = mint('FETCHED-2');
+      const first = restored();
+      expect(adoptPending(first, { mintedTicketId: rowId })).toBe(true);
+      const second = restored();
+      expect(adoptPending(second, { mintedTicketId: rowId })).toBe(false);
+      expect(second.disposed()).toBe(true);
+      expect(logs.join('\n')).toContain('already open');
+      // the first form still owns the row
+      expect(getTicket(store, rowId).id).toBe(rowId);
+    });
+
+    it('closes a second restored form for a draft that already has an open form', () => {
+      const first = restored();
+      expect(adoptPending(first)).toBe(true);
+      const second = restored();
+      expect(adoptPending(second)).toBe(false);
+      expect(second.disposed()).toBe(true);
+      // closing the first form frees the draft
+      first.panel.dispose();
+      expect(adoptPending(restored())).toBe(true);
+    });
+
+    it('closes when the proposal is no longer pending, and discards the row it minted', () => {
+      const rowId = mint('FETCHED-3');
+      const r = restored();
+      const discarded = () => ({ status: 'discarded' as const, ticketId: null });
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => undefined, discarded)).toBe(false);
       expect(r.disposed()).toBe(true);
       expect(r.wrapped()).toBe(false);
-      expect(() => getTicket(store, row.id)).toThrow();
+      expect(() => getTicket(store, rowId)).toThrow();
       expect(logs.join('\n')).toContain('proposal of the review form is gone');
     });
 
-    it('keeps a committed ticket when the saved identity still says proposal draft', () => {
-      const row = createTicket(store, { key: 'D-7', title: 'Fix' });
-      createdIds.add(row.id);
-      // proposal gone: the committed ticket still restores as an edit form and survives its close
-      const gone = restored();
-      expect(mgr.adopt(gone.restored, state({ mintedTicketId: row.id }), exists, () => undefined)).toBe(true);
-      expect((gone.panel.posted[0] as { state: { mode: string } }).state).toMatchObject({ mode: 'edit' });
-      gone.panel.dispose();
-      expect(getTicket(store, row.id).id).toBe(row.id);
-      // proposal pending: the form restores as the ticket's edit form and closing it keeps the ticket
+    it('keeps the row when the store has no verdict on the proposal', () => {
+      const rowId = mint('FETCHED-4');
       const r = restored();
-      expect(mgr.adopt(r.restored, state({ mintedTicketId: row.id }), exists, () => prefill)).toBe(true);
-      expect((r.panel.posted[0] as { state: { mode: string; ticketId: number } }).state).toMatchObject({ mode: 'edit', ticketId: row.id });
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => undefined, () => undefined)).toBe(true);
+      expect((r.panel.posted[0] as { state: { mode: string } }).state).toMatchObject({ mode: 'edit' });
       r.panel.dispose();
-      expect(getTicket(store, row.id).id).toBe(row.id);
+      expect(getTicket(store, rowId).id).toBe(rowId);
     });
 
     it('closes when the saved state has no draft id or no lookup is wired', () => {
       const r = restored();
-      expect(mgr.adopt(r.restored, { karstPanel: { mode: 'create', prefilled: true } }, exists, () => prefill)).toBe(false);
+      expect(mgr.adopt(r.restored, { karstPanel: { mode: 'create', prefilled: true } }, exists, lookupPrefill, pending)).toBe(false);
       const r2 = restored();
       expect(mgr.adopt(r2.restored, state(), exists)).toBe(false);
     });

@@ -6,6 +6,7 @@ import {
   markProposalAccepted,
   proposalPayloadEquals,
   type PlanningProposal,
+  type ProposalStatus,
 } from '../../store/planningProposals.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import { formatId } from '../../model/entityId.js';
@@ -43,6 +44,11 @@ export interface PlanningProposalOps {
    * (no notification). A restored review form uses it to link itself to its proposal again.
    */
   prefillFor(id: number): TicketFormPrefill | undefined;
+  /**
+   * The stored verdict on a proposal of this project. `accepted` is written when the user saves
+   * the review form, so a restored form reads it to tell a committed ticket from a draft row.
+   */
+  outcomeFor(id: number): { status: ProposalStatus; ticketId: number | null } | undefined;
   discard(id: number): Promise<void>;
 }
 
@@ -109,6 +115,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
       if (!p || p.status !== 'pending' || !session || session.projectId !== deps.projectId()) return undefined;
       return prefillOf(p);
+    },
+
+    outcomeFor(id) {
+      const p = getProposal(deps.store, id);
+      const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
+      if (!p || !session || session.projectId !== deps.projectId()) return undefined;
+      return { status: p.status, ticketId: p.ticketId };
     },
 
     async review(id) {

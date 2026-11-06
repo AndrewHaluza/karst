@@ -681,10 +681,16 @@
     const write = () => {
       timer = null;
       const draft = {};
-      for (const f of dirty) { draft[f] = el(f).value; written[f] = draft[f]; }
+      for (const f of dirty) {
+        // A key the Title derived is not text the user owns: it stays out of the draft, so a
+        // restore derives it again from the restored Title instead of locking the old one.
+        if (f === 'ref' && !refTouched) continue;
+        draft[f] = el(f).value;
+        written[f] = draft[f];
+      }
       vscode.setState({
         ...(identity ? { karstPanel: identity } : {}),
-        ...(dirty.size ? { draft } : {}),
+        ...(Object.keys(draft).length ? { draft } : {}),
       });
     };
     return {

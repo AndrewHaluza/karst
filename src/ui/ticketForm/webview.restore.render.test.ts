@@ -147,6 +147,32 @@ describe('ticket form — draft persistence', () => {
     expect(h.query<HTMLTextAreaElement>('#desc')!.value).toBe('');
   });
 
+  it('keeps a key derived from the Title out of the draft, so a restore derives it from the restored Title', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    type(h, 'ref', 'x');
+    type(h, 'ref', '');
+    type(h, 'title', 'Fix login');
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { title: 'Fix login' } });
+    h.close();
+    // an old build saved the derived key; a restore of the new draft derives it from the Title
+    h = renderWebview('ticketForm', { persistedState: { karstPanel: { mode: 'create' }, draft: { title: 'Fix login' } } });
+    h.receive({ type: 'state', state: baseState() });
+    expect(h.query<HTMLInputElement>('#ref')!.value).not.toBe('');
+    type(h, 'title', 'Other title');
+    const derived = h.query<HTMLInputElement>('#ref')!.value;
+    expect(derived.toLowerCase()).toContain('other');
+  });
+
+  it('keeps a key the user typed in the draft', async () => {
+    h = renderWebview('ticketForm');
+    h.receive({ type: 'state', state: baseState() });
+    type(h, 'ref', 'ABC-1');
+    await settle();
+    expect(h.state).toEqual({ karstPanel: { mode: 'create' }, draft: { ref: 'ABC-1' } });
+  });
+
   it('keeps the proposal identity after the form minted a draft row', () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState({ mode: 'edit', ticketId: 9, prefilled: true }) });

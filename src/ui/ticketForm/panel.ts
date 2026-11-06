@@ -175,6 +175,12 @@ function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | un
   return { entries, warnings };
 }
 
+/** What the store says about a planning proposal: only `accepted` means the user saved its ticket. */
+export interface ProposalOutcome {
+  status: 'pending' | 'accepted' | 'discarded';
+  ticketId: number | null;
+}
+
 /** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
 export type RestoredTicketFormIdentity =
   | { mode: 'create'; prefilled: boolean; draftId?: number; mintedTicketId?: number }
@@ -212,6 +218,8 @@ export class TicketFormManager {
   private readonly modelRefreshers = new Set<() => void>();
   /** Next unbound-create sentinel; decrements so create panels never collide. */
   private nextCreateKey = -1;
+  /** Draft ids of the proposal review forms that are open. */
+  private readonly openDrafts = new Set<number>();
 
   /**
    * `manifest` is a getter, not a fixed value, so each open (and each state push
@@ -310,6 +318,7 @@ export class TicketFormManager {
     state: unknown,
     exists: (ticketId: number) => boolean,
     proposalPrefill?: (draftId: number) => TicketFormPrefill | undefined,
+    proposalOutcome?: (draftId: number) => ProposalOutcome | undefined,
   ): boolean {
     const identity = restoredTicketFormIdentity(state);
     if (!identity) {
@@ -318,28 +327,7 @@ export class TicketFormManager {
       return false;
     }
     if (identity.mode === 'create') {
-      // A planning-proposal review form is linked to its proposal through an in-memory
-      // callback that a reload loses. The saved draft id lets the host build the prefill
-      // again and so re-link the form. When the proposal is no longer pending, the form
-      // closes and the draft row it minted (if any) is discarded.
-      if (identity.prefilled) {
-        // The saved identity can be older than the commit: the user's Save/Submit gives the
-        // minted row a key. A keyed row is a committed ticket, so it is never discarded and the
-        // form restores as its edit form. Only a row that still has no key is an uncommitted draft.
-        const mintedId = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
-        if (mintedId !== undefined && this.isCommittedRow(mintedId)) {
-          return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists, proposalPrefill);
-        }
-        const prefill = identity.draftId !== undefined ? proposalPrefill?.(identity.draftId) : undefined;
-        if (!prefill) {
-          this.debug('[restore] karst.ticketForm: proposal of the review form is gone, tab closed');
-          if (mintedId !== undefined) this.discardMintedRow(mintedId);
-          restored.dispose();
-          return false;
-        }
-        this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId);
-        return true;
-      }
+      if (identity.prefilled) return this.adoptProposalForm(restored, identity, exists, proposalPrefill, proposalOutcome);
       this.open(this.nextCreateKey--, 'create', undefined, undefined, restored);
       return true;
     }
@@ -354,6 +342,49 @@ export class TicketFormManager {
       return false;
     }
     this.open(identity.ticketId, 'edit', identity.ticketId, undefined, restored);
+    return true;
+  }
+
+  /**
+   * Re-attach a planning-proposal review form. The saved identity can be older than the
+   * user's Save/Submit, so it never decides whether the form was committed: the proposal
+   * row does (`accepted` is written by `onCreated` when the user saves). A committed form
+   * restores as the edit form of its ticket, which restore never deletes. A pending
+   * proposal rebuilds the prefill, so the form keeps its proposal link. Every path that
+   * opens a form checks first that no form is open for the same row or the same draft.
+   */
+  private adoptProposalForm(
+    restored: RestoredPanel<TicketFormPanel>,
+    identity: Extract<RestoredTicketFormIdentity, { mode: 'create' }>,
+    exists: (ticketId: number) => boolean,
+    proposalPrefill?: (draftId: number) => TicketFormPrefill | undefined,
+    proposalOutcome?: (draftId: number) => ProposalOutcome | undefined,
+  ): boolean {
+    const draftId = identity.draftId;
+    const outcome = draftId !== undefined ? proposalOutcome?.(draftId) : undefined;
+    const close = (why: string): false => {
+      this.debug(`[restore] karst.ticketForm: ${why}, tab closed`);
+      restored.dispose();
+      return false;
+    };
+    if (outcome?.status === 'accepted') {
+      if (outcome.ticketId === null) return close('accepted proposal has no ticket');
+      return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: outcome.ticketId } }, exists);
+    }
+    const mintedId = identity.mintedTicketId !== undefined && exists(identity.mintedTicketId) ? identity.mintedTicketId : undefined;
+    // Without a proposal verdict the row cannot be proven uncommitted, so it is kept as an edit form.
+    if (outcome === undefined && mintedId !== undefined) {
+      return this.adopt(restored, { karstPanel: { mode: 'edit', ticketId: mintedId } }, exists);
+    }
+    const prefill = outcome?.status === 'pending' && draftId !== undefined ? proposalPrefill?.(draftId) : undefined;
+    if (!prefill) {
+      if (mintedId !== undefined) this.discardMintedRow(mintedId);
+      return close('proposal of the review form is gone');
+    }
+    if ((mintedId !== undefined && this.panels.has(mintedId)) || (draftId !== undefined && this.openDrafts.has(draftId))) {
+      return close('form for this proposal already open');
+    }
+    this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId);
     return true;
   }
 
@@ -387,6 +418,7 @@ export class TicketFormManager {
     // A restored tab still carries the title it had when the window closed.
     if (restored) panel.setTitle?.(title);
     this.panels.set(key, panel);
+    if (prefill?.draftId !== undefined) this.openDrafts.add(prefill.draftId);
     if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);
 
     // Mutable so persist-on-fetch can bind a create panel to its new draft
@@ -584,6 +616,7 @@ export class TicketFormManager {
       disposed = true;
       if (prefill && !prefillCommitted && mintedId !== undefined) this.discardMintedRow(mintedId);
       this.panels.delete(panelKey);
+      if (prefill?.draftId !== undefined) this.openDrafts.delete(prefill.draftId);
       this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
       // The ACTIVE view can be closed while focused; the dispose is the only
@@ -601,11 +634,6 @@ export class TicketFormManager {
     // focus through onDidChangeViewState, so it claims nothing here.
     panelActive = restored === undefined ? true : panel.isActive?.() === true;
     if (panelActive && boundId !== undefined) this.onViewActivated?.(boundId, true);
-  }
-
-  /** Whether a minted row was committed: Save/Submit gives it a key, an uncommitted draft has none. */
-  private isCommittedRow(ticketId: number): boolean {
-    return getTicket(this.store, ticketId).key !== '';
   }
 
   /** Delete the draft row a proposal review form minted, with its attachment files; the sidebar refreshes. */

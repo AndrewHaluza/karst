@@ -85,14 +85,16 @@ describe('makeRestorers', () => {
       const closed: unknown[] = [];
       const adopted: unknown[][] = [];
       const prefill = (): unknown => undefined;
+      const outcome = (): unknown => undefined;
       const restorers = makeRestorers({
         store: openStore(':memory:'),
         ticketForm: { adopt: (...a: unknown[]) => void adopted.push(a) },
         ticketFormHost: { restore: () => ({ wrap: () => ({}), dispose: () => void closed.push(1) }) as never },
         manifestReady: () => ready,
         proposalPrefill: prefill,
+        proposalOutcome: outcome,
       } as never);
-      return { restorers, closed, adopted, prefill };
+      return { restorers, closed, adopted, prefill, outcome };
     };
     const off = mk(false);
     await off.restorers['karst.ticketForm']!({} as never, { karstPanel: { mode: 'create' } });
@@ -102,6 +104,7 @@ describe('makeRestorers', () => {
     await on.restorers['karst.ticketForm']!({} as never, { karstPanel: { mode: 'create' } });
     expect(on.closed).toHaveLength(0);
     expect(on.adopted[0]![3]).toBe(on.prefill);
+    expect(on.adopted[0]![4]).toBe(on.outcome);
   });
 
   it('adopts each singleton and the doctor with the raw panel', async () => {

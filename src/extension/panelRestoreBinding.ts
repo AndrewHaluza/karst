@@ -52,10 +52,13 @@ export interface RestoreTargets<R extends RawPanel> {
       state: unknown,
       exists: (id: number) => boolean,
       proposalPrefill?: (draftId: number) => unknown,
+      proposalOutcome?: (draftId: number) => unknown,
     ): unknown;
   };
   /** Builds the prefill of a pending planning proposal again; undefined when it is no longer pending in this project. */
   proposalPrefill?: (draftId: number) => unknown;
+  /** The stored status of a planning proposal; a restored review form reads it to tell a saved ticket from a draft row. */
+  proposalOutcome?: (draftId: number) => unknown;
   /** True when the manifest loads. A restored form of a window without a usable manifest closes: a Save would clear its repositories. */
   manifestReady?: () => boolean;
   ticketFormHost: Host<R, unknown>;
@@ -93,7 +96,7 @@ export function makeRestorers<R extends RawPanel>(t: RestoreTargets<R>): Restore
     'karst.ticketForm': (raw, state) => {
       const restored = t.ticketFormHost.restore(raw as R);
       if (t.manifestReady && !t.manifestReady()) return restored.dispose();
-      void t.ticketForm.adopt(restored, state, exists, t.proposalPrefill);
+      void t.ticketForm.adopt(restored, state, exists, t.proposalPrefill, t.proposalOutcome);
     },
     'karst.settings': async (raw) => void (await t.settings.adopt(t.settingsHost.restore(raw as R))),
     'karst.gettingStarted': (raw) => void t.gettingStarted.adopt(t.gettingStartedHost.restore(raw as R)),
