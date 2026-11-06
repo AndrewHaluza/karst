@@ -93,6 +93,31 @@ describe('intent issue scope', () => {
     expect(r2).toEqual({ done: 2, stopped: true });
     expect(more).toHaveLength(3);
   });
+  it('a fixed scope makes no scope call and gives all judges the same denominator', async () => {
+    const entries = entriesOf(['a']);
+    const calls = [[], []];
+    const judges = ['j1', 'j2'];
+    const fixedScopes = new Map([['a', { stated: ['t1'], notStated: ['t2'] }]]);
+    const jobs = buildJobs(entries, judges, 1);
+    expect(countJudgeCalls(jobs, fixedScopes)).toEqual({ attempts: 8, scopes: 0, total: 8 });
+    const r = await runRejudge({ jobs, judges, adapters: calls.map(fake), fixedScopes, maxCalls: 8, makeEmptyDir: tmp });
+    expect(r).toEqual({ done: 8, stopped: false });
+    for (const c of calls) expect(c.every((x) => x.prompt.includes('## CHARTER'))).toBe(true);
+    for (const e of entries) for (const v of e.judged) expect(v.tests.map((t) => t.coverage)).toEqual(['covered', 'not-in-issue']);
+  });
+  it('a case outside the fixed scope is a judge error with no call', async () => {
+    const entries = entriesOf(['a']);
+    const calls = [];
+    await runRejudge({ jobs: buildJobs(entries, ['j'], 1), judges: ['j'], adapters: [fake(calls)], fixedScopes: new Map(), makeEmptyDir: tmp });
+    expect(calls).toHaveLength(0);
+    expect(entries.every((e) => /no scope for case a/.test(e.judged[0].error))).toBe(true);
+  });
+  it('the report names the scope file when one was used', async () => {
+    const entries = entriesOf(['a']);
+    const md = renderRejudgeReport({ judges: ['j'], entries, stopped: false, maxCalls: Infinity, files: 1, seed: 1, effort: 'low', scopeFile: 'scope.json' });
+    expect(md).toContain('`scope.json`');
+    expect(renderRejudgeReport({ judges: ['j'], entries, stopped: false, maxCalls: Infinity, files: 1, seed: 1, effort: 'low' })).toContain('once per case, without a charter');
+  });
   it('countJudgeCalls adds one scope call per case and judge, and none for improve or for no tests', () => {
     const judges = ['j1', 'j2'];
     expect(countJudgeCalls(buildJobs(entriesOf(['a', 'b']), judges, 1))).toEqual({ attempts: 16, scopes: 4, total: 20 });

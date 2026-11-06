@@ -187,6 +187,20 @@ describe('intent cli + runner', () => {
     expect(a[1].judge.ok).toBe(true);
     expect(judgeCalls).toHaveLength(3);
   });
+  it('a fixed scope makes no scope call', async () => {
+    const judgeCalls = [];
+    const a = await runIntentEval({
+      opts: { runs: 1, model: 'm', judgeModel: 'j' }, items: [item], modes: [{ name: 'raw', kind: 'raw' }],
+      improve: async () => 'IMPROVED', intent: async () => ({ text: CHARTER, degraded: false }),
+      adapter: { runHeadless: async () => ({ raw: '' }) },
+      judgeAdapter: { runHeadless: async (o) => { judgeCalls.push(o); return { raw: judgeRaw(o.prompt) }; } },
+      fixedScopes: new Map([['i1', { stated: [T1], notStated: [] }]]),
+      makeEmptyDir: () => '/nonexistent-eval-dir',
+    });
+    expect(judgeCalls).toHaveLength(1);
+    expect(judgeCalls[0].prompt).toContain('## CHARTER');
+    expect(a[0].judge.ok).toBe(true);
+  });
   it('decides the issue scope once for a case over all modes and runs', async () => {
     const judgeCalls = [];
     const modes = [{ name: 'raw', kind: 'raw' }, { name: 'improved:builtin', kind: 'improved', body: null }];

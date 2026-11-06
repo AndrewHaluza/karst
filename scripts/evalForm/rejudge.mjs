@@ -9,6 +9,7 @@ import { runChecks } from './checks.mjs';
 import { judgeOutput } from './judge.mjs';
 import { judgeIntent, judgeIssueScope } from './intentJudge.mjs';
 import { checkCharter, hunkForTest } from './intentChecks.mjs';
+import { fixedScope } from './issueScope.mjs';
 import { loadCases, prng } from './inputs.mjs';
 import { loadInstances } from '../eval/instances.mjs';
 
@@ -110,23 +111,24 @@ export function buildJobs(entries, judges, seed) {
 const scopeKey = ({ entry, j }) => `${j}\0${entry.caseId}`;
 const needsScope = ({ entry }) => entry.pass === 'intent' && entry.tests.length > 0;
 
-/** Calls that the jobs make: one per job, and one issue-scope call per intent case and judge. */
-export function countJudgeCalls(jobs) {
-  const scopes = new Set(jobs.filter(needsScope).map(scopeKey)).size;
+/** Calls that the jobs make: one per job, and one issue-scope call per intent case and judge unless the scope is fixed. */
+export function countJudgeCalls(jobs, fixedScopes = null) {
+  const scopes = fixedScopes ? 0 : new Set(jobs.filter(needsScope).map(scopeKey)).size;
   return { attempts: jobs.length, scopes, total: jobs.length + scopes };
 }
 
 /**
  * Run the jobs sequentially, each in a fresh empty cwd. Returns {done, stopped}. Results land on entry.judged[j].
  * One judge decides the issue scope of a case once, so all charters of that case share one denominator.
+ * With `fixedScopes` (a scope file), no judge decides it: all judges share the saved scope.
  */
-export async function runRejudge({ jobs, judges, adapters, effort = DEFAULT_JUDGE_EFFORT, maxCalls = Infinity, makeEmptyDir = () => mkdtempSync(join(tmpdir(), 'eval-rejudge-')), onProgress = () => {} }) {
+export async function runRejudge({ jobs, judges, adapters, effort = DEFAULT_JUDGE_EFFORT, maxCalls = Infinity, fixedScopes = null, makeEmptyDir = () => mkdtempSync(join(tmpdir(), 'eval-rejudge-')), onProgress = () => {} }) {
   const scopes = new Map();
   let done = 0;
   let calls = 0;
   for (const job of jobs) {
     const { entry, j } = job;
-    const scopeCall = needsScope(job) && !scopes.has(scopeKey(job));
+    const scopeCall = !fixedScopes && needsScope(job) && !scopes.has(scopeKey(job));
     if (calls + (scopeCall ? 2 : 1) > maxCalls) return { done, stopped: true };
     const cwd = makeEmptyDir();
     try {
@@ -134,7 +136,7 @@ export async function runRejudge({ jobs, judges, adapters, effort = DEFAULT_JUDG
       entry.judged ??= [];
       if (entry.pass === 'intent') {
         const input = { issue: entry.source_text, tests: entry.tests, ...common };
-        const scope = scopes.get(scopeKey(job)) ?? await judgeIssueScope(adapters[j], input);
+        const scope = fixedScopes ? fixedScope(fixedScopes, entry.caseId, entry.tests) : scopes.get(scopeKey(job)) ?? await judgeIssueScope(adapters[j], input);
         if (scope.ok) scopes.set(scopeKey(job), scope); // a failed scope is not kept: the next charter of the case asks again
         entry.judged[j] = await judgeIntent(adapters[j], { ...input, charter: entry.text, scope });
       } else {

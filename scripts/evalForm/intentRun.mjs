@@ -2,6 +2,7 @@
 import { rmSync } from 'node:fs';
 import { checkCharter, countCalls, hunkForTest } from './intentChecks.mjs';
 import { judgeIntent, judgeIssueScope } from './intentJudge.mjs';
+import { fixedScope } from './issueScope.mjs';
 
 /** Instance (pinned set) -> eval item. testPatch/f2p go ONLY to the judge, never to the agent. */
 export function instanceItem({ task, row }) {
@@ -26,7 +27,7 @@ async function charterFor({ mode, item, opts, improve, intent, adapter, cwd }) {
   return { result, calls: counted.state.n, improved: base.improvedDescription };
 }
 
-export async function runIntentEval({ opts, items, modes, improve, intent, adapter, judgeAdapter, now = () => Date.now(), makeEmptyDir, onProgress = () => {} }) {
+export async function runIntentEval({ opts, items, modes, improve, intent, adapter, judgeAdapter, fixedScopes = null, now = () => Date.now(), makeEmptyDir, onProgress = () => {} }) {
   const attempts = [];
   const scopes = new Map();
   const cwd = makeEmptyDir();
@@ -45,7 +46,7 @@ export async function runIntentEval({ opts, items, modes, improve, intent, adapt
             if (result.text !== null) {
               const tests = item.f2p.map((test) => ({ test, hunk: hunkForTest(item.testPatch, test) }));
               const common = { issue: item.brief, tests, model: opts.judgeModel, effort: opts.judgeEffort, cwd };
-              const scope = scopes.get(item.id) ?? await judgeIssueScope(judgeAdapter, common);
+              const scope = fixedScopes ? fixedScope(fixedScopes, item.id, tests) : scopes.get(item.id) ?? await judgeIssueScope(judgeAdapter, common);
               if (scope.ok) scopes.set(item.id, scope); // a failed scope is not kept: the next charter of the case asks again
               a.judge = await judgeIntent(judgeAdapter, { ...common, charter: result.text, scope });
             }

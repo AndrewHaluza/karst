@@ -90,11 +90,12 @@ function passSection(pass, entries, judges) {
 }
 
 /** summary: {judges, entries, calls, maxCalls, stopped, selfId} */
-export function renderRejudgeReport({ judges, entries, stopped, maxCalls, files, seed, effort }) {
+export function renderRejudgeReport({ judges, entries, stopped, maxCalls, files, seed, effort, scopeFile = null }) {
   const out = ['# Form rejudge', ''];
   out.push(`- judges: ${judges.map((j) => `\`${j}\``).join(', ')} (effort ${effort}); seed ${seed}; sources ${files} result file(s); no producer was called.`);
   out.push(`- deterministic checks recomputed with the current checkers (${CHECKER_VERSION}). \`LOW\` = n cases < ${LOW_N}. \`self-family\` = judge vendor equals producer vendor (self-preference risk). Old = the judge stored in the saved run.`);
-  if (entries.some((e) => e.pass === 'intent')) out.push('- intent: each judge decides `not-in-issue` once per case, without a charter. An old score can come from a run where the judge decided it for each charter, so its denominator can differ.');
+  const scopeRule = scopeFile ? `the scope file \`${scopeFile}\` decides \`not-in-issue\` for all judges` : 'each judge decides `not-in-issue` once per case, without a charter';
+  if (entries.some((e) => e.pass === 'intent')) out.push(`- intent: ${scopeRule}. An old score can come from a run where the judge decided it for each charter, so its denominator can differ.`);
   const skipped = entries.filter((e) => e.skip);
   const count = (r) => skipped.filter((e) => e.skip === r).length;
   out.push(`- unavailable(no-input): ${count('no-input')}; no output to judge (call error / degraded): ${count('no-output')}.`);
