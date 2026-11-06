@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openStore } from './db.js';
 import { createTicket } from './tickets.js';
 import {
+  claimAutopilotTicket,
   decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, pausedReason,
   setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, takeAutopilotAttempt,
 } from './autopilot.js';
@@ -83,5 +84,17 @@ describe('autopilot store', () => {
   it('formats the park reasons', () => {
     expect(stoppedReason('ci', 3, 3)).toBe('auto-fix stopped: ci 3/3');
     expect(pausedReason('is read-only')).toBe('auto-fix paused: sandbox is read-only');
+  });
+});
+
+describe('claimAutopilotTicket', () => {
+  it('lets one owner hold the lease, renews it for that owner and hands it over after expiry', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'C-1', title: 't' }).id;
+    expect(claimAutopilotTicket(store, id, 'A', 1000, 500)).toBe(true);
+    expect(claimAutopilotTicket(store, id, 'B', 1200, 500)).toBe(false);
+    expect(claimAutopilotTicket(store, id, 'A', 1400, 500)).toBe(true);
+    expect(claimAutopilotTicket(store, id, 'B', 1899, 500)).toBe(false);
+    expect(claimAutopilotTicket(store, id, 'B', 1900, 500)).toBe(true);
   });
 });

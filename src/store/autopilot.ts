@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   mode          TEXT NOT NULL DEFAULT 'inherit' CHECK (mode IN ('inherit', 'on', 'off')),
   stop_after    INTEGER NOT NULL DEFAULT 0,
   paused_reason TEXT,
-  stopped_reason TEXT
+  stopped_reason TEXT,
+  claim_owner   TEXT,
+  claim_until   INTEGER
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -164,4 +166,23 @@ export function stoppedReason(kind: AutopilotKind, used: number, max: number): s
 /** The park reason for a sandbox environment blocker. */
 export function pausedReason(reason: string): string {
   return `auto-fix paused: sandbox ${reason}`;
+}
+
+/** The (repo, kind) pairs a ticket has a budget for, oldest first. Used to pick the target of "Approve 1 more". */
+export function listAutopilotBudgets(store: Store, ticketId: number): Array<{ repo: string; kind: AutopilotKind }> {
+  return store.db.prepare('SELECT repo, kind FROM autopilot_budgets WHERE ticket_id = ? ORDER BY rowid').all(ticketId) as Array<{ repo: string; kind: AutopilotKind }>;
+}
+
+/**
+ * Two windows share one database. The controller of a ticket claims it for a short lease; the claim is
+ * atomic (one UPDATE), and the owner renews it. Returns true when `owner` holds the lease after the call.
+ */
+export function claimAutopilotTicket(store: Store, ticketId: number, owner: string, nowMs: number, ttlMs: number): boolean {
+  const run = store.db.transaction((): boolean => {
+    store.db.prepare('INSERT OR IGNORE INTO autopilot_tickets (ticket_id) VALUES (?)').run(ticketId);
+    const r = store.db.prepare('UPDATE autopilot_tickets SET claim_owner = ?, claim_until = ? WHERE ticket_id = ? AND (claim_owner IS NULL OR claim_owner = ? OR claim_until IS NULL OR claim_until <= ?)')
+      .run(owner, nowMs + ttlMs, ticketId, owner, nowMs);
+    return r.changes > 0;
+  });
+  return run();
 }

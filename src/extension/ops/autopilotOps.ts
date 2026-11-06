@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { getTicket } from '../../store/tickets.js';
+import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import {
@@ -65,10 +66,17 @@ export function allChecksAllowed(failing: readonly string[], allow: readonly str
   return failing.length > 0 && allow.length > 0 && failing.every((n) => allow.includes(n));
 }
 
+/** Drop the amber block this module wrote (its reason starts with `auto-fix`); never another block. */
+export function clearParkBlock(store: Store, ticketId: number): void {
+  if (stageBlock(store, ticketId, 'ship')?.reason.startsWith('auto-fix')) clearStageBlock(store, ticketId, 'ship');
+}
+
 function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
   if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason) {
     setAutopilotStopped(d.store, d.ticketId, reason);
     if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
+    // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
+    parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
     d.note(`Autopilot: ${reason}`, `${d.key} (${kind}): ${body}`);
     d.debug(`${LOG} ticket ${d.key} ${kind}: ${reason}`);
   }
@@ -116,6 +124,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   const outcome = problem.kind === 'conflicts' ? await d.resolveConflicts(problem.repo) : await d.sendCiFailure();
   if (outcome.kind === 'sent') {
     setAutopilotStopped(d.store, d.ticketId, null);
+    clearParkBlock(d.store, d.ticketId);
     d.note(`Autopilot: ${problem.kind} round ${budget.used}/${budget.max}`, `${d.key}: ran ${problem.kind === 'conflicts' ? 'Resolve conflicts' : 'Send CI failure to agent'} for ${problem.repo} (round ${budget.used}/${budget.max}).`);
     d.debug(`${LOG} ticket ${d.key} ${problem.kind} round ${budget.used}/${budget.max} armed for ${problem.repo}`);
     return { kind: 'armed', problem: problem.kind, used: budget.used, max: budget.max };
@@ -141,6 +150,7 @@ export interface AutopilotCommandDeps {
 /** "Approve 1 more": a one-off +1 for this PR and kind. It never resets the counter. */
 export function approveOneMore(d: Pick<AutopilotCommandDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, repo: string, kind: AutopilotKind): void {
   const b = grantAutopilotExtra(d.store, d.ticketId, repo, kind);
+  clearParkBlock(d.store, d.ticketId);
   d.note(`Autopilot: one more ${kind} attempt approved`, `${d.key}: ${repo} now has ${b.extra} extra attempt(s) (${b.attempts} used).`);
   d.debug(`${LOG} ticket ${d.key} ${kind} +1 approved for ${repo}`);
 }

@@ -3,6 +3,7 @@ import type { ConflictRoundResult } from './conflictResolveOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
+import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listTickets } from '../../store/tickets.js';
@@ -28,18 +29,25 @@ export function conflictOutcome(result: ConflictRoundResult): FixOutcome {
 }
 
 /**
- * Run "Send CI failure to agent" without the click: the confirm is answered yes,
- * and an error from the action (a gh failure) becomes a `failed` outcome.
- * The action moves nothing when a fetch fails, so the ticket stays in ship.
+ * Run "Send CI failure to agent" without the click: the confirm is answered yes.
+ * Autopilot never shows a toast: the info and error text go to the debug log only.
+ * A gh failure, a missing failure and a refused hand-off are NOT a sent round (the action
+ * reports them as plain info text), so each becomes a `failed` outcome with its reason.
  */
 export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
+  if (!ciFailureState(input.store, input.ticketId).available) return { kind: 'failed', reason: 'no failing CI to send' };
   let failure: string | null = null;
+  let refusal: string | null = null;
   await sendCiFailureAction({
     ...input,
     confirm: async () => true,
-    error: (message) => { failure = message; input.error(message); },
+    info: (message) => input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: ${message}`),
+    error: (message) => { failure = message; input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci error: ${message}`); },
+    handOff: (prompt) => { refusal = input.handOff(prompt); return refusal; },
   });
-  return failure === null ? { kind: 'sent' } : { kind: 'failed', reason: failure };
+  if (failure !== null) return { kind: 'failed', reason: failure };
+  if (refusal !== null) return { kind: 'failed', reason: `no session was started: ${refusal}` };
+  return { kind: 'sent' };
 }
 
 /** The engine seams that depend only on the two actions. */
@@ -93,6 +101,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
   if (projectId === undefined) return 0;
   const tickets = listTickets(d.store, { projectId });
   let acted = 0;
+  const armed = new Set<number>();
   for (const t of tickets) {
     if (t.stageCurrent !== 'ship') continue;
     try {
@@ -102,11 +111,12 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         config: () => d.manifest()?.autopilot,
         controls: seams.controls,
         sessionRunning: seams.sessionRunning,
-        concurrencyFull: () => concurrencyFullFor(tickets, t, d.caps()),
+        concurrencyFull: () => concurrencyFullFor(tickets.map((o) => (armed.has(o.id) ? { ...o, agentState: 'running' } : o)), t, d.caps()),
         ...actionSeams(seams.resolveRound, seams.sendCi),
         note: (title, body) => void postAgentNote(d.store, { projectId, fromTicketId: t.id, title, body }),
         debug: d.debug,
       });
+      if (result.kind === 'armed') armed.add(t.id);
       if (result.kind === 'armed' || result.kind === 'parked') acted += 1;
     } catch (err) {
       d.debug(`[ship] autopilot ticket ${t.key ?? formatId('ticket', t.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);

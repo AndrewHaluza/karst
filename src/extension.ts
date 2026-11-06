@@ -43,7 +43,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { startAutopilot } from './extension/autopilotBinding.js';
+import { registerAutopilotCommands, startAutopilot } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -1968,10 +1968,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
-    isLive: (id) => sessions.isLive(id),
+    isLive: (id) => sessions.isLive(id), windowId: `${process.pid}-${Date.now()}`,
+    canLaunch: (id) => guardCapability('sessions', id, true),
     roundInput: (id, repo) => ({ repo, label: formatId('ticket', id), probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }), briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed), arm: (r) => armConflictRound(localStore, conflictRounds, id, r), prepareSandbox: () => sandboxLife.ensureInSync(id), notify: (m) => logger.info(m), deliver: (brief) => { if (!sessions.nudge(id, brief)) void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo }); } }),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
   }));
+  context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: async (id) => { sessions.disposeSession(id); await sandboxLife.stop(id); } }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
     store: localStore,

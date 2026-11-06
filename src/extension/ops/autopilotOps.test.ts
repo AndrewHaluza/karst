@@ -4,6 +4,7 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { clearMergeCheck, setMergeCheck } from '../../store/mergeChecks.js';
+import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
@@ -339,5 +340,22 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 stop after-round');
     expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 stop now');
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('amber Needs you state', () => {
+  it('a park writes the ship block with the reason, and a sent round or an approval clears it', async () => {
+    seedPr(); conflict();
+    await autopilotTick(rig().deps); await autopilotTick(rig().deps);
+    await autopilotTick(rig().deps);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: 'auto-fix stopped: conflicts 2/2' });
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+  });
+  it('never clears a block that autopilot did not write', async () => {
+    seedPr();
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'waiting for review', runAt: 'x', gates: [] });
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('waiting for review');
   });
 });

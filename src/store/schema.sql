@@ -1493,7 +1493,9 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   mode          TEXT NOT NULL DEFAULT 'inherit' CHECK (mode IN ('inherit', 'on', 'off')),
   stop_after    INTEGER NOT NULL DEFAULT 0,   -- 1 = "stop after this round": no new round is armed
   paused_reason TEXT,                         -- sandbox environment blocker; NOT a spent budget
-  stopped_reason TEXT                         -- last park reason autopilot wrote (dedupes repeat notes)
+  stopped_reason TEXT,                        -- last park reason autopilot wrote (dedupes repeat notes)
+  claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
+  claim_until INTEGER                         -- lease end, epoch ms
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,

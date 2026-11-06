@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { actionSeams, ciOutcome, conflictOutcome } from './autopilotWiring.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
 
 vi.mock('./ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn() }));
+beforeEach(() => { vi.mocked(sendCiFailureAction).mockReset(); });
 
 
 describe('conflictOutcome', () => {
@@ -41,6 +42,11 @@ describe('concurrencyFullFor', () => {
     const all = [t(1, 'running'), t(2, 'running'), t(3, 'running'), t(4, null)];
     expect(concurrencyFullFor(all, t(4, null), caps)).toBe(true);
     expect(concurrencyFullFor(all, t(3, 'running'), caps)).toBe(false);
+  });
+  it('counts only running siblings of the same parent against the per-parent cap', () => {
+    const all = [t(1, 'running', 8), t(2, null, 9)];
+    expect(concurrencyFullFor(all, t(2, null, 9), caps)).toBe(false);
+    expect(concurrencyFullFor([t(1, 'running', 9)], t(2, null, 9), caps)).toBe(true);
   });
   it('is full at the per-parent cap for a sub-task only', () => {
     const all = [t(1, 'running', 9), t(2, null, 9)];
@@ -92,16 +98,39 @@ describe('autopilotSweep', () => {
 });
 
 describe('ciOutcome', () => {
-  const input = (error = vi.fn()) => ({ error }) as never;
-  it('answers the confirm yes and reports sent when no error is raised', async () => {
-    vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { expect(await i.confirm('t', 'd', 'a')).toBe(true); });
-    expect(await ciOutcome(input())).toEqual({ kind: 'sent' });
+  const failingChecks = { state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: 'u' }] };
+  function rig(withFailure = true) {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'CI-1', title: 't' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
+    setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r', '/w', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, 5, ?, ?, ?)').run(id, 'r', 'https://github.com/o/r/pull/5', 'open', withFailure ? JSON.stringify(failingChecks) : null);
+    const info = vi.fn(); const error = vi.fn(); const debug = vi.fn();
+    return { input: { store, ticketId: id, info, error, debug, handOff: vi.fn(() => null) } as never, info, error, debug };
+  }
+  it('is failed, and never calls the action, when no CI is failing', async () => {
+    expect(await ciOutcome(rig(false).input)).toEqual({ kind: 'failed', reason: 'no failing CI to send' });
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
   });
-  it('turns an action error into a failed outcome and still forwards the error', async () => {
-    const error = vi.fn();
-    vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { i.error('gh down'); });
-    expect(await ciOutcome(input(error))).toEqual({ kind: 'failed', reason: 'gh down' });
-    expect(error).toHaveBeenCalledWith('gh down');
+  it('answers the confirm yes and reports sent when the action raises nothing', async () => {
+    vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { expect(await i.confirm('t', 'd', 'a')).toBe(true); });
+    expect(await ciOutcome(rig().input)).toEqual({ kind: 'sent' });
+  });
+  it('turns an action error into a failed outcome and shows no toast', async () => {
+    const r = rig();
+    vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { i.info('hello'); i.error('gh down'); });
+    expect(await ciOutcome(r.input)).toEqual({ kind: 'failed', reason: 'gh down' });
+    expect(r.error).not.toHaveBeenCalled();
+    expect(r.info).not.toHaveBeenCalled();
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket T1 ci error: gh down');
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket T1 ci: hello');
+  });
+  it('a refused hand-off is a failed outcome, not a sent round', async () => {
+    const r = rig();
+    (r.input as { handOff: unknown }).handOff = vi.fn(() => 'no seat');
+    vi.mocked(sendCiFailureAction).mockImplementationOnce(async (i) => { i.handOff('p'); });
+    expect(await ciOutcome(r.input)).toEqual({ kind: 'failed', reason: 'no session was started: no seat' });
   });
 });
 
