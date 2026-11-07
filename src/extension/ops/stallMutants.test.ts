@@ -67,7 +67,7 @@ function parked(status: 'ready' | 'none') {
 describe('stall planning action — the kickoff source', () => {
   const deps = (store: ReturnType<typeof openStore>, ticketId: number) => ({
     store, ticketId, notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) }, redrive: vi.fn(), refresh: vi.fn(),
-    diffFiles: async () => null, maxRounds: () => 5, blockingSeverity: 'medium' as const, ensure: vi.fn(async () => {}), startPlanning: vi.fn(async () => {}),
+    diffFiles: async () => null, maxRounds: () => 5, blockingSeverity: () => 'medium' as const, ensure: vi.fn(async () => {}), startPlanning: vi.fn(async () => {}),
   });
   it('uses the ticket key and the stored suggestion', async () => {
     const { store, ticketId } = parked('ready');

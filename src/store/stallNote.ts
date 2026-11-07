@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import { listFindings, recordFindings } from './reviewFindings.js';
+import { listFindings, recordFindings, type Finding } from './reviewFindings.js';
 
 /** Title of the human finding that carries the note of an applied stall option. */
 export const STALL_NOTE_TITLE = 'Stall decision';
@@ -67,4 +67,18 @@ export function stallNote(store: Store, ticketId: number): string | null {
   if (last === null) return null;
   const newerAgent = all.some((f) => f.source !== 'human' && f.runAt > last.runAt);
   return newerAgent ? null : last.detail;
+}
+
+const isStallRow = (f: Finding): boolean =>
+  f.source === 'human' && (f.title === STALL_NOTE_TITLE || f.title === STALL_ACCEPT_TITLE);
+
+/**
+ * The newest batch of review findings, with the stall rows left out. A stall
+ * note is stored as the newest batch, so the plain latest batch would hold
+ * only the note and the fix brief would lose the findings.
+ */
+export function latestReviewBatch(store: Store, ticketId: number): Finding[] {
+  const all = listFindings(store, ticketId).filter((f) => !isStallRow(f));
+  const latest = all.reduce<string | null>((max, f) => (max === null || f.runAt > max ? f.runAt : max), null);
+  return latest === null ? [] : all.filter((f) => f.runAt === latest);
 }

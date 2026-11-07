@@ -45,7 +45,7 @@ function mk(store: Store, ticketId: number, over: Partial<StallApplyDeps> = {}) 
     store, ticketId, notify, redrive, refresh,
     diffFiles: async () => ['docs/a.md'],
     maxRounds: () => 5,
-    blockingSeverity: 'medium',
+    blockingSeverity: () => 'medium' as const,
     now: () => AT,
     ...over,
   };
@@ -166,5 +166,26 @@ describe('applyStallOption — accept', () => {
     const { store, ticketId } = parked();
     setAgentState(store, ticketId, 'running');
     expect(await applyStallOption(mk(store, ticketId).deps, acceptReq)).toMatchObject({ ok: false });
+  });
+
+  it('is refused when a session starts while the diff is read', async () => {
+    const { store, ticketId } = parked();
+    const { deps, redrive } = mk(store, ticketId, {
+      diffFiles: async () => {
+        setAgentState(store, ticketId, 'running');
+        return ['docs/a.md'];
+      },
+    });
+    expect(await applyStallOption(deps, acceptReq)).toMatchObject({ ok: false });
+    expect(redrive).not.toHaveBeenCalled();
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'review')?.status).toBe('failed');
+  });
+
+  it('reads the blocking severity at each Apply', async () => {
+    const { store, ticketId } = parked();
+    let severity: 'medium' | 'none' = 'none';
+    await applyStallOption(mk(store, ticketId, { blockingSeverity: () => severity }).deps, acceptReq);
+    expect(listFindings(store, ticketId).find((f) => f.title === STALL_ACCEPT_TITLE)?.detail).toContain('0 open blocking');
+    expect(severity).toBe('none');
   });
 });

@@ -13,6 +13,7 @@ function fake(over: Partial<Record<string, string | number>> = {}): GitRunner {
     if (key === 'merge-base') return res(v ?? 'abc\n');
     if (key === '--name-only') return res(v ?? 'docs/a.md\ndocs/b.md\n');
     if (key === '--stat') return res(v ?? ' docs/a.md | 2 +-\n');
+    if (key === 'ls-files') return res(v ?? '');
     return res('', 1);
   };
 }
@@ -20,6 +21,13 @@ function fake(over: Partial<Record<string, string | number>> = {}): GitRunner {
 describe('readTicketDiff', () => {
   it('returns the files and the stat', async () => {
     expect(await readTicketDiff(fake(), [tree])).toEqual({ files: ['docs/a.md', 'docs/b.md'], stat: ' docs/a.md | 2 +-' });
+  });
+  it('counts an untracked file, so a new code file blocks the docs-only rule', async () => {
+    const d = await readTicketDiff(fake({ 'ls-files': 'src/new.ts\n' }), [tree]);
+    expect(d!.files).toEqual(['docs/a.md', 'docs/b.md', 'src/new.ts']);
+  });
+  it('is null when the untracked list cannot be read', async () => {
+    expect(await readTicketDiff(fake({ 'ls-files': 128 }), [tree])).toBeNull();
   });
   it('is null with no worktree, no base, or a failed git read', async () => {
     expect(await readTicketDiff(fake(), [])).toBeNull();

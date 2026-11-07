@@ -6,6 +6,7 @@ import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../../store/prFee
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import type { PrReviewThread } from '../../model/prReview.js';
 import { recordStallNote } from '../../store/stallNote.js';
+import { recordFindings } from '../../store/reviewFindings.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -93,6 +94,17 @@ describe('fixBriefForTicket', () => {
     expect(brief.startsWith('## Direction from the user\n\nsplit the module')).toBe(true);
     expect(brief).toContain('Findings on scope that this direction removes no longer apply.');
     expect(brief).toContain('review gate failed');
+  });
+  it('keeps the review findings in the brief after the note is recorded later', () => {
+    const ticket = createTicket(store, { key: 'PROJ-6', title: 't' });
+    setStage(store, ticket.id, 'review', { status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0 });
+    recordFindings(store, { ticketId: ticket.id, attempt: 1, runAt: T0, findings: [
+      { severity: 'high', repo: '', file: 'src/kept.ts', title: 'Kept finding', detail: 'd', source: 'agent' },
+    ] });
+    recordStallNote(store, ticket.id, 1, '2026-01-02T00:00:00.000Z', 'split the module');
+    const brief = fixBriefForTicket(store, ticket.id) ?? '';
+    expect(brief.startsWith('## Direction from the user')).toBe(true);
+    expect(brief).toContain('Kept finding');
   });
   it('keeps the note when review left no brief', () => {
     const ticket = createTicket(store, { key: 'PROJ-4', title: 't' });

@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { getStallSuggestion } from '../../store/stallSuggestions.js';
+import { claimStallSuggestion, failStallSuggestion, getStallSuggestion } from '../../store/stallSuggestions.js';
 import type { TicketDiff } from './stallDiff.js';
 
 export interface StallSuggestionServiceDeps {
@@ -13,6 +13,8 @@ export interface StallSuggestionServiceDeps {
   /** Repaint the panel and the sidebar. */
   refresh: (ticketId: number) => void;
   debug?: (message: string) => void;
+  /** The clock for a failure row; defaults to the system time. */
+  now?: () => string;
 }
 
 export interface StallSuggestionService {
@@ -43,7 +45,15 @@ export function createStallSuggestionService(deps: StallSuggestionServiceDeps): 
         const diff = (await deps.readDiff(ticketId)) ?? EMPTY_DIFF;
         await deps.generate(ticketId, block.at, diff, retry);
       } catch (e) {
-        deps.debug?.(`[stall-suggestion] ticket ${ticketId}: ${e instanceof Error ? e.message : String(e)}`);
+        const message = e instanceof Error ? e.message : String(e);
+        deps.debug?.(`[stall-suggestion] ticket ${ticketId}: ${message}`);
+        // A throw before the call wrote a row would leave the panel on "generating" for good.
+        const row = getStallSuggestion(deps.store, ticketId, block.at);
+        if (row === null || row.status === 'generating') {
+          const at = (deps.now ?? (() => new Date().toISOString()))();
+          claimStallSuggestion(deps.store, ticketId, block.at, at, true);
+          failStallSuggestion(deps.store, ticketId, block.at, message, false, at);
+        }
       } finally {
         inFlight.delete(key);
         deps.refresh(ticketId);

@@ -38,7 +38,8 @@ export interface StallApplyDeps {
   /** The fix-round budget for a review-sourced round. */
   maxRounds: () => number;
   /** Findings at or above this severity block review. */
-  blockingSeverity: Severity | 'none';
+  /** Read at each Apply, so a manifest change applies without a rebuild of the actions. */
+  blockingSeverity: () => Severity | 'none';
   now?: () => string;
   debug?: (message: string) => void;
 }
@@ -114,7 +115,11 @@ async function applyAccept(deps: StallApplyDeps, at: string): Promise<StallApply
   const files = await deps.diffFiles();
   if (files === null) return refusal(deps, REFUSED_DIFF);
   if (!isDocsOnlyDiff(files)) return refusal(deps, REFUSED_NOT_DOCS);
-  const open = openBlockingCount(stallRounds(store, ticketId, deps.blockingSeverity));
+  // The diff read was async: the park or the session may have changed meanwhile.
+  // Nothing below awaits, so this check and the transaction are one step.
+  const stale = sharedRefusal(deps);
+  if (stale !== null) return refusal(deps, stale);
+  const open = openBlockingCount(stallRounds(store, ticketId, deps.blockingSeverity()));
   const run = latestStageRun(store, ticketId, 'review');
   const stage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'review');
   store.db.transaction(() => {

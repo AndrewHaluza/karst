@@ -37,8 +37,10 @@ export async function readTicketDiff(git: GitRunner, trees: readonly Tree[]): Pr
     }
     const names = await ok(git, ['diff', '--name-only', '--no-ext-diff', base, '--'], tree.path);
     const stat = await ok(git, ['diff', '--stat', '--no-ext-diff', base, '--'], tree.path);
-    if (names === null || stat === null) return null;
-    files.push(...names.split('\n').map((l) => l.trim()).filter((l) => l !== ''));
+    // An untracked file is not in `git diff`, yet it ships: the docs-only rule must see it.
+    const untracked = await ok(git, ['ls-files', '--others', '--exclude-standard'], tree.path);
+    if (names === null || stat === null || untracked === null) return null;
+    files.push(...`${names}\n${untracked}`.split('\n').map((l) => l.trim()).filter((l) => l !== ''));
     if (stat.trim() !== '') stats.push(stat.trimEnd());
   }
   const text = stats.join('\n');

@@ -247,6 +247,8 @@ describe('BlockedBanner — review stall (T845, T1001)', () => {
     mountRail(stalled(null));
     expect(text('.stall-generating')).toContain('writing a suggestion');
     expect(q('#blocked [data-act="stall-apply"]')).toBeNull();
+    // The user is never stuck: planning stays one click away while no row exists.
+    expect(q('#blocked [data-act="stall-planning"]')).not.toBeNull();
     cleanupRail();
     mountRail(stalled(view({ status: 'generating', options: [] })));
     expect(q('#blocked [data-act="stall-apply"]')).toBeNull();

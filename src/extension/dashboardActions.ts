@@ -395,7 +395,7 @@ export function makeDashboardActions(
       redrive: driveAfterResume, refresh: () => afterServerChange(),
       diffFiles: stall.diffFiles,
       maxRounds: () => capForGate('review', manifest()?.uat?.maxFixAttempts, manifest()?.review?.maxFixAttempts),
-      blockingSeverity: stall.blockingSeverity(),
+      blockingSeverity: stall.blockingSeverity,
       ensure: stall.ensure, startPlanning: stall.startPlanning,
     }),
     // Move this ticket into a PR-feedback recovery round at Fix. The logic

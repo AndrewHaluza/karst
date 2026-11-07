@@ -15,7 +15,7 @@ function setup() {
   setStage(store, ticketId, 'fix', { status: 'failed', verdict: 'stalled', blockedKind: 'review-stalled', blockedReason: 'r', blockedAt: AT });
   const deps = {
     store, ticketId, notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) },
-    redrive: vi.fn(), refresh: vi.fn(), diffFiles: async () => null, maxRounds: () => 5, blockingSeverity: 'medium' as const,
+    redrive: vi.fn(), refresh: vi.fn(), diffFiles: async () => null, maxRounds: () => 5, blockingSeverity: () => 'medium' as const,
     ensure: vi.fn(async () => {}), startPlanning: vi.fn(async () => {}),
   };
   return { store, ticketId, deps };

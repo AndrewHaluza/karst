@@ -178,7 +178,10 @@ export function StallPanel({ stall, stageKey }: { readonly stall: StallView | nu
     <div className="stall" data-stall-status={stall?.status ?? 'generating'}>
       {stall === null ? null : <Evidence stall={stall} />}
       {stall === null || stall.status === 'generating' ? (
-        <p className="stall-generating" role="status">Karst is writing a suggestion…</p>
+        <>
+          <p className="stall-generating" role="status">Karst is writing a suggestion…</p>
+          {stall === null ? <div className="facts stall-actions"><Planning stageKey={stageKey} /></div> : null}
+        </>
       ) : stall.status === 'failed' ? (
         <Failed stall={stall} stageKey={stageKey} />
       ) : (

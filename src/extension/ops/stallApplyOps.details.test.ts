@@ -30,7 +30,7 @@ function parked(): { store: Store; ticketId: number } {
 function mk(store: Store, ticketId: number, over: Partial<StallApplyDeps> = {}) {
   const notify = { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) };
   const debug = vi.fn();
-  const deps: StallApplyDeps = { store, ticketId, notify, redrive: vi.fn(), refresh: vi.fn(), diffFiles: async () => ['docs/a.md'], maxRounds: () => 7, blockingSeverity: 'medium', now: () => AT, debug, ...over };
+  const deps: StallApplyDeps = { store, ticketId, notify, redrive: vi.fn(), refresh: vi.fn(), diffFiles: async () => ['docs/a.md'], maxRounds: () => 7, blockingSeverity: () => 'medium' as const, now: () => AT, debug, ...over };
   return { deps, notify, debug };
 }
 

@@ -1,11 +1,10 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
-import { latestFindingBatch } from '../../store/reviewFindings.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
 import { hasLinkedPrototype, renderFixBrief } from '../../agent/fixBrief.js';
-import { stallNote } from '../../store/stallNote.js';
+import { latestReviewBatch, stallNote } from '../../store/stallNote.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
 /**
@@ -26,7 +25,7 @@ export function fixBriefForTicket(store: Store, ticketId: number, label?: string
   const brief = renderFixBrief(
     label ?? formatTicketRef(ticketId, t.key),
     t.stages,
-    latestFindingBatch(store, ticketId),
+    latestReviewBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
     { hasPrototype: hasLinkedPrototype(t) },
