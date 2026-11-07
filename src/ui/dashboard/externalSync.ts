@@ -16,6 +16,12 @@
 /** Trailing wait before the supplemental loaders run after the last change. */
 export const EXTERNAL_SUPPLEMENTAL_DELAY_MS = 3000;
 
+/**
+ * Longest wait from the first change of a burst. Steady writes restart the
+ * trailing timer without end, so this cap forces a run for a visible panel.
+ */
+export const EXTERNAL_SUPPLEMENTAL_MAX_WAIT_MS = 10_000;
+
 export interface ExternalSyncDeps {
   openTicketIds(): number[];
   isVisible(ticketId: number): boolean;
@@ -25,12 +31,16 @@ export interface ExternalSyncDeps {
   markSupplementalStale(ticketId: number): void;
   logError(message: string, error: unknown): void;
   delayMs?: number;
+  maxWaitMs?: number;
+  now?: () => number;
   setTimer?: (cb: () => void, ms: number) => unknown;
   clearTimer?: (timer: unknown) => void;
 }
 
 export class ExternalChangeSync {
   private timer: unknown;
+  /** Time of the first change of the current burst. */
+  private burstStart: number | undefined;
   private disposed = false;
 
   constructor(private readonly deps: ExternalSyncDeps) {}
@@ -47,16 +57,22 @@ export class ExternalChangeSync {
 
   dispose(): void {
     this.disposed = true;
+    this.burstStart = undefined;
     this.cancelTimer();
   }
 
   private restartTimer(): void {
     this.cancelTimer();
+    const now = (this.deps.now ?? Date.now)();
+    this.burstStart ??= now;
+    const left = this.burstStart + (this.deps.maxWaitMs ?? EXTERNAL_SUPPLEMENTAL_MAX_WAIT_MS) - now;
+    const wait = Math.max(0, Math.min(this.deps.delayMs ?? EXTERNAL_SUPPLEMENTAL_DELAY_MS, left));
     const set = this.deps.setTimer ?? ((cb, ms) => setTimeout(cb, ms));
     this.timer = set(() => {
       this.timer = undefined;
+      this.burstStart = undefined;
       this.runSupplemental();
-    }, this.deps.delayMs ?? EXTERNAL_SUPPLEMENTAL_DELAY_MS);
+    }, wait);
   }
 
   private cancelTimer(): void {

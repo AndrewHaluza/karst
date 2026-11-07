@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ExternalChangeSync, EXTERNAL_SUPPLEMENTAL_DELAY_MS, type ExternalSyncDeps } from './externalSync.js';
+import { ExternalChangeSync, EXTERNAL_SUPPLEMENTAL_DELAY_MS, EXTERNAL_SUPPLEMENTAL_MAX_WAIT_MS, type ExternalSyncDeps } from './externalSync.js';
 
 function setup(visible: Record<number, boolean>) {
   const calls: string[] = [];
@@ -30,13 +30,25 @@ describe('ExternalChangeSync', () => {
   it('a burst of changes restarts the timer and runs the supplemental loaders once', () => {
     vi.useFakeTimers();
     const { calls, sync } = setup({ 1: true });
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       sync.onChange();
       vi.advanceTimersByTime(EXTERNAL_SUPPLEMENTAL_DELAY_MS - 1);
     }
     vi.advanceTimersByTime(EXTERNAL_SUPPLEMENTAL_DELAY_MS);
     expect(calls.filter((c) => c === 'passive:1')).toHaveLength(1);
-    expect(calls.filter((c) => c === 'store:1')).toHaveLength(5);
+    expect(calls.filter((c) => c === 'store:1')).toHaveLength(3);
+    vi.useRealTimers();
+  });
+
+  it('steady writes cannot starve the supplemental loaders past the maximum wait', () => {
+    vi.useFakeTimers();
+    const { calls, sync } = setup({ 1: true });
+    const step = EXTERNAL_SUPPLEMENTAL_DELAY_MS - 1;
+    for (let t = 0; t <= EXTERNAL_SUPPLEMENTAL_MAX_WAIT_MS + step; t += step) {
+      sync.onChange();
+      vi.advanceTimersByTime(step);
+    }
+    expect(calls.filter((c) => c === 'passive:1').length).toBeGreaterThanOrEqual(1);
     vi.useRealTimers();
   });
 
