@@ -13,7 +13,8 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { createAccountOps, type AccountOps } from '../../agent/accounts/accountOps.js';
 import { ACCOUNTS_FILE, fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
-import { configureAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { configureAccounts, configureRecordedAccountLookup, configureSessionLedgerSink, liveHeadlessAccounts, seedSessionLedger } from '../../agent/accounts/registry.js';
+import { loadSessionLedger, saveSessionLedger } from '../../agent/accounts/sessionLedgerStore.js';
 import { opencode2Config } from '../../agent/opencode2Binary.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
@@ -109,12 +110,20 @@ export async function wireAccounts(input: {
   };
   configureRecordedAccountLookup((core, sessionId) => recordedAccountForSession(input.store, core, sessionId));
   await publish();
+  // Headless sessions have no launch intent: their accounts live in a small ledger file.
+  seedSessionLedger(await loadSessionLedger(input.globalStorageRoot).catch((e) => {
+    input.debug?.(`[accounts] session ledger not loaded: ${String(e)}`);
+    return {};
+  }));
+  configureSessionLedgerSink((entries) => {
+    saveSessionLedger(input.globalStorageRoot, entries).catch((e) => input.debug?.(`[accounts] session ledger not saved: ${String(e)}`));
+  });
   const ops = createAccountOps({
     store: publishing,
     managedRoot: join(input.globalStorageRoot, 'accounts'),
     home,
     defaultDir: (core) => DEFAULT_DIRS[core](home),
-    liveAccounts: async (core) => liveAccountNames(input.store, core),
+    liveAccounts: async (core) => [...new Set([...liveAccountNames(input.store, core), ...liveHeadlessAccounts(core)])],
     binaryResolves,
     lookupAlias,
     signedIn: async () => undefined,
@@ -129,5 +138,5 @@ export async function wireAccounts(input: {
       publish().catch((e) => input.debug?.(`[accounts] reload failed: ${String(e)}`));
     });
   }
-  return { ops, reload: publish, dispose: () => { if (watching) unwatchFile(file); } };
+  return { ops, reload: publish, dispose: () => { configureSessionLedgerSink(undefined); if (watching) unwatchFile(file); } };
 }

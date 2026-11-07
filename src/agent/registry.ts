@@ -6,6 +6,7 @@ import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
+import { withHeadlessLedger } from './accounts/headlessLedger.js';
 import { FAKE_CORE_ENV, FakeAdapter } from './fakeCore.js';
 import { STUB_AGENT_ENV, wrapLaunchStub } from './launchStub.js';
 
@@ -47,7 +48,7 @@ export function resolveAdapter(provider: AgentProvider): AgentAdapter {
     warnFakeCoreOnce(mode);
     return wrapLaunchStub(provider, FACTORIES[provider](), stub);
   }
-  return FACTORIES[provider]();
+  return withHeadlessLedger(provider, FACTORIES[provider]());
 }
 
 /**

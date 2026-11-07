@@ -2,9 +2,10 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { fileAccountStore } from '../../agent/accounts/accountStore.js';
-import { accountForLaunch, accountsConfig, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { fileAccountStore, memoryAccountStore } from '../../agent/accounts/accountStore.js';
+import { accountForLaunch, accountsConfig, recordHeadlessSession, resetSessionLedger, trackHeadlessRun, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { configureOpencode2, resetOpencode2Config } from '../../agent/opencode2Binary.js';
+import { loadSessionLedger } from '../../agent/accounts/sessionLedgerStore.js';
 import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { transition } from '../../workflow/machine.js';
@@ -45,6 +46,52 @@ it('wires the recorded account of a session from the launch intents', async () =
   const w = await wireAccounts({ globalStorageRoot: root, store });
   expect(accountForLaunch('claude', 'sess-1')).toBe('work');
   w.dispose();
+  store.close();
+});
+
+it('blocks a delete while a headless run is live, and persists the headless ledger', async () => {
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store });
+  try {
+    await w.ops.createAccount('claude', 'h', { source: 'folder', dir: '/h/h' });
+    const end = trackHeadlessRun('claude', 'h');
+    await expect(w.ops.deleteAccount('claude', 'h')).rejects.toThrow(/live session/);
+    end();
+    await expect(w.ops.deleteAccount('claude', 'h')).resolves.toBeUndefined();
+    recordHeadlessSession('claude', 'hs-1', 'work');
+    await vi.waitFor(async () => expect(await loadSessionLedger(root)).toEqual({ 'claude:hs-1': 'work' }));
+    resetSessionLedger();
+    expect(accountForLaunch('claude', 'hs-1')).toBeUndefined();
+    await wireAccounts({ globalStorageRoot: root, store, accountStore: fileAccountStore(root) });
+    expect(accountForLaunch('claude', 'hs-1')).toBe('work');
+  } finally {
+    w.dispose();
+    resetSessionLedger();
+    store.close();
+  }
+});
+
+it('starts with an empty ledger when the ledger file is not readable', async () => {
+  const debug = vi.fn();
+  await writeFile(join(root, 'session-accounts.json'), '{not json');
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store, debug });
+  expect(debug).toHaveBeenCalledWith(expect.stringContaining('session ledger not loaded'));
+  w.dispose();
+  resetSessionLedger();
+  store.close();
+});
+
+it('works without a debug hook when the ledger file can neither be read nor written', async () => {
+  const blocker = join(root, 'blocker');
+  await writeFile(blocker, 'x');
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: blocker, store, accountStore: memoryAccountStore() });
+  recordHeadlessSession('claude', 'nd-1', 'work');
+  await new Promise((r) => setTimeout(r, 50));
+  expect(accountForLaunch('claude', 'nd-1')).toBe('work');
+  w.dispose();
+  resetSessionLedger();
   store.close();
 });
 

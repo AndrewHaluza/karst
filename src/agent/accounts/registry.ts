@@ -3,7 +3,7 @@
  * machine-local store (like `configureOpencode2`). Adapters call
  * `accountLaunchFor` at every spawn; with no config it is the default no-op.
  */
-import { AccountNotFoundError, resolveAccountLaunch, type AccountLaunch } from './resolve.js';
+import { AccountNotFoundError, activeAccountName, resolveAccountLaunch, type AccountLaunch } from './resolve.js';
 import { DEFAULT_ACCOUNT, type AccountCore, type AccountsConfig } from './types.js';
 
 let config: AccountsConfig = {};
@@ -108,8 +108,66 @@ export function accountForLaunch(core: string, resume: string | undefined, expli
   if (explicit !== undefined) return explicit;
   if (resume === undefined) return undefined;
   const recorded = recordedLookup?.(core, resume);
-  if (recorded === undefined) return undefined;
-  return recorded ?? DEFAULT_ACCOUNT;
+  if (recorded !== undefined) return recorded ?? DEFAULT_ACCOUNT;
+  // A headless session has no launch intent: its account sits in the ledger.
+  return sessionLedger.get(ledgerKey(core, resume));
+}
+
+/** Most entries the headless session ledger keeps (the oldest are dropped first). */
+export const SESSION_LEDGER_MAX = 1000;
+const sessionLedger = new Map<string, string>();
+let ledgerSink: ((entries: Record<string, string>) => void) | undefined;
+const ledgerKey = (core: string, sessionId: string): string => `${core}:${sessionId}`;
+
+/** Load the persisted ledger (host start). */
+export function seedSessionLedger(entries: Readonly<Record<string, string>>): void {
+  sessionLedger.clear();
+  for (const [k, v] of Object.entries(entries)) sessionLedger.set(k, v);
+}
+
+/** The host persists every change of the ledger through this sink. */
+export function configureSessionLedgerSink(fn: ((entries: Record<string, string>) => void) | undefined): void {
+  ledgerSink = fn;
+}
+
+export function resetSessionLedger(): void {
+  sessionLedger.clear();
+  liveHeadless.clear();
+  ledgerSink = undefined;
+}
+
+/** Record the account that started a headless session, so a later resume reuses it. */
+export function recordHeadlessSession(core: AccountCore, sessionId: string, account: string): void {
+  if (sessionId === '') return;
+  const key = ledgerKey(core, sessionId);
+  sessionLedger.delete(key);
+  sessionLedger.set(key, account);
+  while (sessionLedger.size > SESSION_LEDGER_MAX) sessionLedger.delete(sessionLedger.keys().next().value as string);
+  ledgerSink?.(Object.fromEntries(sessionLedger));
+}
+
+const liveHeadless = new Map<string, number>();
+
+/** Mark a headless run live under an account; call the result when it ends. */
+export function trackHeadlessRun(core: AccountCore, account: string): () => void {
+  const key = ledgerKey(core, account);
+  liveHeadless.set(key, (liveHeadless.get(key) ?? 0) + 1);
+  return () => {
+    const left = (liveHeadless.get(key) ?? 1) - 1;
+    if (left <= 0) liveHeadless.delete(key);
+    else liveHeadless.set(key, left);
+  };
+}
+
+/** Accounts of a core with a headless run in flight in this process (the delete guard). */
+export function liveHeadlessAccounts(core: AccountCore): string[] {
+  const prefix = `${core}:`;
+  return [...liveHeadless.keys()].filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length));
+}
+
+/** The account name a launch runs under: the explicit or recorded one, else the active one. */
+export function launchAccountName(core: AccountCore, account: string | undefined): string {
+  return account ?? activeAccountName(config, core);
 }
 
 /**
