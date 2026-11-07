@@ -28,6 +28,13 @@ interface PickerHandlers {
   readonly onCancel: () => void;
 }
 
+/** The label of the host's own null-model choice (Inherit (settings: X) / Agent default) for the core the inherit rows describe. */
+function inheritModelLabel(sw: AgentSlice['switch'], provider: string): string {
+  const core = sw.inheritCore ?? provider;
+  const choice = (sw.models?.[core] ?? []).find((m) => m.model === null);
+  return choice?.label ?? sw.modelInheritLabel;
+}
+
 function pickerOptions(agent: AgentSlice, handlers: PickerHandlers): Record<string, unknown> {
   const sw = agent.switch;
   const s = agent.session;
@@ -41,7 +48,7 @@ function pickerOptions(agent: AgentSlice, handlers: PickerHandlers): Record<stri
     recent: sw.recentByCore || {},
     value: { core: s.provider, model: s.modelId || '', effort: sw.effort || '' },
     // The inherit rows name the resolved defaults; picking one commits an empty model/effort (the host reads null as inherit).
-    inherit: { model: sw.modelInheritLabel, effort: sw.effortInheritLabel },
+    inherit: { model: inheritModelLabel(sw, s.provider), effort: sw.effortInheritLabel },
     inheritCore: sw.inheritCore,
     showEffort: true,
     onCommit: handlers.onCommit,

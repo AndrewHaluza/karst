@@ -42,6 +42,19 @@ describe('AgentPopover — the staged switch', () => {
     expect(mounts[0]!.opts).toHaveProperty('inheritCore');
   });
 
+  it('names the resolved default in the inherit row, not the running model', () => {
+    const mounts = installPicker();
+    const base = headerState();
+    mountHeader(headerState({
+      agentSwitch: {
+        ...base.agentSwitch,
+        models: { claude: [{ model: null, label: 'Inherit (settings: Model Two)' }, { model: 'm1', label: 'Model One' }] },
+      },
+    }));
+    fireEvent.click($('#agentButton'));
+    expect((mounts[0]!.opts.inherit as { model: string }).model).toBe('Inherit (settings: Model Two)');
+  });
+
   it('hands the picker the route identity map the picker blob emits, or none when it is absent', () => {
     const mounts = installPicker();
     const scope = globalThis as unknown as Record<string, unknown>;

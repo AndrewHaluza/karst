@@ -421,7 +421,7 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, r
   if (!vis.length) {
     if (!list.length) return apInheritRowHtml(inheritLabel, saved, !q) + '<div class="ap-empty">No models listed for this core.</div>';
     return '<div class="ap-empty">No models match' + (q ? ' "' + apEsc(query) + '"' : '')
-      + (capId !== 'all' ? ' in ' + apEsc(apCapLabel(capId)) : '') + '.</div>';
+      + ' in ' + apEsc(apCapLabel(capId)) + '.</div>';
   }
   if (q) return apModelListHtml(vis, saved, routes, {}, tagsOf, v);
   var out = '';
@@ -743,6 +743,8 @@ function mountStagedPicker(root, o) {
   var showEffort = o.showEffort !== false;
   var disabled = !!o.disabled;
   var currentCore = o.currentCore || '';
+  var inherit = o.inherit || {};
+  var inheritCore = o.inheritCore || '';
   var onCommit = o.onCommit;
   var onCancel = o.onCancel;
   var base = { core: (o.value && o.value.core) || '', model: (o.value && o.value.model) || '', effort: (o.value && o.value.effort) || '' };
@@ -800,7 +802,7 @@ function mountStagedPicker(root, o) {
 
   function renderList() {
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, apInheritLabels(o.inherit || {}, o.inheritCore || '', state.core).model || '',
+      catalog, state.core, state.model, apInheritLabels(inherit, inheritCore, state.core).model || '',
       recent[state.core], routes, q, cap,
       { staged: true, currentId: state.core === base.core ? base.model : '' },
     );
@@ -999,6 +1001,8 @@ function mountStagedPicker(root, o) {
       showEffort = next ? next.showEffort !== false : true;
       disabled = !!(next && next.disabled);
       currentCore = (next && next.currentCore) || '';
+      inherit = (next && next.inherit) || {};
+      inheritCore = (next && next.inheritCore) || '';
       onCommit = next && next.onCommit;
       onCancel = next && next.onCancel;
     },
@@ -1427,6 +1431,12 @@ function mountAgentPicker(root, opts) {
       return;
     }
     if (!apKeyOwnedBy(shell, e.target)) return;
+    var capTab = e.target.closest && e.target.closest('[data-ap-cap]');
+    if (capTab) {
+      // A capability tab moves like a tablist: Left/Right/Home/End between the enabled tabs.
+      var capDest = apTabTarget(apEnabledTabs(capTab.parentNode, '[data-ap-cap]'), capTab, e.key);
+      if (capDest) { e.preventDefault(); capDest.focus(); return; }
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       moveActive(shell, e.key === 'ArrowDown' ? 1 : -1, e.target);

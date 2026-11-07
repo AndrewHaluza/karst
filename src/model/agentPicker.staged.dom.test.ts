@@ -502,3 +502,46 @@ describe('staged mode offers the inherit row the host names', () => {
     expect(root.querySelector('[data-ap-model=""]')).toBeNull();
   });
 });
+
+describe('review findings round 2', () => {
+  it('a staged re-mount takes the new inherit labels and re-renders the list', () => {
+    const { root } = mountStaged({ inherit: { model: 'Agent default' }, inheritCore: 'claude' });
+    expect(root.querySelector('[data-ap-model=""]')?.textContent).toContain('Agent default');
+    load()(root, {
+      cores: CORES.slice(0, 4),
+      catalog: CATALOG,
+      value: { core: 'claude', model: 'claude-opus-5', effort: '' },
+      inherit: { model: 'Inherit (settings: Opus 5)' },
+      inheritCore: 'claude',
+      mode: 'staged',
+    });
+    expect(root.querySelector('[data-ap-model=""]')?.textContent).toContain('Inherit (settings: Opus 5)');
+  });
+
+  it('arrow keys, Home and End move focus between the enabled capability tabs in the inline menu', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    load()(root, {
+      cores: CORES.slice(0, 4),
+      catalog: CATALOG,
+      value: { core: 'claude', model: 'claude-opus-5', effort: '' },
+    });
+    click(root.querySelector('[data-ap-trigger="model"]'));
+    const [all, vision, multi] = capTabs(root);
+    all!.focus();
+    all!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(vision);
+    vision!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(multi);
+    multi!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(all);
+  });
+
+  it('names the capability in the empty text even on the All tab', () => {
+    const { root } = mountStaged({ value: { core: 'claude', model: 'claude-opus-5', effort: '' } });
+    const search = root.querySelector<HTMLInputElement>('[data-ap-search]')!;
+    search.value = 'zzz';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(root.querySelector('.ap-empty')!.textContent).toBe('No models match "zzz" in All.');
+  });
+});
