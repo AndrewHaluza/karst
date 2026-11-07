@@ -52,17 +52,28 @@ export function lookupAlias(name: string): Promise<string> {
   });
 }
 
-/** Accounts of a core with a running implementation segment (the delete guard). */
+/**
+ * Accounts of a core with a live session (the delete guard): a running
+ * implementation segment, or a pending or confirmed fix launch whose recovery
+ * round is still open.
+ */
 export function liveAccountNames(store: Store, core: AccountCore): string[] {
   const rows = store.db
     .prepare(
-      `SELECT DISTINCT i.account AS account
+      `SELECT i.account AS account
          FROM session_launch_intents i
          JOIN implementation_segments s
            ON s.launch_intent_id = i.id
-        WHERE i.provider = ? AND i.status = 'confirmed' AND i.account IS NOT NULL AND s.status = 'running'`,
+        WHERE i.provider = ? AND i.status = 'confirmed' AND i.account IS NOT NULL AND s.status = 'running'
+       UNION
+       SELECT i.account AS account
+         FROM session_launch_intents i
+         JOIN recovery_rounds r
+           ON r.id = i.recovery_round_id
+        WHERE i.provider = ? AND i.purpose = 'fix' AND i.status IN ('pending','confirmed')
+          AND i.account IS NOT NULL AND r.status IN ('pending','fixing')`,
     )
-    .all(core) as Array<{ account: string }>;
+    .all(core, core) as Array<{ account: string }>;
   return rows.map((r) => r.account);
 }
 

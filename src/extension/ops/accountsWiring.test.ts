@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileAccountStore } from '../../agent/accounts/accountStore.js';
-import { accountsConfig, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { accountForLaunch, accountsConfig, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { transition } from '../../workflow/machine.js';
 import { confirmSessionLaunchIntent, recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
+import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import { ACCOUNTS_WATCH_MS, binaryResolves, DEFAULT_DIRS, liveAccountNames, lookupAlias, wireAccounts } from './accountsWiring.js';
 
 let root: string;
@@ -31,12 +32,45 @@ it('publishes the config to the registry on every mutation and on reload', async
   store.close();
 });
 
+it('wires the recorded account of a session from the launch intents', async () => {
+  const store = openStore(':memory:');
+  const ticketId = createTicketFlow(store, { key: 'T-2', title: 't' }).id;
+  transition(store, ticketId, 'scope', { kind: 'passed' });
+  recordSessionLaunchIntent(store, {
+    ticketId, launchId: 'l1', purpose: 'implementation', provider: 'claude', account: 'work',
+    reason: 'initial', sessionOrigin: 'new', at: '2026-08-01T10:00:00.000Z',
+  });
+  confirmSessionLaunchIntent(store, 'l1', { ticketId, provider: 'claude', providerSessionId: 'sess-1', at: '2026-08-01T10:01:00.000Z' });
+  const w = await wireAccounts({ globalStorageRoot: root, store });
+  expect(accountForLaunch('claude', 'sess-1')).toBe('work');
+  w.dispose();
+  store.close();
+});
+
 it('lists no live accounts on an empty store', () => {
   const store = openStore(':memory:');
   expect(liveAccountNames(store, 'claude')).toEqual([]);
   store.close();
 });
 
+
+it('counts a fix launch with an open recovery round as live, and not a closed one', () => {
+  const store = openStore(':memory:');
+  const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+  const round = openRecoveryRound(store, {
+    ticketId, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null, sourceProcessRunId: null,
+    triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3, startedAt: '2026-08-01T10:00:00.000Z',
+  });
+  recordSessionLaunchIntent(store, {
+    ticketId, launchId: 'f1', purpose: 'fix', provider: 'claude', account: 'work', recoveryRoundId: round.id,
+    reason: 'initial', sessionOrigin: 'new', at: '2026-08-01T10:00:01.000Z',
+  });
+  expect(liveAccountNames(store, 'claude')).toEqual(['work']);
+  expect(liveAccountNames(store, 'codex')).toEqual([]);
+  store.db.prepare("UPDATE recovery_rounds SET status = 'passed' WHERE id = ?").run(round.id);
+  expect(liveAccountNames(store, 'claude')).toEqual([]);
+  store.close();
+});
 
 it('maps each core to its default account folder', () => {
   expect(DEFAULT_DIRS.claude('/h')).toBe('/h/.claude');

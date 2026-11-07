@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { configureAccounts, resetAccounts } from './accounts/registry.js';
 import { claudeAttendedDeny, claudeGateDeny, gateCheckDeniedCommands, gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
@@ -94,5 +95,16 @@ describe('uat-tester policy', () => {
     expect(cmds).not.toContain('npm run uat:host*');
     expect(claudeGateDeny({}, '/h', 'uat-tester', ['x'])).toContain('Bash(npm run x*)');
     expect(opencodeGatePermission('/wt', '/tmp', {}, '/h', [], 'uat-tester', ['x']).bash['vitest*']).toBe('deny');
+  });
+});
+
+describe('gateProtectedPaths accounts (AC-55)', () => {
+  afterEach(() => resetAccounts());
+  it('protects the folder of every stored account, not only the active one', () => {
+    const acct = (dir: string) => ({ kind: 'subscription' as const, source: 'folder' as const, dir });
+    configureAccounts({ claude: { active: 'a', list: { a: acct('/w/a'), b: acct('/w/b'), c: { ...acct(''), source: 'command' as const, command: 'x' } } } });
+    const paths = gateProtectedPaths({}, '/h');
+    expect(paths).toEqual(expect.arrayContaining(['/w/a/**', '/w/b/**']));
+    expect(paths).not.toContain('/**');
   });
 });
