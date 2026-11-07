@@ -60,6 +60,7 @@ import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
 import { watchExternalChanges } from './store/externalChanges.js';
+import { ExternalChangeSync } from './ui/dashboard/externalSync.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { resolveSidebarEdge } from './ui/sidebar/edge.js';
@@ -713,7 +714,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),
     refresh: () => mgr.refresh(),
-    requestState: () => mgr.refresh(),
+    requestState: () => mgr.refreshNow(),
     create: () => void vscode.commands.executeCommand('karst.openTicketForm'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
     openResources: () => void vscode.commands.executeCommand('karst.openResources'),
@@ -777,7 +778,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => activeTicket.get(),
     () => currentManifest(),
     (id) => planning.isLive(id),
-    (id) => artifactCounts.get(id));
+    (id) => artifactCounts.get(id),
+    { debug: (m) => logger.debug(m) });
+  context.subscriptions.push({ dispose: () => provider.dispose() });
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);
@@ -6020,18 +6023,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // at once (the DB is shared by every window). Sub-task autostart is likewise
   // NOT here: it runs on its own owner-window tick behind an atomic claim, so a
   // CLI-queued child is started only by the window holding its parent's session.
+  const externalSync = new ExternalChangeSync({
+    openTicketIds: () => dashboard.openTicketIds(),
+    isVisible: (id) => dashboard.isPanelVisible(id),
+    pushStoreState: (id) => dashboard.pushStoreState(id),
+    pushPassiveState: (id) => dashboard.pushPassiveState(id),
+    markSupplementalStale: (id) => dashboard.markSupplementalStale(id),
+    logError,
+  });
   context.subscriptions.push(
     watchExternalChanges(localStore, () => {
       // Window-level first, and unconditionally: the sidebar reflects registry
       // state whether or not any dashboard happens to be open, and refreshing
       // it once per open panel was N calls for one change.
       provider.refresh();
-      for (const ticketId of dashboard.openTicketIds()) {
-        // A CLI write requires a complete redraw (including supplemental
-        // facts), but it is not the answer to a dashboard action in flight.
-        dashboard.pushPassiveState(ticketId);
-      }
+      // A CLI write requires a complete redraw (including supplemental
+      // facts), but it is not the answer to a dashboard action in flight. The
+      // store snapshot lands at once for a visible panel; the supplemental
+      // loaders run on a slower trailing timer, and a hidden panel catches up
+      // when it is shown.
+      externalSync.onChange();
     }),
+    { dispose: () => externalSync.dispose() },
   );
 
   // Startup dependency preflight: karst shells out to tools it doesn't

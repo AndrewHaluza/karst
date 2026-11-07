@@ -28,6 +28,23 @@ import type { SidebarEdge } from './edge.js';
 export interface SidebarView {
   postMessage(message: SidebarHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
+  /** Whether the view is on screen now. Absent → always visible (tests, older hosts). */
+  isVisible?(): boolean;
+  /** Fires when the view is shown or hidden. Absent → never fires. */
+  onDidChangeVisibility?(handler: () => void): void;
+}
+
+/** Trailing debounce for `refresh()`: a burst of hook events builds the state once. */
+export const SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+
+/** Tuning and diagnostics seams for `SidebarViewManager`. */
+export interface SidebarViewOptions {
+  /** Trailing debounce window of `refresh()`; 0 pushes at once. */
+  debounceMs?: number;
+  /** Debug sink for the `[sidebar]` timing line. */
+  debug?: (message: string) => void;
+  /** Millisecond clock; defaults to `performance.now`. */
+  now?: () => number;
 }
 
 /** Factory the manager binds to (real: `registerWebviewViewProvider`). */
@@ -59,6 +76,12 @@ export class SidebarViewManager {
    * matches `auto` with the primary sidebar docked left.
    */
   private edge: SidebarEdge = 'right';
+  /** The pending trailing `refresh()` push, if any. */
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A push was skipped while the view was hidden; the next show builds it. */
+  private staleWhileHidden = false;
+  /** Serialized form of the last `state` posted, so an identical state is not posted again. */
+  private lastPosted: string | undefined;
 
   constructor(
     private readonly store: Store,
@@ -92,6 +115,7 @@ export class SidebarViewManager {
     private readonly planningLive?: (sessionId: number) => boolean,
     /** Cached captured-file count per ticket, for the expanded row's Artifacts chip. */
     private readonly artifactCount?: (ticketId: number) => number,
+    private readonly options: SidebarViewOptions = {},
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -99,6 +123,12 @@ export class SidebarViewManager {
     const actions = this.actionsFactory(this);
     host.onResolve((view) => {
       this.view = view;
+      // A new view is a new page: it holds none of what the last one was sent.
+      this.lastPosted = undefined;
+      view.onDidChangeVisibility?.(() => {
+        if (view !== this.view || !this.visible()) return;
+        if (this.staleWhileHidden) this.push();
+      });
       view.onDidReceiveMessage((raw) => {
         // The requestId is read off the RAW message, before parsing narrows it
         // away (parseSidebarMessage deliberately drops every field it does not
@@ -130,9 +160,27 @@ export class SidebarViewManager {
     }
   }
 
-  /** Re-read the store and push a fresh state snapshot; no-op before resolve. */
-  private push(): void {
-    if (!this.view) return;
+  private visible(): boolean {
+    return this.view?.isVisible?.() ?? true;
+  }
+
+  /**
+   * Re-read the store and push a fresh state snapshot; no-op before resolve.
+   * While the view is hidden nothing is built: the push is remembered and runs
+   * when the view is shown. A state equal to the last one posted is not posted
+   * unless `force` is set.
+   */
+  private push(force = false): void {
+    this.cancelPendingRefresh();
+    const view = this.view;
+    if (!view) return;
+    if (!this.visible()) {
+      this.staleWhileHidden = true;
+      return;
+    }
+    this.staleWhileHidden = false;
+    const now = this.options.now ?? (() => performance.now());
+    const t0 = now();
     const state = buildSidebarState(
       this.store,
       {
@@ -148,11 +196,26 @@ export class SidebarViewManager {
       },
       this.pathContext?.(),
     );
-    this.view.postMessage({ type: 'state', state });
-    // The edge line rides every push as well, so a re-resolve (the view is
-    // hidden and shown again) repaints the current side without a separate
-    // round-trip — the same "on load" the acceptance asks for.
-    this.view.postMessage({ type: 'edge', side: this.edge });
+    const t1 = now();
+    const serialized = JSON.stringify(state);
+    const same = !force && serialized === this.lastPosted;
+    if (!same) {
+      this.lastPosted = serialized;
+      view.postMessage({ type: 'state', state });
+      // The edge line rides every posted state as well, so a re-resolve (the
+      // view is hidden and shown again) repaints the current side without a
+      // separate round-trip.
+      view.postMessage({ type: 'edge', side: this.edge });
+    }
+    this.options.debug?.(
+      `[sidebar] buildSidebarState ${(t1 - t0).toFixed(1)} ms, post ${(now() - t1).toFixed(1)} ms${same ? ' (identical, not posted)' : ''}`,
+    );
+  }
+
+  private cancelPendingRefresh(): void {
+    if (this.refreshTimer === undefined) return;
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
   }
 
   /**
@@ -167,10 +230,37 @@ export class SidebarViewManager {
     this.view?.postMessage({ type: 'edge', side });
   }
 
-  /** Re-query and re-push. Named to match the old tree provider's `refresh`. */
+  /**
+   * Re-query and re-push, trailing-debounced: any number of calls inside the
+   * window produce one build. Named to match the old tree provider's `refresh`.
+   * The subscriber (badge, attention item) is signalled at once, not delayed.
+   */
   refresh(): void {
-    this.push();
+    const wait = this.options.debounceMs ?? SIDEBAR_REFRESH_DEBOUNCE_MS;
+    if (wait <= 0) {
+      this.push();
+    } else {
+      this.cancelPendingRefresh();
+      this.refreshTimer = setTimeout(() => {
+        this.refreshTimer = undefined;
+        this.push();
+      }, wait);
+    }
     this.refreshSubscriber?.();
+  }
+
+  /**
+   * Push now, skipping the debounce and the identical-state skip: the webview
+   * asked for state, so it holds none and must get an answer even when the
+   * state equals the last post.
+   */
+  refreshNow(): void {
+    this.push(true);
+  }
+
+  /** Drop a pending debounced push (extension deactivation). */
+  dispose(): void {
+    this.cancelPendingRefresh();
   }
 
   /**

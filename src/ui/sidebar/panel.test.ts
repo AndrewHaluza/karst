@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
-import { SidebarViewManager, type SidebarView, type SidebarViewHost } from './panel.js';
+import { SidebarViewManager, SIDEBAR_REFRESH_DEBOUNCE_MS, type SidebarView, type SidebarViewHost } from './panel.js';
 import type { SidebarActions, SidebarHostMessage } from './messages.js';
 import type { SidebarState } from './state.js';
 
@@ -77,8 +77,14 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
 
 describe('SidebarViewManager', () => {
   let store: Store;
-  beforeEach(() => (store = openStore(':memory:')));
-  afterEach(() => store.close());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    store.close();
+  });
 
   it('pushes initial state when the view resolves', () => {
     createTicket(store, { key: 'A-1', title: 'one' });
@@ -101,10 +107,23 @@ describe('SidebarViewManager', () => {
     mgr.toggleFacet('archived');
     mgr.setFilter('x');
     mgr.refresh();
-    expect(view.posted).toHaveLength(3);
+    expect(view.posted).toHaveLength(2); // the refresh repeats the filter push: not posted again
     expect(mgr.getFacets()).toEqual(['archived']);
     expect(view.posted[0]!.facets).toEqual(['archived']);
     expect(view.posted[1]!.filter).toBe('x');
+  });
+
+  it('refreshNow answers a state request even when the state equals the last post', () => {
+    createTicket(store, { key: 'A-1', title: 'one' });
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    expect(view.posted).toHaveLength(1);
+
+    mgr.refreshNow(); // a reloaded page asked for state: it holds none
+    expect(view.posted).toHaveLength(2);
+    expect(view.posted[1]).toEqual(view.posted[0]);
   });
 
   it('toggleFacet builds a multi-status union and getFacets reflects it', () => {
@@ -181,7 +200,9 @@ describe('SidebarViewManager', () => {
     mgr.bind(host);
     const view = resolve();
     const before = view.posted.length;
+    createTicket(store, { key: 'B-2', title: 'two' });
     expect(() => mgr.refresh()).not.toThrow();
+    vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS);
     expect(view.posted.length).toBe(before + 1);
   });
 
@@ -297,10 +318,116 @@ describe('SidebarViewManager', () => {
 
     active = t.id;
     mgr.refresh();
+    vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS);
     expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(true);
 
     active = null;
     mgr.refresh();
+    vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS);
     expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(false);
+  });
+
+  describe('refresh cost', () => {
+    /** A view whose visibility the test controls. */
+    function visibleHost(): { host: SidebarViewHost; resolve: () => FakeView & { show(v: boolean): void } } {
+      let handler: ((view: SidebarView) => void) | undefined;
+      const host: SidebarViewHost = { onResolve: (h) => (handler = h) };
+      const resolve = () => {
+        let visible = true;
+        const listeners: Array<() => void> = [];
+        const view = {
+          posted: [] as SidebarState[],
+          postedRaw: [] as SidebarHostMessage[],
+          handlers: [] as Array<(m: unknown) => void>,
+          postMessage: (m: SidebarHostMessage) => {
+            view.postedRaw.push(m);
+            if (m.type === 'state') view.posted.push(m.state);
+          },
+          onDidReceiveMessage: (h: (m: unknown) => void) => view.handlers.push(h),
+          emit: (m: unknown) => view.handlers.forEach((h) => h(m)),
+          isVisible: () => visible,
+          onDidChangeVisibility: (h: () => void) => listeners.push(h),
+          show: (v: boolean) => {
+            visible = v;
+            listeners.forEach((l) => l());
+          },
+        };
+        handler!(view);
+        return view;
+      };
+      return { host, resolve };
+    }
+
+    it('many refresh calls inside the debounce window produce one build', () => {
+      const debug = vi.fn();
+      const mgr = new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { debug });
+      const { host, resolve } = visibleHost();
+      mgr.bind(host);
+      const view = resolve();
+      debug.mockClear();
+      createTicket(store, { key: 'N-1', title: 'new' });
+      for (let i = 0; i < 25; i++) {
+        mgr.refresh();
+        vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS - 1);
+      }
+      expect(debug).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS);
+      expect(debug).toHaveBeenCalledTimes(1);
+      expect(debug.mock.calls[0]![0]).toMatch(/^\[sidebar\] buildSidebarState/);
+      expect(view.posted).toHaveLength(2);
+    });
+
+    it('a hidden view builds nothing, and the next show pushes once', () => {
+      const debug = vi.fn();
+      const mgr = new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { debug });
+      const { host, resolve } = visibleHost();
+      mgr.bind(host);
+      const view = resolve();
+      view.show(false);
+      debug.mockClear();
+      const before = view.posted.length;
+      createTicket(store, { key: 'H-1', title: 'hidden' });
+      mgr.refresh();
+      mgr.setFilter('h');
+      vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS * 2);
+      expect(debug).not.toHaveBeenCalled();
+      expect(view.posted).toHaveLength(before);
+      view.show(true);
+      expect(debug).toHaveBeenCalledTimes(1);
+      expect(view.posted).toHaveLength(before + 1);
+      expect(view.posted.at(-1)!.filter).toBe('h');
+    });
+
+    it('showing a view with nothing missed builds nothing', () => {
+      const debug = vi.fn();
+      const mgr = new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { debug });
+      const { host, resolve } = visibleHost();
+      mgr.bind(host);
+      const view = resolve();
+      debug.mockClear();
+      view.show(false);
+      view.show(true);
+      expect(debug).not.toHaveBeenCalled();
+    });
+
+    it('does not post a state identical to the last post', () => {
+      const mgr = new SidebarViewManager(store, () => stubActions());
+      const { host, resolve } = visibleHost();
+      mgr.bind(host);
+      const view = resolve();
+      const before = view.postedRaw.length;
+      mgr.refresh();
+      vi.advanceTimersByTime(SIDEBAR_REFRESH_DEBOUNCE_MS);
+      expect(view.postedRaw).toHaveLength(before);
+    });
+
+    it('a re-resolved view gets the state again even when it is unchanged', () => {
+      const mgr = new SidebarViewManager(store, () => stubActions());
+      const { host, resolve } = visibleHost();
+      mgr.bind(host);
+      resolve();
+      const second = resolve();
+      expect(second.posted).toHaveLength(1);
+    });
   });
 });

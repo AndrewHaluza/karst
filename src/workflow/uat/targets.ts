@@ -60,12 +60,15 @@ export async function planUatTargets(
    * cancels the in-flight fetches. Absent → unchanged (the gate stages).
    */
   signal?: AbortSignal,
+  /** Skip every `git fetch` (display-only callers); see `SelectReviewTargetsOptions.noFetch`. */
+  noFetch?: boolean,
 ): Promise<UatTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git, {
     store: ticket.store,
     ticketId: ticket.ticketId,
     debug,
     signal,
+    ...(noFetch ? { noFetch } : {}),
   });
   if (selection.kind === 'unavailable') {
     debug?.(

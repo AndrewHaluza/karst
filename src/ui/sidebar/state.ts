@@ -3,7 +3,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
-import { listTickets, listArchivedTickets, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
+import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
 import { ticketActionFlags, type TicketActionFlags } from './ticketActions.js';
 import {
   listServersByTicket,
@@ -296,7 +296,11 @@ export function buildSidebarState(
   const cloud =
     opts.projectId === undefined ? undefined : cloudSessionsForSidebar(store, opts.projectId);
   const active = listTickets(store, scope);
-  const archived = listArchivedTickets(store, scope);
+  const showArchived = normalizeSelection(opts.facets).includes('archived');
+  // Outside the Archived facet only the count and the parent keys are shown, so
+  // read `id`/`key` alone: no full row and no stage rows per archived ticket.
+  const archivedKeys = listArchivedTicketKeys(store, scope);
+  const archived = showArchived ? listArchivedTickets(store, scope) : [];
 
   const facets = normalizeSelection(opts.facets);
   const query = opts.filter;
@@ -306,7 +310,7 @@ export function buildSidebarState(
   // isn't currently viewing (e.g. the parent was archived after the child
   // was created).
   const parentKeys = new Map<number, string>();
-  for (const t of [...active, ...archived]) {
+  for (const t of [...active, ...archivedKeys]) {
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
 
@@ -386,7 +390,7 @@ export function buildSidebarState(
     return nestSubtasks(rows);
   };
 
-  const counts = facetCounts(active, archived.length);
+  const counts = facetCounts(active, archivedKeys.length);
   const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query) };
 
   const isAll = facets.length === 1 && facets[0] === 'all';
@@ -432,7 +436,6 @@ export function buildSidebarState(
     };
   }
 
-  const showArchived = facets.includes('archived');
   const source = showArchived ? archived : filterBySelection(active, facets);
   return {
     ...base,

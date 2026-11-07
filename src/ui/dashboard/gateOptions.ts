@@ -105,9 +105,11 @@ export function buildGateOptionsLoader(deps: {
       // Both plans receive the caller's signal: `pushGateOptions` aborts the
       // previous probe's controller when a newer one starts, and that abort now
       // cancels the in-flight fetches instead of being noticed only after both
-      // plans resolve (NDL-65).
+      // plans resolve (NDL-65). `noFetch`: this is a display read on every
+      // push, so it compares with the refs already cloned and never spawns a
+      // `git fetch`; the gate run and ship still fetch before they act.
       const [uatPlan, reviewPlan] = await Promise.all([
-        planUatTargets(manifest, worktrees, git, { store: deps.store, ticketId }, undefined, signal),
+        planUatTargets(manifest, worktrees, git, { store: deps.store, ticketId }, undefined, signal, true),
         planReviewTargets(
           manifest,
           worktrees,
@@ -115,6 +117,7 @@ export function buildGateOptionsLoader(deps: {
           { store: deps.store, ticketId },
           undefined,
           signal,
+          true,
         ),
       ]);
       if (signal.aborted) return empty;

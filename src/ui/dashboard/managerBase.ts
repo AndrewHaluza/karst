@@ -15,6 +15,12 @@ export abstract class DashboardManagerBase {
   protected abstract readonly panels: Map<number, DashboardPanel>;
   protected abstract readonly console: DashboardConsole;
   protected abstract readonly pushDeps: SnapshotPushDeps;
+  /**
+   * Panels whose supplemental facts (worktree stats, gate options, baselines)
+   * are behind an external change they were not visible to receive. The next
+   * time the panel is shown, `repaint` runs the full passive push.
+   */
+  protected readonly staleSupplemental = new Set<number>();
 
   /**
    * Push a transient inside-progress event to a ticket panel; no-op if not open.
@@ -75,6 +81,7 @@ export abstract class DashboardManagerBase {
 
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
   pushState(ticketId: number): void {
+    this.staleSupplemental.delete(ticketId);
     pushSnapshot(this.pushDeps, ticketId, {
       kind: 'action',
       supplemental: true,
@@ -88,6 +95,7 @@ export abstract class DashboardManagerBase {
    * response to any dashboard action currently in flight.
    */
   pushPassiveState(ticketId: number): void {
+    this.staleSupplemental.delete(ticketId);
     pushSnapshot(this.pushDeps, ticketId, {
       kind: 'passive',
       supplemental: true,
@@ -125,6 +133,19 @@ export abstract class DashboardManagerBase {
   /** Whether a panel is currently open for a ticket (for the caller/tests). */
   isOpen(ticketId: number): boolean {
     return this.panels.has(ticketId);
+  }
+
+  /**
+   * Whether a ticket's panel is on screen. An unreported visibility (a host
+   * without `isVisible`) counts as visible, the pre-tick behaviour.
+   */
+  isPanelVisible(ticketId: number): boolean {
+    return this.panels.get(ticketId)?.isVisible?.() ?? this.panels.has(ticketId);
+  }
+
+  /** Remember that a panel missed an external change; it catches up when shown. */
+  markSupplementalStale(ticketId: number): void {
+    if (this.panels.has(ticketId)) this.staleSupplemental.add(ticketId);
   }
 
   /** The tickets with a currently open panel, for the external-change watcher. */

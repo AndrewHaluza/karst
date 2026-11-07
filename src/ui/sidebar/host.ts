@@ -52,6 +52,9 @@ export function makeSidebarViewHost(
       // between doesn't write to this dead view (and so it isn't retained).
       webviewView.onDidDispose(() => badge.detach());
       const view: SidebarView = {
+        isVisible: () => webviewView.visible,
+        onDidChangeVisibility: (handler) =>
+          webviewView.onDidChangeVisibility(handler, undefined, context.subscriptions),
         postMessage: (message) => void webviewView.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
           webviewView.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
