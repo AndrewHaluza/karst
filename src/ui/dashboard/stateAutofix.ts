@@ -30,6 +30,8 @@ import { getTicket } from '../../store/tickets.js';
 
 export const AUTOFIX_LOG_LIMIT = 5;
 const NOTE_PREFIX = 'Autopilot:';
+/** The note "Stop after this round" posts: the round still runs, so it must not hide the round note. */
+const STOP_AFTER_NOTE = 'Autopilot: stopped after this round';
 
 export interface AutopilotSlice {
   readonly override: 'inherit' | 'on' | 'off';
@@ -124,8 +126,8 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
  */
 function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixFacts['round'] {
   if (getTicket(store, ticketId).stageCurrent === 'ship') return null;
-  // A manual send-back takes no attempt and posts no note. The engine posts `Autopilot: ci round n/m` when it arms a round.
-  const last = store.db.prepare("SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE 'Autopilot:%' ORDER BY id DESC LIMIT 1").get(ticketId) as { title: string } | undefined;
+  // A manual send-back takes no attempt and posts no note. The engine posts `Autopilot: ci round n/m` when it arms a round; the stop-after note is skipped, as the round still runs.
+  const last = store.db.prepare("SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE 'Autopilot:%' AND title <> ? ORDER BY id DESC LIMIT 1").get(ticketId, STOP_AFTER_NOTE) as { title: string } | undefined;
   if (!/^Autopilot: ci round \d+\/\d+$/.test(last?.title ?? '')) return null;
   const hits: Array<{ repo: string; attempts: number; extra: number; number: number | null; check: string | null }> = [];
   for (const e of listAutopilotBudgets(store, ticketId)) {

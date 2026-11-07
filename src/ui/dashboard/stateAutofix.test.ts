@@ -138,6 +138,16 @@ describe('readAutofix', () => {
     expect(r.row).toMatchObject({ state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 1 of 3', activeStep: 1 });
   });
 
+  it('keeps the CI round running after Stop after this round posts its note', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
+    takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
+    setAutopilotStopAfter(store, id);
+    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: stopped after this round', body: 'b' });
+    expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'running', stopAfterRequested: true });
+  });
+
   it('shows no CI round after a manual send-back that left no round note', () => {
     const { store, id } = setup();
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
