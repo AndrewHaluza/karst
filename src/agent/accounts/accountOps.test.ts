@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -66,6 +66,21 @@ describe('account ops', () => {
     await ops.deleteAccount('claude', 'w');
     expect(store.current().claude?.active).toBe('default');
     await expect(stat(join(root, 'accounts', 'claude', 'w'))).rejects.toThrow();
+  });
+
+  it('removes only the managed folder of the account, never another dir in the store', async () => {
+    const { ops, store, debug } = setup();
+    await ops.createAccount('claude', 'w', { source: 'managed' });
+    const outside = join(root, 'precious');
+    await mkdir(outside);
+    await writeFile(join(outside, 'keep.txt'), 'x');
+    const cfg = store.current();
+    const w = cfg.claude!.list.w!;
+    await store.save({ ...cfg, claude: { ...cfg.claude!, list: { w: { ...w, dir: outside } } } });
+    await ops.deleteAccount('claude', 'w');
+    expect((await stat(join(outside, 'keep.txt'))).isFile()).toBe(true);
+    expect(store.current().claude?.list.w).toBeUndefined();
+    expect(debug.some((m) => m.includes('not removed') && m.includes('claude/w'))).toBe(true);
   });
 
   it('keeps the files of a folder account on delete', async () => {

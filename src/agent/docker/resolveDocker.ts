@@ -91,6 +91,7 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
       proc, core: input.core, names, user, ticket: input.worktree,
       proxyScript: join(assetsDir, 'allowlist-proxy.mjs'),
       ...(input.bridgeDir !== undefined ? { bridgeDir: input.bridgeDir } : {}),
+      ...(input.account !== undefined ? { account: input.account } : {}),
       ...(input.core === 'opencode2' ? { opencode2Host: (deps.opencode2Host ?? defaultOpencode2Host)(input.account) } : {}),
       ...(deps.debug ? { debug: deps.debug } : {}),
       ...(deps.hostPorts && deps.hostPorts.length > 0 ? { hostPorts: deps.hostPorts } : {}),

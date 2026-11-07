@@ -4,7 +4,7 @@
  * Debug lines name the account, the binary and the dir only (@arch:AC-48).
  */
 import { mkdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { AccountStore } from './accountStore.js';
 import { parseShellAlias, type AliasImport } from './aliasImport.js';
 import { copyAccountSeed, SEED_ITEMS, type CopySeedResult, type SeedItem } from './copySeed.js';
@@ -106,7 +106,13 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const { [name]: _removed, ...rest } = prev.list;
     await deps.store.save(withCore(config, core, { active: prev.active === name ? DEFAULT_ACCOUNT : prev.active, list: rest }));
     // Only a managed folder is removed; a folder or command account keeps the user's files.
-    if (account.source === 'managed') await rm(account.dir, { recursive: true, force: true });
+    if (account.source !== 'managed') return;
+    // The stored dir is data from a file: remove it only when it is exactly the folder karst made.
+    if (resolve(account.dir) !== resolve(sourceDir(core, name))) {
+      deps.debug?.(`[accounts] not removed ${core}/${name}: dir is not the managed folder`);
+      return;
+    }
+    await rm(account.dir, { recursive: true, force: true });
   }
 
   async function loginCommand(core: AccountCore, name?: string): Promise<{ binary: string; args: string[]; env: Record<string, string> }> {
