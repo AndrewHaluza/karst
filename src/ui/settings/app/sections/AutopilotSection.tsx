@@ -77,7 +77,7 @@ export function AutopilotSection() {
             <div className="section-desc">Project default for every ticket and its sub-tasks.</div>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="form-grid stack">
           <Field
             label="Mode"
             help="On: karst runs the fix with the ticket's agent, up to the limit, then asks you. Off: every problem waits for your approval."
@@ -99,7 +99,7 @@ export function AutopilotSection() {
             <div className="section-desc">The PR no longer merges cleanly into its base.</div>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="form-grid stack">
           <Field
             label="When it happens"
             control={{
@@ -135,7 +135,7 @@ export function AutopilotSection() {
             <div className="section-desc">A check failed on the PR.</div>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="form-grid stack">
           <Field
             label="When it happens"
             control={{
@@ -209,13 +209,13 @@ export function AutopilotSection() {
             <div className="section-desc">Someone else pushed to the ticket branch.</div>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="form-grid stack">
           <div className="field-control">
             <span className="field-label">When it happens</span>
             <Help>
               Always asks. Another person&apos;s commits are on origin, so you choose Integrate or
               Overwrite remote.{' '}
-              <a href={FIX_PUSH_DOCS_URL}>How Fix push works</a>
+              <a className="help-link" href={FIX_PUSH_DOCS_URL}>How Fix push works</a>
             </Help>
           </div>
         </div>
