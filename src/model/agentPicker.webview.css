@@ -116,9 +116,9 @@ select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-ov
   border-radius:var(--k-radius-pill);background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-xs);cursor:pointer}
 .ap-cap:hover{background:var(--k-surface-hover);color:var(--k-text)}
 .ap-cap[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text);border-color:var(--k-focus)}
-.ap-cap[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.ap-cap[aria-disabled="true"]{border-style:dashed;cursor:not-allowed}
 .ap-cap:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-.ap-cap-n{color:var(--k-text-faint);font-variant-numeric:tabular-nums}
+.ap-cap-n{color:inherit;font-variant-numeric:tabular-nums}
 .ap-model-item mark,.ap-opt mark{background:var(--k-accent-soft,var(--k-surface-hover));color:inherit;border-radius:var(--k-radius-sm)}
 .ap-billing{margin-left:var(--k-space-2);color:var(--k-text-faint)}
 .ap-ck,.ap-ck-gap{flex:none;width:var(--k-space-4);height:var(--k-space-4);display:inline-flex}
