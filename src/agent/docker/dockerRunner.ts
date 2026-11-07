@@ -56,8 +56,6 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
   const ctx: CloneContext = { proc: opts.proc, names: opts.names, user: opts.user, temp: opts.temp ?? OS_TEMP_DIRS };
   const gateProcess = opts.gateProcess ?? runProcess;
   const gateEnv: Record<string, string> = { [SANDBOX_ENV]: '1', ...(opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {}) };
-  /** The allowlist of the open setup window (arch:AC-36); undefined = baseline. A one-shot gate's proxy restart keeps it. */
-  let windowAllow: readonly string[] | undefined;
   const proxySpec = (proxy: { readonly script: string; readonly hostPorts?: readonly number[] }): SidecarSpec => ({
     proxy: opts.names.proxy, network: opts.names.network, scriptPath: proxy.script,
     ...(proxy.hostPorts ? { hostPorts: proxy.hostPorts } : {}),
@@ -113,7 +111,8 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       // runs in a one-shot container on the same clone, removed by name.
       // The proxy is stopped when the session ends: bring it back for the gate's network.
       if (opts.proxy) {
-        await startProxySidecar(opts.proc, { ...proxySpec(opts.proxy), ...(windowAllow ? { allow: windowAllow } : {}) });
+        // `keepWindow`: a running setup-window proxy (opened by another runner object) stays; only a stopped one restarts.
+        await startProxySidecar(opts.proc, proxySpec(opts.proxy), { keepWindow: true });
       }
       const runName = `${opts.names.container}-gate-${newRunId()}`;
       const remove = () => opts.proc.run(DOCKER_BIN, ['rm', '--force', runName]);
@@ -136,7 +135,6 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       const opened = await startProxySidecar(opts.proc, { ...spec, allow });
       // A failed open may leave a half-built proxy: put the baseline back before reporting.
       if (!opened.ok) { await startProxySidecar(opts.proc, spec); return opened; }
-      windowAllow = allow;
       const deniedHosts = async (): Promise<string[]> => {
         try {
           const logs = await opts.proc.run(DOCKER_BIN, ['logs', '--since', since, opts.names.proxy]);
@@ -145,7 +143,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
           return [];
         }
       };
-      return { ok: true, close: async () => { windowAllow = undefined; await startProxySidecar(opts.proc, spec); }, deniedHosts };
+      return { ok: true, close: async () => { await startProxySidecar(opts.proc, spec); }, deniedHosts };
     },
     canHostServices: async () => {
       if (await containerRunning(opts.proc, opts.names.container)) return true;

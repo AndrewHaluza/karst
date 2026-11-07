@@ -98,6 +98,35 @@ describe('proxy sidecar: baseline host ports (arch:AC-32)', () => {
     expect(same.calls).toHaveLength(1);
   });
 
+  it('keepWindow keeps a running setup-window proxy; without it the window proxy is reset to the baseline', async () => {
+    const window = { 'docker container inspect': { stdout: 'true  registry.npmjs.org,nodejs.org\n' } };
+    const kept = fakeDockerProcess(window);
+    await expect(startProxySidecar(kept, SPEC, { keepWindow: true })).resolves.toEqual({ ok: true });
+    expect(kept.calls).toHaveLength(1);
+    const reset = fakeDockerProcess(window);
+    await startProxySidecar(reset, SPEC);
+    expect(lines(reset)[1]).toBe('docker rm --force k-proxy');
+    expect(lines(reset)[2]).not.toContain('karst.allow=');
+  });
+
+  it('reads the inspect fields by position: an empty or <no value> host-ports label does not shift the allow label', async () => {
+    for (const stdout of ['true  registry.npmjs.org,nodejs.org\n', 'true <no value> registry.npmjs.org,nodejs.org\n']) {
+      const proc = fakeDockerProcess({ 'docker container inspect': { stdout } });
+      await startProxySidecar(proc, { ...SPEC, allow: ['registry.npmjs.org', 'nodejs.org'] });
+      expect(proc.calls).toHaveLength(1);
+    }
+  });
+
+  it('keepWindow still replaces a stopped proxy and one whose baseline ports differ', async () => {
+    const stopped = fakeDockerProcess({ 'docker container inspect': { stdout: 'false  nodejs.org\n' } });
+    await startProxySidecar(stopped, SPEC, { keepWindow: true });
+    expect(lines(stopped)[2]).toMatch(/^docker run --detach/);
+    expect(lines(stopped)[2]).not.toContain('karst.allow=');
+    const ports = fakeDockerProcess({ 'docker container inspect': { stdout: 'true  nodejs.org\n' } });
+    await startProxySidecar(ports, { ...SPEC, hostPorts: [5432] }, { keepWindow: true });
+    expect(ports.calls.map((c) => c.args[0])).toEqual(['container', 'rm', 'run', 'network']);
+  });
+
   it('caps the proxy memory', () => {
     expect([PROXY_MEMORY_LIMIT, PROXY_MEMORY_RESERVATION]).toEqual(['128m', '64m']);
   });

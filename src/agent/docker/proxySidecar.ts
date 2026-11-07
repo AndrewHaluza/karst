@@ -46,7 +46,6 @@ const HOSTALLOW_LABEL = 'karst.hostallow';
 /** Running state + the baseline ports the proxy was started with, in one inspect. */
 const ALLOW_LABEL = 'karst.allow';
 const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}} {{index .Config.Labels "${ALLOW_LABEL}"}}`;
-const noValue = (v: string): string => (v === '<no value>' ? '' : v);
 
 function hostAllowValue(ports: readonly number[] | undefined): string {
   return (ports ?? []).map((p) => `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`).join(',');
@@ -80,16 +79,22 @@ function hostAllowArgs(ports: readonly number[] | undefined): string[] {
   ];
 }
 
+export interface SidecarStartOptions {
+  /** Keep a running proxy whose allow list differs (an open setup window, arch:AC-47); a one-shot gate must not close it. */
+  readonly keepWindow?: boolean;
+}
+
 /**
  * Start the proxy unless it already runs with the same baseline ports, then give it (and only it) a second,
  * routable network: the ticket network is `--internal`, so the proxy is the
  * agent container's single way out.
  */
-export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec): Promise<SidecarResult> {
+export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec, opts: SidecarStartOptions = {}): Promise<SidecarResult> {
   const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', INSPECT_FORMAT, spec.proxy]);
-  const [running = '', label = '', allowLabel = ''] = state.stdout.trim().split(/\s+/);
-  const sameAllow = noValue(label) === hostAllowValue(spec.hostPorts) && noValue(allowLabel) === (spec.allow?.join(',') ?? '');
-  if (state.code === 0 && running === 'true' && sameAllow) return { ok: true };
+  // Fields by position: a missing label prints '' (or `<no value>`), so a run of spaces is NOT one separator.
+  const [running = '', label = '', allowLabel = ''] = state.stdout.replace(/\r?\n$/, '').replaceAll('<no value>', '').split(' ');
+  const sameAllow = opts.keepWindow === true || allowLabel === (spec.allow?.join(',') ?? '');
+  if (state.code === 0 && running === 'true' && label === hostAllowValue(spec.hostPorts) && sameAllow) return { ok: true };
   if (state.code === 0) await proc.run(DOCKER_BIN, ['rm', '--force', spec.proxy]);
   const run = await proc.run(DOCKER_BIN, sidecarRunArgs(spec));
   if (run.code !== 0) return { ok: false, reason: `proxy sidecar failed to start: ${detail(run)}` };

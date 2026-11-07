@@ -77,21 +77,19 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     expect(gateProcess).toHaveBeenCalledTimes(1);
   });
 
-  it('a one-shot gate inside an open setup window keeps the window allowlist; after close it is the baseline again', async () => {
-    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' } });
+  it('a one-shot gate from ANOTHER runner object keeps a running setup-window proxy; it never resets it to the baseline', async () => {
+    // The extension builds a new runner per call: the window state must live on the proxy (its `karst.allow` label), not in a runner.
+    const proc = fakeDockerProcess({
+      'docker container inspect': { stdout: 'false\n' },
+      'docker container inspect --format {{.State.Running}} {{index': { stdout: 'true  registry.npmjs.org,nodejs.org\n' },
+    });
     const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
-    const runner = createDockerSessionRunner({ ...base, proc, gateProcess, proxy: { script: '/s.mjs', hostPorts: [] } });
-    const proxyRuns = (): string[] => proc.calls.map((c) => c.args.join(' ')).filter((c) => c.startsWith(`run --detach --name ${names.proxy}`));
-    const window = await runner.setupWindow!(['nodejs.org', '*.example.com']);
-    expect(window.ok).toBe(true);
-    await runner.runGate!('npm', ['ci'], '/w/t7');
-    const duringWindow = proxyRuns();
-    expect(duringWindow).toHaveLength(2);
-    for (const run of duringWindow) expect(run).toContain('karst.allow=');
-    expect(duringWindow[1]).toContain('nodejs.org,example.com');
-    if (window.ok) await window.close();
-    await runner.runGate!('npm', ['test'], '/w/t7');
-    for (const run of proxyRuns().slice(2)) expect(run).not.toContain('karst.allow=');
+    const gateRunner = createDockerSessionRunner({ ...base, proc, gateProcess, proxy: { script: '/s.mjs', hostPorts: [] } });
+    await gateRunner.runGate!('npm', ['ci'], '/w/t7');
+    const calls = proc.calls.map((c) => c.args.join(' '));
+    expect(calls).not.toContain(`rm --force ${names.proxy}`);
+    expect(calls.some((c) => c.startsWith(`run --detach --name ${names.proxy}`))).toBe(false);
+    expect(gateProcess).toHaveBeenCalledTimes(1);
   });
 
   it('hasSandbox is the clone volume', async () => {
