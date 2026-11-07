@@ -81,6 +81,8 @@ module.exports = {
       // narrowing (arch:AC-39) — re-deriving the set here would drift.
       // usageLimitRerun re-runs a parked review/UAT lane and must word the
       // park reason exactly as the lanes do (`usageLimitReason`, cliFailure.ts).
+      // stallSuggestion runs the one read-only stall call and must sort its failure
+      // (`classifyFailure`, failureClass.ts) the way every other agent call does (T1001).
       name: 'core-agent-seam',
       severity: 'error',
       comment: 'Core may value-import agent/domain code only from the accepted seam modules listed in pathNot.',
@@ -90,7 +92,7 @@ module.exports = {
           '^src/manifest/(foldProcessRows|schema)\\.ts$',
           '^src/model/(artifacts|inside/agent|inside/gates)\\.ts$',
           '^src/store/(interactiveUsageSamples|tickets|usageLimitParks)\\.ts$',
-          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|usageLimitRerun)\\.ts$',
+          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|stallSuggestion|usageLimitRerun)\\.ts$',
           '^src/workflow/artifacts/(alignment|alignmentTrigger)\\.ts$',
           '^src/workflow/gates/gateConsole\\.ts$',
           '^src/workflow/review/(aggregate|findingsLane)\\.ts$',
