@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileAccountStore } from '../../agent/accounts/accountStore.js';
 import { accountForLaunch, accountsConfig, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { configureOpencode2, resetOpencode2Config } from '../../agent/opencode2Binary.js';
 import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { transition } from '../../workflow/machine.js';
@@ -78,6 +79,12 @@ it('maps each core to its default account folder', () => {
   expect(DEFAULT_DIRS.antigravity('/h')).toBe('/h/.gemini/antigravity-cli');
   expect(DEFAULT_DIRS.opencode('/h')).toBe('/h/.local/share/opencode');
   expect(DEFAULT_DIRS.opencode2('/h')).toBe('/h/.local/share/opencode');
+  configureOpencode2({ home: '/karst/oc2' });
+  try {
+    expect(DEFAULT_DIRS.opencode2('/h')).toBe('/karst/oc2');
+  } finally {
+    resetOpencode2Config();
+  }
 });
 
 it('resolves an absolute executable and rejects a missing or non-executable file', async () => {

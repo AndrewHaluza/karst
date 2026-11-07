@@ -14,6 +14,7 @@ import type { Store } from '../../store/db.js';
 import { createAccountOps, type AccountOps } from '../../agent/accounts/accountOps.js';
 import { ACCOUNTS_FILE, fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
 import { configureAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { opencode2Config } from '../../agent/opencode2Binary.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
 
@@ -25,7 +26,8 @@ export const DEFAULT_DIRS: Readonly<Record<AccountCore, (home: string) => string
   codex: (h) => join(h, '.codex'),
   antigravity: (h) => join(h, '.gemini', 'antigravity-cli'),
   opencode: (h) => join(h, '.local', 'share', 'opencode'),
-  opencode2: (h) => join(h, '.local', 'share', 'opencode'),
+  // The default opencode2 account is the Karst-owned home (its XDG_CONFIG_HOME is <home>/config); with no home set it is the shared opencode folder.
+  opencode2: (h) => opencode2Config().home || join(h, '.local', 'share', 'opencode'),
 };
 
 async function isExecutable(file: string): Promise<boolean> {
