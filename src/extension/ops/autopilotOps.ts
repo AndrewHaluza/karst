@@ -9,7 +9,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  clearConflictRound, effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, refundAutopilotAttempt,
+  clearConflictRound, effectiveAutopilot, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
   markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
@@ -186,6 +186,9 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (state.stopAfter || state.pausedReason !== null || ticket.pausedAt !== null) return { kind: 'idle' };
   // A ship saga in flight owns the ticket: no round while it runs.
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
+  // An undelivered round parked the ticket: the CI rollup is of the old head, so no round starts until a person acts (approve
+  // one more, set the mode) or the PRs are proven clean.
+  if (state.stoppedReason === STALLED_REASON && !provenClean(d)) return { kind: 'idle' };
   // Only a SHIPPED ticket (the awaiting-merge block) is worked: a ticket that waits for Confirm ship has no block, and its
   // stored CI result belongs to an older head. Push-diverged and every other foreign block need a person too.
   if (stageBlock(d.store, d.ticketId, 'ship')?.kind !== 'awaiting-merge') return { kind: 'idle' };
@@ -195,7 +198,8 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
   // A round armed for a long time, with no agent and no delivery running, never delivered (the agent left the merge
   // unfinished or a gate failed). Drop it with a note: the budget then bounds the next attempt.
-  if (d.conflictRoundStalled()) {
+  // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
+  if (getConflictRoundAt(d.store, d.ticketId) !== null && d.conflictRoundStalled()) {
     d.dropConflictRound();
     d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
     clearConflictRound(d.store, d.ticketId);

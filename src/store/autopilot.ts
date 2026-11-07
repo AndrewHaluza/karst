@@ -72,6 +72,12 @@ export function markConflictRound(store: Store, ticketId: number, atMs: number):
   store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = ? WHERE ticket_id = ?').run(atMs, ticketId);
 }
 
+/** When the engine sent its conflict round (ms), or null. A manual Resolve conflicts click leaves it null. */
+export function getConflictRoundAt(store: Store, ticketId: number): number | null {
+  const row = store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { at: number | null } | undefined;
+  return row?.at ?? null;
+}
+
 /** The conflict round ended (delivered, dropped or stopped): its slot is free. */
 export function clearConflictRound(store: Store, ticketId: number): void {
   store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = NULL WHERE ticket_id = ?').run(ticketId);

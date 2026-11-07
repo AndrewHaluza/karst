@@ -724,6 +724,23 @@ describe('conflicts', () => {
     expect(r.sendConflict).not.toHaveBeenCalled();
     expect(r.sendCi).not.toHaveBeenCalled();
     expect(store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id)).toEqual({ at: null });
+    // The park holds on the next ticks: the probe reads the local merge commit as clean, the CI rollup is of the old head.
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'base1', baseRef: 'develop', checkedAt: 'x' });
+    const next = rig();
+    expect((await autopilotTick(next.deps)).kind).toBe('idle');
+    expect(next.sendCi).not.toHaveBeenCalled();
+    // A person approves one more attempt: the engine works again.
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect((await autopilotTick(rig().deps)).kind).not.toBe('idle');
+  });
+
+  it('does not drop the round of a manual Resolve conflicts click (no engine mark)', async () => {
+    seedPr(PASSING);
+    conflict();
+    const drop = vi.fn();
+    const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(drop).not.toHaveBeenCalled();
   });
 
   it('marks the round on a sent conflict round and clears the mark when the round fails', async () => {
