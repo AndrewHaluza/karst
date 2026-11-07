@@ -63,7 +63,7 @@ const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 // The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
 const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
 const SANDBOX_WORD = /sandbox/i;
-// A permanent park: the cause is the ticket kind, so a retry parks again and posts another note.
+// A permanent park (a graph ticket): the cause is the ticket kind, so a retry parks again. A sandbox park keeps ONE Retry (the ticket requires it).
 const NOT_RUN = /^auto-fix not run:/;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 
@@ -191,8 +191,8 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
     state: 'paused',
     title: 'Auto-fix paused',
     titleSuffix: reason === SANDBOXED ? 'sandbox ticket' : '',
-    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Autopilot runs host tickets only.' : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
-    primary: NOT_RUN.test(reason) ? null : RETRY,
+    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
+    primary: NOT_RUN.test(reason) && !SANDBOX_WORD.test(reason) ? null : RETRY,
     secondary: SANDBOX_WORD.test(reason) ? SYNC_DIFF : null,
     history: [],
   };

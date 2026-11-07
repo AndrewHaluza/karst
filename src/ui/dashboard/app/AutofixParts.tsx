@@ -7,7 +7,7 @@
  * message and the next snapshot settles it (@ui:PENDING-STATE). Autopilot never merges (@arch:GH-04), so
  * no part here offers a merge.
  */
-import { useCallback, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { AutofixBannerAction, AutofixBannerView, AutofixRowView } from '../../../model/inside/autofix.js';
 import type { AutopilotSlice } from '../stateAutofix.js';
 import { useDashboardSend } from './DashboardAppContext.js';
@@ -67,6 +67,15 @@ function StepLine({ row }: { readonly row: AutofixRowView }) {
 function StopActions({ requested }: { readonly requested: boolean }) {
   const send = useDashboardSend();
   const [confirming, setConfirming] = useState(false);
+  // The confirm replaces the button that had focus: move focus into it, and back when it closes.
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (confirming) confirmRef.current?.focus();
+    else if (wasConfirming.current) openerRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
   // The click sits inside a <summary> on some rows: it must not also toggle the disclosure.
   const after = usePendingAction(useCallback((requestId: string) => send.autopilotStop('after-round', requestId), [send]));
   const now = usePendingAction(useCallback((requestId: string) => { setConfirming(false); send.autopilotStop('now', requestId); }, [send]));
@@ -75,7 +84,7 @@ function StopActions({ requested }: { readonly requested: boolean }) {
     return (
       <span className="autofix-actions" role="alertdialog" aria-label="Stop auto-fix now">
         <span className="autofix-confirm">This ends the agent session. Karst syncs first.</span>
-        <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="autopilot-stop-now" onClick={guard(now)}>Stop now</button>
+        <button type="button" className="k-btn k-btn--primary k-btn--sm" ref={confirmRef} data-act="autopilot-stop-now" onClick={guard(now)}>Stop now</button>
         <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-cancel" onClick={guard(() => setConfirming(false))}>Cancel</button>
       </span>
     );
@@ -85,7 +94,7 @@ function StopActions({ requested }: { readonly requested: boolean }) {
       <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="autopilot-stop-after" disabled={requested} onClick={guard(after)}>
         {requested ? 'Stopping after this round' : 'Stop after this round'}
       </button>
-      <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-confirm" onClick={guard(() => setConfirming(true))}>Stop now…</button>
+      <button type="button" className="k-btn k-btn--ghost k-btn--sm" ref={openerRef} data-act="autopilot-stop-confirm" onClick={guard(() => setConfirming(true))}>Stop now…</button>
     </span>
   );
 }

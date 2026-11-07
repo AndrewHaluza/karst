@@ -119,6 +119,14 @@ describe('Autopilot tab', () => {
     expect(block(probe)?.conflicts.maxRounds).toBe(5);
   });
 
+  it('shows the draft again when the box loses focus empty', () => {
+    mount(stateWith(ON));
+    const box = screen.getByLabelText('Max rounds per PR') as HTMLInputElement;
+    fireEvent.change(box, { target: { value: '' } });
+    fireEvent.blur(box);
+    expect(box.value).toBe('2');
+  });
+
   it('lists the allowlist, adds a check and removes one', () => {
     const { probe } = mount(stateWith(ON));
     const list = screen.getByRole('list', { name: 'Checks karst may fix' });

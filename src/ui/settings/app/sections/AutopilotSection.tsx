@@ -110,7 +110,7 @@ export function AutopilotSection() {
             <div className="section-desc">The PR no longer merges cleanly into its base.</div>
           </div>
         </div>
-        <div className="form-grid stack">
+        <div className="form-grid stack" onBlur={() => setTyped({})}>
           <Field
             label="When it happens"
             control={{
@@ -146,7 +146,7 @@ export function AutopilotSection() {
             <div className="section-desc">A check failed on the PR.</div>
           </div>
         </div>
-        <div className="form-grid stack">
+        <div className="form-grid stack" onBlur={() => setTyped({})}>
           <Field
             label="When it happens"
             control={{

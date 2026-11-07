@@ -96,6 +96,13 @@ describe('Auto-fix on the Merge row', () => {
     fireEvent.click(must('[data-act="autopilot-stop-cancel"]'));
     expect(q('[role="alertdialog"]')).toBeNull();
     expect(h.send.autopilotStop).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(must('[data-act="autopilot-stop-confirm"]'));
+  });
+
+  it('moves focus into the confirm when it opens', () => {
+    mountInside(ship(SLICE, RUNNING));
+    fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    expect(document.activeElement).toBe(must('[data-act="autopilot-stop-now"]'));
   });
 
   it('sends Stop now only after the confirm', () => {
