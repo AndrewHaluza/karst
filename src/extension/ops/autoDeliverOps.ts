@@ -4,6 +4,7 @@ import type { GitResult } from './deliverToPrOps.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
+import { clearConflictRound } from '../../store/autopilot.js';
 
 /**
  * Auto-delivery of a resolved merge conflict at ship (arch:AC-39, D247).
@@ -151,7 +152,7 @@ export function armConflictRound(store: Store, rounds: ConflictRounds, ticketId:
 let roundEnded: ((ticketId: number) => void) | undefined;
 export const conflictRounds = createConflictRounds((ticketId) => roundEnded?.(ticketId));
 
-/** The host sets the store seam once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. */
-export function onConflictRoundEnd(fn: (ticketId: number) => void): void {
-  roundEnded = fn;
+/** The host sets the store once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. Host tickets only: the engine parks a sandboxed one first. */
+export function freeSlotOnConflictRoundEnd(store: Store): void {
+  roundEnded = (ticketId) => clearConflictRound(store, ticketId);
 }

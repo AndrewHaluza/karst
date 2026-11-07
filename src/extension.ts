@@ -44,8 +44,7 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
-import { clearConflictRound } from './store/autopilot.js';
-import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, onConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
+import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
@@ -1978,7 +1977,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     takeLaunch: launches.take,
     isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
-    // Host tickets only (the engine parks a sandboxed one first): the probe says "no sandbox", the brief is the host brief.
     conflictInput: (id, repo) => ({
       repo, label: formatId('ticket', id),
       probeSandbox: () => Promise.resolve({ state: 'absent' as const }),
@@ -1994,7 +1992,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
     dropConflictRound: (id) => conflictRounds.disarm(id),
   }));
-  onConflictRoundEnd((id) => clearConflictRound(localStore, id));
+  freeSlotOnConflictRoundEnd(localStore);
   context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, dropConflictRound: (id) => conflictRounds.disarm(id), projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
   const fixDelivery = makeFixDeliveryWiring({
