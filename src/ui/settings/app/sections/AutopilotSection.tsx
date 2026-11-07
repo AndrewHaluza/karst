@@ -70,7 +70,7 @@ export function AutopilotSection() {
         </div>
       </div>
 
-      <section className="section-block" aria-labelledby="autopilot-mode">
+      <div className="section-block" role="group" aria-labelledby="autopilot-mode">
         <div className="section-head">
           <div>
             <h2 className="section-title" id="autopilot-mode">Processing mode</h2>
@@ -90,9 +90,9 @@ export function AutopilotSection() {
             }}
           />
         </div>
-      </section>
+      </div>
 
-      <section className="section-block" aria-labelledby="autopilot-conflicts">
+      <div className="section-block" role="group" aria-labelledby="autopilot-conflicts">
         <div className="section-head">
           <div>
             <h2 className="section-title" id="autopilot-conflicts">Merge conflicts</h2>
@@ -126,9 +126,9 @@ export function AutopilotSection() {
             error={faultFor('autopilot.conflicts.maxRounds')}
           />
         </div>
-      </section>
+      </div>
 
-      <section className="section-block" aria-labelledby="autopilot-ci">
+      <div className="section-block" role="group" aria-labelledby="autopilot-ci">
         <div className="section-head">
           <div>
             <h2 className="section-title" id="autopilot-ci">CI failures</h2>
@@ -200,9 +200,9 @@ export function AutopilotSection() {
             </Button>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="section-block" aria-labelledby="autopilot-diverged">
+      <div className="section-block" role="group" aria-labelledby="autopilot-diverged">
         <div className="section-head">
           <div>
             <h2 className="section-title" id="autopilot-diverged">Push diverged</h2>
@@ -219,7 +219,7 @@ export function AutopilotSection() {
             </Help>
           </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }
