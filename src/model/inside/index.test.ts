@@ -30,6 +30,8 @@ function prefillRun(over: Partial<import('../../store/processRuns.js').ProcessRu
     provider: 'claude',
     model: 'claude-opus-4-8',
     pid: null,
+    childPid: null,
+    childStartedAt: null,
     status: 'passed' as const,
     resultKind: null,
     artifactPath: null,

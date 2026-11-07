@@ -53,6 +53,8 @@ function processRun(extra: Partial<ProcessRun> = {}): ProcessRun {
     provider: null,
     model: null,
     pid: null,
+    childPid: null,
+    childStartedAt: null,
     status: 'passed',
     resultKind: 'observed',
     artifactPath: null,
