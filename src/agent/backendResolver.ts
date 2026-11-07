@@ -67,6 +67,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,
       bridgeDir: input.bridgeDir,
+      ...(input.account !== undefined ? { account: input.account } : {}),
       ...(input.docker ? { deps: input.docker } : {}),
     });
     return docker.ok ? { runner: docker.runner, line: `docker (${docker.names.container})` } : onHost(docker.reason);

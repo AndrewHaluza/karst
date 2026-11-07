@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { configureAccounts, resetAccounts } from '../accounts/registry.js';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -388,5 +389,17 @@ describe('defaultQuotaReaders', () => {
         rmSync(configDir, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('defaultQuotaReaders opencode auth path', () => {
+  afterEach(() => resetAccounts());
+  it('follows setActive: the auth path is read from the account env at every read', async () => {
+    const readers = defaultQuotaReaders({ homeDir: '/nope', now: () => new Date(0), fetchImpl: vi.fn() as never });
+    const opencode = readers.find((r) => r.core === 'opencode')!;
+    const reason = async () => (await opencode.read() as { reason?: string }).reason;
+    expect(await reason()).not.toContain('/acct/w');
+    configureAccounts({ opencode: { active: 'w', list: { w: { kind: 'subscription', source: 'folder', dir: '/acct/w' } } } });
+    expect(await reason()).toContain('/acct/w/opencode/auth.json');
   });
 });

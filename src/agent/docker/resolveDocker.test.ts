@@ -55,6 +55,16 @@ describe('resolveDocker', () => {
     expect(prepare.mock.calls[1]![0].user).toBeUndefined();
   });
 
+  it('seeds the credentials of the launch account, not the default store (@arch:AC-55)', async () => {
+    const prepare = vi.fn().mockResolvedValue({ ok: true });
+    const opencode2Host = vi.fn(() => ({ command: 'oc', env: {} }));
+    const hostAuthFile = vi.fn(() => Promise.resolve(undefined));
+    await resolveDocker({ ...base, account: 'work', core: 'opencode2', deps: deps({ prepare, opencode2Host }) });
+    expect(opencode2Host).toHaveBeenCalledWith('work');
+    await resolveDocker({ ...base, account: 'work', core: 'opencode', deps: deps({ prepare, hostAuthFile }) });
+    expect(hostAuthFile).toHaveBeenCalledWith('work');
+  });
+
   it('mounts the v1 auth file when the host has one', async () => {
     const out = await resolveDocker({ ...base, core: 'opencode', deps: deps({ hostAuthFile: () => Promise.resolve('/h/auth.json') }) });
     if (!out.ok) throw new Error(out.reason);

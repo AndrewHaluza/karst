@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { copyAccountSeed, sanitizeMcpServers } from './copySeed.js';
+import { copyAccountSeed, sanitizeMcpServers, sanitizeSettings, sanitizeToml } from './copySeed.js';
 
 async function setup() {
   const from = await mkdtemp(join(tmpdir(), 'seed-from-'));
@@ -67,5 +67,47 @@ describe('MCP copy (home source, secrets, mode)', () => {
     expect(sanitizeMcpServers(null)).toBeNull();
     expect(sanitizeMcpServers([1])).toEqual([1]);
     expect(sanitizeMcpServers({ a: 1, b: { command: 'c' } })).toEqual({ a: 1, b: { command: 'c' } });
+  });
+});
+
+describe('config files without credentials', () => {
+  it('drops secret env, credential commands and secret MCP values from settings.json, keeping the mode', async () => {
+    const from = await mkdtemp(join(tmpdir(), 'seed-s-from-'));
+    const to = await mkdtemp(join(tmpdir(), 'seed-s-to-'));
+    const file = join(from, 'settings.json');
+    await writeFile(file, JSON.stringify({
+      theme: 'dark', apiKeyHelper: 'print-key', awsAuthRefresh: 'x',
+      env: { ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_API_KEY: 'k', LEVEL: 'debug' },
+      mcpServers: { s: { command: 'c', env: { GH_TOKEN: 'z', A: '1' } } },
+    }));
+    await chmod(file, 0o600);
+    const r = await copyAccountSeed({ core: 'claude', fromDir: from, toDir: to, items: ['settings'] });
+    expect(r.copied).toEqual(['settings.json']);
+    expect(JSON.parse(await readFile(join(to, 'settings.json'), 'utf8'))).toEqual({
+      theme: 'dark', env: { LEVEL: 'debug' }, mcpServers: { s: { command: 'c', env: { A: '1' } } },
+    });
+    expect((await stat(join(to, 'settings.json'))).mode & 0o777).toBe(0o600);
+  });
+  it('skips a settings file it cannot parse instead of copying it', async () => {
+    const from = await mkdtemp(join(tmpdir(), 'seed-s-from-'));
+    const to = await mkdtemp(join(tmpdir(), 'seed-s-to-'));
+    await writeFile(join(from, 'settings.json'), '{not json "token": "x"');
+    const r = await copyAccountSeed({ core: 'claude', fromDir: from, toDir: to, items: ['settings'] });
+    expect(r.copied).toEqual([]);
+    expect(r.skipped[0]?.path).toBe('settings.json');
+    expect(existsSync(join(to, 'settings.json'))).toBe(false);
+  });
+  it('removes secret lines from codex config.toml and keeps env references', async () => {
+    const from = await mkdtemp(join(tmpdir(), 'seed-c-from-'));
+    const to = await mkdtemp(join(tmpdir(), 'seed-c-to-'));
+    await writeFile(join(from, 'config.toml'), 'model = "x"\nexperimental_bearer_token = "abc"\nenv_key = "OPENAI_API_KEY"\n[mcp.s.env]\nGH_TOKEN = "z"\n');
+    await copyAccountSeed({ core: 'codex', fromDir: from, toDir: to, items: ['config'] });
+    expect(await readFile(join(to, 'config.toml'), 'utf8')).toBe('model = "x"\nenv_key = "OPENAI_API_KEY"\n[mcp.s.env]\n');
+  });
+  it('sanitizeSettings and sanitizeToml pass non-object input and clean text through', () => {
+    expect(sanitizeSettings(null)).toBeNull();
+    expect(sanitizeSettings([1])).toEqual([1]);
+    expect(sanitizeSettings({ env: 5, a: 1 })).toEqual({ env: 5, a: 1 });
+    expect(sanitizeToml('a = 1\n')).toBe('a = 1\n');
   });
 });

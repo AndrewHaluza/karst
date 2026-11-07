@@ -1,3 +1,4 @@
+import { configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -738,5 +739,24 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
       const kinds = proc.calls.map((c) => (c.args.includes('karst-refresh') ? 'refresh' : c.args[0]));
       expect(kinds.filter((k) => k === 'refresh')).toHaveLength(2);
     });
+  });
+});
+
+describe('backendSessionOptions resume account (@arch:AC-55)', () => {
+  it('hands the RECORDED account of the resumed session to the resolver, none for a new launch', async () => {
+    configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'x' : undefined));
+    try {
+      const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (x)' });
+      const make = (resumeSessionId?: string) => backendSessionOptions({
+        backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7',
+        info: vi.fn(), warn: vi.fn(), resolve, ...(resumeSessionId ? { resumeSessionId } : {}),
+      });
+      await make('sess-1').resolveRunner!();
+      expect(resolve.mock.calls[0]![0]).toMatchObject({ account: 'x' });
+      await make().resolveRunner!();
+      expect(resolve.mock.calls[1]![0]).not.toHaveProperty('account');
+    } finally {
+      configureRecordedAccountLookup(undefined);
+    }
   });
 });

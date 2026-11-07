@@ -4,7 +4,7 @@
  * and transcript history, caches, logs, statusline caches and lock files.
  */
 import { cp, lstat, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { isSecretEnvKey, type AccountCore } from './types.js';
 
 export interface SeedItem {
@@ -79,6 +79,54 @@ export function sanitizeMcpServers(value: unknown): unknown {
   );
 }
 
+/** Top-level settings keys that name a command which prints a credential. */
+const CREDENTIAL_COMMAND_KEYS = ['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'otelHeadersHelper'];
+
+/** A settings file without secret env values, credential commands and secret MCP values (arch:AC-55). */
+export function sanitizeSettings(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const copy: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  for (const key of CREDENTIAL_COMMAND_KEYS) delete copy[key];
+  if (typeof copy.env === 'object' && copy.env !== null && !Array.isArray(copy.env)) {
+    copy.env = Object.fromEntries(Object.entries(copy.env as Record<string, unknown>).filter(([k]) => !isSecretEnvKey(k)));
+  }
+  if ('mcpServers' in copy) copy.mcpServers = sanitizeMcpServers(copy.mcpServers);
+  return copy;
+}
+
+const TOML_KEY = /^\s*([A-Za-z0-9_.-]+)\s*=/;
+/** A TOML key that only NAMES an env variable or a command holds no secret itself. */
+const TOML_REFERENCE_KEY = /(_env|env_key|_command)$/i;
+
+/** TOML text without the lines whose key looks like a secret (a bearer token, an API key). */
+export function sanitizeToml(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => {
+      const key = TOML_KEY.exec(line)?.[1];
+      return key === undefined || TOML_REFERENCE_KEY.test(key) || !isSecretEnvKey(key);
+    })
+    .join('\n');
+}
+
+type FileSanitizer = (text: string) => string | undefined;
+const jsonSanitizer: FileSanitizer = (text) => {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const clean = sanitizeSettings(parsed);
+    return JSON.stringify(clean) === JSON.stringify(parsed) ? text : `${JSON.stringify(clean, null, 2)}\n`;
+  } catch {
+    return undefined;
+  }
+};
+/** Config files that may hold a credential, by file name. Any other file is copied as is. */
+const FILE_SANITIZERS: Readonly<Record<string, FileSanitizer>> = {
+  'settings.json': jsonSanitizer,
+  'settings.local.json': jsonSanitizer,
+  '.mcp.json': jsonSanitizer,
+  'config.toml': sanitizeToml,
+};
+
 /** `true` when a path (relative, any depth) must never be copied. */
 export function isDeniedSeedPath(relPath: string): boolean {
   return relPath
@@ -134,7 +182,17 @@ async function copyTree(
     return;
   }
   await mkdir(dirname(dest), { recursive: true });
-  await cp(src, dest);
+  const sanitize = FILE_SANITIZERS[basename(rel)];
+  if (sanitize) {
+    const text = sanitize(await readFile(src, 'utf8'));
+    if (text === undefined) {
+      out.skipped.push({ path: rel, reason: 'not valid JSON (karst cannot remove secrets from it)' });
+      return;
+    }
+    await writeFile(dest, text, { encoding: 'utf8', mode: st.mode & 0o777 });
+  } else {
+    await cp(src, dest);
+  }
   out.copied.push(rel);
 }
 

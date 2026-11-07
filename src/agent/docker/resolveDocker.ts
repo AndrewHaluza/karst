@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
+import { accountLaunchFor } from '../accounts/registry.js';
 import { opencode2Command, opencode2Config, opencode2IsolationEnv } from '../opencode2Binary.js';
 import type { SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import type { StepResult } from './dockerClone.js';
@@ -26,8 +27,8 @@ export interface DockerResolveDeps {
   readonly gid?: number;
   readonly assetsDir?: string;
   /** The host opencode v1 `auth.json` when it exists. */
-  readonly hostAuthFile?: () => Promise<string | undefined>;
-  readonly opencode2Host?: () => { readonly command: string; readonly env: Readonly<Record<string, string>> };
+  readonly hostAuthFile?: (account?: string) => Promise<string | undefined>;
+  readonly opencode2Host?: (account?: string) => { readonly command: string; readonly env: Readonly<Record<string, string>> };
   readonly debug?: (message: string) => void;
   /** Baseline host ports the sandbox may reach through its proxy (arch:AC-32). */
   readonly hostPorts?: readonly number[];
@@ -41,6 +42,8 @@ export interface DockerResolveInput {
   readonly ticketId: number;
   readonly worktree: SandboxTicketRef | undefined;
   readonly bridgeDir?: string;
+  /** The account of the launch (the recorded one on a resume); absent = the active account. */
+  readonly account?: string;
   readonly deps?: DockerResolveDeps;
 }
 
@@ -53,8 +56,9 @@ export function linuxUser(platform: NodeJS.Platform, uid: number | undefined, gi
   return platform === 'linux' && uid !== undefined && gid !== undefined ? { uid, gid } : undefined;
 }
 
-async function defaultHostAuthFile(): Promise<string | undefined> {
-  const dataHome = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
+async function defaultHostAuthFile(account?: string): Promise<string | undefined> {
+  // @arch:AC-55: the sign-in of the launch account (its XDG_DATA_HOME), not the process one.
+  const dataHome = accountLaunchFor('opencode', 'opencode', account).env.XDG_DATA_HOME || process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
   const file = join(dataHome, 'opencode', 'auth.json');
   try {
     await access(file);
@@ -64,8 +68,10 @@ async function defaultHostAuthFile(): Promise<string | undefined> {
   }
 }
 
-function defaultOpencode2Host(): { command: string; env: Record<string, string> } {
-  return { command: opencode2Command(), env: opencode2IsolationEnv(opencode2Config().home) };
+/** The host command and env of the opencode2 credential seed, under the account of the launch (@arch:AC-55). */
+function defaultOpencode2Host(account?: string): { command: string; env: Record<string, string> } {
+  const launch = accountLaunchFor('opencode2', opencode2Command(), account);
+  return { command: launch.binary, env: { ...opencode2IsolationEnv(opencode2Config().home), ...launch.env } };
 }
 
 /** The docker half of `resolveBackend`: a prepared runner, or the one reason it cannot be used. Never throws. */
@@ -85,12 +91,12 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
       proc, core: input.core, names, user, ticket: input.worktree,
       proxyScript: join(assetsDir, 'allowlist-proxy.mjs'),
       ...(input.bridgeDir !== undefined ? { bridgeDir: input.bridgeDir } : {}),
-      ...(input.core === 'opencode2' ? { opencode2Host: (deps.opencode2Host ?? defaultOpencode2Host)() } : {}),
+      ...(input.core === 'opencode2' ? { opencode2Host: (deps.opencode2Host ?? defaultOpencode2Host)(input.account) } : {}),
       ...(deps.debug ? { debug: deps.debug } : {}),
       ...(deps.hostPorts && deps.hostPorts.length > 0 ? { hostPorts: deps.hostPorts } : {}),
     });
     if (!prepared.ok) return prepared;
-    const authFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)() : undefined;
+    const authFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)(input.account) : undefined;
     const runner = createDockerSessionRunner({
       proc, core: input.core, names, user, memory,
       ...(authFile ? { authFile } : {}),

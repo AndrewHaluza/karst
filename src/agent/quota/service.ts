@@ -3,7 +3,7 @@ import { accountReaderEnv } from '../accounts/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
-import { opencodeAuthPath, opencodeQuotaReader } from './opencode.js';
+import { opencodeQuotaReader } from './opencode.js';
 import { antigravityQuotaReader } from './antigravity.js';
 import type { ProcessLister } from './antigravityDiscovery.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
@@ -136,7 +136,6 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
   // unknown. An injected `env` still wins for tests.
   const env = deps.env ?? accountReaderEnv();
   const now = deps.now ?? (() => new Date());
-  const opencodeAuth = deps.opencodeAuthPath ?? opencodeAuthPath(env, homeDir);
   return [
     claudeQuotaReader({
       homeDir,
@@ -159,10 +158,12 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
     }),
     opencodeQuotaReader({
       core: 'opencode',
-      authPath: opencodeAuth,
+      // @arch:AC-55: no injected path → the reader derives it from `env` at every read, so a setActive reaches it.
+      ...(deps.opencodeAuthPath !== undefined ? { authPath: deps.opencodeAuthPath } : {}),
       fetchImpl: deps.fetchImpl,
       now,
       env,
+      homeDir,
     }),
   ];
 }

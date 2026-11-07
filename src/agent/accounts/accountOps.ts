@@ -45,7 +45,7 @@ export interface AccountRow {
 
 export type AccountSpec =
   | { readonly source: 'managed' }
-  | { readonly source: 'folder'; readonly dir: string; readonly env?: Record<string, string> }
+  | { readonly source: 'folder'; readonly dir: string; readonly args?: string[]; readonly env?: Record<string, string> }
   | { readonly source: 'command'; readonly command: string; readonly dir?: string; readonly args?: string[]; readonly env?: Record<string, string> };
 
 export type AccountStatus = 'signed-in' | 'not-signed-in' | 'unknown';
@@ -85,7 +85,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     if (!parsed.ok) return parsed;
     await createAccount(core, aliasName, parsed.account.source === 'command'
       ? { source: 'command', command: parsed.account.command as string, dir: parsed.account.dir, ...(parsed.account.args ? { args: [...parsed.account.args] } : {}), ...(parsed.account.env ? { env: { ...parsed.account.env } } : {}) }
-      : { source: 'folder', dir: parsed.account.dir, ...(parsed.account.env ? { env: { ...parsed.account.env } } : {}) });
+      : { source: 'folder', dir: parsed.account.dir, ...(parsed.account.args ? { args: [...parsed.account.args] } : {}), ...(parsed.account.env ? { env: { ...parsed.account.env } } : {}) });
     return parsed;
   }
 
@@ -158,7 +158,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
 function buildAccount(core: AccountCore, name: string, spec: AccountSpec, managedDir: (c: AccountCore, n: string) => string): SubscriptionAccount {
   const source: AccountSource = spec.source;
   if (spec.source === 'managed') return { kind: 'subscription', source, dir: managedDir(core, name) };
-  if (spec.source === 'folder') return { kind: 'subscription', source, dir: spec.dir, ...(spec.env ? { env: spec.env } : {}) };
+  if (spec.source === 'folder') return { kind: 'subscription', source, dir: spec.dir, ...(spec.args ? { args: spec.args } : {}), ...(spec.env ? { env: spec.env } : {}) };
   return {
     kind: 'subscription', source, command: spec.command,
     dir: spec.dir ?? '',

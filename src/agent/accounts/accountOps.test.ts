@@ -118,3 +118,12 @@ describe('account ops', () => {
     await expect(ops.copyAccountSeed('claude', 'default', ['settings'])).rejects.toThrow();
   });
 });
+
+describe('alias import keeps the arguments', () => {
+  it('stores args for a folder account (the alias uses the default binary)', async () => {
+    const { ops, store } = setup();
+    const r = await ops.importShellAlias('claude', 'cw', `cw='CLAUDE_CONFIG_DIR="$HOME/.cw" claude --model opus'`);
+    expect(r.ok).toBe(true);
+    expect(store.current().claude?.list.cw).toMatchObject({ source: 'folder', args: ['--model', 'opus'] });
+  });
+});

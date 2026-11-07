@@ -3,6 +3,7 @@ import type { SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
 import type { SandboxLimitsConfig } from '../../agent/sbx/sbxLimits.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendCoreKey, backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
+import { accountForLaunch } from '../../agent/accounts/registry.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
@@ -41,6 +42,8 @@ export interface BackendSessionInput {
   /** How many repos' worktrees the ticket has; more than one never gets a sandbox in v1 (decided at launch). */
   readonly worktreeCount?: number;
   readonly debug?: (message: string) => void;
+  /** The session this launch resumes: the sandbox account check uses its RECORDED account (@arch:AC-55). */
+  readonly resumeSessionId?: string;
   readonly resolve?: typeof resolveBackend;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
@@ -59,6 +62,12 @@ export interface BackendSessionInput {
  * The `openSession` options for the manifest's `agentBackends` entry of the session core (arch:AC-32).
  * Absent → no options at all, so a host launch is byte-identical to before.
  */
+/** The resume account for the sandbox check; none for a new launch (the active account). */
+function accountFor(core: string, resume: string | undefined): { account?: string } {
+  const account = accountForLaunch(core, resume);
+  return account === undefined ? {} : { account };
+}
+
 export function backendSessionOptions(input: BackendSessionInput): {
   resolveRunner?: () => Promise<ResolvedBackend>;
   onBackend?: (line: string) => void;
@@ -76,6 +85,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const bridgePaths = input.bridgeFor ? await input.bridgeFor(input.ticketId).catch(() => undefined) : undefined;
     const out = await resolve({
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+      ...accountFor(input.core, input.resumeSessionId),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
       ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}),

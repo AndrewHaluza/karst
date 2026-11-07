@@ -57,7 +57,7 @@ export async function checkOpencode2Binary(host: Opencode2CheckHost): Promise<vo
   const { stdout, exitCode } = await host.readVersion(
     acct.binary,
     [...acct.args, '--version'],
-    acct.account === 'default' ? opencode2IsolationEnv(opencode2Config().home) : acct.env,
+    { ...opencode2IsolationEnv(opencode2Config().home), ...acct.env },
   );
   const availability = opencode2Availability(binaryPath, stdout, exitCode);
   if (availability.state !== 'ok') {
