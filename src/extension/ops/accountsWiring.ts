@@ -19,7 +19,7 @@ import type { AccountCore } from '../../agent/accounts/types.js';
 const ALIAS_LOOKUP_TIMEOUT_MS = 3000;
 const ALIAS_NAME = /^[A-Za-z0-9._-]+$/;
 
-const DEFAULT_DIRS: Readonly<Record<AccountCore, (home: string) => string>> = {
+export const DEFAULT_DIRS: Readonly<Record<AccountCore, (home: string) => string>> = {
   claude: (h) => join(h, '.claude'),
   codex: (h) => join(h, '.codex'),
   antigravity: (h) => join(h, '.gemini', 'antigravity-cli'),
@@ -31,7 +31,7 @@ async function isExecutable(file: string): Promise<boolean> {
   return access(file, constants.X_OK).then(() => true, () => false);
 }
 
-async function binaryResolves(binary: string): Promise<boolean> {
+export async function binaryResolves(binary: string): Promise<boolean> {
   if (isAbsolute(binary)) return isExecutable(binary);
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (dir !== '' && (await isExecutable(join(dir, binary)))) return true;
@@ -40,7 +40,7 @@ async function binaryResolves(binary: string): Promise<boolean> {
 }
 
 /** `$SHELL -ic 'alias <name>'`, only for a name that passed the slug check. Output is parsed, never run. */
-function lookupAlias(name: string): Promise<string> {
+export function lookupAlias(name: string): Promise<string> {
   if (!ALIAS_NAME.test(name)) return Promise.reject(new Error(`'${name}' is not a valid alias name.`));
   const shell = process.env.SHELL ?? '/bin/sh';
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ export function liveAccountNames(store: Store, core: AccountCore): string[] {
       `SELECT DISTINCT i.account AS account
          FROM session_launch_intents i
          JOIN implementation_segments s
-           ON s.provider = i.provider AND s.provider_session_id = i.provider_session_id
+           ON s.launch_intent_id = i.id
         WHERE i.provider = ? AND i.status = 'confirmed' AND i.account IS NOT NULL AND s.status = 'running'`,
     )
     .all(core) as Array<{ account: string }>;
