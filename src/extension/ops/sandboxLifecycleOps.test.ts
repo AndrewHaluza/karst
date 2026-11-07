@@ -49,7 +49,7 @@ function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSand
     ...rest,
   };
   const lines = (): string[] => [...proc.calls, ...dockerProc.calls].map((c) => [c.command, ...c.args].join(' '));
-  const acted = (): string[] => lines().filter((l) => !l.startsWith('sbx ls') && !l.startsWith('docker ps'));
+  const acted = (): string[] => lines().filter((l) => !l.startsWith('sbx ls') && !l.startsWith('docker ps') && !l.startsWith('docker volume ls'));
   return { d, proc, notify, lines, acted };
 }
 
