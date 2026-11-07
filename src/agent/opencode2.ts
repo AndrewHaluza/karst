@@ -1,5 +1,5 @@
 import { createOpencodeTextCollector } from './opencodeText.js';
-import { accountLaunchFor } from './accounts/registry.js';
+import { accountForLaunch, accountLaunchFor } from './accounts/registry.js';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
@@ -583,7 +583,7 @@ export class Opencode2Adapter implements AgentAdapter {
       account?: string;
     },
   ): Promise<Opencode2SessionProbe> {
-    const acct = accountLaunchFor('opencode2', opencode2Command(), opts?.account);
+    const acct = accountLaunchFor('opencode2', opencode2Command(), accountForLaunch('opencode2', sessionId, opts?.account));
     const args = ['session', 'export', sessionId, '--standalone'];
     opts?.debug?.(
       `[agent:opencode2] pre-check: ${opencode2Command()} ${args.join(' ')} (cwd ${cwd})`,
@@ -648,7 +648,7 @@ export class Opencode2Adapter implements AgentAdapter {
       }
     }
 
-    const acct = accountLaunchFor('opencode2', opencode2Command(), opts.account);
+    const acct = accountLaunchFor('opencode2', opencode2Command(), accountForLaunch('opencode2', opts.resume, opts.account));
     const args = ['run', '--format', 'json', '--standalone'];
     // AC-31: the bypass (`--auto`) is never added — no enforced sandbox contains
     // this run, so it keeps the core's prompted default. The refusal is logged.

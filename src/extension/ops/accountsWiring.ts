@@ -6,12 +6,13 @@
  * vscode-free: `extension.ts` only passes paths and the store.
  */
 import { execFile } from 'node:child_process';
+import { unwatchFile, watchFile } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { createAccountOps, type AccountOps } from '../../agent/accounts/accountOps.js';
-import { fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
+import { ACCOUNTS_FILE, fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
 import { configureAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
@@ -69,7 +70,12 @@ export interface AccountsWiring {
   readonly ops: AccountOps;
   /** Re-read `accounts.json` into the registry (after an external edit). */
   reload(): Promise<void>;
+  /** Stop watching `accounts.json`. */
+  dispose(): void;
 }
+
+/** Poll period of the `accounts.json` watch: another window's change reaches this one. */
+export const ACCOUNTS_WATCH_MS = 1000;
 
 export async function wireAccounts(input: {
   readonly globalStorageRoot: string;
@@ -101,5 +107,14 @@ export async function wireAccounts(input: {
     signedIn: async () => undefined,
     ...(input.debug ? { debug: input.debug } : {}),
   });
-  return { ops, reload: publish };
+  // Another window may change accounts.json: re-publish so this window does not
+  // keep a stale active account. A failed reload keeps the last good config.
+  const file = join(input.globalStorageRoot, ACCOUNTS_FILE);
+  const watching = input.accountStore === undefined;
+  if (watching) {
+    watchFile(file, { interval: ACCOUNTS_WATCH_MS, persistent: false }, () => {
+      publish().catch((e) => input.debug?.(`[accounts] reload failed: ${String(e)}`));
+    });
+  }
+  return { ops, reload: publish, dispose: () => { if (watching) unwatchFile(file); } };
 }

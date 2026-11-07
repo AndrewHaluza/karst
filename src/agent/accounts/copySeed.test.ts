@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, readFile, writeFile, symlink } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, stat, writeFile, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { copyAccountSeed } from './copySeed.js';
+import { copyAccountSeed, sanitizeMcpServers } from './copySeed.js';
 
 async function setup() {
   const from = await mkdtemp(join(tmpdir(), 'seed-from-'));
@@ -38,5 +38,34 @@ describe('copyAccountSeed', () => {
     await symlink(join(from, 'settings.json'), join(from, 'CLAUDE.md'));
     const r = await copyAccountSeed({ core: 'claude', fromDir: from, toDir: to, items: ['claude-md'] });
     expect(r.copied).toEqual([]);
+  });
+});
+
+describe('MCP copy (home source, secrets, mode)', () => {
+  it('reads .claude.json from the home, strips secret env and headers, keeps the source mode', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'seed-home-'));
+    const from = join(home, '.claude');
+    const to = await mkdtemp(join(tmpdir(), 'seed-to-'));
+    await mkdir(from, { recursive: true });
+    const file = join(home, '.claude.json');
+    await writeFile(file, JSON.stringify({
+      mcpServers: {
+        s1: { command: 'x', env: { API_TOKEN: 't', LEVEL: 'debug' } },
+        s2: { url: 'u', headers: { Authorization: 'Bearer z', Accept: 'json' } },
+      },
+      oauthAccount: { e: 'x' },
+    }));
+    await chmod(file, 0o640);
+    const r = await copyAccountSeed({ core: 'claude', fromDir: from, toDir: to, items: ['mcp'], home });
+    expect(r.copied).toEqual(['.claude.json#mcpServers']);
+    expect(JSON.parse(await readFile(join(to, '.claude.json'), 'utf8'))).toEqual({
+      mcpServers: { s1: { command: 'x', env: { LEVEL: 'debug' } }, s2: { url: 'u', headers: { Accept: 'json' } } },
+    });
+    expect((await stat(join(to, '.claude.json'))).mode & 0o777).toBe(0o640);
+  });
+  it('keeps non-object servers and values untouched', () => {
+    expect(sanitizeMcpServers(null)).toBeNull();
+    expect(sanitizeMcpServers([1])).toEqual([1]);
+    expect(sanitizeMcpServers({ a: 1, b: { command: 'c' } })).toEqual({ a: 1, b: { command: 'c' } });
   });
 });

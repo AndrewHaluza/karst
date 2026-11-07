@@ -1,5 +1,5 @@
 import { createHostSessionRunner } from './sessionRunner.js';
-import { accountLaunchFor, accountReaderEnv, accountSpawnEnv } from './accounts/registry.js';
+import { accountForLaunch, accountLaunchFor, accountReaderEnv, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
@@ -407,7 +407,7 @@ export class ClaudeAdapter implements AgentAdapter {
     sessionId: string,
     opts: { cwd: string; debug?: (message: string) => void; account?: string },
   ): Promise<string | undefined> {
-    const file = transcriptPathFor(resolveClaudeProjectsDir(accountReaderEnv(process.env, opts.account ? { claude: opts.account } : {})), opts.cwd, sessionId);
+    const file = transcriptPathFor(resolveClaudeProjectsDir(accountReaderEnv(process.env, (() => { const a = accountForLaunch('claude', sessionId, opts.account); return a ? { claude: a } : {}; })())), opts.cwd, sessionId);
     try {
       await stat(file);
       return sessionId;
@@ -795,7 +795,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // before an abort, timeout or extension-host restart.
     const consoleOutput = opts.onOutput;
     let streamedStderr = false;
-    const acct = accountLaunchFor('claude', CLAUDE_BIN, opts.account);
+    const acct = accountLaunchFor('claude', CLAUDE_BIN, accountForLaunch('claude', opts.resume, opts.account));
     const spawn = (a: string[]) =>
       this.spawnHeadless(acct.binary, [...acct.args, ...a], opts.cwd, {
         ...accountSpawnEnv(acct),

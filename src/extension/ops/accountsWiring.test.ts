@@ -1,13 +1,14 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { fileAccountStore } from '../../agent/accounts/accountStore.js';
 import { accountsConfig, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { transition } from '../../workflow/machine.js';
 import { confirmSessionLaunchIntent, recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
-import { binaryResolves, DEFAULT_DIRS, liveAccountNames, lookupAlias, wireAccounts } from './accountsWiring.js';
+import { ACCOUNTS_WATCH_MS, binaryResolves, DEFAULT_DIRS, liveAccountNames, lookupAlias, wireAccounts } from './accountsWiring.js';
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-wire-')); });
@@ -139,5 +140,27 @@ it('does not leak a failed load into the registry', async () => {
   const store = openStore(':memory:');
   const bad = { load: async () => { throw new Error('boom'); }, save: async () => undefined };
   await expect(wireAccounts({ globalStorageRoot: root, store, accountStore: bad })).rejects.toThrow('boom');
+  store.close();
+});
+
+it('re-publishes the config when another window changes accounts.json, and stops after dispose', async () => {
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store });
+  const other = fileAccountStore(root);
+  const next = { codex: { active: 'c', list: { c: { kind: 'subscription' as const, source: 'folder' as const, dir: '/h/c' } } } };
+  await other.save(next);
+  await vi.waitFor(() => expect(accountsConfig().codex?.active).toBe('c'), { timeout: ACCOUNTS_WATCH_MS * 5 });
+  w.dispose();
+  resetAccounts();
+  await other.save({ ...next, codex: { ...next.codex, active: 'default' } });
+  await new Promise((r) => setTimeout(r, ACCOUNTS_WATCH_MS * 2.5));
+  expect(accountsConfig()).toEqual({});
+  store.close();
+});
+
+it('does not watch a file when the account store is injected', async () => {
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store, accountStore: { load: async () => ({}), save: async () => {} } });
+  expect(() => w.dispose()).not.toThrow();
   store.close();
 });

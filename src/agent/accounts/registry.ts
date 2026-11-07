@@ -3,7 +3,7 @@
  * machine-local store (like `configureOpencode2`). Adapters call
  * `accountLaunchFor` at every spawn; with no config it is the default no-op.
  */
-import { resolveAccountLaunch, type AccountLaunch } from './resolve.js';
+import { AccountNotFoundError, resolveAccountLaunch, type AccountLaunch } from './resolve.js';
 import { DEFAULT_ACCOUNT, type AccountCore, type AccountsConfig } from './types.js';
 
 let config: AccountsConfig = {};
@@ -61,6 +61,25 @@ export function accountReaderEnv(
       return Reflect.get(target, key, receiver);
     },
   });
+}
+
+/**
+ * Reader env for ONE session: the folder of the account that STARTED it (the
+ * recorded account), not the active one. A session with no record reads the
+ * active account. Used by the transcript watchers.
+ */
+export function sessionReaderEnv(core: AccountCore, sessionId: string | null | undefined): NodeJS.ProcessEnv {
+  const account = sessionId ? accountForLaunch(core, sessionId) : undefined;
+  if (account === undefined) return accountReaderEnv();
+  try {
+    accountLaunchFor(core, '', account);
+  } catch (error) {
+    // A deleted recorded account: a READ has nothing to find, so it reads the
+    // default folder. A resume LAUNCH still fails (AccountNotFoundError).
+    if (!(error instanceof AccountNotFoundError)) throw error;
+    return accountReaderEnv(process.env, { [core]: DEFAULT_ACCOUNT });
+  }
+  return accountReaderEnv(process.env, { [core]: account });
 }
 
 const ACCOUNT_HOME_VARS: Readonly<Record<AccountCore, readonly string[]>> = {

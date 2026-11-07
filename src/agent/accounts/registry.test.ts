@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   accountForLaunch, accountReaderEnv, configureAccounts, configureRecordedAccountLookup,
-  resetAccounts, sandboxAccountBlock,
+  resetAccounts, sandboxAccountBlock, sessionReaderEnv,
 } from './registry.js';
 import type { AccountsConfig } from './types.js';
 
@@ -62,5 +62,16 @@ describe('sandboxAccountBlock', () => {
     expect(sandboxAccountBlock('claude')).toMatch(/claude-x.*not in the container/);
     expect(sandboxAccountBlock('claude', 'work')).toBeUndefined();
     expect(sandboxAccountBlock('codex')).toBeUndefined();
+  });
+});
+
+describe('sessionReaderEnv', () => {
+  it('reads the folder of the session account, the active one without a record, default for a deleted one', () => {
+    configureAccounts(config);
+    configureRecordedAccountLookup((_c, id) => (id === 's-cmd' ? 'cmd' : id === 's-gone' ? 'deleted' : undefined));
+    expect(sessionReaderEnv('claude', 's-cmd').CLAUDE_CONFIG_DIR).toBe('/h/cmd');
+    expect(sessionReaderEnv('claude', 's-none').CLAUDE_CONFIG_DIR).toBe('/h/work');
+    expect(sessionReaderEnv('claude', null).CLAUDE_CONFIG_DIR).toBe('/h/work');
+    expect(sessionReaderEnv('claude', 's-gone').CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR);
   });
 });

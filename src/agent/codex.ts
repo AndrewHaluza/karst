@@ -1,5 +1,5 @@
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
-import { accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
+import { accountForLaunch, accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import {
   cpSync,
@@ -804,7 +804,7 @@ export class CodexAdapter implements AgentAdapter {
         ? `[agent:codex] console stream: rendering JSONL events as readable lines`
         : `[agent:codex] console stream: none — no onOutput hook`,
     );
-    const acct = accountLaunchFor('codex', CODEX_BIN, opts.account);
+    const acct = accountLaunchFor('codex', CODEX_BIN, accountForLaunch('codex', opts.resume, opts.account));
     let result: HeadlessSpawnResult;
     try {
       result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {

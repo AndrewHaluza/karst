@@ -1,5 +1,5 @@
 import { createHostSessionRunner } from './sessionRunner.js';
-import { accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
+import { accountForLaunch, accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -560,7 +560,7 @@ export class AntigravityAdapter implements AgentAdapter {
         ? `[agent:antigravity] console stream: forwarding live chunks`
         : `[agent:antigravity] console stream: none — no onOutput hook`,
     );
-    const acct = accountLaunchFor('antigravity', AGY_BIN, opts.account);
+    const acct = accountLaunchFor('antigravity', AGY_BIN, accountForLaunch('antigravity', opts.resume, opts.account));
     const r = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {
       ...accountSpawnEnv(acct),
       signal: opts.signal,

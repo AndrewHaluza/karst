@@ -1,5 +1,5 @@
 import { createOpencodeTextCollector } from './opencodeText.js';
-import { accountLaunchFor } from './accounts/registry.js';
+import { accountForLaunch, accountLaunchFor } from './accounts/registry.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
@@ -1463,7 +1463,7 @@ export class OpencodeAdapter implements AgentAdapter {
         ? `[agent:opencode] console stream: rendering JSONL events as readable lines`
         : `[agent:opencode] console stream: none — no onOutput hook`,
     );
-    const acct = accountLaunchFor('opencode', OPENCODE_BIN, opts.account);
+    const acct = accountLaunchFor('opencode', OPENCODE_BIN, accountForLaunch('opencode', opts.resume, opts.account));
     let result: HeadlessSpawnResult;
     try {
       result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {

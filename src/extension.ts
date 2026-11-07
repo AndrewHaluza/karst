@@ -46,7 +46,7 @@ import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopS
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
-import { accountReaderEnv } from './agent/accounts/registry.js';
+import { sessionReaderEnv } from './agent/accounts/registry.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor } from './extension/ops/fixRerunOps.js';
@@ -629,7 +629,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
-  await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m) }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
+  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m) }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
+  if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
   const logError: LogError = (m, e) => logger.error(m, e);
   const notify = vscodeNotify;
   // Hook-channel observation for the issue report. A failed agent-side hook says
@@ -5943,7 +5944,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (claudeTranscriptWatchRunning) return;
     claudeTranscriptWatchRunning = true;
     try {
-      const projectsDir = resolveClaudeProjectsDir(accountReaderEnv());
       const terminals = [...vscode.window.terminals];
       logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {
@@ -5963,7 +5963,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const sandboxed = placement !== null && placement.backend !== 'host';
         const transcriptPath = claudeTranscriptLocation({
           placement,
-          hostProjectsDir: projectsDir,
+          hostProjectsDir: resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)),
           worktreePath: worktree.path,
           sessionId,
           ...(sandboxed && bridgeRoot ? { bridgeDir: bridgePaths(bridgeRoot, named.ticketId).dir } : {}),

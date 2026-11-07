@@ -149,7 +149,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const config = await deps.store.load();
     const target = findAccount(config, core, to);
     if (!target) throw new Error("Copy needs a stored target account, not 'default'.");
-    return copyAccountSeed({ core, fromDir: deps.defaultDir(core), toDir: target.dir, items, overwrite });
+    return copyAccountSeed({ core, fromDir: deps.defaultDir(core), toDir: target.dir, items, overwrite, home: deps.home });
   }
 
   return { listAccounts, createAccount, importShellAlias, setActive, deleteAccount, loginCommand, accountStatus, validateAccount: validate, seedItems, copyAccountSeed: copySeed };
