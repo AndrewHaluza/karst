@@ -99,13 +99,20 @@ function unknownCiLabels(store: Store, ticketId: number): string[] {
     .map((r) => (r.number === null ? r.repo : `${r.repo} #${r.number}`));
 }
 
+/**
+ * The armed conflict round. The store keeps the arm time but not the repo, so the repo is named only when exactly
+ * one conflicts budget exists. With several, the row says no repo rather than a wrong one, and counts the highest used.
+ */
 function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixFacts['round'] {
   if (getConflictRoundAt(store, ticketId) === null) return null;
-  const entry = listAutopilotBudgets(store, ticketId).find((b) => b.kind === 'conflicts');
-  if (!entry) return null;
-  const budget = getAutopilotBudget(store, ticketId, entry.repo, 'conflicts');
-  const pr = store.db.prepare('SELECT number FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, entry.repo) as { number: number | null } | undefined;
-  return { kind: 'conflicts', repo: entry.repo, pr: pr?.number ?? null, check: null, used: budget.attempts, max: maxFor('conflicts', config) + budget.extra, step: 0 };
+  const entries = listAutopilotBudgets(store, ticketId).filter((b) => b.kind === 'conflicts');
+  if (entries.length === 0) return null;
+  const budgets = entries.map((e) => ({ repo: e.repo, budget: getAutopilotBudget(store, ticketId, e.repo, 'conflicts') }));
+  const used = Math.max(...budgets.map((b) => b.budget.attempts));
+  const max = maxFor('conflicts', config) + Math.max(...budgets.map((b) => b.budget.extra));
+  const only = budgets.length === 1 ? budgets[0]! : null;
+  const pr = only ? (store.db.prepare('SELECT number FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, only.repo) as { number: number | null } | undefined) : undefined;
+  return { kind: 'conflicts', repo: only?.repo ?? '', pr: pr?.number ?? null, check: null, used, max, step: 0 };
 }
 
 export function readAutofix(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixReading {
@@ -113,7 +120,8 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
   const projectDefault = config?.enabled === true;
   const effective = effectiveAutopilot(store, ticketId, projectDefault);
   const block = stageBlock(store, ticketId, 'ship')?.reason ?? null;
-  const reason = [block, ticket.stoppedReason, ticket.pausedReason].find((r) => typeof r === 'string' && r.startsWith('auto-fix')) ?? null;
+  // `stoppedReason` only remembers the last park note (no repeat note), so it outlives the park: it is not a source here.
+  const reason = [block, ticket.pausedReason].find((r) => typeof r === 'string' && r.startsWith('auto-fix')) ?? null;
   const kind = reason === null ? null : parkedKind(reason);
   const target = kind === null ? null : resolveTarget(store, ticketId, config, kind);
   const facts: AutofixFacts = {

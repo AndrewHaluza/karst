@@ -66,17 +66,18 @@ const SANDBOX_WORD = /sandbox/i;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 
 const prLabel = (t: AutofixTarget): string => (t.pr === null ? t.repo : `${t.repo} #${t.pr}`);
+/** ` on web #421`, or nothing when the host could not name the PR. */
+const onPr = (t: AutofixTarget): string => (prLabel(t) === '' ? '' : ` on ${prLabel(t)}`);
 const capitalize = (s: string): string => (s === '' ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`);
 
 function runningRow(f: AutofixFacts, round: AutofixRound): AutofixRowView {
-  const where = prLabel(round);
   const isCi = round.kind === 'ci';
   const steps = isCi ? CI_STEPS : CONFLICT_STEPS;
   return {
     state: 'running',
     message: isCi
-      ? `Auto-fix: CI ${round.check ?? 'check'} failed on ${where} · attempt ${round.used} of ${round.max}`
-      : `Auto-fix: conflict on ${where} · round ${round.used} of ${round.max}`,
+      ? `Auto-fix: CI ${round.check ?? 'check'} failed${onPr(round)} · attempt ${round.used} of ${round.max}`
+      : `Auto-fix: conflict${onPr(round)} · round ${round.used} of ${round.max}`,
     steps,
     activeStep: Math.min(Math.max(round.step, 0), steps.length - 1),
     stopAfterRequested: f.stopAfter,

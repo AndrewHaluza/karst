@@ -3,6 +3,7 @@ import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound } from '../../store/autopilot.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
+import { parkGateStage } from '../../store/stageBlocks.js';
 import { readAutofix } from './stateAutofix.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 
@@ -17,6 +18,9 @@ function setup() {
   const t = createTicket(store, { key: 'T-1', title: 't', source: 'manual' });
   return { store, id: t.id };
 }
+
+const park = (store: ReturnType<typeof openStore>, id: number, reason: string): void =>
+  parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: 'x', gates: [] });
 
 describe('readAutofix', () => {
   it('reports the project default and an inherit override', () => {
@@ -74,7 +78,7 @@ describe('readAutofix', () => {
     for (let i = 0; i < 2; i += 1) takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
     for (let i = 0; i < 3; i += 1) takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
-    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    park(store, id, 'auto-fix stopped: ci 3/3');
     const r = readAutofix(store, id, CONFIG);
     expect(r.slice.banner?.primary).toMatchObject({ act: 'autopilot-approve-one', repo: 'api', kind: 'ci' });
   });
@@ -82,7 +86,7 @@ describe('readAutofix', () => {
   it('still names the repo of the kind when the limit was raised after the park', () => {
     const { store, id } = setup();
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
-    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    park(store, id, 'auto-fix stopped: ci 3/3');
     expect(readAutofix(store, id, CONFIG).slice.banner?.primary).toMatchObject({ repo: 'api', kind: 'ci' });
   });
 
@@ -106,5 +110,22 @@ describe('readAutofix', () => {
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'api', 88, 'https://x/88', 'open')").run(id);
     setAutopilotOverride(store, id, 'off');
     expect(readAutofix(store, id, CONFIG).row).toBeNull();
+  });
+
+  it('ignores a remembered stop reason once the park block is gone', () => {
+    const { store, id } = setup();
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    const r = readAutofix(store, id, CONFIG);
+    expect(r.row).toBeNull();
+    expect(r.slice.banner).toBeNull();
+  });
+
+  it('names the repo of a running conflict round only when one conflicts budget exists', () => {
+    const { store, id } = setup();
+    takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
+    markConflictRound(store, id, Date.now());
+    expect(readAutofix(store, id, CONFIG).row?.message).toBe('Auto-fix: conflict on web · round 1 of 2');
+    takeAutopilotAttempt(store, id, 'docs', 'conflicts', 'b', 2);
+    expect(readAutofix(store, id, CONFIG).row?.message).toBe('Auto-fix: conflict · round 1 of 2');
   });
 });

@@ -29,6 +29,11 @@ describe('autofixRow', () => {
     });
   });
 
+  it('leaves the PR out of a running conflict message when the host cannot name it', () => {
+    const row = autofixRow({ ...BASE, round: { kind: 'conflicts', repo: '', pr: null, check: null, used: 1, max: 2, step: 0 } });
+    expect(row?.message).toBe('Auto-fix: conflict · round 1 of 2');
+  });
+
   it('words a running CI round with the failed check and the attempt count', () => {
     const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 2, max: 3, step: 0 } });
     expect(row?.message).toBe('Auto-fix: CI lint failed on api #88 · attempt 2 of 3');
