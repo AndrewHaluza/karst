@@ -3649,6 +3649,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // immediately before any disposal or replacement launch.
       providerReady: () =>
         guardProviderCapability('sessions', process.assignment.provider),
+      // The provider probe can wait: a ticket paused meanwhile gets no resume.
+      eligible: () => getTicket(localStore, ticketId).pausedAt == null,
       // @arch:V77: the brief is stored and the agent is pointed at it, never typed.
       deliverFix: () => fixDelivery.deliver(ticketId, roundId),
       dispose: () => sessions.disposeSession(ticketId),
@@ -3665,6 +3667,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       },
     });
+    if (outcome === 'skipped') {
+      logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused)`);
+      return;
+    }
     if (outcome === 'unavailable') {
       // The configured Fix core could not be proven ready (missing binary,
       // unprobeable CLI): nothing launched and nothing will — the ticket is

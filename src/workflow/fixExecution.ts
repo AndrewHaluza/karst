@@ -121,7 +121,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
   return 'launched';
 }
 
-export type ResumeConfiguredFixOutcome = ResumeFixOutcome | 'unavailable';
+export type ResumeConfiguredFixOutcome = ResumeFixOutcome | 'unavailable' | 'skipped';
 
 export interface ResumeConfiguredFixExecutionOpts
   extends Omit<ResumeFixExecutionOpts, 'identity'> {
@@ -130,6 +130,11 @@ export interface ResumeConfiguredFixExecutionOpts
   sessionIdentity: () => NonNullable<ResumeFixExecutionOpts['identity']> | null;
   /** Probe the configured provider only when a new terminal must be launched. */
   providerReady: () => boolean | Promise<boolean>;
+  /**
+   * Re-read AFTER the provider wait: false (for example, the ticket was paused
+   * meanwhile) ends the resume with 'skipped' and touches no session.
+   */
+  eligible?: () => boolean;
   /** Retire an incompatible live terminal after readiness has succeeded. */
   dispose: () => void;
 }
@@ -159,11 +164,14 @@ export async function resumeConfiguredFixExecution(
   }
 
   if (!(await opts.providerReady())) return 'unavailable';
-  if (live) opts.dispose();
+  if (opts.eligible && !opts.eligible()) return 'skipped';
+  // The wait may have changed the session: read liveness again, never reuse the first read.
+  const liveNow = opts.isLive();
+  if (liveNow) opts.dispose();
   return resumeFixExecution(store, {
     ...opts,
     identity: opts.configuredIdentity,
     isLive: () => false,
-    open: () => opts.open(live),
+    open: () => opts.open(liveNow),
   });
 }

@@ -352,8 +352,36 @@ describe('configured Fix session compatibility and readiness', () => {
     }));
 
     expect(outcome).toBe('launched');
-    expect(events).toEqual(['live', 'identity', 'ready', 'dispose', 'open']);
+    expect(events).toEqual(['live', 'identity', 'ready', 'live', 'dispose', 'open']);
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+  });
+
+  it('skips the resume and touches no session when the ticket stops being eligible during the provider wait', async () => {
+    const events: string[] = [];
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => true,
+      sessionIdentity: () => ({ provider: 'claude', model: 'opus' }),
+      providerReady: () => true,
+      eligible: () => false,
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+    expect(outcome).toBe('skipped');
+    expect(events).toEqual([]);
+  });
+
+  it('reads liveness again after the provider wait: a session that closed meanwhile is not disposed', async () => {
+    const events: string[] = [];
+    let reads = 0;
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => ++reads === 1,
+      sessionIdentity: () => ({ provider: 'claude', model: 'opus' }),
+      providerReady: () => true,
+      dispose: () => events.push('dispose'),
+      open: (replacement) => events.push(`open:${String(replacement)}`),
+    }));
+    expect(outcome).toBe('launched');
+    expect(events).toEqual(['open:false']);
   });
 
   it('probes a closed launch path and never disposes or launches when it fails', async () => {
