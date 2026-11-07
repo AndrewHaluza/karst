@@ -416,6 +416,12 @@ export function makeDashboardActions(
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
+    // Auto-fix controls (T1004): the command owns the store write, the note and the confirmation.
+    autopilotOverride: (mode) => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, mode),
+    autopilotApproveOne: (repo, kind) => void vscode.commands.executeCommand('karst.autopilot.approveOne', ticketId, { repo, kind }),
+    autopilotStop: (when) => void vscode.commands.executeCommand('karst.autopilot.stop', ticketId, when),
+    // Retry is a command: it clears the pause, the remembered stop reason and the park block, and writes no override.
+    autopilotRetry: () => void vscode.commands.executeCommand('karst.autopilot.retry', ticketId),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate

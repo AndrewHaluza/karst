@@ -12,6 +12,7 @@
 import { memo, useMemo, useState } from 'react';
 import { useSelection } from './DashboardAppContext.js';
 import { DeliverRow } from './DeliverRow.js';
+import { AutofixFooter, AutofixOverride } from './AutofixParts.js';
 import { AttemptTabs } from './InsideAttempts.js';
 import { LiveDuration, StageClock } from './InsideClocks.js';
 import { Ledger } from './InsideLedger.js';
@@ -67,7 +68,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
   const lstatus = frame.live ? frame.live.status || 'run' : '';
   return (
     <InsideScopeContext.Provider value={scope}>
-      <section className={`inside${back !== null ? ' viewing' : ''}`} aria-labelledby="inside-title">
+      <section className={`inside${back !== null ? ' viewing' : ''}`} aria-labelledby="inside-title" data-region={frame.autopilot ? 'inside-ship' : undefined}>
         {back !== null ? (
           <div className="vbar">
             <span>{`Viewing ${view.title} — not the current stage.`}</span>
@@ -83,6 +84,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
           <span className={`inside-live ${lstatus}`}>
             <LiveLine stage={stage} live={frame.live} />
           </span>
+          {frame.autopilot ? <AutofixOverride autopilot={frame.autopilot} /> : null}
           <StageClock stage={stage} />
           {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} /> : null}
         </div>
@@ -98,6 +100,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
         {/* The ship preview sits ABOVE the ledger (D142, UI-R40 reading order): the first thing read before the Confirm click. */}
         {frame.preview ? <ShipPreview preview={frame.preview.data} /> : null}
         {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} /> : <div className="blurb">{view.blurb}</div>}
+        {frame.autopilot ? <AutofixFooter autopilot={frame.autopilot} /> : null}
       </section>
     </InsideScopeContext.Provider>
   );

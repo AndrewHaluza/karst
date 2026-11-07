@@ -91,6 +91,14 @@ export function routeAction(
       return actions.addressPrFeedback();
     case 'send-ci-failure':
       return actions.sendCiFailure();
+    case 'autopilot-override':
+      return actions.autopilotOverride(msg.mode);
+    case 'autopilot-approve-one':
+      return actions.autopilotApproveOne(msg.repo, msg.kind);
+    case 'autopilot-stop':
+      return actions.autopilotStop(msg.when);
+    case 'autopilot-retry':
+      return actions.autopilotRetry();
     case 'rebase-on-base':
       return actions.rebaseOnBase();
     case 'deliver-to-pr':

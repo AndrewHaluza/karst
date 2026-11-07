@@ -4,7 +4,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import {
-  AUTOPILOT_OVERRIDES, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
+  AUTOPILOT_OVERRIDES, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
 import { approveOneMore, clearParkBlock, stopAutopilot } from './autopilotOps.js';
 
@@ -55,6 +55,19 @@ export async function setOverrideCommand(d: AutopilotCommandDeps, ticketId?: num
   noteFor(d, id)('Autopilot: override set', `${keyOf(d.store, id)}: auto-fix mode is now ${chosen}.`);
   d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} override ${chosen}`);
   d.say(`Auto-fix mode for ${keyOf(d.store, id)}: ${chosen}.`);
+}
+
+/**
+ * Retry a paused or parked round: clear the pause, the stop reason and the park block, so the next sweep tries again.
+ * The mode stays as it is and no note is posted: a retry is not a mode change.
+ */
+export async function retryCommand(d: AutopilotCommandDeps, ticketId?: number): Promise<void> {
+  const id = await resolveTicket(d, ticketId, 'Retry auto-fix for which ticket?');
+  if (id === undefined) return;
+  setAutopilotPaused(d.store, id, null);
+  setAutopilotStopped(d.store, id, null);
+  clearParkBlock(d.store, id);
+  d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} retry`);
 }
 
 /** Approve one more attempt for a (PR, kind): a one-off +1, no reset. */

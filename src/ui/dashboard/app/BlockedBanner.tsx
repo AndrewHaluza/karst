@@ -30,6 +30,9 @@ import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { blockFaultTitle } from './railText.js';
 import { isAutoFixPark } from './railSlices.js';
+import { AutofixBannerBody } from './AutofixParts.js';
+import type { AutofixBannerView } from '../../../model/inside/autofix.js';
+import { sameIgnoringLive } from './insideLive.js';
 import { StallPanel } from './StallPanel.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
@@ -45,6 +48,8 @@ interface BannerSlice {
   readonly baselines: readonly BaselineReviewRow[];
   /** Only while the block is a review stall. */
   readonly stall: StallView | null;
+  /** Only while the block is an auto-fix park the host worded (T1004). */
+  readonly autofix: AutofixBannerView | null;
 }
 
 /** null when there is nothing for the banner to say. */
@@ -62,6 +67,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
     reason: blocked.reason,
     baselines: review ? (s.baselineReview ?? []) : [],
     stall: blocked.kind === 'review-stalled' ? s.stall : null,
+    autofix: blocked.kind === 'awaiting-merge' && isAutoFixPark(blocked) ? (s.autopilot?.banner ?? null) : null,
   };
 };
 
@@ -287,6 +293,13 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
   }
   if (kind === 'baseline-review') return <BaselineReview entries={slice.baselines} reason={reason} drafts={drafts} />;
   // An autopilot park (T973) is an awaiting-merge wait: Resume cannot act on it, so the banner shows the reason only.
+  if (kind === 'awaiting-merge' && slice.autofix) {
+    return (
+      <div className="autofix-banner" data-region="blocked-banner">
+        <AutofixBannerBody banner={slice.autofix} />
+      </div>
+    );
+  }
   if (kind === 'awaiting-merge') return <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />;
   return (
     <>
@@ -297,7 +310,7 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
 }
 
 export const BlockedBanner = memo(function BlockedBanner() {
-  const slice = useSlice(selectBanner);
+  const slice = useSlice(selectBanner, sameIgnoringLive);
   // The drafts of an open reject form live here, in the always-mounted banner, so they outlive the review surface.
   const drafts = useBaselineDrafts();
   const shown = slice !== null;

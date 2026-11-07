@@ -71,3 +71,22 @@ Fix a merge conflict on an open PR of a host ticket without a click. The budget,
 - Conflict budget: per (PR, `conflicts`). The signature is the base head SHA: a new base head resets the counter. A spent repo is skipped while another conflicted PR of the ticket has attempts. The ticket parks with `auto-fix stopped: conflicts <n>/<max>` only when every conflicted PR is spent. A failed round gives its attempt back.
 - No second conflict round starts while the first round is armed or its auto-deliver runs (`conflictRoundActive`: the in-memory round and `isAutoDelivering`). The stored merge check stays `conflicted` until the next probe, so a cooldown alone is not enough. A sent conflict round clears the stored CI rollup and merge block of that PR, so a rollup of the old head starts no CI round. A round armed for more than 5 minutes with no agent and no delivery never delivered: the engine drops it, writes a note, and the next attempt spends the budget.
 END_DOC_BLOCK: [@arch:AP-01]
+
+## [@arch:AP-02] Autopilot UI
+covers: src/model/inside/autofix.ts, src/ui/dashboard/app/AutofixParts.tsx, src/ui/settings/app/sections/AutopilotSection.tsx
+
+### Purpose
+Show the auto-fix state and the controls. The UI adds no new engine rule.
+
+### Connections
+- in: @arch:AP-00, @arch:SAVE, @arch:BLOCKED, @arch:GH-04, @arch:GH-08
+- out: messages `autopilot-override`, `autopilot-approve-one`, `autopilot-stop`, `autopilot-retry`
+
+### Rules
+- Settings: the Autopilot page owns the one manifest key `autopilot`. Save and Discard apply to this tab only. Push diverged is read-only text, and Merge to base has no control.
+- Ship panel: there is no new step row. `autofixRow` words the state on the Merge row. A running round shows a step line and the actions Stop after this round and Stop now.
+- The banner for an auto-fix park uses the `awaiting-merge` block. It has no new blocker kind. A spent budget has one primary, Approve 1 more. A gh failure or a sandbox pause has one primary, Retry, and never a run-on-host action. A sandbox pause also offers Open sync diff. The gh failure is the engine park `auto-fix stopped: ci could not run (...)`. Retry runs `karst.autopilot.retry`: it clears the pause, the stop reason and the park block, and posts no note. The Approve action names the repo of the kind in the park reason; it stays off when no PR resolves.
+- The override control sends `autopilot-override` and settles through the pending marker.
+- Unknown CI status reads "Auto-fix waits; not counted as pass". The host reads `unknownCi` from the stored PR rollups with the engine rule (missing, unknown or pending checks on an open PR). A CI round runs in Implement, because the action sends the ticket back, and the engine writes no marker for it. The host reads it from its effects: the ticket is out of ship, no park is on record, the latest Autopilot note is the `ci round n/m` note, not counting `Autopilot: stopped after this round` because that round still runs (a manual send-back leaves none), and a CI budget with attempts holds the signature of the checks that still fail. Its step is the agent step. A pending check reads as unknown CI, because the engine waits on both.
+- The banner "Attempt history" lists the `Autopilot: <kind> round n/m` notes of the parked kind, oldest first. The park reason comes from the ship block or the ticket `pausedReason` only. `stoppedReason` outlives the park, so it is never a source. The running row names a repo only when one conflicts budget exists, because the engine stores the arm time and not the repo. The row marks a step as the first step, because the engine writes no step signal. A graph-ticket park (`auto-fix not run: graph ticket`) has no Retry, because a retry parks again. A sandbox park keeps ONE Retry, as the ticket requires. That Retry can park the ticket again until the person fixes the sandbox; the engine writes no other sandbox reason to tell the cases apart. The unknown-CI message is added after the Merge row conflict sentence; every other auto-fix state replaces the detail. The engine gh park reads "Auto-fix paused: could not read CI (gh: <error>)" on the row. The engine writes no `sandbox read-only`, `setup failed` or `clone dirty` reason, so only the sandbox ticket park and a reason that contains "sandbox" render as a sandbox pause. The sandbox sync diff shows when the reason contains the word "sandbox"; the engine writes `auto-fix not run: sandboxed ticket` and the `session did not start (<reason>)` pause.
+END_DOC_BLOCK: [@arch:AP-02]

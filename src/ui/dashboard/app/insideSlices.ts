@@ -11,6 +11,7 @@
 import type { LiveOperationView } from '../../../model/inside/progress.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView, TokenUsageView } from '../../../model/inside/types.js';
 import type { ShipPreview } from '../../../workflow/shipPreview.js';
+import type { AutopilotSlice } from '../stateAutofix.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { liveOperation, overlayProcesses } from './insideLive.js';
 import { STAGE_TITLE } from './railText.js';
@@ -39,6 +40,8 @@ export interface Frame {
   readonly deliver: { readonly notOnPr: number; readonly inSandbox: number } | null;
   /** Ship only, and only while the header's ship slot waits for Confirm / Retry. */
   readonly preview: { readonly data: ShipPreview | null } | null;
+  /** Ship only: the auto-fix override, effective mode and action log (T1004). */
+  readonly autopilot: AutopilotSlice | null;
 }
 
 const viewOf = (snapshot: DashboardSnapshot, stage: string): InsideStageView | undefined =>
@@ -71,6 +74,7 @@ export const frameOf =
         rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
       },
       deliver: dv && dv.available && key === 'ship' ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox } : null,
+      autopilot: key === 'ship' ? (state.autopilot ?? null) : null,
       preview: key === 'ship' && (slot === 'confirm' || slot === 'retry') ? { data: state.shipPreview ?? null } : null,
     };
   };

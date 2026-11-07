@@ -28,7 +28,7 @@ const NAV_GROUPS: ReadonlyArray<{
   readonly sections: readonly SettingsSection[];
 }> = [
   { caption: 'Project', sections: ['general', 'git', 'services'] },
-  { caption: 'Workflow', sections: ['approaches', 'agents', 'quality'] },
+  { caption: 'Workflow', sections: ['approaches', 'agents', 'quality', 'autopilot'] },
   { caption: 'Integrations', sections: ['ticketing'] },
 ];
 

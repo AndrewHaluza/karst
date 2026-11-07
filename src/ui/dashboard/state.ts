@@ -1,3 +1,5 @@
+import type { AutopilotConfig } from '../../manifest/autopilot.js';
+import { readAutofix } from './stateAutofix.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement } from '../../store/placement.js';
@@ -210,6 +212,8 @@ export function buildDashboardState(
    * Appended LAST so every existing positional caller keeps its argument positions.
    */
   sharedServersFor: (ticketId: number) => SharedServerView[] = () => [],
+  /** The manifest `autopilot:` block (T1004); absent → auto-fix reads as off. Appended LAST. */
+  autopilotConfig?: AutopilotConfig,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
@@ -306,6 +310,7 @@ export function buildDashboardState(
       ? resolvedGates.runOrder
       : resolvedGates;
 
+  const autofixReading = readAutofix(store, ticketId, autopilotConfig);
   const { insideViews, presentedStage, serverRows } = buildInsideSection(store, {
     ticket,
     stepper,
@@ -327,6 +332,7 @@ export function buildDashboardState(
     attemptSelection,
     findingsBlockingSeverity,
     displayBlocking,
+    autofix: autofixReading.row,
   });
 
   return {
@@ -386,6 +392,7 @@ export function buildDashboardState(
       implSession,
     }),
     insideViews,
+    autopilot: autofixReading.slice,
     presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
     artifacts: buildArtifacts({

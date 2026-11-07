@@ -5,8 +5,8 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
-import { getAutopilotBudget, getAutopilotTicket, setAutopilotStopped, takeAutopilotAttempt } from '../../store/autopilot.js';
-import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './autopilotCommandOps.js';
+import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, takeAutopilotAttempt } from '../../store/autopilot.js';
+import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './autopilotCommandOps.js';
 
 let store: Store;
 let id: number;
@@ -162,5 +162,27 @@ describe('stopCommand', () => {
     expect(d.said).toHaveLength(1);
     expect(d.said[0]).toMatch(/did not reach the session/);
     expect(d.said[0]).not.toMatch(/stopped now/);
+  });
+});
+
+describe('retryCommand', () => {
+  it('clears a pause, the stop reason and the park block, keeps the mode and posts no note', async () => {
+    setAutopilotOverride(store, id, 'on');
+    setAutopilotPaused(store, id, 'auto-fix paused: sandbox is read-only');
+    setAutopilotStopped(store, id, 'auto-fix paused: sandbox is read-only');
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix paused: sandbox is read-only', runAt: 'x', gates: [] });
+    const d = deps();
+    await retryCommand(d, id);
+    expect(getAutopilotTicket(store, id)).toMatchObject({ mode: 'on', pausedReason: null, stoppedReason: null });
+    expect(stageBlock(store, id, 'ship')?.reason ?? '').not.toMatch(/^auto-fix/);
+    expect(notes()).toEqual([]);
+    expect(d.said).toEqual([]);
+  });
+  it('asks for a ticket when none is given and stops on a cancelled pick', async () => {
+    setAutopilotPaused(store, id, 'auto-fix paused: x');
+    await retryCommand(deps({ pickTicket: async () => undefined }));
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: x');
+    await retryCommand(deps());
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
   });
 });

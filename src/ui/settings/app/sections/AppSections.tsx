@@ -26,12 +26,14 @@ import { AgentsSection } from './AgentsSection.js';
 import { ServicesSection } from './ServicesSection.js';
 import { GitSection } from './GitSection.js';
 import { QualitySection } from './QualitySection.js';
+import { AutopilotSection } from './AutopilotSection.js';
 import { TicketingSection } from './TicketingSection.js';
 
 const PORTED: Readonly<Partial<Record<SettingsSection, () => ReactElement>>> = {
   general: GeneralSection,
   git: GitSection,
   quality: QualitySection,
+  autopilot: AutopilotSection,
   ticketing: TicketingSection,
   approaches: ApproachesSection,
   agents: AgentsSection,
