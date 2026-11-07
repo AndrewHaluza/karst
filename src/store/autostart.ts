@@ -30,7 +30,7 @@ export const SLOT_STAGES_SQL = `(${SLOT_STAGES.map((s) => `'${s}'`).join(', ')})
  */
 /**
  * A conflict round was sent and its conflict is not gone: a conflicts attempt is recorded for the base head the merge
- * check still names as conflicted, and autopilot did not stop or pause. It covers the gap between the idle agent and the
+ * check still names as conflicted, and autopilot did not stop, pause, switch off or get a stop-after flag. It covers the gap between the idle agent and the
  * delivery of the resolved merge, when no agent runs. A park (a spent budget) frees the slot.
  */
 const CONFLICT_ROUND_SQL = `EXISTS (
@@ -39,7 +39,8 @@ const CONFLICT_ROUND_SQL = `EXISTS (
     LEFT JOIN autopilot_tickets a ON a.ticket_id = b.ticket_id
    WHERE b.ticket_id = s.id AND b.kind = 'conflicts' AND b.attempts > 0
      AND m.state = 'conflicted' AND m.base_sha = b.signature
-     AND a.stopped_reason IS NULL AND a.paused_reason IS NULL)`;
+     AND a.stopped_reason IS NULL AND a.paused_reason IS NULL
+     AND COALESCE(a.stop_after, 0) = 0 AND COALESCE(a.mode, 'inherit') <> 'off')`;
 
 export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR (s.stage_current = 'ship' AND (s.agent_state = 'running' OR ${CONFLICT_ROUND_SQL})) OR s.autostart_pending = ${AUTOSTART_STARTING})`;
 

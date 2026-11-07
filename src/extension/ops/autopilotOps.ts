@@ -306,8 +306,10 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
     d.debug(`${LOG} ticket ${d.key} ${r.kind} round ${r.used}/${r.max} armed for ${r.repo}`);
     return { kind: 'armed', problem: r.kind, used: r.used, max: r.max };
   }
-  // A failed action reached no agent: it costs no attempt and is not retried.
+  // A failed action reached no agent: it costs no attempt and is not retried. A failed conflict round must not stay armed:
+  // a later manual session would get auto-delivery.
   r.refundAll();
+  if (r.kind === 'conflicts') d.dropConflictRound();
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
     // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
     // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.

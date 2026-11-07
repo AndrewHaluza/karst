@@ -687,6 +687,15 @@ describe('conflicts', () => {
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
 
+  it('drops the armed conflict round when the round fails, so a later manual session gets no auto-delivery', async () => {
+    seedPr(PASSING);
+    conflict();
+    const drop = vi.fn();
+    const failed = rig({ dropConflictRound: drop }, { kind: 'failed', reason: 'probe failed' });
+    await autopilotTick(failed.deps);
+    expect(drop).toHaveBeenCalledTimes(1);
+  });
+
   it('refunds the attempt and parks when the round fails or throws; a lost lease refunds quietly', async () => {
     seedPr(PASSING);
     conflict();

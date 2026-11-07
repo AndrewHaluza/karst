@@ -104,6 +104,22 @@ describe('claimAutostart', () => {
     expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
   });
 
+  it('frees the slot of an idle ship sub-task when autopilot is off or stopped after the round', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("INSERT INTO merge_checks (ticket_id, repo, state, files, base_sha, checked_at) VALUES (?, 'r', 'conflicted', '[]', 'b1', 'x')").run(round);
+    store.db.prepare("INSERT INTO autopilot_budgets (ticket_id, repo, kind, attempts, signature) VALUES (?, 'r', 'conflicts', 1, 'b1')").run(round);
+    store.db.prepare("INSERT INTO autopilot_tickets (ticket_id, mode) VALUES (?, 'off')").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 1 WHERE id = ?').run(queued);
+    store.db.prepare("UPDATE autopilot_tickets SET mode = 'on', stop_after = 1").run();
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 1 WHERE id = ?').run(queued);
+    store.db.prepare('UPDATE autopilot_tickets SET stop_after = 0').run();
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+  });
+
   it('enforces the project-wide cap in the same statement; 0 = unlimited', () => {
     const p2 = createTicket(store, { key: 'P-2', title: 'p', projectId }).id;
     setStageCurrent(store, p2, 'impl');
