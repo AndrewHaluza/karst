@@ -368,6 +368,9 @@ describe('configured Fix session compatibility and readiness', () => {
     }));
     expect(outcome).toBe('skipped');
     expect(events).toEqual([]);
+    // Nothing began: the round stays pending, so the driver resumes it on unpause.
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+    expect(listProcessRuns(store, id)).toEqual([]);
   });
 
   it('reads liveness again after the provider wait: a session that closed meanwhile is not disposed', async () => {

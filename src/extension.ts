@@ -435,12 +435,6 @@ import {
 import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
 import {
   binaryExists,
-  checkDependencyFaults,
-  commandSucceeds,
-  dependencyRegistry,
-  ensureCapability,
-  readCommandOutput,
-  renderDependencyFault,
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
@@ -3668,6 +3662,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     });
     if (outcome === 'skipped') {
+      // The round stays pending: `karst.unpauseTicket` calls `maybeDrive`, and the driver
+      // resumes a pending round at fix, so nothing is lost.
       logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused)`);
       return;
     }
