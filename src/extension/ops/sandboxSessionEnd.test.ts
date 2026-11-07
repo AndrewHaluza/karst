@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSandboxSessionEnder, SESSION_END_SETTLE_MS } from './sandboxSessionEnd.js';
 
 function setup(over: { launch?: string; bound?: string } = {}) {
-  const state = { launch: over.launch ?? 'L1', bound: over.bound ?? 's1' };
+  const state = { launch: over.launch ?? 'L1', bound: over.bound ?? 's1', gate: false };
   const stops: number[] = [];
   const logs: string[] = [];
   let pending: { fn: () => void; ms: number } | undefined;
@@ -10,6 +10,7 @@ function setup(over: { launch?: string; bound?: string } = {}) {
     launchIdFor: () => state.launch,
     boundSessionId: () => state.bound,
     stop: async (id) => { stops.push(id); },
+    gateRunning: () => state.gate,
     log: (m) => logs.push(m),
     schedule: (fn, ms) => { const p = { fn, ms }; pending = p; return () => { if (pending === p) pending = undefined; }; },
   });
@@ -28,6 +29,21 @@ describe('sandbox session ender', () => {
     expect(t.stops).toEqual([7]);
     expect(t.logs).toHaveLength(1);
     expect(t.logs[0]).toContain('ending the sandbox session');
+  });
+
+  it('never stops the sandbox while a gate of the ticket runs, then stops once the gate ends (T1003)', () => {
+    const t = setup();
+    t.ender.accepted(7);
+    t.idle();
+    t.state.gate = true; // the accepted marker started re-UAT; its gate execs inside the container
+    t.fire();
+    expect(t.stops).toEqual([]);
+    expect(t.armed()).toBe(true);
+    t.fire();
+    expect(t.stops).toEqual([]);
+    t.state.gate = false;
+    t.fire();
+    expect(t.stops).toEqual([7]);
   });
 
   it('arms when the idle line beat the marker reply', () => {

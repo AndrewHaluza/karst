@@ -327,11 +327,12 @@ describe('runStageCommand', () => {
         ticketId: id, roundId: round.id, provider: 'claude',
         startedAt: '2026-08-01T10:01:00.000Z',
       });
+      // The ticket already left fix (this also ends the unfinished fix run as interrupted, T1008).
+      transition(store, id, 'fix', { kind: 'passed' });
       const beforeRounds = listRecoveryRounds(store, id);
       const beforeRuns = listProcessRuns(store, id);
 
-      // The ticket already left fix — the stale marker is refused.
-      transition(store, id, 'fix', { kind: 'passed' });
+      // The stale marker is refused.
       expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(
         /already at stage 'uat'/,
       );
