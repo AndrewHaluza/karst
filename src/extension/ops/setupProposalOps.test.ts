@@ -176,6 +176,43 @@ describe('createSetupProposalOps.scan', () => {
   });
 });
 
+describe('createSetupProposalOps no-change and written sections', () => {
+  const CURRENT_YAML = `${VALID_YAML}archiveDoneAfterDays: 3\n`;
+  const PROTECTED_ONLY = { ...manifestProposal(), yaml: `${VALID_YAML}archiveDoneAfterDays: 9\n` };
+
+  it('writes nothing, offers no Apply and records no-change when only protected fields differ', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(PROTECTED_ONLY) });
+    await createSetupProposalOps({
+      ...f.deps,
+      readCurrentManifest: () => parseManifestText(CURRENT_YAML).manifest,
+    }).scan();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.applyManifest).not.toHaveBeenCalled();
+    expect(f.fs.removed).toEqual(['/s/1/outbox/a.json']);
+    expect(f.fs.results).toHaveLength(1);
+    expect(f.fs.results[0]).toMatchObject({ status: 'no-change', dropped: ['archiveDoneAfterDays'] });
+    expect(f.fs.results[0]!.reason).toMatch(/Settings/);
+  });
+
+  it('names the sections the write changes in the consent detail', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    const writtenSections = vi.fn(() => ['approaches', 'repositories']);
+    await createSetupProposalOps({ ...f.deps, writtenSections }).scan();
+    expect(f.confirm.mock.calls[0]![0].detail).toContain('approaches, repositories');
+  });
+
+  it('still asks for consent when the section preview throws', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps({
+      ...f.deps,
+      writtenSections: () => {
+        throw new Error('boom');
+      },
+    }).scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+  });
+});
+
 describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
   let root: string;
   beforeEach(() => {
@@ -432,7 +469,7 @@ describe('proposal ledger', () => {
 
 describe('first setup vs established manifest', () => {
   const A = '/s/1/outbox/a.json';
-  const yaml = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nconventions:\n  commitStyle: x\nrepositories:\n  web:\n    repoPath: ../web\n`;
+  const yaml = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nconventions:\n  commitStyle: x\nrepositories:\n  web:\n    repoPath: ../web\n  api:\n    repoPath: ../api\n`;
   const prop = { ...manifestProposal(), yaml };
 
   it('takes protected fields from the proposal when the current manifest is a scaffold, naming them in the modal', async () => {

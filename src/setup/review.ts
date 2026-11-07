@@ -25,10 +25,14 @@ export function describeManifestProposal(
   current: Manifest | undefined,
   proposal: ManifestProposal,
   proposed: Manifest,
-  fields: { dropped?: readonly string[]; adopted?: readonly string[] } = {},
+  fields: { dropped?: readonly string[]; adopted?: readonly string[]; writtenSections?: readonly string[] } = {},
 ): ProposalDescription {
   const diff = diffManifest(current, proposed);
   const lines: string[] = [];
+  // The dropped line comes first: the agent summary may promise a change that never lands.
+  if (fields.dropped !== undefined && fields.dropped.length > 0) {
+    lines.push(`Protected fields NOT applied (kept from the current manifest): ${fields.dropped.join(', ')}.`, '');
+  }
   if (proposal.summary.trim() !== '') lines.push(proposal.summary.trim(), '');
   if (diff.entries.length === 0) {
     lines.push('No repository changes.');
@@ -51,8 +55,8 @@ export function describeManifestProposal(
     const prop = proposed as unknown as Record<string, unknown>;
     for (const f of fields.adopted) lines.push(`  ${f}: ${JSON.stringify(prop[f])}`);
   }
-  if (fields.dropped !== undefined && fields.dropped.length > 0) {
-    lines.push('', `Protected fields NOT applied (kept from the current manifest): ${fields.dropped.join(', ')}.`);
+  if (fields.writtenSections !== undefined && fields.writtenSections.length > 0) {
+    lines.push('', `Sections of karst.yml that this write changes: ${fields.writtenSections.join(', ')}.`);
   }
   const repos = Object.keys(proposed.repositories).length;
   const services = Object.values(proposed.repositories).filter((r) => r.service !== undefined).length;

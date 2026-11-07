@@ -2,6 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dump, load } from 'js-yaml';
 import { basename, resolve } from 'node:path';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import type { Manifest } from '../manifest/types.js';
+import { applyManifestProposal, droppedProtectedFields, sameManifest } from '../setup/manifestApply.js';
+import { isFirstSetup, readScaffoldManifest } from '../setup/scaffoldManifest.js';
 import { validateSetupProposal, type ManifestProposal } from '../setup/proposal.js';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 
@@ -28,6 +31,8 @@ export interface ManifestCommandDeps {
   manifestPath?: string;
   /** Injectable uuid for deterministic tests. */
   uuid?: () => string;
+  /** The bundled template, for the first-setup test. Defaults to the shipped `karst.example.yml`. */
+  scaffold?: () => Manifest | undefined;
 }
 
 const USAGE =
@@ -69,12 +74,42 @@ function validateFile(file: string) {
   return loadManifestWithDiagnostics(file);
 }
 
-function runValidate(file: string): string {
+interface Comparison {
+  /** Protected fields of the draft that the host would discard. */
+  wouldDrop: string[];
+  /** True when the host would apply a manifest equal to the current one. */
+  noEffect: boolean;
+}
+
+/**
+ * Compare a draft with the file at `--manifest` the way the host does, with
+ * the same first-setup rule. With no readable current manifest nothing is
+ * compared: the host then treats the proposal as a first setup too.
+ */
+function compareWithCurrent(draft: Manifest, deps: ManifestCommandDeps): Comparison {
+  const none: Comparison = { wouldDrop: [], noEffect: false };
+  if (deps.manifestPath === undefined || !existsSync(deps.manifestPath)) return none;
+  let current: Manifest;
+  try {
+    current = loadManifestWithDiagnostics(deps.manifestPath).manifest;
+  } catch {
+    return none;
+  }
+  const template = (deps.scaffold ?? readScaffoldManifest)();
+  const firstSetup = isFirstSetup(current, template);
+  return {
+    wouldDrop: droppedProtectedFields(current, draft, firstSetup),
+    noEffect: sameManifest(applyManifestProposal(current, draft, firstSetup), current),
+  };
+}
+
+function runValidate(file: string, deps: ManifestCommandDeps): string {
   const { manifest, warnings, notices } = validateFile(file);
   return JSON.stringify({
     ok: true,
     id: manifest.id ?? null,
     repositories: Object.keys(manifest.repositories),
+    wouldDrop: compareWithCurrent(manifest, deps).wouldDrop,
     warnings,
     notices,
   });
@@ -82,6 +117,14 @@ function runValidate(file: string): string {
 
 function runPropose(file: string, summary: string | undefined, deps: ManifestCommandDeps): string {
   const { manifest } = validateFile(file);
+  const { wouldDrop, noEffect } = compareWithCurrent(manifest, deps);
+  if (noEffect) {
+    const dropped =
+      wouldDrop.length > 0
+        ? `The host would discard these protected fields: ${wouldDrop.join(', ')}. The user changes them in Settings.`
+        : 'The draft has no difference from the current manifest.';
+    throw new Error(`karst manifest propose: nothing to apply, so no proposal is queued. ${dropped}`);
+  }
   const targetPath = resolve(file);
   const yaml = readFileSync(file, 'utf8');
   const serviceCount = Object.values(manifest.repositories).filter((r) => r.service !== undefined).length;
@@ -98,7 +141,7 @@ function runPropose(file: string, summary: string | undefined, deps: ManifestCom
 
   const dir = resolveSetupOutboxDir(deps.outboxEnv);
   const out = writeSetupProposal(dir, checked.value, deps.uuid);
-  return JSON.stringify({ ok: true, kind: 'manifest', id: basename(out, '.json'), file: out });
+  return JSON.stringify({ ok: true, kind: 'manifest', id: basename(out, '.json'), file: out, wouldDrop });
 }
 
 /**
@@ -122,5 +165,5 @@ function runShow(rest: readonly string[], deps: ManifestCommandDeps): string {
 export function runManifestCommand(argv: readonly string[], deps: ManifestCommandDeps = {}): string {
   if (argv[1] === 'show') return runShow(argv.slice(2), deps);
   const { sub, file, summary } = parseManifestArgs(argv);
-  return sub === 'validate' ? runValidate(file) : runPropose(file, summary, deps);
+  return sub === 'validate' ? runValidate(file, deps) : runPropose(file, summary, deps);
 }

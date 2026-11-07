@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
-import { writeManifest } from './write.js';
+import { manifestWriteSections, writeManifest, writeManifestWithBackup } from './write.js';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { validateManifest } from './schema.js';
 import { fullPreset, review as reviewFixture } from './fixtures.js';
@@ -1094,6 +1094,38 @@ repositories:
       expect(Object.keys(after.repositories.mono!.services!)).toEqual(['api', 'web']);
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe('writeManifestWithBackup and manifestWriteSections', () => {
+  it('keeps the earlier bytes in <path>.bak, overwriting the previous backup', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-bak-'));
+    try {
+      const path = join(dir, 'karst.yml');
+      writeFileSync(path, RAW);
+      const manifest = loadManifest(path);
+      writeManifestWithBackup(path, manifest);
+      expect(readFileSync(`${path}.bak`, 'utf8')).toBe(RAW);
+      const second = readFileSync(path, 'utf8');
+      writeManifestWithBackup(path, manifest);
+      expect(readFileSync(`${path}.bak`, 'utf8')).toBe(second);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the top-level sections whose written YAML differs, defaults included, and writes nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-sections-'));
+    try {
+      const path = join(dir, 'karst.yml');
+      writeFileSync(path, RAW);
+      const sections = manifestWriteSections(path, loadManifest(path));
+      expect(sections).toContain('approaches');
+      expect(sections).not.toContain('host');
+      expect(readFileSync(path, 'utf8')).toBe(RAW);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

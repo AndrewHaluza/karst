@@ -119,6 +119,14 @@ export function droppedProtectedFields(
   return PROTECTED_FIELDS.filter((f) => !isDeepStrictEqual(applied[f], prop[f]));
 }
 
+/**
+ * True when two loaded manifests mean the same. A key set to `undefined` equals
+ * an absent key: the loader leaves the first where `applyManifestProposal` leaves the second.
+ */
+export function sameManifest(a: Manifest, b: Manifest): boolean {
+  return isDeepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
+}
+
 /** On first setup, the protected fields the proposal sets (shown before consent). */
 export function adoptedProtectedFields(proposed: Manifest, firstSetup: boolean): ProtectedField[] {
   if (!firstSetup) return [];

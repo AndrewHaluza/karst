@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
@@ -13,7 +13,7 @@ import { createSetupProposalOps } from './ops/setupProposalOps.js';
 import type { Notify } from './ops/notify.js';
 import type { TerminalHost } from '../ui/session.js';
 import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js';
-import { writeManifest } from '../manifest/write.js';
+import { manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 
 /**
@@ -124,17 +124,23 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     debug: deps.debug,
   });
 
+  // Target the launching window's manifest, not whatever this window resolves.
+  const targetManifestPath = (scratch: string): string => readSetupOwner(scratch)?.manifestPath ?? manifestPathOrThrow();
+
   const proposals = createSetupProposalOps({
     outboxes: () => ownedScratches(setupRoot, workspaceRoot(), deps.debug),
     readCurrentManifest: deps.currentManifest,
     confirm: async (d) =>
       (await vscode.window.showWarningMessage(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
     isScaffold: (current) => isScaffoldManifest(current, readScaffoldManifest()),
+    writtenSections: (applied, scratch) => {
+      const path = targetManifestPath(scratch);
+      return existsSync(path) ? manifestWriteSections(path, applied) : [];
+    },
     applyManifest: (applied, scratch) => {
-      // Target the launching window's manifest, not whatever this window resolves.
-      const path = readSetupOwner(scratch)?.manifestPath ?? manifestPathOrThrow();
+      const path = targetManifestPath(scratch);
       mkdirSync(dirname(path), { recursive: true });
-      writeManifest(path, applied);
+      writeManifestWithBackup(path, applied);
       return createHash('sha256').update(readFileSync(path)).digest('hex');
     },
     resolveDir,

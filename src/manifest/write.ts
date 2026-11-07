@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
 import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS } from './schema.js';
 import { ManifestError } from './error.js';
@@ -73,6 +74,34 @@ export function writeRepoSignals(path: string, repository: string, signals: stri
  * This is gated behind an explicit "Save" in the settings UI.
  */
 export function writeManifest(path: string, manifest: Manifest): void {
+  writeFileSync(path, renderManifest(path, manifest));
+}
+
+/**
+ * `writeManifest` after copying the existing file to `<path>.bak`. One backup,
+ * overwritten each time, so `.karst/` does not grow; the copy is the only
+ * earlier version because `.karst/` is not in git.
+ */
+export function writeManifestWithBackup(path: string, manifest: Manifest): void {
+  if (existsSync(path)) copyFileSync(path, `${path}.bak`);
+  writeManifest(path, manifest);
+}
+
+/**
+ * Top-level sections whose YAML `writeManifest` would change in the file at
+ * `path`, defaults the writer adds included. Reads only; writes nothing.
+ */
+export function manifestWriteSections(path: string, manifest: Manifest): string[] {
+  const before = yamlLoad(readFileSync(path, 'utf8'));
+  const after = yamlLoad(renderManifest(path, manifest));
+  const a = isRecord(before) ? before : {};
+  const b = isRecord(after) ? after : {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].filter((k) => !isDeepStrictEqual(a[k], b[k])).sort();
+}
+
+/** The YAML text `writeManifest` writes for `manifest` over the file at `path`. */
+function renderManifest(path: string, manifest: Manifest): string {
   const text = readFileSync(path, 'utf8');
   let parsed: unknown;
   try {
@@ -266,7 +295,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
 
   // Re-validate before persisting — never write a file the loader would reject.
   validateManifest(next);
-  writeFileSync(path, yamlDump(next));
+  return yamlDump(next);
 }
 
 /** One service overlaid onto its raw counterpart (shared by `service:` and each `services:` entry). */
