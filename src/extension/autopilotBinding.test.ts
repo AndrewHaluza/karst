@@ -256,7 +256,7 @@ describe('registerAutopilotCommands', () => {
       commands: { registerCommand: (c: string) => { names.push(c); return { dispose() {} }; } },
       window: { showInformationMessage: vi.fn(), showQuickPick: vi.fn() },
     };
-    const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => true });
+    const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => true, dropConflictRound: () => {} });
     expect(host.window.showInformationMessage).not.toHaveBeenCalled();
     expect(names).toEqual(['karst.autopilot.setOverride', 'karst.autopilot.approveOne', 'karst.autopilot.stop']);
     expect(out).toHaveLength(3);
@@ -273,7 +273,7 @@ describe('registerAutopilotCommands', () => {
     const project = upsertProject(store, { slug: 'p' });
     const id = createTicket(store, { key: 'AP-8', title: 't', projectId: project.id }).id;
     const debug = vi.fn();
-    registerAutopilotCommands(host as never, { store, projectId: () => project.id, debug, stopSession: async () => true });
+    registerAutopilotCommands(host as never, { store, projectId: () => project.id, debug, stopSession: async () => true, dropConflictRound: () => {} });
     await (handlers.get('karst.autopilot.setOverride') as () => Promise<unknown>)();
     const calls = showQuickPick.mock.calls as unknown as Array<[unknown[], { placeHolder: string }]>;
     expect(calls[0]![1].placeHolder).toBe('Set auto-fix mode for which ticket?');

@@ -204,7 +204,7 @@ export interface CommandHost {
 /** Register the three autopilot host commands. */
 export function registerAutopilotCommands(
   host: CommandHost,
-  base: Pick<AutopilotCommandDeps, 'store' | 'projectId' | 'debug' | 'stopSession'>,
+  base: Pick<AutopilotCommandDeps, 'store' | 'projectId' | 'debug' | 'stopSession' | 'dropConflictRound'>,
 ): Array<{ dispose(): void }> {
   const d: AutopilotCommandDeps = {
     ...base,
