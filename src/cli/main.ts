@@ -32,7 +32,7 @@ import { runPauseCommand } from './pauseCommand.js';
 import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
-import { KARST_DB_READONLY_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
+import { KARST_DB_READONLY_ENV, KARST_MANIFEST_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
 import { BLOCKING_SEVERITIES, reviewBlockingFloor } from '../manifest/qualityDefaults.js';
 import { getProjectById, getProjectBySlug } from '../store/projects.js';
 import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
@@ -291,7 +291,12 @@ export function runCli(
   // `--file` names a YAML file to validate/propose, not a JSON structured-input
   // payload. It opens no store and reads only the file it is given.
   if (subcommand === 'manifest') {
-    return runManifestCommand(rest, { outboxEnv: env.KARST_SETUP_OUTBOX, manifestPath });
+    // The setup instructions pass no `--manifest` to validate/propose, so the
+    // session's `$KARST_MANIFEST` is the current manifest to compare against.
+    return runManifestCommand(rest, {
+      outboxEnv: env.KARST_SETUP_OUTBOX,
+      manifestPath: manifestPath ?? env[KARST_MANIFEST_ENV],
+    });
   }
 
   // Structured input (registry): a command that declares a `toArgv` encoder may

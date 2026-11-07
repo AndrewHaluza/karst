@@ -93,6 +93,7 @@ function compareWithCurrent(draft: Manifest, deps: ManifestCommandDeps): Compari
   try {
     current = loadManifestWithDiagnostics(deps.manifestPath).manifest;
   } catch {
+    // Same as the host: an unreadable current manifest counts as absent (first setup).
     return none;
   }
   const template = (deps.scaffold ?? readScaffoldManifest)();

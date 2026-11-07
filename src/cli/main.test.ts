@@ -622,6 +622,18 @@ describe('runCli — manifest / setup (setup sessions)', () => {
     expect(out.repositories).toEqual(['web']);
   });
 
+  it('compares a draft with $KARST_MANIFEST when no --manifest flag is given', () => {
+    const current = join(dir, 'current.yml');
+    writeFileSync(current, `${validYaml}archiveDoneAfterDays: 3\n`);
+    const file = join(dir, 'draft.yml');
+    writeFileSync(file, `${validYaml}archiveDoneAfterDays: 9\n`);
+    const out = JSON.parse(runCli(['manifest', 'validate', '--file', file], { KARST_MANIFEST: current }));
+    expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
+    expect(() => runCli(['manifest', 'propose', '--file', file], { KARST_MANIFEST: current, KARST_SETUP_OUTBOX: dir })).toThrow(
+      /Settings/,
+    );
+  });
+
   it('routes `manifest propose --file` into KARST_SETUP_OUTBOX', () => {
     const file = join(dir, 'draft.yml');
     writeFileSync(file, validYaml);
