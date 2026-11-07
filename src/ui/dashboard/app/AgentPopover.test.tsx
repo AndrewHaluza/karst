@@ -5,7 +5,8 @@ import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtur
 
 installHeaderDoubles();
 
-type Opts = { value: { core: string; model: string; effort: string }; onChange: (v: { core: string; model: string; effort: string }) => void } & Record<string, unknown>;
+type Val = { core: string; model: string; effort: string };
+type Opts = { value: Val; onCommit: (v: Val) => void; onCancel: () => void } & Record<string, unknown>;
 
 /** A picker double: records every mount and exposes the options the page last handed it. */
 function installPicker() {
@@ -23,8 +24,8 @@ describe('AgentPopover — the staged switch', () => {
     expect(mounts).toHaveLength(1);
     expect(mounts[0]!.root).toBe($('#agentSwitchPicker'));
     expect(mounts[0]!.opts.value).toEqual({ core: 'claude', model: 'm1', effort: '' });
-    expect(mounts[0]!.opts.inheritCore).toBe('claude');
-    expect(mounts[0]!.opts.inherit).toEqual({ core: 'Inherit (settings: claude)', model: 'Inherit (settings: M)', effort: 'E' });
+    expect(mounts[0]!.opts.mode).toBe('staged');
+    expect(mounts[0]!.opts.currentCore).toBe('claude');
     fireEvent.click($('#agentButton'));
     fireEvent.click($('#agentButton'));
     expect(mounts).toHaveLength(2);
@@ -45,21 +46,25 @@ describe('AgentPopover — the staged switch', () => {
     delete scope.AP_ROUTES;
   });
 
-  it('keeps Switch agent disabled until the draft differs, then posts the draft once and closes', () => {
+  it('posts the committed draft once and closes', () => {
     const mounts = installPicker();
     const h = mountHeader(headerState());
     fireEvent.click($('#agentButton'));
-    expect(($('#switchBtn') as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click($('#switchBtn'));
-    expect(h.send.switchAgent).not.toHaveBeenCalled();
-
-    const { onChange } = mounts[0]!.opts;
+    expect(document.querySelector('#switchBtn')).toBeNull();
     fireEvent.click($('#agentPopover .fieldHelp')); // an inside click keeps the popover open
-    act(() => onChange({ core: 'claude', model: 'm2', effort: '' }));
-    expect(($('#switchBtn') as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click($('#switchBtn'));
+    expect(has('#agentPopover', 'hidden')).toBe(false);
+    act(() => mounts[0]!.opts.onCommit({ core: 'claude', model: 'm2', effort: '' }));
     expect(h.send.switchAgent).toHaveBeenCalledTimes(1);
     expect(h.send.switchAgent).toHaveBeenCalledWith('claude', 'm2', null);
+    expect(has('#agentPopover', 'hidden')).toBe(true);
+  });
+
+  it('closes without posting when the picker cancels', () => {
+    const mounts = installPicker();
+    const h = mountHeader(headerState());
+    fireEvent.click($('#agentButton'));
+    act(() => mounts[0]!.opts.onCancel());
+    expect(h.send.switchAgent).not.toHaveBeenCalled();
     expect(has('#agentPopover', 'hidden')).toBe(true);
   });
 
@@ -75,6 +80,5 @@ describe('AgentPopover — the staged switch', () => {
     mountHeader(headerState());
     fireEvent.click($('#agentButton'));
     expect($('#agentPopover .fieldHelp').textContent).toMatch(/Closing this menu takes no action/);
-    expect(($('#switchBtn') as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -108,3 +108,49 @@ select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-ov
 /* Compact-only "no effort for this model" placeholder: a disabled select, dashed and dim (UI-R39). */
 .ap-effort--na{color:var(--k-text-dim);border-style:dashed;opacity:1;cursor:default}
 .ap-effort[hidden]{display:none}
+
+/* ── capability tabs (inline menu + staged panel) ───────────────────────── */
+.ap-caps{display:flex;flex-wrap:wrap;gap:var(--k-space-2);padding:var(--k-space-2) var(--k-space-3);border-bottom:var(--k-border-w) solid var(--k-border)}
+.ap-caps:empty{display:none}
+.ap-cap{display:inline-flex;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);border:var(--k-border-w) solid var(--k-border);
+  border-radius:var(--k-radius-pill);background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-xs);cursor:pointer}
+.ap-cap:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.ap-cap[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text);border-color:var(--k-focus)}
+.ap-cap[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.ap-cap:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.ap-cap-n{color:var(--k-text-faint);font-variant-numeric:tabular-nums}
+.ap-model-item mark,.ap-opt mark{background:var(--k-accent-soft,var(--k-surface-hover));color:inherit;border-radius:var(--k-radius-sm)}
+.ap-billing{margin-left:var(--k-space-2);color:var(--k-text-faint)}
+.ap-ck,.ap-ck-gap{flex:none;width:var(--k-space-4);height:var(--k-space-4);display:inline-flex}
+.ap-ck svg{width:100%;height:100%}
+.ap-cur{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+.ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+
+/* ── staged panel (dashboard agent switch) ──────────────────────────────── */
+.ap-staged{display:flex;flex-direction:column;gap:var(--k-space-3);min-width:0}
+.ap-staged-body{display:flex;gap:var(--k-space-3);min-width:0}
+.ap-staged-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.ap-cores{display:flex;flex-direction:column;flex:none;width:calc(var(--k-space-8) * 5.3);gap:var(--k-space-1)}
+.ap-cores[aria-orientation="horizontal"]{flex-direction:row;flex-wrap:wrap;width:auto}
+.ap-staged[data-narrow="true"] .ap-staged-body{flex-direction:column}
+.ap-core-tab{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3);border:var(--k-border-w) solid transparent;
+  border-radius:var(--k-radius-md);background:transparent;color:var(--k-text-dim);font:inherit;text-align:left;cursor:pointer}
+.ap-core-tab:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.ap-core-tab[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text);border-color:var(--k-focus)}
+.ap-core-tab[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+.ap-core-tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.ap-cn{display:flex;flex-direction:column;min-width:0}
+.ap-cn small{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+.ap-eff{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+.ap-eff-label{color:var(--k-text-dim);font-size:var(--k-text-xs)}
+.ap-eff-none{color:var(--k-text-faint);font-size:var(--k-text-xs)}
+.ap-seg-effort{display:inline-flex;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);overflow:hidden}
+.ap-eff-btn{padding:var(--k-space-1) var(--k-space-3);border:0;background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-xs);cursor:pointer}
+.ap-eff-btn[aria-pressed="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+.ap-eff-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(var(--k-focus-offset) * -1)}
+.ap-staged-foot{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+.ap-fid{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+.ap-staged .ap-model-item{justify-content:flex-start}
+.ap-staged .ap-model-main{flex:1 1 auto}
+.ap-staged .ap-model-item .ap-free,.ap-staged .ap-model-item .ap-cur{flex:0 0 auto}
+.ap-staged .ap-scroll{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm)}

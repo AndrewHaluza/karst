@@ -248,7 +248,7 @@ export interface DashboardState {
    * switch popover's inherit rows.
    */
   agentSwitch: {
-    cores: { id: AgentProvider; label: string }[];
+    cores: { id: AgentProvider; label: string; disabledReason?: string }[];
     models: Record<string, { model: string | null; label: string }[]>;
     modelsByCore: ModelCatalog;
     recentByCore: Record<string, string[]>;

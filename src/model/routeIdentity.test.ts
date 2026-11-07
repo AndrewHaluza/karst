@@ -26,6 +26,21 @@ describe('ROUTE_META', () => {
     expect(ROUTE_META.openrouter?.badge).toBeUndefined();
   });
 
+  it('classifies every route as a subscription or an API-key route', () => {
+    expect(ROUTE_META.opencode?.billing).toBe('subscription');
+    expect(ROUTE_META['opencode-go']?.billing).toBe('subscription');
+    expect(ROUTE_META.openrouter?.billing).toBe('api-key');
+    for (const [route, meta] of Object.entries(ROUTE_META)) {
+      expect(['subscription', 'api-key'], route).toContain(meta.billing);
+    }
+  });
+
+  it('emits the billing of each route into the AP_ROUTES page global', () => {
+    const routes = new Function(`${routeIdentityJs()}\nreturn AP_ROUTES;`)() as Record<string, { billing: string }>;
+    expect(routes.opencode?.billing).toBe('subscription');
+    expect(routes.openrouter?.billing).toBe('api-key');
+  });
+
   it('every registered icon asset exists', () => {
     for (const meta of Object.values(ROUTE_META)) {
       expect(existsSync(join(ICONS, meta.icon)), meta.icon).toBe(true);
@@ -72,6 +87,7 @@ describe('routeIdentityJs', () => {
     expect(map['opencode-go']).toEqual({
       name: 'OpenCode Go',
       badge: 'Go',
+      billing: 'subscription',
       iconSvg: routeIconSvg('opencode-go'),
     });
     expect(map.openrouter?.badge).toBe('');

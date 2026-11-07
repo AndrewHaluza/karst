@@ -70,13 +70,31 @@ export interface Variant {
   readonly width?: number;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
   readonly pills?: readonly string[];
+  /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
+  readonly agentPopover?: AgentPopoverSteps;
+}
+
+/** The interaction steps of an agent-popover variant. */
+export interface AgentPopoverSteps {
+  readonly core?: string;
+  readonly q?: string;
+  readonly cap?: string;
+  /** A model id to pick after the core / query / tab steps. */
+  readonly model?: string;
 }
 
 function variant(
   view: ViewId,
   id: string,
   corpus: () => ViewCorpus,
-  opts: { baseline?: string; themes?: readonly string[]; skipLayout?: boolean; width?: number; pills?: readonly string[] } = {},
+  opts: {
+    baseline?: string;
+    themes?: readonly string[];
+    skipLayout?: boolean;
+    width?: number;
+    pills?: readonly string[];
+    agentPopover?: AgentPopoverSteps;
+  } = {},
 ): Variant {
   return {
     id,
@@ -86,6 +104,7 @@ function variant(
     ...(opts.skipLayout ? { skipLayout: true } : {}),
     ...(opts.width === undefined ? {} : { width: opts.width }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
+    ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
   };
 }
 
@@ -169,6 +188,63 @@ const drillDownVariants = (): Variant[] => [
   ),
 ];
 
+/** A routed, capability-tagged catalog covering every picker state (efforts, no efforts, free, vision, audio). */
+const AGENT_POPOVER_CATALOG = {
+  claude: [
+    { id: 'claude-opus-5', label: 'Opus 5', tags: ['vision', 'multimodal'], efforts: ['low', 'medium', 'high'] },
+    { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', tags: ['vision'], efforts: ['low', 'high'] },
+  ],
+  codex: [
+    { id: 'gpt-5-codex', label: 'GPT-5 Codex', tags: ['text-only'], efforts: ['low', 'medium', 'high'] },
+    { id: 'gpt-5-mini', label: 'GPT-5 Mini', tags: ['vision'], efforts: [] },
+  ],
+  antigravity: [
+    { id: 'gemini-3-pro', label: 'Gemini 3 Pro', tags: ['vision', 'multimodal', 'audio'], efforts: ['low', 'high'] },
+  ],
+  opencode: [
+    { id: 'opencode/big-pickle', label: 'Big Pickle', tags: ['text-only'], efforts: [] },
+    { id: 'opencode/kimi-k3-free', label: 'Kimi K3 Free', tags: ['text-only'], efforts: [] },
+    { id: 'opencode-go/glm-5', label: 'GLM 5', tags: ['vision'], efforts: ['low', 'high'] },
+    { id: 'openrouter/google/gemini-3-pro', label: 'Gemini 3 Pro', tags: ['vision', 'multimodal', 'audio'], efforts: ['low', 'high'] },
+  ],
+  opencode2: [
+    { id: 'opencode/big-pickle', label: 'Big Pickle', tags: ['text-only'], efforts: [] },
+  ],
+};
+
+/** The running dashboard with the five-core registry, one core not installed, and a full catalog. */
+const agentPopoverCorpus = (): ViewCorpus =>
+  dashboardScenario('running', 2, (s) => ({
+    ...s,
+    agentSwitch: {
+      ...s.agentSwitch,
+      cores: [
+        { id: 'claude', label: 'Claude Code' },
+        { id: 'codex', label: 'Codex' },
+        { id: 'antigravity', label: 'Antigravity' },
+        { id: 'opencode', label: 'OpenCode' },
+        { id: 'opencode2', label: 'OpenCode 2', disabledReason: 'not installed' },
+      ],
+      modelsByCore: AGENT_POPOVER_CATALOG as unknown as typeof s.agentSwitch.modelsByCore,
+      recentByCore: { opencode: ['opencode/big-pickle'] },
+    },
+    agentSession: s.agentSession && { ...s.agentSession, provider: 'claude', modelId: 'claude-opus-5', modelLabel: 'Opus 5' },
+  }))();
+
+const AGENT_POPOVER_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
+const agentPopoverVariant = (id: string, steps: AgentPopoverSteps, width: number): Variant =>
+  variant('dashboard', `agent-popover-${id}`, agentPopoverCorpus, { skipLayout: true, width, agentPopover: steps });
+
+/** T1011: the shared picker in staged mode, one variant per core / query / tab state at wide, mid and narrow. */
+const agentPopoverVariants = (): Variant[] => [
+  ...AGENT_POPOVER_TIERS.map(([tier, width]) => agentPopoverVariant(`claude-${tier}`, {}, width)),
+  ...['codex', 'antigravity', 'opencode'].map((core) => agentPopoverVariant(`${core}-wide`, { core }, 1100)),
+  agentPopoverVariant('search-wide', { core: 'opencode', q: 'pickle' }, 1100),
+  agentPopoverVariant('zero-count-tab-wide', { core: 'opencode', q: 'pickle', cap: 'text-only' }, 1100),
+  agentPopoverVariant('no-effort-model-wide', { core: 'opencode', model: 'opencode/big-pickle' }, 1100),
+  agentPopoverVariant('opencode-narrow', { core: 'opencode', q: 'pickle' }, 400),
+];
+
 const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
@@ -234,6 +310,7 @@ const dashboardVariants = (): Variant[] => [
     sharedServers: sharedServerFixtures(),
   }))),
   ...insideCaseVariants(),
+  ...agentPopoverVariants(),
   ...drillDownVariants(),
   // D283: one-shot edge ring pulse when revealed, framed statically in reduced-motion state.
   variant('dashboard', 'attention', () => ({

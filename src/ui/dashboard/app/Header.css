@@ -64,6 +64,7 @@
 .fieldRow{display:contents}
 .fieldLabel{margin:0;color:var(--k-text-faint);font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);line-height:1;text-align:right;white-space:nowrap}
 .fieldControl{min-width:0}
+.agentForm > .fieldHelp{grid-column:1}
 .fieldHelp{grid-column:2;color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
 .popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
 .menuHeading{margin:var(--k-space-2) var(--k-space-4) var(--k-space-3);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
@@ -135,6 +136,8 @@
 /* The Resume button inside the paused chip. */
 .shipWait > .k-btn{margin-left:var(--k-space-2)}
 /* Narrow tier: the picker keeps core + live dot; the model label (one click away in the popover) and the state word give their room to the title and the ⋯. */
+/* Narrow tier: the right-anchored popover would clip off the left edge; pin it between the viewport gutters. */
+@media (max-width:699px){.agentPopover{position:fixed;left:var(--k-space-4);right:var(--k-space-4);width:auto;max-width:none;top:var(--k-space-4);max-height:calc(100vh - var(--k-space-8));overflow-y:auto}}
 @media (max-width:560px){.agentButton .agentSep,.agentButton .agentMeta{display:none}.agentLive #agentLiveText{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
 /* T871 ticket-head width ladder (UI-R49, RD-LADDERS): the id and status chip never drop; key then title give way. */
 .dhead{container-type:inline-size;container-name:ticket-head}
