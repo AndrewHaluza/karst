@@ -489,6 +489,16 @@ export function setStageCurrent(store: Store, ticketId: number, stage: StageKey)
   store.db
     .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
     .run(stage, ticketId);
+  // A fix process run belongs to the fix stage: once the ticket is anywhere else, no fix row may stay `running`.
+  // The `stage fix pass` marker passes its run first (same transaction), so only an unfinished run is ended here.
+  if (stage !== 'fix') {
+    store.db
+      .prepare(
+        `UPDATE process_runs SET status = 'interrupted', ended_at = ?
+          WHERE ticket_id = ? AND stage_key = 'fix' AND status = 'running'`,
+      )
+      .run(new Date().toISOString(), ticketId);
+  }
   if (
     stage !== 'impl' &&
     stage !== 'fix' &&

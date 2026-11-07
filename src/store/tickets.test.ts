@@ -1308,3 +1308,30 @@ describe('baseRefs', () => {
     expect(getTicket(store, id)!.baseRefs).toEqual({ web: 'develop' });
   });
 });
+
+describe('setStageCurrent ends a running fix process run (T1008)', () => {
+  const runsOf = (store: Store, id: number) => listProcessRuns(store, id).filter((r) => r.stageKey === 'fix');
+  const open = (store: Store, id: number, stageKey: 'fix' | 'uat') =>
+    openProcessRun(store, { ticketId: id, stageKey, processId: stageKey, attempt: 1, startedAt: '2026-01-01T00:00:00.000Z' });
+
+  it('marks the running fix run interrupted when the ticket leaves fix', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'T-1', title: 't' }).id;
+    setStageCurrent(store, id, 'fix');
+    open(store, id, 'fix');
+    setStageCurrent(store, id, 'uat');
+    expect(runsOf(store, id).map((r) => r.status)).toEqual(['interrupted']);
+    expect(runsOf(store, id)[0]!.endedAt).not.toBeNull();
+  });
+
+  it('keeps the run while the ticket stays at fix and leaves other stages alone', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'T-1', title: 't' }).id;
+    open(store, id, 'fix');
+    const uatRun = open(store, id, 'uat');
+    setStageCurrent(store, id, 'fix');
+    expect(runsOf(store, id).map((r) => r.status)).toEqual(['running']);
+    setStageCurrent(store, id, 'uat');
+    expect(listProcessRuns(store, id).find((r) => r.id === uatRun.id)!.status).toBe('running');
+  });
+});

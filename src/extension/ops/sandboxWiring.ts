@@ -66,6 +66,8 @@ export interface SandboxWiringInput {
   readonly bridgeDirOf?: (ticketId: number) => string | undefined;
   /** The ticket's current launch generation (ends an accepted sandbox session, arch:AC-37). */
   readonly launchIdFor?: (ticketId: number) => string | undefined;
+  /** True while the stage driver runs a gate for the ticket; the session ender never stops the sandbox then. */
+  readonly gateRunning?: (ticketId: number) => boolean;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
   readonly reopen?: (ticketId: number) => Promise<void>;
   /** Drives the ticket on after a successful Stash & update cleared its parked `sandbox-sync` block. */
@@ -288,6 +290,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       launchIdFor: w.launchIdFor ?? (() => undefined),
       boundSessionId: (id) => getTicket(w.store, id).sessionId ?? undefined,
       stop: (id) => stopTicket(id),
+      ...(w.gateRunning ? { gateRunning: w.gateRunning } : {}),
       log: w.info,
     }),
     /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */

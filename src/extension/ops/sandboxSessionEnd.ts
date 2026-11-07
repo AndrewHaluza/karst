@@ -10,6 +10,8 @@ export interface SessionEnderDeps {
   readonly boundSessionId: (ticketId: number) => string | undefined;
   /** Sync + stop the ticket's sandbox; the closed session then raises `session-closed`. */
   readonly stop: (ticketId: number) => Promise<unknown>;
+  /** True while a stage driver run (a gate) is in flight for the ticket; a container stop would SIGKILL it (exit 137). */
+  readonly gateRunning?: (ticketId: number) => boolean;
   readonly log: (message: string) => void;
   readonly settleMs?: number;
   /** Returns a cancel function. */
@@ -61,6 +63,9 @@ export function createSandboxSessionEnder(deps: SessionEnderDeps): SessionEnder 
       timers.delete(ticketId);
       const sessionId = qualifies(ticketId);
       if (sessionId === undefined) return;
+      // The accepted marker moved the ticket on and its gate execs inside this container: stopping it now kills
+      // the gate, which reads as a gate failure and opens a fix round no commit can fix. Wait, then re-check.
+      if (deps.gateRunning?.(ticketId) === true) { arm(ticketId); return; }
       idleSession.delete(ticketId);
       acceptedLaunch.delete(ticketId);
       deps.log(`stage driver: ticket ${ticketId} session ${sessionId} idle after its done marker was accepted — ending the sandbox session`);
