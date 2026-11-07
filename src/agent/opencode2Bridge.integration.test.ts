@@ -147,9 +147,15 @@ describe('generated opencode2 bridge — live event fixtures', () => {
         r.endpointUrl,
       );
       await done;
-      await waitFor(() => r.bodies.length >= 4);
+      await waitFor(() => r.bodies.length >= 5);
       const names = r.bodies.map((b) => (b as { hook_event_name: string }).hook_event_name);
-      expect(names).toEqual(['session.status', 'UsageUpdate', 'UsageUpdate', 'session.idle']);
+      expect(names).toEqual([
+        'session.status',
+        'UsageUpdate',
+        'ModelSelected',
+        'UsageUpdate',
+        'session.idle',
+      ]);
 
       const session = 'ses_eee50f106ffejFQFWdoMOqnYWa';
       expect(r.bodies[0]).toMatchObject({
@@ -161,7 +167,15 @@ describe('generated opencode2 bridge — live event fixtures', () => {
       const first = (r.bodies[1] as { usage: Record<string, unknown> }).usage;
       expect(first).toMatchObject({ input: 521, output: 9, reasoning: 0, cache_read: 0, cache_write: 0 });
       expect(typeof first.event_id).toBe('string');
-      const second = (r.bodies[2] as { usage: Record<string, unknown> }).usage;
+      // The first model step is the model that actually answered the kickoff
+      // (T1005); it rides the live `session.step.started` fixture unchanged.
+      expect(r.bodies[2]).toMatchObject({
+        hook_event_name: 'ModelSelected',
+        cwd: '/wt',
+        session_id: session,
+        model: { providerID: 'opencode-go', modelID: 'mimo-v2.5', variant: 'default' },
+      });
+      const second = (r.bodies[3] as { usage: Record<string, unknown> }).usage;
       expect(second).toMatchObject({
         input: 574,
         output: 12,
@@ -169,7 +183,7 @@ describe('generated opencode2 bridge — live event fixtures', () => {
         cache_read: 17024,
         cache_write: 0,
       });
-      expect(r.bodies[3]).toMatchObject({ hook_event_name: 'session.idle', session_id: session });
+      expect(r.bodies[4]).toMatchObject({ hook_event_name: 'session.idle', session_id: session });
     } finally {
       await r.close();
     }
