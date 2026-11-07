@@ -484,6 +484,9 @@
   "src/model/entityId.ts#parseId": [
     "arch:IDS-01"
   ],
+  "src/model/inside/autofix.ts": [
+    "arch:AP-02"
+  ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
@@ -814,6 +817,9 @@
     "arch:UATHOST-01",
     "arch:UATHOST-03"
   ],
+  "src/ui/dashboard/app/AutofixParts.tsx": [
+    "arch:AP-02"
+  ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"
   ],
@@ -831,6 +837,9 @@
   ],
   "src/ui/settings/app/sections/AgentsSection.tsx": [
     "arch:MS-00"
+  ],
+  "src/ui/settings/app/sections/AutopilotSection.tsx": [
+    "arch:AP-02"
   ],
   "src/ui/settings/app/sections/PendingOutputs.tsx": [
     "arch:APP-00"
