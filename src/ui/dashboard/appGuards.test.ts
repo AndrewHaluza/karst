@@ -27,6 +27,8 @@ describe('dashboard app source guards', () => {
       'preview-ticket-data', 'toggle-base-form', 'toggle-rebase-switch', 'artifact-findings-repo', 'toggle-graph-view',
       'baseline-view', 'baseline-reject-open', 'baseline-reject-cancel',
       'server-logs-request', 'env-overrides-open', 'push-diverged-fix',
+      // The Stop buttons post the `autopilot-stop` message (mode after-round | now); the confirm step is local.
+      'autopilot-stop-after', 'autopilot-stop-confirm', 'autopilot-stop-now', 'autopilot-stop-cancel',
     ]);
     const emitted = appComponents()
       .flatMap((text) => [...text.matchAll(/data-act="([a-z][a-z-]*)"/g)].map((m) => m[1]!))
