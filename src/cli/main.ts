@@ -3,7 +3,7 @@ import { readSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
-import type { Manifest } from '../manifest/types.js';
+import type { Manifest, Severity } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
@@ -31,6 +31,11 @@ import { runSubtaskCommand } from './subtaskCommand.js';
 import { runPauseCommand } from './pauseCommand.js';
 import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
+import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
+import { KARST_DB_READONLY_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
+import { BLOCKING_SEVERITIES, reviewBlockingFloor } from '../manifest/qualityDefaults.js';
+import { getProjectById, getProjectBySlug } from '../store/projects.js';
+import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -56,6 +61,54 @@ import { installSqliteWarningFilter } from './suppressWarning.js';
  */
 function writeManifestDiagnostics(diagnostics: readonly string[]): void {
   for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
+}
+
+/** The verbs a planning session may run: reads, plus the `manifest` and `draft` parse paths. */
+const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocked', 'guide', 'schema', 'manifest', 'draft']);
+
+/**
+ * A planning session may run only the read verbs, and `notes --repos` (the read
+ * its preamble names). It is refused here even when the caller passes `--db`
+ * itself, so no flag opens a write path (@arch:CLI-13). Both `runCli` and
+ * `runCliAsync` call it, so an async-only write verb is refused too.
+ */
+export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | undefined>>, rest: readonly string[]): void {
+  if (env[KARST_PLANNING_SESSION_ENV] === undefined) return;
+  const verb = rest[0] ?? '';
+  const notesRead = verb === 'notes' && rest.includes('--repos') && !rest.includes('post');
+  // `mcp serve` only hosts the tools; each tool call re-enters this guard.
+  const mcpServe = verb === 'mcp' && rest[1] === 'serve';
+  if (PLANNING_VERBS.has(verb) || notesRead || mcpServe) return;
+  throw new Error(
+    `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, guide, schema, notes --repos)`,
+  );
+}
+
+/**
+ * The review gate's blocking-severity floor for `blocked`: the manifest's, else
+ * the host-set `KARST_REVIEW_FLOOR` (a planning session has no manifest path),
+ * else undefined so the command uses its default.
+ */
+function readStallFloor(
+  manifestPath: string | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): Severity | 'none' | undefined {
+  if (manifestPath) {
+    try {
+      return reviewBlockingFloor(loadManifestWithDiagnostics(manifestPath).manifest.review);
+    } catch (e) {
+      // Not fatal: fall through to the env value, but say why the manifest was skipped.
+      process.stderr.write(`karst: manifest review floor skipped (${(e as Error).message})\n`);
+    }
+  }
+  const fromEnv = env[KARST_REVIEW_FLOOR_ENV];
+  return BLOCKING_SEVERITIES.find((s) => s === fromEnv);
+}
+
+/** The host-set `KARST_PROJECT` (a positive integer id), or undefined. */
+function projectIdFromEnv(env: Readonly<Record<string, string | undefined>>): number | undefined {
+  const v = env[KARST_PROJECT_ENV];
+  return v !== undefined && /^[1-9]\d*$/.test(v) ? Number(v) : undefined;
 }
 
 /**
@@ -86,6 +139,7 @@ function loadProjectSlug(
  *
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
+ *   blocked:  `… blocked [--kind <kind>] [--json] --db <db>` (read-only; a planning session uses KARST_DB_READONLY)
  *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--planning] [--json]`
  *             the orchestration effectiveness report (read-only, node:sqlite):
  *             first-pass rate, rework loops, gate kills, cycle time, spend, and
@@ -230,6 +284,7 @@ export function runCli(
 ): string {
   const { db, manifest: manifestPath, ticket, verbose, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
+  assertPlanningVerbAllowed(env, rest);
 
   // `karst manifest validate|propose --file <path>` — a SETUP session's own
   // parse path, taken BEFORE structured-input resolution on purpose: here
@@ -263,7 +318,7 @@ export function runCli(
       // repeat the `karst:` prefix the wrapper adds.
       throw new Error(
         rest[1] === 'list'
-          ? 'draft list takes no arguments or flags'
+          ? 'draft list takes no arguments, only the optional --pending flag'
           : "draft propose takes no arguments or flags (usage: printf '%s' '<json>' | karst draft propose)",
       );
     }
@@ -276,8 +331,13 @@ export function runCli(
     });
   }
 
+  // READ verbs (`context`, `stats`, `blocked`) fall back to the planning
+  // session's read-only registry path. No write verb reads this, so a write in
+  // a planning session still refuses with `missing --db` (@arch:CLI-13).
+  const readDb = db ?? env[KARST_DB_READONLY_ENV];
+
   if (subcommand === 'context') {
-    if (!db) throw new Error('missing --db <path>');
+    if (!readDb) throw new Error('missing --db <path>');
     const parsed = parseContextArgs(effectiveRest);
     let manifest: Manifest | undefined;
     if (manifestPath) {
@@ -291,9 +351,9 @@ export function runCli(
         process.stderr.write(`karst: manifest load skipped (${(e as Error).message})\n`);
       }
     }
-    const store = openReadonlyStore(db);
+    const store = openReadonlyStore(readDb);
     try {
-      return runContextCommand(store, manifest, parsed, db, process.argv[1], manifestPath);
+      return runContextCommand(store, manifest, parsed, readDb, process.argv[1], manifestPath, env);
     } finally {
       store.close();
     }
@@ -304,12 +364,37 @@ export function runCli(
   // without one it falls back to the manifest's project so the default answer
   // is about the board the caller is standing on, not every board in the file.
   if (subcommand === 'stats') {
-    if (!db) throw new Error('missing --db <path>');
+    if (!readDb) throw new Error('missing --db <path>');
     const parsed = parseStatsArgs(effectiveRest);
-    const fallbackSlug = loadProjectSlug(manifestPath, verbose);
-    const store = openReadonlyStore(db);
+    const store = openReadonlyStore(readDb);
     try {
+      // No manifest (a planning session): scope to the host-set KARST_PROJECT.
+      const envProject = projectIdFromEnv(env);
+      const fallbackSlug =
+        loadProjectSlug(manifestPath, verbose) ??
+        (envProject === undefined ? undefined : getProjectById(store, envProject)?.slug);
       return runStatsCommand(store, parsed, fallbackSlug);
+    } finally {
+      store.close();
+    }
+  }
+
+  // `blocked` is READ-ONLY like `stats`. Its board is the manifest's project when
+  // `--manifest` is given, else the host's `KARST_PROJECT` (a planning session),
+  // else every project.
+  if (subcommand === 'blocked') {
+    if (!readDb) throw new Error('missing --db <path>');
+    const parsed = parseBlockedArgs(effectiveRest);
+    const stallFloor = readStallFloor(manifestPath, env);
+    const slug = loadProjectSlug(manifestPath, verbose);
+    const store = openReadonlyStore(readDb);
+    try {
+      // A manifest slug with no project row scopes to nothing (id 0), never to every project.
+      const projectId = slug === undefined ? projectIdFromEnv(env) : (getProjectBySlug(store, slug)?.id ?? 0);
+      return runBlockedCommand(store, parsed, {
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(stallFloor === undefined ? {} : { stallFloor }),
+      });
     } finally {
       store.close();
     }
@@ -615,7 +700,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 
@@ -667,6 +752,7 @@ export async function runCliAsync(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<string> {
   const { db, manifest: manifestPath, ticket, verbose, rest } = parseGlobalFlags(argv);
+  assertPlanningVerbAllowed(env, rest);
   // `mcp serve` is a long-running async verb (it never resolves); `mcp install`
   // is a quick one. It reads the same global flags plus the KARST_* env the CLI
   // agents use today (see cli/mcp/config.ts).

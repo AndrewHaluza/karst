@@ -6,8 +6,20 @@
 export const KARST_CLI_ENV = 'KARST_CLI';
 /** Env key pointing the agent at the registry so a `karst guide` pull is attributable. */
 export const KARST_DB_ENV = 'KARST_DB';
+/**
+ * Env key naming the registry for a PLANNING session's READ commands only
+ * (`context`, `stats`, `blocked`). A command that writes never reads it, so it
+ * still refuses with `missing --db` (@arch:CLI-13).
+ */
+export const KARST_DB_READONLY_ENV = 'KARST_DB_READONLY';
 /** Env key carrying the host-set project id (a positive integer) for `notes --repos`. */
 export const KARST_PROJECT_ENV = 'KARST_PROJECT';
+/**
+ * Env key carrying the review gate's blocking-severity floor (a severity or
+ * `none`) in a planning session, so `karst blocked` reads the configured floor
+ * without a manifest path. Display only; it grants no access.
+ */
+export const KARST_REVIEW_FLOOR_ENV = 'KARST_REVIEW_FLOOR';
 /** Env key carrying the workspace manifest path, for `--manifest "$KARST_MANIFEST"`. */
 export const KARST_MANIFEST_ENV = 'KARST_MANIFEST';
 /** Env key carrying the numeric ticket id; exported on EVERY ticket terminal (unlike the key). */

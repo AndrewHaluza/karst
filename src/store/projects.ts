@@ -37,6 +37,12 @@ export function getProjectBySlug(store: Store, slug: string): Project | undefine
   return row ? rowToProject(row) : undefined;
 }
 
+/** Find a project by its row id, or `undefined` when none matches. */
+export function getProjectById(store: Store, id: number): Project | undefined {
+  const row = store.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
+  return row ? rowToProject(row) : undefined;
+}
+
 /** Every known project, oldest first. Backs an "all projects" view. */
 export function listProjects(store: Store): Project[] {
   const rows = store.db.prepare('SELECT * FROM projects ORDER BY id').all() as ProjectRow[];

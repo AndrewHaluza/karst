@@ -6,6 +6,8 @@ import type { StageKey } from '../model/types.js';
 import { isFinishedStage } from '../model/types.js';
 import { formatId } from '../model/entityId.js';
 import { resolveTicketByKey } from './resolveTicket.js';
+import { getProjectById } from '../store/projects.js';
+import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import {
   buildTicketContext,
   renderTicketContext,
@@ -21,6 +23,7 @@ import {
   KARST_CLI_ENV,
   KARST_DB_ENV,
   KARST_MANIFEST_ENV,
+  KARST_PROJECT_ENV,
   karstCliRefs,
   quoteArg,
 } from '../agent/cliEnv.js';
@@ -168,7 +171,10 @@ export function runContextCommand(
   /** Environment consulted for `KARST_*` refs; injected for testability. */
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const ticket = resolveTicketByKey(store, parsed.key, manifest?.id);
+  // A planning session has no manifest: scope the key to the host-set project.
+  const envProject = /^[1-9]\d*$/.test(env[KARST_PROJECT_ENV] ?? '') ? Number(env[KARST_PROJECT_ENV]) : undefined;
+  const scopeSlug = manifest?.id ?? (envProject === undefined ? undefined : getProjectById(store, envProject)?.slug);
+  const ticket = resolveTicketByKey(store, parsed.key, scopeSlug);
   if (!ticket) {
     throw new Error(`no ticket found for key or id '${parsed.key}'`);
   }
@@ -176,8 +182,9 @@ export function runContextCommand(
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
   const key = ctx.key?.trim() || String(ctx.id);
   const hasBlockingSubtasks = ctx.subtasks.some((s) => s.blocksParent && !isFinishedStage(s.stageCurrent));
+  // A planning session is read-only: a stage marker is a write it cannot run.
   const ending =
-    dbPath === undefined
+    dbPath === undefined || env[KARST_PLANNING_SESSION_ENV] !== undefined
       ? undefined
       : renderStageEnding(
           ctx.stageCurrent as StageKey | null,

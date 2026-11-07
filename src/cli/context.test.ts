@@ -403,6 +403,26 @@ describe('runContextCommand — stage ending', () => {
     expect(promptIdx).toBeGreaterThan(endingIdx);
   });
 
+  it('omits the stage-marker command in a planning session', () => {
+    seed('fix');
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI, undefined, {
+      KARST_PLANNING_SESSION: '3',
+    });
+    expect(md).not.toContain('## How this stage ends');
+    expect(md).not.toContain('stage fix pass');
+  });
+
+  it('scopes a key to KARST_PROJECT when there is no manifest', () => {
+    const mine = upsertProject(store, { slug: 'mine', name: 'mine', rootPath: '/w/mine' });
+    const theirs = upsertProject(store, { slug: 'theirs', name: 'theirs', rootPath: '/w/t' });
+    createTicket(store, { key: 'SHARED-1', title: 'theirs', projectId: theirs.id });
+    createTicket(store, { key: 'SHARED-1', title: 'mine', projectId: mine.id });
+    const out = runContextCommand(store, undefined, { key: 'SHARED-1', format: 'json' }, '/db', CLI, undefined, {
+      KARST_PROJECT: String(mine.id),
+    });
+    expect(JSON.parse(out).title).toBe('mine');
+  });
+
   it('appends ## How this stage ends with fix for a fix ticket', () => {
     seed('fix');
     const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
