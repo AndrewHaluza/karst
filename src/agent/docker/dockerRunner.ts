@@ -249,7 +249,8 @@ export async function prepareDockerSandbox(input: PrepareInput): Promise<StepRes
   // Every launch, not only on create: an interrupted first chown must be retried (idempotent).
   const owned = await chownVolumes(ctx);
   if (!owned.ok) return owned;
-  const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript, ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) });
+  // A session start during an open setup window keeps it (arch:AC-47); the window's expiry still bounds it.
+  const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript, ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) }, { keepWindow: true });
   if (!proxy.ok) return proxy;
   const rest = await cloneAndSeed(input, ctx);
   // The proxy is the one object with egress: never leave it up for a ticket

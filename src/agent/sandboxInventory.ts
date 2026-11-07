@@ -77,8 +77,12 @@ export interface InventoryDeps {
   readonly docker: SbxProcess;
 }
 
+/** A docker sandbox's clone volume (`dockerNames().repoVolume`): its presence IS the sandbox, as `hasSandbox` reads it. */
+const DOCKER_REPO_VOLUME_SUFFIX = '-repo';
+
 /**
  * Every sandbox this project owns, across both runners (async; never `spawnSync`).
+ * Docker: containers by name, plus a `-repo` volume with no container (state `stopped`).
  * Other projects' sandboxes are filtered out by the name prefix and never returned.
  */
 export async function listProjectSandboxes(deps: InventoryDeps): Promise<SandboxInventory> {
@@ -101,6 +105,21 @@ export async function listProjectSandboxes(deps: InventoryDeps): Promise<Sandbox
       const [name, state] = line.trim().split('\t');
       const s = name ? own('docker', name, deps.projectRoot, state === 'running') : undefined;
       if (s) sandboxes.push(s);
+    }
+    const vols = await deps.docker.run('docker', [
+      'volume', 'ls', '--filter', `name=${projectPrefix(deps.projectRoot)}`, '--format', '{{.Name}}',
+    ]);
+    if (vols.code !== 0) errors.push(failure('docker volume ls', vols));
+    else {
+      // The agent container is `--rm`: after a session ends only the volumes (and the proxy) remain.
+      for (const line of vols.stdout.split('\n')) {
+        const volume = line.trim();
+        if (!volume.endsWith(DOCKER_REPO_VOLUME_SUFFIX)) continue;
+        const name = volume.slice(0, -DOCKER_REPO_VOLUME_SUFFIX.length);
+        if (sandboxes.some((s) => s.runner === 'docker' && s.name === name)) continue;
+        const s = own('docker', name, deps.projectRoot, false);
+        if (s) sandboxes.push(s);
+      }
     }
   }
   return { sandboxes, errors };

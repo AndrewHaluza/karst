@@ -49,7 +49,7 @@ function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSand
     ...rest,
   };
   const lines = (): string[] => [...proc.calls, ...dockerProc.calls].map((c) => [c.command, ...c.args].join(' '));
-  const acted = (): string[] => lines().filter((l) => !l.startsWith('sbx ls') && !l.startsWith('docker ps'));
+  const acted = (): string[] => lines().filter((l) => !l.startsWith('sbx ls') && !l.startsWith('docker ps') && !l.startsWith('docker volume ls'));
   return { d, proc, notify, lines, acted };
 }
 
@@ -301,6 +301,13 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     expect(lines().some((l) => l.includes(`rm --force ${name(7)}`))).toBe(false);
     expect(proc.calls.some((c) => c.command === 'docker')).toBe(false);
     expect(notify.info).toHaveBeenCalledWith('Karst: removed 2 orphan sandbox(es).');
+  });
+
+  it('cleanup also removes the -repo and -data volumes of a docker orphan (a volume-only orphan has no container to remove)', async () => {
+    const dockerBad = bad('docker', 'null');
+    const { d, lines } = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS) });
+    await cleanupOrphansOp(d, new Set([7]));
+    expect(lines()).toContain(`docker volume rm --force ${dockerBad.name}-repo ${dockerBad.name}-data`);
   });
 
   it('a failing remove is reported with its stderr (or exit code) and not counted', async () => {

@@ -223,6 +223,23 @@ describe('prepareDockerSandbox', () => {
     const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', resultsDir: '/g/events/7/results', inboxDir: '/g/events/7/inbox', pendingFile: '/g/state/7.marker.json', handledFile: '/g/state/7.handled.json', setupStateFile: '/g/state/7.setup.json', setupLogFile: '/g/events/7/logs/setup.log', runDir: '/karst-bridge/7' };
     expect(runner.bridgeRunDir?.(paths)).toBe('/karst-bridge/7');
   });
+
+  const INSPECT = 'docker container inspect --format {{.State.Running}} {{index';
+  const runLine = (proc: ReturnType<typeof fakeDockerProcess>) => lines(proc).find((l) => l.startsWith(`docker run --detach --name ${names.proxy}`));
+
+  it('keeps an open setup window: a session start does not reset the proxy', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, [INSPECT]: { stdout: 'true  registry.npmjs.org,nodejs.org 9999999999999\n' } });
+    await prepareDockerSandbox({ ...base, proc });
+    expect(lines(proc)).not.toContain(`docker rm --force ${names.proxy}`);
+    expect(runLine(proc)).toBeUndefined();
+  });
+
+  it('resets an expired setup window to the baseline', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, [INSPECT]: { stdout: 'true  registry.npmjs.org,nodejs.org 1\n' } });
+    await prepareDockerSandbox({ ...base, proc });
+    expect(lines(proc)).toContain(`docker rm --force ${names.proxy}`);
+    expect(runLine(proc)).not.toContain('karst.allow=');
+  });
 });
 
 describe('host-only env never enters the container (F2, arch:AC-33)', () => {
