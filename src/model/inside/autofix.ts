@@ -60,7 +60,9 @@ export const CONFLICT_STEPS: readonly string[] = ['agent resolving', 'running ga
 export const CI_STEPS: readonly string[] = ['host fetched log (gh)', 'agent fixing', 'gates', 'push', 'wait for CI'];
 
 const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
-const GH_FAILED = /^auto-fix paused: could not read CI\b/;
+// The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
+const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
+const SANDBOX_WORD = /sandbox/i;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 
 const prLabel = (t: AutofixTarget): string => (t.pr === null ? t.repo : `${t.repo} #${t.pr}`);
@@ -138,6 +140,7 @@ export interface AutofixBannerView {
 }
 
 const RETRY: AutofixBannerAction = { act: 'autopilot-retry', label: 'Retry' };
+const SYNC_DIFF: AutofixBannerAction = { act: 'sandbox-diff', label: 'Open sync diff' };
 
 function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKind): AutofixBannerView {
   const t = f.target;
@@ -173,7 +176,7 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
       state: 'gh-failed',
       title: 'Auto-fix paused',
       titleSuffix: 'could not read CI',
-      cause: capitalize(reason.replace(/^auto-fix paused: /, '')),
+      cause: capitalize(reason.replace(/^auto-fix (?:paused|stopped): (?:ci )?/, (m) => (m.endsWith('ci ') ? 'CI ' : ''))),
       primary: RETRY,
       secondary: null,
       history: [],
@@ -186,7 +189,7 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
     titleSuffix: reason === SANDBOXED ? 'sandbox ticket' : '',
     cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : `${capitalize(reason)}. Fix the cause, then retry.`,
     primary: RETRY,
-    secondary: null,
+    secondary: SANDBOX_WORD.test(reason) ? SYNC_DIFF : null,
     history: [],
   };
 }

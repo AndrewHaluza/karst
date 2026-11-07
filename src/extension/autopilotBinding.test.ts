@@ -250,7 +250,7 @@ describe('makeLaunchTracker', () => {
 });
 
 describe('registerAutopilotCommands', () => {
-  it('registers the three commands', () => {
+  it('registers the four commands', () => {
     const names: string[] = [];
     const host = {
       commands: { registerCommand: (c: string) => { names.push(c); return { dispose() {} }; } },
@@ -258,8 +258,8 @@ describe('registerAutopilotCommands', () => {
     };
     const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => true, dropConflictRound: () => {} });
     expect(host.window.showInformationMessage).not.toHaveBeenCalled();
-    expect(names).toEqual(['karst.autopilot.setOverride', 'karst.autopilot.approveOne', 'karst.autopilot.stop']);
-    expect(out).toHaveLength(3);
+    expect(names).toEqual(['karst.autopilot.setOverride', 'karst.autopilot.approveOne', 'karst.autopilot.retry', 'karst.autopilot.stop']);
+    expect(out).toHaveLength(4);
   });
 
   it('logs a command message with the ship prefix and maps the pickers', async () => {

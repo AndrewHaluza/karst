@@ -121,12 +121,15 @@ function BannerButton({ action, primary, ticketRepoFallback }: { readonly action
   const post = useCallback((requestId: string) => {
     if (action.act === 'autopilot-approve-one' && action.kind) send.autopilotApproveOne(repo, action.kind, requestId);
     else if (action.act === 'autopilot-retry') send.autopilotRetry(requestId);
+    else if (action.act === 'sandbox-diff') send.sandboxDiff(requestId);
     else if (action.act === 'send-ci-failure') send.sendCiFailure(requestId);
     else if (action.act === 'resolve-conflicts') send.resolveConflicts(repo, requestId);
   }, [send, action, repo]);
   const onClick = usePendingAction(post);
+  // An approval names a PR. Without one the host cannot tell which budget to extend, so the control stays off.
+  const needsRepo = action.act === 'autopilot-approve-one' && repo === '';
   return (
-    <button type="button" className={`k-btn ${primary ? 'k-btn--primary' : 'k-btn--secondary'} k-btn--sm`} data-act={action.act} onClick={onClick}>
+    <button type="button" className={`k-btn ${primary ? 'k-btn--primary' : 'k-btn--secondary'} k-btn--sm`} data-act={action.act} disabled={needsRepo} onClick={onClick}>
       {action.label}
     </button>
   );

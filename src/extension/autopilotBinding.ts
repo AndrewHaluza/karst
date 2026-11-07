@@ -4,7 +4,7 @@ import { getTicket } from '../store/tickets.js';
 import type { AutostartCaps } from '../workflow/subtaskAutostart.js';
 import { autopilotSweep, ciOutcome, conflictOutcome } from './ops/autopilotWiring.js';
 import type { ResolveConflictInput } from './ops/conflictResolveOps.js';
-import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
+import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import type { FixOutcome } from './ops/autopilotOps.js';
@@ -216,6 +216,7 @@ export function registerAutopilotCommands(
   return [
     reg('karst.autopilot.setOverride', (ticketId?: number, mode?: AutopilotOverride) => setOverrideCommand(d, ticketId, mode)),
     reg('karst.autopilot.approveOne', (ticketId?: number, target?: { repo: string; kind: AutopilotKind }) => approveCommand(d, ticketId, target)),
+    reg('karst.autopilot.retry', (ticketId?: number) => retryCommand(d, ticketId)),
     reg('karst.autopilot.stop', (ticketId?: number, when?: 'after-round' | 'now') => stopCommand(d, ticketId, when)),
   ];
 }

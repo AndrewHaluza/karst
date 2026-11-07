@@ -173,6 +173,21 @@ describe('Auto-fix in the blocked banner', () => {
     expect(h.send.autopilotRetry).toHaveBeenCalledWith(expect.any(String));
   });
 
+  it('puts the sandbox sync diff beside the ONE Retry of a sandbox pause', () => {
+    const h = mountRail(parked({ state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket', cause: 'x', primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Open sync diff' }, history: [] }));
+    expect(all('#blocked .k-btn--primary').map((b) => b.textContent)).toEqual(['Retry']);
+    fireEvent.click(railMust('#blocked [data-act="sandbox-diff"]'));
+    expect(h.send.sandboxDiff).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('disables Approve when no PR resolved, so it never posts an empty repo', () => {
+    const h = mountRail(parked({ ...BANNER, primary: { act: 'autopilot-approve-one', label: 'Approve 1 more attempt', kind: 'ci' } }));
+    const btn = railMust<HTMLButtonElement>('#blocked [data-act="autopilot-approve-one"]');
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(h.send.autopilotApproveOne).not.toHaveBeenCalled();
+  });
+
   it('falls back to the plain reason when the host sent no worded banner', () => {
     mountRail(parked(null));
     expect(railMust('#blocked').textContent).toContain('auto-fix stopped: ci 3/3');

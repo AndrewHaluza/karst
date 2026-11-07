@@ -85,7 +85,7 @@ Show the auto-fix state and the controls. The UI adds no new engine rule.
 ### Rules
 - Settings: the Autopilot page owns the one manifest key `autopilot`. Save and Discard apply to this tab only. Push diverged is read-only text, and Merge to base has no control.
 - Ship panel: there is no new step row. `autofixRow` words the state on the Merge row. A running round shows a step line and the actions Stop after this round and Stop now.
-- The banner for an auto-fix park uses the `awaiting-merge` block. It has no new blocker kind. A spent budget has one primary, Approve 1 more. A gh failure or a sandbox pause has one primary, Retry, and never a run-on-host action.
+- The banner for an auto-fix park uses the `awaiting-merge` block. It has no new blocker kind. A spent budget has one primary, Approve 1 more. A gh failure or a sandbox pause has one primary, Retry, and never a run-on-host action. A sandbox pause also offers Open sync diff. The gh failure is the engine park `auto-fix stopped: ci could not run (...)`. Retry runs `karst.autopilot.retry`: it clears the pause, the stop reason and the park block, and posts no note. The Approve action names the repo of the kind in the park reason; it stays off when no PR resolves.
 - The override control sends `autopilot-override` and settles through the pending marker.
-- Unknown CI status reads "Auto-fix waits; not counted as pass". The store has no signal for a running CI round, so `unknownCi` is not filled yet.
+- Unknown CI status reads "Auto-fix waits; not counted as pass". The host reads `unknownCi` from the stored PR rollups with the engine rule (missing, unknown or pending checks on an open PR). A CI round runs in Implement, because the action sends the ticket back, so the ship panel shows a running row for a conflict round only.
 END_DOC_BLOCK: [@arch:AP-02]

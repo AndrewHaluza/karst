@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
-import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound } from '../../store/autopilot.js';
+import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound } from '../../store/autopilot.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import { readAutofix } from './stateAutofix.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
@@ -67,5 +67,44 @@ describe('readAutofix', () => {
     postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Unrelated', body: 'b' });
     postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: second', body: 'c' });
     expect(readAutofix(store, id, CONFIG).slice.log).toEqual(['Autopilot: second', 'Autopilot: first']);
+  });
+
+  it('picks the spent budget of the kind the park names, not the first spent budget', () => {
+    const { store, id } = setup();
+    for (let i = 0; i < 2; i += 1) takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
+    for (let i = 0; i < 3; i += 1) takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    const r = readAutofix(store, id, CONFIG);
+    expect(r.slice.banner?.primary).toMatchObject({ act: 'autopilot-approve-one', repo: 'api', kind: 'ci' });
+  });
+
+  it('still names the repo of the kind when the limit was raised after the park', () => {
+    const { store, id } = setup();
+    takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    expect(readAutofix(store, id, CONFIG).slice.banner?.primary).toMatchObject({ repo: 'api', kind: 'ci' });
+  });
+
+  it('reads an open PR without a stored CI rollup as unknown, never as a pass', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'api', 88, 'https://x/88', 'open')").run(id);
+    expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'unknown', message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.' });
+  });
+
+  it('reads a pending CI rollup as unknown and a passing one as nothing', () => {
+    const { store, id } = setup();
+    const rollup = (state: string, pending: number) => JSON.stringify({ state, total: 2, passed: 2 - pending, failed: 0, pending, failing: [], failedShown: 0 });
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, rollup('pending', 1));
+    expect(readAutofix(store, id, CONFIG).row?.state).toBe('unknown');
+    store.db.prepare('UPDATE prs SET checks = ?').run(rollup('passing', 0));
+    expect(readAutofix(store, id, CONFIG).row).toBeNull();
+  });
+
+  it('says nothing about unknown CI when auto-fix is off for the ticket', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'api', 88, 'https://x/88', 'open')").run(id);
+    setAutopilotOverride(store, id, 'off');
+    expect(readAutofix(store, id, CONFIG).row).toBeNull();
   });
 });

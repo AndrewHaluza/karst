@@ -118,11 +118,27 @@ describe('autofixBanner', () => {
     expect(b?.history).toEqual([]);
   });
 
-  it('gives a sandbox pause ONE Retry and no run-on-host action', () => {
+  it('gives a sandbox pause ONE Retry, the sync diff beside it and no run-on-host action', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix paused: sandbox clone is dirty' });
     expect(b?.state).toBe('paused');
     expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry' });
-    expect(b?.secondary).toBeNull();
+    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Open sync diff' });
     expect(JSON.stringify(b)).not.toMatch(/host/i);
+  });
+
+  it('gives a pause that is not about the sandbox a Retry and no sandbox action', () => {
+    expect(autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' })?.secondary).toBeNull();
+  });
+
+  it('words the engine CI park "ci could not run" as a read failure with a Retry', () => {
+    const reason = 'auto-fix stopped: ci could not run (gh: HTTP 502)';
+    expect(autofixRow({ ...BASE, reason })).toMatchObject({ state: 'gh-failed', message: 'Auto-fix stopped: ci could not run (gh: HTTP 502)' });
+    const b = autofixBanner({ ...BASE, reason });
+    expect(b).toMatchObject({ state: 'gh-failed', cause: 'CI could not run (gh: HTTP 502)', primary: { act: 'autopilot-retry' } });
+  });
+
+  it('keeps the Approve action when no PR resolves but the kind is known', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix stopped: ci 3/3' });
+    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: 'Approve 1 more attempt', kind: 'ci' });
   });
 });

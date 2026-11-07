@@ -496,7 +496,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
         banner: {
           state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket',
           cause: 'The sandbox cannot run a round. Fix the sandbox, then retry.',
-          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: null, history: [],
+          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Open sync diff' }, history: [],
         },
       },
       { reason: 'auto-fix paused: sandbox clone is dirty' },
