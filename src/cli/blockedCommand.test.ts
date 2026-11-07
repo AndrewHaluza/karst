@@ -161,6 +161,15 @@ describe('karst blocked — report', () => {
     expect(report.summary).toEqual([{ kind: 'fix-parked', now: 1, before: 0 }]);
   });
 
+  it('lists a fix park whose verdict is dynamic host text', () => {
+    const t = createTicket(store, { key: 'K-7', title: 'rerun' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'fix', { status: 'failed', verdict: 'host re-run failed: typecheck exit 2', endedAt: '2026-11-05T09:00:00.000Z' });
+    expect(collectBlocked(store, scope).rows.map((r) => [r.key, r.kind, r.reason])).toEqual([
+      ['K-7', 'fix-parked', 'host re-run failed: typecheck exit 2'],
+    ]);
+  });
+
   it('counts a park on a ticket that is no longer open as fix-parked before', () => {
     const t = createTicket(store, { key: 'K-8', title: 'old park' });
     store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(t.id);
