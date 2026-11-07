@@ -5,6 +5,7 @@ import { REVIEW_FINDINGS_DEFAULTS } from '../manifest/qualityDefaults.js';
 import type { Manifest } from '../manifest/types.js';
 import type { Store } from '../store/db.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
+import { claimStallSuggestion, failStallSuggestion } from '../store/stallSuggestions.js';
 import { generateStallSuggestion } from '../workflow/stallSuggestion.js';
 import type { StallHost } from './dashboardActions.js';
 import { readTicketDiff } from './ops/stallDiff.js';
@@ -28,6 +29,9 @@ export interface StallBinding {
   hostFor: (ticketId: number) => StallHost;
 }
 
+const NO_PROCESS = 'The stall suggestion process is off. Turn it on in Settings, then press Retry.';
+const NO_WORKTREE = 'The ticket has no worktree, so the agent has no place to read the code.';
+
 export function createStallBinding(deps: StallBindingDeps): StallBinding {
   const severity = () => deps.manifest()?.review?.findings?.blockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
   const diffOf = (id: number) => readTicketDiff(deps.git, listWorktreesByTicket(deps.store, id));
@@ -36,11 +40,18 @@ export function createStallBinding(deps: StallBindingDeps): StallBinding {
     readDiff: diffOf,
     generate: async (id, parkAt, diff, retry) => {
       const process = deps.processFor(id);
-      if (process === null) return 'skipped';
+      const cwd = listWorktreesByTicket(deps.store, id)[0]?.path;
+      if (process === null || cwd === undefined) {
+        // A row that ends in `failed` shows the reason and Retry, never an endless "writing".
+        const at = new Date().toISOString();
+        claimStallSuggestion(deps.store, id, parkAt, at, true);
+        failStallSuggestion(deps.store, id, parkAt, process === null ? NO_PROCESS : NO_WORKTREE, false, at);
+        return 'failed';
+      }
       return generateStallSuggestion({
         store: deps.store, ticketId: id, diff, blockingSeverity: severity(),
         adapter: process.adapter, assignment: process.assignment,
-        cwd: listWorktreesByTicket(deps.store, id)[0]?.path ?? '',
+        cwd,
         debug: deps.debug,
       }, parkAt, retry);
     },

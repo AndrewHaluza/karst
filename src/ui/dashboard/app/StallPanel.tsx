@@ -33,7 +33,7 @@ function Evidence({ stall }: { readonly stall: StallView }) {
       <p className="stall-summary">{`${stall.rounds.length} review round${stall.rounds.length === 1 ? '' : 's'} · ${diff}`}</p>
       <ol className="stall-rounds">
         {stall.rounds.map((r) => (
-          <li key={r.attempt}>
+          <li key={`${r.attempt}|${r.runAt}`}>
             <span className="stall-round-head">{`Round ${r.attempt + 1} · ${r.findings.length} blocking`}</span>
             <ul>
               {r.findings.slice(0, ROUND_FINDINGS_SHOWN).map((f) => (
