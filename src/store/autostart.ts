@@ -24,25 +24,26 @@ export const SLOT_STAGES = ['impl', 'fix', 'uat', 'review'] as const;
 
 export const SLOT_STAGES_SQL = `(${SLOT_STAGES.map((s) => `'${s}'`).join(', ')})`;
 
+/** The longest a sent conflict round holds a slot, with or without a live engine: the gates of a delivery can run long, but not for ever. */
+export const CONFLICT_ROUND_SLOT_MAX_MS = 30 * 60_000;
+
+/**
+ * A conflict round was sent (T996) and has not ended: `conflict_round_at` is set, recent, and autopilot did not stop, pause
+ * or switch off, and a PR is still open. It covers the gap between the idle agent and the delivery of the resolved merge,
+ * when no agent runs. It reads the round itself, not the stored merge check: a probe that sees the local merge commit reads
+ * the PR as clean while the delivery still runs.
+ */
+const CONFLICT_ROUND_SQL = `EXISTS (
+  SELECT 1 FROM autopilot_tickets a
+   WHERE a.ticket_id = s.id AND a.conflict_round_at IS NOT NULL
+     AND a.conflict_round_at > CAST(strftime('%s', 'now') AS INTEGER) * 1000 - ${CONFLICT_ROUND_SLOT_MAX_MS}
+     AND a.stopped_reason IS NULL AND a.paused_reason IS NULL AND a.mode <> 'off'
+     AND EXISTS (SELECT 1 FROM prs p WHERE p.ticket_id = s.id AND p.status = 'open' AND p.url IS NOT NULL AND p.dismissed_at IS NULL))`;
+
 /**
  * SQL predicate (alias `s`) for "this sub-task row holds a slot". A ship-stage sub-task holds one only while its
  * agent runs: an auto conflict round (T996) works at ship, where the stage alone does not show a round.
  */
-/**
- * A conflict round was sent and its conflict is not gone: a conflicts attempt is recorded for the base head the merge
- * check still names as conflicted, and autopilot did not stop, pause or switch off, and the PR is still open. A stop-after flag keeps the slot: the round finishes. It covers the gap between the idle agent and the
- * delivery of the resolved merge, when no agent runs. A park (a spent budget) frees the slot.
- */
-const CONFLICT_ROUND_SQL = `EXISTS (
-  SELECT 1 FROM autopilot_budgets b
-    JOIN merge_checks m ON m.ticket_id = b.ticket_id AND m.repo = b.repo
-    LEFT JOIN autopilot_tickets a ON a.ticket_id = b.ticket_id
-   WHERE b.ticket_id = s.id AND b.kind = 'conflicts' AND b.attempts > 0
-     AND m.state = 'conflicted' AND m.base_sha = b.signature
-     AND a.stopped_reason IS NULL AND a.paused_reason IS NULL
-     AND COALESCE(a.mode, 'inherit') <> 'off'
-     AND EXISTS (SELECT 1 FROM prs p WHERE p.ticket_id = b.ticket_id AND p.repo = b.repo AND p.status = 'open' AND p.url IS NOT NULL AND p.dismissed_at IS NULL))`;
-
 export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR (s.stage_current = 'ship' AND (s.agent_state = 'running' OR ${CONFLICT_ROUND_SQL})) OR s.autostart_pending = ${AUTOSTART_STARTING})`;
 
 /** The order the autostart sweep claims queued sub-tasks in: blockers of the parent first, then oldest. Aliased `c`. */

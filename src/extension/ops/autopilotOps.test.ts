@@ -5,7 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
@@ -713,15 +713,40 @@ describe('conflicts', () => {
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
 
-  it('drops a stalled round with a note, and the next attempt uses the budget', async () => {
-    seedPr(PASSING);
+  it('parks and drops a stalled round, so a stale CI rollup of the old head starts no round', async () => {
+    seedPr(failing('build'));
     conflict();
+    markConflictRound(store, id, Date.now());
     const drop = vi.fn();
     const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
-    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflict round did not deliver' });
     expect(drop).toHaveBeenCalledTimes(1);
-    expect(r.notes.map((n) => n[0])).toContain('Autopilot: conflict round did not deliver');
-    expect(r.sendConflict).toHaveBeenCalledTimes(1);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id)).toEqual({ at: null });
+  });
+
+  it('marks the round on a sent conflict round and clears the mark when the round fails', async () => {
+    seedPr(PASSING);
+    conflict();
+    await autopilotTick(rig().deps);
+    expect((store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id) as { at: number | null }).at).not.toBeNull();
+    clearConflictRound(store, id);
+    setAutopilotOverride(store, id, 'on');
+    await autopilotTick(rig({}, { kind: 'failed', reason: 'x' }).deps);
+    expect((store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id) as { at: number | null }).at).toBeNull();
+  });
+
+  it('parks a spent budget before it waits for a slot, and keeps the attempt of a waiting round', async () => {
+    seedPr(PASSING);
+    conflict();
+    const waiting = rig({ concurrencyFull: () => true });
+    expect((await autopilotTick(waiting.deps)).kind).toBe('queued');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    takeAutopilotAttempt(store, id, 'r', 'conflicts', 'base1', 2);
+    takeAutopilotAttempt(store, id, 'r', 'conflicts', 'base1', 2);
+    const spent = rig({ concurrencyFull: () => true });
+    expect(await autopilotTick(spent.deps)).toMatchObject({ kind: 'parked', reason: 'auto-fix stopped: conflicts 2/2' });
   });
 
   it('a conflict that starts no round (ask policy) does not block a CI round', async () => {

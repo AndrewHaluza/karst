@@ -4,7 +4,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import {
-  AUTOPILOT_OVERRIDES, listAutopilotBudgets, setAutopilotOverride, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
+  AUTOPILOT_OVERRIDES, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
 import { approveOneMore, clearParkBlock, stopAutopilot } from './autopilotOps.js';
 
@@ -50,7 +50,7 @@ export async function setOverrideCommand(d: AutopilotCommandDeps, ticketId?: num
   const chosen = mode ?? await d.pick(AUTOPILOT_OVERRIDES, 'Auto-fix mode');
   if (chosen === undefined || !AUTOPILOT_OVERRIDES.includes(chosen)) return;
   setAutopilotOverride(d.store, id, chosen);
-  if (chosen === 'off') d.dropConflictRound(id);
+  if (chosen === 'off') { d.dropConflictRound(id); clearConflictRound(d.store, id); }
   clearParkBlock(d.store, id);
   noteFor(d, id)('Autopilot: override set', `${keyOf(d.store, id)}: auto-fix mode is now ${chosen}.`);
   d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} override ${chosen}`);
@@ -85,6 +85,7 @@ export async function stopCommand(d: AutopilotCommandDeps, ticketId?: number, wh
   if (choice === 'now') {
     // The round stops with the session: nothing delivers it, and its slot is free.
     d.dropConflictRound(id);
+    clearConflictRound(d.store, id);
     setAutopilotStopped(d.store, id, 'auto-fix stopped: a person stopped it');
   }
   const result = await stopAutopilot({ store: d.store, ticketId: id, key: keyOf(d.store, id), note: noteFor(d, id), debug: d.debug, stopSession: () => d.stopSession(id) }, choice);

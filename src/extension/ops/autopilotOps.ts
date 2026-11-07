@@ -9,8 +9,8 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, refundAutopilotAttempt,
-  setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
+  clearConflictRound, effectiveAutopilot, getAutopilotTicket, grantAutopilotExtra, refundAutopilotAttempt,
+  markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
 
@@ -70,6 +70,7 @@ const LOG = '[ship] autopilot';
 
 /** The park reason for a sandboxed ticket or an unknown placement. */
 const GRAPH_REASON = 'auto-fix not run: graph ticket';
+const STALLED_REASON = 'auto-fix stopped: conflict round did not deliver';
 const SANDBOXED_REASON = 'auto-fix not run: sandboxed ticket';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
@@ -197,7 +198,10 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (d.conflictRoundStalled()) {
     d.dropConflictRound();
     d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
-    d.note('Autopilot: conflict round did not deliver', `${d.key}: the resolved merge was not delivered (the agent left it unfinished, or a gate failed). The round is dropped; the next attempt uses the conflict budget.`);
+    clearConflictRound(d.store, d.ticketId);
+    // The probe may read the local merge commit as clean and the CI rollup is of the old head: no round (CI included) may
+    // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
+    return park(d, 'conflicts', STALLED_REASON, 'the resolved merge was not delivered (the agent left it unfinished, or a gate failed). The round is dropped; approve one more attempt or resolve the conflict by hand.');
   } else if (d.conflictRoundActive()) {
     d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
     return { kind: 'busy' };
@@ -298,7 +302,7 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
   if (outcome.kind === 'sent') {
     // The stored CI rollup and merge block belong to the head the resolved merge replaces: forget them, so a stale
     // failure never starts a CI round and a stale conflict never starts a second conflict round.
-    if (r.kind === 'conflicts') clearOpenPrProbe(d.store, d.ticketId, r.repo);
+    if (r.kind === 'conflicts') { clearOpenPrProbe(d.store, d.ticketId, r.repo); markConflictRound(d.store, d.ticketId, Date.now()); }
     queuedNoted(d.store).clear();
     setAutopilotStopped(d.store, d.ticketId, null);
     clearParkBlock(d.store, d.ticketId);
@@ -309,7 +313,7 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
   // A failed action reached no agent: it costs no attempt and is not retried. A failed conflict round must not stay armed:
   // a later manual session would get auto-delivery.
   r.refundAll();
-  if (r.kind === 'conflicts') d.dropConflictRound();
+  if (r.kind === 'conflicts') { d.dropConflictRound(); clearConflictRound(d.store, d.ticketId); }
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
     // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
     // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
@@ -349,12 +353,12 @@ async function runConflictRound(d: AutopilotDeps, cfg: AutopilotConfig, conflict
   }
   const placement = await placementPark(d, 'conflicts');
   if (placement) return placement;
-  if (d.concurrencyFull()) return queueWait(d, 'conflicts', known[0]!.repo, known[0]!.baseSha);
-
   let spent: { repo: string; used: number; max: number } | null = null;
   for (const target of known) {
     const b = takeAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts', target.baseSha, cfg.conflicts.maxRounds);
     if (!b.ok) { spent ??= { repo: target.repo, used: b.used, max: b.max }; continue; }
+    // The budget is checked first: a spent ticket parks instead of waiting, and a waiting ticket keeps its attempt.
+    if (d.concurrencyFull()) { refundAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts'); return queueWait(d, 'conflicts', target.repo, target.baseSha); }
     const refundAll = (): void => refundAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts');
     // An action that throws reached no agent: it costs no attempt and parks with the error.
     const outcome: FixOutcome = await d.sendConflict(target.repo)

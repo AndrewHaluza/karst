@@ -2838,5 +2838,11 @@ function migrateLocked(db: Database): void {
     db.exec(AUTOPILOT_DDL);
   }
 
+  if (current < 101) {
+    // v101: when a conflict round was sent (`autopilot_tickets.conflict_round_at`, T996). Guarded: a fresh db already has it.
+    const cols101 = new Set((db.prepare("PRAGMA table_info('autopilot_tickets')").all() as Array<{ name: string }>).map((c) => c.name));
+    if (cols101.size > 0 && !cols101.has('conflict_round_at')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN conflict_round_at INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

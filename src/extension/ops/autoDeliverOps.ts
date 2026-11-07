@@ -33,15 +33,18 @@ export interface ConflictRounds {
   disarm(ticketId: number): void;
 }
 
-/** In memory on purpose: a reload loses the session too, and the manual Deliver button remains. */
-export function createConflictRounds(): ConflictRounds {
+/**
+ * In memory on purpose: a reload loses the session too, and the manual Deliver button remains. `onDisarm` lets the store
+ * forget the round's slot (T996) when the round ends: delivered, dropped, stopped.
+ */
+export function createConflictRounds(onDisarm?: (ticketId: number) => void): ConflictRounds {
   const byTicket = new Map<number, ResolvedRound>();
   const since = new Map<number, number>();
   return {
     arm: (ticketId, round) => { byTicket.set(ticketId, round); since.set(ticketId, Date.now()); },
     armedAt: (ticketId) => since.get(ticketId) ?? null,
     armed: (ticketId) => byTicket.get(ticketId) ?? null,
-    disarm: (ticketId) => { byTicket.delete(ticketId); since.delete(ticketId); },
+    disarm: (ticketId) => { byTicket.delete(ticketId); since.delete(ticketId); onDisarm?.(ticketId); },
   };
 }
 
@@ -145,4 +148,10 @@ export function armConflictRound(store: Store, rounds: ConflictRounds, ticketId:
 }
 
 /** Resolve-conflicts sessions at ship whose resolved merge Karst delivers on idle (D247). */
-export const conflictRounds = createConflictRounds();
+let roundEnded: ((ticketId: number) => void) | undefined;
+export const conflictRounds = createConflictRounds((ticketId) => roundEnded?.(ticketId));
+
+/** The host sets the store seam once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. */
+export function onConflictRoundEnd(fn: (ticketId: number) => void): void {
+  roundEnded = fn;
+}
