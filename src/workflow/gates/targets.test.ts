@@ -194,6 +194,41 @@ describe('selectReviewTargets', () => {
     expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
   });
 
+  describe('noFetch', () => {
+    const wt = [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }];
+    function recorder(remoteRefs: boolean): { calls: string[][]; git: GitRunner } {
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push([...args]);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'rev-parse') return { stdout: '', stderr: '', exitCode: remoteRefs ? 0 : 1 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      return { calls, git };
+    }
+
+    it('a gate run (default) still fetches the base and the branch', async () => {
+      const { calls, git } = recorder(true);
+      await selectReviewTargets(project, wt, git);
+      expect(calls).toContainEqual(['fetch', 'origin', 'develop']);
+      expect(calls).toContainEqual(['fetch', 'origin', 'karst/x']);
+    });
+
+    it('runs no fetch and uses the cloned origin refs when they resolve', async () => {
+      const { calls, git } = recorder(true);
+      await selectReviewTargets(project, wt, git, { noFetch: true });
+      expect(calls.some((a) => a[0] === 'fetch')).toBe(false);
+      expect(calls).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
+    });
+
+    it('falls back to the local names when the origin refs are absent', async () => {
+      const { calls, git } = recorder(false);
+      await selectReviewTargets(project, wt, git, { noFetch: true });
+      expect(calls.some((a) => a[0] === 'fetch')).toBe(false);
+      expect(calls).toContainEqual(['diff', '--quiet', 'develop...karst/x']);
+    });
+  });
+
   it('falls back to probing HEAD when no branch is recorded', async () => {
     const diffs: string[][] = [];
     const git: GitRunner = async (args) => {

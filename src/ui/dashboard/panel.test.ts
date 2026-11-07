@@ -2209,4 +2209,45 @@ describe('DashboardManager', () => {
       expect(attentions).toHaveLength(0);
     });
   });
+
+  describe('external change catch-up', () => {
+    it('a panel hidden through an external change gets a complete push when it is shown', () => {
+      const t = createTicket(store, { key: 'X-1', title: 'x' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+      mgr.openDashboard(t.id);
+      const panel = panels[0]!;
+
+      panel.visible = false;
+      panel.emitViewState(false);
+      expect(mgr.isPanelVisible(t.id)).toBe(false);
+      mgr.markSupplementalStale(t.id);
+      const passive = vi.spyOn(mgr, 'pushPassiveState');
+
+      panel.visible = true;
+      panel.emitViewState(false);
+      expect(passive).toHaveBeenCalledTimes(1);
+
+      // Caught up: a second show does not repeat it.
+      panel.visible = false;
+      panel.emitViewState(false);
+      panel.visible = true;
+      panel.emitViewState(false);
+      expect(passive).toHaveBeenCalledTimes(1);
+    });
+
+    it('a visible panel with nothing stale gets only the cheap repaint on show', () => {
+      const t = createTicket(store, { key: 'X-2', title: 'x' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+      mgr.openDashboard(t.id);
+      const panel = panels[0]!;
+      panel.visible = false;
+      panel.emitViewState(false);
+      panel.visible = true;
+      const passive = vi.spyOn(mgr, 'pushPassiveState');
+      panel.emitViewState(false);
+      expect(passive).not.toHaveBeenCalled();
+    });
+  });
 });

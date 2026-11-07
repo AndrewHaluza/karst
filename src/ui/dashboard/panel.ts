@@ -417,6 +417,12 @@ export class DashboardManager extends DashboardManagerBase {
 
   /** One live (clock-only) repaint: the tick and the visibility catch-up. */
   private repaint(ticketId: number): void {
+    // A panel that was hidden through an external change catches up with the
+    // complete push (supplemental facts included) the moment it is shown.
+    if (this.staleSupplemental.has(ticketId)) {
+      this.pushPassiveState(ticketId);
+      return;
+    }
     pushSnapshot(this.pushDeps, ticketId, {
       kind: 'live',
       supplemental: false,

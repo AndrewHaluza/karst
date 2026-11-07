@@ -220,6 +220,7 @@ async function hasReviewChanges(
   branch?: string | null,
   fetchTimeoutMs: number = GIT_REMOTE_TIMEOUT_MS,
   signal?: AbortSignal,
+  noFetch = false,
 ): Promise<ChangeProbe> {
   // Agents are allowed to leave implementation work uncommitted until ship.
   // Porcelain includes staged, unstaged, and untracked files, so review cannot
@@ -240,7 +241,14 @@ async function hasReviewChanges(
   // changed. The timeout prevents an unreachable remote from stalling the
   // entire gate stage indefinitely; on timeout the child is aborted so it is
   // killed immediately rather than lingering to its own 60s budget.
-  const fetched = await fetchRemote(git, cwd, base, fetchTimeoutMs, signal);
+  // A display-only caller (`noFetch`) never spawns a fetch: it compares with the
+  // `origin/<ref>` ref already in the clone when that ref resolves, else the
+  // local name. Gate runs and ship keep the fetch.
+  const remoteRef = async (ref: string): Promise<GitResult> =>
+    noFetch
+      ? git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${ref}`], cwd)
+      : fetchRemote(git, cwd, ref, fetchTimeoutMs, signal);
+  const fetched = await remoteRef(base);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
   // Also fetch the feature branch so the diff head resolves against the remote
   // state — a local branch ref that is behind the remote produces an empty diff
@@ -248,7 +256,7 @@ async function hasReviewChanges(
   // the local branch name when the fetch fails.
   const fetchedBranch =
     branch && branch.trim() !== ''
-      ? await fetchRemote(git, cwd, branch, fetchTimeoutMs, signal)
+      ? await remoteRef(branch)
       : null;
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch must still read as "changed" when the
@@ -285,6 +293,12 @@ export interface SelectReviewTargetsOptions {
    * completion, unchanged for the gate stages and any other caller.
    */
   signal?: AbortSignal;
+  /**
+   * Never run `git fetch`: compare with the `origin/<base>` and `origin/<branch>`
+   * refs already in the clone. For display-only callers (the dashboard gate
+   * options); a gate run and ship leave it unset and keep the fetch.
+   */
+  noFetch?: boolean;
   /**
    * The store and ticket this selection runs for. When both are supplied, the
    * base each worktree is diffed against is resolved `worktrees.base_ref`
@@ -367,6 +381,7 @@ export async function selectReviewTargets(
       worktree.branch,
       options?.gitFetchTimeoutMs,
       options?.signal,
+      options?.noFetch,
     );
     if (probe.kind === 'unavailable') {
       options?.debug?.(

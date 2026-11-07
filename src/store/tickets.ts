@@ -1072,10 +1072,32 @@ export function listTickets(
   const rows = store.db
     .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
     .all(...params) as TicketRow[];
-  return rows.map((r) => {
-    const ticket = rowToTicket(r);
-    return { ...ticket, stages: loadStages(store, ticket.id) };
-  });
+  return withStages(store, rows);
+}
+
+/** Ids per `IN (...)` stage batch, well under SQLite's bound-variable limit. */
+const STAGE_BATCH_SIZE = 500;
+
+/**
+ * Attach each ticket's stage rows with one query per batch of ids, not one per
+ * ticket: a project with hundreds of archived tickets otherwise costs hundreds
+ * of statements on every sidebar refresh.
+ */
+function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[] {
+  const byTicket = new Map<number, Stage[]>();
+  for (let i = 0; i < rows.length; i += STAGE_BATCH_SIZE) {
+    const ids = rows.slice(i, i + STAGE_BATCH_SIZE).map((r) => r.id);
+    const marks = ids.map(() => '?').join(',');
+    const stageRows = store.db
+      .prepare(`SELECT * FROM stages WHERE ticket_id IN (${marks})`)
+      .all(...ids) as Array<Parameters<typeof rowToStage>[0] & { ticket_id: number }>;
+    for (const sr of stageRows) {
+      const list = byTicket.get(sr.ticket_id) ?? [];
+      list.push(rowToStage(sr));
+      byTicket.set(sr.ticket_id, list);
+    }
+  }
+  return rows.map((r) => ({ ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }));
 }
 
 /** List only archived tickets (the Archived facet view), ordered by created_at descending with id desc tiebreaker. */
@@ -1088,5 +1110,21 @@ export function listArchivedTickets(
   const rows = store.db
     .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
     .all(...params) as TicketRow[];
-  return rows.map((r) => ({ ...rowToTicket(r), stages: loadStages(store, r.id) }));
+  return withStages(store, rows);
+}
+
+/**
+ * The archived tickets' `id` and `key` only, same order as `listArchivedTickets`.
+ * The sidebar reads this outside the Archived facet: it needs the count and the
+ * parent-key lookup, not every column and every stage row.
+ */
+export function listArchivedTicketKeys(
+  store: Store,
+  scope: ProjectScope = {},
+): Array<{ id: number; key: string | null }> {
+  const { sql, params } = scopeClause(scope);
+  const where = whereClause('archived_at IS NOT NULL', sql);
+  return store.db
+    .prepare(`SELECT id, key FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
+    .all(...params) as Array<{ id: number; key: string | null }>;
 }

@@ -64,7 +64,12 @@ export function pushSnapshot(
   const { kind, supplemental, live, settlesActions } = mode;
   const panel = d.panelFor(ticketId);
   if (!panel) return;
+  // Timing log (debug only): the snapshot build and the whole push, so a slow
+  // refresh path shows up in the `[dashboard]` lines with its cost.
+  const timed = d.debug?.isDebugEnabled() === true;
+  const t0 = timed ? performance.now() : 0;
   const state = buildSnapshotState(d, ticketId, supplemental);
+  const tBuilt = timed ? performance.now() : 0;
   // A key the new snapshot no longer resolved to is dropped from panel
   // memory: `selectedAttempt` reports what the builder actually rendered,
   // so a mismatch means the requested key named no attempt this round —
@@ -119,6 +124,11 @@ export function pushSnapshot(
     }
   }
   d.ticks.schedule(ticketId, state);
+  if (timed) {
+    d.debug?.debug(
+      `[dashboard] ticket ${ticketId} pushSnapshot ${kind} ${(performance.now() - t0).toFixed(1)} ms (build ${(tBuilt - t0).toFixed(1)} ms)`,
+    );
+  }
 }
 
 /**

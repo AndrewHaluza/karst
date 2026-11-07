@@ -36,6 +36,45 @@ describe('buildSidebarState', () => {
     expect(state.sections.olderDone).toEqual([]);
   });
 
+  describe('archived tickets cost', () => {
+    /** Count `stages` statements and `artifactCount` calls one sidebar build runs. */
+    function measure(archivedCount: number, facets: Array<'all' | 'archived'>): { stageQueries: number; counted: number[]; sidebar: ReturnType<typeof buildSidebarState> } {
+      const s = openStore(':memory:');
+      createTicket(s, { key: 'LIVE-1', title: 'live' });
+      for (let i = 0; i < archivedCount; i++) {
+        archiveTicket(s, createTicket(s, { key: `OLD-${i}`, title: 'old' }).id);
+      }
+      let stageQueries = 0;
+      const prepare = s.db.prepare.bind(s.db);
+      s.db.prepare = ((sql: string) => {
+        if (/FROM stages/i.test(sql)) stageQueries++;
+        return prepare(sql);
+      }) as typeof s.db.prepare;
+      const counted: number[] = [];
+      const sidebar = buildSidebarState(s, { facets, filter: '', artifactCount: (id) => (counted.push(id), 0) });
+      s.close();
+      return { stageQueries, counted, sidebar };
+    }
+
+    it('runs a stage query count that does not grow with the archived ticket count', () => {
+      const few = measure(2, ['all']);
+      const many = measure(60, ['all']);
+      expect(few.stageQueries).toBeGreaterThan(0);
+      expect(many.stageQueries).toBe(few.stageQueries);
+      expect(many.sidebar.counts.archived).toBe(60);
+    });
+
+    it('loads no artifact count for an archived row outside the Archived facet', () => {
+      const { counted } = measure(5, ['all']);
+      expect(counted).toHaveLength(1);
+    });
+
+    it('the Archived facet still lists the full archived rows', () => {
+      const { sidebar } = measure(5, ['archived']);
+      expect(sidebar.rows).toHaveLength(5);
+    });
+  });
+
   it('carries the cached captured-file count per ticket, 0 when no counter is bound', () => {
     const a = createTicket(store, { key: 'A-1', title: 'a' });
     const b = createTicket(store, { key: 'B-1', title: 'b' });

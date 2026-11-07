@@ -12,6 +12,8 @@ export interface ArtifactCountCacheOptions {
   onError?: (error: unknown) => void;
   now?: () => number;
   ttlMs?: number;
+  /** Most background loads in flight at once; the rest queue. Default 4. */
+  concurrency?: number;
 }
 
 export interface ArtifactCountCache {
@@ -22,28 +24,52 @@ export interface ArtifactCountCache {
 }
 
 const DEFAULT_TTL_MS = 5_000;
+const DEFAULT_CONCURRENCY = 4;
 
 export function createArtifactCountCache(opts: ArtifactCountCacheOptions): ArtifactCountCache {
   const now = opts.now ?? Date.now;
   const ttl = opts.ttlMs ?? DEFAULT_TTL_MS;
   const entries = new Map<number, { count: number; at: number }>();
+  /** Queued or running: one load per ticket. */
   const inFlight = new Set<number>();
+  const queue: number[] = [];
+  const limit = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
+  let running = 0;
+
+  const pump = (): void => {
+    while (running < limit && queue.length > 0) {
+      const next = queue.shift()!;
+      running++;
+      load(next);
+    }
+  };
 
   const refresh = (ticketId: number): void => {
     if (inFlight.has(ticketId)) return;
     inFlight.add(ticketId);
+    queue.push(ticketId);
+    pump();
+  };
+
+  const settle = (ticketId: number): void => {
+    inFlight.delete(ticketId);
+    running--;
+    pump();
+  };
+
+  const load = (ticketId: number): void => {
     void opts.count(ticketId).then(
       (count) => {
         const before = entries.get(ticketId)?.count;
         entries.set(ticketId, { count, at: now() });
-        inFlight.delete(ticketId);
+        settle(ticketId);
         if (before !== count && !(before === undefined && count === 0)) opts.onChange();
       },
       (error: unknown) => {
         // Keep the last good count, and retry only after the freshness window.
         const prev = entries.get(ticketId);
         entries.set(ticketId, { count: prev?.count ?? 0, at: now() });
-        inFlight.delete(ticketId);
+        settle(ticketId);
         opts.onError?.(error);
       },
     );

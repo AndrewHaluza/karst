@@ -68,4 +68,30 @@ describe('artifact count cache', () => {
     expect(cache.get(2)).toBe(7);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('runs at most `concurrency` background loads at once and drains the queue', async () => {
+    let active = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    const count = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          active++;
+          peak = Math.max(peak, active);
+          releases.push(() => {
+            active--;
+            resolve(1);
+          });
+        }),
+    );
+    const cache = createArtifactCountCache({ count, onChange: () => {}, concurrency: 4 });
+    for (let id = 1; id <= 10; id++) cache.get(id);
+    expect(count).toHaveBeenCalledTimes(4);
+    while (releases.length > 0) {
+      releases.shift()!();
+      await flush();
+    }
+    expect(count).toHaveBeenCalledTimes(10);
+    expect(peak).toBe(4);
+  });
 });
