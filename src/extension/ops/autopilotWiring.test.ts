@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ciOutcome } from './autopilotWiring.js';
+import { ciOutcome, conflictOutcome } from './autopilotWiring.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
 
 vi.mock('./ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn() }));
@@ -53,10 +53,11 @@ describe('autopilotSweep', () => {
     store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: 'u' }] }), id);
     return { store, id, projectId: project.id };
   }
-  const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 3, checks: ['build'] } };
+  const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 3, checks: ['build'] }, conflicts: { policy: 'auto' as const, maxRounds: 2 } };
   const seams = (over: Partial<TicketSeams> = {}): TicketSeams => ({
     controls: () => true, sessionRunning: () => false,
-    isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const), ...over,
+    isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const),
+    sendConflict: vi.fn(async () => ({ kind: 'sent' }) as const), conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {}, ...over,
   });
 
   it('a ticket with an implementation graph run parks and is not sent a round', async () => {
@@ -177,16 +178,18 @@ describe('autopilotSweep edges', () => {
 });
 
 describe('listSlotHolders', () => {
-  it('lists sub-tasks in a slot stage only: a ship sub-task and a plain ticket hold no slot', () => {
+  it('lists sub-tasks in a slot stage, and a ship sub-task whose agent runs (a conflict round); a plain ticket holds no slot', () => {
     const store = openStore(':memory:');
     const project = upsertProject(store, { slug: 'p' });
     const parent = createTicket(store, { key: 'P-1', title: 'p', projectId: project.id }).id;
     const inImpl = createTicket(store, { key: 'S-1', title: 's', projectId: project.id, subtaskParentId: parent }).id;
     const inShip = createTicket(store, { key: 'S-2', title: 's', projectId: project.id, subtaskParentId: parent }).id;
+    const idleShip = createTicket(store, { key: 'S-3', title: 's', projectId: project.id, subtaskParentId: parent }).id;
     const plain = createTicket(store, { key: 'T-1', title: 't', projectId: project.id }).id;
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id IN (?, ?)").run(inImpl, plain);
     store.db.prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'running' WHERE id = ?").run(inShip);
-    expect(listSlotHolders(store, project.id)).toEqual([{ id: inImpl, subtaskParentId: parent }]);
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?").run(idleShip);
+    expect(listSlotHolders(store, project.id)).toEqual([{ id: inImpl, subtaskParentId: parent }, { id: inShip, subtaskParentId: parent }]);
   });
 });
 
@@ -249,5 +252,15 @@ describe('postAutopilotNote', () => {
     postAutopilotNote(store, 9999, id, 't', 'b', debug);
     expect(rows(store)).toHaveLength(0);
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('[ship] autopilot note failed'));
+  });
+});
+
+describe('conflictOutcome', () => {
+  const input = (briefFor: () => string | null) => ({ repo: 'r', label: 'T1', probeSandbox: async () => ({ state: 'absent' }), briefFor, notify: vi.fn(), deliver: vi.fn() }) as never;
+  it('is sent when the round reached the agent', async () => {
+    expect(await conflictOutcome(input(() => 'BRIEF'))).toEqual({ kind: 'sent' });
+  });
+  it('is failed, with the decline reason, when the round reached no agent', async () => {
+    expect(await conflictOutcome(input(() => null))).toMatchObject({ kind: 'failed', reason: expect.stringContaining('nothing to resolve') });
   });
 });

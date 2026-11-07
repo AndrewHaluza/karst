@@ -4,6 +4,7 @@ import type { GitResult } from './deliverToPrOps.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
+import { clearConflictRound } from '../../store/autopilot.js';
 
 /**
  * Auto-delivery of a resolved merge conflict at ship (arch:AC-39, D247).
@@ -28,16 +29,23 @@ export interface ResolvedRound {
 export interface ConflictRounds {
   arm(ticketId: number, round: ResolvedRound): void;
   armed(ticketId: number): ResolvedRound | null;
+  /** When the round was armed (ms), or null. */
+  armedAt(ticketId: number): number | null;
   disarm(ticketId: number): void;
 }
 
-/** In memory on purpose: a reload loses the session too, and the manual Deliver button remains. */
-export function createConflictRounds(): ConflictRounds {
+/**
+ * In memory on purpose: a reload loses the session too, and the manual Deliver button remains. `onDisarm` lets the store
+ * forget the round's slot (T996) when the round ends: delivered, dropped, stopped.
+ */
+export function createConflictRounds(onDisarm?: (ticketId: number) => void): ConflictRounds {
   const byTicket = new Map<number, ResolvedRound>();
+  const since = new Map<number, number>();
   return {
-    arm: (ticketId, round) => void byTicket.set(ticketId, round),
+    arm: (ticketId, round) => { byTicket.set(ticketId, round); since.set(ticketId, Date.now()); },
+    armedAt: (ticketId) => since.get(ticketId) ?? null,
     armed: (ticketId) => byTicket.get(ticketId) ?? null,
-    disarm: (ticketId) => void byTicket.delete(ticketId),
+    disarm: (ticketId) => { byTicket.delete(ticketId); since.delete(ticketId); onDisarm?.(ticketId); },
   };
 }
 
@@ -78,6 +86,19 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
 }
 
 const inFlight = new Set<number>();
+
+/** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
+export function isAutoDelivering(ticketId: number): boolean {
+  return inFlight.has(ticketId);
+}
+
+/** An armed round with no agent and no delivery for this long never delivered (the agent left it unfinished, or a gate failed). */
+export const CONFLICT_ROUND_STALL_MS = 5 * 60_000;
+
+export function isConflictRoundStalled(rounds: ConflictRounds, ticketId: number, now: number = Date.now()): boolean {
+  const at = rounds.armedAt(ticketId);
+  return at !== null && !isAutoDelivering(ticketId) && now - at > CONFLICT_ROUND_STALL_MS;
+}
 
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
@@ -128,4 +149,10 @@ export function armConflictRound(store: Store, rounds: ConflictRounds, ticketId:
 }
 
 /** Resolve-conflicts sessions at ship whose resolved merge Karst delivers on idle (D247). */
-export const conflictRounds = createConflictRounds();
+let roundEnded: ((ticketId: number) => void) | undefined;
+export const conflictRounds = createConflictRounds((ticketId) => roundEnded?.(ticketId));
+
+/** The host sets the store once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. Host tickets only: the engine parks a sandboxed one first. */
+export function freeSlotOnConflictRoundEnd(store: Store): void {
+  roundEnded = (ticketId) => clearConflictRound(store, ticketId);
+}

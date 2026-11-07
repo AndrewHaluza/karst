@@ -2,7 +2,8 @@ import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { getTicket } from '../store/tickets.js';
 import type { AutostartCaps } from '../workflow/subtaskAutostart.js';
-import { autopilotSweep, ciOutcome } from './ops/autopilotWiring.js';
+import { autopilotSweep, ciOutcome, conflictOutcome } from './ops/autopilotWiring.js';
+import type { ResolveConflictInput } from './ops/conflictResolveOps.js';
 import { approveCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwner } from '../store/autopilot.js';
@@ -91,6 +92,12 @@ export interface AutopilotBindingDeps {
   /** This window's lease owner id (unique per window). */
   readonly windowId: string;
   readonly ciInput: (ticketId: number) => CiActionsInput;
+  /** The Resolve conflicts click path for one repo, with the hand-off bound to the launch tracker. */
+  readonly conflictInput: (ticketId: number, repo: string) => ResolveConflictInput;
+  /** A conflict round is armed for the ticket, or karst delivers its resolved merge now. */
+  readonly conflictRoundActive: (ticketId: number) => boolean;
+  readonly conflictRoundStalled: (ticketId: number) => boolean;
+  readonly dropConflictRound: (ticketId: number) => void;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
   /** The ticket runs on the host (no sandbox, placement readable). */
@@ -168,6 +175,10 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         sessionRunning: () => running(id),
         isHostTicket: () => d.isHostTicket(id),
         sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
+        sendConflict: (repo) => sent(id, () => conflictOutcome(d.conflictInput(id, repo))),
+        conflictRoundActive: () => d.conflictRoundActive(id),
+        conflictRoundStalled: () => d.conflictRoundStalled(id),
+        dropConflictRound: () => d.dropConflictRound(id),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };
@@ -193,7 +204,7 @@ export interface CommandHost {
 /** Register the three autopilot host commands. */
 export function registerAutopilotCommands(
   host: CommandHost,
-  base: Pick<AutopilotCommandDeps, 'store' | 'projectId' | 'debug' | 'stopSession'>,
+  base: Pick<AutopilotCommandDeps, 'store' | 'projectId' | 'debug' | 'stopSession' | 'dropConflictRound'>,
 ): Array<{ dispose(): void }> {
   const d: AutopilotCommandDeps = {
     ...base,

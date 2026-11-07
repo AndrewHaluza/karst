@@ -51,30 +51,38 @@ async function prepare(input: ResolveConflictInput): Promise<string | null> {
   return `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}`;
 }
 
-export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
+/** What one conflict round did: the brief went out, or the round was declined with the user-facing reason. */
+export type ConflictRoundOutcome =
+  | { readonly kind: 'sent' }
+  | { readonly kind: 'declined'; readonly reason: string };
+
+/**
+ * The round itself, shared by the click and by Autopilot (T996): the click shows a decline as a toast,
+ * Autopilot reads it as a failed round. Nothing here touches the user.
+ */
+export async function resolveConflictRound(input: ResolveConflictInput): Promise<ConflictRoundOutcome> {
   // A probe that REJECTS cannot say either: unknown, never "no sandbox".
   const probe = await input.probeSandbox().catch((err: unknown): SandboxProbe => ({ state: 'unknown', reason: err instanceof Error ? err.message : String(err) }));
   if (probe.state === 'unknown') {
-    input.notify(`Could not tell whether ticket ${input.label} runs in a sandbox, so no conflict brief was sent: ${probe.reason}. Make sure the sbx/docker CLI is on the PATH of the VS Code extension host.`);
-    return;
+    return { kind: 'declined', reason: `Could not tell whether ticket ${input.label} runs in a sandbox, so no conflict brief was sent: ${probe.reason}. Make sure the sbx/docker CLI is on the PATH of the VS Code extension host.` };
   }
   const sandboxed = probe.state === 'present';
   const brief = input.briefFor(sandboxed);
   if (brief === null) {
-    input.notify(
-      `No merge conflict is recorded for "${input.repo}" on ticket ${input.label} — nothing to resolve.`,
-    );
-    return;
+    return { kind: 'declined', reason: `No merge conflict is recorded for "${input.repo}" on ticket ${input.label} — nothing to resolve.` };
   }
   if (sandboxed) {
     const failure = await prepare(input);
-    if (failure !== null) {
-      input.notify(failure);
-      return;
-    }
+    if (failure !== null) return { kind: 'declined', reason: failure };
   }
   input.arm?.(input.repo);
   input.deliver(brief, input.repo);
+  return { kind: 'sent' };
+}
+
+export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
+  const outcome = await resolveConflictRound(input);
+  if (outcome.kind === 'declined') input.notify(outcome.reason);
 }
 
 /**

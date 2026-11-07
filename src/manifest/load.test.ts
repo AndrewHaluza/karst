@@ -3981,6 +3981,7 @@ describe('autopilot (auto-fix of ship-stage problems)', () => {
     expect(run('autopilot: {}\n').value).toEqual({
       enabled: false,
       ci: { policy: 'auto', maxAttempts: 3, checks: [] },
+      conflicts: { policy: 'auto', maxRounds: 2 },
     });
   });
 
@@ -3989,14 +3990,23 @@ describe('autopilot (auto-fix of ship-stage problems)', () => {
     expect(run(yml).value).toEqual({
       enabled: true,
       ci: { policy: 'auto', maxAttempts: 5, checks: ['lint', 'unit'] },
+      conflicts: { policy: 'auto', maxRounds: 2 },
     });
+  });
+
+  it('parses the conflicts block', () => {
+    expect((run('autopilot:\n  conflicts: { policy: ask, maxRounds: 4 }\n').value as { conflicts?: unknown } | undefined)?.conflicts).toEqual({ policy: 'ask', maxRounds: 4 });
   });
 
   it.each([
     ['autopilot: 3\n', /autopilot must be a mapping/],
     ['autopilot:\n  enabled: "yes"\n', /autopilot\.enabled must be a boolean/],
     ['autopilot:\n  nope: 1\n', /autopilot\.nope is not a known key/],
-    ['autopilot:\n  conflicts: { policy: auto }\n', /autopilot\.conflicts is not a known key/],
+    ['autopilot:\n  conflicts: { policy: nope }\n', /autopilot\.conflicts\.policy must be 'auto' or 'ask'/],
+    ['autopilot:\n  conflicts: { maxRounds: 0 }\n', /autopilot\.conflicts\.maxRounds must be a whole number/],
+    ['autopilot:\n  conflicts: { maxRounds: 1.5 }\n', /autopilot\.conflicts\.maxRounds must be a whole number/],
+    ['autopilot:\n  conflicts: { checks: [a] }\n', /autopilot\.conflicts\.checks is not a known key/],
+    ['autopilot:\n  conflicts: [a]\n', /autopilot\.conflicts must be a mapping/],
     ['autopilot:\n  ci: { maxAttempts: 1.5 }\n', /autopilot\.ci\.maxAttempts must be a whole number/],
     ['autopilot:\n  ci: { checks: lint }\n', /autopilot\.ci\.checks must be a list/],
     ['autopilot:\n  ci: { checks: [""] }\n', /autopilot\.ci\.checks must hold non-empty strings/],

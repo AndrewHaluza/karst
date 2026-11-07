@@ -24,8 +24,27 @@ export const SLOT_STAGES = ['impl', 'fix', 'uat', 'review'] as const;
 
 export const SLOT_STAGES_SQL = `(${SLOT_STAGES.map((s) => `'${s}'`).join(', ')})`;
 
-/** SQL predicate (alias `s`) for "this sub-task row holds a slot". */
-export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR s.autostart_pending = ${AUTOSTART_STARTING})`;
+/** The longest a sent conflict round holds a slot, with or without a live engine: the gates of a delivery can run long, but not for ever. */
+export const CONFLICT_ROUND_SLOT_MAX_MS = 30 * 60_000;
+
+/**
+ * A conflict round was sent (T996) and has not ended: `conflict_round_at` is set, recent, and autopilot did not stop, pause
+ * or switch off, and a PR is still open. It covers the gap between the idle agent and the delivery of the resolved merge,
+ * when no agent runs. It reads the round itself, not the stored merge check: a probe that sees the local merge commit reads
+ * the PR as clean while the delivery still runs.
+ */
+const CONFLICT_ROUND_SQL = `EXISTS (
+  SELECT 1 FROM autopilot_tickets a
+   WHERE a.ticket_id = s.id AND a.conflict_round_at IS NOT NULL
+     AND a.conflict_round_at > CAST(strftime('%s', 'now') AS INTEGER) * 1000 - ${CONFLICT_ROUND_SLOT_MAX_MS}
+     AND a.stopped_reason IS NULL AND a.paused_reason IS NULL AND a.mode <> 'off'
+     AND EXISTS (SELECT 1 FROM prs p WHERE p.ticket_id = s.id AND p.status = 'open' AND p.url IS NOT NULL AND p.dismissed_at IS NULL))`;
+
+/**
+ * SQL predicate (alias `s`) for "this sub-task row holds a slot". A ship-stage sub-task holds one only while its
+ * agent runs: an auto conflict round (T996) works at ship, where the stage alone does not show a round.
+ */
+export const HOLDS_SLOT_SQL = `s.archived_at IS NULL AND (s.stage_current IN ${SLOT_STAGES_SQL} OR (s.stage_current = 'ship' AND (s.agent_state = 'running' OR ${CONFLICT_ROUND_SQL})) OR s.autostart_pending = ${AUTOSTART_STARTING})`;
 
 /** The order the autostart sweep claims queued sub-tasks in: blockers of the parent first, then oldest. Aliased `c`. */
 export const AUTOSTART_ORDER_SQL = 'COALESCE(c.blocks_parent, 0) DESC, c.id ASC';

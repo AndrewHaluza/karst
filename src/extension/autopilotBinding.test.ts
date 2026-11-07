@@ -7,11 +7,12 @@ import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks
 import { transition } from '../workflow/machine.js';
 import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
 import { getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
+import { setMergeCheck } from '../store/mergeChecks.js';
 import { sendCiFailureAction } from './ops/ciActionsWiring.js';
 
 vi.mock('./ops/ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(async () => {}) }));
 
-const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 5, checks: ['build'] } };
+const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 5, checks: ['build'] }, conflicts: { policy: 'auto' as const, maxRounds: 2 } };
 const FAILING = { state: 'failing', total: 2, passed: 1, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: null }] };
 
 /** A ship ticket with an open PR whose `build` check fails, and a parked awaiting-merge block. */
@@ -29,6 +30,7 @@ function rig(over: Partial<AutopilotBindingDeps> = {}) {
     store, projectId: () => project.id, manifest: () => ({ autopilot: cfg }) as never, caps: () => ({ perParent: 2, total: 4 }),
     debug, changed: vi.fn(), intervalMs: 1000, windowId: 'W', isLive: () => false,
     ciInput: (ticketId: number) => ({ store, ticketId, debug: () => {}, handOff: () => null }) as never,
+    conflictInput: () => ({}) as never, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
     takeLaunch: () => undefined, isHostTicket: async () => true, ...over,
   };
   return { deps, store, id, debug };
@@ -254,7 +256,7 @@ describe('registerAutopilotCommands', () => {
       commands: { registerCommand: (c: string) => { names.push(c); return { dispose() {} }; } },
       window: { showInformationMessage: vi.fn(), showQuickPick: vi.fn() },
     };
-    const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => true });
+    const out = registerAutopilotCommands(host as never, { store: openStore(':memory:'), projectId: () => undefined, debug: () => {}, stopSession: async () => true, dropConflictRound: () => {} });
     expect(host.window.showInformationMessage).not.toHaveBeenCalled();
     expect(names).toEqual(['karst.autopilot.setOverride', 'karst.autopilot.approveOne', 'karst.autopilot.stop']);
     expect(out).toHaveLength(3);
@@ -271,7 +273,7 @@ describe('registerAutopilotCommands', () => {
     const project = upsertProject(store, { slug: 'p' });
     const id = createTicket(store, { key: 'AP-8', title: 't', projectId: project.id }).id;
     const debug = vi.fn();
-    registerAutopilotCommands(host as never, { store, projectId: () => project.id, debug, stopSession: async () => true });
+    registerAutopilotCommands(host as never, { store, projectId: () => project.id, debug, stopSession: async () => true, dropConflictRound: () => {} });
     await (handlers.get('karst.autopilot.setOverride') as () => Promise<unknown>)();
     const calls = showQuickPick.mock.calls as unknown as Array<[unknown[], { placeHolder: string }]>;
     expect(calls[0]![1].placeHolder).toBe('Set auto-fix mode for which ticket?');
@@ -318,5 +320,41 @@ describe('window helpers', () => {
     expect(await makeStopSession({ isLive: () => false, stop, debug })(7)).toBe(false);
     expect(stop).not.toHaveBeenCalled();
     expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket 7: stop now did not reach a session (this window does not hold it)');
+  });
+});
+
+describe('a conflict round', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.mocked(sendCiFailureAction).mockReset(); });
+  afterEach(() => vi.useRealTimers());
+
+  function conflicted(over: Partial<AutopilotBindingDeps> = {}) {
+    const deliver = vi.fn();
+    const r = rig({
+      conflictInput: () => ({ repo: 'r', label: 'AP-1', probeSandbox: async () => ({ state: 'absent' }), briefFor: () => 'BRIEF', notify: () => {}, deliver }) as never,
+      ...over,
+    });
+    r.store.db.prepare('UPDATE prs SET checks = NULL').run();
+    setMergeCheck(r.store, { ticketId: r.id, repo: 'r', state: 'conflicted', files: [], reason: null, headSha: 'h', baseSha: 'b1', baseRef: 'develop', checkedAt: 'x' });
+    return { ...r, deliver };
+  }
+
+  it('runs the Resolve conflicts path for a conflicted PR, once, and holds the lease', async () => {
+    const r = conflicted();
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(r.deliver).toHaveBeenCalledTimes(1);
+    expect(r.deliver).toHaveBeenCalledWith('BRIEF', 'r');
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(r.deliver).toHaveBeenCalledTimes(1);
+    handle.dispose();
+  });
+
+  it('starts no round while a conflict round or its auto-deliver is active', async () => {
+    const r = conflicted({ conflictRoundActive: () => true });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(r.deliver).not.toHaveBeenCalled();
+    handle.dispose();
   });
 });
