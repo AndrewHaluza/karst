@@ -30,8 +30,15 @@ import { dirname, join } from 'node:path';
  * or an older build may have written.
  */
 
-/** Set on a sandbox launch: container path of the model-state seed file. */
-export const KARST_OPENCODE2_MODEL_STATE_ENV = 'KARST_OPENCODE2_MODEL_STATE';
+/**
+ * Set on a sandbox launch: the model-state seed CONTENT (one `recent[0]` entry
+ * plus its variant). It travels in the container's env, never as a host file in
+ * the sandbox-writable bridge mount: that mount is agent-writable, so a
+ * path-based read/write there has a symlink-swap window the host cannot close
+ * without `openat` (review of T1005). The docker prelude merges the content
+ * into the container's own store.
+ */
+export const KARST_OPENCODE2_MODEL_STATE_ENV = 'KARST_OPENCODE2_MODEL_STATE_JSON';
 
 export interface Opencode2ModelRef {
   providerID: string;
@@ -116,13 +123,12 @@ export function mergeOpencode2ModelState(
 }
 
 /**
- * Ensure the store's PARENT is a real directory and refuse to write through a
- * symlink. On a docker launch this parent (`<bridge>/opencode2`) lives in the
- * sandbox-writable bridge mount, so an agent from an earlier session on the
- * same ticket can plant it as a symlink to any host directory; `mkdirSync`
- * would happily resolve it and the host would then read/write `model-state.json`
- * outside the mount. A refused parent throws — the launch treats the seed as
- * best-effort, and the TUI still gets the config model.
+ * Ensure the write target's PARENT is a real directory and refuse to write
+ * through a symlink. A sandbox launch never reaches this writer any more (its
+ * seed rides the container env, so no host path is agent-controlled), but the
+ * host XDG state dir is still checked: a planted link must not redirect a write
+ * into an unrelated directory. A refused parent throws — the launch treats the
+ * seed as best-effort, and the TUI still gets the config model.
  */
 function ensureRealDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
@@ -132,10 +138,20 @@ function ensureRealDir(dir: string): void {
   }
 }
 
+/**
+ * The seed content a sandbox launch hands its container prelude. It carries the
+ * configured model as `recent[0]`; the prelude MERGES it over the store the
+ * container already has, so a user's own recent picks and favorites survive a
+ * relaunch or a switch.
+ */
+export function opencode2ModelStateSeed(model: string, effort?: string): string | null {
+  if (parseOpencode2ModelId(model) === null) return null;
+  return JSON.stringify(mergeOpencode2ModelState(undefined, model, effort));
+}
+
 function writeAtomic(file: string, body: string): void {
-  // A sandbox can plant a symlink, FIFO or directory at the store path. The
-  // read guard ignores them; the write must replace the entry itself, never
-  // rename onto (or through) it.
+  // A planted symlink, FIFO or directory at the store path must be replaced,
+  // never renamed onto (or through); the read guard ignores them.
   try {
     const stat = lstatSync(file);
     if (stat.isDirectory()) rmdirSync(file);
@@ -146,7 +162,7 @@ function writeAtomic(file: string, body: string): void {
     // seed as best-effort rather than stalling the launch.
   }
   // `wx` never follows a planted entry at the temp path, and an unpredictable
-  // name keeps the temp out of a sandbox writer's reach.
+  // name keeps the temp out of another writer's reach.
   const temporaryPath = `${file}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   writeFileSync(temporaryPath, body, { flag: 'wx' });
   renameSync(temporaryPath, file);
@@ -158,14 +174,15 @@ export const MAX_MODEL_STATE_BYTES = 64 * 1024;
 /**
  * Read an existing store without letting a hostile file stall the host.
  *
- * On a docker launch this path (`<bridge dir>/opencode2/model-state.json`) is
- * inside the sandbox-writable bridge mount, so a sandboxed agent could plant a
- * FIFO (a synchronous read blocks the extension host forever) or a huge file
- * (the read exhausts memory). Opening with `O_NOFOLLOW|O_NONBLOCK` and checking
- * the descriptor's type and size closes both: only a regular file within the
- * cap is parsed, and a link or pipe is ignored. The checks are on the open fd,
- * and the read itself is capped, so neither a swap between check and read nor
- * a file that keeps growing can slip through.
+ * The host XDG state dir belongs to karst, but a user (or an older build) may
+ * still have planted a FIFO (a synchronous read blocks the extension host
+ * forever) or a huge file (the read exhausts memory). Opening with
+ * `O_NOFOLLOW|O_NONBLOCK` and checking the descriptor's type and size closes
+ * both: only a regular file within the cap is parsed, and a link or pipe is
+ * ignored. The checks are on the open fd, and the read itself is capped, so
+ * neither a swap between check and read nor a file that keeps growing can slip
+ * through. The sandbox seed never reaches this reader: it is content in the
+ * container env, merged by the prelude.
  */
 function readExistingState(file: string): unknown {
   let fd: number | undefined;

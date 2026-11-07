@@ -39,8 +39,8 @@ import {
 } from './opencode2Binary.js';
 import {
   KARST_OPENCODE2_MODEL_STATE_ENV,
+  opencode2ModelStateSeed,
   seedOpencode2ModelState,
-  writeOpencode2ModelState,
 } from './opencode2ModelState.js';
 import { KARST_OPENCODE_HEADLESS_ENV, OPENCODE2_BRIDGE_FILENAME, writeOpencode2Bridge } from './opencode2Bridge.js';
 import { sandboxPluginLocation } from './hookBridgeFiles.js';
@@ -503,26 +503,16 @@ export class Opencode2Adapter implements AgentAdapter {
         ...(mcp ? { mcp } : {}),
       }),
     };
-    // T1005: a sandbox's XDG state is the container volume, so its seed rides
-    // the mounted bridge dir and the docker entrypoint copies it before the TUI
-    // starts. A host launch writes the karst-owned XDG state directly. Both are
-    // best-effort: a read-only state dir must not block the session, and the
-    // ModelSelected guard still names a mismatch on the ticket.
+    // T1005: a sandbox launch hands its container the seed CONTENT (never a
+    // host file inside the agent-writable bridge mount); the docker prelude
+    // merges it into the container's own state volume. A host launch writes the
+    // karst-owned XDG state directly. Both are best-effort: an unwritable state
+    // dir must not block the session, and the ModelSelected guard still names a
+    // mismatch on the ticket.
     if (opts.model) {
       if (opts.hookChannel?.runDir !== undefined) {
-        try {
-          const seeded = writeOpencode2ModelState(
-            join(opts.hookChannel.configDir, 'opencode2', 'model-state.json'),
-            opts.model,
-            opts.effort,
-          );
-          if (seeded !== null) {
-            env[KARST_OPENCODE2_MODEL_STATE_ENV] =
-              `${opts.hookChannel.runDir}/opencode2/model-state.json`;
-          }
-        } catch {
-          // The launch still carries the config model; the guard reports a miss.
-        }
+        const seed = opencode2ModelStateSeed(opts.model, opts.effort);
+        if (seed !== null) env[KARST_OPENCODE2_MODEL_STATE_ENV] = seed;
       } else {
         const stateHome = env['XDG_STATE_HOME'];
         if (stateHome !== undefined) {

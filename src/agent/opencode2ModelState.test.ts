@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   MAX_MODEL_STATE_BYTES,
   mergeOpencode2ModelState,
+  opencode2ModelStateSeed,
   parseOpencode2ModelId,
   seedOpencode2ModelState,
   writeOpencode2ModelState,
@@ -90,6 +91,22 @@ describe('mergeOpencode2ModelState', () => {
         'a/b',
       ),
     ).toEqual({ recent: [{ providerID: 'a', modelID: 'b' }], favorite: [], variant: {} });
+  });
+});
+
+describe('sandbox seed content', () => {
+  it('is the configured model as a single recent entry with its variant', () => {
+    expect(
+      JSON.parse(opencode2ModelStateSeed('opencode-go/deepseek-v4.1-flash', 'max')!),
+    ).toEqual({
+      recent: [{ providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash' }],
+      favorite: [],
+      variant: { 'opencode-go/deepseek-v4.1-flash': 'max' },
+    });
+  });
+
+  it('returns null for an unparseable model id', () => {
+    expect(opencode2ModelStateSeed('not-a-provider-model')).toBeNull();
   });
 });
 

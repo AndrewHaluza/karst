@@ -235,22 +235,27 @@ therefore keeps the config model and seeds the TUI's recent-model store instead:
 `<XDG_STATE_HOME>/opencode/model.json` gets
 `{"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],…}`
 with the `#effort` variant in `variant` before the spawn. A host launch writes
-the karst-owned state dir directly; a sandbox writes the seed into its mounted
-bridge dir and the docker entrypoint copies it onto the container's state
-volume before the TUI starts. Live 2.0.27, two providers signed in: with the
-seed present and **no** config model the first `session.step.started` was
+the karst-owned state dir directly. A sandbox does NOT write a seed file into
+its agent-writable bridge mount (that path had a symlink-swap window the host
+cannot close without `openat`): the seed CONTENT rides the container env and the
+docker prelude MERGES it into the container's own `model.json` before the TUI
+starts, so the user's recents and favorites survive a relaunch or a switch.
+Live 2.0.27, two providers signed in: with the seed present and **no** config
+model the first `session.step.started` was
 `{"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}`; with
 the config model set it was DeepSeek on the first step.
 
 Because a seed can still be ignored (a provider that is not ready at startup),
 the bridge also reports the first `session.step.started` model once per session
-as `ModelSelected`. The host compares it with the model the reporting launch was
-configured to use (that launch's `session_launch_intents` row, pinned by the
-endpoint-rebuilt `launchId`) and, on a mismatch, writes a warning event to the
-ticket naming both models. It never stops the session. The launch intent is the
-right source: `process_runs.model` is written once at run open and never
-updated, so after a live model switch it still names the previous model and the
-guard would warn about the model the user just chose.
+as `ModelSelected`, retrying on a bounded timer until the endpoint accepts it so
+a host restart cannot drop the session's only observation. The host compares it
+with the model the reporting launch was configured to use (that launch's
+`session_launch_intents` row, pinned by the endpoint-rebuilt `launchId`) —
+provider/model AND the `#effort` variant — and, on a mismatch, writes a warning
+event to the ticket naming both sides. It never stops the session. The launch
+intent is the right source: `process_runs.model` is written once at run open and
+never updated, so after a live model switch it still names the previous model
+and the guard would warn about the model the user just chose.
 
 ### Live evidence in the ticket sandbox (2.0.27, 2026-11-07)
 
@@ -265,10 +270,11 @@ OpenCode Go  API key                     stored
 OpenRouter   API key                     stored
 ```
 
-The launch wrapper was the exact `OPENCODE2_MODEL_STATE_PRELUDE` from
-`dockerRunArgs.ts`; the seed file was the exact output of
-`writeOpencode2ModelState` for `opencode-go/deepseek-v4.1-flash#max`;
-`OPENCODE_CONFIG_CONTENT` carried the same model. The prelude copied
+The launch wrapper used for this recording was the then-current
+`OPENCODE2_MODEL_STATE_PRELUDE` from `dockerRunArgs.ts` (a copy of the seed
+file); the seed content was the exact store merge for
+`opencode-go/deepseek-v4.1-flash#max`; `OPENCODE_CONFIG_CONTENT` carried the
+same model. The prelude copied
 
 ```
 {"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],
@@ -291,6 +297,14 @@ So the first turn ran the configured model, not
 directly into a fresh state dir (no prelude) produced the same result: session
 `ses_e4983088affedEoP0B7Q2OlPP9`, first assistant `deepseek-v4.1-flash` /
 `opencode-go` / `max`.
+
+The prelude now receives that same content in the container env and MERGES it
+into the container store instead of copying a file from the agent-writable
+bridge mount; `dockerRunArgs.integration.test.ts` executes the real prelude
+against a temp `XDG_STATE_HOME` and pins that the configured model lands first
+while existing recents/favorites survive, and that a corrupt store still lets
+the TUI exec. The TUI behavior evidenced above is unchanged: `recent[0]` is what
+the first step uses.
 
 The mismatch warning cannot be posted to the real ticket from the sandbox (no
 karst CLI or DB), so it is evidenced by the in-memory store tests:

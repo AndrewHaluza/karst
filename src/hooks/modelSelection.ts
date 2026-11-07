@@ -45,6 +45,11 @@ export function configuredSessionModel(
  * differs from the configured one. Record a durable host event on the ticket
  * naming BOTH models. Observation only — the session is never stopped here.
  *
+ * Both halves of the configured selection count: a different provider/model is
+ * a mismatch, and so is an effort the TUI ignored (configured `#max`, observed
+ * `#high`). An absent observed variant is not compared — the bridge only
+ * forwards one it has, and "unknown" must not read as "different".
+ *
  * Returns true when a warning was recorded. Malformed/absent comparison data
  * (no launch intent with a model) is not a mismatch, so nothing is written.
  */
@@ -58,9 +63,18 @@ export function recordModelSelectionWarning(
   try {
     const configured = configuredSessionModel(store, ticketId, launchId);
     if (configured === null) return false;
-    const expected = configured.split('#')[0] ?? configured;
-    const actual = `${observed.providerID}/${observed.modelID}`;
-    if (expected === actual) return false;
+    const [configuredModel, configuredEffort] = splitEffort(configured);
+    const actualModel = `${observed.providerID}/${observed.modelID}`;
+    const modelMismatch = configuredModel !== actualModel;
+    const effortMismatch =
+      configuredEffort !== undefined &&
+      observed.variant !== undefined &&
+      configuredEffort !== observed.variant;
+    if (!modelMismatch && !effortMismatch) return false;
+    const expected =
+      configuredEffort !== undefined ? `${configuredModel}#${configuredEffort}` : configuredModel;
+    const actual =
+      observed.variant !== undefined ? `${actualModel}#${observed.variant}` : actualModel;
     postMessage(store, {
       projectId: getTicket(store, ticketId).projectId,
       fromTicketId: null,
@@ -75,4 +89,11 @@ export function recordModelSelectionWarning(
     debug?.(`[model-selected] ticket ${ticketId}: warning not recorded: ${String(error)}`);
     return false;
   }
+}
+
+/** `provider/model#effort` → its two halves; `#effort` is optional. */
+function splitEffort(model: string): [string, string | undefined] {
+  const hash = model.indexOf('#');
+  if (hash < 0) return [model, undefined];
+  return [model.slice(0, hash), model.slice(hash + 1) || undefined];
 }

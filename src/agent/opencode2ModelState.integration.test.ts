@@ -92,10 +92,10 @@ describe('opencode2 TUI kickoff model with two providers signed in (T1005)', () 
   });
 });
 
-// The sandbox writes this path (the bridge mount), so a planted FIFO must not
-// stall the extension host. Run the seed in a child with a timeout: a regressed
-// guard fails the test instead of hanging the whole suite.
-describe('sandbox-writable model-state seed (T1005)', () => {
+// Defense-in-depth: the writer still refuses a planted FIFO/symlink at the host
+// state path. Run the seed in a child with a timeout: a regressed guard fails
+// the test instead of hanging the whole suite.
+describe('model-state writer never blocks on a planted entry (T1005)', () => {
   it('does not block on a FIFO planted at the store path', () => {
     const root = tempRoot();
     const file = join(root, 'opencode2', 'model-state.json');

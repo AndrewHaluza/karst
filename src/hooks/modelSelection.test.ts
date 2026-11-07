@@ -138,7 +138,7 @@ describe('model selection guard (T1005)', () => {
     expect(listInbox(store, ticketId, { unreadOnly: false })).toEqual([]);
   });
 
-  it('compares a configured model that carries an effort suffix by model id only', () => {
+  it('compares a configured model that carries an effort suffix by model id only when the step drops the variant', () => {
     launch('L1', 'opencode-go/deepseek-v4.1-flash#high');
     expect(
       recordModelSelectionWarning(
@@ -148,6 +148,36 @@ describe('model selection guard (T1005)', () => {
           providerID: 'opencode-go',
           modelID: 'deepseek-v4.1-flash',
         },
+        'L1',
+      ),
+    ).toBe(false);
+    expect(listInbox(store, ticketId, { unreadOnly: false })).toEqual([]);
+  });
+
+  // Review of T1005: the effort half of the configured selection counts too. A
+  // TUI that clamps `#max` to `#high` must be named, not passed silently.
+  it('warns when the reported effort differs from the configured one', () => {
+    launch('L1', 'opencode-go/deepseek-v4.1-flash#max');
+    expect(
+      recordModelSelectionWarning(
+        store,
+        ticketId,
+        { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high' },
+        'L1',
+      ),
+    ).toBe(true);
+    const body = listInbox(store, ticketId, { unreadOnly: false })[0]!.body;
+    expect(body).toContain('opencode-go/deepseek-v4.1-flash#high');
+    expect(body).toContain('opencode-go/deepseek-v4.1-flash#max');
+  });
+
+  it('does not warn when the reported effort matches', () => {
+    launch('L1', 'opencode-go/deepseek-v4.1-flash#max');
+    expect(
+      recordModelSelectionWarning(
+        store,
+        ticketId,
+        { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'max' },
         'L1',
       ),
     ).toBe(false);

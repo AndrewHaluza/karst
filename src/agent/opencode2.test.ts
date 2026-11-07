@@ -466,7 +466,7 @@ describe('Opencode2Adapter interactive argv/env', () => {
     expect(state.variant['opencode-go/deepseek-v4.1-flash']).toBe('high');
   });
 
-  it('sandbox: seeds the bridge state file and names its container path', () => {
+  it('sandbox: hands the container the seed CONTENT, never a file in the bridge dir', () => {
     const worktree = makeWorktree();
     const bridge = makeWorktree();
     const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
@@ -481,14 +481,15 @@ describe('Opencode2Adapter interactive argv/env', () => {
       },
       initialPrompt: 'go',
     });
-    const seedFile = join(bridge, 'opencode2', 'model-state.json');
-    expect(JSON.parse(readFileSync(seedFile, 'utf8')).recent[0]).toEqual({
-      providerID: 'opencode-go',
-      modelID: 'deepseek-v4.1-flash',
+    // The bridge mount is sandbox-writable, so no host seed file is written into
+    // it: the content rides the container env and the prelude merges it.
+    expect(existsSync(join(bridge, 'opencode2', 'model-state.json'))).toBe(false);
+    expect(
+      JSON.parse(cmd.env['KARST_OPENCODE2_MODEL_STATE_JSON'] ?? '{}'),
+    ).toMatchObject({
+      recent: [{ providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash' }],
+      variant: { 'opencode-go/deepseek-v4.1-flash': 'max' },
     });
-    expect(cmd.env['KARST_OPENCODE2_MODEL_STATE']).toBe(
-      '/karst-bridge/7/opencode2/model-state.json',
-    );
   });
 
   it('adds --session on resume and never inlines the instruction body', () => {
