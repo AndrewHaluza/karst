@@ -30,7 +30,7 @@ export interface AppProps {
   /** Injected in tests; the real app takes the page globals. */
   readonly bridge?: SettingsHostBridge;
   /** So a test can mount one tab without clicking through the nav. */
-  readonly initialSection?: 'general' | 'git' | 'quality' | 'ticketing';
+  readonly initialSection?: 'general' | 'git' | 'quality' | 'ticketing' | 'autopilot';
   readonly children?: ReactNode;
 }
 

@@ -80,6 +80,7 @@ describe('AppShell — the left nav is the whole section vocabulary', () => {
       'approaches',
       'agents',
       'quality',
+      'autopilot',
       'ticketing',
     ]);
     expect(document.querySelector('nav.sidebar')).not.toBeNull();
