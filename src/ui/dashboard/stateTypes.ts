@@ -86,6 +86,11 @@ export interface DashboardAgentContext {
    * Plain data (no functions) suitable for serialization via postMessage.
    */
   capabilityIdentity?: Record<PresetCapability, CapabilityIdentity | null>;
+  /**
+   * Cores the host knows cannot run now, with the reason the picker shows as the
+   * sub-label (e.g. "not installed"). Plain data; a core absent here is offered.
+   */
+  unavailableCores?: Partial<Record<AgentProvider, string>>;
 }
 
 /**

@@ -40,6 +40,9 @@ function pickerOptions(agent: AgentSlice, handlers: PickerHandlers): Record<stri
     routes: pageRoutes(),
     recent: sw.recentByCore || {},
     value: { core: s.provider, model: s.modelId || '', effort: sw.effort || '' },
+    // The inherit rows name the resolved defaults; picking one commits an empty model/effort (the host reads null as inherit).
+    inherit: { model: sw.modelInheritLabel, effort: sw.effortInheritLabel },
+    inheritCore: sw.inheritCore,
     showEffort: true,
     onCommit: handlers.onCommit,
     onCancel: handlers.onCancel,

@@ -402,6 +402,12 @@ function apFilterModels(models, routes, q) {
  * carries the staged-panel extras (see apModelItemHtml). With no `cap` and no
  * `view` the output is the pre-tabs list.
  */
+function apInheritRowHtml(inheritLabel, saved, show) {
+  if (!inheritLabel || !show) return '';
+  return '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
+    + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
+    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+}
 function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, routes, query, cap, view) {
   var list = (catalog && catalog[provider]) || [];
   var q = String(query === null || query === undefined ? '' : query).trim().toLowerCase();
@@ -413,16 +419,14 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, r
     if (apHasCap(list[n], capId) && apMatchesQuery(list[n], routes, q)) vis.push(list[n]);
   }
   if (!vis.length) {
-    if (!list.length) return '<div class="ap-empty">No models listed for this core.</div>';
+    if (!list.length) return apInheritRowHtml(inheritLabel, saved, !q) + '<div class="ap-empty">No models listed for this core.</div>';
     return '<div class="ap-empty">No models match' + (q ? ' "' + apEsc(query) + '"' : '')
       + (capId !== 'all' ? ' in ' + apEsc(apCapLabel(capId)) : '') + '.</div>';
   }
   if (q) return apModelListHtml(vis, saved, routes, {}, tagsOf, v);
   var out = '';
   if (inheritLabel && capId === 'all') {
-    out += '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
-      + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
-      + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+    out += apInheritRowHtml(inheritLabel, saved, true);
   }
   // The "Last used" group: models the user actually used recently, newest
   // first, up to 5, rendered BEFORE the full list. Only ids still visible
@@ -796,7 +800,8 @@ function mountStagedPicker(root, o) {
 
   function renderList() {
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, '', recent[state.core], routes, q, cap,
+      catalog, state.core, state.model, apInheritLabels(o.inherit || {}, o.inheritCore || '', state.core).model || '',
+      recent[state.core], routes, q, cap,
       { staged: true, currentId: state.core === base.core ? base.model : '' },
     );
   }
@@ -950,6 +955,9 @@ function mountStagedPicker(root, o) {
       if (e.key === 'ArrowDown') {
         var first = rowsOf()[0];
         if (first) { e.preventDefault(); first.focus(); }
+      } else if (e.key === 'Enter') {
+        var pick = rowsOf()[0];
+        if (pick) { e.preventDefault(); pick.click(); }
       }
       return;
     }
@@ -1425,6 +1433,8 @@ function mountAgentPicker(root, opts) {
       return;
     }
     if (e.key === 'Enter') {
+      // A capability tab answers its own Enter (native button click).
+      if (e.target.closest && e.target.closest('[data-ap-cap]')) return;
       // The focused row wins: a key pressed on a row that is not highlighted
       // must choose that row, not the highlight (review finding, round 4).
       var row = apOptionAt(shell, e.target) || apActiveOption(shell);

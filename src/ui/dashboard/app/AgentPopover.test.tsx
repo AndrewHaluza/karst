@@ -31,6 +31,17 @@ describe('AgentPopover — the staged switch', () => {
     expect(mounts).toHaveLength(2);
   });
 
+  it('hands the picker the inherit labels and the core they describe', () => {
+    const mounts = installPicker();
+    mountHeader(headerState());
+    fireEvent.click($('#agentButton'));
+    expect(mounts[0]!.opts.inherit).toEqual({
+      model: expect.any(String),
+      effort: expect.any(String),
+    });
+    expect(mounts[0]!.opts).toHaveProperty('inheritCore');
+  });
+
   it('hands the picker the route identity map the picker blob emits, or none when it is absent', () => {
     const mounts = installPicker();
     const scope = globalThis as unknown as Record<string, unknown>;

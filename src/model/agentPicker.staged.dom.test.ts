@@ -438,3 +438,67 @@ describe('inline mode is the default and keeps its triggers', () => {
     expect(rowIds(root).filter((i) => i)).toEqual(['claude-opus-5']);
   });
 });
+
+describe('review findings: keyboard and empty catalog', () => {
+  it('Enter on a focused capability tab in the inline menu selects the tab, not the highlighted model', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const onChange = vi.fn();
+    load()(root, {
+      cores: CORES.slice(0, 4),
+      catalog: CATALOG,
+      value: { core: 'claude', model: 'claude-opus-5', effort: '' },
+      onChange,
+    });
+    click(root.querySelector('[data-ap-trigger="model"]'));
+    const tab = capTabs(root)[2]!;
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    tab.dispatchEvent(ev);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('keeps the inherit row for a core with an empty catalog', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    load()(root, {
+      cores: CORES.slice(0, 4),
+      catalog: { ...CATALOG, codex: [] },
+      value: { core: 'codex', model: '', effort: '' },
+      inherit: { model: 'Inherit (settings: none)' },
+      inheritCore: 'codex',
+    });
+    click(root.querySelector('[data-ap-trigger="model"]'));
+    expect(root.querySelector('[data-ap-model=""]')).not.toBeNull();
+    expect(root.textContent).toContain('No models listed for this core.');
+  });
+
+  it('Enter in the staged search picks the first matching row', () => {
+    const { root, onCommit } = mountStaged({ value: { core: 'opencode', model: '', effort: '' } });
+    const search = root.querySelector<HTMLInputElement>('[data-ap-search]')!;
+    search.value = 'pickle';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    click(root.querySelector('[data-ap-commit]'));
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ model: 'opencode/big-pickle' }));
+  });
+});
+
+describe('staged mode offers the inherit row the host names', () => {
+  it('shows the model inherit row and commits an empty model when it is picked', () => {
+    const { root, onCommit } = mountStaged({
+      inherit: { model: 'No default (agent picks)' },
+      inheritCore: 'claude',
+    });
+    const row = root.querySelector('[data-ap-model=""]');
+    expect(row?.textContent).toContain('No default (agent picks)');
+    click(row);
+    click(root.querySelector('[data-ap-commit]'));
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ core: 'claude', model: '' }));
+  });
+
+  it('drops the inherit row for a core other than the one the label describes', () => {
+    const { root } = mountStaged({ inherit: { model: 'Inherit (settings: Opus 5)' }, inheritCore: 'codex' });
+    expect(root.querySelector('[data-ap-model=""]')).toBeNull();
+  });
+});
