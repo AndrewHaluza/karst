@@ -71,3 +71,21 @@ Fix a merge conflict on an open PR of a host ticket without a click. The budget,
 - Conflict budget: per (PR, `conflicts`). The signature is the base head SHA: a new base head resets the counter. A spent repo is skipped while another conflicted PR of the ticket has attempts. The ticket parks with `auto-fix stopped: conflicts <n>/<max>` only when every conflicted PR is spent. A failed round gives its attempt back.
 - No second conflict round starts while the first round is armed or its auto-deliver runs (`conflictRoundActive`: the in-memory round and `isAutoDelivering`). The stored merge check stays `conflicted` until the next probe, so a cooldown alone is not enough. A sent conflict round clears the stored CI rollup and merge block of that PR, so a rollup of the old head starts no CI round. A round armed for more than 5 minutes with no agent and no delivery never delivered: the engine drops it, writes a note, and the next attempt spends the budget.
 END_DOC_BLOCK: [@arch:AP-01]
+
+## [@arch:AP-02] Autopilot UI
+covers: src/model/inside/autofix.ts, src/ui/dashboard/app/AutofixParts.tsx, src/ui/settings/app/sections/AutopilotSection.tsx
+
+### Purpose
+Show the auto-fix state and the controls. The UI adds no new engine rule.
+
+### Connections
+- in: @arch:AP-00, @arch:SAVE, @arch:BLOCKED, @arch:GH-04, @arch:GH-08
+- out: messages `autopilot-override`, `autopilot-approve-one`, `autopilot-stop`, `autopilot-retry`
+
+### Rules
+- Settings: the Autopilot page owns the one manifest key `autopilot`. Save and Discard apply to this tab only. Push diverged is read-only text, and Merge to base has no control.
+- Ship panel: there is no new step row. `autofixRow` words the state on the Merge row. A running round shows a step line and the actions Stop after this round and Stop now.
+- The banner for an auto-fix park uses the `awaiting-merge` block. It has no new blocker kind. A spent budget has one primary, Approve 1 more. A gh failure or a sandbox pause has one primary, Retry, and never a run-on-host action.
+- The override control sends `autopilot-override` and settles through the pending marker.
+- Unknown CI status reads "Auto-fix waits; not counted as pass". The store has no signal for a running CI round, so `unknownCi` is not filled yet.
+END_DOC_BLOCK: [@arch:AP-02]
