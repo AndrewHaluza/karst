@@ -167,6 +167,15 @@ export async function resumeConfiguredFixExecution(
   if (opts.eligible && !opts.eligible()) return 'skipped';
   // The wait may have changed the session: read liveness again, never reuse the first read.
   const liveNow = opts.isLive();
+  const nowIdentity = liveNow ? opts.sessionIdentity() : null;
+  if (
+    nowIdentity !== null
+    && nowIdentity.provider === opts.configuredIdentity.provider
+    && nowIdentity.model === opts.configuredIdentity.model
+  ) {
+    // The session now runs the configured identity: nudge it, never retire it.
+    return resumeFixExecution(store, { ...opts, identity: opts.configuredIdentity, isLive: () => true });
+  }
   if (liveNow) opts.dispose();
   return resumeFixExecution(store, {
     ...opts,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldStartDriver, ticketsToSweep, DriverController } from './driverController.js';
+import { shouldStartDriver, shouldStartDriverOn, ticketsToSweep, DriverController } from './driverController.js';
 
 describe('ticketsToSweep', () => {
   const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent, stages: [] });
@@ -119,5 +119,19 @@ describe('DriverController', () => {
     c.begin(1);
     c.end(1);
     expect(c.signalFor(1)).toBeUndefined();
+  });
+});
+
+describe('shouldStartDriverOn', () => {
+  it('starts at fix only for an unpause', () => {
+    expect(shouldStartDriverOn('fix', 'unpause')).toBe(true);
+    expect(shouldStartDriverOn('fix', 'hook')).toBe(false);
+    expect(shouldStartDriverOn('fix', 'sweep')).toBe(false);
+  });
+
+  it('keeps the gate stages for every trigger and refuses other stages on unpause', () => {
+    expect(shouldStartDriverOn('uat', 'hook')).toBe(true);
+    expect(shouldStartDriverOn('review', 'unpause')).toBe(true);
+    expect(shouldStartDriverOn('impl', 'unpause')).toBe(false);
   });
 });

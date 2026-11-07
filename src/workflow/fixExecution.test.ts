@@ -352,7 +352,7 @@ describe('configured Fix session compatibility and readiness', () => {
     }));
 
     expect(outcome).toBe('launched');
-    expect(events).toEqual(['live', 'identity', 'ready', 'live', 'dispose', 'open']);
+    expect(events).toEqual(['live', 'identity', 'ready', 'live', 'identity', 'dispose', 'open']);
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
@@ -385,6 +385,21 @@ describe('configured Fix session compatibility and readiness', () => {
     }));
     expect(outcome).toBe('launched');
     expect(events).toEqual(['open:false']);
+  });
+
+  it('nudges, and does not dispose, a session that took the configured identity during the wait', async () => {
+    const events: string[] = [];
+    let reads = 0;
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => true,
+      sessionIdentity: () => (++reads === 1 ? { provider: 'claude', model: 'opus' } : { provider: 'codex', model: 'sol' }),
+      providerReady: () => true,
+      deliverFix: () => (events.push('nudge'), true),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+    expect(outcome).toBe('nudged');
+    expect(events).toEqual(['nudge']);
   });
 
   it('probes a closed launch path and never disposes or launches when it fails', async () => {

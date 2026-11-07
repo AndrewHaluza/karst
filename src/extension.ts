@@ -394,7 +394,7 @@ import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from '
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
-import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
+import { DriverController, shouldStartDriverOn, ticketsToSweep } from './workflow/driverController.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
@@ -3662,8 +3662,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     });
     if (outcome === 'skipped') {
-      // The round stays pending: `karst.unpauseTicket` calls `maybeDrive`, and the driver
-      // resumes a pending round at fix, so nothing is lost.
+      // The round stays pending: an unpause drives the ticket at fix (shouldStartDriverOn),
+      // and the driver resumes the pending round.
       logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused)`);
       return;
     }
@@ -3698,7 +3698,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (paused)`);
       return;
     }
-    if (!shouldStartDriver(t.stageCurrent as StageKey)) return;
+    if (!shouldStartDriverOn(t.stageCurrent as StageKey, trigger)) return;
     // A graph ticket at impl with an active graph run is driven by the graph
     // coordinator, never by the stage driver (Slice 3 Task 7 entry-point
     // matrix: the graph owns the ticket until it completes).
