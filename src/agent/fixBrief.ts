@@ -69,6 +69,10 @@ function latestFailingGates(stageKey: StageKey, runs: readonly GateRun[]): GateR
 export const FIX_REFUSED_STOP_RULE =
   'If the done marker is refused with no new commit and the host re-run still fails, stop and wait for the user — that is a valid stopping point.';
 
+/** Said once in a failed review gate brief: repair the whole defect class, not only the reported site. */
+export const REVIEW_SWEEP_RULE =
+  'For each finding, name the rule it breaks. Search the repository for each site of that rule. Fix each site. List the sites in the commit body.';
+
 /**
  * The opening prompt for a session resumed at `fix`. A bare "continue the work"
  * wastes the one thing karst knows and the agent does not: which gate failed, why
@@ -134,6 +138,7 @@ export function renderFixBrief(
     PROCESS_KILL_RULE,
   ];
   if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
+  if (gate.stageKey === 'review') lines.push('', REVIEW_SWEEP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {
     lines.push('', PROTOTYPE_REGION_CHECKLIST_RULE);

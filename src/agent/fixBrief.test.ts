@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { REVIEW_SWEEP_RULE } from './fixBrief.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
@@ -90,6 +91,26 @@ describe('renderFixBrief', () => {
     expect(brief).toContain('review gate failed');
     expect(brief).toContain('gates failed: lint, test');
     expect(brief).toContain('/logs/review-ticket-3.log');
+  });
+
+  describe('review sweep rule', () => {
+    it('adds the sweep rule to a failed review gate brief', () => {
+      const brief = renderFixBrief('PROJ-9', [{ stageKey: 'review', status: 'failed' }]);
+      expect(brief).toContain(REVIEW_SWEEP_RULE);
+      expect(REVIEW_SWEEP_RULE).toContain('commit body');
+    });
+
+    it('keeps the rule out of a failed uat gate brief and out of PR feedback', () => {
+      const uat = renderFixBrief('PROJ-9', [{ stageKey: 'uat', status: 'failed' }]);
+      expect(uat).not.toContain(REVIEW_SWEEP_RULE);
+      const ship = renderFixBrief('PROJ-9', [{ stageKey: 'ship', status: 'failed' }], [], [], [
+        {
+          repo: 'r', path: 'a.ts', line: 1, originalLine: 1, body: 'x',
+          author: { login: 'bob', association: '' },
+        } as never,
+      ]);
+      expect(ship).not.toContain(REVIEW_SWEEP_RULE);
+    });
   });
 
   it('still asks for a fix when the gate recorded no reason or log', () => {
