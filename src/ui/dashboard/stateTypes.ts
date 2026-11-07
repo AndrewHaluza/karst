@@ -1,3 +1,4 @@
+import type { AutopilotSlice } from './stateAutofix.js';
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentBackends } from '../../agent/backendChoices.js';
@@ -341,6 +342,8 @@ export interface DashboardState {
    * so this map has EXACTLY six keys and never a peer `fix` entry.
    */
   insideViews: Record<InsideStageKey, InsideStageView>;
+  /** Auto-fix override, default, banner and log for the ship panel (T1004). */
+  autopilot: AutopilotSlice;
   /**
    * The inside stage presented as CURRENT. When the runtime ticket sits at
    * `fix`, this is the stage the fix is causally attached to (the source stage

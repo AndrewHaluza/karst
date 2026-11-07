@@ -139,6 +139,7 @@ export function buildSnapshotState(
     // The shared half of the Servers panel (D203): manifest + store, so it
     // arrives as an injected provider and never from the state builder.
     (id) => i.sharedServersFor(id),
+    i.manifest?.()?.autopilot,
   );
   const stored = i.loaders.storedArtifactsFor(ticketId);
   // The ship preview rides ONLY while the ship slot is confirm/retry (D142):
