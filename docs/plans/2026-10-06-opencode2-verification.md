@@ -251,17 +251,18 @@ as `ModelSelected`, retrying on a bounded timer until the endpoint accepts it so
 a host restart cannot drop the session's only observation. The host compares it
 with the model the reporting launch was configured to use (that launch's
 `session_launch_intents` row, pinned by the endpoint-rebuilt `launchId`) —
-provider/model AND the `#effort` variant — and, on a mismatch, writes a warning
-event to the ticket naming both sides. It never stops the session. The launch
-intent is the right source: `process_runs.model` is written once at run open and
-never updated, so after a live model switch it still names the previous model
-and the guard would warn about the model the user just chose.
+provider/model AND the effort (the intent's own v103 `effort` column, so the
+comparison is live rather than a `#effort` the intent never carried) — and, on a
+mismatch, writes a warning event to the ticket naming both sides. It never stops
+the session. The launch intent is the right source: `process_runs.model` is
+written once at run open and never updated, so after a live model switch it
+still names the previous model and the guard would warn about the model the user
+just chose.
 
 ### Live evidence in the ticket sandbox (2.0.27, 2026-11-07)
 
-Run inside the ticket's docker sandbox (`karst-0ea0dde3-1005-opencode2`, the
-same 2.0.27 image) with BOTH providers signed in and a fresh, empty
-`<XDG_STATE_HOME>`:
+Run inside the project's docker sandbox (`karst-0ea0dde3-1003-opencode2`, the
+same 2.0.27 image) with BOTH providers signed in:
 
 ```
 $ opencode2 auth list --standalone
@@ -270,41 +271,47 @@ OpenCode Go  API key                     stored
 OpenRouter   API key                     stored
 ```
 
-The launch wrapper used for this recording was the then-current
-`OPENCODE2_MODEL_STATE_PRELUDE` from `dockerRunArgs.ts` (a copy of the seed
-file); the seed content was the exact store merge for
-`opencode-go/deepseek-v4.1-flash#max`; `OPENCODE_CONFIG_CONTENT` carried the
-same model. The prelude copied
+**Shipped path (seed content in the env, prelude merges).** A fresh, empty
+`XDG_STATE_HOME=/tmp/t1005-state`; the seed was the exact output of
+`opencode2ModelStateSeed('opencode-go/deepseek-v4.1-flash', 'max')`, forwarded
+BY NAME through the docker client env (`docker exec -e
+KARST_OPENCODE2_MODEL_STATE_JSON …` — the same `--env KEY` channel
+`interactiveRunArgs` emits), `OPENCODE_CONFIG_CONTENT` carried
+`opencode-go/deepseek-v4.1-flash#max`, and the exact current
+`OPENCODE2_MODEL_STATE_PRELUDE` from `dockerRunArgs.ts` ran as
+`sh -c "$PRELUDE" karst-opencode2 opencode2 --standalone --prompt "reply with
+exactly: env-merge-check"` under a PTY. The prelude merged onto the empty
+state:
 
 ```
 {"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],
  "favorite":[],"variant":{"opencode-go/deepseek-v4.1-flash":"max"}}
 ```
 
-onto the container's state volume, then ran
-`opencode2 --standalone --prompt "reply with exactly: prelude-check"` under a
-PTY. The first assistant row in the sandbox `opencode.db` (session
-`ses_e497eda3bffeAEnnEohiewd1oW`) is:
+The first assistant row in the sandbox `opencode.db` (session
+`ses_e4904857dffebZ4FgjFLo8M09i`) is:
 
 ```
 seq 7 assistant
 model   = {"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}
-content = [{"type":"text","text":"prelude-check"}]
+content = [{"type":"text","text":"env-merge-check"}]
 ```
 
-So the first turn ran the configured model, not
-`openrouter/anthropic/claude-haiku-5.5`. A second launch that wrote the seed
-directly into a fresh state dir (no prelude) produced the same result: session
-`ses_e4983088affedEoP0B7Q2OlPP9`, first assistant `deepseek-v4.1-flash` /
-`opencode-go` / `max`.
+So a launch through the SHIPPED env+merge wrapper ran the first turn on the
+configured model, not `openrouter/anthropic/claude-haiku-5.5`. (The TUI stays
+open after the reply, so the driving `script` was ended by `timeout`; the
+session row and first step were already recorded.)
 
-The prelude now receives that same content in the container env and MERGES it
-into the container store instead of copying a file from the agent-writable
-bridge mount; `dockerRunArgs.integration.test.ts` executes the real prelude
-against a temp `XDG_STATE_HOME` and pins that the configured model lands first
-while existing recents/favorites survive, and that a corrupt store still lets
-the TUI exec. The TUI behavior evidenced above is unchanged: `recent[0]` is what
-the first step uses.
+**Earlier supporting run.** Before the env-content change, the same sandbox
+with the then-current copy prelude (seed file copied onto the state volume,
+`--prompt "reply with exactly: prelude-check"`) produced the same configured
+model in session `ses_e497eda3bffeAEnnEohiewd1oW` (first assistant
+`deepseek-v4.1-flash` / `opencode-go` / `max`), and a direct seed write into a
+fresh state dir produced it again in session `ses_e4983088affedEoP0B7Q2OlPP9`.
+
+`dockerRunArgs.integration.test.ts` executes the real prelude against a temp
+`XDG_STATE_HOME` and pins that the configured model lands first while existing
+recents/favorites survive, and that a corrupt store still lets the TUI exec.
 
 The mismatch warning cannot be posted to the real ticket from the sandbox (no
 karst CLI or DB), so it is evidenced by the in-memory store tests:

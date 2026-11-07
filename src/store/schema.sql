@@ -269,6 +269,11 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   provider      TEXT NOT NULL,        -- the core the launch resolved to
   model         TEXT,
+  -- v103: the resolved effort (`#<effort>`) this launch configured. It is
+  -- separate from `model` (which stays the bare provider model id for runs,
+  -- segments and displays) so the ModelSelected guard can compare the effort
+  -- the TUI actually used (T1005).
+  effort        TEXT,
   -- v33: the CONFIGURED inside agent name a fix launch resolved to (the
   -- uat-fix/review-fix process identity), so the SessionStart can open the
   -- Fix process run with the snapshot. NULL for implementation launches and

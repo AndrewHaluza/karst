@@ -3,7 +3,7 @@ import { createTicket } from '../store/tickets.js';
 import { listInbox } from '../store/ticketMessages.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { configuredSessionModel, recordModelSelectionWarning } from './modelSelection.js';
+import { configuredSessionSelection, recordModelSelectionWarning } from './modelSelection.js';
 
 describe('model selection guard (T1005)', () => {
   let store: Store;
@@ -21,6 +21,7 @@ describe('model selection guard (T1005)', () => {
     launchId: string,
     model: string | null,
     reason: 'initial' | 'switch' | 'resume' = 'initial',
+    effort?: string,
   ): void {
     recordSessionLaunchIntent(store, {
       ticketId,
@@ -28,17 +29,24 @@ describe('model selection guard (T1005)', () => {
       purpose: 'implementation',
       provider: 'opencode2',
       model,
+      ...(effort !== undefined ? { effort } : {}),
       reason,
       sessionOrigin: reason === 'resume' ? 'resume' : 'new',
       at: '2026-11-07T10:00:00.000Z',
     });
   }
 
-  it('reads the configured model from the launch intent, pinned by launch id', () => {
-    launch('L1', 'opencode-go/deepseek-v4.1-flash');
-    expect(configuredSessionModel(store, ticketId, 'L1')).toBe('opencode-go/deepseek-v4.1-flash');
+  it('reads the configured model and effort from the launch intent, pinned by launch id', () => {
+    launch('L1', 'opencode-go/deepseek-v4.1-flash', 'initial', 'max');
+    expect(configuredSessionSelection(store, ticketId, 'L1')).toEqual({
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'max',
+    });
     // No launch id (a legacy channel): the newest intent is the fallback.
-    expect(configuredSessionModel(store, ticketId)).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(configuredSessionSelection(store, ticketId)).toEqual({
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'max',
+    });
   });
 
   it('warns on the ticket, naming both models, when the first step differs', () => {
@@ -117,9 +125,10 @@ describe('model selection guard (T1005)', () => {
   it('falls back to the newest launch intent when the launch id is unknown', () => {
     launch('L1', 'opencode-go/deepseek-v4.1-flash');
     launch('L2', 'openrouter/anthropic/claude-haiku-5.5', 'switch');
-    expect(configuredSessionModel(store, ticketId, 'unknown')).toBe(
-      'openrouter/anthropic/claude-haiku-5.5',
-    );
+    expect(configuredSessionSelection(store, ticketId, 'unknown')).toEqual({
+      model: 'openrouter/anthropic/claude-haiku-5.5',
+      effort: null,
+    });
   });
 
   it('cannot compare when no launch recorded a model', () => {
@@ -138,7 +147,7 @@ describe('model selection guard (T1005)', () => {
     expect(listInbox(store, ticketId, { unreadOnly: false })).toEqual([]);
   });
 
-  it('compares a configured model that carries an effort suffix by model id only when the step drops the variant', () => {
+  it('treats a legacy `#effort` in the model as the effort when the column is absent', () => {
     launch('L1', 'opencode-go/deepseek-v4.1-flash#high');
     expect(
       recordModelSelectionWarning(
@@ -155,9 +164,11 @@ describe('model selection guard (T1005)', () => {
   });
 
   // Review of T1005: the effort half of the configured selection counts too. A
-  // TUI that clamps `#max` to `#high` must be named, not passed silently.
+  // TUI that clamps `#max` to `#high` must be named, not passed silently. The
+  // production intent records the effort in its OWN column (v103), not joined
+  // onto `model`, so the test uses that shape.
   it('warns when the reported effort differs from the configured one', () => {
-    launch('L1', 'opencode-go/deepseek-v4.1-flash#max');
+    launch('L1', 'opencode-go/deepseek-v4.1-flash', 'initial', 'max');
     expect(
       recordModelSelectionWarning(
         store,
@@ -172,7 +183,7 @@ describe('model selection guard (T1005)', () => {
   });
 
   it('does not warn when the reported effort matches', () => {
-    launch('L1', 'opencode-go/deepseek-v4.1-flash#max');
+    launch('L1', 'opencode-go/deepseek-v4.1-flash', 'initial', 'max');
     expect(
       recordModelSelectionWarning(
         store,

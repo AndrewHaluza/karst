@@ -447,23 +447,61 @@ describe('Opencode2Adapter interactive argv/env', () => {
   // T1005: with two providers signed in and an empty XDG state, 2.0.27's TUI
   // ignored the config model and ran the kickoff on the other provider's model
   // (T1003). The launch must seed the recent-model store the TUI reads.
-  it('seeds the configured model into an empty model.json before the TUI launch', () => {
+  it('seeds the configured model into an empty per-ticket model.json before the TUI launch', () => {
     const home = makeWorktree();
     configureOpencode2({ binaryPath: '/opt/opencode2', home });
     const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',
+      ticketId: 7,
       model: 'opencode-go/deepseek-v4.1-flash',
       effort: 'high',
       initialPrompt: 'kick off',
     });
     expect(cmd.args).not.toContain('--model');
-    const state = JSON.parse(readFileSync(join(home, 'state', 'opencode', 'model.json'), 'utf8'));
+    // T1005 review: one shared state home let concurrent tickets overwrite each
+    // other's `recent[0]`, so the state dir is keyed by ticket.
+    expect(cmd.env.XDG_STATE_HOME).toBe(join(home, 'state', 'tickets', '7'));
+    const state = JSON.parse(
+      readFileSync(join(home, 'state', 'tickets', '7', 'opencode', 'model.json'), 'utf8'),
+    );
     expect(state.recent[0]).toEqual({
       providerID: 'opencode-go',
       modelID: 'deepseek-v4.1-flash',
     });
     expect(state.variant['opencode-go/deepseek-v4.1-flash']).toBe('high');
+  });
+
+  // Regression for the T1005 review: on activation, several resumable tickets
+  // launch concurrently. A shared state file let the last writer's model win,
+  // so one TUI preselected another ticket's model (the T1003 symptom).
+  it('keeps two concurrently prepared tickets on their own configured models', () => {
+    const home = makeWorktree();
+    configureOpencode2({ binaryPath: '/opt/opencode2', home });
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const a = adapter.buildInteractiveCommand({
+      cwd: '/wt-a',
+      ticketId: 1,
+      model: 'opencode-go/deepseek-v4.1-flash',
+      initialPrompt: 'a',
+    });
+    const b = adapter.buildInteractiveCommand({
+      cwd: '/wt-b',
+      ticketId: 2,
+      model: 'openrouter/anthropic/claude-haiku-5.5',
+      initialPrompt: 'b',
+    });
+    expect(a.env.XDG_STATE_HOME).not.toBe(b.env.XDG_STATE_HOME);
+    const read = (stateHome: string | undefined): unknown =>
+      JSON.parse(readFileSync(join(stateHome!, 'opencode', 'model.json'), 'utf8')).recent[0];
+    expect(read(a.env.XDG_STATE_HOME)).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(read(b.env.XDG_STATE_HOME)).toEqual({
+      providerID: 'openrouter',
+      modelID: 'anthropic/claude-haiku-5.5',
+    });
   });
 
   it('sandbox: hands the container the seed CONTENT, never a file in the bridge dir', () => {

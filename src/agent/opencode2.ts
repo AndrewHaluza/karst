@@ -516,8 +516,16 @@ export class Opencode2Adapter implements AgentAdapter {
       } else {
         const stateHome = env['XDG_STATE_HOME'];
         if (stateHome !== undefined) {
+          // One shared state home serves every ticket, so two launches prepared
+          // before either TUI reads `model.json` would overwrite each other's
+          // `recent[0]` and one kickoff would preselect the other ticket's model
+          // (review of T1005). Key the state dir by ticket: the ticket's own
+          // model is stable, while its TUI recents still persist across launches.
+          const isolated =
+            opts.ticketId !== undefined ? join(stateHome, 'tickets', String(opts.ticketId)) : stateHome;
+          env['XDG_STATE_HOME'] = isolated;
           try {
-            seedOpencode2ModelState(stateHome, opts.model, opts.effort);
+            seedOpencode2ModelState(isolated, opts.model, opts.effort);
           } catch {
             // Same best-effort rule as the sandbox seed.
           }

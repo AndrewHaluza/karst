@@ -254,6 +254,14 @@ export interface InteractiveCommandOpts {
    */
   sandbox?: SandboxPolicy;
   /**
+   * The ticket whose session this is. T1005: adapters that keep per-launch
+   * state in a SHARED location (opencode2's XDG state home) key it by this
+   * value, so two tickets launched concurrently cannot overwrite each other's
+   * preselected model. Absent for non-ticket launches (planning/setup/graph),
+   * which keep the shared location.
+   */
+  ticketId?: number;
+  /**
    * Karst-owned sandbox profile for this launch (`gatePolicy.ts`), translated
    * by each adapter into its own channel so it overrides on-disk config.
    * `gate`: unattended graph node/planner — writes only in `cwd` + tmp, no

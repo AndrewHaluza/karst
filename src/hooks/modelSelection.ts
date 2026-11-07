@@ -6,8 +6,14 @@ import type { HookPayload } from './dispatch.js';
 
 type SelectedModel = NonNullable<HookPayload['model']>;
 
+/** The configured model plus effort a launch asked for. */
+export interface ConfiguredSessionSelection {
+  model: string;
+  effort: string | null;
+}
+
 /**
- * The model a ticket's session launch was CONFIGURED to use.
+ * The model and effort a ticket's session launch was CONFIGURED to use.
  *
  * The launch intent — not `process_runs.model` — is the record of what a launch
  * asked for: every interactive launch writes one, including a deliberate switch
@@ -18,26 +24,32 @@ type SelectedModel = NonNullable<HookPayload['model']>;
  * exact launch that reported — never a newer `fix` run that happens to be
  * running. When it is absent (a legacy channel) the newest intent for the
  * ticket is the best available answer.
+ *
+ * `effort` is its own column (v103): the intent's `model` stays the bare id
+ * that runs, segments and displays use, while the effort the TUI should honour
+ * is recorded beside it. Returns `null` when no intent carries a model.
  */
-export function configuredSessionModel(
+export function configuredSessionSelection(
   store: Store,
   ticketId: number,
   launchId?: string,
-): string | null {
+): ConfiguredSessionSelection | null {
   if (launchId !== undefined) {
     const intent = getSessionLaunchIntent(store, launchId);
-    if (intent !== undefined) return intent.model;
+    if (intent !== undefined) {
+      return intent.model === null ? null : { model: intent.model, effort: intent.effort };
+    }
   }
   const row = store.db
     .prepare(
-      `SELECT model FROM session_launch_intents
+      `SELECT model, effort FROM session_launch_intents
         WHERE ticket_id = ? AND model IS NOT NULL
           AND status IN ('pending','confirmed')
         ORDER BY created_at DESC, id DESC
         LIMIT 1`,
     )
-    .get(ticketId) as { model: string } | undefined;
-  return row?.model ?? null;
+    .get(ticketId) as { model: string; effort: string | null } | undefined;
+  return row === undefined ? null : { model: row.model, effort: row.effort };
 }
 
 /**
@@ -61,9 +73,13 @@ export function recordModelSelectionWarning(
   debug?: (message: string) => void,
 ): boolean {
   try {
-    const configured = configuredSessionModel(store, ticketId, launchId);
-    if (configured === null) return false;
-    const [configuredModel, configuredEffort] = splitEffort(configured);
+    const selection = configuredSessionSelection(store, ticketId, launchId);
+    if (selection === null) return false;
+    // The v103 column is authoritative; an older intent (or a unit fixture) may
+    // still carry the effort joined onto the model as `#effort`.
+    const [modelPart, effortPart] = splitEffort(selection.model);
+    const configuredModel = modelPart;
+    const configuredEffort = selection.effort || effortPart;
     const actualModel = `${observed.providerID}/${observed.modelID}`;
     const modelMismatch = configuredModel !== actualModel;
     const effortMismatch =
