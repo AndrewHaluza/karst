@@ -136,8 +136,8 @@
 /* The Resume button inside the paused chip. */
 .shipWait > .k-btn{margin-left:var(--k-space-2)}
 /* Narrow tier: the picker keeps core + live dot; the model label (one click away in the popover) and the state word give their room to the title and the ⋯. */
-/* Narrow tier: the right-anchored popover would clip off the left edge; pin it between the viewport gutters. */
-@media (max-width:699px){.agentPopover{position:fixed;left:var(--k-space-4);right:var(--k-space-4);width:auto;max-width:none;top:var(--k-space-4);max-height:calc(100vh - var(--k-space-8));overflow-y:auto}}
+/* Mid and narrow tiers: the right-anchored popover would clip off the left edge; pin it between the viewport gutters. */
+@media (max-width:999px){.agentPopover{position:fixed;left:var(--k-space-4);right:var(--k-space-4);width:auto;max-width:none;top:var(--k-space-4);max-height:calc(100vh - var(--k-space-8));overflow-y:auto}}
 @media (max-width:560px){.agentButton .agentSep,.agentButton .agentMeta{display:none}.agentLive #agentLiveText{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
 /* T871 ticket-head width ladder (UI-R49, RD-LADDERS): the id and status chip never drop; key then title give way. */
 .dhead{container-type:inline-size;container-name:ticket-head}
