@@ -74,7 +74,8 @@ function sharedRefusal(deps: StallApplyDeps): string | null {
   if (getTicket(store, ticketId).stageCurrent !== 'fix' || stageBlock(store, ticketId, 'fix')?.kind !== 'review-stalled') {
     return REFUSED_NOT_STALLED;
   }
-  if (getTicket(store, ticketId).agentState === 'running') return REFUSED_SESSION;
+  const { agentState } = getTicket(store, ticketId);
+  if (agentState === 'running' || agentState === 'waiting') return REFUSED_SESSION;
   return null;
 }
 

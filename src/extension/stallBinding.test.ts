@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../store/db.js';
 import { createTicket, setStageCurrent } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
-import { getStallSuggestion } from '../store/stallSuggestions.js';
+import { claimStallSuggestion, getStallSuggestion } from '../store/stallSuggestions.js';
 import { createStallBinding } from './stallBinding.js';
 
 function make(processFor: () => never | null = () => null) {
@@ -59,6 +59,26 @@ describe('createStallBinding', () => {
     setStage(store, ticketId, 'fix', { blockedKind: 'review-stalled', blockedReason: 'r', blockedAt: 'P1' });
     await binding.service.ensure(ticketId);
     expect(getStallSuggestion(store, ticketId, 'P1')).toMatchObject({ status: 'failed', error: expect.stringContaining('process is off') });
+  });
+  it('leaves a live generating row of another window alone', async () => {
+    const { binding, ticketId, store } = make();
+    setStageCurrent(store, ticketId, 'fix');
+    setStage(store, ticketId, 'fix', { blockedKind: 'review-stalled', blockedReason: 'r', blockedAt: 'P1' });
+    claimStallSuggestion(store, ticketId, 'P1', new Date().toISOString());
+    await binding.service.ensure(ticketId, { retry: true });
+    expect(getStallSuggestion(store, ticketId, 'P1')?.status).toBe('generating');
+  });
+  it('runs the agent in the first worktree when the process is on', async () => {
+    const raw = JSON.stringify({ cause: 'Likely a gap.', options: [{ label: 'Split', note: 'Split it.', recommended: true }] });
+    const runHeadless = vi.fn(async (_call: { cwd?: string }) => ({ raw }));
+    const { binding, ticketId, store } = make(() => ({ adapter: { runHeadless }, assignment: {} }) as never);
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode, created_at) VALUES (?, 'r', '/w', 'b', 'develop', 'none', 'x')").run(ticketId);
+    setStageCurrent(store, ticketId, 'fix');
+    setStage(store, ticketId, 'fix', { blockedKind: 'review-stalled', blockedReason: 'r', blockedAt: 'P1' });
+    await binding.service.ensure(ticketId);
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(runHeadless.mock.calls[0]![0].cwd).toBe('/w');
+    expect(getStallSuggestion(store, ticketId, 'P1')?.status).toBe('ready');
   });
   it('records a failed row when the ticket has no worktree', async () => {
     const { binding, ticketId, store } = make(() => ({ adapter: {} as never, assignment: {} as never }) as never);

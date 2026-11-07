@@ -102,6 +102,15 @@ describe('applyStallOption — agent option', () => {
     expect(getTicket(store, ticketId).description).toBe('old desc');
   });
 
+  it('is refused when an agent session waits for input', async () => {
+    const { store, ticketId } = parked();
+    setAgentState(store, ticketId, 'waiting');
+    const res = await applyStallOption(mk(store, ticketId).deps, agentReq);
+    expect(res.ok).toBe(false);
+    expect(getTicket(store, ticketId).agentState).toBe('waiting');
+    expect(stageBlock(store, ticketId, 'fix')?.kind).toBe('review-stalled');
+  });
+
   it('is refused when the ticket is not parked on a stall', async () => {
     const { store, ticketId } = parked();
     setStage(store, ticketId, 'fix', { blockedKind: null, blockedReason: null, blockedAt: null });

@@ -44,7 +44,8 @@ export function createStallBinding(deps: StallBindingDeps): StallBinding {
       if (process === null || cwd === undefined) {
         // A row that ends in `failed` shows the reason and Retry, never an endless "writing".
         const at = new Date().toISOString();
-        claimStallSuggestion(deps.store, id, parkAt, at, true);
+        // Only a row this call took over is failed: a live row of another window stays.
+        if (!claimStallSuggestion(deps.store, id, parkAt, at, true)) return 'skipped';
         failStallSuggestion(deps.store, id, parkAt, process === null ? NO_PROCESS : NO_WORKTREE, false, at);
         return 'failed';
       }
