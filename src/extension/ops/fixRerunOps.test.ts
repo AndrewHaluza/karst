@@ -5,7 +5,7 @@ import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import { makeGateRerun, makeRecoverRefusal } from './fixRerunOps.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 
-const gate = { gateName: 'unit (web)', repo: 'web', command: 'npm', args: ['run', 'test:unit'] };
+const gate = { gateName: 'unit (web)', repo: 'web', command: 'npm', args: ['run', 'test:unit'], kind: 'command' as const };
 
 describe('makeGateRerun', () => {
   let store: Store;
@@ -42,6 +42,59 @@ describe('makeGateRerun', () => {
   it('refuses a gate whose repo has no worktree', async () => {
     const run = vi.fn<GateProcessRunner>();
     await expect(rerun(run)(ticketId, { ...gate, repo: 'nope' })).rejects.toThrow(/no worktree for repo nope/);
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('makeGateRerun of a regenerate gate', () => {
+  let store: Store;
+  let ticketId: number;
+  const regen = { gateName: 'regenerate (web)', repo: 'web', command: 'regenerate (web)', args: [] as string[], kind: 'regenerate' as const };
+  const spec = { repo: 'web', commands: ['npm run gen', 'npm run docs'] };
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, 'web', '/wt/web', 'b');
+  });
+
+  it('runs the ship.regenerate commands and never execs the gate label', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => spec })(ticketId, regen);
+    expect(res.exitCode).toBe(0);
+    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run gen'], '/wt/web', expect.anything());
+    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run docs'], '/wt/web', expect.anything());
+    expect(run.mock.calls.map((c) => c[0])).not.toContain('regenerate (web)');
+  });
+
+  it('looks the spec up by the manifest key in the gate name, and runs in the row repo worktree', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const regenerateFor = vi.fn(() => spec);
+    await makeGateRerun({ store, runnerFor: () => run, regenerateFor })(ticketId, { ...regen, gateName: 'regenerate (key)', command: 'regenerate (key)', repo: 'web' });
+    expect(regenerateFor).toHaveBeenCalledWith('key');
+    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run gen'], '/wt/web', expect.anything());
+  });
+
+  it('runs a sandbox: host entry on the host runner', async () => {
+    const sandbox = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const host = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const hostSpec = { repo: 'web', commands: [{ run: 'npm run hostgen', sandbox: 'host' as const }] };
+    await makeGateRerun({ store, runnerFor: () => sandbox, hostRunner: host, regenerateFor: () => hostSpec })(ticketId, regen);
+    expect(host).toHaveBeenCalledWith('sh', ['-c', 'npm run hostgen'], '/wt/web', expect.anything());
+    expect(sandbox.mock.calls.map((c) => c[1]?.[1])).not.toContain('npm run hostgen');
+  });
+
+  it('reports a failing generator with its exit code', async () => {
+    const run: GateProcessRunner = async (cmd) =>
+      cmd === 'sh' ? { kind: 'completed', exitCode: 2, output: 'gen broke' } : { kind: 'completed', exitCode: 0, output: '' };
+    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => spec })(ticketId, regen);
+    expect(res.exitCode).toBe(2);
+  });
+
+  it('says the gate cannot be re-run when the manifest declares no ship.regenerate, and execs nothing', async () => {
+    const run = vi.fn<GateProcessRunner>();
+    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => undefined })(ticketId, regen);
+    expect(res).toMatchObject({ exitCode: null, cannotRerun: true });
+    expect(res.summary).toContain('regenerate (web)');
     expect(run).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
 import { nowIso } from '../model/time.js';
+import { regenerateRepoOf } from './gates/regenerate.js';
 
 /** Why a fix round closed when the host's re-run found the failed gates green. */
 export const HOST_RERUN_PASSED_REASON = 'no change: failed gates passed on re-run';
@@ -22,12 +23,19 @@ export interface FailedGate {
   repo: string | null;
   command: string;
   args: string[];
+  /**
+   * `regenerate`: a composite gate. Its stored `command` is a display label, not an argv, so
+   * the re-run goes through the gate's own runner (the manifest `ship.regenerate` spec).
+   */
+  kind: 'command' | 'regenerate';
 }
 
 /** One re-run gate's answer: `exitCode` null means it could not give one. */
 export interface GateRerunResult {
   exitCode: number | null;
   summary: string | null;
+  /** True when the host has no way to run this gate again: it is not a failing gate. */
+  cannotRerun?: true;
 }
 
 export interface HostRerunDeps {
@@ -43,6 +51,18 @@ export const HOST_RERUN_WAY_OUT =
 export interface RerunFailure {
   gateName: string;
   summary: string;
+  /** The gate could not be re-run on the host; it did not fail again. */
+  cannotRerun?: true;
+}
+
+/** One sentence per outcome kind: gates that fail again, then gates the host cannot re-run. */
+function describeFailures(failures: RerunFailure[]): string {
+  const failing = failures.filter((f) => !f.cannotRerun).map((f) => `${f.gateName}: ${f.summary}`);
+  const skipped = failures.filter((f) => f.cannotRerun).map((f) => `${f.gateName} (${f.summary})`);
+  return [
+    ...(failing.length > 0 ? [`still fails — ${failing.join('; ')}`] : []),
+    ...(skipped.length > 0 ? [`cannot be re-run on the host: ${skipped.join('; ')}`] : []),
+  ].join('; ');
 }
 
 export type HostRerunOutcome =
@@ -63,7 +83,14 @@ function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
   const latest = own.reduce((max, r) => (r.runAt > max ? r.runAt : max), '');
   return own
     .filter((r) => r.runAt === latest && !r.skipped && r.exitCode !== null && r.exitCode !== 0)
-    .map((r) => ({ gateName: r.gateName, repo: r.repo, command: r.command as string, args: r.args ?? [] }));
+    .map((r) => ({
+      gateName: r.gateName,
+      repo: r.repo,
+      command: r.command as string,
+      args: r.args ?? [],
+      // A composite row stores its own label as the command and has no argv.
+      kind: regenerateRepoOf(r.gateName) !== null && r.command === r.gateName && (r.args ?? []).length === 0 ? ('regenerate' as const) : ('command' as const),
+    }));
 }
 
 async function rerunOne(deps: HostRerunDeps, ticketId: number, gate: FailedGate): Promise<RerunFailure | null> {
@@ -71,7 +98,7 @@ async function rerunOne(deps: HostRerunDeps, ticketId: number, gate: FailedGate)
     const res = await deps.runGate(ticketId, gate);
     if (res.exitCode === 0) return null;
     const summary = res.summary ?? (res.exitCode === null ? 'the gate could not run' : `exit ${res.exitCode}`);
-    return { gateName: gate.gateName, summary };
+    return { gateName: gate.gateName, summary, ...(res.cannotRerun ? { cannotRerun: true as const } : {}) };
   } catch (err) {
     return { gateName: gate.gateName, summary: `re-run error: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -123,8 +150,8 @@ export async function hostRerunFailedGates(store: Store, ticketId: number, deps:
     returnToSource(store, ticketId, round.id, round.sourceStage, now());
     return { kind: 'passed', stage: round.sourceStage };
   }
-  const detail = failures.map((f) => `${f.gateName}: ${f.summary}`).join('; ');
-  parkRound(store, ticketId, round.id, `no new commit, and the host re-run still fails — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
+  const detail = describeFailures(failures);
+  parkRound(store, ticketId, round.id, `no new commit, and the host re-run did not close the round — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };
 }
 
@@ -138,8 +165,7 @@ export function describeHostRerun(outcome: HostRerunOutcome): HostRerunReply | u
     case 'already-used':
       return { ok: false, message: `the host already re-ran the failed gates once this fix round — the refusal stands — ${HOST_RERUN_WAY_OUT}` };
     case 'failed': {
-      const detail = outcome.failures.map((f) => `${f.gateName}: ${f.summary}`).join('; ');
-      return { ok: false, message: `the host re-ran the failed gates and they still fail — the refusal stands (${detail}). ${HOST_RERUN_WAY_OUT}` };
+      return { ok: false, message: `the host re-ran the failed gates — the refusal stands (${describeFailures(outcome.failures)}). ${HOST_RERUN_WAY_OUT}` };
     }
   }
 }
