@@ -378,17 +378,24 @@
   "src/extension/autopilotBinding.ts": [
     "arch:AP-00"
   ],
+  "src/extension/ops/autoDeliverOps.ts": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/autopilotCommandOps.ts": [
     "arch:AP-00"
   ],
   "src/extension/ops/autopilotOps.ts": [
-    "arch:AP-00"
+    "arch:AP-00",
+    "arch:AP-01"
   ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
   ],
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
+  ],
+  "src/extension/ops/conflictResolveOps.ts": [
+    "arch:AP-01"
   ],
   "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
     "arch:DRAFT-CONSTRAINTS"
@@ -629,6 +636,9 @@
   ],
   "src/store/autopilot.ts": [
     "arch:AP-00"
+  ],
+  "src/store/autostart.ts": [
+    "arch:AP-01"
   ],
   "src/store/baselinePins.ts": [
     "arch:SERVERS-PANEL",

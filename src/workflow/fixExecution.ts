@@ -121,7 +121,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
   return 'launched';
 }
 
-export type ResumeConfiguredFixOutcome = ResumeFixOutcome | 'unavailable';
+export type ResumeConfiguredFixOutcome = ResumeFixOutcome | 'unavailable' | 'skipped';
 
 export interface ResumeConfiguredFixExecutionOpts
   extends Omit<ResumeFixExecutionOpts, 'identity'> {
@@ -129,7 +129,12 @@ export interface ResumeConfiguredFixExecutionOpts
   /** The recorded identity of the terminal `isLive` just proved, or null. */
   sessionIdentity: () => NonNullable<ResumeFixExecutionOpts['identity']> | null;
   /** Probe the configured provider only when a new terminal must be launched. */
-  providerReady: () => boolean;
+  providerReady: () => boolean | Promise<boolean>;
+  /**
+   * Re-read AFTER the provider wait: false (for example, the ticket was paused
+   * meanwhile) ends the resume with 'skipped' and touches no session.
+   */
+  eligible?: () => boolean;
   /** Retire an incompatible live terminal after readiness has succeeded. */
   dispose: () => void;
 }
@@ -140,10 +145,10 @@ export interface ResumeConfiguredFixExecutionOpts
  * directly. Every other path proves the configured provider immediately before
  * it disposes or launches; a failed proof leaves the existing session intact.
  */
-export function resumeConfiguredFixExecution(
+export async function resumeConfiguredFixExecution(
   store: Store,
   opts: ResumeConfiguredFixExecutionOpts,
-): ResumeConfiguredFixOutcome {
+): Promise<ResumeConfiguredFixOutcome> {
   const live = opts.isLive();
   const activeIdentity = live ? opts.sessionIdentity() : null;
   const matches = activeIdentity !== null
@@ -158,12 +163,24 @@ export function resumeConfiguredFixExecution(
     });
   }
 
-  if (!opts.providerReady()) return 'unavailable';
-  if (live) opts.dispose();
+  if (!(await opts.providerReady())) return 'unavailable';
+  if (opts.eligible && !opts.eligible()) return 'skipped';
+  // The wait may have changed the session: read liveness again, never reuse the first read.
+  const liveNow = opts.isLive();
+  const nowIdentity = liveNow ? opts.sessionIdentity() : null;
+  if (
+    nowIdentity !== null
+    && nowIdentity.provider === opts.configuredIdentity.provider
+    && nowIdentity.model === opts.configuredIdentity.model
+  ) {
+    // The session now runs the configured identity: nudge it, never retire it.
+    return resumeFixExecution(store, { ...opts, identity: opts.configuredIdentity, isLive: () => true });
+  }
+  if (liveNow) opts.dispose();
   return resumeFixExecution(store, {
     ...opts,
     identity: opts.configuredIdentity,
     isLive: () => false,
-    open: () => opts.open(live),
+    open: () => opts.open(liveNow),
   });
 }

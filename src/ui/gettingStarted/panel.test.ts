@@ -222,7 +222,7 @@ describe('GettingStartedManager', () => {
       capturedCtx = ctx;
       return {
         createManifest: vi.fn(),
-        recheckDeps: () => ctx.pushState(),
+        recheckDeps: () => ctx.pushState({ recheck: true }),
         openSettings: vi.fn(),
         createTicket: vi.fn(),
         setupAgent: vi.fn(),
@@ -233,9 +233,48 @@ describe('GettingStartedManager', () => {
     });
     mgr.open();
     expect(loadState).toHaveBeenCalledTimes(1); // initial push
-    capturedCtx!.pushState();
+    capturedCtx!.pushState({ recheck: true });
     expect(loadState).toHaveBeenCalledTimes(2);
     expect(panels[0]!.posted).toHaveLength(2);
+    expect(loadState).toHaveBeenNthCalledWith(1, { recheck: false });
+    expect(loadState).toHaveBeenNthCalledWith(2, { recheck: true });
+  });
+
+  it('a request-state message reads the cache and does not ask for a re-check', () => {
+    const { host, panels } = makeHost();
+    const loadState = vi.fn(fakeState);
+    const mgr = new GettingStartedManager(loadState, host, (ctx) => ({
+      createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+      setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: () => ctx.pushState(),
+    }));
+    mgr.open();
+    panels[0]!.send({ type: 'request-state' } as never);
+    expect(loadState).toHaveBeenCalledTimes(2);
+    expect(loadState).toHaveBeenLastCalledWith({ recheck: false });
+  });
+
+  it('drops a slower, older load that settles after a newer one', async () => {
+    const { host, panels } = makeHost();
+    const resolvers: Array<(s: GettingStartedState) => void> = [];
+    const loadState = vi.fn(() => new Promise<GettingStartedState>((r) => resolvers.push(r)));
+    let ctxRef: GettingStartedActionsCtx | undefined;
+    const mgr = new GettingStartedManager(loadState, host, (ctx) => {
+      ctxRef = ctx;
+      return {
+        createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+        setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+      };
+    });
+    mgr.open();
+    ctxRef!.pushState();
+    const older = { ...fakeState(), tag: 'older' } as unknown as GettingStartedState;
+    const newer = { ...fakeState(), tag: 'newer' } as unknown as GettingStartedState;
+    resolvers[1]!(newer);
+    await Promise.resolve();
+    resolvers[0]!(older);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(panels[0]!.posted).toEqual([{ type: 'state', state: newer }]);
   });
 });
 

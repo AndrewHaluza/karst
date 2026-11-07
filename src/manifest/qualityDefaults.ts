@@ -62,6 +62,18 @@ export const REVIEW_FINDINGS_DEFAULTS: Readonly<{
   maxFindings: number;
 }> = { enabled: true, blockingSeverity: 'high', maxFindings: 50 };
 
+/**
+ * The review gate's blocking-severity floor for a manifest's `review` block:
+ * `none` when findings are off, else the configured severity, else the default.
+ */
+export function reviewBlockingFloor(
+  review: { findings?: { enabled?: boolean; blockingSeverity?: Severity | 'none' } } | undefined,
+): Severity | 'none' {
+  const findings = review?.findings;
+  if (findings?.enabled === false) return 'none';
+  return findings?.blockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
+}
+
 /** `review.requireIndependentSignal` when the manifest declares none. */
 export const REVIEW_REQUIRE_INDEPENDENT_SIGNAL = true;
 

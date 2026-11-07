@@ -33,7 +33,16 @@ describe('buildGettingStartedActions', () => {
     const { ctx, pushState } = makeCtx();
     const actions = buildGettingStartedActions({ scaffoldManifest: vi.fn(), setDismissed: vi.fn(), runCommand: vi.fn() })(ctx);
     actions.recheckDeps();
-    expect(pushState).toHaveBeenCalledOnce();
+    expect(pushState).toHaveBeenCalledExactlyOnceWith({ recheck: true });
+  });
+
+  it('requestState and createManifest push without a re-check, so the cache is read', async () => {
+    const { ctx, pushState } = makeCtx();
+    const actions = buildGettingStartedActions({ scaffoldManifest: vi.fn().mockResolvedValue(undefined), setDismissed: vi.fn(), runCommand: vi.fn() })(ctx);
+    actions.requestState();
+    await actions.createManifest();
+    expect(pushState).toHaveBeenCalledTimes(2);
+    for (const call of pushState.mock.calls) expect(call[0]?.recheck).not.toBe(true);
   });
 
   it('openSettings, createTicket and setupAgent run the matching commands', () => {

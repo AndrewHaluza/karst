@@ -375,6 +375,8 @@ export function requiredFor(
 export interface DependencyFault {
   dep: RequiredDependency;
   state: Exclude<DependencyState, 'ok'>;
+  /** The probe did not answer in time. The tool is NOT ready; the state is a fault, never 'ok'. */
+  timedOut?: boolean;
 }
 
 /** Every tool in the registry that is not usable, in registry order. */
@@ -428,8 +430,12 @@ export function renderMissingDependency(dep: RequiredDependency): string {
 export function renderDependencyFault(
   dep: RequiredDependency,
   state: DependencyState,
+  timedOut = false,
 ): string | null {
   if (state === 'ok') return null;
+  if (timedOut) {
+    return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: '${dep.binary}' did not answer in time. Check that ${dep.label} is not stuck, then re-check.`;
+  }
   if (state === 'missing') return renderMissingDependency(dep);
   const fix = dep.ready?.fix ?? '';
   // An output-validating dependency (opencode2) is not "signed in" — it is the

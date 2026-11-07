@@ -17,7 +17,7 @@ function deps(over: Partial<AutopilotCommandDeps> = {}): AutopilotCommandDeps & 
   return {
     store, projectId: () => projectId, said, say: (m) => void said.push(m), debug: vi.fn(),
     pickTicket: async (picks) => picks[0]?.ticketId, pick: async (choices) => choices[0],
-    stopSession: vi.fn(async () => true), ...over,
+    stopSession: vi.fn(async () => true), dropConflictRound: vi.fn(), ...over,
   };
 }
 const notes = () => store.db.prepare('SELECT title FROM bulletin_notes ORDER BY rowid').all().map((r) => (r as { title: string }).title);
@@ -70,9 +70,11 @@ describe('setOverrideCommand', () => {
   });
   it('takes an explicit ticket and mode without asking, and ignores a cancelled or invalid pick', async () => {
     const pickTicket = vi.fn();
-    await setOverrideCommand(deps({ pickTicket }), id, 'off');
+    const off = deps({ pickTicket });
+    await setOverrideCommand(off, id, 'off');
     expect(pickTicket).not.toHaveBeenCalled();
     expect(getAutopilotTicket(store, id).mode).toBe('off');
+    expect(off.dropConflictRound).toHaveBeenCalledWith(id);
     await setOverrideCommand(deps({ pick: async () => undefined }), id);
     await setOverrideCommand(deps(), id, 'bogus' as never);
     expect(getAutopilotTicket(store, id).mode).toBe('off');
@@ -141,12 +143,15 @@ describe('stopCommand', () => {
     await stopCommand(d, id, 'after-round');
     expect(getAutopilotTicket(store, id).stopAfter).toBe(true);
     expect(d.stopSession).not.toHaveBeenCalled();
+    expect(d.dropConflictRound).not.toHaveBeenCalled();
     expect(d.said).toEqual(['Auto-fix stopped after this round for AP-1.']);
   });
   it('now also ends the session through the stop seam', async () => {
     const d = deps({ pick: async () => 'now' as never });
     await stopCommand(d);
     expect(d.stopSession).toHaveBeenCalledWith(id);
+    expect(d.dropConflictRound).toHaveBeenCalledWith(id);
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe('auto-fix stopped: a person stopped it');
     expect(d.said).toEqual(['Auto-fix stopped now for AP-1.']);
     await stopCommand(deps({ pick: async () => undefined }), id);
   });

@@ -300,6 +300,7 @@ describe('writeManifest', () => {
         autopilot: {
           enabled: true,
           ci: { policy: 'ask', maxAttempts: 4, checks: ['build'] },
+          conflicts: { policy: 'ask', maxRounds: 3 },
         },
         agents: {
           implement: {

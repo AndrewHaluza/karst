@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   stopped_reason TEXT,
   claim_owner   TEXT,
   claim_until   INTEGER,
-  session_owner TEXT
+  session_owner TEXT,
+  conflict_round_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -63,6 +64,23 @@ export function setAutopilotOverride(store: Store, ticketId: number, mode: Autop
 export function setAutopilotStopped(store: Store, ticketId: number, reason: string | null): void {
   ensureRow(store, ticketId);
   store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = ? WHERE ticket_id = ?').run(reason, ticketId);
+}
+
+/** A conflict round was sent at `atMs`: it holds a sub-task slot until it delivers, stops or is dropped (`HOLDS_SLOT_SQL`). */
+export function markConflictRound(store: Store, ticketId: number, atMs: number): void {
+  ensureRow(store, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = ? WHERE ticket_id = ?').run(atMs, ticketId);
+}
+
+/** When the engine sent its conflict round (ms), or null. A manual Resolve conflicts click leaves it null. */
+export function getConflictRoundAt(store: Store, ticketId: number): number | null {
+  const row = store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { at: number | null } | undefined;
+  return row?.at ?? null;
+}
+
+/** The conflict round ended (delivered, dropped or stopped): its slot is free. */
+export function clearConflictRound(store: Store, ticketId: number): void {
+  store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
 /** Give back an attempt that never reached the agent (a failed action). Never below zero. */

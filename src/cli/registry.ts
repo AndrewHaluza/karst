@@ -141,6 +141,18 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'blocked',
+    summary: 'List open tickets with a stage block, with block counts per kind now and in the 14 days before.',
+    input: obj({ kind: str, json: bool }),
+    globals: { db: true, manifest: true },
+    toArgv: (input) => {
+      const argv = ['blocked'];
+      pushFlag(argv, '--kind', input.kind);
+      pushFlag(argv, '--json', input.json);
+      return argv;
+    },
+  },
+  {
     name: 'stage',
     summary: 'Fire the done marker for impl or fix (the only agent transition).',
     input: obj({ stage: { type: 'string', enum: ['impl', 'fix'] } }, ['stage']),

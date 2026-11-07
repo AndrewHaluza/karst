@@ -5,7 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
@@ -16,6 +16,7 @@ let id: number;
 const CFG: AutopilotConfig = {
   enabled: true,
   ci: { policy: 'auto', maxAttempts: 3, checks: ['build', 'lint'] },
+  conflicts: { policy: 'auto', maxRounds: 2 },
 };
 
 function seedPr(checks?: unknown, status = 'open'): void {
@@ -33,18 +34,19 @@ function cleanMerge(): void {
 }
 const PASSING = { state: 'passing', total: 3, passed: 3, failed: 0, pending: 0, failedShown: 0, failing: [] };
 
-interface Rig { deps: AutopilotDeps; notes: Array<[string, string]>; debug: ReturnType<typeof vi.fn>; sendCi: ReturnType<typeof vi.fn> }
+interface Rig { deps: AutopilotDeps; notes: Array<[string, string]>; debug: ReturnType<typeof vi.fn>; sendCi: ReturnType<typeof vi.fn>; sendConflict: ReturnType<typeof vi.fn> }
 function rig(over: Partial<AutopilotDeps> = {}, outcome: FixOutcome = { kind: 'sent' }): Rig {
   const notes: Array<[string, string]> = [];
   const debug = vi.fn();
   const sendCi = vi.fn(async () => outcome);
+  const sendConflict = vi.fn(async (_repo: string) => outcome);
   const deps: AutopilotDeps = {
     store, ticketId: id, key: 'AP-1', config: () => CFG,
     controls: () => true, sessionRunning: () => false, concurrencyFull: () => false,
-    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi,
+    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi, sendConflict, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
     note: (t, b) => void notes.push([t, b]), debug, ...over,
   };
-  return { deps, notes, debug, sendCi };
+  return { deps, notes, debug, sendCi, sendConflict };
 }
 
 beforeEach(() => {
@@ -100,8 +102,9 @@ describe('autopilotTick gating', () => {
     seedPr(PASSING);
     setMergeCheck(store, { ticketId: id, repo: 'r', state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha: 'base1', baseRef: 'develop', checkedAt: 'x' });
     const r = rig();
-    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
     expect(r.sendCi).not.toHaveBeenCalled();
+    expect(r.sendConflict).toHaveBeenCalledWith('r');
   });
 
   it('two windows never arm the same round: only the controller acts', async () => {
@@ -547,5 +550,228 @@ describe('autopilotTick guards', () => {
     expect(r.notes.length).toBe(1);
     expect(r.debug.mock.calls.filter(([m]) => String(m).includes('waiting for a free concurrency slot')).length).toBe(2);
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+  });
+});
+
+describe('conflicts', () => {
+  function conflict(repo = 'r', baseSha: string | null = 'base1'): void {
+    store.db.prepare('INSERT OR IGNORE INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, repo, `/w/${repo}`, 'b');
+    if (repo !== 'r') {
+      store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, NULL)').run(id, repo, 7, `https://github.com/o/${repo}/pull/7`, 'open');
+    }
+    setMergeCheck(store, { ticketId: id, repo, state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha, baseRef: 'develop', checkedAt: 'x' });
+  }
+  const setBase = (repo: string, baseSha: string): void => {
+    store.db.prepare('UPDATE merge_checks SET base_sha = ? WHERE ticket_id = ? AND repo = ?').run(baseSha, id, repo);
+  };
+  const spendRounds = async (n: number): Promise<void> => { for (let i = 0; i < n; i += 1) await autopilotTick(rig().deps); };
+
+  it('sends a conflict round for a conflicted open PR, with one note and one attempt used', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'armed', problem: 'conflicts', used: 1, max: 2 });
+    expect(r.sendConflict).toHaveBeenCalledWith('r');
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(r.notes[0]![0]).toBe('Autopilot: conflicts round 1/2');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts')).toMatchObject({ attempts: 1, signature: 'base1' });
+  });
+
+  it('honours the ask policy and stays a manual click when the base head is unknown', async () => {
+    seedPr(PASSING);
+    conflict();
+    const ask = rig({ config: () => ({ ...CFG, conflicts: { policy: 'ask', maxRounds: 2 } }) });
+    expect((await autopilotTick(ask.deps)).kind).toBe('nothing');
+    expect(ask.sendConflict).not.toHaveBeenCalled();
+    conflict('r', null);
+    const unknown = rig();
+    expect((await autopilotTick(unknown.deps)).kind).toBe('nothing');
+    expect(unknown.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('parks with "auto-fix stopped: conflicts 2/2" once the budget is spent, with ONE note across repeat ticks', async () => {
+    seedPr(PASSING);
+    conflict();
+    await spendRounds(2);
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflicts 2/2' });
+    await autopilotTick(r.deps);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(r.notes).toHaveLength(1);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ reason: 'auto-fix stopped: conflicts 2/2' });
+  });
+
+  it('a new base head resets the counter; the same base head keeps counting', async () => {
+    seedPr(PASSING);
+    conflict();
+    await spendRounds(2);
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(2);
+    setBase('r', 'base2');
+    expect(await autopilotTick(rig().deps)).toMatchObject({ kind: 'armed', used: 1, max: 2 });
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts')).toMatchObject({ attempts: 1, signature: 'base2' });
+    expect(await autopilotTick(rig().deps)).toMatchObject({ kind: 'armed', used: 2 });
+    expect((await autopilotTick(rig().deps)).kind).toBe('parked');
+  });
+
+  it('approve-one-more adds one conflict attempt and does not reset the counter', async () => {
+    seedPr(PASSING);
+    conflict();
+    await spendRounds(2);
+    await autopilotTick(rig().deps);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect(await autopilotTick(rig().deps)).toMatchObject({ kind: 'armed', used: 3, max: 3 });
+    expect((await autopilotTick(rig().deps)).kind).toBe('parked');
+  });
+
+  it('starts no second round while the first round or its auto-deliver runs, even though the merge check is still conflicted', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ conflictRoundActive: () => true });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('a sent round forgets the stale CI rollup, so no CI round starts on the old head', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    const row = store.db.prepare('SELECT checks FROM prs WHERE ticket_id = ?').get(id) as { checks: string | null };
+    expect(row.checks).toBeNull();
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h2', baseSha: 'base1', baseRef: 'develop', checkedAt: 'y' });
+    expect((await autopilotTick(rig().deps)).kind).not.toBe('armed');
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('a spent budget on one repo does not stop auto-fix for a second conflicted repo', async () => {
+    seedPr(PASSING);
+    conflict('a-repo');
+    conflict('r');
+    takeAutopilotAttempt(store, id, 'a-repo', 'conflicts', 'base1', 2);
+    takeAutopilotAttempt(store, id, 'a-repo', 'conflicts', 'base1', 2);
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toMatchObject({ kind: 'armed', problem: 'conflicts', used: 1 });
+    expect(r.sendConflict).toHaveBeenCalledWith('r');
+    expect(r.sendConflict).not.toHaveBeenCalledWith('a-repo');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  it('parks only when every conflicted repo is spent', async () => {
+    seedPr(PASSING);
+    conflict('a-repo');
+    conflict('r');
+    for (const repo of ['a-repo', 'r']) { takeAutopilotAttempt(store, id, repo, 'conflicts', 'base1', 2); takeAutopilotAttempt(store, id, repo, 'conflicts', 'base1', 2); }
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflicts 2/2' });
+    expect(r.sendConflict).not.toHaveBeenCalled();
+  });
+
+  it('parks a sandboxed ticket as for CI and uses no attempt', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ isHostTicket: async () => false });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: sandboxed ticket' });
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('waits for a free concurrency slot and uses no attempt', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ concurrencyFull: () => true });
+    expect((await autopilotTick(r.deps)).kind).toBe('queued');
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('drops the armed conflict round when the round fails, so a later manual session gets no auto-delivery', async () => {
+    seedPr(PASSING);
+    conflict();
+    const drop = vi.fn();
+    const failed = rig({ dropConflictRound: drop }, { kind: 'failed', reason: 'probe failed' });
+    await autopilotTick(failed.deps);
+    expect(drop).toHaveBeenCalledTimes(1);
+  });
+
+  it('refunds the attempt and parks when the round fails or throws; a lost lease refunds quietly', async () => {
+    seedPr(PASSING);
+    conflict();
+    const failed = rig({}, { kind: 'failed', reason: 'probe failed' });
+    expect(await autopilotTick(failed.deps)).toMatchObject({ kind: 'parked', reason: 'auto-fix stopped: conflicts could not run (probe failed)' });
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    setAutopilotOverride(store, id, 'on');
+    const thrown = rig();
+    thrown.sendConflict.mockRejectedValueOnce(new Error('boom'));
+    expect(await autopilotTick(thrown.deps)).toMatchObject({ kind: 'parked', reason: 'auto-fix stopped: conflicts could not run (boom)' });
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    setAutopilotOverride(store, id, 'on');
+    const lost = rig({}, { kind: 'lease-lost' });
+    expect((await autopilotTick(lost.deps)).kind).toBe('not-controller');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('parks and drops a stalled round, so a stale CI rollup of the old head starts no round', async () => {
+    seedPr(failing('build'));
+    conflict();
+    markConflictRound(store, id, Date.now());
+    const drop = vi.fn();
+    const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflict round did not deliver' });
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id)).toEqual({ at: null });
+    // The park holds on the next ticks: the probe reads the local merge commit as clean, the CI rollup is of the old head.
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'base1', baseRef: 'develop', checkedAt: 'x' });
+    const next = rig();
+    expect((await autopilotTick(next.deps)).kind).toBe('idle');
+    expect(next.sendCi).not.toHaveBeenCalled();
+    // A person approves one more attempt: the engine works again.
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect((await autopilotTick(rig().deps)).kind).not.toBe('idle');
+  });
+
+  it('does not drop the round of a manual Resolve conflicts click (no engine mark)', async () => {
+    seedPr(PASSING);
+    conflict();
+    const drop = vi.fn();
+    const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(drop).not.toHaveBeenCalled();
+  });
+
+  it('marks the round on a sent conflict round and clears the mark when the round fails', async () => {
+    seedPr(PASSING);
+    conflict();
+    await autopilotTick(rig().deps);
+    expect((store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id) as { at: number | null }).at).not.toBeNull();
+    clearConflictRound(store, id);
+    setAutopilotOverride(store, id, 'on');
+    await autopilotTick(rig({}, { kind: 'failed', reason: 'x' }).deps);
+    expect((store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id) as { at: number | null }).at).toBeNull();
+  });
+
+  it('parks a spent budget before it waits for a slot, and keeps the attempt of a waiting round', async () => {
+    seedPr(PASSING);
+    conflict();
+    const waiting = rig({ concurrencyFull: () => true });
+    expect((await autopilotTick(waiting.deps)).kind).toBe('queued');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    takeAutopilotAttempt(store, id, 'r', 'conflicts', 'base1', 2);
+    takeAutopilotAttempt(store, id, 'r', 'conflicts', 'base1', 2);
+    const spent = rig({ concurrencyFull: () => true });
+    expect(await autopilotTick(spent.deps)).toMatchObject({ kind: 'parked', reason: 'auto-fix stopped: conflicts 2/2' });
+  });
+
+  it('a conflict that starts no round (ask policy) does not block a CI round', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const r = rig({ config: () => ({ ...CFG, conflicts: { policy: 'ask', maxRounds: 2 } }) });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+    expect(r.sendConflict).not.toHaveBeenCalled();
   });
 });

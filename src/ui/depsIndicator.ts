@@ -19,6 +19,7 @@ export interface DepsIndicator {
 
 /** How a single fault reads in the bar — enough to act on without clicking. */
 function summarize(fault: DependencyFault): string {
+  if (fault.timedOut) return `${fault.dep.label} not answering`;
   return fault.state === 'missing'
     ? `${fault.dep.label} missing`
     : `${fault.dep.label} not signed in`;
@@ -36,7 +37,7 @@ export function buildDepsIndicator(faults: readonly DependencyFault[]): DepsIndi
       : `$(warning) Karst: ${faults.length} tools need attention`;
 
   const tooltip = faults
-    .map((f) => renderDependencyFault(f.dep, f.state))
+    .map((f) => renderDependencyFault(f.dep, f.state, f.timedOut === true))
     .filter((m): m is string => m !== null)
     .join('\n\n');
 

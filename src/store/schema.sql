@@ -1496,7 +1496,8 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   stopped_reason TEXT,                        -- last park reason autopilot wrote (dedupes repeat notes)
   claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
   claim_until INTEGER,                        -- lease end, epoch ms
-  session_owner TEXT                          -- window that holds the ticket's session; set at session open, cleared at close
+  session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close
+  conflict_round_at INTEGER                   -- v101 (T996): epoch ms a conflict round was sent; NULL once it delivered, stopped or was dropped. It holds a slot
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -1508,7 +1509,7 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   PRIMARY KEY (ticket_id, repo, kind)
 );
 
--- v101: the written answer to a review stall, per ticket and park (`store/stallSuggestions.ts`).
+-- v102: the written answer to a review stall, per ticket and park (`store/stallSuggestions.ts`).
 CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   park_at      TEXT NOT NULL,

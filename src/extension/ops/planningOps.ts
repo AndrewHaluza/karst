@@ -2,7 +2,14 @@ import { mkdirSync } from 'node:fs';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
-import { KARST_CLI_ENV, KARST_INSTRUCTIONS_ENV, KARST_PROJECT_ENV } from '../../agent/cliEnv.js';
+import { reviewBlockingFloor } from '../../manifest/qualityDefaults.js';
+import {
+  KARST_CLI_ENV,
+  KARST_DB_READONLY_ENV,
+  KARST_INSTRUCTIONS_ENV,
+  KARST_PROJECT_ENV,
+  KARST_REVIEW_FLOOR_ENV,
+} from '../../agent/cliEnv.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
 import { repoNoteIndex } from '../../store/bulletinNotes.js';
 import { measureSeed } from '../../agent/seed.js';
@@ -300,7 +307,9 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
           [PLANNING_OUTBOX_ENV]: outbox,
           [KARST_PLANNING_SESSION_ENV]: String(session.id),
           // `notes --repos` reads the project the host launched this session for.
+          ...(deps.dbPath !== undefined ? { [KARST_DB_READONLY_ENV]: deps.dbPath } : {}),
           ...(projectIdNow !== undefined ? { [KARST_PROJECT_ENV]: String(projectIdNow) } : {}),
+          [KARST_REVIEW_FLOOR_ENV]: reviewBlockingFloor(manifest.review),
         },
       });
       track(session.id, terminal);

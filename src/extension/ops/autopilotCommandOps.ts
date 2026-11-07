@@ -4,7 +4,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import {
-  AUTOPILOT_OVERRIDES, listAutopilotBudgets, setAutopilotOverride, type AutopilotKind, type AutopilotOverride,
+  AUTOPILOT_OVERRIDES, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
 import { approveOneMore, clearParkBlock, stopAutopilot } from './autopilotOps.js';
 
@@ -18,6 +18,8 @@ export interface AutopilotCommandDeps {
   readonly debug: (message: string) => void;
   /** "Stop now": end the session. True when the stop reached a session this window holds; false when it did not. */
   readonly stopSession: (ticketId: number) => Promise<boolean>;
+  /** Disarm the ticket's conflict round, so a later manual session gets no auto-delivery (T996). */
+  readonly dropConflictRound: (ticketId: number) => void;
 }
 
 function keyOf(store: Store, ticketId: number): string {
@@ -48,6 +50,7 @@ export async function setOverrideCommand(d: AutopilotCommandDeps, ticketId?: num
   const chosen = mode ?? await d.pick(AUTOPILOT_OVERRIDES, 'Auto-fix mode');
   if (chosen === undefined || !AUTOPILOT_OVERRIDES.includes(chosen)) return;
   setAutopilotOverride(d.store, id, chosen);
+  if (chosen === 'off') { d.dropConflictRound(id); clearConflictRound(d.store, id); }
   clearParkBlock(d.store, id);
   noteFor(d, id)('Autopilot: override set', `${keyOf(d.store, id)}: auto-fix mode is now ${chosen}.`);
   d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} override ${chosen}`);
@@ -79,6 +82,12 @@ export async function stopCommand(d: AutopilotCommandDeps, ticketId?: number, wh
   if (id === undefined) return;
   const choice = when ?? await d.pick(['after-round', 'now'] as const, 'Stop auto-fix');
   if (choice === undefined) return;
+  if (choice === 'now') {
+    // The round stops with the session: nothing delivers it, and its slot is free.
+    d.dropConflictRound(id);
+    clearConflictRound(d.store, id);
+    setAutopilotStopped(d.store, id, 'auto-fix stopped: a person stopped it');
+  }
   const result = await stopAutopilot({ store: d.store, ticketId: id, key: keyOf(d.store, id), note: noteFor(d, id), debug: d.debug, stopSession: () => d.stopSession(id) }, choice);
   const key = keyOf(d.store, id);
   if (result === 'not-reached') d.say(`Auto-fix is stopped for ${key}. The stop did not reach the session: another window holds it, or none is open.`);

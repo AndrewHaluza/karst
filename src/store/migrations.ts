@@ -2840,7 +2840,13 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 101) {
-    // v101: `review_stall_suggestions` — the written answer to a review stall, one row per ticket and park
+    // v101: when a conflict round was sent (`autopilot_tickets.conflict_round_at`, T996). Guarded: a fresh db already has it.
+    const cols101 = new Set((db.prepare("PRAGMA table_info('autopilot_tickets')").all() as Array<{ name: string }>).map((c) => c.name));
+    if (cols101.size > 0 && !cols101.has('conflict_round_at')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN conflict_round_at INTEGER');
+  }
+
+  if (current < 102) {
+    // v102: `review_stall_suggestions` — the written answer to a review stall, one row per ticket and park
     // (`store/stallSuggestions.ts`). Additive table; a parked ticket gets its row when the dashboard opens it.
     db.exec(STALL_SUGGESTIONS_DDL);
   }

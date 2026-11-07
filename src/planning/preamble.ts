@@ -44,7 +44,7 @@ export function planningOutboxDir(scratch: string): string {
  * ticket and has no first user message to replay) — see `planningKickoff`.
  */
 
-export type PlanningManifest = Pick<Manifest, 'baselineBranch' | 'repositories'>;
+export type PlanningManifest = Pick<Manifest, 'baselineBranch' | 'repositories'> & Partial<Pick<Manifest, 'review'>>;
 
 /**
  * The project bulletin's index for this stack. Present only when `count > 0`
@@ -201,6 +201,8 @@ export function planningInstructions(input: PreambleInput): string {
     ...historySection(history),
     '',
     ...PRE_PROPOSAL_CHECKLIST,
+    '',
+    `For a stuck or failing ticket, first run \`node ${cli} blocked\` and compare the count of that block kind with earlier days, before you study one ticket.`,
     '',
     'When the user agrees on the work, propose it as one or more draft tickets. Each proposal is',
     'ONE shell command that pipes one JSON object to karst on stdin, e.g.:',

@@ -9,6 +9,7 @@ import { setStage } from './stages.js';
 import { addRelation } from './ticketRelations.js';
 import {
   claimAutostart,
+  CONFLICT_ROUND_SLOT_MAX_MS,
   queuedPositions,
   queueAutostart,
   releaseAutostart,
@@ -73,6 +74,63 @@ describe('claimAutostart', () => {
     expect(claimAutostart(store, b!, CAPS)).toBe(true);
     expect(claimAutostart(store, c!, CAPS)).toBe(false);
     expect(pending(store, c!)).toBe(1);
+  });
+
+  it('counts a ship-stage sub-task with a running agent as a slot (a conflict round), with a limit of 1', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+    expect(claimAutostart(store, queued, { perParent: 0, total: 1 })).toBe(false);
+    // The round ends (agent idle): the slot is free again.
+    store.db.prepare("UPDATE tickets SET agent_state = 'idle' WHERE id = ?").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 1 })).toBe(true);
+  });
+
+  const roundAt = (ticketId: number, atMs: number | null, extra = ''): void => {
+    store.db.prepare('DELETE FROM autopilot_tickets WHERE ticket_id = ?').run(ticketId);
+    store.db.prepare(`INSERT INTO autopilot_tickets (ticket_id, conflict_round_at${extra ? ', ' + extra.split('=')[0] : ''}) VALUES (?, ?${extra ? ', ' + extra.split('=')[1] : ''})`).run(ticketId, atMs);
+  };
+
+  it('keeps the slot of an idle ship sub-task while its sent conflict round runs, whatever the stored merge check says', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, status, url) VALUES (?, 'r', 'open', 'u')").run(round);
+    roundAt(round, Date.now());
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+    // A probe that reads the local merge commit as clean does not free the slot: the delivery still runs.
+    store.db.prepare("INSERT INTO merge_checks (ticket_id, repo, state, files, base_sha, checked_at) VALUES (?, 'r', 'clean', '[]', 'b1', 'x')").run(round);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(false);
+    // The round ends (delivered, dropped or stopped): the mark is cleared.
+    roundAt(round, null);
+    expect(claimAutostart(store, queued, { perParent: 1, total: 0 })).toBe(true);
+  });
+
+  it('frees the slot after the longest time a round may hold it, and when autopilot parked, paused or switched off, or the PR closed', () => {
+    const round = child(store, parentId, false);
+    const queued = child();
+    setStageCurrent(store, round, 'ship');
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, status, url) VALUES (?, 'r', 'open', 'u')").run(round);
+    const free = (): boolean => {
+      store.db.prepare('UPDATE tickets SET autostart_pending = 1 WHERE id = ?').run(queued);
+      return claimAutostart(store, queued, { perParent: 1, total: 0 });
+    };
+    // Old: past the cap, even when no engine clears it.
+    roundAt(round, Date.now() - CONFLICT_ROUND_SLOT_MAX_MS - 60_000);
+    expect(free()).toBe(true);
+    for (const extra of ["stopped_reason='auto-fix stopped: conflicts 2/2'", "paused_reason='x'", "mode='off'"]) {
+      store.db.prepare('UPDATE tickets SET autostart_pending = 0 WHERE id = ?').run(queued);
+      roundAt(round, Date.now(), extra);
+      expect(free(), extra).toBe(true);
+    }
+    // "Stop after this round" lets the round finish: the slot stays held.
+    store.db.prepare('UPDATE tickets SET autostart_pending = 0 WHERE id = ?').run(queued);
+    roundAt(round, Date.now(), 'stop_after=1');
+    expect(free()).toBe(false);
+    store.db.prepare("UPDATE prs SET status = 'closed'").run();
+    expect(free()).toBe(true);
   });
 
   it('enforces the project-wide cap in the same statement; 0 = unlimited', () => {

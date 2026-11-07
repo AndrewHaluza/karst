@@ -1,7 +1,7 @@
 import type { Store } from './db.js';
 import type { StallSuggestion } from '../model/stallSuggestion.js';
 
-/** The DDL schema.sql mirrors for a fresh DB (the v101 migration step execs it). */
+/** The DDL schema.sql mirrors for a fresh DB (the v102 migration step execs it). */
 export const STALL_SUGGESTIONS_DDL = `
 CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,

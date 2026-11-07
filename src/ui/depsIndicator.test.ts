@@ -7,6 +7,7 @@ import {
   type DependencyFault,
 } from '../runtime/deps.js';
 
+const timedOut = (dep: typeof GH_DEPENDENCY): DependencyFault => ({ dep, state: 'not-ready', timedOut: true });
 const missing = (dep: typeof GH_DEPENDENCY): DependencyFault => ({ dep, state: 'missing' });
 
 describe('buildDepsIndicator', () => {
@@ -35,5 +36,11 @@ describe('buildDepsIndicator', () => {
     expect(ind.text).toBe('$(warning) Karst: 2 tools need attention');
     expect(ind.tooltip).toContain(renderDependencyFault(NPM_DEPENDENCY, 'missing')!);
     expect(ind.tooltip).toContain(renderDependencyFault(GH_DEPENDENCY, 'missing')!);
+  });
+
+  it('words a timed-out probe as not answering and names the binary in the tooltip', () => {
+    const ind = buildDepsIndicator([timedOut(GH_DEPENDENCY)])!;
+    expect(ind.text).toContain('not answering');
+    expect(ind.tooltip).toBe(renderDependencyFault(GH_DEPENDENCY, 'not-ready', true));
   });
 });
