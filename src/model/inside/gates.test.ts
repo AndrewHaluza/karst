@@ -98,6 +98,8 @@ function processRun(extra: Partial<ProcessRun> = {}): ProcessRun {
     provider: "codex",
     model: "sol",
     pid: null,
+    childPid: null,
+    childStartedAt: null,
     status: "passed",
     resultKind: "observed",
     artifactPath: null,

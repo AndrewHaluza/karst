@@ -95,6 +95,8 @@ export function caseProcessRun(over: Partial<ProcessRun> & Pick<ProcessRun, 'id'
     provider: 'claude',
     model: 'claude-opus-4-1',
     pid: null,
+    childPid: null,
+    childStartedAt: null,
     status: 'passed',
     resultKind: null,
     artifactPath: null,

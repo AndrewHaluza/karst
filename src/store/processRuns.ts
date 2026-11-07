@@ -51,6 +51,15 @@ export interface ProcessRun {
    * `runtime/serverIdentity.ts` does.
    */
   pid: number | null;
+  /**
+   * v104: the pid of the HEADLESS CHILD this run started — distinct from `pid`
+   * (the host). NULL = no child recorded. With `childStartedAt` it lets a later
+   * host find a child a dead host left running, and prove it is still that
+   * child before killing its group (`runtime/orphanChild.ts`).
+   */
+  childPid: number | null;
+  /** v104: ISO time the child was spawned; identity evidence against pid reuse. */
+  childStartedAt: string | null;
   status: ProcessRunStatus;
   /** The outcome's verdict kind, when the process has one. Never backfilled. */
   resultKind: string | null;
@@ -90,6 +99,8 @@ interface ProcessRunRow {
   provider: string | null;
   model: string | null;
   pid: number | null;
+  child_pid: number | null;
+  child_started_at: string | null;
   status: string;
   result_kind: string | null;
   artifact_path: string | null;
@@ -141,6 +152,8 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
     provider: r.provider,
     model: r.model,
     pid: r.pid,
+    childPid: r.child_pid,
+    childStartedAt: r.child_started_at,
     // Closed vocabulary at a read boundary over an append-only table: an
     // unrecognized value degrades to the conservative answer rather than being
     // carried through as a state no consumer handles.
@@ -156,9 +169,27 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
 
 const SELECT =
   `SELECT id, ticket_id, stage_key, process_id, attempt, stage_run_id,
-          agent_name, provider, model, pid, status, result_kind, artifact_path,
-          failure_detail, prompt_telemetry, started_at, ended_at
+          agent_name, provider, model, pid, child_pid, child_started_at, status,
+          result_kind, artifact_path, failure_detail, prompt_telemetry, started_at, ended_at
      FROM process_runs`;
+
+/**
+ * What the host does with runs an open just marked `stale`: their headless
+ * child may still be running (a window reload does not kill it). Registered
+ * once per store by the host — one seam for every open site (review, tester,
+ * re-runs) instead of a callback threaded through each. Must not throw.
+ */
+export type SupersededHandler = (superseded: readonly ProcessRun[]) => void;
+
+const supersededHandlers = new WeakMap<Store, SupersededHandler>();
+
+/** Bind the superseded-run handler for `store`; the returned function unbinds it. */
+export function onProcessRunsSuperseded(store: Store, handler: SupersededHandler): () => void {
+  supersededHandlers.set(store, handler);
+  return () => {
+    if (supersededHandlers.get(store) === handler) supersededHandlers.delete(store);
+  };
+}
 
 export interface OpenProcessRunInput {
   ticketId: number;
@@ -194,7 +225,16 @@ export interface OpenProcessRunInput {
  */
 export function openProcessRun(store: Store, input: OpenProcessRunInput): ProcessRun {
   let insertedId = 0;
+  let supersededIds: number[] = [];
   const apply = store.db.transaction(() => {
+    supersededIds = (
+      store.db
+        .prepare(
+          `SELECT id FROM process_runs
+            WHERE ticket_id = ? AND stage_key = ? AND process_id = ? AND status = 'running'`,
+        )
+        .all(input.ticketId, input.stageKey, input.processId) as { id: number }[]
+    ).map((r) => r.id);
     store.db
       .prepare(
         `UPDATE process_runs SET status = 'stale'
@@ -231,7 +271,33 @@ export function openProcessRun(store: Store, input: OpenProcessRunInput): Proces
     .prepare(`${SELECT} WHERE id = ?`)
     .get(insertedId) as ProcessRunRow | undefined;
   if (row === undefined) throw new Error('process run insert did not land');
+  const handler = supersededHandlers.get(store);
+  if (handler && supersededIds.length > 0) {
+    handler(supersededIds.flatMap((id) => getProcessRunById(store, id) ?? []));
+  }
   return rowToProcessRun(row);
+}
+
+/**
+ * Record the headless child a run just spawned (v104). Written only while the
+ * run is `running`: a run already superseded or closed is a finished fact. A
+ * second child of the same run (a retry inside one process) overwrites the
+ * first — the earlier one has exited or been killed by its own run. Returns
+ * whether a row was updated.
+ */
+export function recordProcessRunChild(
+  store: Store,
+  runId: number,
+  childPid: number,
+  childStartedAt: string,
+): boolean {
+  const info = store.db
+    .prepare(
+      `UPDATE process_runs SET child_pid = ?, child_started_at = ?
+        WHERE id = ? AND status = 'running'`,
+    )
+    .run(childPid, childStartedAt, runId);
+  return info.changes === 1;
 }
 
 /**

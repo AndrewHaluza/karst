@@ -1154,6 +1154,8 @@ describe('ship process rows: descriptions and identity (Task 869egdr2u)', () => 
             provider: 'opencode',
             model: 'opencode-go/deepseek-v4-flash',
             pid: null,
+            childPid: null,
+            childStartedAt: null,
             status: 'passed',
             resultKind: null,
             artifactPath: null,

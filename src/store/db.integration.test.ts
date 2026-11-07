@@ -546,6 +546,40 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a v103 DB to v104, adding process_runs.child_pid and child_started_at as NULL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    // The exact pre-v104 run shape (no child columns).
+    legacy.exec(
+      `CREATE TABLE process_runs (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+         stage_key TEXT NOT NULL, process_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+         pid INTEGER, status TEXT NOT NULL, started_at TEXT NOT NULL)`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, pid, status, started_at) VALUES (1, 'review', 'review', 0, 4242, 'running', '2026-01-02T03:04:05.000Z')",
+      )
+      .run();
+    legacy.pragma('user_version = 103');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    // NOT backfilled, and the host `pid` keeps its meaning.
+    expect(
+      migrated.db.prepare('SELECT pid, child_pid, child_started_at FROM process_runs').get(),
+    ).toEqual({ pid: 4242, child_pid: null, child_started_at: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    // A second open is a no-op: the guard reads the CURRENT columns.
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
   it('migrates a v68 DB to the current version, adding ticket_relations + its index + origin_ticket_id', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
