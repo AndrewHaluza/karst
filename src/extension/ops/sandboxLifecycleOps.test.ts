@@ -303,6 +303,13 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     expect(notify.info).toHaveBeenCalledWith('Karst: removed 2 orphan sandbox(es).');
   });
 
+  it('cleanup also removes the -repo and -data volumes of a docker orphan (a volume-only orphan has no container to remove)', async () => {
+    const dockerBad = bad('docker', 'null');
+    const { d, lines } = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS) });
+    await cleanupOrphansOp(d, new Set([7]));
+    expect(lines()).toContain(`docker volume rm --force ${dockerBad.name}-repo ${dockerBad.name}-data`);
+  });
+
   it('a failing remove is reported with its stderr (or exit code) and not counted', async () => {
     const dockerBad = bad('docker', 'null');
     const failing = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 1, stderr: 'in use\n' } } });

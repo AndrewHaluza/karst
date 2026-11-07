@@ -287,10 +287,12 @@ export function idleSandboxes(
 /** A sandbox named for a core no runner hosts has no runner to dispose it: remove the named object directly. */
 async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSandbox): Promise<void> {
   const removal = await removeVerified(deps, async () => {
-    const out = o.runner === 'docker'
-      ? await (deps.dockerProc ?? NODE_DOCKER_PROCESS).run('docker', ['rm', '--force', o.name])
-      : await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]);
-    return disposeResult([disposeStep(`${o.runner} rm`, out)]);
+    if (o.runner === 'sbx') return disposeResult([disposeStep('sbx rm', await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]))]);
+    const docker = deps.dockerProc ?? NODE_DOCKER_PROCESS;
+    // The agent container is `--rm`: an orphan found by its volumes has no container, so the volumes are what keep it listed.
+    const container = await docker.run('docker', ['rm', '--force', o.name]);
+    const volumes = await docker.run('docker', ['volume', 'rm', '--force', `${o.name}-repo`, `${o.name}-data`]);
+    return disposeResult([disposeStep('docker rm', container), disposeStep('docker volume rm', volumes)]);
   }, (s) => s.name === o.name);
   if (!removal.ok) throw new Error(disposeFailures(removal));
 }
