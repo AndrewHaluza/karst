@@ -107,11 +107,23 @@ describe('SidebarViewManager', () => {
     mgr.toggleFacet('archived');
     mgr.setFilter('x');
     mgr.refresh();
-    mgr.refreshNow(); // same state as the filter push: not posted again
-    expect(view.posted).toHaveLength(2);
+    expect(view.posted).toHaveLength(2); // the refresh repeats the filter push: not posted again
     expect(mgr.getFacets()).toEqual(['archived']);
     expect(view.posted[0]!.facets).toEqual(['archived']);
     expect(view.posted[1]!.filter).toBe('x');
+  });
+
+  it('refreshNow answers a state request even when the state equals the last post', () => {
+    createTicket(store, { key: 'A-1', title: 'one' });
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    expect(view.posted).toHaveLength(1);
+
+    mgr.refreshNow(); // a reloaded page asked for state: it holds none
+    expect(view.posted).toHaveLength(2);
+    expect(view.posted[1]).toEqual(view.posted[0]);
   });
 
   it('toggleFacet builds a multi-status union and getFacets reflects it', () => {

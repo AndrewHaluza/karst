@@ -167,9 +167,10 @@ export class SidebarViewManager {
   /**
    * Re-read the store and push a fresh state snapshot; no-op before resolve.
    * While the view is hidden nothing is built: the push is remembered and runs
-   * when the view is shown. A state equal to the last one posted is not posted.
+   * when the view is shown. A state equal to the last one posted is not posted
+   * unless `force` is set.
    */
-  private push(): void {
+  private push(force = false): void {
     this.cancelPendingRefresh();
     const view = this.view;
     if (!view) return;
@@ -197,7 +198,7 @@ export class SidebarViewManager {
     );
     const t1 = now();
     const serialized = JSON.stringify(state);
-    const same = serialized === this.lastPosted;
+    const same = !force && serialized === this.lastPosted;
     if (!same) {
       this.lastPosted = serialized;
       view.postMessage({ type: 'state', state });
@@ -248,9 +249,13 @@ export class SidebarViewManager {
     this.refreshSubscriber?.();
   }
 
-  /** Push now, skipping the debounce: the webview asked for state and is waiting. */
+  /**
+   * Push now, skipping the debounce and the identical-state skip: the webview
+   * asked for state, so it holds none and must get an answer even when the
+   * state equals the last post.
+   */
   refreshNow(): void {
-    this.push();
+    this.push(true);
   }
 
   /** Drop a pending debounced push (extension deactivation). */
