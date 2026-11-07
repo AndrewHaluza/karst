@@ -64,6 +64,21 @@ describe('buildStallView', () => {
     expect(v.options[1]!.recommended).toBe(false);
     expect(v.options[1]!.note).toContain('2 blocking findings');
   });
+  it('offers the accept option on the recorded shape of T995: one docs file, 12 review runs, no ticket type', () => {
+    const { store, id } = setup();
+    for (let n = 1; n < 12; n += 1) {
+      recordFindings(store, { ticketId: id, attempt: n, runAt: `2026-01-01T00:${String(n).padStart(2, '0')}:30Z`, findings: [
+        { severity: 'high', repo: '/r', file: 'docs/research/report.md', title: `claim ${n}`, detail: 'd', source: 'agent' },
+      ] });
+    }
+    claimStallSuggestion(store, id, AT, AT);
+    saveStallDiff(store, id, AT, { files: ['docs/research/report.md'], stat: ' docs/research/report.md | 90 +' });
+    saveStallSuggestion(store, id, AT, { cause: 'Likely an open-ended report.', options: [OPT] }, AT);
+    const v = view(store, id)!;
+    expect(v.rounds).toHaveLength(12);
+    expect(v.options.map((o) => o.kind)).toEqual(['agent', 'accept-docs']);
+    expect(v.options[1]!.label).toBe('Accept the report as it is');
+  });
   it('carries the failure and the usage limit flag', () => {
     const { store, id } = setup();
     claimStallSuggestion(store, id, AT, AT);

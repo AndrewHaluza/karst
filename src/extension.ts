@@ -171,10 +171,7 @@ import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
-import { createStallSuggestionService } from './extension/ops/stallSuggestionService.js';
-import { readTicketDiff } from './extension/ops/stallDiff.js';
-import { generateStallSuggestion } from './workflow/stallSuggestion.js';
-import { REVIEW_FINDINGS_DEFAULTS } from './manifest/qualityDefaults.js';
+import { createStallBinding } from './extension/stallBinding.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
@@ -2924,31 +2921,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
-  // The written suggestion for a review stall (T1001): generated once per park.
-  const stallSeverity = () => currentManifest()?.review?.findings?.blockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
-  const stallDiffOf = (id: number) => readTicketDiff(defaultGitRunner, listWorktreesByTicket(localStore, id));
-  const stallService = createStallSuggestionService({
-    store: localStore,
-    readDiff: stallDiffOf,
-    generate: async (id, parkAt, diff, retry) => {
-      const process = processFor(id, 'stall-suggestion');
-      if (process === null) return 'skipped';
-      return generateStallSuggestion({
-        store: localStore, ticketId: id, diff, blockingSeverity: stallSeverity(),
-        adapter: process.adapter, assignment: process.assignment,
-        cwd: listWorktreesByTicket(localStore, id)[0]?.path ?? '',
-        debug: (m) => logger.debug(m),
-      }, parkAt, retry);
-    },
-    refresh: (id) => { provider.refresh(); dashboard.pushState(id); },
-    debug: (m) => logger.debug(m),
-  });
+  const stall = createStallBinding({ store: localStore, git: defaultGitRunner, manifest: currentManifest, processFor: (id) => processFor(id, 'stall-suggestion'), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, startPlanning: (t, k) => planning.create(t, k), debug: (m) => logger.debug(m) }); // T1001
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
     (ticketId) => {
       // A ticket already parked at upgrade, or opened before its suggestion ended, generates it now.
-      void stallService.ensure(ticketId);
+      void stall.service.ensure(ticketId);
       return makeDashboardActions(
         localStore,
         ticketId,
@@ -3028,12 +3007,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         usageLimitParks.forTicket(ticketId),
         { bindings: () => sandboxB, life: () => sandboxLife },
         driver,
-        {
-          diffFiles: async () => (await stallDiffOf(ticketId))?.files ?? null,
-          ensure: (id, opts) => stallService.ensure(id, opts),
-          startPlanning: (title, kickoff) => planning.create(title, kickoff),
-          blockingSeverity: stallSeverity,
-        },
+        stall.hostFor(ticketId),
       );
     },
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
@@ -3664,7 +3638,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
       dashboard.pushState(ticketId);
       // A ticket that parked as review-stalled gets its written suggestion now (T1001).
-      void stallService.ensure(ticketId);
+      void stall.service.ensure(ticketId);
     }
   }
 
