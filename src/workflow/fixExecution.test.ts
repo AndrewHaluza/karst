@@ -305,9 +305,9 @@ describe('configured Fix session compatibility and readiness', () => {
     };
   }
 
-  it('nudges a proven matching live session without probing provider readiness', () => {
+  it('nudges a proven matching live session without probing provider readiness', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), { provider: 'codex', model: 'sol' }),
       providerReady: () => {
@@ -323,9 +323,9 @@ describe('configured Fix session compatibility and readiness', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('fixing');
   });
 
-  it('treats an unknown live identity as incompatible and preserves it when readiness fails', () => {
+  it('treats an unknown live identity as incompatible and preserves it when readiness fails', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), null),
       providerReady: () => (events.push('ready'), false),
@@ -340,9 +340,9 @@ describe('configured Fix session compatibility and readiness', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
-  it('probes immediately before replacing a divergent live session', () => {
+  it('probes immediately before replacing a divergent live session', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), { provider: 'claude', model: 'opus' }),
       providerReady: () => (events.push('ready'), true),
@@ -352,13 +352,59 @@ describe('configured Fix session compatibility and readiness', () => {
     }));
 
     expect(outcome).toBe('launched');
-    expect(events).toEqual(['live', 'identity', 'ready', 'dispose', 'open']);
+    expect(events).toEqual(['live', 'identity', 'ready', 'live', 'identity', 'dispose', 'open']);
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
-  it('probes a closed launch path and never disposes or launches when it fails', () => {
+  it('skips the resume and touches no session when the ticket stops being eligible during the provider wait', async () => {
     const events: string[] = [];
-    const outcome = resumeConfiguredFixExecution(store, opts({
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => true,
+      sessionIdentity: () => ({ provider: 'claude', model: 'opus' }),
+      providerReady: () => true,
+      eligible: () => false,
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+    expect(outcome).toBe('skipped');
+    expect(events).toEqual([]);
+    // Nothing began: the round stays pending, so the driver resumes it on unpause.
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+    expect(listProcessRuns(store, id)).toEqual([]);
+  });
+
+  it('reads liveness again after the provider wait: a session that closed meanwhile is not disposed', async () => {
+    const events: string[] = [];
+    let reads = 0;
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => ++reads === 1,
+      sessionIdentity: () => ({ provider: 'claude', model: 'opus' }),
+      providerReady: () => true,
+      dispose: () => events.push('dispose'),
+      open: (replacement) => events.push(`open:${String(replacement)}`),
+    }));
+    expect(outcome).toBe('launched');
+    expect(events).toEqual(['open:false']);
+  });
+
+  it('nudges, and does not dispose, a session that took the configured identity during the wait', async () => {
+    const events: string[] = [];
+    let reads = 0;
+    const outcome = await resumeConfiguredFixExecution(store, opts({
+      isLive: () => true,
+      sessionIdentity: () => (++reads === 1 ? { provider: 'claude', model: 'opus' } : { provider: 'codex', model: 'sol' }),
+      providerReady: () => true,
+      deliverFix: () => (events.push('nudge'), true),
+      dispose: () => events.push('dispose'),
+      open: () => events.push('open'),
+    }));
+    expect(outcome).toBe('nudged');
+    expect(events).toEqual(['nudge']);
+  });
+
+  it('probes a closed launch path and never disposes or launches when it fails', async () => {
+    const events: string[] = [];
+    const outcome = await resumeConfiguredFixExecution(store, opts({
       isLive: () => (events.push('live'), false),
       sessionIdentity: () => {
         throw new Error('a closed session has no identity to inspect');

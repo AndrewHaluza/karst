@@ -34,7 +34,7 @@ export class GettingStartedManager {
   private panel: GettingStartedPanel | undefined;
 
   constructor(
-    private readonly loadState: () => GettingStartedState,
+    private readonly loadState: (options: { recheck: boolean }) => GettingStartedState | Promise<GettingStartedState>,
     private readonly host: GettingStartedPanelHost,
     private readonly actionsFactory: GettingStartedActionsFactory,
     private readonly logError: LogError = (m, e) => console.error(m, e),
@@ -61,10 +61,26 @@ export class GettingStartedManager {
   private start(panel: GettingStartedPanel): void {
     this.panel = panel;
 
-    const pushState = (): void => {
-      panel.postMessage({ type: 'state', state: this.loadState() });
+    let latest = 0;
+    const pushState = (recheck: boolean): void => {
+      const seq = ++latest;
+      // The probe behind the state is async, so a slow tool never blocks the host.
+      // An older, slower load must not overwrite a newer one.
+      const post = (state: GettingStartedState): void => {
+        if (seq === latest) panel.postMessage({ type: 'state', state });
+      };
+      try {
+        const loaded = this.loadState({ recheck });
+        if (loaded instanceof Promise) {
+          loaded.then(post).catch((e: unknown) => this.logError('karst: getting started state failed', e));
+        } else {
+          post(loaded);
+        }
+      } catch (e) {
+        this.logError('karst: getting started state failed', e);
+      }
     };
-    const ctx: GettingStartedActionsCtx = { pushState };
+    const ctx: GettingStartedActionsCtx = { pushState: (options) => pushState(options?.recheck === true) };
     const actions: GettingStartedActions = this.actionsFactory(ctx);
 
     panel.onDidReceiveMessage((raw) => {
@@ -79,7 +95,7 @@ export class GettingStartedManager {
     });
     panel.onDidDispose(() => (this.panel = undefined));
 
-    pushState();
+    pushState(false);
   }
 
   isOpen(): boolean {

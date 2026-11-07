@@ -10,6 +10,12 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 
+/** Bound for one dependency probe. A hung binary is a fault after this long. */
+export const PROBE_TIMEOUT_MS = 5_000;
+
+/** Most stdout characters a captured probe keeps. A version line is far shorter. */
+export const PROBE_OUTPUT_LIMIT = 64 * 1024;
+
 export interface AsyncCommandProbeOptions {
   timeoutMs?: number;
 }
@@ -159,4 +165,84 @@ export async function ensureCapabilityAsync(
     if (fault) faults.push(fault);
   }
   return faults;
+}
+
+/** The outcome of one probe command. `timedOut` means it never exited in time. */
+export interface ProbeResult {
+  stdout: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
+/** Runs `<binary> <args>`; stdout is read only when `capture` is true (a readiness command may print a secret). */
+export type ProbeRunner = (
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+  capture?: boolean,
+) => Promise<ProbeResult>;
+
+/** The live runner: bounded by `timeoutMs`, kills a child that does not exit. Never throws. */
+export function runProbeAsync(
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+  capture = false,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
+): Promise<ProbeResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let child: ReturnType<typeof spawn> | undefined;
+    let stdout = '';
+    const settle = (result: ProbeResult): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    try {
+      const prepared = prepareCommand(binary, args);
+      child = spawn(prepared.command, prepared.args, {
+        stdio: capture ? ['ignore', 'pipe', 'ignore'] : 'ignore',
+        windowsVerbatimArguments: prepared.windowsVerbatimArguments,
+        ...probeEnvOption(env),
+      });
+      child.stdout?.on('data', (chunk: Buffer) => {
+        if (stdout.length < PROBE_OUTPUT_LIMIT) stdout = (stdout + chunk.toString('utf8')).slice(0, PROBE_OUTPUT_LIMIT);
+      });
+      child.once('error', () => settle({ stdout: '', exitCode: 1, timedOut: false }));
+      child.once('close', (code) => settle({ stdout, exitCode: code ?? 1, timedOut: false }));
+      timer = setTimeout(() => {
+        child?.kill('SIGKILL');
+        settle({ stdout: '', exitCode: 1, timedOut: true });
+      }, timeoutMs);
+    } catch {
+      settle({ stdout: '', exitCode: 1, timedOut: false });
+    }
+  });
+}
+
+/**
+ * Probe one dependency without blocking the host. A probe that times out is a
+ * fault that names the binary (`timedOut`), never a ready dependency.
+ */
+export async function probeDependencyAsync(
+  dep: RequiredDependency,
+  run: ProbeRunner,
+): Promise<DependencyFault | undefined> {
+  if (dep.unavailable) return { dep, state: 'missing' };
+  const exists = await run(dep.binary, ['--version'], dep.probeEnv);
+  if (exists.timedOut) return { dep, state: 'not-ready', timedOut: true };
+  if (exists.exitCode !== 0) return { dep, state: 'missing' };
+  if (dep.readyOutput) {
+    if (!dep.ready) return { dep, state: 'not-ready' };
+    const out = await run(dep.binary, dep.ready.args, dep.probeEnv, true);
+    if (out.timedOut) return { dep, state: 'not-ready', timedOut: true };
+    return out.exitCode === 0 && dep.readyOutput(out.stdout) ? undefined : { dep, state: 'not-ready' };
+  }
+  if (!dep.ready) return undefined;
+  const ready = await run(dep.binary, dep.ready.args, dep.probeEnv);
+  if (ready.timedOut) return { dep, state: 'not-ready', timedOut: true };
+  return ready.exitCode === 0 ? undefined : { dep, state: 'not-ready' };
 }

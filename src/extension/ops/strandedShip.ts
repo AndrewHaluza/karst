@@ -8,7 +8,7 @@ export interface StrandedShipDeps {
   readonly projectId: number;
   readonly isAlive: (pid: number) => boolean;
   /** The ship capability guard. Returns false when ship must not run. */
-  readonly guardCapability: (capability: Capability) => boolean;
+  readonly guardCapability: (capability: Capability) => boolean | Promise<boolean>;
   readonly runShip: (ticketId: number) => Promise<unknown>;
   readonly info: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
@@ -30,11 +30,11 @@ export interface StrandedShipDeps {
  * carrying a LIVE pid is a ship another window is executing and is left
  * strictly alone — so this never double-runs a live saga.
  */
-export function resumeStrandedShips(deps: StrandedShipDeps): void {
+export async function resumeStrandedShips(deps: StrandedShipDeps): Promise<void> {
   for (const stranded of listStrandedShipTickets(deps.store, deps.isAlive, {
     projectId: deps.projectId,
   })) {
-    if (!deps.guardCapability('ship')) continue;
+    if (!(await deps.guardCapability('ship'))) continue;
     // A paused ticket starts nothing on its own, and a ship saga is work:
     // it describes with a model, pushes, and opens PRs. The stranded run
     // stays stranded until the user unpauses — the same recovery then runs

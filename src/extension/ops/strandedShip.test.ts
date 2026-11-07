@@ -47,32 +47,32 @@ describe('resumeStrandedShips', () => {
     ...over,
   });
 
-  it('resumes a stranded ticket whose ship pid is dead', () => {
+  it('resumes a stranded ticket whose ship pid is dead', async () => {
     seedStranded(ticketId);
     const runShip = vi.fn(async () => undefined);
-    resumeStrandedShips(deps({ runShip }));
+    await resumeStrandedShips(deps({ runShip }));
     expect(runShip).toHaveBeenCalledTimes(1);
     expect(runShip).toHaveBeenCalledWith(ticketId);
   });
 
-  it('leaves a paused ticket alone and never resumes it', () => {
+  it('leaves a paused ticket alone and never resumes it', async () => {
     seedStranded(ticketId, { paused: true });
     const info = vi.fn();
     const runShip = vi.fn(async () => undefined);
-    resumeStrandedShips(deps({ info, runShip }));
+    await resumeStrandedShips(deps({ info, runShip }));
     expect(runShip).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith(
       `karst: stranded ship for ticket ${ticketId} left alone — the ticket is paused`,
     );
   });
 
-  it('skips a ticket the ship capability guard rejects and still processes the next', () => {
+  it('skips a ticket the ship capability guard rejects and still processes the next', async () => {
     const second = createTicket(store, { key: 'T-2', title: 'other', projectId: 1 }).id;
     seedStranded(ticketId);
     seedStranded(second);
     const runShip = vi.fn(async () => undefined);
     const guardCapability = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
-    resumeStrandedShips(deps({ runShip, guardCapability }));
+    await resumeStrandedShips(deps({ runShip, guardCapability }));
     expect(runShip).toHaveBeenCalledTimes(1);
     expect(runShip).toHaveBeenCalledWith(second);
   });
@@ -83,18 +83,18 @@ describe('resumeStrandedShips', () => {
     const runShip = vi.fn(() => Promise.reject(boom));
     const logError = vi.fn();
     const onResumeFailed = vi.fn();
-    expect(() => resumeStrandedShips(deps({ runShip, logError, onResumeFailed }))).not.toThrow();
+    await expect(resumeStrandedShips(deps({ runShip, logError, onResumeFailed }))).resolves.toBeUndefined();
     await flush();
     expect(logError).toHaveBeenCalledWith('karst: stranded ship resume failed', boom);
     expect(onResumeFailed).toHaveBeenCalledWith(ticketId);
   });
 
-  it('fires no callback when no ship is stranded', () => {
+  it('fires no callback when no ship is stranded', async () => {
     const runShip = vi.fn(async () => undefined);
     const info = vi.fn();
     const logError = vi.fn();
     const onResumeFailed = vi.fn();
-    resumeStrandedShips(deps({ runShip, info, logError, onResumeFailed }));
+    await resumeStrandedShips(deps({ runShip, info, logError, onResumeFailed }));
     expect(runShip).not.toHaveBeenCalled();
     expect(info).not.toHaveBeenCalled();
     expect(logError).not.toHaveBeenCalled();

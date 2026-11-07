@@ -10,11 +10,11 @@ import { transition } from '../workflow/machine.js';
 import type { InsideActionHost } from '../ui/dashboard/insideActions.js';
 import { getPrById } from '../store/prs.js';
 import { getShipCommitById } from '../store/shipRuns.js';
-import { type Capability } from '../runtime/deps.js';
+import { type AsyncCapabilityGuard } from './ops/capabilityGuard.js';
 import { formatId } from '../model/entityId.js';
 
 /** True when the capability's tools are present; otherwise tells the user why not. */
-export type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: boolean) => boolean;
+export type CapabilityGuard = AsyncCapabilityGuard;
 
 /** The vscode bindings for the inside-action dispatches (Task 13). Every
  *  target was already containment- and ownership-checked by the panel; these
