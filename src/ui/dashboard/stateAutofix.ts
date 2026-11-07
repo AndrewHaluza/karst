@@ -61,6 +61,14 @@ function readLog(store: Store, ticketId: number): string[] {
   return rows.map((r) => r.title);
 }
 
+/** One line per round the engine armed for the kind, oldest first: the banner's collapsed "Attempt history". */
+function readHistory(store: Store, ticketId: number, kind: AutofixKind): string[] {
+  const rows = store.db
+    .prepare('SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id ASC')
+    .all(ticketId, `${NOTE_PREFIX} ${kind} round %/%`) as Array<{ title: string }>;
+  return rows.map((r) => r.title.slice(NOTE_PREFIX.length).trim()).filter((t) => /^(conflicts|ci) round \d+\/\d+$/.test(t));
+}
+
 /** Only an https log link is kept: the check url is untrusted upstream text. */
 function safeUrl(url: string | null | undefined): string | undefined {
   return typeof url === 'string' && url.startsWith('https://') ? url : undefined;
@@ -165,6 +173,7 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     stopAfter: ticket.stopAfter,
     unknownCi: unknownCiLabels(store, ticketId),
     target,
+    ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
     slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId) },

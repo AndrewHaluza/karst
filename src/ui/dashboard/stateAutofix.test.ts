@@ -138,6 +138,13 @@ describe('readAutofix', () => {
     expect(r.row).toMatchObject({ state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 1 of 3', activeStep: 1 });
   });
 
+  it('fills the banner history from the round notes of the parked kind, oldest first', () => {
+    const { store, id } = setup();
+    for (const t of ['Autopilot: ci round 1/3', 'Autopilot: conflicts round 1/2', 'Autopilot: ci round 2/3', 'Autopilot: ci round 3/3']) postAgentNote(store, { projectId: null, fromTicketId: id, title: t, body: 'x' });
+    park(store, id, 'auto-fix stopped: ci 3/3');
+    expect(readAutofix(store, id, CONFIG).slice.banner?.history).toEqual(['ci round 1/3', 'ci round 2/3', 'ci round 3/3']);
+  });
+
   it('keeps the CI round running after Stop after this round posts its note', () => {
     const { store, id } = setup();
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
