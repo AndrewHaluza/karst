@@ -41,7 +41,7 @@ describe('Auto-fix override (ship header)', () => {
   it('sends the chosen mode, and nothing for the mode that is already active', () => {
     const h = mountInside(ship({ ...SLICE, override: 'on' }));
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="off"]'));
-    expect(h.send.autopilotOverride).toHaveBeenCalledWith('off');
+    expect(h.send.autopilotOverride).toHaveBeenCalledWith('off', expect.any(String));
     h.send.autopilotOverride.mockClear();
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="on"]'));
     expect(h.send.autopilotOverride).not.toHaveBeenCalled();

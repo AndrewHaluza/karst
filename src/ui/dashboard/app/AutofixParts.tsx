@@ -18,15 +18,23 @@ type Override = AutopilotSlice['override'];
 
 const onOff = (on: boolean): string => (on ? 'on' : 'off');
 
+function OverrideSegment({ mode, label, active }: { readonly mode: Override; readonly label: string; readonly active: boolean }) {
+  const send = useDashboardSend();
+  // The pending marker settles with the next snapshot, which also moves `aria-pressed` (@ui:PENDING-STATE).
+  const post = usePendingAction(useCallback((requestId: string) => send.autopilotOverride(mode, requestId), [send, mode]));
+  const onClick = (e: MouseEvent<HTMLButtonElement>): void => {
+    if (active) return;
+    post(e);
+  };
+  return (
+    <button type="button" className="autofix-seg" data-act="autopilot-override" data-mode={mode} aria-pressed={active} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
 /** "Auto-fix: Project default (on|off) / On / Off": one group, `aria-pressed` on the active choice. */
 export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSlice }) {
-  const send = useDashboardSend();
-  const choose = (mode: Override) => (e: MouseEvent<HTMLButtonElement>) => {
-    if (mode === autopilot.override) return;
-    // The segment settles on the next snapshot, which moves `aria-pressed`.
-    e.currentTarget.setAttribute('aria-busy', 'true');
-    send.autopilotOverride(mode);
-  };
   const choices: ReadonlyArray<readonly [Override, string]> = [
     ['inherit', `Project default (${onOff(autopilot.projectDefault)})`],
     ['on', 'On'],
@@ -36,9 +44,7 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
     <span className="autofix-override" role="group" aria-label="Auto-fix">
       <span className="autofix-override-label" aria-hidden="true">Auto-fix:</span>
       {choices.map(([mode, label]) => (
-        <button key={mode} type="button" className="autofix-seg" data-act="autopilot-override" data-mode={mode} aria-pressed={autopilot.override === mode} onClick={choose(mode)}>
-          {label}
-        </button>
+        <OverrideSegment key={mode} mode={mode} label={label} active={autopilot.override === mode} />
       ))}
     </span>
   );
