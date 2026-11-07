@@ -1,23 +1,39 @@
 import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { postMessage } from '../store/ticketMessages.js';
+import { getSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import type { HookPayload } from './dispatch.js';
 
 type SelectedModel = NonNullable<HookPayload['model']>;
 
 /**
- * The model recorded for the ticket's running agent turn, or `null` when no
- * running `session`/`fix` process run carries one. This is the configured
- * launch model — the identity the ticket asked for, not the agent's guess.
+ * The model a ticket's session launch was CONFIGURED to use.
+ *
+ * The launch intent — not `process_runs.model` — is the record of what a launch
+ * asked for: every interactive launch writes one, including a deliberate switch
+ * and a resume. `process_runs.model` is written once when the run opens and is
+ * never updated, so after a live model switch it still names the previous
+ * model and the guard would warn about the model the user just chose (review of
+ * T1005). The endpoint rebuilds `launchId` from host facts, so it pins the
+ * exact launch that reported — never a newer `fix` run that happens to be
+ * running. When it is absent (a legacy channel) the newest intent for the
+ * ticket is the best available answer.
  */
-export function runningSessionModel(store: Store, ticketId: number): string | null {
+export function configuredSessionModel(
+  store: Store,
+  ticketId: number,
+  launchId?: string,
+): string | null {
+  if (launchId !== undefined) {
+    const intent = getSessionLaunchIntent(store, launchId);
+    if (intent !== undefined) return intent.model;
+  }
   const row = store.db
     .prepare(
-      `SELECT model FROM process_runs
-        WHERE ticket_id = ? AND status = 'running'
-          AND process_id IN ('session','fix')
-          AND model IS NOT NULL
-        ORDER BY started_at DESC, id DESC
+      `SELECT model FROM session_launch_intents
+        WHERE ticket_id = ? AND model IS NOT NULL
+          AND status IN ('pending','confirmed')
+        ORDER BY created_at DESC, id DESC
         LIMIT 1`,
     )
     .get(ticketId) as { model: string } | undefined;
@@ -30,16 +46,17 @@ export function runningSessionModel(store: Store, ticketId: number): string | nu
  * naming BOTH models. Observation only — the session is never stopped here.
  *
  * Returns true when a warning was recorded. Malformed/absent comparison data
- * (no running run, no model recorded) is not a mismatch, so nothing is written.
+ * (no launch intent with a model) is not a mismatch, so nothing is written.
  */
 export function recordModelSelectionWarning(
   store: Store,
   ticketId: number,
   observed: SelectedModel,
+  launchId?: string,
   debug?: (message: string) => void,
 ): boolean {
   try {
-    const configured = runningSessionModel(store, ticketId);
+    const configured = configuredSessionModel(store, ticketId, launchId);
     if (configured === null) return false;
     const expected = configured.split('#')[0] ?? configured;
     const actual = `${observed.providerID}/${observed.modelID}`;

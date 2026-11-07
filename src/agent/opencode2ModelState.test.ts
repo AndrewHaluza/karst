@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -159,6 +159,23 @@ describe('seeding model.json', () => {
       providerID: 'opencode-go',
       modelID: 'deepseek-v4.1-flash',
     });
+  });
+
+  it('refuses a symlinked parent planted in the sandbox-writable bridge dir', () => {
+    const root = tempRoot();
+    const bridge = join(root, 'bridge');
+    const target = join(root, 'host-dir');
+    mkdirSync(bridge, { recursive: true });
+    mkdirSync(target, { recursive: true });
+    symlinkSync(target, join(bridge, 'opencode2'));
+    expect(() =>
+      writeOpencode2ModelState(
+        join(bridge, 'opencode2', 'model-state.json'),
+        'opencode-go/deepseek-v4.1-flash',
+      ),
+    ).toThrow(/symlink/i);
+    // Nothing was written through the link into the host directory.
+    expect(readdirSync(target)).toEqual([]);
   });
 
   it('does not follow a symlink planted at the store path', () => {

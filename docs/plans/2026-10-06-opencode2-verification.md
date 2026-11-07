@@ -244,9 +244,13 @@ the config model set it was DeepSeek on the first step.
 
 Because a seed can still be ignored (a provider that is not ready at startup),
 the bridge also reports the first `session.step.started` model once per session
-as `ModelSelected`. The host compares it with the running `session`/`fix`
-process run's recorded model and, on a mismatch, writes a warning event to the
-ticket naming both models. It never stops the session.
+as `ModelSelected`. The host compares it with the model the reporting launch was
+configured to use (that launch's `session_launch_intents` row, pinned by the
+endpoint-rebuilt `launchId`) and, on a mismatch, writes a warning event to the
+ticket naming both models. It never stops the session. The launch intent is the
+right source: `process_runs.model` is written once at run open and never
+updated, so after a live model switch it still names the previous model and the
+guard would warn about the model the user just chose.
 
 ### Live evidence in the ticket sandbox (2.0.27, 2026-11-07)
 
@@ -292,7 +296,11 @@ The mismatch warning cannot be posted to the real ticket from the sandbox (no
 karst CLI or DB), so it is evidenced by the in-memory store tests:
 `hooks/modelSelection.test.ts` "warns on the ticket, naming both models" (and
 the `dispatch.test.ts` `ModelSelected` case) assert one `event` on the ticket
-whose body names both models, with the agent state unchanged.
+whose body names both models, with the agent state unchanged. The same file's
+"compares against the switched-to model, not the stale process run model" pins
+the switch path: the expected model comes from the reporting launch's intent,
+so a deliberate switch (and a newer concurrent launch on the ticket) never
+produces a false warning.
 
 
 ## 5. Prompt delivery byte-identical

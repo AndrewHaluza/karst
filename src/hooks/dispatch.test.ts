@@ -9,7 +9,7 @@ import {
   listImplementationTimeline,
   openImplementationRun,
 } from '../store/implementationRuns.js';
-import { listProcessRuns, openProcessRun } from '../store/processRuns.js';
+import { listProcessRuns } from '../store/processRuns.js';
 import { listInbox } from '../store/ticketMessages.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
 import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
@@ -51,19 +51,21 @@ describe('dispatchHook', () => {
 
   it('ModelSelected records the mismatch warning without changing agent_state', () => {
     const id = ticketAt();
-    openProcessRun(store, {
+    recordSessionLaunchIntent(store, {
       ticketId: id,
-      stageKey: 'impl',
-      processId: 'session',
-      attempt: 1,
+      launchId: 'launch-1',
+      purpose: 'implementation',
       provider: 'opencode2',
       model: 'opencode-go/deepseek-v4.1-flash',
-      startedAt: '2026-11-07T10:00:00.000Z',
+      reason: 'initial',
+      sessionOrigin: 'new',
+      at: '2026-11-07T10:00:00.000Z',
     });
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     const result = dispatchHook(store, {
       hook_event_name: 'ModelSelected',
       cwd: WT,
+      launchId: 'launch-1',
       model: { providerID: 'openrouter', modelID: 'anthropic/claude-haiku-5.5' },
     });
     expect(result).toEqual({ admitted: true, ticketId: id });

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   closeSync,
   constants as fsConstants,
@@ -114,8 +115,24 @@ export function mergeOpencode2ModelState(
   };
 }
 
+/**
+ * Ensure the store's PARENT is a real directory and refuse to write through a
+ * symlink. On a docker launch this parent (`<bridge>/opencode2`) lives in the
+ * sandbox-writable bridge mount, so an agent from an earlier session on the
+ * same ticket can plant it as a symlink to any host directory; `mkdirSync`
+ * would happily resolve it and the host would then read/write `model-state.json`
+ * outside the mount. A refused parent throws — the launch treats the seed as
+ * best-effort, and the TUI still gets the config model.
+ */
+function ensureRealDir(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  const stat = lstatSync(dir);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`opencode2 model store: refusing symlinked or non-directory ${dir}`);
+  }
+}
+
 function writeAtomic(file: string, body: string): void {
-  mkdirSync(dirname(file), { recursive: true });
   // A sandbox can plant a symlink, FIFO or directory at the store path. The
   // read guard ignores them; the write must replace the entry itself, never
   // rename onto (or through) it.
@@ -128,8 +145,10 @@ function writeAtomic(file: string, body: string): void {
     // A non-empty directory still refuses the rename; the caller treats the
     // seed as best-effort rather than stalling the launch.
   }
-  const temporaryPath = `${file}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temporaryPath, body);
+  // `wx` never follows a planted entry at the temp path, and an unpredictable
+  // name keeps the temp out of a sandbox writer's reach.
+  const temporaryPath = `${file}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  writeFileSync(temporaryPath, body, { flag: 'wx' });
   renameSync(temporaryPath, file);
 }
 
@@ -191,6 +210,7 @@ export function writeOpencode2ModelState(
   effort?: string,
 ): string | null {
   if (parseOpencode2ModelId(model) === null) return null;
+  ensureRealDir(dirname(file));
   const existing = readExistingState(file);
   writeAtomic(file, JSON.stringify(mergeOpencode2ModelState(existing, model, effort)));
   return file;

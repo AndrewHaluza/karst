@@ -676,11 +676,13 @@ export function dispatchHook(
   }
 
   // T1005: the first model step reports the model that ACTUALLY answered. It is
-  // an observation, not a lifecycle signal: compare it with the configured run
-  // model and record a warning on the ticket, never stop the session.
+  // an observation, not a lifecycle signal: compare it with the model the
+  // reporting launch was configured to use (pinned by `launchId`, so a switch
+  // or a concurrent fix run cannot supply the wrong "expected") and record a
+  // warning on the ticket, never stop the session.
   if (payload.hook_event_name === 'ModelSelected') {
     if (payload.model !== undefined) {
-      recordModelSelectionWarning(store, ticketId, payload.model, debug);
+      recordModelSelectionWarning(store, ticketId, payload.model, payload.launchId, debug);
     }
     observe('no-signal');
     return { admitted: true, ticketId };
