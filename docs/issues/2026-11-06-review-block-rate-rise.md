@@ -14,18 +14,20 @@ Data cut: Nov 6 20:00 UTC. The store counts of Q1 and Q2 reproduce with this cut
 
 Each verdict below is either MEASURED (number and source) or NOT MEASURED (reason and the free query). Projects: 5 of the 41 tickets in C belong to another project (mobile-app); see Q2.
 
+Corrections after T995 merged (T1003): the review effort in [@issue:RB-04] and the next step in [@issue:RB-01] are wrong in the first version; [@issue:RB-09] corrects the effort and adds the run medians and the replays, and [@issue:RB-10] adds the sample of the medium period.
+
 Research only. No prompt, reviewer definition, threshold or setting changed. Data: store `process_runs` + `review_findings`, first review per ticket, model claude-opus-5-5, blocking = critical, high or medium. Review transcripts: `~/.claude/projects/<worktree>/<uuid>.jsonl`.
 
 ## [@issue:RB-01] Summary and verdict
 
 - Q1: MEASURED. First-review block rate: A (Oct 29 to Nov 1) 21% (15 of 73 tickets), C (Nov 5 to 6) 54% (22 of 41). Without UI-only and docs-only tickets: A 22% (n=69), C 54% (n=41). Without the 11 C tickets that have no merged diff: C 47% (n=30). Source: RB-02. The ticket figures (19% over 90 tickets) match Oct 27 to Nov 1 (17 of 91), not Oct 29 to Nov 1; the reason is not confirmed.
 - Q2: MEASURED (source RB-03). The mix does not explain the rise. Of the 33 points (21% to 54%): type 0 to 4 points (the `fix` share is 51% in A and 51% in C; at the A type mix C would have 46% to 54%), size 0 points (at the A size mix C would have 56%; reviewed diffs are a median of 150 lines in A and 181.5 in C), intent 4 points (at the A intent mix C would have 50%). If the three effects added, the mix explains at most 8 points (about a quarter). The rate rose inside every size band, among `fix` tickets (11% to 48%) and among tickets without intent (21% to 50%).
-- Q3: MEASURED as a list of input differences (RB-04): Claude Code version (2.1.314 and 2.1.316 in A, 2.1.318 and 2.1.319 in C), loaded user context, repo CLAUDE.md, prompt tail with the Intent section (1 of 57 A runs, 14 of 35 C runs), and `effort: medium` in 8 runs. The reviewer prompt text (hash 21e8a7e8) and the model did not change, but the assembled prompt did change: its tail now has an Intent section (and, in 5 runs, a Ticket description section) that most A prompts do not have. NOT MEASURED: which difference changes the block rate. A free query cannot measure this; it needs a controlled re-run.
-- Q4: MEASURED (source RB-05, RB-08). Each of the 30 sampled findings was classified against the ticket-branch code at the review start. Wrong: 0 of 29 decided (A 0 of 14, C 0 of 15; 1360 in A is UNDECIDED, because it needs a Stryker run). Real at the stated severity: A 6 of 14 (43%), C 7 of 15 (47%). Real but below the stated severity: A 8, C 8. Right severity low (would not block): A 7 of 14, C 3 of 15. 5 of the 9 stated highs in the C sample are medium at most. The extra blocks in C are real defects; the rise is not explained by false findings. Both periods rate about half of the findings above their right severity.
+- Q3: MEASURED as a list of input differences (RB-04): Claude Code version (2.1.314 and 2.1.316 in A, 2.1.318 and 2.1.319 in C), loaded user context, repo CLAUDE.md, prompt tail with the Intent section (1 of 57 A runs, 14 of 35 C runs), and review effort (corrected in [@issue:RB-09]: the active preset, Claude Code MAX, runs the review lane at `effort: medium`, not `low`; 84 reviewer Opus sessions on Nov 6 ran at medium over all rounds, while the report's 7 or 8 counts first reviews only). The reviewer prompt text (hash 21e8a7e8) and the model did not change, but the assembled prompt did change: its tail now has an Intent section (and, in 5 runs, a Ticket description section) that most A prompts do not have. NOT MEASURED: which difference changes the block rate. A free query cannot measure it. The replays in [@issue:RB-09] tested the Claude Code version and the loaded context, not the prompt tail.
+- Q4: MEASURED (source RB-05, RB-08). Each of the 30 sampled findings was classified against the ticket-branch code at the review start. Wrong: 0 of 29 decided (A 0 of 14, C 0 of 15; 1360 in A is UNDECIDED, because it needs a Stryker run). Real at the stated severity: A 6 of 14 (43%), C 7 of 15 (47%). Real but below the stated severity: A 8, C 8. Right severity low (would not block): A 7 of 14, C 3 of 15. 5 of the 9 stated highs in the C sample are medium at most. The extra blocks in C are real defects; the rise is not explained by false findings. Both periods rate about half of the findings above their right severity. A second sample of 20 findings from the medium period ([@issue:RB-10]) is 13 real at the stated severity, 3 real at medium, 3 real at low and 1 not a code defect.
 - Q5: MEASURED, with low power. Fix-titled later tickets that reference a ticket that passed review: A 5 of 70, C 3 of 38 (text match; source RB-06). C is 1 to 2 days old. No verdict on missed bugs.
 - Forced-high rule: MEASURED (source RB-04). Code form (highs without a file): A 0 of 4, C 1 of 21. Prompt form ("ALWAYS high" for an unmet intent scenario or spec requirement; `conformance.ts`): it applies to the 15 C tickets with intent, which have 14 of the 21 C highs (4 name a scenario by text match). The other 7 C highs are on tickets without intent (0.27 per ticket against 0.06 in A), so the rule does not explain the rise in highs there.
-- Cause: not isolated. The report names two candidates that match the timing: (a) from Nov 2, the user context and the Intent section; (b) Nov 5 12:13 UTC, the Claude Code upgrade to 2.1.318 (store cut-over at run 5759). The extension build per run is NOT MEASURED (the store does not record it; free query: none).
-- Next step (proposal for a person, one step): run one controlled 2 by 2 by 2 re-run of 5 tickets with an intent value, from Oct 29 to Nov 3 (2 of the 73 A tickets have one, so B tickets are needed). Each run reviews the first-review input diff of one ticket: the ticket-branch commits before the review start, rebuilt with git. Factors: Claude Code version (2.1.316 and 2.1.319), loaded context (A context and current context), prompt tail (with and without Intent). It has 8 cells and 40 runs, about $17 to $28 at $0.43 to $0.70 per run. It tests (a) and (b). It does not test the extension build or `effort`. Then decide on any prompt or threshold change. Do not lower `blockingSeverity` now.
+- Cause: not isolated. The report names two candidates that match the timing: (a) from Nov 2, the user context and the Intent section; (b) Nov 5 12:13 UTC, the Claude Code upgrade to 2.1.318 (store cut-over at run 5759). Replays of 5 merged diffs (RB-09) show that the CLI version (2.1.317, 2.1.319) and the local configuration do not produce the rise at low on Nov 5. The source is probably remote, but there is no direct proof. The extension build per run is NOT MEASURED (the store does not record it; free query: none).
+- Next step (decision for a person): decide the review effort in the preset by cost and stall rate. No decision is stated here. Do not lower `blockingSeverity` now.
 
 END_DOC_BLOCK: [@issue:RB-01]
 
@@ -144,7 +146,7 @@ Same in all periods: reviewer prompt text (hash 21e8a7e8), model claude-opus-5-5
 | Repo CLAUDE.md change of Nov 2 (ab9d723c15f) | loaded before the change in the runs before Nov 2 18:06 UTC | loaded after the change in all runs |
 | Prompt tail "Intent" section | 1 of 57 runs | 14 of 35 runs |
 | Prompt tail "Ticket description" section | 0 | 5 runs (Nov 6, after #955) |
-| Lane `effort` (parameter in the transcript) | `low`; `medium` in 1 run | `low`; `medium` in 7 runs, all Nov 6 |
+| Lane `effort` (parameter in the transcript) | `low` in all matched runs | `low` before Nov 6 11:39 UTC; `medium` in every karst-reviewer Opus session from Nov 6 11:39 UTC (see [@issue:RB-09]) |
 | Mean output tokens per run | about 1800 | about 6700 |
 | Mean thinking tokens per run | about 280 | about 3300 to 4000 |
 | Mean cost per run | $0.43 | $0.70 |
@@ -159,9 +161,9 @@ Block rate by prompt tail: no extra section 25% (n=87), Intent 50% (n=26), Ticke
 
 Block rate by Claude Code version: 2.1.317 about 221 thinking tokens, 33% blocked (n=6); 2.1.318 about 3170 thinking tokens, 65% (n=20); 2.1.319 about 4416, 47% (n=15). These n are small. The 95% interval of each rate is wide (more than 30 points). The 2.1.319 rate is lower than the 2.1.318 rate, so the thinking tokens alone do not predict the block rate. The cut-over is clean at run 5759 (Nov 5 12:13).
 
-Other files: `.karst/karst.yml` is untracked, so its history is not available. The file has `effort: low` for the review lane. 7 reviews on Nov 6 ran at `medium`, so the lane effort setting may have changed on Nov 6. This is an inference. It affects 7 of 41 runs in C and cannot explain the rise that began before Nov 6. The repo reviewer definition did not change after Oct 10. The installed extension folder is karst.karst-1.0.0 at all times, so its version string cannot tell the builds apart. The study did not compare the extension build or its code between the periods. Extension build: NOT MEASURED. The store does not record the build of a review run. The commits under `src/workflow/review` in the period (UTC) are: Oct 29 18:21 5a44314a865; Oct 30 19:44 8ac1ce2a2be and 20:19 c9493b41223; Oct 31 13:18 6bb2c6bdd03; Nov 1 12:50 52caa6d7b9d; Nov 5 11:28 868d4ae7a14; Nov 5 23:13 f97e84ac378 and 23:26 12c75d0a26a; Nov 6 08:11 b6c38d2e51a, 08:25 4ccfe517ece and 15:13 d09208d39f6. The study draws no conclusion from these dates, because a merged commit does not show which build ran. There is no free query.
+Other files: `.karst/karst.yml` is untracked, so its history is not available; its `effort: low` entry is not the active review effort. The review lane runs at `medium` from Nov 6 11:39 UTC, and why it switched is unknown (corrected in [@issue:RB-09]). The repo reviewer definition did not change after Oct 10. The installed extension folder is karst.karst-1.0.0 at all times, so its version string cannot tell the builds apart. The study did not compare the extension build or its code between the periods. Extension build: NOT MEASURED. The store does not record the build of a review run. The commits under `src/workflow/review` in the period (UTC) are: Oct 29 18:21 5a44314a865; Oct 30 19:44 8ac1ce2a2be and 20:19 c9493b41223; Oct 31 13:18 6bb2c6bdd03; Nov 1 12:50 52caa6d7b9d; Nov 5 11:28 868d4ae7a14; Nov 5 23:13 f97e84ac378 and 23:26 12c75d0a26a; Nov 6 08:11 b6c38d2e51a, 08:25 4ccfe517ece and 15:13 d09208d39f6. The study draws no conclusion from these dates, because a merged commit does not show which build ran. There is no free query.
 
-Verdict: MEASURED, the input changed in five ways: the Claude Code version, the loaded user context, the repo CLAUDE.md, the prompt tail sections, and the `effort` value in 8 runs. NOT MEASURED: which change moves the block rate. The block rates by group above are correlations, and the causes are confounded.
+Verdict: MEASURED, the input changed in five ways: the Claude Code version, the loaded user context, the repo CLAUDE.md, the prompt tail sections, and the review effort (see [@issue:RB-09]; the effort correction does not remove the rise). NOT MEASURED: which change moves the block rate. The block rates by group above are correlations, and the causes are confounded.
 
 END_DOC_BLOCK: [@issue:RB-04]
 
@@ -265,8 +267,74 @@ END_DOC_BLOCK: [@issue:RB-06]
 
 ## [@issue:RB-07] Proposals for a person
 
-1. Record the Claude Code version and the lane effort in `process_runs` for each review. Today the version is found only in transcripts.
-2. Run one controlled 2 by 2 by 2 re-run (not done here): 5 diffs of tickets that have an intent value, from Oct 29 to Nov 3 (A has only 2 such tickets). The A context is the same as in the summary: no user CLAUDE.md, the second session-start hook, and the repo CLAUDE.md from before ab9d723c15f. Factors: Claude Code 2.1.316 against 2.1.319; Oct 30 user and repo CLAUDE.md against the current ones; prompt tail with and without the Intent section. This tests causes (a) and (b). It does not test the extension build (c). Estimate: 8 cells, 40 runs, about $0.43 to $0.70 per run, so about $17 to $28 in total.
-3. Decide on any prompt or `blockingSeverity` change only after step 2 (@arch:PRE-BASELINE). Q4 shows that the sampled extra findings are real defects (0 of 29 wrong), so a change that only removes blocks has no support in this data. A severity calibration change (about half of the findings are rated above their right severity in both periods) is a separate question for a person.
+1. Record the Claude Code version and the review effort in `process_runs` for each review. Today the version is found only in transcripts, and the effort is not recorded where a free query can reach it.
+2. Decide the review effort in the preset by cost and stall rate. No decision is stated here. Do not lower `blockingSeverity` now: Q4 shows that the extra C findings are real defects (0 of 29 wrong, 8 of 15 real at medium or higher), and the medium-period sample ([@issue:RB-10]) does not show that low would miss them either. A severity calibration change (about half of the findings are rated above their right severity in both periods) is a separate question for a person.
 
 END_DOC_BLOCK: [@issue:RB-07]
+
+## [@issue:RB-09] Correction: review effort, run medians and replays
+
+Correction of RB-01 and RB-04. The first version of this report read `.karst/karst.yml`, found `effort: low` for the review lane, and inferred that the lane effort may have changed on Nov 6, with `medium` in 7 or 8 runs. That reading is wrong about the active setting. The active preset is Claude Code MAX, whose review lane is `review: claude-opus-5-5, effort: medium`. The reviewer session transcripts show `medium` for all karst-reviewer Opus sessions after Nov 6 11:39 UTC: 84 sessions on Nov 6, counted over all rounds. The report figure counts first reviews only, so the two counts describe the same switch. It is not known why the sessions switched at that time. The switch affects part of C only, so it does not explain the Nov 2 step or the Nov 5 step.
+
+Runs table. Cohort: all review runs, model claude-opus-5-5, project 1 (extention). Each message is counted one time, by message id.
+
+| Period | Effort | Median output tokens | Blocked | Blocking findings per run | Runs |
+|---|---|---|---|---|---|
+| Oct 27 to Nov 3 | low | about 1,800 | 24% | 0.31 | 172 |
+| Nov 5 to Nov 6 11:39 UTC | low | about 5,500 to 7,700 | 58% | 1.14 | 84 |
+| Nov 6 11:39 UTC and later | medium | about 16,700 | 72% | 1.76 | 83 |
+
+Source: store `process_runs` and `review_findings`, with message usage deduplicated by message id from the transcripts under `~/.claude/projects/<worktree>/<uuid>.jsonl`; the run counts in all three rows come from planning session P17, which read the store and the transcripts. Limit: these rows include repeat rounds, and the medium row has more of them than the low rows. The rows are therefore NOT a controlled comparison of effort; the medium row also mixes in the Nov 5 to 6 period effects named in RB-01.
+
+The report has no token median: the Q3 token rows are means per run, so the same-message-twice correction does not change them. The median above counts each message once.
+
+Replays. The same 5 merged diffs (the review sessions of Nov 3, at `low`) ran again on 2026-11-06 and 2026-11-07 with the stored prompts, `effort: low`, one run each. Columns: original transcript / Claude Code 2.1.317 / 2.1.319 / 2.1.319 with a clean configuration (no user settings, hooks, plugins, skills, MCP servers or project CLAUDE.md). Output tokens:
+
+| Ticket | Original | 2.1.317 | 2.1.319 | 2.1.319, clean config |
+|---|---|---|---|---|
+| 941 | 3,461 | 11,910 | 10,561 | 13,034 |
+| 945 | 3,178 | 10,814 | 7,241 | 8,278 |
+| 947 | 1,550 | 5,997 | 5,297 | 9,337 |
+| 948 | 1,042 | 7,285 | 5,388 | 7,786 |
+| 950 | 1,686 | 7,354 | 6,313 | 6,359 |
+
+The original value comes from the transcript, deduplicated by message id. The replay values come from the CLI result usage.
+
+Conclusion (estimate): the rise at `low` on Nov 5 does not come from the Claude Code version or from the local configuration. Both CLI versions reproduce the higher output on the Nov 3 diffs, and a clean configuration reproduces it at least as strongly. The source is probably remote, but there is no direct proof (the CLI talks to the API and the study did not observe the server). Most of the replay output is not visible text or tool input, so hidden thinking is a probable part of it.
+
+END_DOC_BLOCK: [@issue:RB-09]
+
+## [@issue:RB-10] Q4: sample of 20 medium-period findings
+
+Sample: seed 20261107, 20 blocking findings, at most 2 per ticket, T995 excluded. Pool: 117 blocking findings in 53 blocking runs on 13 tickets (period: Nov 6 11:39 UTC and later, `effort: medium`). The 20 rows cover 11 tickets. Classes and severity scale are in [@issue:RB-05].
+
+| fid | class | right severity | basis |
+|---|---|---|---|
+| 2061 | REAL | stated | code at review time |
+| 2361 | REAL | stated | code at review time |
+| 2010 | REAL | stated | fix commit |
+| 2093 | REAL | stated | code at review time |
+| 2334 | REAL | stated | code at review time |
+| 2266 | REAL | stated | code at review time |
+| 2293 | REAL | stated | code at review time |
+| 2045 | REAL | stated | code at review time |
+| 2058 | REAL | stated | code at review time |
+| 2167 | REAL | stated | code at review time |
+| 2214 | REAL | stated | fix commit |
+| 2343 | REAL | stated | code at review time |
+| 2353 | REAL | stated | code at review time |
+| 2086 | REAL-LOWER | medium | fix commit |
+| 2075 | REAL-LOWER | medium | code at review time |
+| 2255 | REAL-LOWER | medium | fix commit |
+| 2056 | REAL-LOWER | low | code at review time |
+| 2188 | REAL-LOWER | low | code at review time |
+| 2304 | REAL-LOWER | low | code at review time |
+| 2116 | not a code defect | n/a (stated high) | code at review time |
+
+Counts: REAL at the stated severity 13, REAL-LOWER at medium (still blocks) 3, REAL-LOWER at low (does not block) 3, not a code defect 1. 2116 was stated high: it asks a person to read the CI log, which a diff cannot show, so it is not a code defect.
+
+Limits: one reader classified the findings. The classification used the code at review time where a commit was available, and the fix commit with the finding detail otherwise; no finding was run. For 2010, 2086, 2214 and 2255 the code was not read at review time, and the evidence is the fix commit. Two findings (2093 and 2361) are about code that an earlier fix round added.
+
+Verdict: the sample shows the quality of the medium findings (13 of 20 real at the stated severity, 3 more real at medium). It does not show that `low` would miss them: the study did not run the same diffs at `low`, and the replays in [@issue:RB-09] measure output, not findings. It gives no support for lowering `blockingSeverity`.
+
+END_DOC_BLOCK: [@issue:RB-10]
