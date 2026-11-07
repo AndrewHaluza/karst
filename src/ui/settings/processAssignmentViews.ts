@@ -110,6 +110,7 @@ const ROLE_LABELS: Record<ProcessKey, string> = {
   reviewFix: 'Review Fix Agent',
   prDescription: 'PR description',
   ticketAnalysis: 'Ticket Analysis Agent',
+  stallSuggestion: 'Stall Suggestion Agent',
   planning: 'Planner',
 };
 
@@ -122,6 +123,7 @@ const ROLE_DESCRIPTIONS: Record<ProcessKey, string> = {
   prDescription: 'Writes the pull request description at ship time',
   ticketAnalysis:
     'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
+  stallSuggestion: 'Writes the suggestion when a review stalls',
   planning: 'Model used by planning sessions',
 };
 

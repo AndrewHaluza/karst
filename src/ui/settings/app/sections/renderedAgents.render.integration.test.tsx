@@ -141,7 +141,7 @@ describe('rendered Agents tab — the roster and matrix mount', () => {
     // `state.host.agents` → the roster rows inside the React mount; the
     // assignment matrix renders one `.proc-row[data-proc-key]` per process key.
     const mine = tab(view);
-    expect(mine.querySelectorAll('[data-role]')).toHaveLength(11);
+    expect(mine.querySelectorAll('[data-role]')).toHaveLength(12);
     expect(mine.querySelector('[data-role="review"]')?.textContent).toContain('Review Agent');
     // The profile pool rides the Agent profiles tab: the two rows, the real text.
     expect(tab(view).textContent).toContain('Agent profiles (2)');

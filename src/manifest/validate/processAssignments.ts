@@ -35,6 +35,7 @@ export const PROCESS_KEYS = [
   'reviewFix',
   'prDescription',
   'ticketAnalysis',
+  'stallSuggestion',
   'planning',
 ] as const;
 export type ProcessKey = (typeof PROCESS_KEYS)[number];
@@ -47,6 +48,7 @@ export const PROCESS_ROLES = [
   'review-fix',
   'pr-description',
   'ticket-analysis',
+  'stall-suggestion',
   'planning',
 ] as const;
 export type ProcessRole = (typeof PROCESS_ROLES)[number];
@@ -58,6 +60,7 @@ export const PROCESS_ROLE_BY_KEY: Readonly<Record<ProcessKey, ProcessRole>> = {
   reviewFix: 'review-fix',
   prDescription: 'pr-description',
   ticketAnalysis: 'ticket-analysis',
+  stallSuggestion: 'stall-suggestion',
   planning: 'planning',
 };
 
@@ -68,6 +71,7 @@ export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
   'review-fix': 'reviewFix',
   'pr-description': 'prDescription',
   'ticket-analysis': 'ticketAnalysis',
+  'stall-suggestion': 'stallSuggestion',
   planning: 'planning',
 };
 

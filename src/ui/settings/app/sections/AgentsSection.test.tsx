@@ -164,7 +164,7 @@ describe('Agents page — tabs and location', () => {
 describe('Agents page — roles table', () => {
   it('shows every role with where its value comes from', () => {
     mount({ ...BASE, processes: { ...BASE.processes, uatTester: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } } } as unknown as Manifest);
-    expect(document.querySelectorAll('[data-role]')).toHaveLength(11);
+    expect(document.querySelectorAll('[data-role]')).toHaveLength(12);
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('preset');
     expect(row('uatTester').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
     expect(row('implementation').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
@@ -228,7 +228,7 @@ describe('Agents page — compare', () => {
     const { probe } = mount();
     fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
     const compareBar = document.querySelector('.agents-compare-bar') as HTMLElement;
-    expect(within(compareBar).getByRole('status').textContent).toBe('2 of 11 roles differ');
+    expect(within(compareBar).getByRole('status').textContent).toBe('2 of 12 roles differ');
     fireEvent.click(within(row('planning')).getByRole('button', { name: /Copy from B/ }));
     expect(draftOf(probe).agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(draftOf(probe).agentPresets!.B).toEqual(BASE.agentPresets!.B);

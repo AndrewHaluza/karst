@@ -3,10 +3,12 @@ import { validateInsideProgressEvent, type InsideProgressEvent } from '../../mod
 import { isKnownProvider } from '../../agent/provider.js';
 import type { WebviewMessage } from './messages.js';
 
+type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }>;
+
 import {
   isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, storedPath, storedSha,
   MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES,
-  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS,
+  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS,
 } from './messageValidate.js';
 /**
  * Narrow an untrusted webview message to a `WebviewMessage`, validating BOTH the
@@ -91,12 +93,23 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'reset-stage' };
     // Review-stall answers (T845): payload-free like reset-stage — the host
     // derives the ticket and re-checks the stall itself.
-    case 'review-stall-hint':
-      return { type: 'review-stall-hint' };
-    case 'review-stall-continue':
-      return { type: 'review-stall-continue' };
-    case 'review-stall-rescope':
-      return { type: 'review-stall-rescope' };
+    case 'stall-apply': {
+      if (m.kind !== 'agent' && m.kind !== 'accept-docs') return null;
+      if (typeof m.label !== 'string' || m.label.length === 0 || m.label.length > MAX_STALL_LABEL_CHARS) return null;
+      if (typeof m.note !== 'string' || m.note.length > MAX_STALL_TEXT_CHARS) return null;
+      const out: Msg<'stall-apply'> = { type: 'stall-apply', kind: m.kind, label: m.label, note: m.note };
+      for (const key of ['description', 'acceptanceCheck'] as const) {
+        const v = m[key];
+        if (v === undefined) continue;
+        if (typeof v !== 'string' || v.length > MAX_STALL_TEXT_CHARS) return null;
+        out[key] = v;
+      }
+      return out;
+    }
+    case 'stall-retry':
+      return { type: 'stall-retry' };
+    case 'stall-planning':
+      return { type: 'stall-planning' };
     case 'address-pr-feedback':
       return { type: 'address-pr-feedback' };
     case 'send-ci-failure':

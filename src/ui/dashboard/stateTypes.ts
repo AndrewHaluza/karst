@@ -1,7 +1,7 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentBackends } from '../../agent/backendChoices.js';
-import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
+import type { AgentProvider, PresetCapability, Severity as StallSeverity } from '../../manifest/types.js';
 import type { DashboardSandboxView } from './sandboxView.js';
 import type { BaselineReviewRow } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
@@ -23,6 +23,7 @@ import type { RetryGateState } from '../../workflow/retryGate.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
 import type { Glyph } from '../../model/glyph.js';
+import type { StallOption } from '../../model/stallSuggestion.js';
 import type { SubtaskAutostartPhase, SubtaskProgress } from '../../model/subtask.js';
 
 export type { PathContext } from '../worktreePath.js';
@@ -38,6 +39,29 @@ export type { MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
  * `null` means Inherit — no preset slot covers the capability and it has no
  * dashboard-level identity of its own.
  */
+/** One review run's blocking findings in the stall banner, worst first. */
+export interface StallRoundView {
+  attempt: number;
+  runAt: string;
+  findings: { severity: StallSeverity; file: string | null; line: number | null; title: string }[];
+}
+
+/** The review-stall banner's data (@arch:REVIEW-STALL). Absent while the ticket is not stalled. */
+export interface StallView {
+  parkAt: string;
+  status: 'generating' | 'ready' | 'failed';
+  rounds: StallRoundView[];
+  /** Null when the diff could not be read. */
+  diff: { fileCount: number; stat: string } | null;
+  /** The ticket's text now: what "Show what changes" compares against. */
+  current: { description: string; acceptanceCheck: string };
+  cause?: string;
+  /** Agent options, plus the host Accept option on a docs-only diff. Empty unless ready. */
+  options: StallOption[];
+  error?: string;
+  usageLimit?: boolean;
+}
+
 export interface CapabilityIdentity {
   provider: AgentProvider;
   model: string | null;
@@ -196,6 +220,8 @@ export interface DashboardState {
    * ticket sits at no stage at all.
    */
   currentStage: StepperCell | null;
+  /** The review-stall banner's evidence, suggestion and options; null unless parked as review-stalled with a suggestion row. */
+  stall: StallView | null;
   /**
    * The header's ship workflow-action slot (model/shipSlot.ts) — the Now line's
    * ship branch, lifted to the header. The states are mutually exclusive.

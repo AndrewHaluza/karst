@@ -53,6 +53,9 @@ export const MAX_BASELINE_INDICES = 500;
 /** The one block the baseline decisions answer: the `BlockerKind` itself. */
 export const BASELINE_BLOCK_ID = 'baseline-review';
 export const MAX_BASELINE_REASON_CHARS = 2000;
+/** Bounds for the review-stall Apply text fields, checked at the webview boundary. */
+export const MAX_STALL_LABEL_CHARS = 200;
+export const MAX_STALL_TEXT_CHARS = 20_000;
 
 /** Longest model id accepted from a webview. Real model ids are short CLI values; 128 is a bounded ceiling. */
 export const MAX_MODEL_ID_CHARS = 128;

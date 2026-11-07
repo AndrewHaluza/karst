@@ -92,9 +92,12 @@ export type WebviewMessage =
    * Payload-free like send-back: the host derives which stage from the store.
    */
   | { type: 'reset-stage' }
-  | { type: 'review-stall-hint' }
-  | { type: 'review-stall-continue' }
-  | { type: 'review-stall-rescope' }
+  /** Review stall: apply the chosen option, with the user's edits. Re-checked host-side. */
+  | { type: 'stall-apply'; kind: 'agent' | 'accept-docs'; label: string; note: string; description?: string; acceptanceCheck?: string }
+  /** Review stall: generate the suggestion again after a failure. */
+  | { type: 'stall-retry' }
+  /** Review stall: open a planning session seeded with the ticket key and the suggestion. */
+  | { type: 'stall-planning' }
   /**
    * Enter a PR-feedback recovery round at Fix for the panel's ticket. Payload-
    * free like send-back: availability is re-derived host-side inside the

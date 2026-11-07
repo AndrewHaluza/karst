@@ -3,7 +3,9 @@ import { makePushDivergedActions } from './ops/pushDivergedOps.js';
 import { guardedHandOff } from './ops/guardedHandOff.js';
 import { nudgeSurface } from '../approaches/graph/entryPoints.js';
 import { makeBaselineActions } from './ops/baselineDecisionOps.js';
-import { reviewStallBinding } from './reviewStallBinding.js';
+import { makeStallActions } from './ops/stallActions.js';
+import { capForGate } from '../workflow/fixAttempts.js';
+import type { Severity } from '../manifest/types.js';
 import { type DriverController } from '../workflow/driverController.js';
 import { type createTicketSandboxBindings } from './ops/sandboxSyncOps.js';
 import { type makeSandboxWiring } from './ops/sandboxWiring.js';
@@ -75,6 +77,14 @@ export const vscodeNotify: Notify = {
   error: async (m) => { await vscode.window.showErrorMessage(m); }, errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
   infoActions: async (m, actions) => vscode.window.showInformationMessage(m, ...actions),
 };
+
+/** The host seams of the review-stall actions. */
+export interface StallHost {
+  diffFiles: () => Promise<readonly string[] | null>;
+  ensure: (ticketId: number, opts?: { retry?: boolean }) => Promise<void>;
+  startPlanning: (title: string, kickoff: string) => Promise<unknown>;
+  blockingSeverity: () => Severity | 'none';
+}
 
 export function makeDashboardActions(
   store: Store,
@@ -169,6 +179,7 @@ export function makeDashboardActions(
   sandbox: { bindings: () => ReturnType<typeof createTicketSandboxBindings> | undefined; life: () => ReturnType<typeof makeSandboxWiring> },
   // The auto-driver's per-ticket single-flight state (module-level in extension.ts).
   driver: DriverController,
+  stall: StallHost,
 ): DashboardActions {
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
@@ -378,10 +389,14 @@ export function makeDashboardActions(
         confirm: async (title, detail) =>
           (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
       }),
-    // Answers to a review stall (T845); logic in ops/reviewStallActions.
-    ...reviewStallBinding({
-      store, ticketId, afterServerChange, logError, debug,
-      drive: () => driveAfterResume(ticketId), editTicket,
+    // Answers to a review stall (T1001); logic in ops/stallActions.
+    ...makeStallActions({
+      store, ticketId, notify: vscodeNotify, debug,
+      redrive: driveAfterResume, refresh: () => afterServerChange(),
+      diffFiles: stall.diffFiles,
+      maxRounds: () => capForGate('review', manifest()?.uat?.maxFixAttempts, manifest()?.review?.maxFixAttempts),
+      blockingSeverity: stall.blockingSeverity,
+      ensure: stall.ensure, startPlanning: stall.startPlanning,
     }),
     // Move this ticket into a PR-feedback recovery round at Fix. The logic
     // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.

@@ -6,7 +6,6 @@ import { packagedApproachDefs } from './approaches/withBuiltInApproaches.js';
 import { listTicketLifecycle } from './store/runningServers.js';
 import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
-import { registerReviewStallCommands } from './extension/reviewStallBinding.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
@@ -172,6 +171,7 @@ import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
+import { createStallBinding } from './extension/stallBinding.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
@@ -737,7 +737,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     pauseTicket: (id) => void vscode.commands.executeCommand('karst.pauseTicket', id), unpauseTicket: (id) => void vscode.commands.executeCommand('karst.unpauseTicket', id),
     closeTicket: (id) => void vscode.commands.executeCommand('karst.closeTicket', id), reopenTicket: (id) => void vscode.commands.executeCommand('karst.reopenTicket', id),
     detachSubtask: (id) => void vscode.commands.executeCommand('karst.detachSubtask', id),
-    reviewStallHint: (id) => void vscode.commands.executeCommand('karst.reviewStallHint', id), reviewStallContinue: (id) => void vscode.commands.executeCommand('karst.reviewStallContinue', id), reviewStallRescope: (id) => void vscode.commands.executeCommand('karst.reviewStallRescope', id),
     // The expanded mini-dashboard's "Resolve conflicts" CTA. The store decides
     // whether the conflict still exists — `repo` arrived in a webview message
     // and a stale row can name one that has since gone. Same handoff as the
@@ -2882,11 +2881,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
+  const stall = createStallBinding({ store: localStore, git: defaultGitRunner, manifest: currentManifest, processFor: (id) => processFor(id, 'stall-suggestion'), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, startPlanning: (t, k) => planning.create(t, k), debug: (m) => logger.debug(m) }); // T1001
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
-    (ticketId) =>
-      makeDashboardActions(
+    (ticketId) => {
+      // A ticket already parked at upgrade, or opened before its suggestion ended, generates it now.
+      void stall.service.ensure(ticketId);
+      return makeDashboardActions(
         localStore,
         ticketId,
         () => ticketForm.openEdit(ticketId),
@@ -2965,7 +2967,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         usageLimitParks.forTicket(ticketId),
         { bindings: () => sandboxB, life: () => sandboxLife },
         driver,
-      ),
+        stall.hostFor(ticketId),
+      );
+    },
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
     // Live ticketing config so the dashboard links to the source board (§ C3).
@@ -3594,6 +3598,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       driver.end(ticketId);
       provider.refresh();
       dashboard.pushState(ticketId);
+      // A ticket that parked as review-stalled gets its written suggestion now (T1001).
+      void stall.service.ensure(ticketId);
     }
   }
 
@@ -6809,8 +6815,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
-    // Review-stall answers from the sidebar ⋯ menu (T845): ops/reviewStallActions.
-    ...registerReviewStallCommands({ store: localStore, afterServerChange: () => provider.refresh(), logError, debug: (m) => logger.debug(m), drive: (id) => maybeDrive(id, 'stage-resume') }),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,

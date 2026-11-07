@@ -44,9 +44,9 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
     resetStage: vi.fn(),
-    reviewStallHint: vi.fn(),
-    reviewStallContinue: vi.fn(),
-    reviewStallRescope: vi.fn(),
+    stallApply: vi.fn(),
+    stallRetry: vi.fn(),
+    stallPlanning: vi.fn(),
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
     rebaseOnBase: vi.fn(),
@@ -328,14 +328,31 @@ describe('routeAction', () => {
     expect(a.resetStage).toHaveBeenCalledOnce();
   });
 
-  it('dispatches the three review-stall answers payload-free', () => {
+  it('dispatches the review-stall Apply with its edits, and Retry and planning payload-free', () => {
     const a = actions();
-    routeAction({ type: 'review-stall-hint', ticketId: 9 }, a);
-    routeAction({ type: 'review-stall-continue' }, a);
-    routeAction({ type: 'review-stall-rescope' }, a);
-    expect(a.reviewStallHint).toHaveBeenCalledOnce();
-    expect(a.reviewStallContinue).toHaveBeenCalledOnce();
-    expect(a.reviewStallRescope).toHaveBeenCalledOnce();
+    routeAction({ type: 'stall-apply', kind: 'agent', label: 'Split', note: 'n', description: 'd' }, a);
+    routeAction({ type: 'stall-retry' }, a);
+    routeAction({ type: 'stall-planning' }, a);
+    expect(a.stallApply).toHaveBeenCalledWith({ kind: 'agent', label: 'Split', note: 'n', description: 'd' });
+    expect(a.stallRetry).toHaveBeenCalledOnce();
+    expect(a.stallPlanning).toHaveBeenCalledOnce();
+  });
+
+  it('the old review-stall messages are gone', () => {
+    for (const type of ['review-stall-hint', 'review-stall-continue', 'review-stall-rescope']) {
+      expect(parseWebviewMessage({ type })).toBeNull();
+    }
+  });
+
+  it('validates the stall-apply payload at the boundary', () => {
+    const ok = { type: 'stall-apply', kind: 'accept-docs', label: 'L', note: '' };
+    expect(parseWebviewMessage(ok)).toEqual(ok);
+    expect(parseWebviewMessage({ ...ok, kind: 'other' })).toBeNull();
+    expect(parseWebviewMessage({ ...ok, label: '' })).toBeNull();
+    expect(parseWebviewMessage({ ...ok, note: 5 })).toBeNull();
+    expect(parseWebviewMessage({ ...ok, description: 5 })).toBeNull();
+    expect(parseWebviewMessage({ ...ok, acceptanceCheck: 'x'.repeat(20_001) })).toBeNull();
+    expect(parseWebviewMessage({ ...ok, acceptanceCheck: 'x' })).toEqual({ ...ok, acceptanceCheck: 'x' });
   });
 
   it('dispatches send-back-to-implement and drops a forged companion stage', () => {

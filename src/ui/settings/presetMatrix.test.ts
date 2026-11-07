@@ -61,7 +61,7 @@ describe('preset matrix — group shape', () => {
     const groups = buildPresetCapabilityGroups();
     expect(groups.map((g) => g.id)).toEqual(['quality', 'ticket', 'graph']);
     expect(groups.map((g) => g.label)).toEqual(['Quality', 'Ticket', 'Graph roles']);
-    expect(groups.map((g) => g.rows.length)).toEqual([4, 4, 3]);
+    expect(groups.map((g) => g.rows.length)).toEqual([5, 4, 3]);
     // Derived from the constants, not written out a second time.
     expect(groups.flatMap((g) => g.rows.map((r) => r.capability)))
       .toEqual(PRESET_CAPABILITY_GROUPS.flatMap((g) => g.capabilities));

@@ -12,7 +12,7 @@
  *  - `usage-limit` (K11, D159): non-resumable, since a retry would re-run the model that is out of allowance,
  *    but the user's to resolve, so the banner carries the reason and the three park actions (the vanilla
  *    page's recorded exception, re-homed here per A5): Pick agent/model…, Retry same, Dismiss.
- *  - `review-stalled` (T845): non-resumable; the strip carries Redesign hint…, Continue anyway and Re-scope.
+ *  - `review-stalled` (T845, T1001): non-resumable; the strip carries the written suggestion, its options and one Apply (`StallPanel.tsx`).
  *  - `baseline-review`: non-resumable, only the user's decision clears it (`BaselineReview.tsx`).
  *
  * `awaiting-merge` renders NOTHING (except an autopilot park, whose reason starts with `auto-fix`: the banner shows it): it is a normal wait, already surfaced by the header's chip and the Inside
@@ -25,10 +25,12 @@
 import { memo, useCallback, useLayoutEffect, useState } from 'react';
 import type { BaselineReviewRow } from '../baselineRows.js';
 import { BaselineReview, useBaselineDrafts, type BaselineDrafts } from './BaselineReview.js';
+import type { StallView } from '../stateTypes.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { blockFaultTitle } from './railText.js';
 import { isAutoFixPark } from './railSlices.js';
+import { StallPanel } from './StallPanel.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -41,6 +43,8 @@ interface BannerSlice {
   readonly reason: string;
   /** Only while the block is a baseline review. */
   readonly baselines: readonly BaselineReviewRow[];
+  /** Only while the block is a review stall. */
+  readonly stall: StallView | null;
 }
 
 /** null when there is nothing for the banner to say. */
@@ -57,6 +61,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
     kind: blocked.kind,
     reason: blocked.reason,
     baselines: review ? (s.baselineReview ?? []) : [],
+    stall: blocked.kind === 'review-stalled' ? s.stall : null,
   };
 };
 
@@ -92,26 +97,6 @@ function ParkActions({ ticketId, stageKey }: ActionProps) {
       </button>
       <button type="button" className="k-btn k-btn--secondary k-btn--sm k-btn--ghost" data-act="usage-limit-dismiss" data-stagekey={stageKey} onClick={onDismiss}>
         Dismiss
-      </button>
-    </div>
-  );
-}
-
-function StallActions({ ticketId, stageKey }: ActionProps) {
-  const send = useDashboardSend();
-  const onHint = usePendingAction(useCallback((requestId: string) => send.reviewStallHint(requestId), [send]));
-  const onContinue = usePendingAction(useCallback((requestId: string) => send.reviewStallContinue(requestId), [send]));
-  const onRescope = usePendingAction(useCallback((requestId: string) => send.reviewStallRescope(requestId), [send]));
-  return (
-    <div className="facts" data-ticket={ticketId}>
-      <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="review-stall-hint" data-stagekey={stageKey} onClick={onHint}>
-        Redesign hint…
-      </button>
-      <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="review-stall-continue" data-stagekey={stageKey} onClick={onContinue}>
-        Continue anyway
-      </button>
-      <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="review-stall-rescope" data-stagekey={stageKey} onClick={onRescope}>
-        Re-scope
       </button>
     </div>
   );
@@ -271,7 +256,7 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
     return (
       <>
         <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />
-        <StallActions ticketId={ticketId} stageKey={stageKey} />
+        <StallPanel stall={slice.stall} stageKey={stageKey} />
       </>
     );
   }

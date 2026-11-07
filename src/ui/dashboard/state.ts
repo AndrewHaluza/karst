@@ -30,6 +30,8 @@ import { graphRunIsLive } from '../../model/inside/graph.js';
 import { buildInsideSection } from './stateInsideSection.js';
 import { buildRail } from './stateRail.js';
 import { formatId } from '../../model/entityId.js';
+import { REVIEW_FINDINGS_DEFAULTS } from '../../manifest/qualityDefaults.js';
+import { buildStallView } from './stateStall.js';
 import type { ResolvedGate } from '../../model/inside/gates.js';
 
 export type {
@@ -349,6 +351,7 @@ export function buildDashboardState(
     agentSession,
     stepper,
     currentStage,
+    stall: buildStallView(store, ticketId, displayBlocking?.review ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity),
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
     capabilityIdentity,

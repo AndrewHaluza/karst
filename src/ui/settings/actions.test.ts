@@ -184,6 +184,7 @@ describe('settings actions — validateProcessAssignments', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'stallSuggestion',
       'planning',
     ]);
     const review = rows.find((r) => r.key === 'review');

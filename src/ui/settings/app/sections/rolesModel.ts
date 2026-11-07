@@ -132,7 +132,7 @@ function withSlot(draft: Manifest, presetName: string, capability: string, slot:
 }
 
 const ALL_CAPABILITIES = [
-  'uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis',
+  'uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis', 'stallSuggestion',
   'implementation', 'planning', 'graphExpert', 'graphWorker', 'graphFast',
 ] as const;
 

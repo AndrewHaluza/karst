@@ -20,6 +20,7 @@ import {
 } from '../../src/ui/dashboard/renderFixtures.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
 import { INSIDE_CASES } from '../../src/ui/dashboard/insideCases.js';
+import { stallFixtureState, type StallFixtureKind } from '../../src/ui/dashboard/stallFixtures.js';
 import { sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
 import { usageRenderFixtures } from '../../src/ui/usage/renderFixtures.js';
 import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.js';
@@ -127,6 +128,20 @@ const insideCaseVariants = (): Variant[] =>
     variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), c.skipLayout ? { skipLayout: true } : undefined),
   );
 
+/** T1001: the stall panel in each state, in all three themes. Screenshot-only: the panel adds no layout route. */
+const stallVariants = (): Variant[] => {
+  const one = (id: string, kind: StallFixtureKind, extra: { width?: number; pills?: readonly string[] } = {}): Variant =>
+    variant('dashboard', id, () => stateMessage(stallFixtureState(kind)), { themes: ALL_THEMES, skipLayout: true, ...extra });
+  return [
+    one('stall-generating', 'generating'),
+    one('stall-several', 'several'),
+    one('stall-one', 'one'),
+    one('stall-failed', 'failed'),
+    one('stall-applying', 'several', { pills: ['Apply'] }),
+    one('stall-several-narrow', 'several', { width: 480 }),
+  ];
+};
+
 /** The four container tiers (UI-R49): a viewport width inside each. */
 const DRILL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 500], ['tight', 360]] as const;
 const DRILL_SURFACES = [['index', []], ['env', ['Env variables']], ['logs', ['Server logs']], ['console', ['Console']]] as const;
@@ -159,6 +174,7 @@ const dashboardVariants = (): Variant[] => [
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
     variant('dashboard', s, dashboardScenario(s, 10), { baseline: `dashboard-${s}`, themes: ALL_THEMES }),
   ),
+  ...stallVariants(),
   variant('dashboard', 'empty', () => stateMessage(renderStateFor('scope'))),
   variant('dashboard', 'loading', LOADING),
   variant('dashboard', 'error', dashboardScenario('failed', 2)),

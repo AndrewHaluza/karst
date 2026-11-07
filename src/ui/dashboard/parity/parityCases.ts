@@ -70,6 +70,19 @@ const blockedState = (kind: string, resumable: boolean): DashboardState => {
   } as DashboardState;
 };
 
+/** A review-stalled park carrying a written suggestion in one state (T1001). */
+const stalledState = (status: 'ready' | 'failed'): DashboardState => ({
+  ...blockedState('review-stalled', false),
+  stall: {
+    parkAt: '2026-08-12T10:00:00.000Z', status,
+    rounds: [{ attempt: 0, runAt: '2026-08-12T09:00:00.000Z', findings: [{ severity: 'high', file: 'a.ts', line: 3, title: 'Bad split' }] }],
+    diff: { fileCount: 1, stat: ' a.ts | 2 +-' }, current: { description: 'D', acceptanceCheck: 'C' },
+    ...(status === 'ready'
+      ? { cause: 'The scope is too wide.', options: [{ kind: 'agent', label: 'Cut the scope', note: 'Remove the extra part.', recommended: true }] }
+      : { options: [], error: 'The agent call failed.' }),
+  },
+}) as DashboardState;
+
 const baselineRows = (decision: 'pending' | 'approved' = 'pending') =>
   [0, 1].map((index) => ({
     index,
@@ -446,10 +459,9 @@ export const COVERED: readonly ParityCase[] = [
     act: `usage-limit-${k}`, state: () => blockedState('usage-limit', false), sel: act(`usage-limit-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `usage-limit-${k}`, ticketId: 942017, stageKey: 'uat' }], rid: true,
   })),
-  ...(['hint', 'continue', 'rescope'] as const).map((k): ParityCase => ({
-    act: `review-stall-${k}`, state: () => blockedState('review-stalled', false), sel: act(`review-stall-${k}`, '[data-stagekey="uat"]'),
-    posts: [{ type: `review-stall-${k}` }], rid: true,
-  })),
+  { act: 'stall-apply', state: () => stalledState('ready'), sel: act('stall-apply', '[data-stagekey="uat"]'), posts: [{ type: 'stall-apply', kind: 'agent', label: 'Cut the scope', note: 'Remove the extra part.' }], rid: true },
+  { act: 'stall-retry', state: () => stalledState('failed'), sel: act('stall-retry', '[data-stagekey="uat"]'), posts: [{ type: 'stall-retry' }], rid: true },
+  { act: 'stall-planning', state: () => stalledState('failed'), sel: act('stall-planning', '[data-stagekey="uat"]'), posts: [{ type: 'stall-planning' }], rid: true },
   ...(['rerun', 'accept'] as const).map((k): ParityCase => ({
     act: `tester-skipped-${k}`, state: () => blockedState('tester-skipped', false), sel: act(`tester-skipped-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `tester-skipped-${k}` }], rid: true,

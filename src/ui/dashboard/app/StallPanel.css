@@ -1,0 +1,30 @@
+/* The review-stall answer inside the blocked banner (StallPanel.tsx). Tokens only; layout tiers per RD-TIERS. */
+.stall{display:flex;flex-direction:column;gap:var(--k-space-4);min-width:0;font-size:var(--k-text-sm)}
+.stall p{margin:0}
+.stall-summary,.stall-cause{color:var(--k-text)}
+.stall-evidence ol,.stall-evidence ul{margin:0;padding-left:var(--k-space-5)}
+.stall-round-head{font-weight:var(--k-weight-semibold)}
+.stall-evidence li{overflow-wrap:anywhere}
+.stall-sev{font-family:var(--k-font-mono);font-size:var(--k-text-xs);text-transform:uppercase}
+.stall-sev--critical{color:var(--k-sev-critical)}.stall-sev--high{color:var(--k-sev-high)}.stall-sev--medium{color:var(--k-sev-medium)}
+.stall-sev--low{color:var(--k-sev-low)}.stall-sev--info{color:var(--k-sev-info)}
+.stall-more,.stall-same{color:var(--k-text-dim)}
+.stall-options{display:flex;flex-direction:row;flex-wrap:wrap;gap:var(--k-space-3);border:0;margin:0;padding:0;min-width:0}
+.stall-options legend{padding:0;margin-bottom:var(--k-space-3);color:var(--k-text-dim)}
+.stall-option{display:flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-hit-min);padding:0 var(--k-space-4);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer;min-width:0}
+.stall-option.is-picked{border-color:var(--k-running);background:var(--k-surface-hover)}
+.stall-option:focus-within{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.stall-option-label{overflow-wrap:anywhere}
+.stall-rec{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+.stall-changes summary{cursor:pointer;min-height:var(--k-hit-min);display:flex;align-items:center}
+.stall-changes summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.stall-changes .k-field{display:flex;flex-direction:column;gap:var(--k-space-2);margin-top:var(--k-space-3)}
+.stall-changes textarea{width:100%;box-sizing:border-box}
+.stall-refused,.stall-error{color:var(--k-failed);overflow-wrap:anywhere}
+.fault .stall-actions{flex-wrap:wrap}
+@media (max-width:699px){
+  .stall-options{flex-direction:column}
+  .stall-option{width:100%;box-sizing:border-box}
+  .fault .stall-actions .k-btn{flex:1 1 auto}
+}

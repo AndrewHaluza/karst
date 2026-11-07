@@ -89,12 +89,12 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'send-back-to-implement' });
     sender.resetStage();
     expect(posted.at(-1)).toEqual({ type: 'reset-stage' });
-    sender.reviewStallHint();
-    expect(posted.at(-1)).toEqual({ type: 'review-stall-hint' });
-    sender.reviewStallContinue();
-    expect(posted.at(-1)).toEqual({ type: 'review-stall-continue' });
-    sender.reviewStallRescope();
-    expect(posted.at(-1)).toEqual({ type: 'review-stall-rescope' });
+    sender.stallApply({ kind: 'agent', label: 'L', note: 'n' });
+    expect(posted.at(-1)).toEqual({ type: 'stall-apply', kind: 'agent', label: 'L', note: 'n' });
+    sender.stallRetry();
+    expect(posted.at(-1)).toEqual({ type: 'stall-retry' });
+    sender.stallPlanning();
+    expect(posted.at(-1)).toEqual({ type: 'stall-planning' });
     sender.addressPrFeedback();
     expect(posted.at(-1)).toEqual({ type: 'address-pr-feedback' });
     sender.sendCiFailure();

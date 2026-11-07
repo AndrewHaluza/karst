@@ -30,7 +30,7 @@ describe('preset ops', () => {
     expect(r).toMatchObject({ ok: true, name: 'a copy' });
     if (r.ok) expect(r.draft.agentPresets!['a copy']).toEqual({ label: 'A copy', slots: m().agentPresets!.a!.slots });
     const flat = duplicatePreset(m(), 'flat');
-    if (flat.ok) expect(Object.keys(flat.draft.agentPresets!['flat copy']!.slots).length).toBe(11);
+    if (flat.ok) expect(Object.keys(flat.draft.agentPresets!['flat copy']!.slots).length).toBe(12);
     expect(duplicatePreset(m(), 'zzz')).toMatchObject({ ok: false });
   });
   it('renames, keeping contents; refuses blank, duplicate and referenced names', () => {

@@ -138,6 +138,7 @@ describe('buildSettingsState', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'stallSuggestion',
       'planning',
     ]);
     const uat = s.processAssignments.find((v) => v.key === 'uatTester');

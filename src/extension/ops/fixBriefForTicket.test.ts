@@ -5,7 +5,8 @@ import { setStage } from '../../store/stages.js';
 import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../../store/prFeedback.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import type { PrReviewThread } from '../../model/prReview.js';
-import { recordReviewStallHint } from '../../store/reviewStallHint.js';
+import { recordStallNote } from '../../store/stallNote.js';
+import { recordFindings } from '../../store/reviewFindings.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -83,25 +84,39 @@ describe('fixBriefForTicket', () => {
     expect(fixBriefForTicket(store, ticket.id)).toBeNull();
   });
 
-  it('appends the redesign hint answering a review stall', () => {
+  it('puts the stall note first and says removed scope lapses', () => {
     const ticket = createTicket(store, { key: 'PROJ-2', title: 't' });
     setStage(store, ticket.id, 'review', {
       status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0,
     });
-    recordReviewStallHint(store, ticket.id, 1, T0, 'split the module');
-    expect(fixBriefForTicket(store, ticket.id)).toContain('## Redesign hint from the user\n\nsplit the module');
+    recordStallNote(store, ticket.id, 1, T0, 'split the module');
+    const brief = fixBriefForTicket(store, ticket.id) ?? '';
+    expect(brief.startsWith('## Direction from the user\n\nsplit the module')).toBe(true);
+    expect(brief).toContain('Findings on scope that this direction removes no longer apply.');
+    expect(brief).toContain('review gate failed');
   });
-  it('stays null when no gate failed even if a hint exists', () => {
+  it('keeps the review findings in the brief after the note is recorded later', () => {
+    const ticket = createTicket(store, { key: 'PROJ-6', title: 't' });
+    setStage(store, ticket.id, 'review', { status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0 });
+    recordFindings(store, { ticketId: ticket.id, attempt: 1, runAt: T0, findings: [
+      { severity: 'high', repo: '', file: 'src/kept.ts', title: 'Kept finding', detail: 'd', source: 'agent' },
+    ] });
+    recordStallNote(store, ticket.id, 1, '2026-01-02T00:00:00.000Z', 'split the module');
+    const brief = fixBriefForTicket(store, ticket.id) ?? '';
+    expect(brief.startsWith('## Direction from the user')).toBe(true);
+    expect(brief).toContain('Kept finding');
+  });
+  it('keeps the note when review left no brief', () => {
     const ticket = createTicket(store, { key: 'PROJ-4', title: 't' });
-    recordReviewStallHint(store, ticket.id, 1, T0, 'split the module');
-    expect(fixBriefForTicket(store, ticket.id)).toBeNull();
+    recordStallNote(store, ticket.id, 1, T0, 'split the module');
+    expect(fixBriefForTicket(store, ticket.id)).toContain('split the module');
   });
-  it('has no hint block without a hint', () => {
+  it('has no note block without a note', () => {
     const ticket = createTicket(store, { key: 'PROJ-3', title: 't' });
     setStage(store, ticket.id, 'review', {
       status: 'failed', verdict: 'review findings', attempt: 1, endedAt: T0,
     });
-    expect(fixBriefForTicket(store, ticket.id)).not.toContain('Redesign hint');
+    expect(fixBriefForTicket(store, ticket.id)).not.toContain('Direction from the user');
   });
 
   it('includes the per-region checklist instruction when the ticket links a prototype', () => {

@@ -163,6 +163,7 @@ export function emptyCapabilityIdentity(): NonNullable<DashboardAgentContext['ca
     reviewFix: null,
     prDescription: null,
     ticketAnalysis: null,
+    stallSuggestion: null,
     planning: null,
     graphExpert: null,
     graphWorker: null,
