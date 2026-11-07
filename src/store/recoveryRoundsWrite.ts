@@ -365,6 +365,8 @@ export interface RecordFixLaunchIntentInput {
   model?: string | null;
   /** v103: the resolved effort this Fix launch configured (T1005). */
   effort?: string | null;
+  /** v104: the agent account this Fix launch ran under; omitted = the default account. */
+  account?: string | null;
   /**
    * v33: the CONFIGURED Fix process agent name (uat-fix/review-fix), resolved
    * once at resume time. The intent row persists it so the SessionStart can
@@ -410,6 +412,7 @@ export function recordFixLaunchIntent(
     provider: input.provider,
     model: input.model ?? null,
     effort: input.effort ?? null,
+    account: input.account ?? null,
     agentName: input.agentName ?? null,
     reason: input.reason,
     sessionOrigin: input.sessionOrigin,

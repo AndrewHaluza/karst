@@ -1,4 +1,5 @@
 import { createOpencodeTextCollector } from './opencodeText.js';
+import { accountLaunchFor } from './accounts/registry.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
@@ -1004,6 +1005,9 @@ export class OpencodeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    accounts: unsupported(
+      'opencode keeps config in XDG_CONFIG_HOME, which stays shared; an account isolates only the XDG_DATA_HOME login',
+    ),
     sandboxInteractive: unsupported(
       'opencode has no OS-level sandbox: its permission config only allows, asks or denies a ' +
         'tool, and an allowed bash command runs uncontained on the host; contain it with the ' +
@@ -1151,10 +1155,12 @@ export class OpencodeAdapter implements AgentAdapter {
         mcp: opencodeMcpSection(readMcpServersConfig(opts.mcpConfigPath)),
       });
     }
+    const acct = accountLaunchFor('opencode', OPENCODE_BIN, opts.account);
     return {
-      command: OPENCODE_BIN,
-      args,
-      env,
+      command: acct.binary,
+      args: [...acct.args, ...args],
+      env: { ...acct.env, ...env },
+      ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(ownedPaths ? { ownedPaths } : {}),
       ...(opts.instructions
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
@@ -1457,9 +1463,10 @@ export class OpencodeAdapter implements AgentAdapter {
         ? `[agent:opencode] console stream: rendering JSONL events as readable lines`
         : `[agent:opencode] console stream: none — no onOutput hook`,
     );
+    const acct = accountLaunchFor('opencode', OPENCODE_BIN, opts.account);
     let result: HeadlessSpawnResult;
     try {
-      result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
+      result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {
         signal: opts.signal,
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,
@@ -1473,6 +1480,7 @@ export class OpencodeAdapter implements AgentAdapter {
         // the nested-claude updater trap opencode2's isolation env guards
         // (AC-27); opencode2 remains the only core that rebases its state dirs.
         isolationEnv: {
+          ...acct.env,
           OPENCODE_PERMISSION: JSON.stringify(
             opencodeLaunchPermission(
               isGatePolicy(opts.policy)

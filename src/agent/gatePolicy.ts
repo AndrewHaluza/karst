@@ -19,6 +19,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { accountReaderEnv } from './accounts/registry.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 /**
@@ -97,7 +98,7 @@ export function gateDeniedCommands(
  * including the `CLAUDE_CONFIG_DIR` / `CODEX_HOME` overrides when set.
  */
 export function gateProtectedPaths(
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = accountReaderEnv(),
   home: string = homedir(),
 ): string[] {
   const dirs = [`${home}/.claude`, `${home}/.codex`, env['CLAUDE_CONFIG_DIR'], env['CODEX_HOME']];

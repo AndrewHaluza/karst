@@ -1,4 +1,5 @@
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
+import { accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import {
   cpSync,
@@ -398,6 +399,7 @@ export class CodexAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    accounts: SUPPORTED,
     sandboxInteractive: SUPPORTED,
     minimalHeadlessContext: unsupported(
       'codex exec has no flag that drops skills or tool definitions; its tools come from the sandbox and config, so a minimal context cannot be requested per run',
@@ -501,10 +503,12 @@ export class CodexAdapter implements AgentAdapter {
     } else if (kickoff.prompt) {
       args.push('--', kickoff.prompt);
     }
+    const acct = accountLaunchFor('codex', CODEX_BIN, opts.account);
     return {
-      command: CODEX_BIN,
-      args,
-      env: {},
+      command: acct.binary,
+      args: [...acct.args, ...args],
+      env: { ...acct.env },
+      ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(kickoff.ownedPaths.length > 0 ? { ownedPaths: kickoff.ownedPaths } : {}),
       ...(opts.instructions
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
@@ -519,7 +523,7 @@ export class CodexAdapter implements AgentAdapter {
    */
   ensureWorkspaceTrusted(
     cwd: string,
-    opts?: { debug?: (message: string) => void },
+    opts?: { debug?: (message: string) => void; account?: string },
   ): void | Promise<void> {
     return ensureCodexWorkspaceTrusted(cwd, opts);
   }
@@ -800,9 +804,11 @@ export class CodexAdapter implements AgentAdapter {
         ? `[agent:codex] console stream: rendering JSONL events as readable lines`
         : `[agent:codex] console stream: none — no onOutput hook`,
     );
+    const acct = accountLaunchFor('codex', CODEX_BIN, opts.account);
     let result: HeadlessSpawnResult;
     try {
-      result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
+      result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {
+        ...accountSpawnEnv(acct),
         signal: opts.signal,
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,

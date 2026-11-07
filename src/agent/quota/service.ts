@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { accountReaderEnv } from '../accounts/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
@@ -133,7 +134,7 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
   // `CLAUDE_CONFIG_DIR`, and an operator who sets it (the reason the override
   // exists) would otherwise read `~/.claude` and see Claude permanently
   // unknown. An injected `env` still wins for tests.
-  const env = deps.env ?? process.env;
+  const env = deps.env ?? accountReaderEnv();
   const now = deps.now ?? (() => new Date());
   const opencodeAuth = deps.opencodeAuthPath ?? opencodeAuthPath(env, homeDir);
   return [

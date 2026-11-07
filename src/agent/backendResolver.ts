@@ -1,3 +1,5 @@
+import { sandboxAccountBlock } from './accounts/registry.js';
+import { ACCOUNT_CORES, type AccountCore } from './accounts/types.js';
 import { backendForCore, type AgentBackends } from './backendChoices.js';
 import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
 import { sbxName } from './sbx/sbxName.js';
@@ -36,6 +38,8 @@ export interface ResolveBackendInput {
   readonly hostRamBytes?: number;
   /** Karst log sink for the sbx runner (damaged-disk EXT4 lines). */
   readonly log?: (line: string) => void;
+  /** The agent account the launch runs under; absent = the active account (@arch:AC-55). */
+  readonly account?: string;
 }
 
 export interface ResolvedBackend {
@@ -54,6 +58,11 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const onHost = (reason: string): ResolvedBackend => ({ runner: host, line: `host (${reason})` });
   const backend = backendForCore(input.backends, input.core);
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
+  // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
+  const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
+    ? sandboxAccountBlock(input.core as AccountCore, input.account)
+    : undefined;
+  if (accountBlock) return onHost(accountBlock);
   if (backend === 'docker') {
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,

@@ -1,5 +1,6 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { accountReaderEnv } from '../accounts/registry.js';
 import { join } from 'node:path';
 import { OPENCODE2_AUTH_LIST_ARGS, opencode2HasCredentials } from '../opencode2Auth.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
@@ -100,7 +101,9 @@ export async function seedAgyCredentials(input: SeedAgyInput): Promise<SeedResul
   }
 
   const hostHome = input.hostHome ?? process.env.HOME ?? homedir();
-  const srcDir = join(hostHome, '.gemini', 'antigravity-cli');
+  // @arch:AC-55: the active antigravity account folder, when one is set.
+  const accountDir = input.hostHome ? undefined : accountReaderEnv(process.env).ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  const srcDir = accountDir || join(hostHome, '.gemini', 'antigravity-cli');
   const destDir = join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli');
 
   for (const filename of AGY_CREDENTIAL_FILES) {

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { accountReaderEnv } from '../../agent/accounts/registry.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { HookChannelRecorder } from '../../diagnostics/hookChannel.js';
@@ -127,7 +128,7 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
     if (running) return;
     running = true;
     try {
-      const appDataDir = resolveAgyAppDataDir();
+      const appDataDir = resolveAgyAppDataDir(accountReaderEnv());
       const terminals = [...deps.listTerminals()];
       deps.debug(`[agy] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {

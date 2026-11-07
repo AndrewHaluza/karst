@@ -57,6 +57,8 @@ export interface UsageTracking {
 export interface RunHeadlessOpts {
   prompt: string;
   cwd: string;
+  /** Account name to run under (a resume passes the RECORDED one); absent → the active account (@arch:AC-55). */
+  account?: string;
   /**
    * `false` skips the pre-launch folder-trust record for `cwd`. Set by callers
    * that run in a throwaway directory (`withEmptyCwd`): trusting it would leave
@@ -185,6 +187,8 @@ export interface HeadlessResult {
 
 export interface InteractiveCommandOpts {
   cwd: string;
+  /** Account name to run under (a resume passes the RECORDED one); absent → the active account (@arch:AC-55). */
+  account?: string;
   hookChannel?: HookChannel;
   /**
    * A karst-owned directory this launch may write adapter scratch into. An
@@ -451,6 +455,8 @@ export interface InteractiveCommand {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** The account the launch runs under; the caller records it on the session row (@arch:AC-55). */
+  account?: string;
   /** Exact runtime paths generated while building this command. */
   ownedPaths?: string[];
   /**
@@ -537,7 +543,7 @@ export interface AgentAdapter {
    */
   ensureWorkspaceTrusted?(
     cwd: string,
-    opts?: { debug?: (message: string) => void },
+    opts?: { debug?: (message: string) => void; account?: string },
   ): void | Promise<void>;
 
   /**
@@ -557,7 +563,7 @@ export interface AgentAdapter {
    */
   resolveResume?(
     sessionId: string,
-    opts: { cwd: string; debug?: (message: string) => void },
+    opts: { cwd: string; debug?: (message: string) => void; account?: string },
   ): Promise<string | undefined>;
 
   capabilities: AgentCapabilities;

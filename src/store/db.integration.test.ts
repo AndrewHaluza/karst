@@ -546,6 +546,38 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a v103 DB to v104, adding session_launch_intents.account as NULL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE session_launch_intents (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+         launch_id TEXT NOT NULL UNIQUE, purpose TEXT NOT NULL,
+         status TEXT NOT NULL, created_at TEXT NOT NULL, model TEXT)`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO session_launch_intents (ticket_id, launch_id, purpose, status, created_at, model) VALUES (1, 'L-1', 'implementation', 'pending', '2026-01-02 03:04:05', 'p/m')",
+      )
+      .run();
+    legacy.pragma('user_version = 103');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    // NOT backfilled: a pre-v104 launch has no account, and NULL means the default.
+    expect(
+      migrated.db.prepare('SELECT model, account FROM session_launch_intents WHERE launch_id = ?').get('L-1'),
+    ).toEqual({ model: 'p/m', account: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
   it('migrates a v68 DB to the current version, adding ticket_relations + its index + origin_ticket_id', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

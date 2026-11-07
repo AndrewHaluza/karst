@@ -1,3 +1,4 @@
+import { accountLaunchFor } from '../../agent/accounts/registry.js';
 import { join } from 'node:path';
 import {
   configureOpencode2,
@@ -51,10 +52,12 @@ export async function checkOpencode2Binary(host: Opencode2CheckHost): Promise<vo
   if (!binaryPath) return;
   // Even this `--version` is a v2 process: run it under the karst-owned dirs so
   // it cannot touch the user's real opencode state (criterion 2).
+  // @arch:AC-55: under the active account — its command and its karst-owned root.
+  const acct = accountLaunchFor('opencode2', binaryPath);
   const { stdout, exitCode } = await host.readVersion(
-    binaryPath,
-    ['--version'],
-    opencode2IsolationEnv(opencode2Config().home),
+    acct.binary,
+    [...acct.args, '--version'],
+    acct.account === 'default' ? opencode2IsolationEnv(opencode2Config().home) : acct.env,
   );
   const availability = opencode2Availability(binaryPath, stdout, exitCode);
   if (availability.state !== 'ok') {

@@ -274,6 +274,9 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   -- segments and displays) so the ModelSelected guard can compare the effort
   -- the TUI actually used (T1005).
   effort        TEXT,
+  -- v104: the agent ACCOUNT this launch ran under (@arch:AC-55). NULL = the
+  -- built-in default account (no override). A resume reuses this name.
+  account       TEXT,
   -- v33: the CONFIGURED inside agent name a fix launch resolved to (the
   -- uat-fix/review-fix process identity), so the SessionStart can open the
   -- Fix process run with the snapshot. NULL for implementation launches and

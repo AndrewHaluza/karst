@@ -2862,5 +2862,15 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 104) {
+    // v104: `session_launch_intents.account` — the agent account a launch ran
+    // under (@arch:AC-55). NULL = the built-in default account, and is honest
+    // for every pre-v104 row.
+    const intentCols104 = tableColumns(db, 'session_launch_intents');
+    if (intentCols104.size > 0 && !intentCols104.has('account')) {
+      db.exec('ALTER TABLE session_launch_intents ADD COLUMN account TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

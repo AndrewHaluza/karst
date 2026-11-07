@@ -2,6 +2,7 @@ import { launchHasMcp } from '../agent/karstCommandText.js';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
+import { accountForLaunch } from '../agent/accounts/registry.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
 import { formatSandboxMode, launchSandbox } from '../agent/sandbox.js';
 import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
@@ -146,6 +147,8 @@ export interface OpenSessionOptions {
    * message can reach it.
    */
   effort?: string;
+  /** The agent account this launch runs under; omitted = the recorded account of a resume, else the active one (@arch:AC-55). */
+  account?: string;
   /**
    * Host-only configured process assignment (the Fix path, Task 3): when
    * present, the launch resolves provider/adapter/model from this snapshot
@@ -292,6 +295,8 @@ export interface LaunchPreparedInfo {
   launchId: string;
   /** True when the adapter command resumes a captured provider session. */
   resume: boolean;
+  /** The non-default agent account the command runs under; absent = the default account (@arch:AC-55). */
+  account?: string;
   /** True for an agent-switch launch (`allowResume: false` + providerReady). */
   switchLaunch: boolean;
   /**
@@ -608,10 +613,12 @@ export class SessionManager {
     // returns void when the config lock is free — the common case, which keeps
     // this method fully synchronous — and a Promise only when another process
     // holds it, awaited WITHOUT blocking the extension host's event loop.
-    const trust = adapter.ensureWorkspaceTrusted?.(
-      worktreePath,
-      options.debug ? { debug: options.debug } : undefined,
-    );
+    // @arch:AC-55: a resume runs under the account that started the session.
+    const account = accountForLaunch(identity?.provider ?? '', resume, options.account);
+    const trust = adapter.ensureWorkspaceTrusted?.(worktreePath, {
+      ...(options.debug ? { debug: options.debug } : {}),
+      ...(account !== undefined ? { account } : {}),
+    });
     if (trust) await trust;
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
@@ -627,6 +634,7 @@ export class SessionManager {
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
+      ...(account !== undefined ? { account } : {}),
       ...(resume ? { resume } : {}),
       ...(options.instructions && adapter.instructions?.interactive !== 'n/a'
         ? { instructions: options.instructions }
@@ -646,6 +654,7 @@ export class SessionManager {
         ticketId,
         launchId,
         resume: Boolean(resume),
+        ...(cmd.account !== undefined ? { account: cmd.account } : {}),
         switchLaunch: options.allowResume === false && options.providerReady === true,
         ...(options.assignment ? { assignment: options.assignment } : {}),
         seedTelemetry: measureSeed(

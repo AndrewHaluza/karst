@@ -1,5 +1,6 @@
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { join } from 'node:path';
+import { accountReaderEnv } from '../../agent/accounts/registry.js';
 import { buildQuotaIndicator } from '../../ui/quotaStatus.js';
 import { quotaLaunchWarning } from '../../agent/quota/warn.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../manifest/validate/quota.js';
@@ -134,7 +135,7 @@ export function makeClaudeGlobalStatuslineSync(
       if (manifest === undefined) return;
       const outcome = apply({
         enabled: manifest.quota?.claudeGlobalStatusline === true,
-        configDir: claudeConfigDir(process.env),
+        configDir: claudeConfigDir(accountReaderEnv()),
         wrapperDir: join(deps.storageRoot, 'claude-statusline'),
         node: node(),
       });

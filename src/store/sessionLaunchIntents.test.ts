@@ -13,6 +13,7 @@ import {
   failSessionLaunchIntent,
   supersedePendingLaunchIntents,
   getSessionLaunchIntent,
+  recordedAccountForSession,
   type SessionLaunchIntent,
 } from './sessionLaunchIntents.js';
 
@@ -211,5 +212,24 @@ describe('session launch intents', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('launch intent account (v104)', () => {
+  it('records the account and finds it again by provider session id', () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-9', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    const base = {
+      ticketId, purpose: 'implementation' as const, provider: 'claude', model: 'opus',
+      reason: 'initial' as const, sessionOrigin: 'new' as const, at: '2026-08-01T10:00:00.000Z',
+    };
+    const a = recordSessionLaunchIntent(store, { ...base, launchId: 'a', account: 'work' });
+    expect(a.account).toBe('work');
+    confirmSessionLaunchIntent(store, 'a', { ticketId, provider: 'claude', providerSessionId: 'sess-a', at: '2026-08-01T10:00:01.000Z' });
+    expect(recordedAccountForSession(store, 'claude', 'sess-a')).toBe('work');
+    expect(recordedAccountForSession(store, 'claude', 'nope')).toBeUndefined();
+    expect(recordSessionLaunchIntent(store, { ...base, launchId: 'b' }).account).toBeNull();
+    store.close();
   });
 });
