@@ -31,6 +31,8 @@ const SENDERS = [
   'xtermRequest',
   'stageLogRequest',
   'agentLogRequest',
+  'autopilotOverride',
+  'autopilotStop',
 ] as const;
 
 /** One process row, passed and unremarkable unless told otherwise. */

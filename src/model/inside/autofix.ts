@@ -157,7 +157,7 @@ function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKi
       ...(t ? { repo: t.repo } : {}),
       kind,
     },
-    secondary: isCi ? { act: 'send-ci-failure', label: 'Send CI failure with a note…' } : { act: 'resolve-conflicts', label: 'Resolve conflicts by hand…' },
+    secondary: isCi ? { act: 'send-ci-failure', label: 'Send CI failure with a note…' } : { act: 'resolve-conflicts', label: 'Resolve conflicts by hand…', ...(t ? { repo: t.repo } : {}) },
     history,
   };
 }

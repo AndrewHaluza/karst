@@ -105,6 +105,12 @@ describe('autofixBanner', () => {
     });
   });
 
+  it('names the repo on the conflicts secondary so Resolve conflicts targets the right PR', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix stopped: conflicts 2/2', target: { kind: 'conflicts', repo: 'web', pr: 421, check: null } });
+    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: 'Approve 1 more round', repo: 'web', kind: 'conflicts' });
+    expect(b?.secondary).toEqual({ act: 'resolve-conflicts', label: 'Resolve conflicts by hand…', repo: 'web' });
+  });
+
   it('gives a gh failure a Retry and no attempt count', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' });
     expect(b?.state).toBe('gh-failed');
