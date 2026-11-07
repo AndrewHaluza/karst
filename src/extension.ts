@@ -127,6 +127,7 @@ import {
   type ProcessRole,
 } from './manifest/validate/processAssignments.js';
 import { runProcess } from './workflow/gates/run.js';
+import { regenerateOption } from './workflow/gates/regenerateOption.js';
 import {
   recordSessionLaunchIntent,
   failSessionLaunchIntent,
@@ -3874,7 +3875,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath,
-    rerunFailedGates: hostRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess }), // D403: one host gate re-run for a refused no-commit fix marker
+    rerunFailedGates: hostRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate }), // D403: one host gate re-run for a refused no-commit fix marker
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },

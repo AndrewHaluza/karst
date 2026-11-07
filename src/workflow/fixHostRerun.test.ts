@@ -147,6 +147,26 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     }
   });
 
+  it('routes a regenerate gate row as a composite gate, not by its label', async () => {
+    recordGateRun(store, {
+      ticketId, stageKey: 'uat', attempt: 1, runAt: '2026-01-01T00:00:01Z',
+      gates: [{ gateName: 'regenerate (web)', exitCode: 1, repo: 'web', command: 'regenerate (web)', args: [] }],
+    });
+    const out = await hostRerunFailedGates(store, ticketId, deps(() => ok));
+    expect(out.kind).toBe('passed');
+    expect(ran).toEqual([{ gateName: 'regenerate (web)', repo: 'web', command: 'regenerate (web)', args: [], kind: 'regenerate' }]);
+  });
+
+  it('names a gate that cannot be re-run on the host and does not call it a failing gate', async () => {
+    const out = await hostRerunFailedGates(store, ticketId, deps((g) => g.gateName === 'unit (web)'
+      ? { exitCode: null, summary: 'unit (web) has no command the host can run', cannotRerun: true }
+      : ok));
+    expect(out.kind).toBe('failed');
+    const reply = describeHostRerun(out)!;
+    expect(reply.message).toContain('cannot be re-run on the host: unit (web)');
+    expect(reply.message).not.toContain('still fail');
+  });
+
   it('does nothing without an active round, a gate-failure trigger or a failed gate', async () => {
     store.db.prepare("UPDATE recovery_rounds SET trigger_kind = 'blocking-review-findings'").run();
     expect(await hostRerunFailedGates(store, ticketId, deps(() => ok))).toEqual({ kind: 'not-applicable' });

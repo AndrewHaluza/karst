@@ -19,6 +19,9 @@ const MISSING_MODULE = /Cannot find (module|package)|MODULE_NOT_FOUND|command no
 
 export const regenerateGateName = (repo: string): string => `regenerate (${repo})`;
 
+/** The repo key inside a `regenerate (<repo>)` gate name; null for any other gate. */
+export const regenerateRepoOf = (gateName: string): string | null => /^regenerate \((.+)\)$/.exec(gateName)?.[1] ?? null;
+
 export const hasHostOnlyEntry = (spec: RegenerateSpec | undefined): boolean =>
   spec?.commands.some((e) => typeof e !== 'string' && e.sandbox === 'host') ?? false;
 
