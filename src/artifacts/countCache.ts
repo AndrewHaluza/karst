@@ -58,7 +58,14 @@ export function createArtifactCountCache(opts: ArtifactCountCacheOptions): Artif
   };
 
   const load = (ticketId: number): void => {
-    void opts.count(ticketId).then(
+    let pending: Promise<number>;
+    try {
+      pending = opts.count(ticketId);
+    } catch (error) {
+      // A synchronous throw must free the slot like a rejected promise does.
+      pending = Promise.reject(error);
+    }
+    void pending.then(
       (count) => {
         const before = entries.get(ticketId)?.count;
         entries.set(ticketId, { count, at: now() });

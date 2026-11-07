@@ -94,4 +94,19 @@ describe('artifact count cache', () => {
     expect(count).toHaveBeenCalledTimes(10);
     expect(peak).toBe(4);
   });
+
+  it('frees the slot when the count loader throws synchronously', async () => {
+    const onError = vi.fn();
+    const count = vi.fn((id: number): Promise<number> => {
+      if (id === 1) throw new Error('boom');
+      return Promise.resolve(2);
+    });
+    const cache = createArtifactCountCache({ count, onChange: () => {}, onError, concurrency: 1 });
+    cache.get(1);
+    cache.get(2);
+    await flush();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(count).toHaveBeenCalledTimes(2);
+    expect(cache.get(2)).toBe(2);
+  });
 });
