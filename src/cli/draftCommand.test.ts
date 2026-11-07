@@ -86,6 +86,21 @@ describe('draft propose / draft list', () => {
     ]);
   });
 
+  it('draft list --pending keeps only the pending drafts; the default output is unchanged', () => {
+    writeFileSync(
+      join(dir, 'proposals.json'),
+      JSON.stringify([
+        { id: 3, uuid: 'u', title: 'A', status: 'pending', updatedAt: 't' },
+        { id: 4, uuid: 'v', title: 'B', status: 'discarded', updatedAt: 't' },
+        { id: 5, uuid: 'w', title: 'C', status: 'accepted', updatedAt: 't' },
+      ]),
+    );
+    expect(JSON.parse(run(['draft', 'list', '--pending'], ''))).toEqual([
+      { id: 3, ref: 'D3', status: 'pending', title: 'A' },
+    ]);
+    expect(JSON.parse(run(['draft', 'list'], ''))).toHaveLength(3);
+  });
+
   it('draft list prints [] when the session has no index yet', () => {
     expect(JSON.parse(run(['draft', 'list'], ''))).toEqual([]);
   });
@@ -97,6 +112,8 @@ describe('draft propose / draft list', () => {
     [['draft', 'propose', '--session', '1']],
     [['draft', 'propose', 'extra']],
     [['draft', 'list', 'extra']],
+    [['draft', 'list', '--pending', 'extra']],
+    [['draft', 'list', '--all']],
   ])('rejects argv %j', (argv) => {
     expect(() => run(argv, JSON.stringify(proposal))).toThrow(/draft/);
     expect(readdirSync(outbox)).toEqual([]);

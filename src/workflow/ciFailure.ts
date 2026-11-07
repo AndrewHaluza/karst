@@ -21,6 +21,8 @@ export interface CiFailurePr {
   /** gh's cwd for the repo (a worktree path). */
   cwd: string;
   failing: readonly FailingCheck[];
+  /** All failing checks the rollup counted; `failing` is capped, so a larger count means the list is cut short. */
+  failedTotal?: number;
 }
 
 export type CiFailureState =
@@ -61,7 +63,7 @@ export function ciFailureState(store: Store, ticketId: number): CiFailureState {
     const checks = parseChecks(row.checks);
     if (checks?.state === 'pending') return { available: false, reason: 'pending' };
     if (checks?.state === 'failing' && row.cwd) {
-      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, failing: checks.failing });
+      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, failing: checks.failing, failedTotal: checks.failed });
     }
   }
   return prs.length === 0 ? { available: false, reason: 'not-failing' } : { available: true, prs };

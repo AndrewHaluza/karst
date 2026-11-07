@@ -493,9 +493,10 @@
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="field">
-    <label for="intent">Acceptance check for the tester</label>
-    <textarea id="intent" class="k-input" rows="6" aria-label="Acceptance check for the tester" title="Black-box test charter — what UAT checks"></textarea>
+    <label for="intent" title="The reviewer and the UAT tester both judge the ticket against this">Acceptance check</label>
+    <textarea id="intent" class="k-input" rows="6" aria-label="Acceptance check" aria-describedby="intentHelp" title="The reviewer and the UAT tester both judge the ticket against this"></textarea>
   </div>
+  <span id="intentHelp" hidden>The reviewer and the UAT tester both judge the ticket against this text. It is a black-box test charter.</span>
   <div id="codePointersRow" class="field" hidden>
     <label for="codePointers">Code pointers</label>
     <textarea id="codePointers" class="k-input" rows="4" aria-label="Code pointers" title="Unverified hints — implementer only"></textarea>
@@ -918,15 +919,10 @@
     if (!el('title').value && !formPersist.isDirty('title')) el('title').value = state.title || '';
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
-    if (!el('desc').value && !formPersist.isDirty('desc')) el('desc').value = state.description || '';
-    if (!el('intent').value && !formPersist.isDirty('intent')) {
-      el('intent').value = state.intent || '';
-      lastIntent = el('intent').value;
-    }
-    if (!el('codePointers').value && !formPersist.isDirty('codePointers')) {
-      el('codePointers').value = state.codePointers || '';
-      lastPointers = el('codePointers').value;
-    }
+    // A field the user changed and has not saved (formPersist) is never refilled from the store.
+    if (!formPersist.isDirty('desc')) lastDesc = seedFromStore('desc', state.description || '', lastDesc);
+    if (!formPersist.isDirty('intent')) lastIntent = seedFromStore('intent', state.intent || '', lastIntent);
+    if (!formPersist.isDirty('codePointers')) lastPointers = seedFromStore('codePointers', state.codePointers || '', lastPointers);
     el('codePointersRow').hidden = !el('codePointers').value;
     el('attachments').innerHTML = renderAttachments(state.attachments || []);
     const rels = state.relations || [];
@@ -1587,7 +1583,16 @@
   // submit send a field only when it differs, so an untouched reopen never
   // rewrites stored analysis output.
   let lastIntent = '';
+  let lastDesc = '';
   let lastPointers = '';
+  // Seed a field only when the HOST's stored value changed and the user has not
+  // edited it since the last push. A field the user emptied must stay empty:
+  // refilling it on an unrelated push would revert the edit unseen (T998).
+  // Returns the new baseline (the stored value).
+  function seedFromStore(id, stored, last) {
+    if (stored !== last && el(id).value === last) el(id).value = stored;
+    return stored;
+  }
   function changedAnalysisFields() {
     const out = {};
     const intent = el('intent').value;

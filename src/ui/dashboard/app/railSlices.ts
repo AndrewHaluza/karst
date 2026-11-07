@@ -15,6 +15,10 @@ export interface RailSlice {
   readonly faulted: boolean;
 }
 
+/** The amber park autopilot writes (T973): an `awaiting-merge` block whose reason starts with `auto-fix`. The user must see why. */
+export const isAutoFixPark = (b: { readonly kind: string; readonly reason: string } | null | undefined): boolean =>
+  !!b && b.kind === 'awaiting-merge' && b.reason.startsWith('auto-fix');
+
 /** The blocks the banner draws as a strip: a resumable fault or a usage-limit park. */
 export const isStripBlock = (b: { readonly kind: string; readonly resumable?: boolean } | null | undefined): boolean =>
   !!b && b.kind !== 'baseline-review' && b.kind !== 'awaiting-merge' && (b.resumable !== false || b.kind === 'usage-limit');

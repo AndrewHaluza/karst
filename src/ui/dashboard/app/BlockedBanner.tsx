@@ -15,7 +15,7 @@
  *  - `review-stalled` (T845): non-resumable; the strip carries Redesign hint…, Continue anyway and Re-scope.
  *  - `baseline-review`: non-resumable, only the user's decision clears it (`BaselineReview.tsx`).
  *
- * `awaiting-merge` renders NOTHING: it is a normal wait, already surfaced by the header's chip and the Inside
+ * `awaiting-merge` renders NOTHING (except an autopilot park, whose reason starts with `auto-fix`: the banner shows it): it is a normal wait, already surfaced by the header's chip and the Inside
  * ship view's merge rows, so a third surface would be the legacy blocked banner this fault chain removed.
  *
  * The buttons are runtime-pending and keep one className each: the runtime's `is-pending` lives on that node.
@@ -28,6 +28,7 @@ import { BaselineReview, useBaselineDrafts, type BaselineDrafts } from './Baseli
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { blockFaultTitle } from './railText.js';
+import { isAutoFixPark } from './railSlices.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -49,7 +50,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
   const blocked = cell?.blocked;
   if (!s || !cell || !blocked) return null;
   const review = blocked.kind === 'baseline-review';
-  if (!(blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped' || blocked.kind === 'push-diverged')) return null;
+  if (!(isAutoFixPark(blocked) || blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped' || blocked.kind === 'push-diverged')) return null;
   return {
     ticketId: s.ticketId,
     stageKey: cell.stageKey,
@@ -300,6 +301,8 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
     );
   }
   if (kind === 'baseline-review') return <BaselineReview entries={slice.baselines} reason={reason} drafts={drafts} />;
+  // An autopilot park (T973) is an awaiting-merge wait: Resume cannot act on it, so the banner shows the reason only.
+  if (kind === 'awaiting-merge') return <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />;
   return (
     <>
       <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />

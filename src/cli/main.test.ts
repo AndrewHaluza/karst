@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
+import { assertPlanningVerbAllowed, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
+import { setStage } from '../store/stages.js';
 import { runNotesCommand } from './notesCommand.js';
 import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
@@ -830,3 +831,133 @@ describe('runCliAsync — base', () => {
   });
 });
 
+
+describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-ro-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    createTicket(seed, { key: 'K-1', title: 'demo' });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const env = (): Record<string, string> => ({ KARST_DB_READONLY: dbPath });
+
+  it.each([
+    [['context', 'K-1', '--json']],
+    [['stats', '--json']],
+    [['blocked', '--json']],
+  ])('runs the read verb %j with only the read-only env', (argv) => {
+    expect(() => runCli(argv, env())).not.toThrow();
+  });
+
+  it('prints the block report through the read-only env', () => {
+    expect(JSON.parse(runCli(['blocked', '--json'], env()))).toEqual({ rows: [], summary: [] });
+  });
+
+  it.each([
+    [['stage', 'impl', 'pass', '--ticket', 'K-1']],
+    [['phase', 'plan', '--ticket', 'K-1']],
+    [['notes', 'post', '--title', 't', '--body', 'b', '--ticket', 'K-1']],
+    [['message', 'send', '--to', 'parent', '--body', 'b', '--ticket', 'K-1']],
+  ])('still refuses the write verb %j with the read-only env', (argv) => {
+    expect(() => runCli(argv, env())).toThrow(/missing --db/);
+  });
+
+  it.each([
+    [['pause', 'K-1']],
+    [['unpause', 'K-1']],
+    [['close', 'K-1', '--reason', 'x']],
+    [['reopen', 'K-1']],
+    [['stage', 'impl', 'pass', '--ticket', 'K-1']],
+    [['env', 'set', 'A', 'b', '--ticket', 'K-1']],
+    [['notes', 'post', '--title', 't', '--body', 'b', '--ticket', 'K-1']],
+  ])('refuses the write verb %j in a planning session even with --db', (argv) => {
+    const planning = { ...env(), KARST_PLANNING_SESSION: '3' };
+    expect(() => runCli([...argv, '--db', dbPath], planning)).toThrow(/not available in a planning session/);
+    const check = openStore(dbPath);
+    const row = check.db.prepare("SELECT stage_current AS s FROM tickets WHERE key = 'K-1'").get() as { s: string | null };
+    check.close();
+    expect(row.s).not.toBe('closed');
+  });
+
+  it('still runs a read verb in a planning session with --db', () => {
+    const planning = { KARST_PLANNING_SESSION: '3' };
+    expect(() => runCli(['blocked', '--json', '--db', dbPath], planning)).not.toThrow();
+  });
+
+  it('refuses an async-only verb in a planning session too', async () => {
+    const planning = { ...env(), KARST_PLANNING_SESSION: '3' };
+    await expect(runCliAsync(['servers', 'list', '--db', dbPath], planning)).rejects.toThrow(/not available in a planning session/);
+    await expect(runCliAsync(['mcp', 'install'], planning)).rejects.toThrow(/not available in a planning session/);
+  });
+
+  it('still allows the `notes --repos` read that the planning preamble names', () => {
+    const planning = { KARST_PLANNING_SESSION: '3', KARST_PROJECT: '1' };
+    expect(() => runCli(['notes', '--repos', 'api', '--db', dbPath], planning)).not.toThrow(/not available in a planning session/);
+    expect(() => runCli(['notes', 'post', '--repos', 'api', '--title', 't', '--body', 'b', '--db', dbPath], planning)).toThrow(
+      /not available in a planning session/,
+    );
+  });
+
+  it('scopes blocked to KARST_PROJECT and reads KARST_REVIEW_FLOOR', () => {
+    const s = openStore(dbPath);
+    const a = upsertProject(s, { slug: 'a' });
+    const b = upsertProject(s, { slug: 'b' });
+    for (const [key, project] of [['A-1', a.id], ['B-1', b.id]] as const) {
+      const t = createTicket(s, { key, title: key });
+      s.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(project, t.id);
+      setStage(s, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'w', blockedAt: new Date().toISOString() });
+    }
+    s.close();
+    const out = JSON.parse(runCli(['blocked', '--json'], { ...env(), KARST_PROJECT: String(a.id), KARST_REVIEW_FLOOR: 'medium' }));
+    expect(out.rows.map((r: { key: string }) => r.key)).toEqual(['A-1']);
+    expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: String(a.id) })).not.toThrow();
+    expect(() => runCli(['stats', '--json'], { ...env(), KARST_PROJECT: '9999' })).not.toThrow();
+  });
+
+  it('allows `mcp serve` but not `mcp install` in a planning session', () => {
+    const planning = { KARST_PLANNING_SESSION: '3' };
+    expect(() => assertPlanningVerbAllowed(planning, ['mcp', 'serve'])).not.toThrow();
+    expect(() => assertPlanningVerbAllowed(planning, ['mcp', 'install'])).toThrow(/not available in a planning session/);
+  });
+
+  it('scopes blocked to nothing when the manifest slug has no project row', () => {
+    const s = openStore(dbPath);
+    setStage(s, createTicket(s, { key: 'Z-1', title: 'z' }).id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'w', blockedAt: new Date().toISOString() });
+    s.close();
+    const yml = join(dirname(dbPath), 'ghost.yml');
+    writeFileSync(yml, 'id: ghost\nhost: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nservices:\n  backend:\n    repoPath: ../backend\n    start: npm run dev\n    ports:\n      - { name: http, env: PORT, default: 3000 }\n');
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = JSON.parse(runCli(['blocked', '--json', '--manifest', yml], env()));
+      expect(out.rows).toEqual([]);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('says so on stderr when the manifest review floor cannot load, then uses the env floor', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const out = JSON.parse(runCli(['blocked', '--json', '--manifest', '/no/such/karst.yml'], { ...env(), KARST_REVIEW_FLOOR: 'medium' }));
+      expect(out.rows).toBeDefined();
+      expect(write.mock.calls.map((c) => String(c[0])).join('')).toContain('karst: manifest review floor skipped');
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('leaves the store unwritten after a refused write', () => {
+    expect(() => runCli(['stage', 'impl', 'pass', '--ticket', 'K-1'], env())).toThrow();
+    const check = openStore(dbPath);
+    const row = check.db.prepare("SELECT stage_current AS s FROM tickets WHERE key = 'K-1'").get() as { s: string };
+    check.close();
+    expect(row.s).toBe('scope');
+  });
+});
