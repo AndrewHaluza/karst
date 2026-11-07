@@ -3644,7 +3644,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       providerReady: () =>
         guardProviderCapability('sessions', process.assignment.provider),
       // The provider probe can wait: a ticket paused meanwhile gets no resume.
-      eligible: () => getTicket(localStore, ticketId).pausedAt == null,
+      eligible: () =>
+        getTicket(localStore, ticketId).pausedAt == null
+        && getTicket(localStore, ticketId).stageCurrent === 'fix'
+        && (roundId === null || listRecoveryRounds(localStore, ticketId).some((r) => r.id === roundId && r.status === 'pending')),
       // @arch:V77: the brief is stored and the agent is pointed at it, never typed.
       deliverFix: () => fixDelivery.deliver(ticketId, roundId),
       dispose: () => sessions.disposeSession(ticketId),
@@ -3664,7 +3667,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (outcome === 'skipped') {
       // The round stays pending: an unpause drives the ticket at fix (shouldStartDriverOn),
       // and the driver resumes the pending round.
-      logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused)`);
+      logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused, closed or no longer pending)`);
       return;
     }
     if (outcome === 'unavailable') {

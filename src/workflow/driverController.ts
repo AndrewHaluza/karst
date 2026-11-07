@@ -15,13 +15,17 @@ export function shouldStartDriver(stage: StageKey): boolean {
   return AUTO_GATES.includes(stage);
 }
 
+/** Triggers that mean "the user or host cleared what held the ticket": the unpause command and every resume route. */
+const RESUME_TRIGGERS: readonly string[] = ['unpause', 'stage-resume'];
+
 /**
- * Whether a trigger may start the driver at this stage. An unpause also starts it at
- * `fix`: a fix resume that a pause skipped left its round pending, and only a drive
- * reaches the resume block for a ticket that already rests at fix.
+ * Whether a trigger may start the driver at this stage. A resume trigger also starts it
+ * at `fix`: a fix resume that a pause skipped left its round pending, and only a drive
+ * reaches the resume block for a ticket that already rests at fix. A hook or a sweep
+ * never does, so a live fix is not nudged again on every event.
  */
 export function shouldStartDriverOn(stage: StageKey, trigger: string): boolean {
-  return shouldStartDriver(stage) || (trigger === 'unpause' && stage === 'fix');
+  return shouldStartDriver(stage) || (stage === 'fix' && RESUME_TRIGGERS.includes(trigger));
 }
 
 /**
