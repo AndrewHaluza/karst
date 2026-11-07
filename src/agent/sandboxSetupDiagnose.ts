@@ -66,11 +66,18 @@ const isOpen = (host: string, open: readonly string[]): boolean =>
 
 /**
  * `, blocked host(s) <h1>, <h2> (add to sandbox.setupHosts)`, or ''. `denied` = the docker proxy's DENY log
- * (reliable), `fromOutput` = parsed; hosts already in the open `setupHosts` are not blocked ones.
+ * (reliable), `fromOutput` = parsed; a parsed host already in the open `setupHosts` is not a blocked one.
+ * A requested host the proxy still DENIED is named apart: the window did not apply, so adding it cannot help.
  */
 export function blockedSuffix(denied: readonly string[], fromOutput: readonly string[], open: readonly string[]): string {
-  const hosts = [...new Set([...denied, ...fromOutput].map((h) => h.toLowerCase()))].filter((h) => !isOpen(h, open)).slice(0, MAX_BLOCKED_HOSTS);
-  return hosts.length > 0 ? `, blocked host(s) ${hosts.join(', ')} (add to sandbox.setupHosts)` : '';
+  const all = [...new Set([...denied, ...fromOutput].map((h) => h.toLowerCase()))];
+  const deniedSet = new Set(denied.map((h) => h.toLowerCase()));
+  const blocked = all.filter((h) => !isOpen(h, open)).slice(0, MAX_BLOCKED_HOSTS);
+  const unapplied = all.filter((h) => isOpen(h, open) && deniedSet.has(h)).slice(0, MAX_BLOCKED_HOSTS);
+  return [
+    blocked.length > 0 ? `, blocked host(s) ${blocked.join(', ')} (add to sandbox.setupHosts)` : '',
+    unapplied.length > 0 ? `, requested host(s) ${unapplied.join(', ')} were denied (the setup network window did not apply)` : '',
+  ].join('');
 }
 
 /** The sandbox-side npm debug log a failed `npm` names (`…/.npm/_logs/<file>.log`), if any. */

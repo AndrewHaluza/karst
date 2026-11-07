@@ -77,6 +77,23 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     expect(gateProcess).toHaveBeenCalledTimes(1);
   });
 
+  it('a one-shot gate inside an open setup window keeps the window allowlist; after close it is the baseline again', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' } });
+    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+    const runner = createDockerSessionRunner({ ...base, proc, gateProcess, proxy: { script: '/s.mjs', hostPorts: [] } });
+    const proxyRuns = (): string[] => proc.calls.map((c) => c.args.join(' ')).filter((c) => c.startsWith(`run --detach --name ${names.proxy}`));
+    const window = await runner.setupWindow!(['nodejs.org', '*.example.com']);
+    expect(window.ok).toBe(true);
+    await runner.runGate!('npm', ['ci'], '/w/t7');
+    const duringWindow = proxyRuns();
+    expect(duringWindow).toHaveLength(2);
+    for (const run of duringWindow) expect(run).toContain('karst.allow=');
+    expect(duringWindow[1]).toContain('nodejs.org,example.com');
+    if (window.ok) await window.close();
+    await runner.runGate!('npm', ['test'], '/w/t7');
+    for (const run of proxyRuns().slice(2)) expect(run).not.toContain('karst.allow=');
+  });
+
   it('hasSandbox is the clone volume', async () => {
     const yes = createDockerSessionRunner({ ...base, proc: fakeDockerProcess() });
     await expect(yes.hasSandbox!()).resolves.toBe(true);
