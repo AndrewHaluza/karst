@@ -49,6 +49,10 @@ function actions(): DashboardActions {
     stallPlanning: vi.fn(),
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
+    autopilotOverride: vi.fn(),
+    autopilotApproveOne: vi.fn(),
+    autopilotStop: vi.fn(),
+    autopilotRetry: vi.fn(),
     rebaseOnBase: vi.fn(),
     deliverToPr: vi.fn(),
     rerunGate: vi.fn(),
@@ -1110,5 +1114,33 @@ describe('legacy ship-progress retirement (Finding 12)', () => {
     // its ShipStepEvent import must be gone from the messages boundary.
     expect(MESSAGES_SOURCE).not.toMatch(/ship-progress/);
     expect(MESSAGES_SOURCE).not.toMatch(/ShipStepEvent/);
+  });
+});
+
+describe('autopilot messages (T1004)', () => {
+  it('parses a valid override, approve, stop and retry and drops forged companions', () => {
+    expect(parseWebviewMessage({ type: 'autopilot-override', mode: 'on', ticketId: 9 })).toEqual({ type: 'autopilot-override', mode: 'on' });
+    expect(parseWebviewMessage({ type: 'autopilot-approve-one', repo: 'api', kind: 'ci', x: 1 })).toEqual({ type: 'autopilot-approve-one', repo: 'api', kind: 'ci' });
+    expect(parseWebviewMessage({ type: 'autopilot-stop', when: 'now' })).toEqual({ type: 'autopilot-stop', when: 'now' });
+    expect(parseWebviewMessage({ type: 'autopilot-retry', repo: 'x' })).toEqual({ type: 'autopilot-retry' });
+  });
+
+  it('rejects a bad payload', () => {
+    expect(parseWebviewMessage({ type: 'autopilot-override', mode: 'merge' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'autopilot-approve-one', repo: '', kind: 'ci' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'autopilot-approve-one', repo: 'api', kind: 'push' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'autopilot-stop', when: 'later' })).toBeNull();
+  });
+
+  it('routes each message to its action', () => {
+    const a = actions();
+    routeAction({ type: 'autopilot-override', mode: 'off' }, a);
+    routeAction({ type: 'autopilot-approve-one', repo: 'api', kind: 'ci' }, a);
+    routeAction({ type: 'autopilot-stop', when: 'after-round' }, a);
+    routeAction({ type: 'autopilot-retry' }, a);
+    expect(a.autopilotOverride).toHaveBeenCalledWith('off');
+    expect(a.autopilotApproveOne).toHaveBeenCalledWith('api', 'ci');
+    expect(a.autopilotStop).toHaveBeenCalledWith('after-round');
+    expect(a.autopilotRetry).toHaveBeenCalledOnce();
   });
 });

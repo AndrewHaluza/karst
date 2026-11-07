@@ -19,6 +19,7 @@ import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
 import { makeDependencyOps } from './ops/dependencyOps.js';
 import { addressPrFeedback } from './ops/prFeedbackAction.js';
 import { deliverToPrAction, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput, type CiHost } from './ops/ciActionsWiring.js';
+import { getAutopilotTicket } from '../store/autopilot.js';
 import { resolveStageLogPath } from './ops/stageLogArtifact.js';
 import { stopServerRow, startServerRow, restartServerRow, openServerRow, copyServerUrlRow, type ServerOpsDeps } from './ops/serverOps.js';
 import type { DashboardActions } from '../ui/dashboard/messages.js';
@@ -416,6 +417,12 @@ export function makeDashboardActions(
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
+    // Auto-fix controls (T1004): the command owns the store write, the note and the confirmation.
+    autopilotOverride: (mode) => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, mode),
+    autopilotApproveOne: (repo, kind) => void vscode.commands.executeCommand('karst.autopilot.approveOne', ticketId, { repo, kind }),
+    autopilotStop: (when) => void vscode.commands.executeCommand('karst.autopilot.stop', ticketId, when),
+    // Retry sets the override to its current value: that write clears a pause and the park block.
+    autopilotRetry: () => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, getAutopilotTicket(store, ticketId).mode),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate

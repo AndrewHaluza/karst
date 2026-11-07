@@ -114,6 +114,16 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'address-pr-feedback' };
     case 'send-ci-failure':
       return { type: 'send-ci-failure' };
+    case 'autopilot-override':
+      return m.mode === 'inherit' || m.mode === 'on' || m.mode === 'off' ? { type: 'autopilot-override', mode: m.mode } : null;
+    case 'autopilot-approve-one':
+      return typeof m.repo === 'string' && m.repo.length > 0 && (m.kind === 'conflicts' || m.kind === 'ci')
+        ? { type: 'autopilot-approve-one', repo: m.repo, kind: m.kind }
+        : null;
+    case 'autopilot-stop':
+      return m.when === 'after-round' || m.when === 'now' ? { type: 'autopilot-stop', when: m.when } : null;
+    case 'autopilot-retry':
+      return { type: 'autopilot-retry' };
     case 'rebase-on-base':
       return { type: 'rebase-on-base' };
     case 'deliver-to-pr':
