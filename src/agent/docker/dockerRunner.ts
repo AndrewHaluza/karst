@@ -23,7 +23,8 @@ import {
   rewritePaths,
 } from './dockerRunArgs.js';
 import type { DockerMemoryLimits } from './dockerMemory.js';
-import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import { SETUP_BOUND_MS } from '../sandboxSetup.js';
+import { deniedHostsFromLog, DOCKER_ALLOWLIST, haltProxySidecar, startProxySidecar, stopProxySidecar, type SidecarSpec } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
@@ -34,6 +35,7 @@ export interface DockerRunnerOptions {
   readonly authFile?: string;
   readonly temp?: TempDirs;
   readonly newRunId?: () => string;
+  readonly now?: () => number;
   /** The host gate boundary `runGate` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
   /** Agent-visible evidence dir (the bridge mount), exported to gates as `KARST_EVIDENCE_DIR`. */
@@ -51,11 +53,19 @@ export interface DockerRunnerOptions {
  * headless = `docker exec` into that container. Never `--privileged`, never
  * the docker socket, argv arrays only, async spawns only.
  */
+/** Past the setup bound, a setup window that never closed expires: a later one-shot gate resets the proxy (arch:AC-47). */
+export const SETUP_WINDOW_GRACE_MS = 60_000;
+
 export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRunner {
+  const now = opts.now ?? Date.now;
   const newRunId = opts.newRunId ?? (() => randomBytes(8).toString('hex'));
   const ctx: CloneContext = { proc: opts.proc, names: opts.names, user: opts.user, temp: opts.temp ?? OS_TEMP_DIRS };
   const gateProcess = opts.gateProcess ?? runProcess;
   const gateEnv: Record<string, string> = { [SANDBOX_ENV]: '1', ...(opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {}) };
+  const proxySpec = (proxy: { readonly script: string; readonly hostPorts?: readonly number[] }): SidecarSpec => ({
+    proxy: opts.names.proxy, network: opts.names.network, scriptPath: proxy.script,
+    ...(proxy.hostPorts ? { hostPorts: proxy.hostPorts } : {}),
+  });
   /** Runs `body` with a recorded in-container pid, killed on abort and when the run ends. */
   const execTracked = async <T>(signal: AbortSignal | undefined, body: (runId: string) => Promise<T>): Promise<T> => {
     const runId = newRunId();
@@ -107,7 +117,8 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       // runs in a one-shot container on the same clone, removed by name.
       // The proxy is stopped when the session ends: bring it back for the gate's network.
       if (opts.proxy) {
-        await startProxySidecar(opts.proc, { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) });
+        // `keepWindow`: a running setup-window proxy (opened by another runner object) stays; only a stopped one restarts.
+        await startProxySidecar(opts.proc, proxySpec(opts.proxy), { keepWindow: true, now });
       }
       const runName = `${opts.names.container}-gate-${newRunId()}`;
       const remove = () => opts.proc.run(DOCKER_BIN, ['rm', '--force', runName]);
@@ -124,9 +135,10 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     windowNeedsIdle: true,
     setupWindow: async (hosts) => {
       if (!opts.proxy) return { ok: false, reason: 'docker: no proxy script to recreate the allowlist proxy with' };
-      const spec = { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) };
+      const spec = proxySpec(opts.proxy);
       const since = new Date().toISOString();
-      const opened = await startProxySidecar(opts.proc, { ...spec, allow: [...DOCKER_ALLOWLIST, ...hosts.map((h) => h.replace(/^\*\./, ''))] });
+      const allow = [...DOCKER_ALLOWLIST, ...hosts.map((h) => h.replace(/^\*\./, ''))];
+      const opened = await startProxySidecar(opts.proc, { ...spec, allow, windowUntil: now() + SETUP_BOUND_MS + SETUP_WINDOW_GRACE_MS });
       // A failed open may leave a half-built proxy: put the baseline back before reporting.
       if (!opened.ok) { await startProxySidecar(opts.proc, spec); return opened; }
       const deniedHosts = async (): Promise<string[]> => {
@@ -137,7 +149,12 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
           return [];
         }
       };
-      return { ok: true, close: async () => { await startProxySidecar(opts.proc, spec); }, deniedHosts };
+      const close = async (): Promise<void> => {
+        const restored = await startProxySidecar(opts.proc, spec);
+        // The caller logs a rejected close; the expiry label bounds how long a window that stays open lasts.
+        if (!restored.ok) throw new Error(`could not close the setup network window: ${restored.reason}`);
+      };
+      return { ok: true, close, deniedHosts };
     },
     canHostServices: async () => {
       if (await containerRunning(opts.proc, opts.names.container)) return true;

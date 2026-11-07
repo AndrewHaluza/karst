@@ -38,6 +38,8 @@ export interface SidecarSpec {
   /** Host path of the bundled `allowlist-proxy.mjs`, mounted read-only. */
   readonly scriptPath: string;
   readonly allow?: readonly string[];
+  /** A setup window's expiry (epoch ms), labelled with `allow`: past it, a `keepWindow` start resets the proxy (fails closed). */
+  readonly windowUntil?: number;
   /** Baseline host ports the sandbox may reach at `host.docker.internal` (arch:AC-32); nothing else on the host. */
   readonly hostPorts?: readonly number[];
 }
@@ -45,8 +47,8 @@ export interface SidecarSpec {
 const HOSTALLOW_LABEL = 'karst.hostallow';
 /** Running state + the baseline ports the proxy was started with, in one inspect. */
 const ALLOW_LABEL = 'karst.allow';
-const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}} {{index .Config.Labels "${ALLOW_LABEL}"}}`;
-const noValue = (v: string): string => (v === '<no value>' ? '' : v);
+const WINDOW_UNTIL_LABEL = 'karst.window-until';
+const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}} {{index .Config.Labels "${ALLOW_LABEL}"}} {{index .Config.Labels "${WINDOW_UNTIL_LABEL}"}}`;
 
 function hostAllowValue(ports: readonly number[] | undefined): string {
   return (ports ?? []).map((p) => `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`).join(',');
@@ -64,6 +66,7 @@ export function sidecarRunArgs(spec: SidecarSpec): string[] {
     '--env', `ALLOW=${(spec.allow ?? DOCKER_ALLOWLIST).join(',')}`,
     // Only a non-baseline allow (a setup window) is labelled: a proxy without the label IS the baseline.
     ...(spec.allow ? ['--label', `${ALLOW_LABEL}=${spec.allow.join(',')}`] : []),
+    ...(spec.allow && spec.windowUntil !== undefined ? ['--label', `${WINDOW_UNTIL_LABEL}=${spec.windowUntil}`] : []),
     ...hostAllowArgs(spec.hostPorts),
     '--mount', bindMount(spec.scriptPath, SCRIPT_IN_CONTAINER, true),
     OPENCODE_IMAGE, 'node', SCRIPT_IN_CONTAINER,
@@ -80,16 +83,25 @@ function hostAllowArgs(ports: readonly number[] | undefined): string[] {
   ];
 }
 
+export interface SidecarStartOptions {
+  /** Keep a running setup-window proxy (arch:AC-47) until its `windowUntil`; a one-shot gate must not close an open window. */
+  readonly keepWindow?: boolean;
+  readonly now?: () => number;
+}
+
 /**
  * Start the proxy unless it already runs with the same baseline ports, then give it (and only it) a second,
  * routable network: the ticket network is `--internal`, so the proxy is the
  * agent container's single way out.
  */
-export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec): Promise<SidecarResult> {
+export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec, opts: SidecarStartOptions = {}): Promise<SidecarResult> {
   const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', INSPECT_FORMAT, spec.proxy]);
-  const [running = '', label = '', allowLabel = ''] = state.stdout.trim().split(/\s+/);
-  const sameAllow = noValue(label) === hostAllowValue(spec.hostPorts) && noValue(allowLabel) === (spec.allow?.join(',') ?? '');
-  if (state.code === 0 && running === 'true' && sameAllow) return { ok: true };
+  // Fields by position: a missing label prints '' (or `<no value>`), so a run of spaces is NOT one separator.
+  const [running = '', label = '', allowLabel = '', untilLabel = ''] = state.stdout.replace(/\r?\n$/, '').replaceAll('<no value>', '').split(' ');
+  // No or a bad expiry label is NaN: the comparison is false, so the window proxy is reset.
+  const openWindow = opts.keepWindow === true && Number(untilLabel || NaN) > (opts.now ?? Date.now)();
+  const sameAllow = openWindow || allowLabel === (spec.allow?.join(',') ?? '');
+  if (state.code === 0 && running === 'true' && label === hostAllowValue(spec.hostPorts) && sameAllow) return { ok: true };
   if (state.code === 0) await proc.run(DOCKER_BIN, ['rm', '--force', spec.proxy]);
   const run = await proc.run(DOCKER_BIN, sidecarRunArgs(spec));
   if (run.code !== 0) return { ok: false, reason: `proxy sidecar failed to start: ${detail(run)}` };

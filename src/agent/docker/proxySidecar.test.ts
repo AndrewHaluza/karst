@@ -98,6 +98,51 @@ describe('proxy sidecar: baseline host ports (arch:AC-32)', () => {
     expect(same.calls).toHaveLength(1);
   });
 
+  it('keepWindow keeps a running setup-window proxy until its expiry; without it the window proxy is reset to the baseline', async () => {
+    const window = { 'docker container inspect': { stdout: 'true  registry.npmjs.org,nodejs.org 5000\n' } };
+    const kept = fakeDockerProcess(window);
+    await expect(startProxySidecar(kept, SPEC, { keepWindow: true, now: () => 4999 })).resolves.toEqual({ ok: true });
+    expect(kept.calls).toHaveLength(1);
+    const reset = fakeDockerProcess(window);
+    await startProxySidecar(reset, SPEC, { now: () => 4999 });
+    expect(lines(reset)[1]).toBe('docker rm --force k-proxy');
+    expect(lines(reset)[2]).not.toContain('karst.allow=');
+  });
+
+  it('keepWindow fails closed: an expired window proxy, or one with no expiry label, is reset to the baseline', async () => {
+    for (const stdout of ['true  registry.npmjs.org,nodejs.org 5000\n', 'true  registry.npmjs.org,nodejs.org \n', 'true  registry.npmjs.org,nodejs.org soon\n']) {
+      const proc = fakeDockerProcess({ 'docker container inspect': { stdout } });
+      await startProxySidecar(proc, SPEC, { keepWindow: true, now: () => 5000 });
+      expect(lines(proc)[1]).toBe('docker rm --force k-proxy');
+      expect(lines(proc)[2]).not.toContain('karst.allow=');
+    }
+  });
+
+  it('labels a window proxy with its expiry; the baseline proxy has neither label', () => {
+    const args = sidecarRunArgs({ ...SPEC, allow: ['nodejs.org'], windowUntil: 1234 });
+    expect(args).toEqual(expect.arrayContaining(['--label', 'karst.allow=nodejs.org', '--label', 'karst.window-until=1234']));
+    expect(args[args.indexOf('karst.window-until=1234') - 1]).toBe('--label');
+    expect(sidecarRunArgs(SPEC).join(' ')).not.toMatch(/karst\.(allow|window-until)=/);
+  });
+
+  it('reads the inspect fields by position: an empty or <no value> host-ports label does not shift the allow label', async () => {
+    for (const stdout of ['true  registry.npmjs.org,nodejs.org\n', 'true <no value> registry.npmjs.org,nodejs.org\n']) {
+      const proc = fakeDockerProcess({ 'docker container inspect': { stdout } });
+      await startProxySidecar(proc, { ...SPEC, allow: ['registry.npmjs.org', 'nodejs.org'] });
+      expect(proc.calls).toHaveLength(1);
+    }
+  });
+
+  it('keepWindow still replaces a stopped proxy and one whose baseline ports differ', async () => {
+    const stopped = fakeDockerProcess({ 'docker container inspect': { stdout: 'false  nodejs.org 9999\n' } });
+    await startProxySidecar(stopped, SPEC, { keepWindow: true, now: () => 1 });
+    expect(lines(stopped)[2]).toMatch(/^docker run --detach/);
+    expect(lines(stopped)[2]).not.toContain('karst.allow=');
+    const ports = fakeDockerProcess({ 'docker container inspect': { stdout: 'true  nodejs.org 9999\n' } });
+    await startProxySidecar(ports, { ...SPEC, hostPorts: [5432] }, { keepWindow: true, now: () => 1 });
+    expect(ports.calls.map((c) => c.args[0])).toEqual(['container', 'rm', 'run', 'network']);
+  });
+
   it('caps the proxy memory', () => {
     expect([PROXY_MEMORY_LIMIT, PROXY_MEMORY_RESERVATION]).toEqual(['128m', '64m']);
   });

@@ -73,14 +73,24 @@ describe('blockedHostsFromOutput', () => {
 describe('blockedSuffix', () => {
   it('merges proxy-denied and output hosts, drops open ones, caps at five', () => {
     expect(blockedSuffix(['nodejs.org', 'a.io'], ['nodejs.org', 'b.io'], [])).toBe(', blocked host(s) nodejs.org, a.io, b.io (add to sandbox.setupHosts)');
-    expect(blockedSuffix(['registry.npmjs.org', 'x.github.com', 'y.io'], [], ['registry.npmjs.org', '*.github.com'])).toBe(', blocked host(s) y.io (add to sandbox.setupHosts)');
+    expect(blockedSuffix(['y.io'], ['registry.npmjs.org', 'x.github.com'], ['registry.npmjs.org', '*.github.com'])).toBe(', blocked host(s) y.io (add to sandbox.setupHosts)');
     expect(blockedSuffix(['1', '2', '3', '4', '5', '6', '7'].map((h) => `${h}.io`), [], [])).toContain('5.io (add');
     expect(blockedSuffix(['1', '2', '3', '4', '5', '6', '7'].map((h) => `${h}.io`), [], [])).not.toContain('6.io');
   });
 
   it('is empty when nothing is blocked', () => {
     expect(blockedSuffix([], [], [])).toBe('');
-    expect(blockedSuffix(['a.io'], [], ['a.io'])).toBe('');
+    expect(blockedSuffix([], ['a.io'], ['a.io'])).toBe('');
+  });
+
+  it('names a requested host the proxy still denied: the window did not apply, adding it again cannot help', () => {
+    expect(blockedSuffix(['nodejs.org'], [], ['nodejs.org'])).toBe(', requested host(s) nodejs.org were denied (the setup network window did not apply)');
+    expect(blockedSuffix(['x.github.com', 'y.io'], ['z.io'], ['*.github.com'])).toBe(
+      ', blocked host(s) y.io, z.io (add to sandbox.setupHosts), requested host(s) x.github.com were denied (the setup network window did not apply)',
+    );
+    const seven = ['1', '2', '3', '4', '5', '6', '7'].map((h) => `${h}.io`);
+    expect(blockedSuffix(seven, [], seven)).toContain('5.io were denied');
+    expect(blockedSuffix(seven, [], seven)).not.toContain('6.io');
   });
 });
 
