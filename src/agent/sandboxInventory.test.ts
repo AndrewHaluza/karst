@@ -90,3 +90,42 @@ describe('listProjectSandboxes', () => {
     expect(r.sandboxes.map((s) => s.ticketId)).toEqual([9]);
   });
 });
+
+describe('listProjectSandboxes docker -repo volumes', () => {
+  const run = (docker: ReturnType<typeof fakeSbxProcess>) =>
+    listProjectSandboxes({ projectRoot: ROOT, sbx: fakeSbxProcess({ 'sbx ls': { stdout: '' } }), docker });
+
+  it('lists a docker sandbox from its -repo volume when its agent container is gone', async () => {
+    const n = own(7, 'opencode2');
+    const docker = fakeSbxProcess({ 'docker ps': { stdout: `${n}-proxy\trunning\n` }, 'docker volume ls': { stdout: `${n}-repo\n${n}-data\n` } });
+    const inv = await run(docker);
+    expect(inv.sandboxes).toEqual([{ runner: 'docker', name: n, ticketId: 7, core: 'opencode2', state: 'stopped' }]);
+    const vol = docker.calls.find((c) => c.args[0] === 'volume');
+    expect(vol?.args).toEqual(['volume', 'ls', '--filter', `name=${n.split('-').slice(0, 2).join('-')}-`, '--format', '{{.Name}}']);
+  });
+  it('a container entry wins over its -repo volume', async () => {
+    const n = own(9, 'opencode');
+    const inv = await run(fakeSbxProcess({ 'docker ps': { stdout: `${n}\trunning\n` }, 'docker volume ls': { stdout: `${n}-repo\n` } }));
+    expect(inv.sandboxes.filter((s) => s.ticketId === 9)).toEqual([{ runner: 'docker', name: n, ticketId: 9, core: 'opencode', state: 'running' }]);
+  });
+  it('a -data volume alone, or another project volume, is not a sandbox', async () => {
+    const other = sbxName({ projectRoot: '/other/karst.yml', ticketId: 6, core: 'opencode' });
+    const inv = await run(fakeSbxProcess({ 'docker ps': { stdout: '' }, 'docker volume ls': { stdout: `${own(5, 'opencode')}-data\n${other}-repo\n` } }));
+    expect(inv.sandboxes).toEqual([]);
+  });
+  it('a -repo volume named for a core docker cannot host is an invalid-core orphan', async () => {
+    const inv = await run(fakeSbxProcess({ 'docker volume ls': { stdout: `${own(4, 'claude')}-repo\n` } }));
+    expect(inv.sandboxes).toEqual([{ runner: 'docker', name: own(4, 'claude'), ticketId: 4, core: 'claude', state: 'stopped', invalidCore: true }]);
+  });
+  it('a failing volume listing is reported, the containers stay', async () => {
+    const inv = await run(fakeSbxProcess({ 'docker ps': { stdout: `${own(9, 'opencode')}\trunning\n` }, 'docker volume ls': { code: 1, stderr: 'boom\n' } }));
+    expect(inv.sandboxes.map((s) => s.ticketId)).toEqual([9]);
+    expect(inv.errors).toContain('docker volume ls failed: boom');
+  });
+  it('a failing docker ps skips the volume listing', async () => {
+    const docker = fakeSbxProcess({ 'docker ps': { code: 1, stderr: 'daemon down' } });
+    const inv = await run(docker);
+    expect(docker.calls.some((c) => c.args[0] === 'volume')).toBe(false);
+    expect(inv.errors.some((e) => e.startsWith('docker ps failed'))).toBe(true);
+  });
+});

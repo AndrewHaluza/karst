@@ -84,7 +84,7 @@ function hostAllowArgs(ports: readonly number[] | undefined): string[] {
 }
 
 export interface SidecarStartOptions {
-  /** Keep a running setup-window proxy (arch:AC-47) until its `windowUntil`; a one-shot gate must not close an open window. */
+  /** Keep a running setup-window proxy (arch:AC-47) until its `windowUntil`; a host-port change recreates it with the new ports and the same window. */
   readonly keepWindow?: boolean;
   readonly now?: () => number;
 }
@@ -98,12 +98,17 @@ export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec, 
   const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', INSPECT_FORMAT, spec.proxy]);
   // Fields by position: a missing label prints '' (or `<no value>`), so a run of spaces is NOT one separator.
   const [running = '', label = '', allowLabel = '', untilLabel = ''] = state.stdout.replace(/\r?\n$/, '').replaceAll('<no value>', '').split(' ');
+  const up = state.code === 0 && running === 'true';
   // No or a bad expiry label is NaN: the comparison is false, so the window proxy is reset.
-  const openWindow = opts.keepWindow === true && Number(untilLabel || NaN) > (opts.now ?? Date.now)();
+  const until = Number(untilLabel || NaN);
+  // An open window (arch:AC-47) survives a keepWindow start; past its expiry it is reset (fails closed).
+  const openWindow = opts.keepWindow === true && up && allowLabel !== '' && until > (opts.now ?? Date.now)();
   const sameAllow = openWindow || allowLabel === (spec.allow?.join(',') ?? '');
-  if (state.code === 0 && running === 'true' && label === hostAllowValue(spec.hostPorts) && sameAllow) return { ok: true };
+  if (up && label === hostAllowValue(spec.hostPorts) && sameAllow) return { ok: true };
+  // A host-port change during an open window: recreate with the new ports, keep the window's hosts and expiry.
+  const runSpec: SidecarSpec = openWindow ? { ...spec, allow: allowLabel.split(','), windowUntil: until } : spec;
   if (state.code === 0) await proc.run(DOCKER_BIN, ['rm', '--force', spec.proxy]);
-  const run = await proc.run(DOCKER_BIN, sidecarRunArgs(spec));
+  const run = await proc.run(DOCKER_BIN, sidecarRunArgs(runSpec));
   if (run.code !== 0) return { ok: false, reason: `proxy sidecar failed to start: ${detail(run)}` };
   const egress = await proc.run(DOCKER_BIN, ['network', 'connect', 'bridge', spec.proxy]);
   if (egress.code !== 0) {

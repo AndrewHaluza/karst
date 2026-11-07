@@ -157,3 +157,30 @@ describe('proxy sidecar: baseline host ports (arch:AC-32)', () => {
     await expect(haltProxySidecar(bad, 'k-proxy')).resolves.toMatchObject({ ok: false });
   });
 });
+
+describe('proxy sidecar: open window over a host-port change (arch:AC-47)', () => {
+  const OPEN = 'true  registry.npmjs.org,nodejs.org 5000\n';
+  it('keepWindow carries an open window over a host-port change: new ports, same hosts and expiry', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: OPEN } });
+    await startProxySidecar(proc, { ...SPEC, hostPorts: [5432] }, { keepWindow: true, now: () => 4000 });
+    expect(lines(proc)[1]).toBe('docker rm --force k-proxy');
+    for (const part of ['ALLOW=registry.npmjs.org,nodejs.org', 'karst.allow=registry.npmjs.org,nodejs.org', 'karst.window-until=5000', 'ALLOW_HOSTPORTS=host.docker.internal:5432']) expect(lines(proc)[2]).toContain(part);
+  });
+  it('an expired window is not carried over a host-port change', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: OPEN } });
+    await startProxySidecar(proc, { ...SPEC, hostPorts: [5432] }, { keepWindow: true, now: () => 5000 });
+    expect(lines(proc)[2]).not.toContain('karst.allow=');
+    expect(lines(proc)[2]).toContain('ALLOW_HOSTPORTS=host.docker.internal:5432');
+  });
+  it('a stopped window proxy is not carried over', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false  registry.npmjs.org,nodejs.org 5000\n' } });
+    await startProxySidecar(proc, SPEC, { keepWindow: true, now: () => 4000 });
+    expect(lines(proc)[2]).toMatch(/^docker run --detach/);
+    expect(lines(proc)[2]).not.toContain('karst.allow=');
+  });
+  it('a running baseline proxy with other host ports is recreated as the baseline', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true  \n' } });
+    await startProxySidecar(proc, { ...SPEC, hostPorts: [5432] }, { keepWindow: true, now: () => 4000 });
+    expect(lines(proc)[2]).not.toContain('karst.allow=');
+  });
+});
