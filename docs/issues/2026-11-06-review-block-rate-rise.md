@@ -240,7 +240,7 @@ Comparison (MEASURED, sample of 15 per period, 29 decided):
 | Stated high, of which REAL | 2, 1 | 9, 3 |
 | Right severity low (would not block) | 7 of 14 (50%) | 3 of 15 (20%) |
 
-Q4 verdict: MEASURED. No sampled finding is wrong: 0 of 29 decided. The upper 95% bound for the wrong rate is about 10% for both periods together and about 20% for each period alone, so a small wrong rate is not excluded. The findings in C are real defects at about the same rate as in A (40% against 43% at the stated severity). About half of the findings in both periods are rated above their right severity, and 6 of the 9 stated highs in C are medium at most. The sample gives no sign that C has more false or low-value findings. A has more findings that would not block at their right severity (50% against 20%). So on this sample the rise in blocks is not noise. A lower `blockingSeverity` would hide real defects of medium right severity: 8 of the 15 C findings are real at medium or higher.
+Q4 verdict: MEASURED. No sampled finding is wrong: 0 of 29 decided. The upper 95% bound for the wrong rate is about 10% for both periods together and about 20% for each period alone, so a small wrong rate is not excluded. The findings in C are real defects at about the same rate as in A (40% against 43% at the stated severity). About half of the findings in both periods are rated above their right severity, and 6 of the 9 stated highs in C are medium at most. The sample gives no sign that C has more false or low-value findings. A has more findings that would not block at their right severity (50% against 20%). So on this sample the rise in blocks is not noise. A lower `blockingSeverity` would hide real defects of medium right severity: 9 of the 15 C findings have a right severity of medium.
 
 Limits: one subagent per period classified the rows, by reading code only, with the severity scale in [@issue:RB-05]. Snapshots follow a rule and are not proven to be the reviewer input. 1360 is UNDECIDED. Samples are small: 14 and 15 of pools of 19 and 45. The C pool is 45 and the sample is a third of it. The classifier saw the stated severity of each finding, so it may be anchored.
 
@@ -268,7 +268,7 @@ END_DOC_BLOCK: [@issue:RB-06]
 ## [@issue:RB-07] Proposals for a person
 
 1. Record the Claude Code version and the review effort in `process_runs` for each review. Today the version is found only in transcripts, and the effort is not recorded where a free query can reach it.
-2. Decide the review effort in the preset by cost and stall rate. No decision is stated here. Do not lower `blockingSeverity` now: Q4 shows that the extra C findings are real defects (0 of 29 wrong, 8 of 15 real at medium or higher), and the medium-period sample ([@issue:RB-10]) does not show that low would miss them either. A severity calibration change (about half of the findings are rated above their right severity in both periods) is a separate question for a person.
+2. Decide the review effort in the preset by cost and stall rate. No decision is stated here. Do not lower `blockingSeverity` now: Q4 shows that the extra C findings are real defects (0 of 29 wrong, 9 of 15 with a right severity of medium), and the medium-period sample ([@issue:RB-10]) does not show that low would miss them either. A severity calibration change (about half of the findings are rated above their right severity in both periods) is a separate question for a person.
 
 END_DOC_BLOCK: [@issue:RB-07]
 
