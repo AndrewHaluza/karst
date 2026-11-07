@@ -88,7 +88,8 @@ function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
       repo: r.repo,
       command: r.command as string,
       args: r.args ?? [],
-      kind: regenerateRepoOf(r.gateName) !== null ? ('regenerate' as const) : ('command' as const),
+      // A composite row stores its own label as the command and has no argv.
+      kind: regenerateRepoOf(r.gateName) !== null && r.command === r.gateName && (r.args ?? []).length === 0 ? ('regenerate' as const) : ('command' as const),
     }));
 }
 

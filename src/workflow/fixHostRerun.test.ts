@@ -157,6 +157,15 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(ran).toEqual([{ gateName: 'regenerate (web)', repo: 'web', command: 'regenerate (web)', args: [], kind: 'regenerate' }]);
   });
 
+  it('keeps a user command gate named like a regenerate gate as a command', async () => {
+    recordGateRun(store, {
+      ticketId, stageKey: 'uat', attempt: 1, runAt: '2026-01-01T00:00:01Z',
+      gates: [{ gateName: 'regenerate (web)', exitCode: 1, repo: 'web', command: 'npm', args: ['run', 'gen'] }],
+    });
+    await hostRerunFailedGates(store, ticketId, deps(() => ok));
+    expect(ran[0]).toMatchObject({ kind: 'command', command: 'npm' });
+  });
+
   it('names a gate that cannot be re-run on the host and does not call it a failing gate', async () => {
     const out = await hostRerunFailedGates(store, ticketId, deps((g) => g.gateName === 'unit (web)'
       ? { exitCode: null, summary: 'unit (web) has no command the host can run', cannotRerun: true }

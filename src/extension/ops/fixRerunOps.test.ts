@@ -66,6 +66,23 @@ describe('makeGateRerun of a regenerate gate', () => {
     expect(run.mock.calls.map((c) => c[0])).not.toContain('regenerate (web)');
   });
 
+  it('looks the spec up by the manifest key in the gate name, and runs in the row repo worktree', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const regenerateFor = vi.fn(() => spec);
+    await makeGateRerun({ store, runnerFor: () => run, regenerateFor })(ticketId, { ...regen, gateName: 'regenerate (key)', command: 'regenerate (key)', repo: 'web' });
+    expect(regenerateFor).toHaveBeenCalledWith('key');
+    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run gen'], '/wt/web', expect.anything());
+  });
+
+  it('runs a sandbox: host entry on the host runner', async () => {
+    const sandbox = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const host = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
+    const hostSpec = { repo: 'web', commands: [{ run: 'npm run hostgen', sandbox: 'host' as const }] };
+    await makeGateRerun({ store, runnerFor: () => sandbox, hostRunner: host, regenerateFor: () => hostSpec })(ticketId, regen);
+    expect(host).toHaveBeenCalledWith('sh', ['-c', 'npm run hostgen'], '/wt/web', expect.anything());
+    expect(sandbox.mock.calls.map((c) => c[1]?.[1])).not.toContain('npm run hostgen');
+  });
+
   it('reports a failing generator with its exit code', async () => {
     const run: GateProcessRunner = async (cmd) =>
       cmd === 'sh' ? { kind: 'completed', exitCode: 2, output: 'gen broke' } : { kind: 'completed', exitCode: 0, output: '' };
