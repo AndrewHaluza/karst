@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
 import { dockerNames } from './dockerNames.js';
-import { createDockerSessionRunner } from './dockerRunner.js';
+import { SETUP_BOUND_MS } from '../sandboxSetup.js';
+import { createDockerSessionRunner, SETUP_WINDOW_GRACE_MS } from './dockerRunner.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
 
 const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
@@ -77,19 +78,39 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     expect(gateProcess).toHaveBeenCalledTimes(1);
   });
 
-  it('a one-shot gate from ANOTHER runner object keeps a running setup-window proxy; it never resets it to the baseline', async () => {
-    // The extension builds a new runner per call: the window state must live on the proxy (its `karst.allow` label), not in a runner.
-    const proc = fakeDockerProcess({
-      'docker container inspect': { stdout: 'false\n' },
-      'docker container inspect --format {{.State.Running}} {{index': { stdout: 'true  registry.npmjs.org,nodejs.org\n' },
-    });
-    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
-    const gateRunner = createDockerSessionRunner({ ...base, proc, gateProcess, proxy: { script: '/s.mjs', hostPorts: [] } });
+  const PROXY_INSPECT = 'docker container inspect --format {{.State.Running}} {{index';
+  const okGate = () => vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+  const proxyRuns = (proc: ReturnType<typeof fakeDockerProcess>): string[] =>
+    proc.calls.map((c) => c.args.join(' ')).filter((c) => c.startsWith(`run --detach --name ${names.proxy}`));
+
+  it('a one-shot gate from ANOTHER runner object keeps an unexpired setup-window proxy; it never resets it to the baseline', async () => {
+    // The extension builds a new runner per call: the window state must live on the proxy (its labels), not in a runner.
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' }, [PROXY_INSPECT]: { stdout: 'true  registry.npmjs.org,nodejs.org 5000\n' } });
+    const gateProcess = okGate();
+    const gateRunner = createDockerSessionRunner({ ...base, proc, gateProcess, now: () => 4000, proxy: { script: '/s.mjs', hostPorts: [] } });
     await gateRunner.runGate!('npm', ['ci'], '/w/t7');
-    const calls = proc.calls.map((c) => c.args.join(' '));
-    expect(calls).not.toContain(`rm --force ${names.proxy}`);
-    expect(calls.some((c) => c.startsWith(`run --detach --name ${names.proxy}`))).toBe(false);
+    expect(proc.calls.map((c) => c.args.join(' '))).not.toContain(`rm --force ${names.proxy}`);
+    expect(proxyRuns(proc)).toEqual([]);
     expect(gateProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('a one-shot gate resets an EXPIRED setup-window proxy to the baseline (a window that never closed fails closed)', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' }, [PROXY_INSPECT]: { stdout: 'true  registry.npmjs.org,nodejs.org 5000\n' } });
+    const runner = createDockerSessionRunner({ ...base, proc, gateProcess: okGate(), now: () => 5000, proxy: { script: '/s.mjs', hostPorts: [] } });
+    await runner.runGate!('npm', ['test'], '/w/t7');
+    expect(proxyRuns(proc)).toHaveLength(1);
+    expect(proxyRuns(proc)[0]).not.toContain('karst.allow=');
+  });
+
+  it('opens the window with an expiry of the setup bound plus grace; a failed close is reported, not swallowed', async () => {
+    const answers: Record<string, { stdout?: string; code?: number; stderr?: string }> = { 'docker container inspect': { stdout: 'false\n' } };
+    const proc = fakeDockerProcess(answers);
+    const runner = createDockerSessionRunner({ ...base, proc, gateProcess: okGate(), now: () => 1000, proxy: { script: '/s.mjs', hostPorts: [] } });
+    const window = await runner.setupWindow!(['nodejs.org']);
+    expect(window.ok).toBe(true);
+    expect(proxyRuns(proc)[0]).toContain(`karst.window-until=${1000 + SETUP_BOUND_MS + SETUP_WINDOW_GRACE_MS}`);
+    answers['docker run --detach'] = { code: 1, stderr: 'daemon gone' };
+    if (window.ok) await expect(window.close()).rejects.toThrow('could not close the setup network window: proxy sidecar failed to start: daemon gone');
   });
 
   it('hasSandbox is the clone volume', async () => {
