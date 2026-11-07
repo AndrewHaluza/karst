@@ -128,4 +128,19 @@ describe('readAutofix', () => {
     takeAutopilotAttempt(store, id, 'docs', 'conflicts', 'b', 2);
     expect(readAutofix(store, id, CONFIG).row?.message).toBe('Auto-fix: conflict · round 1 of 2');
   });
+
+  it('shows a CI attempt as running while the ticket is out of ship and its budget matches the failing checks', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
+    takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+    const r = readAutofix(store, id, CONFIG);
+    expect(r.row).toMatchObject({ state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 1 of 3', activeStep: 1 });
+  });
+
+  it('shows no CI round when the failing checks differ from the budget signature', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'typecheck', url: 'https://x/run' }], failedShown: 1 }));
+    takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+    expect(readAutofix(store, id, CONFIG).row).toBeNull();
+  });
 });

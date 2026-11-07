@@ -1,7 +1,8 @@
 /**
  * Host reader for the ticket's auto-fix state (T1004). It turns autopilot store rows into the
  * `AutofixFacts` the pure wording module reads (`model/inside/autofix.ts`). It writes nothing.
- * The CI "running" state has no store signal yet, so only a conflict round shows as running.
+ * A conflict round shows as running from its arm time. A CI round has no arm marker: it hands the ticket to Implement,
+ * so it reads as running while the ticket is out of ship and a CI budget signature still matches the failing checks.
  * An unknown CI status is read from the stored PR rollups with the engine's own rule (@arch:GH-03).
  */
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
@@ -25,6 +26,7 @@ import {
 } from '../../store/autopilot.js';
 import type { Store } from '../../store/db.js';
 import { stageBlock } from '../../store/stageBlocks.js';
+import { getTicket } from '../../store/tickets.js';
 
 export const AUTOFIX_LOG_LIMIT = 5;
 const NOTE_PREFIX = 'Autopilot:';
@@ -115,6 +117,31 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
   return { kind: 'conflicts', repo: only?.repo ?? '', pr: pr?.number ?? null, check: null, used, max, step: 0 };
 }
 
+/**
+ * The CI attempt the agent works on. The engine sends the ticket back to Implement and writes no marker, so the round is
+ * read from its effects: the ticket is out of ship, no park is on record, and a CI budget with attempts holds the
+ * signature of the checks that still fail in the stored rollup. The repo is named only when one budget matches.
+ */
+function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixFacts['round'] {
+  if (getTicket(store, ticketId).stageCurrent === 'ship') return null;
+  const hits: Array<{ repo: string; attempts: number; extra: number; number: number | null; check: string | null }> = [];
+  for (const e of listAutopilotBudgets(store, ticketId)) {
+    if (e.kind !== 'ci') continue;
+    const b = getAutopilotBudget(store, ticketId, e.repo, 'ci');
+    const pr = store.db.prepare("SELECT repo, number, checks FROM prs WHERE ticket_id = ? AND repo = ? AND status = 'open'").get(ticketId, e.repo) as PrRow | undefined;
+    const failing = parseChecks(pr?.checks)?.failing ?? [];
+    const signature = [...new Set(failing.map((f) => f.name))].sort().join('\n');
+    if (b.attempts > 0 && failing.length > 0 && b.signature === signature) hits.push({ repo: e.repo, attempts: b.attempts, extra: b.extra, number: pr?.number ?? null, check: failing[0]?.name ?? null });
+  }
+  if (hits.length === 0) return null;
+  const only = hits.length === 1 ? hits[0]! : null;
+  // The host fetched the log before the hand-off, so the agent is the active step.
+  return {
+    kind: 'ci', repo: only?.repo ?? '', pr: only?.number ?? null, check: only?.check ?? null,
+    used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)), step: 1,
+  };
+}
+
 export function readAutofix(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixReading {
   const ticket = getAutopilotTicket(store, ticketId);
   const projectDefault = config?.enabled === true;
@@ -129,7 +156,7 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     projectDefault,
     effective,
     reason,
-    round: resolveRound(store, ticketId, config),
+    round: reason === null ? (resolveRound(store, ticketId, config) ?? resolveCiRound(store, ticketId, config)) : resolveRound(store, ticketId, config),
     stopAfter: ticket.stopAfter,
     unknownCi: unknownCiLabels(store, ticketId),
     target,
