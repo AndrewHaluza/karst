@@ -489,6 +489,7 @@ erDiagram
   prs
   recovery_rounds
   review_findings
+  review_stall_suggestions
   servers
   session_launch_intents
   ship_commits
@@ -562,6 +563,7 @@ erDiagram
   stage_runs ||--o{ recovery_rounds : source_stage_run_id
   stage_runs ||--o{ recovery_rounds : uat_revalidation_stage_run_id
   tickets ||--o{ recovery_rounds : ticket_id
+  tickets ||--o{ review_stall_suggestions : ticket_id
   implementation_runs ||--o{ session_launch_intents : implementation_run_id
   process_runs ||--o{ session_launch_intents : process_run_id
   recovery_rounds ||--o{ session_launch_intents : recovery_round_id
