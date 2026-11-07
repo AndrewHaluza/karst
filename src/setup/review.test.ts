@@ -62,3 +62,26 @@ describe('describeChangeProposal', () => {
     expect(d.detail.split('\n')[0]).toBe('Directory: /ws');
   });
 });
+
+describe('describeManifestProposal protected-field order', () => {
+  it('puts the dropped line before the agent summary', () => {
+    const proposed = manifest({ web: repo('../web') });
+    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/k.yml', yaml: '', summary: 'AGENT SUMMARY' }, proposed, {
+      dropped: ['review'],
+    });
+    expect(d.detail.startsWith('Protected fields NOT applied')).toBe(true);
+    expect(d.detail.indexOf('NOT applied')).toBeLessThan(d.detail.indexOf('AGENT SUMMARY'));
+  });
+});
+
+describe('describeManifestProposal written sections and no dropped line', () => {
+  it('names the written sections and omits the dropped line when none dropped', () => {
+    const proposed = manifest({ web: repo('../web') });
+    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/k.yml', yaml: '', summary: 's' }, proposed, {
+      dropped: [],
+      writtenSections: ['approaches', 'review'],
+    });
+    expect(d.detail).toContain('this write changes: approaches, review.');
+    expect(d.detail).not.toContain('NOT applied');
+  });
+});

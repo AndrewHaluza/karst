@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, realpathSync, readdirSync } from 'node:fs';
+import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runManifestCommand, parseManifestArgs } from './manifestCommand.js';
@@ -83,7 +84,7 @@ describe('runManifestCommand propose', () => {
     const out = JSON.parse(
       runManifestCommand(['manifest', 'propose', '--file', file], { outboxEnv: outbox, uuid: () => 'fixed' }),
     );
-    expect(out).toEqual({ ok: true, kind: 'manifest', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json') });
+    expect(out).toEqual({ ok: true, kind: 'manifest', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json'), wouldDrop: [] });
     const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
     expect(written.kind).toBe('manifest');
     expect(written.targetPath).toBe(file);
@@ -130,5 +131,80 @@ describe('manifest show --active', () => {
   it('says there is no active manifest when the file is missing or no path is given', () => {
     expect(() => runManifestCommand(['manifest', 'show', '--active'], { manifestPath: '/nope/karst.yml' })).toThrow(/no active manifest/);
     expect(() => runManifestCommand(['manifest', 'show', '--active'], {})).toThrow(/--manifest/);
+  });
+});
+
+describe('manifest validate/propose against the current manifest', () => {
+  const CURRENT = `${VALID}archiveDoneAfterDays: 3\n`;
+  const REVIEW_ONLY = `${VALID}archiveDoneAfterDays: 9\n`;
+  const REPO_AND_PROTECTED = REVIEW_ONLY.replace('  docs:\n    repoPath: ../docs\n', '  docs:\n    repoPath: ../docs\n  api:\n    repoPath: ../api\n');
+
+  function setup(): { manifestPath: string; outbox: string } {
+    const manifestPath = join(dir, 'current.yml');
+    writeFileSync(manifestPath, CURRENT);
+    const outbox = join(dir, 'ob');
+    mkdirSync(outbox, { recursive: true });
+    return { manifestPath, outbox };
+  }
+
+  it('validate prints wouldDrop', () => {
+    const { manifestPath } = setup();
+    const out = JSON.parse(
+      runManifestCommand(['manifest', 'validate', '--file', writeYaml(REVIEW_ONLY)], { manifestPath, scaffold: () => undefined }),
+    );
+    expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
+  });
+
+  it('refuses a draft that changes only protected fields on a non-scaffold manifest, queuing nothing', () => {
+    const { manifestPath, outbox } = setup();
+    expect(() =>
+      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REVIEW_ONLY)], {
+        manifestPath,
+        outboxEnv: outbox,
+        scaffold: () => undefined,
+      }),
+    ).toThrow(/archiveDoneAfterDays.*Settings/);
+    expect(readdirSync(outbox)).toEqual([]);
+  });
+
+  it('refuses a draft with no difference at all', () => {
+    const { manifestPath, outbox } = setup();
+    expect(() =>
+      runManifestCommand(['manifest', 'propose', '--file', writeYaml(CURRENT)], {
+        manifestPath,
+        outboxEnv: outbox,
+        scaffold: () => undefined,
+      }),
+    ).toThrow(/no difference/);
+    expect(readdirSync(outbox)).toEqual([]);
+  });
+
+  it('passes the same draft when the current manifest is the unedited scaffold', () => {
+    const { manifestPath, outbox } = setup();
+    const out = JSON.parse(
+      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REVIEW_ONLY)], {
+        manifestPath,
+        outboxEnv: outbox,
+        uuid: () => 'fixed',
+        scaffold: () => loadManifestWithDiagnostics(manifestPath).manifest,
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.wouldDrop).toEqual([]);
+  });
+
+  it('queues a draft with a repository change and a protected change, printing wouldDrop', () => {
+    const { manifestPath, outbox } = setup();
+    const out = JSON.parse(
+      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REPO_AND_PROTECTED)], {
+        manifestPath,
+        outboxEnv: outbox,
+        uuid: () => 'fixed',
+        scaffold: () => undefined,
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
+    expect(readdirSync(outbox)).toEqual(['fixed.json']);
   });
 });

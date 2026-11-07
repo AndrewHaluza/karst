@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { loadManifestWithDiagnostics, parseManifestText, type Manifest } from '../manifest/load.js';
+import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS, DEFAULT_SUBTASK_LIMITS } from '../manifest/schema.js';
 import { stampScaffold } from '../manifest/scaffoldStamp.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
+export { readScaffoldManifest } from '../setup/scaffoldManifest.js';
 
 /**
  * Manifest resolution for the activation layer (§7.1 wiring). Kept out of
@@ -173,13 +174,4 @@ export function emptyManifest(): Manifest {
     subtasks: { ...DEFAULT_SUBTASK_LIMITS },
     stopServersOnDone: 'ask',
   };
-}
-
-/** The bundled template as a loaded manifest, or `undefined` when it cannot be read. */
-export function readScaffoldManifest(): Manifest | undefined {
-  try {
-    return parseManifestText(`id: scaffold\n\n${readFileSync(EXAMPLE_YML, 'utf8')}`, EXAMPLE_YML).manifest;
-  } catch {
-    return undefined;
-  }
 }

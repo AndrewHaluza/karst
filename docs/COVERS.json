@@ -631,6 +631,9 @@
   "src/setup/ledger.ts#withdrawProposal": [
     "arch:CLI-19"
   ],
+  "src/setup/scaffoldManifest.ts#readScaffoldManifest": [
+    "arch:CLI-14"
+  ],
   "src/store/**": [
     "arch:ST-00"
   ],

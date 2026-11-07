@@ -8,7 +8,7 @@ import {
   type ChangeProposal,
   type ManifestProposal,
 } from '../../setup/proposal.js';
-import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields } from '../../setup/manifestApply.js';
+import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields, sameManifest } from '../../setup/manifestApply.js';
 import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
 import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
@@ -93,6 +93,8 @@ export interface SetupProposalOpsDeps {
   confirm: (description: ProposalDescription) => Promise<boolean>;
   /** Write the approved manifest (already merged by `applyManifestProposal`); returns the sha256 of the file written. */
   applyManifest: (applied: Manifest, scratch: string) => string;
+  /** Top-level sections of karst.yml that writing `applied` changes, defaults the writer adds included. Shown before consent. */
+  writtenSections?: (applied: Manifest, scratch: string) => string[];
   /** True when `current` is still the unedited scaffold (protected fields are then proposable). */
   isScaffold?: (current: Manifest) => boolean;
   /** Run an approved change command. */
@@ -156,9 +158,29 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     const current = deps.readCurrentManifest();
     const firstSetup = isFirstSetup(current);
     const dropped = droppedProtectedFields(current, proposed, firstSetup);
+    const effective = applyManifestProposal(current, proposed, firstSetup);
+    if (current !== undefined && sameManifest(effective, current)) {
+      // Nothing would change: offer no Apply, write no file, and say so in the ledger.
+      const reason =
+        dropped.length > 0
+          ? `no effective change; protected fields not applied: ${dropped.join(', ')}. The user changes them in Settings.`
+          : 'no effective change';
+      debug(`manifest proposal ${file} has no effective change`);
+      deps.notify.warn(`Karst: the setup proposal changes nothing (${reason}).`);
+      fs.remove(file);
+      record(scratch, file, 'manifest', 'no-change', { reason, dropped });
+      return;
+    }
+    let writtenSections: string[] = [];
+    try {
+      writtenSections = deps.writtenSections?.(effective, scratch) ?? [];
+    } catch (e) {
+      debug(`could not preview written sections: ${e instanceof Error ? e.message : String(e)}`);
+    }
     const description = describeManifestProposal(current, proposal, proposed, {
       dropped,
       adopted: adoptedProtectedFields(proposed, firstSetup),
+      writtenSections,
     });
     const approved = await deps.confirm(description);
     if (!fs.exists(file)) {
