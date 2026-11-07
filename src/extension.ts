@@ -3502,7 +3502,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeFix: (id, gate, attempts, roundId, process) =>
             snapshotThenResume(localStore, id, process === null ? null : roundId, defaultGitRunner,
               (err) => logError(`karst: fix-round HEAD snapshot for ticket ${id} failed`, err),
-              () => void resumeFixSession(id, gate, attempts, roundId, process)
+              () => void resumeFixSessionOnce(id, gate, attempts, roundId, process)
                 .catch((err) => logError(`karst: resuming the fix session for ticket ${id} failed`, err))),
           // Reveals the ticket's Changes panel (`TicketChangesManager`,
           // already wired above) — it does NOT itself call `openTicketDiff`/
@@ -3590,6 +3590,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the driver (`fixResumeDecision` / the committed recovery round) — this
   // function only runs once a resume has been granted, so reaching it IS the
   // decision.
+  // Single-flight per ticket: the driver run ends when `resumeFix` returns, but the
+  // resume itself awaits the provider probe. A re-drive at fix in that window must not
+  // start a second resume of the same pending round.
+  const fixResumesInFlight = new Set<number>();
+  async function resumeFixSessionOnce(
+    ticketId: number,
+    gate: GateStageKey,
+    attempts: number,
+    roundId: number | null,
+    process: DriveProcessBundle | null,
+  ): Promise<void> {
+    if (fixResumesInFlight.has(ticketId)) {
+      logger.info(`stage driver: ticket ${ticketId} fix resume already in flight; skipping the duplicate`);
+      return;
+    }
+    fixResumesInFlight.add(ticketId);
+    try {
+      await resumeFixSession(ticketId, gate, attempts, roundId, process);
+    } finally {
+      fixResumesInFlight.delete(ticketId);
+    }
+  }
   async function resumeFixSession(
     ticketId: number,
     gate: GateStageKey,
@@ -3643,9 +3665,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // immediately before any disposal or replacement launch.
       providerReady: () =>
         guardProviderCapability('sessions', process.assignment.provider),
-      // The provider probe can wait: a ticket paused meanwhile gets no resume.
+      // The provider probe can wait: a ticket paused or stopped meanwhile gets no resume.
       eligible: () =>
-        getTicket(localStore, ticketId).pausedAt == null
+        driver.shouldContinue(ticketId)
+        && getTicket(localStore, ticketId).pausedAt == null
         && getTicket(localStore, ticketId).stageCurrent === 'fix'
         && (roundId === null || listRecoveryRounds(localStore, ticketId).some((r) => r.id === roundId && r.status === 'pending')),
       // @arch:V77: the brief is stored and the agent is pointed at it, never typed.
@@ -3667,7 +3690,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (outcome === 'skipped') {
       // The round stays pending: an unpause drives the ticket at fix (shouldStartDriverOn),
       // and the driver resumes the pending round.
-      logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused, closed or no longer pending)`);
+      logger.info(`stage driver: ticket ${ticketId} fix resume skipped after the provider check (paused, stopped, closed or no longer pending)`);
       return;
     }
     if (outcome === 'unavailable') {

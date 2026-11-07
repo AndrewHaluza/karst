@@ -712,4 +712,10 @@ describe('extension activation', () => {
       /for\s*\(const id of landed\)\s*\{[\s\S]{0,250}?void maybeStopServersOnDone\(serverLifecycleDeps,\s*id\);/,
     );
   });
+  it('runs one fix resume per ticket and re-checks Stop after the provider wait', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toMatch(/fixResumesInFlight\.has\(ticketId\)[\s\S]{0,200}?return;[\s\S]{0,200}?fixResumesInFlight\.add\(ticketId\)/);
+    expect(source).toMatch(/finally\s*\{\s*fixResumesInFlight\.delete\(ticketId\)/);
+    expect(source).toMatch(/eligible:\s*\(\)\s*=>\s*driver\.shouldContinue\(ticketId\)/);
+  });
 });
