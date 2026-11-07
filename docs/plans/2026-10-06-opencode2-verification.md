@@ -18,7 +18,7 @@ binary's strings rather than a run it is marked `source`.
 | 1 | `--standalone` reliability (>=10 TUI + >=10 headless) | **PASS**, with a latency tail (TUI first token can exceed 8 s; 20 s window was 10/10) |
 | 2 | `OPENCODE_CONFIG_CONTENT` permissions | **PASS** (config key is `permission`, singular object; shell action is `shell`, config key `bash`; last-match-wins; CC wins over project) |
 | 3 | `instructions: [<file>]` | **FAIL for the config key** (ignored); **PASS via `AGENTS.md`** (reaches prompt, base retained, resume re-reads) |
-| 4 | top-level `model: provider/model#effort` preselects TUI | **PASS** |
+| 4 | top-level `model: provider/model#effort` preselects TUI | **PASS with ONE signed-in provider; FAILED with two and an empty state (T1003)** — the TUI has no `--model`; karst now seeds `model.json` (T1005) |
 | 5 | Prompt delivery byte-identical | **only `stdin` is byte-identical**; positional/`--`/`--file` are not; TUI slash command runs with newlines kept |
 | 6 | `.opencode/agents/*.md` + `--agent` | **PASS** |
 | 7 | `permission.asked`/`.replied`; `question.*` | `permission.*` **PASS** (live); **no `question.*`** — questions use a `form.*` subsystem |
@@ -207,9 +207,122 @@ session.step.started data.model =
 session.text.ended text = "model-check"
 ```
 
-So config preselection includes the `#effort` variant. (`opencode-go` variant
-sets were read from `GET /api/model`; e.g. `space-bunny` =
-low/medium/high/xhigh/max, `deepseek-v4.1-flash` = low/high/max.)
+So config preselection includes the `#effort` variant **when the configured
+provider is the only one signed in** (2.0.24, the original check).
+
+### Multi-credential result (2.0.27, T1003 / T1005)
+
+The same check FAILED when a second provider was signed in and the karst XDG
+state was empty. T1003 had `opencode-go` **and** `openrouter` credentials and no
+`<XDG_STATE_HOME>/opencode/model.json`. `OPENCODE_CONFIG_CONTENT` carried
+`"model":"opencode-go/deepseek-v4.1-flash"`, but the kickoff and the first six
+assistant turns ran
+`openrouter/anthropic/claude-haiku-5.5` (`session_message` seq 7–56; seq 54 is
+the `model-switched` row with `previous = haiku`). The user switched by hand at
+10:47:37 UTC and every later turn used DeepSeek. `process_runs` had already
+recorded the configured model, so the store disagreed with the turns that ran.
+
+The v2 TUI has **no** `--model` flag on 2.0.27 — live:
+
+```
+$ opencode2 --standalone --model opencode-go/deepseek-v4.1-flash --prompt "reply ok"
+ERROR
+  Unrecognized flag: --model in command opencode
+```
+
+(`opencode2 run` does accept `--model`; that is the headless path only.) Karst
+therefore keeps the config model and seeds the TUI's recent-model store instead:
+`<XDG_STATE_HOME>/opencode/model.json` gets
+`{"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],…}`
+with the `#effort` variant in `variant` before the spawn. A host launch writes
+the karst-owned state dir directly. A sandbox does NOT write a seed file into
+its agent-writable bridge mount (that path had a symlink-swap window the host
+cannot close without `openat`): the seed CONTENT rides the container env and the
+docker prelude MERGES it into the container's own `model.json` before the TUI
+starts, so the user's recents and favorites survive a relaunch or a switch.
+Live 2.0.27, two providers signed in: with the seed present and **no** config
+model the first `session.step.started` was
+`{"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}`; with
+the config model set it was DeepSeek on the first step.
+
+Because a seed can still be ignored (a provider that is not ready at startup),
+the bridge also reports the first `session.step.started` model once per session
+as `ModelSelected`, retrying on a bounded timer until the endpoint accepts it so
+a host restart cannot drop the session's only observation. The host compares it
+with the model the reporting launch was configured to use (that launch's
+`session_launch_intents` row, pinned by the endpoint-rebuilt `launchId`) —
+provider/model AND the effort (the intent's own v103 `effort` column, so the
+comparison is live rather than a `#effort` the intent never carried) — and, on a
+mismatch, writes a warning event to the ticket naming both sides. It never stops
+the session. The launch intent is the right source: `process_runs.model` is
+written once at run open and never updated, so after a live model switch it
+still names the previous model and the guard would warn about the model the user
+just chose.
+
+### Live evidence in the ticket sandbox (2.0.27, 2026-11-07)
+
+Run inside the project's docker sandbox (`karst-0ea0dde3-1003-opencode2`, the
+same 2.0.27 image) with BOTH providers signed in:
+
+```
+$ opencode2 auth list --standalone
+OpenCode Go  OpenCode Go                 stored
+OpenCode Go  API key                     stored
+OpenRouter   API key                     stored
+```
+
+**Shipped path (seed content in the env, prelude merges).** A fresh, empty
+`XDG_STATE_HOME=/tmp/t1005-state`; the seed was the exact output of
+`opencode2ModelStateSeed('opencode-go/deepseek-v4.1-flash', 'max')`, forwarded
+BY NAME through the docker client env (`docker exec -e
+KARST_OPENCODE2_MODEL_STATE_JSON …` — the same `--env KEY` channel
+`interactiveRunArgs` emits), `OPENCODE_CONFIG_CONTENT` carried
+`opencode-go/deepseek-v4.1-flash#max`, and the exact current
+`OPENCODE2_MODEL_STATE_PRELUDE` from `dockerRunArgs.ts` ran as
+`sh -c "$PRELUDE" karst-opencode2 opencode2 --standalone --prompt "reply with
+exactly: env-merge-check"` under a PTY. The prelude merged onto the empty
+state:
+
+```
+{"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],
+ "favorite":[],"variant":{"opencode-go/deepseek-v4.1-flash":"max"}}
+```
+
+The first assistant row in the sandbox `opencode.db` (session
+`ses_e4904857dffebZ4FgjFLo8M09i`) is:
+
+```
+seq 7 assistant
+model   = {"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}
+content = [{"type":"text","text":"env-merge-check"}]
+```
+
+So a launch through the SHIPPED env+merge wrapper ran the first turn on the
+configured model, not `openrouter/anthropic/claude-haiku-5.5`. (The TUI stays
+open after the reply, so the driving `script` was ended by `timeout`; the
+session row and first step were already recorded.)
+
+**Earlier supporting run.** Before the env-content change, the same sandbox
+with the then-current copy prelude (seed file copied onto the state volume,
+`--prompt "reply with exactly: prelude-check"`) produced the same configured
+model in session `ses_e497eda3bffeAEnnEohiewd1oW` (first assistant
+`deepseek-v4.1-flash` / `opencode-go` / `max`), and a direct seed write into a
+fresh state dir produced it again in session `ses_e4983088affedEoP0B7Q2OlPP9`.
+
+`dockerRunArgs.integration.test.ts` executes the real prelude against a temp
+`XDG_STATE_HOME` and pins that the configured model lands first while existing
+recents/favorites survive, and that a corrupt store still lets the TUI exec.
+
+The mismatch warning cannot be posted to the real ticket from the sandbox (no
+karst CLI or DB), so it is evidenced by the in-memory store tests:
+`hooks/modelSelection.test.ts` "warns on the ticket, naming both models" (and
+the `dispatch.test.ts` `ModelSelected` case) assert one `event` on the ticket
+whose body names both models, with the agent state unchanged. The same file's
+"compares against the switched-to model, not the stale process run model" pins
+the switch path: the expected model comes from the reporting launch's intent,
+so a deliberate switch (and a newer concurrent launch on the ticket) never
+produces a false warning.
+
 
 ## 5. Prompt delivery byte-identical
 

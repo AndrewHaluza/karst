@@ -113,18 +113,21 @@ function candidateEndpoint(raw) {
   }
 }
 
-// Resolved LAZILY and once: the launch endpoint answers for the whole life of a
-// session that outlives no reload, so a synchronous read per event would be
-// waste. Read only when the launch URL has actually stopped delivering.
+// Read on demand. A VALID endpoint is cached (it is stable for the process); a
+// missing/invalid file is NOT memoized, because the one case this reader exists
+// for is a host restart whose endpoint file appears a moment later — the retry
+// of a dropped ModelSelected must be able to see it.
 let fallbackResolved = false;
 let fallbackEndpoint = null;
 function readFallbackEndpoint() {
   if (fallbackResolved) return fallbackEndpoint;
-  fallbackResolved = true;
   if (endpointFile) {
     try {
       const content = readFileSync(endpointFile, 'utf8').trim();
-      if (content.length > 0) fallbackEndpoint = candidateEndpoint(content);
+      if (content.length > 0) {
+        fallbackEndpoint = candidateEndpoint(content);
+        fallbackResolved = fallbackEndpoint !== null;
+      }
     } catch {}
   }
   return fallbackEndpoint;
@@ -167,6 +170,63 @@ function extractErrorMessage(data) {
     } catch {}
   }
   return stringOf(data && data.message);
+}
+
+// The model a step actually ran on. v2 carries it at data.model as
+// {id, providerID, variant?}; only the three identity fields are forwarded.
+function extractModel(data) {
+  const model = asRecord(data && data.model);
+  if (!model) return null;
+  const providerID = stringOf(model.providerID);
+  const modelID = stringOf(model.id) || stringOf(model.modelID);
+  if (!providerID || !modelID) return null;
+  const variant = stringOf(model.variant);
+  return variant ? { providerID, modelID, variant } : { providerID, modelID };
+}
+
+// One report per session: the FIRST model step is the kickoff turn (T1005).
+// The report is a ONE-SHOT observation (later steps may be a deliberate switch),
+// so a dropped POST is retried: pendingModel holds it until deliver reports
+// success, on a bounded timer. Without this, a host restart between the launch
+// URL dying and the stable endpoint file appearing lost the only chance to
+// compare the kickoff model.
+const reportedModel = new Set();
+const pendingModel = new Map();
+const MODEL_RETRY_MS = 2000;
+const MODEL_RETRY_LIMIT = 30;
+let modelRetryTimer = null;
+let modelRetryAttempts = 0;
+
+function tryPendingModel() {
+  for (const [sessionId, payload] of pendingModel) {
+    deliver(payload, (ok) => {
+      if (ok) pendingModel.delete(sessionId);
+    });
+  }
+}
+
+function scheduleModelRetry() {
+  if (modelRetryTimer !== null || pendingModel.size === 0 || modelRetryAttempts >= MODEL_RETRY_LIMIT) return;
+  modelRetryTimer = setTimeout(() => {
+    modelRetryTimer = null;
+    modelRetryAttempts += 1;
+    tryPendingModel();
+    scheduleModelRetry();
+  }, MODEL_RETRY_MS);
+  // The session's own event stream keeps the process alive; this timer must not.
+  if (modelRetryTimer && typeof modelRetryTimer.unref === 'function') modelRetryTimer.unref();
+}
+
+function postFirstModel(data, directory) {
+  const sessionId = extractSessionId(data);
+  const cwd = extractCwd(data, directory);
+  const model = extractModel(data);
+  if (!sessionId || !cwd || !model || reportedModel.has(sessionId)) return;
+  reportedModel.add(sessionId);
+  pendingModel.set(sessionId, { hook_event_name: 'ModelSelected', cwd, session_id: sessionId, model });
+  modelRetryAttempts = 0;
+  tryPendingModel();
+  scheduleModelRetry();
 }
 
 // A count is a finite, non-negative number; anything else is not a count.
@@ -213,19 +273,16 @@ function tallySignature(usage) {
   ].join(':');
 }
 
-// POST to one candidate. next() is called when THIS candidate did not deliver
-// (connection error, timeout, or a non-2xx answer — a foreign process holding
-// the stale port answers, so a status check is part of "delivered").
-function sendTo(endpoint, body, next) {
+// POST to one candidate. onDone(true) when it delivered; onDone(false) when
+// THIS candidate did not (connection error, timeout, or a non-2xx answer — a
+// foreign process holding the stale port answers, so a status check is part of
+// "delivered").
+function sendTo(endpoint, body, onDone) {
   let settled = false;
-  const succeed = () => {
+  const finish = (ok) => {
     if (settled) return;
     settled = true;
-  };
-  const advance = () => {
-    if (settled) return;
-    settled = true;
-    next();
+    onDone(ok);
   };
   try {
     const target = new URL(endpoint);
@@ -241,26 +298,36 @@ function sendTo(endpoint, body, next) {
       timeout: 2000,
     });
     // Fail open: a stale endpoint (IDE lifecycle race) must never block the agent.
-    req.on('error', () => advance());
+    req.on('error', () => finish(false));
     req.on('timeout', () => req.destroy());
     req.on('response', (res) => {
       const status = res.statusCode || 0;
       const ok = status >= 200 && status < 300;
       res.resume();
-      res.on('aborted', () => advance());
-      res.on('error', () => advance());
-      res.on('end', () => (ok ? succeed() : advance()));
+      res.on('aborted', () => finish(false));
+      res.on('error', () => finish(false));
+      res.on('end', () => finish(ok));
     });
     req.end(body);
   } catch {
-    advance();
+    finish(false);
   }
 }
 
-function deliver(payload) {
-  try {${endpointUrl.startsWith('file://') ? "\n    karstFileEvent(payload); return;" : ''}
+// Deliver one payload. onDelivered(true/false) reports the outcome so a
+// ONE-SHOT observation (ModelSelected) can be retried; ordinary posts ignore it.
+function deliver(payload, onDelivered) {
+  let finished = false;
+  const finish = (ok) => {
+    if (finished) return;
+    finished = true;
+    if (onDelivered) {
+      try { onDelivered(ok); } catch {}
+    }
+  };
+  try {${endpointUrl.startsWith('file://') ? "\n    karstFileEvent(payload); return finish(true);" : ''}
     const body = JSON.stringify(payload);
-    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) return;
+    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) return finish(false);
     const launch = candidateEndpoint(launchEndpointUrl);
     let attempt = 0;
     const advance = () => {
@@ -268,19 +335,20 @@ function deliver(payload) {
       // 1: the launch-time endpoint. 2: the extension's current one, read only
       // now, and only when it differs from the one that just failed.
       if (attempt === 1 && launch) {
-        sendTo(launch, body, advance);
+        sendTo(launch, body, (ok) => (ok ? finish(true) : advance()));
         return;
       }
       if (attempt <= 2) {
         const fallback = readFallbackEndpoint();
         if (fallback && fallback !== launch) {
-          sendTo(fallback, body, advance);
+          sendTo(fallback, body, (ok) => (ok ? finish(true) : advance()));
           return;
         }
       }
+      finish(false);
     };
     advance();
-  } catch {}
+  } catch { finish(false); }
 }
 
 function post(hookEventName, sessionId, cwd, message) {
@@ -345,6 +413,11 @@ function handleEvent(event, directory) {
       break;
     case 'session.usage.updated':
       postUsageAdvanced(typeof event.id === 'string' ? event.id : '', data, directory);
+      break;
+    case 'session.step.started':
+      // The first model step carries the model that actually answered the
+      // kickoff prompt; the host compares it with the configured one (T1005).
+      postFirstModel(data, directory);
       break;
     case 'permission.asked':
       post('permission.asked', sessionId, cwd);

@@ -615,6 +615,9 @@ export class SessionManager {
     if (trust) await trust;
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
+      // T1005: opencode2 isolates its TUI state per ticket, so this launch's
+      // configured model cannot be overwritten by a concurrent ticket launch.
+      ticketId,
       // A human watches: normal approvals stay, pattern kills and home-config
       // writes are always denied (D170).
       policy: 'attended',

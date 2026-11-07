@@ -46,6 +46,20 @@ describe('verifyBridgeLine', () => {
     const notMonitor = verifyBridgeLine(hook({ tool_name: 'Bash', tool_input: { timeout_ms: 5000 } }), expectOf());
     expect(payloadOf(notMonitor).timeout_ms).toBeUndefined();
   });
+  it('carries the first model step’s model and drops a malformed one (T1005)', () => {
+    const good = verifyBridgeLine(
+      hook({ hook_event_name: 'ModelSelected', model: { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high', extra: 'drop' } }),
+      expectOf(),
+    );
+    expect(good).toMatchObject({
+      ok: true,
+      event: { payload: { model: { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high' } } },
+    });
+    expect(JSON.stringify(good)).not.toContain('extra');
+    for (const model of [{ providerID: '', modelID: 'm' }, { providerID: 'p' }, { providerID: 'p', modelID: 'm', variant: 2 }, 'a/b']) {
+      expect(payloadOf(verifyBridgeLine(hook({ hook_event_name: 'ModelSelected', model }), expectOf())).model).toBeUndefined();
+    }
+  });
   it('omits launchId when the session has none', () => {
     const r = verifyBridgeLine(hook(), expectOf({ launchId: undefined }));
     expect(r.ok && r.event.kind === 'hook' && 'launchId' in r.event.payload).toBe(false);

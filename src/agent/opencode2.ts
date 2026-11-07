@@ -37,6 +37,11 @@ import {
   opencode2Config,
   opencode2IsolationEnv,
 } from './opencode2Binary.js';
+import {
+  KARST_OPENCODE2_MODEL_STATE_ENV,
+  opencode2ModelStateSeed,
+  seedOpencode2ModelState,
+} from './opencode2ModelState.js';
 import { KARST_OPENCODE_HEADLESS_ENV, OPENCODE2_BRIDGE_FILENAME, writeOpencode2Bridge } from './opencode2Bridge.js';
 import { sandboxPluginLocation } from './hookBridgeFiles.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
@@ -462,8 +467,10 @@ export class Opencode2Adapter implements AgentAdapter {
           renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions?.path),
         )
       : opts.initialPrompt;
-    // No `--model`: v2 preselects through the config blob (verified PASS,
-    // including the `#<effort>` variant).
+    // No `--model`: live 2.0.27 rejects it on the TUI (`Unrecognized flag:
+    // --model in command opencode`). The config blob preselects, and the
+    // recent-model store is seeded below for the multi-credential case where
+    // config preselection misses (T1003/T1005).
     if (kickoff) {
       // `--prompt` is one argv entry, so an oversized kickoff must spill to a
       // file rather than reach execve (E2BIG). Small kickoffs are unchanged.
@@ -496,6 +503,35 @@ export class Opencode2Adapter implements AgentAdapter {
         ...(mcp ? { mcp } : {}),
       }),
     };
+    // T1005: a sandbox launch hands its container the seed CONTENT (never a
+    // host file inside the agent-writable bridge mount); the docker prelude
+    // merges it into the container's own state volume. A host launch writes the
+    // karst-owned XDG state directly. Both are best-effort: an unwritable state
+    // dir must not block the session, and the ModelSelected guard still names a
+    // mismatch on the ticket.
+    if (opts.model) {
+      if (opts.hookChannel?.runDir !== undefined) {
+        const seed = opencode2ModelStateSeed(opts.model, opts.effort);
+        if (seed !== null) env[KARST_OPENCODE2_MODEL_STATE_ENV] = seed;
+      } else {
+        const stateHome = env['XDG_STATE_HOME'];
+        if (stateHome !== undefined) {
+          // One shared state home serves every ticket, so two launches prepared
+          // before either TUI reads `model.json` would overwrite each other's
+          // `recent[0]` and one kickoff would preselect the other ticket's model
+          // (review of T1005). Key the state dir by ticket: the ticket's own
+          // model is stable, while its TUI recents still persist across launches.
+          const isolated =
+            opts.ticketId !== undefined ? join(stateHome, 'tickets', String(opts.ticketId)) : stateHome;
+          env['XDG_STATE_HOME'] = isolated;
+          try {
+            seedOpencode2ModelState(isolated, opts.model, opts.effort);
+          } catch {
+            // Same best-effort rule as the sandbox seed.
+          }
+        }
+      }
+    }
     return {
       command: opencode2Command(),
       args,

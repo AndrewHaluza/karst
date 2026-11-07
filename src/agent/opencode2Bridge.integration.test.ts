@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -23,21 +23,28 @@ interface Receiver {
 }
 
 /** A real loopback HTTP receiver — the same contract the extension endpoint serves. */
-function receiver(): Promise<Receiver> {
+function receiver(statusFor = (_attempt: number): number => 204): Promise<
+  Receiver & { attempts: () => number }
+> {
   const bodies: unknown[] = [];
+  let attempts = 0;
   const server = createServer((request, response) => {
+    attempts += 1;
+    const status = statusFor(attempts);
     let body = '';
     request.setEncoding('utf8');
     request.on('data', (chunk: string) => {
       body += chunk;
     });
     request.on('end', () => {
-      try {
-        bodies.push(JSON.parse(body));
-      } catch {
-        bodies.push(body);
+      if (status >= 200 && status < 300) {
+        try {
+          bodies.push(JSON.parse(body));
+        } catch {
+          bodies.push(body);
+        }
       }
-      response.writeHead(204);
+      response.writeHead(status);
       response.end();
     });
   });
@@ -52,6 +59,7 @@ function receiver(): Promise<Receiver> {
       resolve({
         endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
         bodies,
+        attempts: () => attempts,
         close: () =>
           new Promise<void>((res, rej) => {
             server.close((error) => (error ? rej(error) : res()));
@@ -110,12 +118,13 @@ async function loadBridge(
   events: unknown[],
   directory: string,
   endpointUrl: string,
-): Promise<{ done: Promise<void>; subscribed: () => boolean }> {
+): Promise<{ done: Promise<void>; subscribed: () => boolean; configDir: string }> {
   const worktree = makeWorktree();
+  const configDir = join(worktree, '.karst-runtime');
   const cmd = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }))
     .buildInteractiveCommand({
       cwd: worktree,
-      hookChannel: { endpointUrl, configDir: join(worktree, '.karst-runtime') },
+      hookChannel: { endpointUrl, configDir },
       initialPrompt: 'go',
     });
   const pluginPath = cmd.ownedPaths![0]!;
@@ -134,7 +143,7 @@ async function loadBridge(
       },
     },
   };
-  return { done: mod.default.setup(ctx), subscribed: () => active };
+  return { done: mod.default.setup(ctx), subscribed: () => active, configDir };
 }
 
 describe('generated opencode2 bridge — live event fixtures', () => {
@@ -147,9 +156,15 @@ describe('generated opencode2 bridge — live event fixtures', () => {
         r.endpointUrl,
       );
       await done;
-      await waitFor(() => r.bodies.length >= 4);
+      await waitFor(() => r.bodies.length >= 5);
       const names = r.bodies.map((b) => (b as { hook_event_name: string }).hook_event_name);
-      expect(names).toEqual(['session.status', 'UsageUpdate', 'UsageUpdate', 'session.idle']);
+      expect(names).toEqual([
+        'session.status',
+        'UsageUpdate',
+        'ModelSelected',
+        'UsageUpdate',
+        'session.idle',
+      ]);
 
       const session = 'ses_eee50f106ffejFQFWdoMOqnYWa';
       expect(r.bodies[0]).toMatchObject({
@@ -161,7 +176,15 @@ describe('generated opencode2 bridge — live event fixtures', () => {
       const first = (r.bodies[1] as { usage: Record<string, unknown> }).usage;
       expect(first).toMatchObject({ input: 521, output: 9, reasoning: 0, cache_read: 0, cache_write: 0 });
       expect(typeof first.event_id).toBe('string');
-      const second = (r.bodies[2] as { usage: Record<string, unknown> }).usage;
+      // The first model step is the model that actually answered the kickoff
+      // (T1005); it rides the live `session.step.started` fixture unchanged.
+      expect(r.bodies[2]).toMatchObject({
+        hook_event_name: 'ModelSelected',
+        cwd: '/wt',
+        session_id: session,
+        model: { providerID: 'opencode-go', modelID: 'mimo-v2.5', variant: 'default' },
+      });
+      const second = (r.bodies[3] as { usage: Record<string, unknown> }).usage;
       expect(second).toMatchObject({
         input: 574,
         output: 12,
@@ -169,7 +192,54 @@ describe('generated opencode2 bridge — live event fixtures', () => {
         cache_read: 17024,
         cache_write: 0,
       });
-      expect(r.bodies[3]).toMatchObject({ hook_event_name: 'session.idle', session_id: session });
+      expect(r.bodies[4]).toMatchObject({ hook_event_name: 'session.idle', session_id: session });
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('retries a dropped first ModelSelected so the mismatch still reaches the host', async () => {
+    // A 500 stands in for the host restarting: the launch URL is dead and the
+    // stable endpoint file is not there yet, so the one-shot ModelSelected must
+    // be retried instead of lost (review of T1005).
+    const r = await receiver((attempt) => (attempt === 1 ? 500 : 204));
+    try {
+      const stepStarted = parseNdjson(fixture('live-events-baseline.ndjson')).find(
+        (event) => (event as { type?: string }).type === 'session.step.started',
+      );
+      const { done } = await loadBridge([stepStarted], '/wt', r.endpointUrl);
+      await done;
+      await waitFor(() => r.bodies.length >= 1, 6_000);
+      expect(r.attempts()).toBe(2);
+      expect(r.bodies[0]).toMatchObject({
+        hook_event_name: 'ModelSelected',
+        cwd: '/wt',
+        session_id: 'ses_eee50f106ffejFQFWdoMOqnYWa',
+        model: { providerID: 'opencode-go', modelID: 'mimo-v2.5', variant: 'default' },
+      });
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('recovers a dropped ModelSelected through the endpoint file when the host comes back', async () => {
+    // The launch URL is dead and the stable endpoint file does not exist yet —
+    // a host restart. The retry must RE-READ the file (not memoize its absence)
+    // and deliver once the restarted host publishes it.
+    const r = await receiver();
+    try {
+      const stepStarted = parseNdjson(fixture('live-events-baseline.ndjson')).find(
+        (event) => (event as { type?: string }).type === 'session.step.started',
+      );
+      const { done, configDir } = await loadBridge([stepStarted], '/wt', 'http://127.0.0.1:1/hooks');
+      await done;
+      mkdirSync(join(configDir, 'opencode2'), { recursive: true });
+      writeFileSync(join(configDir, 'opencode2', 'current-endpoint'), `${r.endpointUrl}\n`);
+      await waitFor(() => r.bodies.length >= 1, 6_000);
+      expect(r.bodies[0]).toMatchObject({
+        hook_event_name: 'ModelSelected',
+        session_id: 'ses_eee50f106ffejFQFWdoMOqnYWa',
+      });
     } finally {
       await r.close();
     }

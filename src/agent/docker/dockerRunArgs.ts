@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { SANDBOX_BRIDGE_MOUNT_ROOT } from '../bridge/bridgeDir.js';
+import { KARST_OPENCODE2_MODEL_STATE_ENV } from '../opencode2ModelState.js';
 import { containerBinary, type DockerCore, type DockerRunnerCore, OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerMemoryLimits } from './dockerMemory.js';
 import type { DockerNames } from './dockerNames.js';
@@ -125,6 +126,44 @@ export interface InteractiveArgsInput {
 }
 
 /**
+ * The node program the prelude runs inside the container. It MERGES the seed
+ * over the container's existing store: the configured model moves to
+ * `recent[0]`, what the user picked in the TUI stays after it, and `favorite` /
+ * the other models' `variant` entries survive. It never touches anything
+ * outside `$XDG_STATE_HOME/opencode/model.json`, and a failure is swallowed so
+ * a broken store cannot block the launch.
+ */
+const OPENCODE2_MODEL_STATE_MERGE_JS = [
+  'const fs=require("node:fs")',
+  'const path=require("node:path")',
+  'const f=path.join(process.env.XDG_STATE_HOME||"","opencode","model.json")',
+  'let e={}',
+  'try{e=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}',
+  `const s=JSON.parse(process.env.${KARST_OPENCODE2_MODEL_STATE_ENV}||"{}")`,
+  'const t=Array.isArray(s.recent)?s.recent[0]:null',
+  'const keep=(Array.isArray(e.recent)?e.recent:[]).filter(r=>r&&r.providerID&&r.modelID&&(!t||r.providerID!==t.providerID||r.modelID!==t.modelID))',
+  'const recent=(t?[t,...keep]:keep).slice(0,10)',
+  'const favorite=Array.isArray(e.favorite)?e.favorite:[]',
+  'const variant=Object.assign({},e.variant,s.variant)',
+  'const key=t?t.providerID+"/"+t.modelID:null',
+  // A launch with no effort clears a stale variant for that model, exactly like
+  // the host writer: the TUI must not reuse last launch effort.
+  'if(key&&(!s.variant||s.variant[key]===undefined))delete variant[key]',
+  'fs.mkdirSync(path.dirname(f),{recursive:true})',
+  'fs.writeFileSync(f,JSON.stringify({recent,favorite,variant}))',
+].join(';');
+
+/**
+ * Runs before an opencode2 TUI launch when the adapter supplied a seed: merges
+ * it into the container's own `model.json`, then execs the TUI. The seed is
+ * CONTENT from the container env (never a host file in the agent-writable
+ * bridge mount), so there is no host path for a sandbox to redirect.
+ */
+export const OPENCODE2_MODEL_STATE_PRELUDE =
+  'if [ -n "$' + KARST_OPENCODE2_MODEL_STATE_ENV + '" ]; then ' +
+  `node -e '${OPENCODE2_MODEL_STATE_MERGE_JS}' >/dev/null 2>&1 || :; fi; exec "$@"`;
+
+/**
  * The interactive `docker run`. Only the ticket network (internal, the proxy
  * its one way out), the two named volumes and the optional read-only auth
  * file. Never `--privileged`, never the docker socket, never a host worktree
@@ -145,13 +184,21 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     (input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir !== undefined
       ? ['--mount', bindMount(join(input.bridgeDir, 'antigravity', 'gemini'), `${CONTAINER_HOME}/.gemini`, false)]
       : [];
+  const command = rewritePaths(input.args, input.hostWorktreePath);
+  // T1005: opencode2's TUI has no `--model`; merge the configured model into
+  // its recent-model store first when the adapter supplied one (only present
+  // for a sandbox with a model).
+  const launch =
+    input.core === 'opencode2' && input.env[KARST_OPENCODE2_MODEL_STATE_ENV] !== undefined
+      ? ['sh', '-c', OPENCODE2_MODEL_STATE_PRELUDE, 'karst-opencode2', containerBinary(input.core), ...command]
+      : [containerBinary(input.core), ...command];
   return [
     'run', '--interactive', '--tty', '--rm', ...REAPER, '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
-    OPENCODE_IMAGE, containerBinary(input.core), ...rewritePaths(input.args, input.hostWorktreePath),
+    OPENCODE_IMAGE, ...launch,
   ];
 }
 

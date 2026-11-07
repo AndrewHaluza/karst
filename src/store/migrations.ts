@@ -2851,5 +2851,16 @@ function migrateLocked(db: Database): void {
     db.exec(STALL_SUGGESTIONS_DDL);
   }
 
+  if (current < 103) {
+    // v103: `session_launch_intents.effort` — the resolved `#<effort>` a launch
+    // configured, kept separate from `model` so the ModelSelected guard can
+    // compare the effort the TUI actually used (T1005). NULL is honest for
+    // every pre-v103 row: that effort was never recorded.
+    const intentCols103 = tableColumns(db, 'session_launch_intents');
+    if (intentCols103.size > 0 && !intentCols103.has('effort')) {
+      db.exec('ALTER TABLE session_launch_intents ADD COLUMN effort TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

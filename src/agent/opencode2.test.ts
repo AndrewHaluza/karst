@@ -432,6 +432,8 @@ describe('Opencode2Adapter interactive argv/env', () => {
     });
     expect(cmd.command).toBe('/opt/opencode2');
     expect(cmd.args).toContain('--standalone');
+    // Live 2.0.27: the TUI parser rejects `--model` (`Unrecognized flag`), so
+    // the model must come from config + the seeded model store instead.
     expect(cmd.args).not.toContain('--model');
     const i = cmd.args.indexOf('--prompt');
     expect(cmd.args[i + 1]).toBe('kick off');
@@ -440,6 +442,92 @@ describe('Opencode2Adapter interactive argv/env', () => {
       permission: { bash: opencodeProcessKillDeny() },
     });
     expect(cmd.env.XDG_DATA_HOME).toBe('/gs/opencode2/data');
+  });
+
+  // T1005: with two providers signed in and an empty XDG state, 2.0.27's TUI
+  // ignored the config model and ran the kickoff on the other provider's model
+  // (T1003). The launch must seed the recent-model store the TUI reads.
+  it('seeds the configured model into an empty per-ticket model.json before the TUI launch', () => {
+    const home = makeWorktree();
+    configureOpencode2({ binaryPath: '/opt/opencode2', home });
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      ticketId: 7,
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'high',
+      initialPrompt: 'kick off',
+    });
+    expect(cmd.args).not.toContain('--model');
+    // T1005 review: one shared state home let concurrent tickets overwrite each
+    // other's `recent[0]`, so the state dir is keyed by ticket.
+    expect(cmd.env.XDG_STATE_HOME).toBe(join(home, 'state', 'tickets', '7'));
+    const state = JSON.parse(
+      readFileSync(join(home, 'state', 'tickets', '7', 'opencode', 'model.json'), 'utf8'),
+    );
+    expect(state.recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(state.variant['opencode-go/deepseek-v4.1-flash']).toBe('high');
+  });
+
+  // Regression for the T1005 review: on activation, several resumable tickets
+  // launch concurrently. A shared state file let the last writer's model win,
+  // so one TUI preselected another ticket's model (the T1003 symptom).
+  it('keeps two concurrently prepared tickets on their own configured models', () => {
+    const home = makeWorktree();
+    configureOpencode2({ binaryPath: '/opt/opencode2', home });
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const a = adapter.buildInteractiveCommand({
+      cwd: '/wt-a',
+      ticketId: 1,
+      model: 'opencode-go/deepseek-v4.1-flash',
+      initialPrompt: 'a',
+    });
+    const b = adapter.buildInteractiveCommand({
+      cwd: '/wt-b',
+      ticketId: 2,
+      model: 'openrouter/anthropic/claude-haiku-5.5',
+      initialPrompt: 'b',
+    });
+    expect(a.env.XDG_STATE_HOME).not.toBe(b.env.XDG_STATE_HOME);
+    const read = (stateHome: string | undefined): unknown =>
+      JSON.parse(readFileSync(join(stateHome!, 'opencode', 'model.json'), 'utf8')).recent[0];
+    expect(read(a.env.XDG_STATE_HOME)).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(read(b.env.XDG_STATE_HOME)).toEqual({
+      providerID: 'openrouter',
+      modelID: 'anthropic/claude-haiku-5.5',
+    });
+  });
+
+  it('sandbox: hands the container the seed CONTENT, never a file in the bridge dir', () => {
+    const worktree = makeWorktree();
+    const bridge = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: worktree,
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'max',
+      hookChannel: {
+        endpointUrl: 'file:///karst-bridge/7/events.ndjson',
+        configDir: bridge,
+        runDir: '/karst-bridge/7',
+      },
+      initialPrompt: 'go',
+    });
+    // The bridge mount is sandbox-writable, so no host seed file is written into
+    // it: the content rides the container env and the prelude merges it.
+    expect(existsSync(join(bridge, 'opencode2', 'model-state.json'))).toBe(false);
+    expect(
+      JSON.parse(cmd.env['KARST_OPENCODE2_MODEL_STATE_JSON'] ?? '{}'),
+    ).toMatchObject({
+      recent: [{ providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash' }],
+      variant: { 'opencode-go/deepseek-v4.1-flash': 'max' },
+    });
   });
 
   it('adds --session on resume and never inlines the instruction body', () => {
@@ -545,11 +633,16 @@ describe('renderOpencode2Bridge module shape', () => {
       'session.execution.interrupted',
       'session.retry.scheduled',
       'session.usage.updated',
+      'session.step.started',
       'permission.asked',
       'permission.replied',
     ]) {
       expect(body).toContain(`case '${type}':`);
     }
+    // The first model step is reported once per session so the host can warn
+    // when it is not the configured model (T1005).
+    expect(body).toContain('ModelSelected');
+    expect(body).toContain('reportedModel');
     // v2 has no session.idle/status/updated INPUT events — they are only posted.
     expect(body).not.toContain("case 'session.idle':");
     expect(body).not.toContain("case 'session.status':");
