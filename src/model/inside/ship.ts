@@ -10,6 +10,7 @@ import {
 } from '../../store/shipRuns.js';
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
+import type { AutofixRowView } from './autofix.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { bounded } from './bounds.js';
 import { executionView, tokenView, type SessionTokensInput } from './agent.js';
@@ -89,6 +90,8 @@ export interface ShipProcessesInput {
   findings?: readonly Finding[];
   /** The manifest's `review.findings.blockingSeverity`; `'none'` disables the row entirely. */
   findingsBlockingSeverity?: Severity | 'none';
+  /** Auto-fix reading of the Merge row (T1004). Absent or null → a plain Merge row. */
+  autofix?: AutofixRowView | null;
 }
 
 /** Rank for severity comparisons — lower is worse. Kept local per-module, like `aggregate.ts` and `tester.ts`. */
@@ -818,7 +821,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
-    status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
+    status: autofixStatus(input.autofix) ?? (recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input)),
     // handoff §11: a conflict is a WAIT that names what the user must do —
     // the per-repo rows keep their factual readings; the sentence is the
     // collapsed summary.
@@ -835,7 +838,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
           : { detail: `${merged}/${recorded.length} merged` }),
     ...(latest ? { time: formatTime(latest) } : {}),
     evidence: { kind: 'rows', rows },
+    ...(input.autofix ? { detail: input.autofix.message, autofix: input.autofix } : {}),
   };
+}
+
+/** A running round reads `run`; every other auto-fix state is the existing needs-you amber (`wait`). */
+function autofixStatus(autofix: AutofixRowView | null | undefined): InsideStatus | undefined {
+  if (!autofix) return undefined;
+  return autofix.state === 'running' ? 'run' : 'wait';
 }
 
 /**

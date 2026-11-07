@@ -1609,3 +1609,35 @@ describe('retry-ship-repo action', () => {
     expect(targets.filter((t) => t.kind === 'open-pr')).toHaveLength(0);
   });
 });
+
+describe('merge row carries the auto-fix state (T1004)', () => {
+  const openPr = pr('/web', { number: 421, status: 'open' });
+  const running = {
+    state: 'running',
+    message: 'Auto-fix: conflict on web #421 · round 1 of 2',
+    steps: ['agent resolving'],
+    activeStep: 0,
+    stopAfterRequested: false,
+  } as const;
+
+  it('reads run, states the round, and keeps the PR rows', () => {
+    const merge = shipProcesses(shipInput({ prs: [openPr], autofix: running }))[3]!;
+    expect(merge.status).toBe('run');
+    expect(merge.detail).toBe(running.message);
+    expect(merge.autofix).toEqual(running);
+    expect(rowsOf(merge)).toHaveLength(1);
+  });
+
+  it('reads wait (the existing needs-you amber) for a spent budget', () => {
+    const spent = { ...running, state: 'spent', message: 'Auto-fix stopped: CI failed 3 of 3 attempts on api #88', steps: [] } as const;
+    const merge = shipProcesses(shipInput({ prs: [openPr], autofix: spent }))[3]!;
+    expect(merge.status).toBe('wait');
+    expect(merge.detail).toBe(spent.message);
+  });
+
+  it('is a plain Merge row without auto-fix', () => {
+    const merge = shipProcesses(shipInput({ prs: [openPr] }))[3]!;
+    expect(merge.autofix).toBeUndefined();
+    expect(merge.detail).toBe('0/1 merged');
+  });
+});
