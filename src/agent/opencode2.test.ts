@@ -432,6 +432,8 @@ describe('Opencode2Adapter interactive argv/env', () => {
     });
     expect(cmd.command).toBe('/opt/opencode2');
     expect(cmd.args).toContain('--standalone');
+    // Live 2.0.27: the TUI parser rejects `--model` (`Unrecognized flag`), so
+    // the model must come from config + the seeded model store instead.
     expect(cmd.args).not.toContain('--model');
     const i = cmd.args.indexOf('--prompt');
     expect(cmd.args[i + 1]).toBe('kick off');
@@ -440,6 +442,53 @@ describe('Opencode2Adapter interactive argv/env', () => {
       permission: { bash: opencodeProcessKillDeny() },
     });
     expect(cmd.env.XDG_DATA_HOME).toBe('/gs/opencode2/data');
+  });
+
+  // T1005: with two providers signed in and an empty XDG state, 2.0.27's TUI
+  // ignored the config model and ran the kickoff on the other provider's model
+  // (T1003). The launch must seed the recent-model store the TUI reads.
+  it('seeds the configured model into an empty model.json before the TUI launch', () => {
+    const home = makeWorktree();
+    configureOpencode2({ binaryPath: '/opt/opencode2', home });
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'high',
+      initialPrompt: 'kick off',
+    });
+    expect(cmd.args).not.toContain('--model');
+    const state = JSON.parse(readFileSync(join(home, 'state', 'opencode', 'model.json'), 'utf8'));
+    expect(state.recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(state.variant['opencode-go/deepseek-v4.1-flash']).toBe('high');
+  });
+
+  it('sandbox: seeds the bridge state file and names its container path', () => {
+    const worktree = makeWorktree();
+    const bridge = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: worktree,
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'max',
+      hookChannel: {
+        endpointUrl: 'file:///karst-bridge/7/events.ndjson',
+        configDir: bridge,
+        runDir: '/karst-bridge/7',
+      },
+      initialPrompt: 'go',
+    });
+    const seedFile = join(bridge, 'opencode2', 'model-state.json');
+    expect(JSON.parse(readFileSync(seedFile, 'utf8')).recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(cmd.env['KARST_OPENCODE2_MODEL_STATE']).toBe(
+      '/karst-bridge/7/opencode2/model-state.json',
+    );
   });
 
   it('adds --session on resume and never inlines the instruction body', () => {
@@ -545,11 +594,16 @@ describe('renderOpencode2Bridge module shape', () => {
       'session.execution.interrupted',
       'session.retry.scheduled',
       'session.usage.updated',
+      'session.step.started',
       'permission.asked',
       'permission.replied',
     ]) {
       expect(body).toContain(`case '${type}':`);
     }
+    // The first model step is reported once per session so the host can warn
+    // when it is not the configured model (T1005).
+    expect(body).toContain('ModelSelected');
+    expect(body).toContain('reportedModel');
     // v2 has no session.idle/status/updated INPUT events — they are only posted.
     expect(body).not.toContain("case 'session.idle':");
     expect(body).not.toContain("case 'session.status':");

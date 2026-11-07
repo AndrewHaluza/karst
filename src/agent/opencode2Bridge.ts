@@ -169,6 +169,29 @@ function extractErrorMessage(data) {
   return stringOf(data && data.message);
 }
 
+// The model a step actually ran on. v2 carries it at data.model as
+// {id, providerID, variant?}; only the three identity fields are forwarded.
+function extractModel(data) {
+  const model = asRecord(data && data.model);
+  if (!model) return null;
+  const providerID = stringOf(model.providerID);
+  const modelID = stringOf(model.id) || stringOf(model.modelID);
+  if (!providerID || !modelID) return null;
+  const variant = stringOf(model.variant);
+  return variant ? { providerID, modelID, variant } : { providerID, modelID };
+}
+
+// One report per session: the FIRST model step is the kickoff turn (T1005).
+const reportedModel = new Set();
+function postFirstModel(data, directory) {
+  const sessionId = extractSessionId(data);
+  const cwd = extractCwd(data, directory);
+  const model = extractModel(data);
+  if (!sessionId || !cwd || !model || reportedModel.has(sessionId)) return;
+  reportedModel.add(sessionId);
+  deliver({ hook_event_name: 'ModelSelected', cwd, session_id: sessionId, model });
+}
+
 // A count is a finite, non-negative number; anything else is not a count.
 function usageCount(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
@@ -345,6 +368,11 @@ function handleEvent(event, directory) {
       break;
     case 'session.usage.updated':
       postUsageAdvanced(typeof event.id === 'string' ? event.id : '', data, directory);
+      break;
+    case 'session.step.started':
+      // The first model step carries the model that actually answered the
+      // kickoff prompt; the host compares it with the configured one (T1005).
+      postFirstModel(data, directory);
       break;
     case 'permission.asked':
       post('permission.asked', sessionId, cwd);

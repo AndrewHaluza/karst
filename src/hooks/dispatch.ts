@@ -26,6 +26,7 @@ import type {
 } from '../diagnostics/hookChannel.js';
 import { HOOK_EDIT_TOOLS } from '../artifacts/hookEdit.js';
 import type { MarkerNudgeCandidate } from './mailReply.js';
+import { recordModelSelectionWarning } from './modelSelection.js';
 import { setProcessRunPromptTelemetry } from '../store/processRuns.js';
 
 /**
@@ -88,6 +89,13 @@ export interface HookPayload {
    * (and must not spend the batch's one-block budget).
    */
   stop_hook_active?: boolean;
+  /**
+   * The model a session's first model step actually used (opencode2 bridge
+   * `ModelSelected`, T1005). Narrowed at the boundary: provider/model/variant
+   * are non-empty strings, never coerced. The host compares it with the model
+   * recorded for the running session and warns on the ticket when they differ.
+   */
+  model?: { providerID: string; modelID: string; variant?: string };
 }
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
@@ -179,6 +187,19 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0
       ? rawTimeout
       : undefined;
+  const rawModel = o.model;
+  let model: HookPayload['model'];
+  if (rawModel !== undefined) {
+    if (typeof rawModel !== 'object' || rawModel === null || Array.isArray(rawModel)) return null;
+    const m = rawModel as Record<string, unknown>;
+    const providerID = m['providerID'];
+    const modelID = m['modelID'];
+    const variant = m['variant'];
+    if (typeof providerID !== 'string' || providerID === '') return null;
+    if (typeof modelID !== 'string' || modelID === '') return null;
+    if (variant !== undefined && (typeof variant !== 'string' || variant === '')) return null;
+    model = variant === undefined ? { providerID, modelID } : { providerID, modelID, variant };
+  }
   return {
     hook_event_name: o.hook_event_name as string | undefined,
     cwd: o.cwd as string | undefined,
@@ -192,6 +213,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
     ...(o.task_notification !== undefined ? { task_notification: o.task_notification as boolean } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
+    ...(model !== undefined ? { model } : {}),
   };
 }
 
@@ -651,6 +673,17 @@ export function dispatchHook(
     } catch (error) {
       debug?.(`[session.error] ticket ${ticketId}: handler failed: ${String(error)}`);
     }
+  }
+
+  // T1005: the first model step reports the model that ACTUALLY answered. It is
+  // an observation, not a lifecycle signal: compare it with the configured run
+  // model and record a warning on the ticket, never stop the session.
+  if (payload.hook_event_name === 'ModelSelected') {
+    if (payload.model !== undefined) {
+      recordModelSelectionWarning(store, ticketId, payload.model, debug);
+    }
+    observe('no-signal');
+    return { admitted: true, ticketId };
   }
 
   // Usage is not a lifecycle event: it rides the same URL-guarded, generation-

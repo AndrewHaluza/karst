@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { SANDBOX_BRIDGE_MOUNT_ROOT } from '../bridge/bridgeDir.js';
+import { KARST_OPENCODE2_MODEL_STATE_ENV } from '../opencode2ModelState.js';
 import { containerBinary, type DockerCore, type DockerRunnerCore, OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerMemoryLimits } from './dockerMemory.js';
 import type { DockerNames } from './dockerNames.js';
@@ -125,6 +126,15 @@ export interface InteractiveArgsInput {
 }
 
 /**
+ * Runs before an opencode2 TUI launch when the adapter seeded a model-state
+ * file: copies it onto the container's XDG state volume, then execs the TUI.
+ * The seed is a container path; the file's content never rides argv or env.
+ */
+export const OPENCODE2_MODEL_STATE_PRELUDE =
+  'if [ -n "$KARST_OPENCODE2_MODEL_STATE" ] && [ -f "$KARST_OPENCODE2_MODEL_STATE" ]; then ' +
+  'mkdir -p "$XDG_STATE_HOME/opencode" && cp "$KARST_OPENCODE2_MODEL_STATE" "$XDG_STATE_HOME/opencode/model.json"; fi; exec "$@"';
+
+/**
  * The interactive `docker run`. Only the ticket network (internal, the proxy
  * its one way out), the two named volumes and the optional read-only auth
  * file. Never `--privileged`, never the docker socket, never a host worktree
@@ -145,13 +155,20 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     (input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir !== undefined
       ? ['--mount', bindMount(join(input.bridgeDir, 'antigravity', 'gemini'), `${CONTAINER_HOME}/.gemini`, false)]
       : [];
+  const command = rewritePaths(input.args, input.hostWorktreePath);
+  // T1005: opencode2's TUI has no `--model`; seed its recent-model store first
+  // when the adapter supplied one (only present for a sandbox with a model).
+  const launch =
+    input.core === 'opencode2' && input.env[KARST_OPENCODE2_MODEL_STATE_ENV] !== undefined
+      ? ['sh', '-c', OPENCODE2_MODEL_STATE_PRELUDE, 'karst-opencode2', containerBinary(input.core), ...command]
+      : [containerBinary(input.core), ...command];
   return [
     'run', '--interactive', '--tty', '--rm', ...REAPER, '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
-    OPENCODE_IMAGE, containerBinary(input.core), ...rewritePaths(input.args, input.hostWorktreePath),
+    OPENCODE_IMAGE, ...launch,
   ];
 }
 

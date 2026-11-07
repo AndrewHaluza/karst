@@ -50,6 +50,31 @@ describe('interactiveRunArgs', () => {
   it('launches opencode2 by its image name', () => {
     expect(interactiveRunArgs({ ...base, core: 'opencode2', args: ['--standalone'] }).slice(-2)).toEqual(['opencode2', '--standalone']);
   });
+
+  it('wraps an opencode2 launch in the model-state seed shell before exec', () => {
+    const seed = '/karst-bridge/7/opencode2/model-state.json';
+    const argv = interactiveRunArgs({
+      ...base,
+      core: 'opencode2',
+      args: ['--standalone'],
+      env: { KARST_OPENCODE2_MODEL_STATE: seed },
+    });
+    expect(argv.slice(-6, -1)).toEqual(['sh', '-c', expect.any(String), 'karst-opencode2', 'opencode2']);
+    expect(argv.at(-1)).toBe('--standalone');
+    const script = argv[argv.indexOf('-c') + 1]!;
+    expect(script).toContain('XDG_STATE_HOME');
+    expect(script).toContain('model.json');
+    expect(script).toContain('exec "$@"');
+    // The env key still rides by name, so its value never lands in `ps`.
+    expect(argv).toContain('KARST_OPENCODE2_MODEL_STATE');
+    expect(argv).not.toContain(seed);
+  });
+
+  it('does not wrap another core even when the seed env is present', () => {
+    expect(
+      interactiveRunArgs({ ...base, env: { KARST_OPENCODE2_MODEL_STATE: '/seed.json' } }).slice(-2),
+    ).toEqual(['opencode1', '/work/repo']);
+  });
 });
 
 describe('envArgs', () => {

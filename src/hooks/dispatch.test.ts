@@ -9,7 +9,8 @@ import {
   listImplementationTimeline,
   openImplementationRun,
 } from '../store/implementationRuns.js';
-import { listProcessRuns } from '../store/processRuns.js';
+import { listProcessRuns, openProcessRun } from '../store/processRuns.js';
+import { listInbox } from '../store/ticketMessages.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
 import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
 import {
@@ -46,6 +47,28 @@ describe('dispatchHook', () => {
     const id = ticketAt();
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
     expect(getTicket(store, id).agentState).toBe('running');
+  });
+
+  it('ModelSelected records the mismatch warning without changing agent_state', () => {
+    const id = ticketAt();
+    openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'impl',
+      processId: 'session',
+      attempt: 1,
+      provider: 'opencode2',
+      model: 'opencode-go/deepseek-v4.1-flash',
+      startedAt: '2026-11-07T10:00:00.000Z',
+    });
+    dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT });
+    const result = dispatchHook(store, {
+      hook_event_name: 'ModelSelected',
+      cwd: WT,
+      model: { providerID: 'openrouter', modelID: 'anthropic/claude-haiku-5.5' },
+    });
+    expect(result).toEqual({ admitted: true, ticketId: id });
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(listInbox(store, id, { unreadOnly: false })).toHaveLength(1);
   });
 
   it('records why a delivered hook changed nothing', () => {
@@ -1060,6 +1083,31 @@ describe('parseHookPayload', () => {
       message: undefined,
       notification_type: undefined,
     });
+  });
+
+  it('carries a well-formed ModelSelected model and drops a malformed one', () => {
+    expect(
+      parseHookPayload({
+        hook_event_name: 'ModelSelected',
+        cwd: '/wt',
+        session_id: 's',
+        model: { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high' },
+      }),
+    ).toMatchObject({
+      model: { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high' },
+    });
+    for (const model of [
+      null,
+      'a/b',
+      [],
+      {},
+      { providerID: 'p' },
+      { providerID: 'p', modelID: '' },
+      { providerID: 1, modelID: 'm' },
+      { providerID: 'p', modelID: 'm', variant: 2 },
+    ]) {
+      expect(parseHookPayload({ hook_event_name: 'ModelSelected', model })).toBeNull();
+    }
   });
 
   it('rejects a non-string notification_type', () => {

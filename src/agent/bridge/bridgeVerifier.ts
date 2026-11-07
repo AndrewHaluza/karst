@@ -72,6 +72,17 @@ function hookPayload(raw: Record<string, unknown>, expect: BridgeExpectation): H
   }
   if (typeof raw.task_notification === 'boolean') payload.task_notification = raw.task_notification;
   if (isRecord(raw.usage)) payload.usage = raw.usage;
+  // T1005: the first model step's model. Same narrowing as parseHookPayload —
+  // the file channel does not go through it.
+  if (isRecord(raw.model)) {
+    const providerID = raw.model.providerID;
+    const modelID = raw.model.modelID;
+    const variant = raw.model.variant;
+    if (typeof providerID === 'string' && providerID !== '' && typeof modelID === 'string' && modelID !== '') {
+      if (variant === undefined) payload.model = { providerID, modelID };
+      else if (typeof variant === 'string' && variant !== '') payload.model = { providerID, modelID, variant };
+    }
+  }
   if (expect.launchId !== undefined) payload.launchId = expect.launchId;
   return payload as HookPayload;
 }

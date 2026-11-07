@@ -18,7 +18,7 @@ binary's strings rather than a run it is marked `source`.
 | 1 | `--standalone` reliability (>=10 TUI + >=10 headless) | **PASS**, with a latency tail (TUI first token can exceed 8 s; 20 s window was 10/10) |
 | 2 | `OPENCODE_CONFIG_CONTENT` permissions | **PASS** (config key is `permission`, singular object; shell action is `shell`, config key `bash`; last-match-wins; CC wins over project) |
 | 3 | `instructions: [<file>]` | **FAIL for the config key** (ignored); **PASS via `AGENTS.md`** (reaches prompt, base retained, resume re-reads) |
-| 4 | top-level `model: provider/model#effort` preselects TUI | **PASS** |
+| 4 | top-level `model: provider/model#effort` preselects TUI | **PASS with ONE signed-in provider; FAILED with two and an empty state (T1003)** — the TUI has no `--model`; karst now seeds `model.json` (T1005) |
 | 5 | Prompt delivery byte-identical | **only `stdin` is byte-identical**; positional/`--`/`--file` are not; TUI slash command runs with newlines kept |
 | 6 | `.opencode/agents/*.md` + `--agent` | **PASS** |
 | 7 | `permission.asked`/`.replied`; `question.*` | `permission.*` **PASS** (live); **no `question.*`** — questions use a `form.*` subsystem |
@@ -207,9 +207,47 @@ session.step.started data.model =
 session.text.ended text = "model-check"
 ```
 
-So config preselection includes the `#effort` variant. (`opencode-go` variant
-sets were read from `GET /api/model`; e.g. `space-bunny` =
-low/medium/high/xhigh/max, `deepseek-v4.1-flash` = low/high/max.)
+So config preselection includes the `#effort` variant **when the configured
+provider is the only one signed in** (2.0.24, the original check).
+
+### Multi-credential result (2.0.27, T1003 / T1005)
+
+The same check FAILED when a second provider was signed in and the karst XDG
+state was empty. T1003 had `opencode-go` **and** `openrouter` credentials and no
+`<XDG_STATE_HOME>/opencode/model.json`. `OPENCODE_CONFIG_CONTENT` carried
+`"model":"opencode-go/deepseek-v4.1-flash"`, but the kickoff and the first six
+assistant turns ran
+`openrouter/anthropic/claude-haiku-5.5` (`session_message` seq 7–56; seq 54 is
+the `model-switched` row with `previous = haiku`). The user switched by hand at
+10:47:37 UTC and every later turn used DeepSeek. `process_runs` had already
+recorded the configured model, so the store disagreed with the turns that ran.
+
+The v2 TUI has **no** `--model` flag on 2.0.27 — live:
+
+```
+$ opencode2 --standalone --model opencode-go/deepseek-v4.1-flash --prompt "reply ok"
+ERROR
+  Unrecognized flag: --model in command opencode
+```
+
+(`opencode2 run` does accept `--model`; that is the headless path only.) Karst
+therefore keeps the config model and seeds the TUI's recent-model store instead:
+`<XDG_STATE_HOME>/opencode/model.json` gets
+`{"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],…}`
+with the `#effort` variant in `variant` before the spawn. A host launch writes
+the karst-owned state dir directly; a sandbox writes the seed into its mounted
+bridge dir and the docker entrypoint copies it onto the container's state
+volume before the TUI starts. Live 2.0.27, two providers signed in: with the
+seed present and **no** config model the first `session.step.started` was
+`{"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}`; with
+the config model set it was DeepSeek on the first step.
+
+Because a seed can still be ignored (a provider that is not ready at startup),
+the bridge also reports the first `session.step.started` model once per session
+as `ModelSelected`. The host compares it with the running `session`/`fix`
+process run's recorded model and, on a mismatch, writes a warning event to the
+ticket naming both models. It never stops the session.
+
 
 ## 5. Prompt delivery byte-identical
 

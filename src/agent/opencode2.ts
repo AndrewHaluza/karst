@@ -37,6 +37,11 @@ import {
   opencode2Config,
   opencode2IsolationEnv,
 } from './opencode2Binary.js';
+import {
+  KARST_OPENCODE2_MODEL_STATE_ENV,
+  seedOpencode2ModelState,
+  writeOpencode2ModelState,
+} from './opencode2ModelState.js';
 import { KARST_OPENCODE_HEADLESS_ENV, OPENCODE2_BRIDGE_FILENAME, writeOpencode2Bridge } from './opencode2Bridge.js';
 import { sandboxPluginLocation } from './hookBridgeFiles.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
@@ -462,8 +467,10 @@ export class Opencode2Adapter implements AgentAdapter {
           renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions?.path),
         )
       : opts.initialPrompt;
-    // No `--model`: v2 preselects through the config blob (verified PASS,
-    // including the `#<effort>` variant).
+    // No `--model`: live 2.0.27 rejects it on the TUI (`Unrecognized flag:
+    // --model in command opencode`). The config blob preselects, and the
+    // recent-model store is seeded below for the multi-credential case where
+    // config preselection misses (T1003/T1005).
     if (kickoff) {
       // `--prompt` is one argv entry, so an oversized kickoff must spill to a
       // file rather than reach execve (E2BIG). Small kickoffs are unchanged.
@@ -496,6 +503,37 @@ export class Opencode2Adapter implements AgentAdapter {
         ...(mcp ? { mcp } : {}),
       }),
     };
+    // T1005: a sandbox's XDG state is the container volume, so its seed rides
+    // the mounted bridge dir and the docker entrypoint copies it before the TUI
+    // starts. A host launch writes the karst-owned XDG state directly. Both are
+    // best-effort: a read-only state dir must not block the session, and the
+    // ModelSelected guard still names a mismatch on the ticket.
+    if (opts.model) {
+      if (opts.hookChannel?.runDir !== undefined) {
+        try {
+          const seeded = writeOpencode2ModelState(
+            join(opts.hookChannel.configDir, 'opencode2', 'model-state.json'),
+            opts.model,
+            opts.effort,
+          );
+          if (seeded !== null) {
+            env[KARST_OPENCODE2_MODEL_STATE_ENV] =
+              `${opts.hookChannel.runDir}/opencode2/model-state.json`;
+          }
+        } catch {
+          // The launch still carries the config model; the guard reports a miss.
+        }
+      } else {
+        const stateHome = env['XDG_STATE_HOME'];
+        if (stateHome !== undefined) {
+          try {
+            seedOpencode2ModelState(stateHome, opts.model, opts.effort);
+          } catch {
+            // Same best-effort rule as the sandbox seed.
+          }
+        }
+      }
+    }
     return {
       command: opencode2Command(),
       args,
