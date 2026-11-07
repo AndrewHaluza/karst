@@ -1,10 +1,13 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Opencode2Adapter } from './opencode2.js';
 import { configureOpencode2, resetOpencode2Config } from './opencode2Binary.js';
+
+const MODEL_STATE_MODULE = fileURLToPath(new URL('./opencode2ModelState.ts', import.meta.url));
 
 /**
  * T1005: the 2.0.27 TUI has no `--model` flag, so its first model step comes
@@ -86,5 +89,35 @@ describe('opencode2 TUI kickoff model with two providers signed in (T1005)', () 
     const result = launch(fakeBinary(), tempRoot());
     expect(result.configured).toBe('');
     expect(result.selected).toBe('openrouter/anthropic/claude-haiku-5.5');
+  });
+});
+
+// The sandbox writes this path (the bridge mount), so a planted FIFO must not
+// stall the extension host. Run the seed in a child with a timeout: a regressed
+// guard fails the test instead of hanging the whole suite.
+describe('sandbox-writable model-state seed (T1005)', () => {
+  it('does not block on a FIFO planted at the store path', () => {
+    const root = tempRoot();
+    const file = join(root, 'opencode2', 'model-state.json');
+    mkdirSync(join(root, 'opencode2'), { recursive: true });
+    expect(spawnSync('mkfifo', [file]).status).toBe(0);
+
+    const script = join(root, 'seed.mts');
+    writeFileSync(
+      script,
+      `import { writeOpencode2ModelState } from ${JSON.stringify(pathToFileURL(MODEL_STATE_MODULE).href)};\n` +
+        `writeOpencode2ModelState(process.argv[2], 'opencode-go/deepseek-v4.1-flash');\n`,
+    );
+    const result = spawnSync(process.execPath, ['--import', 'tsx', script, file], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(JSON.parse(readFileSync(file, 'utf8')).recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
   });
 });

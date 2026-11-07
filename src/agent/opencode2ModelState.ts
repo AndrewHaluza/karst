@@ -1,4 +1,16 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  renameSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /**
@@ -104,9 +116,67 @@ export function mergeOpencode2ModelState(
 
 function writeAtomic(file: string, body: string): void {
   mkdirSync(dirname(file), { recursive: true });
+  // A sandbox can plant a symlink, FIFO or directory at the store path. The
+  // read guard ignores them; the write must replace the entry itself, never
+  // rename onto (or through) it.
+  try {
+    const stat = lstatSync(file);
+    if (stat.isDirectory()) rmdirSync(file);
+    else if (!stat.isFile()) unlinkSync(file);
+  } catch {
+    // ENOENT (or an entry a racing writer already removed): nothing to clear.
+    // A non-empty directory still refuses the rename; the caller treats the
+    // seed as best-effort rather than stalling the launch.
+  }
   const temporaryPath = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporaryPath, body);
   renameSync(temporaryPath, file);
+}
+
+/** The TUI store is a few hundred bytes; anything larger is not one of ours. */
+export const MAX_MODEL_STATE_BYTES = 64 * 1024;
+
+/**
+ * Read an existing store without letting a hostile file stall the host.
+ *
+ * On a docker launch this path (`<bridge dir>/opencode2/model-state.json`) is
+ * inside the sandbox-writable bridge mount, so a sandboxed agent could plant a
+ * FIFO (a synchronous read blocks the extension host forever) or a huge file
+ * (the read exhausts memory). Opening with `O_NOFOLLOW|O_NONBLOCK` and checking
+ * the descriptor's type and size closes both: only a regular file within the
+ * cap is parsed, and a link or pipe is ignored. The checks are on the open fd,
+ * and the read itself is capped, so neither a swap between check and read nor
+ * a file that keeps growing can slip through.
+ */
+function readExistingState(file: string): unknown {
+  let fd: number | undefined;
+  try {
+    fd = openSync(
+      file,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0),
+    );
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > MAX_MODEL_STATE_BYTES) return undefined;
+    const buffer = Buffer.alloc(MAX_MODEL_STATE_BYTES + 1);
+    let offset = 0;
+    for (;;) {
+      const read = readSync(fd, buffer, offset, buffer.length - offset, null);
+      if (read === 0) break;
+      offset += read;
+      if (offset > MAX_MODEL_STATE_BYTES) return undefined;
+    }
+    return JSON.parse(buffer.subarray(0, offset).toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // A failed close on a read-only descriptor is not actionable here.
+      }
+    }
+  }
 }
 
 /**
@@ -121,12 +191,7 @@ export function writeOpencode2ModelState(
   effort?: string,
 ): string | null {
   if (parseOpencode2ModelId(model) === null) return null;
-  let existing: unknown;
-  try {
-    existing = JSON.parse(readFileSync(file, 'utf8')) as unknown;
-  } catch {
-    existing = undefined;
-  }
+  const existing = readExistingState(file);
   writeAtomic(file, JSON.stringify(mergeOpencode2ModelState(existing, model, effort)));
   return file;
 }

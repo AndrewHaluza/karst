@@ -248,6 +248,52 @@ as `ModelSelected`. The host compares it with the running `session`/`fix`
 process run's recorded model and, on a mismatch, writes a warning event to the
 ticket naming both models. It never stops the session.
 
+### Live evidence in the ticket sandbox (2.0.27, 2026-11-07)
+
+Run inside the ticket's docker sandbox (`karst-0ea0dde3-1005-opencode2`, the
+same 2.0.27 image) with BOTH providers signed in and a fresh, empty
+`<XDG_STATE_HOME>`:
+
+```
+$ opencode2 auth list --standalone
+OpenCode Go  OpenCode Go                 stored
+OpenCode Go  API key                     stored
+OpenRouter   API key                     stored
+```
+
+The launch wrapper was the exact `OPENCODE2_MODEL_STATE_PRELUDE` from
+`dockerRunArgs.ts`; the seed file was the exact output of
+`writeOpencode2ModelState` for `opencode-go/deepseek-v4.1-flash#max`;
+`OPENCODE_CONFIG_CONTENT` carried the same model. The prelude copied
+
+```
+{"recent":[{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"}],
+ "favorite":[],"variant":{"opencode-go/deepseek-v4.1-flash":"max"}}
+```
+
+onto the container's state volume, then ran
+`opencode2 --standalone --prompt "reply with exactly: prelude-check"` under a
+PTY. The first assistant row in the sandbox `opencode.db` (session
+`ses_e497eda3bffeAEnnEohiewd1oW`) is:
+
+```
+seq 7 assistant
+model   = {"id":"deepseek-v4.1-flash","providerID":"opencode-go","variant":"max"}
+content = [{"type":"text","text":"prelude-check"}]
+```
+
+So the first turn ran the configured model, not
+`openrouter/anthropic/claude-haiku-5.5`. A second launch that wrote the seed
+directly into a fresh state dir (no prelude) produced the same result: session
+`ses_e4983088affedEoP0B7Q2OlPP9`, first assistant `deepseek-v4.1-flash` /
+`opencode-go` / `max`.
+
+The mismatch warning cannot be posted to the real ticket from the sandbox (no
+karst CLI or DB), so it is evidenced by the in-memory store tests:
+`hooks/modelSelection.test.ts` "warns on the ticket, naming both models" (and
+the `dispatch.test.ts` `ModelSelected` case) assert one `event` on the ticket
+whose body names both models, with the agent state unchanged.
+
 
 ## 5. Prompt delivery byte-identical
 

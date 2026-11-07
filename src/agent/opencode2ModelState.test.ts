@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  MAX_MODEL_STATE_BYTES,
   mergeOpencode2ModelState,
   parseOpencode2ModelId,
   seedOpencode2ModelState,
@@ -133,5 +134,49 @@ describe('seeding model.json', () => {
   it('returns null for an unparseable model instead of writing a bad state', () => {
     const home = tempRoot();
     expect(seedOpencode2ModelState(home, 'not-a-provider-model')).toBeNull();
+  });
+
+  // The sandbox can write this path, so a planted file must never make the host
+  // parse it: a huge file is skipped and a symlink is replaced, never followed.
+  it('ignores an oversized existing file instead of parsing it', () => {
+    const home = tempRoot();
+    const file = join(home, 'opencode', 'model.json');
+    mkdirSync(join(home, 'opencode'), { recursive: true });
+    writeFileSync(file, 'x'.repeat(MAX_MODEL_STATE_BYTES + 1));
+    expect(seedOpencode2ModelState(home, 'opencode-go/deepseek-v4.1-flash')).toBe(file);
+    expect(JSON.parse(readFileSync(file, 'utf8')).recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+  });
+
+  it('ignores a directory at the store path and writes a regular file', () => {
+    const home = tempRoot();
+    const file = join(home, 'opencode', 'model.json');
+    mkdirSync(file, { recursive: true });
+    expect(seedOpencode2ModelState(home, 'opencode-go/deepseek-v4.1-flash')).toBe(file);
+    expect(JSON.parse(readFileSync(file, 'utf8')).recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+  });
+
+  it('does not follow a symlink planted at the store path', () => {
+    const home = tempRoot();
+    const file = join(home, 'opencode', 'model.json');
+    const target = join(home, 'target.json');
+    mkdirSync(join(home, 'opencode'), { recursive: true });
+    writeFileSync(target, JSON.stringify({ recent: [{ providerID: 'evil', modelID: 'big' }] }));
+    symlinkSync(target, file);
+    expect(seedOpencode2ModelState(home, 'opencode-go/deepseek-v4.1-flash')).toBe(file);
+    // The link is replaced by karst's own file; the target is untouched.
+    expect(JSON.parse(readFileSync(file, 'utf8')).recent[0]).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4.1-flash',
+    });
+    expect(JSON.parse(readFileSync(target, 'utf8')).recent[0]).toEqual({
+      providerID: 'evil',
+      modelID: 'big',
+    });
   });
 });
