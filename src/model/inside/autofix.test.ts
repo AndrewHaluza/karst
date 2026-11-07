@@ -72,7 +72,7 @@ describe('autofixRow', () => {
 
   it('words the engine sandbox park as a sandbox pause', () => {
     const row = autofixRow({ ...BASE, reason: 'auto-fix not run: sandboxed ticket' });
-    expect(row).toMatchObject({ state: 'paused', message: 'Auto-fix paused: sandbox ticket. Autopilot runs host tickets only.' });
+    expect(row).toMatchObject({ state: 'paused', message: 'Auto-fix paused: sandbox ticket (autopilot runs host tickets only)' });
   });
 
   it('words an unknown CI status as waiting, never as a pass', () => {
@@ -144,7 +144,7 @@ describe('autofixBanner', () => {
 
   it('words the engine CI park "ci could not run" as a read failure with a Retry', () => {
     const reason = 'auto-fix stopped: ci could not run (gh: HTTP 502)';
-    expect(autofixRow({ ...BASE, reason })).toMatchObject({ state: 'gh-failed', message: 'Auto-fix stopped: ci could not run (gh: HTTP 502)' });
+    expect(autofixRow({ ...BASE, reason })).toMatchObject({ state: 'gh-failed', message: 'Auto-fix paused: could not read CI (gh: HTTP 502)' });
     const b = autofixBanner({ ...BASE, reason });
     expect(b).toMatchObject({ state: 'gh-failed', cause: 'CI could not run (gh: HTTP 502)', primary: { act: 'autopilot-retry' } });
   });

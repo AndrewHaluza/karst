@@ -817,7 +817,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
       : (checksByRepo.get(pr.repo)?.checkedAt ?? null);
     if (at && (latest === undefined || at > latest)) latest = at;
   }
-  return {
+  const merge: InsideProcessView = {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
@@ -838,8 +838,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
           : { detail: `${merged}/${recorded.length} merged` }),
     ...(latest ? { time: formatTime(latest) } : {}),
     evidence: { kind: 'rows', rows },
-    ...(input.autofix ? { detail: input.autofix.message, autofix: input.autofix } : {}),
+    ...(input.autofix ? { autofix: input.autofix } : {}),
   };
+  return input.autofix ? { ...merge, detail: autofixDetail(merge.detail, input.autofix) } : merge;
+}
+
+/** Unknown CI adds to the Merge row detail (a conflict sentence stays); every other auto-fix state replaces it. */
+function autofixDetail(base: string | undefined, autofix: AutofixRowView): string {
+  return autofix.state === 'unknown' && base ? `${base} ${autofix.message}` : autofix.message;
 }
 
 /** A running round reads `run`; every other auto-fix state is the existing needs-you amber (`wait`). */

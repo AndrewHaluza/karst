@@ -61,6 +61,7 @@ export const CI_STEPS: readonly string[] = ['host fetched log (gh)', 'agent fixi
 
 const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 // The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
+const ENGINE_GH = /^auto-fix stopped: ci could not run \((.*)\)$/;
 const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
 const SANDBOX_WORD = /sandbox/i;
 // A permanent park (a graph ticket): the cause is the ticket kind, so a retry parks again. A sandbox park keeps ONE Retry (the ticket requires it).
@@ -97,8 +98,14 @@ function parkedRow(f: AutofixFacts, reason: string): AutofixRowView {
       : `Auto-fix stopped: conflicts in ${used} of ${max} rounds${where}`;
     return { ...base, state: 'spent', message };
   }
-  if (GH_FAILED.test(reason)) return { ...base, state: 'gh-failed', message: capitalize(reason) };
-  if (reason === SANDBOXED) return { ...base, state: 'paused', message: 'Auto-fix paused: sandbox ticket. Autopilot runs host tickets only.' };
+  if (GH_FAILED.test(reason)) {
+    // The engine park reads as the specified row: "could not read CI (gh: <error>)".
+    const engine = ENGINE_GH.exec(reason);
+    const inner = engine?.[1] ?? '';
+    const message = engine ? `Auto-fix paused: could not read CI (${/^gh\b/.test(inner) ? inner : `gh: ${inner}`})` : capitalize(reason);
+    return { ...base, state: 'gh-failed', message };
+  }
+  if (reason === SANDBOXED) return { ...base, state: 'paused', message: 'Auto-fix paused: sandbox ticket (autopilot runs host tickets only)' };
   return { ...base, state: 'paused', message: capitalize(reason) };
 }
 

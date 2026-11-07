@@ -1635,6 +1635,16 @@ describe('merge row carries the auto-fix state (T1004)', () => {
     expect(merge.detail).toBe(spent.message);
   });
 
+  it('keeps the conflict sentence when CI status is unknown', () => {
+    const unknown = { ...running, state: 'unknown', message: 'CI status unknown for web #421. Auto-fix waits; not counted as pass.', steps: [] } as const;
+    const merge = shipProcesses(shipInput({
+      prs: [openPr],
+      mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
+      autofix: unknown,
+    }))[3]!;
+    expect(merge.detail).toBe(`Ship is waiting: resolve the merge conflict before the ticket can be done. ${unknown.message}`);
+  });
+
   it('is a plain Merge row without auto-fix', () => {
     const merge = shipProcesses(shipInput({ prs: [openPr] }))[3]!;
     expect(merge.autofix).toBeUndefined();
