@@ -29,6 +29,7 @@ import {
   setConflictsMaxRounds,
   setConflictsPolicy,
   setEnabled,
+  type Update,
 } from './autopilotDraft.js';
 
 /** The one select both editable sections share (the prototype's "same control"). */
@@ -49,6 +50,16 @@ export function AutopilotSection() {
   const { state, edit } = useSettingsApp();
   const view = autopilotView(state.draft);
   const [checkName, setCheckName] = useState('');
+  // Text that is not a whole number yet (an empty box) stays on screen; a valid number shows the draft.
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  const numberValue = (name: string, current: number): string => {
+    const text = typed[name];
+    return text !== undefined && !/^-?\d+$/.test(text.trim()) ? text : String(current);
+  };
+  const numberChange = (name: string, update: (text: string) => Update) => (text: string): void => {
+    setTyped((prev) => ({ ...prev, [name]: text }));
+    edit(update(text));
+  };
   // The host's verdict names one fault. It lands on the field whose path it
   // starts with, as the Git tab does (`validateManifest` throws on the first).
   const detail = manifestFaultDetail(state.validation.ok ? null : state.validation.error);
@@ -120,8 +131,8 @@ export function AutopilotSection() {
               kind: 'input',
               type: 'number',
               name: 'autopilotConflictsMaxRounds',
-              value: String(view.conflicts.maxRounds),
-              onChange: (value) => edit(setConflictsMaxRounds(value)),
+              value: numberValue('rounds', view.conflicts.maxRounds),
+              onChange: numberChange('rounds', setConflictsMaxRounds),
             }}
             error={faultFor('autopilot.conflicts.maxRounds')}
           />
@@ -156,8 +167,8 @@ export function AutopilotSection() {
               kind: 'input',
               type: 'number',
               name: 'autopilotCiMaxAttempts',
-              value: String(view.ci.maxAttempts),
-              onChange: (value) => edit(setCiMaxAttempts(value)),
+              value: numberValue('attempts', view.ci.maxAttempts),
+              onChange: numberChange('attempts', setCiMaxAttempts),
             }}
             error={faultFor('autopilot.ci.maxAttempts')}
           />

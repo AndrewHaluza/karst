@@ -15,7 +15,7 @@ import {
 } from '../../../../manifest/autopilot.js';
 import type { Manifest } from '../../../../manifest/types.js';
 
-type Update = (draft: Manifest) => Manifest;
+export type Update = (draft: Manifest) => Manifest;
 
 /** The block as the tab shows it: the draft's block, or the engine defaults. */
 export function autopilotView(draft: Manifest): AutopilotConfig {

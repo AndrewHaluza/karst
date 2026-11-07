@@ -131,6 +131,13 @@ describe('autofixBanner', () => {
     expect(JSON.stringify(b)).not.toMatch(/host/i);
   });
 
+  it('gives a permanent not-run park no Retry, because a retry parks again', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: sandboxed ticket' });
+    expect(b?.primary).toBeNull();
+    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Open sync diff' });
+    expect(autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' })?.primary).toBeNull();
+  });
+
   it('gives a pause that is not about the sandbox a Retry and no sandbox action', () => {
     expect(autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' })?.secondary).toBeNull();
   });

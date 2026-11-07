@@ -108,6 +108,17 @@ describe('Autopilot tab', () => {
     expect(screen.getByText('Resets when a different check fails.')).toBeTruthy();
   });
 
+  it('lets the user clear a budget box to type a new value', () => {
+    const { probe } = mount(stateWith(ON));
+    const box = screen.getByLabelText('Max rounds per PR') as HTMLInputElement;
+    fireEvent.change(box, { target: { value: '' } });
+    expect(box.value).toBe('');
+    expect(block(probe)?.conflicts.maxRounds).toBe(2);
+    fireEvent.change(box, { target: { value: '5' } });
+    expect(box.value).toBe('5');
+    expect(block(probe)?.conflicts.maxRounds).toBe(5);
+  });
+
   it('lists the allowlist, adds a check and removes one', () => {
     const { probe } = mount(stateWith(ON));
     const list = screen.getByRole('list', { name: 'Checks karst may fix' });

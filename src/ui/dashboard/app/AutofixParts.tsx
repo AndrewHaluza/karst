@@ -148,7 +148,7 @@ export function AutofixBannerBody({ banner }: { readonly banner: AutofixBannerVi
         <span className="freason">{` · ${banner.cause}`}</span>
       </span>
       <div className="facts">
-        <BannerButton action={banner.primary} primary />
+        {banner.primary ? <BannerButton action={banner.primary} primary /> : null}
         {banner.secondary ? <BannerButton action={banner.secondary} primary={false} /> : null}
       </div>
       {banner.history.length > 0 ? (

@@ -63,6 +63,8 @@ const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 // The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
 const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
 const SANDBOX_WORD = /sandbox/i;
+// A permanent park: the cause is the ticket kind, so a retry parks again and posts another note.
+const NOT_RUN = /^auto-fix not run:/;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 
 const prLabel = (t: AutofixTarget): string => (t.pr === null ? t.repo : `${t.repo} #${t.pr}`);
@@ -135,7 +137,8 @@ export interface AutofixBannerView {
   readonly titleHref?: string;
   readonly titleSuffix: string;
   readonly cause: string;
-  readonly primary: AutofixBannerAction;
+  /** Null for a permanent park (`auto-fix not run: …`): a Retry would only park again. */
+  readonly primary: AutofixBannerAction | null;
   readonly secondary: AutofixBannerAction | null;
   readonly history: readonly string[];
 }
@@ -188,8 +191,8 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
     state: 'paused',
     title: 'Auto-fix paused',
     titleSuffix: reason === SANDBOXED ? 'sandbox ticket' : '',
-    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : `${capitalize(reason)}. Fix the cause, then retry.`,
-    primary: RETRY,
+    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Autopilot runs host tickets only.' : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
+    primary: NOT_RUN.test(reason) ? null : RETRY,
     secondary: SANDBOX_WORD.test(reason) ? SYNC_DIFF : null,
     history: [],
   };

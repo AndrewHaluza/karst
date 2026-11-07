@@ -420,7 +420,7 @@ export function makeDashboardActions(
     autopilotOverride: (mode) => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, mode),
     autopilotApproveOne: (repo, kind) => void vscode.commands.executeCommand('karst.autopilot.approveOne', ticketId, { repo, kind }),
     autopilotStop: (when) => void vscode.commands.executeCommand('karst.autopilot.stop', ticketId, when),
-    // Retry sets the override to its current value: that write clears a pause and the park block.
+    // Retry is a command: it clears the pause, the remembered stop reason and the park block, and writes no override.
     autopilotRetry: () => void vscode.commands.executeCommand('karst.autopilot.retry', ticketId),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
