@@ -30,6 +30,8 @@ import type { TicketWithStages } from '../../store/tickets.js';
 export const RELATION_LABEL: Record<string, string> = {
   'blocked-by': 'Blocked by',
   'blocks': 'Blocks',
+  'parent': 'Parent',
+  'child': 'Child',
   'related-to': 'Related',
   'parent-of': 'Parent of',
   'child-of': 'Child of',

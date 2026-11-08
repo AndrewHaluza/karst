@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
+import { addRelation } from '../../store/ticketRelations.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
 import { applyPrefill, buildTicketFormState } from './state.js';
@@ -743,5 +744,33 @@ describe('applyPrefill — approved-draft base picks', () => {
     const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
     const state = applyPrefill(built, prefill);
     expect(state.repoBases).toEqual(built.repoBases);
+  });
+
+  it('maps relation kinds to readable kind labels including parent and child', () => {
+    const parent = createTicket(store, { key: 'PAR-1', title: 'Parent' });
+    const child = createTicket(store, { key: 'CHD-1', title: 'Child' });
+    const blocker = createTicket(store, { key: 'BLK-1', title: 'Blocker' });
+
+    // ticket has parent PAR-1
+    addRelation(store, { ticketId: child.id, kind: 'parent', targetTicketId: parent.id, source: 'user' });
+    // ticket is blocked by BLK-1
+    addRelation(store, { ticketId: child.id, kind: 'blocked-by', targetTicketId: blocker.id, source: 'user' });
+
+    const childState = buildTicketFormState(store, MANIFEST, () => [], () => [], child.id);
+    const parentRel = childState.relations?.find((r) => r.kind === 'parent');
+    expect(parentRel?.kindLabel).toBe('Parent');
+
+    const blockedByRel = childState.relations?.find((r) => r.kind === 'blocked-by');
+    expect(blockedByRel?.kindLabel).toBe('Blocked by');
+
+    // On parent ticket, child relation is derived as 'child'
+    const parentState = buildTicketFormState(store, MANIFEST, () => [], () => [], parent.id);
+    const childRel = parentState.relations?.find((r) => r.kind === 'child');
+    expect(childRel?.kindLabel).toBe('Child');
+
+    // On blocker ticket, inverse relation is derived as 'blocks'
+    const blockerState = buildTicketFormState(store, MANIFEST, () => [], () => [], blocker.id);
+    const blocksRel = blockerState.relations?.find((r) => r.kind === 'blocks');
+    expect(blocksRel?.kindLabel).toBe('Blocks');
   });
 });
