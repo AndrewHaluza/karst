@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { runGateList } from './runList.js';
 
@@ -402,6 +405,31 @@ describe('runGateList base ref env', () => {
   });
 });
 
+describe('runGateList PR_BODY env (docs gate citations)', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gates = [{ name: 'docs:gate', command: 'npm', args: ['run', '-s', 'docs:gate'], script: null, required: true }];
+  const run = async (opts: Record<string, unknown>) => {
+    const seen: Array<readonly string[]> = [];
+    await runGateList(gates, process.cwd(), { now, ...opts, runProcess: async (_c, args) => (seen.push(args), { kind: 'completed', exitCode: 0, output: '' }) });
+    return seen[0];
+  };
+  it('passes the citation text as PR_BODY with the base branch as BASE_REF', async () => {
+    expect(await run({ baseRef: 'develop', prBody: '@arch:CLI-02 — holds' })).toEqual([
+      'KARST_BASE_REF=develop', 'PR_BODY=@arch:CLI-02 — holds', 'BASE_REF=develop', 'npm', 'run', '-s', 'docs:gate',
+    ]);
+  });
+  it('passes an empty PR_BODY when nothing is cited', async () => {
+    expect(await run({ baseRef: 'develop', prBody: '' })).toContain('PR_BODY=');
+  });
+  it('keeps the text as one argument (never evaluated by a shell)', async () => {
+    const args = (await run({ baseRef: 'main', prBody: '$(touch x); a b' })) ?? [];
+    expect(args).toContain('PR_BODY=$(touch x); a b');
+  });
+  it('sets no PR_BODY when the caller gives none', async () => {
+    expect((await run({ baseRef: 'develop' }))?.some((a) => a.startsWith('PR_BODY='))).toBe(false);
+  });
+});
+
 describe('runGateList port slot — review fixes', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
   const gate = { name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true, onResourceKill: 'host' as const };
@@ -436,5 +464,112 @@ describe('runGateList port slot — review fixes', () => {
     );
     expect(seen).toEqual(['a', 'b']);
     expect(disposed).toBe(2);
+  });
+});
+
+describe('runGateList gate concurrency lease', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const limited = { name: 'sast', command: 'semgrep', args: [], script: null, required: true, maxConcurrent: 1 };
+  const done = { kind: 'completed' as const, exitCode: 0, output: '' };
+  const mkDir = () => mkdtempSync(join(tmpdir(), 'karst-gate-lease-'));
+
+  it('holds the slot during every spawn and frees it after', async () => {
+    const dir = mkDir();
+    try {
+      let heldDuring: string[] = [];
+      await runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        runProcess: async () => {
+          heldDuring = readdirSync(join(dir, 'sast'));
+          return done;
+        },
+      });
+      expect(heldDuring).toEqual(['slot-0']);
+      expect(readdirSync(join(dir, 'sast'))).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('frees the slot when the spawn throws', async () => {
+    const dir = mkDir();
+    try {
+      await expect(
+        runGateList([limited], process.cwd(), {
+          now,
+          gateSlotsDir: dir,
+          runProcess: async () => {
+            throw new Error('boom');
+          },
+        }),
+      ).rejects.toThrow('boom');
+      expect(readdirSync(join(dir, 'sast'))).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not touch the pool for a gate without maxConcurrent', async () => {
+    const dir = mkDir();
+    try {
+      await runGateList([{ ...limited, maxConcurrent: undefined }], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        runProcess: async () => done,
+      });
+      expect(readdirSync(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes one waiting line, then runs once the other run releases', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const lines: string[] = [];
+      let ran = false;
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        onGateOutput: (name, chunk) => lines.push(`${name}|${chunk.stream}|${chunk.text}`),
+        runProcess: async () => ((ran = true), done),
+      });
+      await new Promise((r) => setTimeout(r, 40));
+      expect(ran).toBe(false);
+      expect(lines).toEqual(['sast|stderr|sast: waiting for a free slot (1 of 1 in use by other tickets)\n']);
+      rmSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      const out = await pending;
+      expect(out.kind).toBe('ran');
+      expect(ran).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns stopped when Stop lands during the wait, and never spawns', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const ac = new AbortController();
+      let ran = false;
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        signal: ac.signal,
+        runProcess: async () => ((ran = true), done),
+      });
+      setTimeout(() => ac.abort(), 20);
+      const out = await pending;
+      expect(out.kind).toBe('stopped');
+      expect(ran).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

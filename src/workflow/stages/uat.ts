@@ -30,6 +30,8 @@ import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
+import { listArchCitations } from '../../store/archCitations.js';
+import { renderCitationText } from '../../model/archCitations.js';
 import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
@@ -712,6 +714,8 @@ export async function runUat(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
+      // The ticket's arch citations are the docs gate's PR body (@arch:CLI-22).
+      prBody: renderCitationText(listArchCitations(store, opts.ticketId)),
       ...regenerateOption(opts.manifest, target, opts.debug),
       // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
       ...(opts.manifest

@@ -22,6 +22,7 @@ import { transcriptLinkCommand } from './sbxTranscriptLink.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, THIN_BUNDLE_EXCLUDE, classifyCloneRelation, fetchSandboxBundleArgs, hostBundleHaves, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
+import { GUEST_MEMORY_RECHECK_MS, guestMemoryScript } from './sbxGuestMemory.js';
 import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
@@ -56,6 +57,8 @@ export interface SbxRunnerOptions {
   readonly limitWorkers?: boolean;
   /** Karst log sink: the sandbox kernel's EXT4 lines are copied here when the disk is damaged. */
   readonly log?: (line: string) => void;
+  /** Clock for the guest-memory recheck interval (tests). Default `Date.now`. */
+  readonly now?: () => number;
 }
 
 /**
@@ -187,10 +190,26 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', 'printf %s "$NODE_OPTIONS"'], opts.cloneDir ? { cwd: opts.cloneDir } : undefined).catch(() => undefined);
     guestNodeOptions = out && out.code === 0 && out.stdout.trim() !== '' ? out.stdout.trim() : undefined;
   };
+  /** Last successful guest-memory run (ms); undefined = never. */
+  let guestMemoryAt: number | undefined;
+  /**
+   * Start the guest page-cache reclaimer (`sbxGuestMemory.ts`). Best effort: a failure (no passwordless sudo)
+   * is logged and never blocks the caller; the next check retries.
+   */
+  const ensureGuestMemory = async (): Promise<void> => {
+    const now = (opts.now ?? Date.now)();
+    if (guestMemoryAt !== undefined && now - guestMemoryAt < GUEST_MEMORY_RECHECK_MS) return;
+    const out = await opts.proc
+      .run(SBX_BIN, ['exec', opts.name, '--', 'sudo', '-n', 'sh', '-c', guestMemoryScript()], opts.cloneDir ? { cwd: opts.cloneDir } : undefined)
+      .catch((err: unknown) => ({ code: -1, stdout: '', stderr: err instanceof Error ? err.message : String(err) }));
+    if (out.code === 0) { guestMemoryAt = now; return; }
+    opts.log?.(`[sbx ${opts.name}] guest memory reclaimer not started (exit ${out.code}): ${out.stderr.trim().slice(0, 300)}`);
+  };
   const ensureWritable = async (ticket?: SandboxTicketRef): Promise<StepOutcome> => {
     const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...WRITE_PROBE], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
     if (out.code === 0) {
       await readGuestNodeOptions();
+      await ensureGuestMemory();
       return checkGit();
     }
     if (out.code !== PROBE_UNWRITABLE && !/read-only file system/i.test(out.stderr)) return { ok: true };

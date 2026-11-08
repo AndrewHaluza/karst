@@ -39,15 +39,19 @@ export async function classifyCloneRelation(sandboxSha: string, isAncestor: (old
  * `$br` (the branch) and the host's candidate commits as the positional args. It sets `$ex` to the first candidate the clone
  * has, as a bundle exclusion, so the bundle carries only what the host lacks (a thin bundle) and the host fetch stores a small
  * pack, not a copy of the history. A tip that is the candidate or an ancestor of it (the clone is behind a host commit it has) excludes its own parents, so the bundle is never empty (git refuses an empty bundle).
- * No candidate in the clone: `$ex` stays empty and the bundle is full.
+ * No candidate in the clone: `$ex` stays empty and the bundle is full (only when the clone shares no sampled commit with the host).
  */
 export const THIN_BUNDLE_EXCLUDE =
   'tip=$($g rev-parse "$br"); ex=; for c in "$@"; do [ -n "$c" ] || continue; $g cat-file -e "$c^{commit}" 2>/dev/null || continue; '
   + 'if [ -z "$($g rev-list -n1 "$tip" "^$c" 2>/dev/null)" ]; then ex="^$tip^@"; else ex="^$c"; fi; break; done; ';
 
+/** First-parent offsets from host HEAD sampled as extra candidates: a clone made from any earlier state of the branch has one of them. */
+export const HAVE_ANCESTOR_OFFSETS: readonly number[] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
+
 /**
  * Commits the host has that the clone may have too, best first: the worktree HEAD, then the tip fetched by the last sync
- * (the clone has it even when the host moved on with its own commits). Unresolvable ones are left out.
+ * (the clone has it even when the host moved on with its own commits), then first-parent ancestors of HEAD at
+ * `HAVE_ANCESTOR_OFFSETS` (they cover the first sync after a host-only commit). Unresolvable ones are left out.
  */
 export async function hostBundleHaves(git: (args: string[]) => Promise<{ code: number; stdout: string }>, branch: string): Promise<string[]> {
   const found: string[] = [];
@@ -55,6 +59,14 @@ export async function hostBundleHaves(git: (args: string[]) => Promise<{ code: n
     const out = await git(args);
     const sha = out.stdout.trim();
     if (out.code === 0 && SHA.test(sha) && !found.includes(sha)) found.push(sha);
+  }
+  const maxOffset = HAVE_ANCESTOR_OFFSETS[HAVE_ANCESTOR_OFFSETS.length - 1]!;
+  const walk = await git(['rev-list', '--first-parent', `--max-count=${maxOffset + 1}`, 'HEAD']);
+  if (walk.code !== 0) return found;
+  const lines = walk.stdout.split('\n').map((l) => l.trim());
+  for (const offset of HAVE_ANCESTOR_OFFSETS) {
+    const sha = lines[offset];
+    if (sha !== undefined && SHA.test(sha) && !found.includes(sha)) found.push(sha);
   }
   return found;
 }

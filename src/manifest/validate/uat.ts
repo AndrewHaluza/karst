@@ -128,6 +128,12 @@ export function validateGate(raw: unknown, index: number, where: string): UatGat
     }
     gate.onResourceKill = raw.onResourceKill;
   }
+  if (raw.maxConcurrent !== undefined) {
+    if (typeof raw.maxConcurrent !== 'number' || !Number.isInteger(raw.maxConcurrent) || raw.maxConcurrent < 1) {
+      throw new ManifestError(`${where} "${name}".maxConcurrent must be a whole number >= 1`);
+    }
+    gate.maxConcurrent = raw.maxConcurrent;
+  }
   if (raw.enabled !== undefined) {
     if (typeof raw.enabled !== 'boolean') {
       throw new ManifestError(`${where} "${name}".enabled must be a boolean`);

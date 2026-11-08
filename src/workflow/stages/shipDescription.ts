@@ -26,6 +26,7 @@ import {
   sanitizePrDescription,
   type PrDescriptionContext,
 } from '../prDescription.js';
+import { upsertDesignRulesSection, type ArchCitation } from '../../model/archCitations.js';
 import { openStepWithPreparation, type ShipProgress } from './shipStore.js';
 
 /**
@@ -353,4 +354,33 @@ export async function backfillDescription(
     return;
   }
   note(`existing PR had no description — update failed: ${attempt.reason}`);
+}
+
+/**
+ * Bring the `## Design rules checked` section of an OPEN PR in line with the
+ * ticket's citations, so a citation added in a fix round reaches the PR on the
+ * next ship or deliver. Only that section changes; prose around it is kept.
+ * Nothing cited, an unreadable body or a failed edit leaves the PR as it is: a
+ * note is the worst outcome, never a failed ship.
+ */
+export async function syncDesignRules(
+  gh: GhRunner,
+  repo: string,
+  cwd: string,
+  prUrl: string,
+  citations: readonly ArchCitation[],
+  onProgress: ShipProgress,
+): Promise<void> {
+  if (citations.length === 0) return;
+  const note = (detail: string): void => onProgress({ repo, step: 'describe', status: 'note', detail });
+  try {
+    const current = await fetchPrBody(gh, prUrl, cwd);
+    if (current === null) return note('PR description could not be read — design rules section left unchanged');
+    const next = upsertDesignRulesSection(current, citations);
+    if (bodyHash(next) === bodyHash(current)) return;
+    const attempt = await updatePrBody(gh, prUrl, cwd, next);
+    if (!attempt.ok) note('design rules section could not be updated on the PR');
+  } catch {
+    note('design rules section could not be updated on the PR');
+  }
 }

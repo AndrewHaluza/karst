@@ -6,4 +6,4 @@
  * `hostEvidence.ts`) don't pull the full migrator — and its write SQL — into
  * their module graph just for a constant.
  */
-export const SCHEMA_VERSION = 106;
+export const SCHEMA_VERSION = 108;

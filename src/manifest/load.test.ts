@@ -3928,6 +3928,33 @@ uat:
   });
 });
 
+describe('gate maxConcurrent', () => {
+  const gate = (extra: string) => `${VALID}
+uat:
+  gates:
+    - name: sast
+      kind: command
+      command: semgrep
+${extra}`;
+  const load = (extra: string) => {
+    const f = fixture(gate(extra));
+    try {
+      return loadManifest(f.path);
+    } finally {
+      f.cleanup();
+    }
+  };
+  it('parses a whole number >= 1', () => {
+    expect(load('      maxConcurrent: 2\n').uat?.gates?.[0]?.maxConcurrent).toBe(2);
+  });
+  it('leaves the field absent when not set', () => {
+    expect(load('').uat?.gates?.[0]).not.toHaveProperty('maxConcurrent');
+  });
+  it.each(['0', '-1', '1.5', '"2"', 'true'])('rejects %s with a ManifestError', (v) => {
+    expect(() => load(`      maxConcurrent: ${v}\n`)).toThrow(/maxConcurrent must be a whole number >= 1/);
+  });
+});
+
 describe('sandboxLimits (sbx cpus, worker opt-out, gate slots)', () => {
   const run = (extra: string): { value?: unknown; error?: string } => {
     const { path, cleanup } = fixture(`${VALID}\n${extra}`);

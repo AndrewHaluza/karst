@@ -73,6 +73,14 @@ export const FIX_REFUSED_STOP_RULE =
 export const REVIEW_SWEEP_RULE =
   'For each finding, name the rule it breaks. Search the repository for each site of that rule. Fix each site. List the sites in the commit body.';
 
+/** The docs gate's BLOCK line (scripts/docsGate.mjs) — the cue that a cite is a way out. */
+const DOCS_GATE_BLOCK = /BLOCK diff changes /u;
+const DOCS_GATE_CITE_RULE =
+  'The docs gate blocked a change to code that an @arch block covers. There are two ways out. ' +
+  'Edit the block and commit the edit. Or decide that the block still holds, and run ' +
+  '`karst arch cite @arch:KEY --why "<one-line reason>"` with the key from the BLOCK line. ' +
+  'The gate output above stays the source for the key, symbol and block file.';
+
 /**
  * The opening prompt for a session resumed at `fix`. A bare "continue the work"
  * wastes the one thing karst knows and the agent does not: which gate failed, why
@@ -154,6 +162,9 @@ export function renderFixBrief(
         for (const line of f.summary.split('\n')) lines.push(`    ${line}`);
       }
     }
+  }
+  if (failures.some((f) => f.summary && DOCS_GATE_BLOCK.test(f.summary)) || (gate.verdict && DOCS_GATE_BLOCK.test(gate.verdict))) {
+    lines.push('', DOCS_GATE_CITE_RULE);
   }
   if (gate.artifactPath) lines.push('', `Its full output is at ${gate.artifactPath} — read it first.`);
   // The advisory coverage record is evidence of what review covered, not a defect to fix.

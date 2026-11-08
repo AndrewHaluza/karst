@@ -36,6 +36,11 @@ export interface ShipGatesDeps {
   readonly onOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /** A gate started or finished: the host pushes the dashboard state. */
   readonly onProgress?: () => void;
+  /**
+   * The ticket's rendered arch citations and base branch for one PR, so the
+   * `docs:gate` gate reads the same `PR_BODY` and `BASE_REF` it reads in UAT.
+   */
+  readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
 interface PlannedRepo {
@@ -87,7 +92,10 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
   const { pr, probe } = p;
   const store = d.evidence?.store;
   const head = d.headSha ? await d.headSha(pr.cwd) : null;
+  const env = d.gateEnv?.(pr);
   const ran = await runGateList(p.gates, pr.cwd, {
+    ...(env ? { prBody: env.prBody } : {}),
+    ...(env?.baseRef ? { baseRef: env.baseRef } : {}),
     scriptsAvailable: (script, derived) => (probe.kind === 'ok' ? probe.scripts[script] !== undefined : derived),
     ...(d.runProcess ? { runProcess: d.runProcess } : {}),
     ...(d.hostProcess ? { hostProcess: d.hostProcess } : {}),

@@ -151,6 +151,18 @@ Exit 127 is POSIX's "command not found": the binary a gate runs is not installed
 **A gate killed by memory pressure parks `resource-killed`, never fails.** Exit 137 (SIGKILL) with no failing-test marker in the output (`gates/resourceKill.ts#isResourceKill`) is an environment fault: the Docker VM is shared by every sandbox. A 137 beside a real failing test stays an ordinary failure. Per gate, `onResourceKill` (`retry-then-park` default | `park` | `host`) decides: `runGateList` reruns once as `env KARST_GATE_MAX_WORKERS=1 <cmd>` (the vitest configs read it), or reruns on the host process (`host`, same verified-sync path as `sandbox: host`). A gate still killed carries `resourceKilled`; UAT and review park `resource-killed` (no fix round, no recovery round), unless another gate failed for an ordinary reason. Guards: `gates/resourceKill.test.ts`, `gates/runList.resourceKill.test.ts`, `uat/aggregate.test.ts` "resource kill".
 END_DOC_BLOCK: [@arch:GATE-CAPABILITY]
 
+## [@arch:GATE-CONCURRENCY] A gate may cap how many of its runs go at once on the host
+covers: src/runtime/claimLease.ts#leaseClaimSlot, src/workflow/gates/gateLease.ts#leaseGateSlot, src/workflow/gates/runList.ts#runGateList
+
+Reviews of different tickets ran the same heavy gate (`sast`, semgrep-core) at once and saturated the CPU. `DriverController.begin` allows one run per ticket and no limit across tickets. A gate sets `maxConcurrent` (whole number >= 1, @arch:SANDBOX-HOST lists the sibling fields) and `runGateList` leases one of that many slots before the first spawn. A gate without the field takes no lease and behaves as before.
+
+**One lease mechanism.** `runtime/claimLease.ts#leaseClaimSlot` owns the claim-directory logic (`claimFresh`, `isStale`, `reclaimStale`, the poll loop). `leasePortSlot` (@arch:PORTS) and `gates/gateLease.ts#leaseGateSlot` both call it. The claim is a `slot-<n>` directory under `$TMPDIR/karst-gate-slots/<encoded gate name>` with an `owner` file holding the host pid. A dead owner is reclaimed, so a crash cannot leak a slot. A file claim works across IDE windows; an in-memory semaphore does not.
+
+**Scope of the lease.** One slot covers every spawn of the gate: first run, host fallback and resource-kill retry. `runGateList` releases it in `finally`. It is taken before the spawn, so the wait does not count toward `DEFAULT_GATE_TIMEOUT_MS`. While every slot is held, the gate writes one line to its output stream (@arch:GATE-OUTPUT): `<gate>: waiting for a free slot (N of N in use by other tickets)`. A Stop during the wait returns `stopped` and no process spawns.
+
+Guards: `runtime/claimLease.test.ts`, `workflow/gates/runList.test.ts` "gate concurrency lease", `manifest/load.test.ts` "gate maxConcurrent". Out of scope: a limit across all gates, a Settings UI field.
+END_DOC_BLOCK: [@arch:GATE-CONCURRENCY]
+
 ## [@arch:UAT-OBS] UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
 
 The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evidence: `aggregateUat` never sees them — the pure gate aggregate stays free of AI output, and that does not change — so by default an observation can never pass, fail, transition, or spend a recovery round. Two things, and only two, can make the Tester decide UAT:

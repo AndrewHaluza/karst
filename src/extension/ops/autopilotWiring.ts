@@ -9,6 +9,7 @@ import { listTickets } from '../../store/tickets.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
+import type { TransientCiSeams } from './autopilotRerun.js';
 import { graphRunIdsForTicket } from '../../store/graph/graphRuns.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 import { resolveConflictRound, type ResolveConflictInput } from './conflictResolveOps.js';
@@ -66,6 +67,8 @@ export interface TicketSeams {
   /** An armed round that never delivered (arch:AC-39). */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
+  /** gh seams of the transient CI re-run (T1019). Absent: no re-run. */
+  readonly transientCi?: TransientCiSeams;
 }
 
 export interface AutopilotSweepDeps {
@@ -162,11 +165,12 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         conflictRoundActive: seams.conflictRoundActive,
         conflictRoundStalled: seams.conflictRoundStalled,
         dropConflictRound: seams.dropConflictRound,
+        ...(seams.transientCi ? { transientCi: seams.transientCi } : {}),
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,
       });
       if (result.kind === 'armed' && t.subtaskParentId !== null) armed.set(t.id, { id: t.id, subtaskParentId: t.subtaskParentId });
-      if (result.kind === 'armed' || result.kind === 'parked' || result.kind === 'cleared') acted += 1;
+      if (result.kind === 'armed' || result.kind === 'parked' || result.kind === 'cleared' || result.kind === 'rerun') acted += 1;
     } catch (err) {
       d.debug(`[ship] autopilot ticket ${t.key ?? formatId('ticket', t.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
     }

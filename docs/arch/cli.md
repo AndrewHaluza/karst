@@ -78,7 +78,7 @@ sequenceDiagram
 | Detached child processes pin event loop | Force-exits via `process.exit(0)` on stdout flush | Automatically terminates short-lived CLI process cleanly |
 
 ### Rules
-@arch:CLI-02 · @arch:CLI-03 · @arch:CLI-04 · @arch:CLI-05 · @arch:CLI-06 · @arch:CLI-07 · @arch:CLI-08 · @arch:CLI-09 · @arch:CLI-10 · @arch:CLI-11 · @arch:CLI-12 · @arch:CLI-13 · @arch:CLI-17 · @arch:PLANNING-HISTORY · @arch:DRAFT-CONSTRAINTS · @arch:CLI-14 · @arch:CLI-15 · @arch:CLI-16 · @arch:CLI-18
+@arch:CLI-02 · @arch:CLI-03 · @arch:CLI-04 · @arch:CLI-05 · @arch:CLI-06 · @arch:CLI-07 · @arch:CLI-08 · @arch:CLI-09 · @arch:CLI-10 · @arch:CLI-11 · @arch:CLI-12 · @arch:CLI-13 · @arch:CLI-17 · @arch:PLANNING-HISTORY · @arch:DRAFT-CONSTRAINTS · @arch:CLI-14 · @arch:CLI-15 · @arch:CLI-16 · @arch:CLI-18 · @arch:CLI-22
 END_DOC_BLOCK: [@arch:CLI-00]
 
 ## [@arch:CLI-02] The agent-facing CLI verbs are separate parse paths, and that separation is the security property
@@ -264,7 +264,7 @@ In a planning session (`KARST_PLANNING_SESSION` set) `karst context` still print
 END_DOC_BLOCK: [@arch:CLI-15]
 
 ## [@arch:CLI-16] `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
-covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#parseDoctorArgs, src/doctor/applyFixes.ts#applyFixes
+covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#parseDoctorArgs, src/doctor/applyFixes.ts#applyFixes, src/doctor/gitHealthCheck.ts#checkGitHealth
 
 `karst doctor [--fix] [--area tools|manifest|state|wiring] [--json]`; palette: **Karst: Run Doctor**. On demand ONLY — never on activation or on failure; `reconcile.ts` stays the crash-recovery path.
 
@@ -276,6 +276,8 @@ covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#pars
 - **Destructive fixes re-verify at apply time**: a kill needs the pid's start time ≤ `servers.started_at` + 5 s (pid-reuse guard; the registry stores no command line); a prune needs `git status` clean AND no unpushed commits (no upstream = unknown = skipped), runs `git worktree remove` without `--force`, and only for a `done` ticket.
 - **Stuck tickets are report-only** and exclude ship/awaiting-merge, conflicted merge checks, and open blocking subtasks.
 - **Known gaps (follow-ups):** the stuck threshold (120 min) and WAL limit (64 MB) are constants in `doctorCommand.ts`, not manifest fields; stale-outbox and unrecorded-worktree scans need host-owned directories the CLI cannot enumerate, so they report nothing from the CLI; launcher (#53) and the manifest/setup proposal commands (#55) are not wired — wiring skips the launcher check and manifest fixes are exact commands.
+**Git health** (state area, `doctor/gitHealthCheck.ts`, probe `gitHealthProbe`): per distinct git common dir of the manifest repositories, warn on `objects/maintenance.lock` or `gc.pid` older than 6 h (`STALE_GIT_LOCK_MS`; git never removes them, and a stale lock stops every automatic gc) and on more `.pack` files than `gc.autoPackLimit` (default 50, 0 = off). Report-only: the fix is a consented `rm … && git -C <repo> gc` / `git -C <repo> gc` command; doctor never deletes a lock (it carries no PID).
+
 END_DOC_BLOCK: [@arch:CLI-16]
 
 ## [@arch:CLI-18] `close` / `reopen`: a human-only assertion that a ticket was resolved outside karst
@@ -296,3 +298,13 @@ covers: src/setup/changeTarget.ts#resolveChangeDir, src/cli/manifestCommand.ts#r
 
 `manifest show --active` prints the active manifest (`--manifest`) re-dumped without comments, because a fresh scaffold is a long annotated template that truncates an agent's first read. The annotated file is a cookbook, not a read-whole document. The scaffold declares one live repository (`app`, `repoPath` stamped by `stampScaffold`); the backend/frontend/db/tooling shapes and the Playwright/verify-uat gates sit in a commented cookbook that `example.test.ts` uncomments and loads.
 END_DOC_BLOCK: [@arch:CLI-20]
+
+## [@arch:CLI-22] `arch cite`: the agent records why a covered @arch block still holds
+covers: src/cli/archCommand.ts#runArchCommand, src/cli/archCommand.ts#parseArchArgs
+
+`karst arch cite <@arch:KEY> --why <reason>` (`cli/archCommand.ts`, v107) answers a docs-gate BLOCK (@arch:DOC-03) when the diff changes covered code and the block still holds. It is a separate parse path in `main.ts`, like `notes post` (@arch:CLI-02): it accepts only its own flags, produces no `Verdict` and never moves a ticket. It is mirrored as the typed MCP tool `arch`.
+
+The key must head a keyed block in the `docs/arch` the command finds by walking up from its working directory; an unknown key is refused. The reason is untrusted agent prose: it is trimmed, one line, at most `CITE_REASON_MAX` (200) characters, and refused with a control character (`model/archCitations.ts`). The sender is `--ticket`, cross-checked against the session env's `KARST_TICKET`; the verb REFUSES without it (@arch:CLI-11). The store keeps one row per ticket and key in `arch_citations` (`store/archCitations.ts`); citing a key again replaces its reason.
+
+Karst reads the rows in three places. UAT and the auto-deliver ship gates pass the rendered lines (`@arch:KEY — <reason>`, key order) to every gate as env `PR_BODY`, with `BASE_REF` set to the ticket base branch, so `docs:gate` passes for the cited keys only. Ship appends a fixed `## Design rules checked` section to the PR body AFTER the description is sanitized, for the AI output, the template fallback and the backfill; it also brings that section of an open PR in line (`syncDesignRules`), so a citation added in a fix round reaches the PR on the next ship or deliver. The reason is escaped on render (`@` becomes `&#64;`, markdown and HTML marks are escaped), so it can never cite a second key or mention a user. A docs-gate BLOCK in the fix brief names both ways out: edit and commit the block, or run `arch cite`.
+END_DOC_BLOCK: [@arch:CLI-22]
