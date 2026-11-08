@@ -775,3 +775,141 @@ describe('conflicts', () => {
     expect(r.sendConflict).not.toHaveBeenCalled();
   });
 });
+
+describe('autopilotTick transient CI re-run (T1019)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const NET_LOG = '2026-11-08T10:00:00.1Z prebuild-install warn install Request timed out\n';
+  const REAL_LOG = '2026-11-08T10:00:00.1Z FAIL src/a.test.ts\n2026-11-08T10:00:00.2Z AssertionError: Request timed out\n';
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+
+  function ciRig(log: string | Error, over: Partial<AutopilotDeps> = {}): Rig & { rerun: ReturnType<typeof vi.fn>; readLog: ReturnType<typeof vi.fn> } {
+    const rerun = vi.fn(async (_cwd: string, _c: unknown) => {});
+    const readLog = vi.fn(async (_cwd: string, _c: unknown) => { if (log instanceof Error) throw log; return log; });
+    const r = rig({
+      transientCi: { readJobLog: readLog, readRunHeadSha: async () => SHA, rerunFailedJobs: rerun },
+      ...over,
+    });
+    return { ...r, rerun, readLog };
+  }
+
+  it('re-runs a transient failure of a non-allowlisted check once and does not park', async () => {
+    seedPr(withUrl('Visual'));
+    const r = ciRig(NET_LOG);
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rerun' });
+    expect(r.rerun).toHaveBeenCalledTimes(1);
+    expect(r.rerun.mock.calls[0]![1]).toMatchObject({ runId: '100', jobId: '200' });
+    expect(r.notes[0]![0]).toBe('Autopilot: re-ran Visual on abcdef012 after a network error (request-timed-out)');
+    expect(r.debug).toHaveBeenCalledWith(expect.stringContaining('[ship] autopilot ticket AP-1 ci: re-ran Visual on abcdef012'));
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    // The stored rollup (the failed attempt) is forgotten, so the ticket waits for the next probe.
+    expect((await autopilotTick(ciRig(NET_LOG).deps)).kind).toBe('nothing');
+  });
+
+  it('parks on a second failure and names the earlier re-run', async () => {
+    seedPr(withUrl('Visual'));
+    await autopilotTick(ciRig(NET_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('Visual')), id);
+    const later = ciRig(NET_LOG, { now: () => Date.now() + 10 * 60_000 });
+    const result = await autopilotTick(later.deps);
+    expect(later.rerun).not.toHaveBeenCalled();
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check Visual is not on the allowlist (re-run once after a network error and it failed again)' });
+  });
+
+  it('waits while a fresh re-run is still settling', async () => {
+    seedPr(withUrl('Visual'));
+    await autopilotTick(ciRig(NET_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('Visual')), id);
+    expect((await autopilotTick(ciRig(NET_LOG).deps)).kind).toBe('rerun');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  it('re-runs an allowlisted check before any CI round and spends no attempt', async () => {
+    seedPr(withUrl('build'));
+    const r = ciRig(NET_LOG);
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rerun' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    // After a second failure today's rule applies: a CI round that spends an attempt.
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id);
+    const later = ciRig(NET_LOG, { now: () => Date.now() + 10 * 60_000 });
+    expect((await autopilotTick(later.deps)).kind).toBe('armed');
+    expect(later.rerun).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+  });
+
+  it('does not re-run the same (run, check) again after a reload', async () => {
+    seedPr(withUrl('Visual'));
+    await autopilotTick(ciRig(NET_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('Visual')), id);
+    // A reload is a new engine over the same store: a fresh rig, a later clock.
+    const reloaded = ciRig(NET_LOG, { now: () => Date.now() + 10 * 60_000 });
+    await autopilotTick(reloaded.deps);
+    expect(reloaded.rerun).not.toHaveBeenCalled();
+    expect(reloaded.readLog).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run a real failure and keeps today\'s park', async () => {
+    seedPr(withUrl('Visual'));
+    const r = ciRig(REAL_LOG);
+    const result = await autopilotTick(r.deps);
+    expect(r.rerun).not.toHaveBeenCalled();
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check Visual is not on the allowlist' });
+  });
+
+  it('parks with the existing reason when gh fails to read the log', async () => {
+    seedPr(withUrl('build'));
+    const r = ciRig(new Error('reading the job log failed (gh exit 1: HTTP 403)'));
+    const result = await autopilotTick(r.deps);
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci could not run (reading the job log failed (gh exit 1: HTTP 403))' });
+    expect(r.rerun).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('parks with the existing reason when gh fails to start the re-run', async () => {
+    seedPr(withUrl('Visual'));
+    const r = ciRig(NET_LOG);
+    r.rerun.mockRejectedValueOnce(new Error('the re-run failed (gh exit 1)'));
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci could not run (the re-run failed (gh exit 1))');
+  });
+
+  it('leaves a status context without a job url to today\'s rules', async () => {
+    seedPr({ ...failing('Visual'), failing: [{ name: 'Visual', url: null }] });
+    const r = ciRig(NET_LOG);
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(r.readLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps today\'s park for a sandboxed ticket', async () => {
+    seedPr(withUrl('Visual'));
+    const r = ciRig(NET_LOG, { isHostTicket: async () => false });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(r.readLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps today\'s park for a graph ticket and for a placement that cannot be read', async () => {
+    seedPr(withUrl('Visual'));
+    const graph = ciRig(NET_LOG, { isGraphTicket: () => true });
+    expect((await autopilotTick(graph.deps)).kind).toBe('parked');
+    expect(graph.readLog).not.toHaveBeenCalled();
+    store.db.prepare("UPDATE autopilot_tickets SET stopped_reason = NULL WHERE ticket_id = ?").run(id);
+    const unknown = ciRig(NET_LOG, { isHostTicket: async () => { throw new Error('no placement'); } });
+    await autopilotTick(unknown.deps);
+    expect(unknown.readLog).not.toHaveBeenCalled();
+  });
+
+  it('does nothing extra when no gh seams are given', async () => {
+    seedPr(withUrl('Visual'));
+    expect(await autopilotTick(rig().deps)).toMatchObject({ kind: 'parked', reason: 'auto-fix not run: ci check Visual is not on the allowlist' });
+  });
+
+  it('writes the gh error into the note body of the park', async () => {
+    seedPr(withUrl('build'));
+    const r = ciRig(new Error('boom'));
+    await autopilotTick(r.deps);
+    expect(r.notes[0]).toEqual(['Autopilot: auto-fix stopped: ci could not run (boom)', 'AP-1 (ci): the action failed (boom); the ticket stays in ship and no attempt was used.']);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ci could not run (boom)');
+  });
+});

@@ -16,6 +16,7 @@ import {
   checkClaudeInstall,
   claudeLinkProbe,
 } from '../doctor/claudeInstallCheck.js';
+import { checkGitHealth, type GitRepoHealth } from '../doctor/gitHealthCheck.js';
 import { checkInotifyWatches } from '../doctor/inotifyWatchCheck.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
@@ -197,10 +198,27 @@ async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | und
     .filter((c) => c.area === area);
 }
 
+export type GitHealthProbe = (name: string, repoPath: string) => GitRepoHealth | undefined;
+
 interface CollectorInput {
   readonly manifestPath: string | undefined;
+  readonly gitHealth: GitHealthProbe;
   readonly listSandboxes: ListSandboxes;
   readonly probe: SandboxProbe;
+}
+
+/** One entry per distinct git common dir of the manifest repositories (first name wins). */
+function gitHealthChecks(manifest: Manifest | undefined, probe: GitHealthProbe, nowMs: number): DoctorCheck[] {
+  if (!manifest) return [];
+  const seen = new Set<string>();
+  const repos: GitRepoHealth[] = [];
+  for (const [name, r] of Object.entries(manifest.repositories)) {
+    const h = probe(name, r.repoPath);
+    if (!h || seen.has(h.commonDir)) continue;
+    seen.add(h.commonDir);
+    repos.push(h);
+  }
+  return checkGitHealth(repos, nowMs);
 }
 
 function collector(store: Store, dbPath: string, manifest: Manifest | undefined, manifestError: string | undefined, env: Readonly<Record<string, string | undefined>>, io: CollectorInput) {
@@ -250,6 +268,7 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
       out.push(...checkState(stateProbes(store, dbPath)), ...checkStuckTickets(stuckProbes(store, nowMs)));
       out.push(...(await sandboxOrphanChecks(store, io.manifestPath, manifest, io.listSandboxes)));
       out.push(...(await sandboxBackendChecks('state', io.manifestPath, manifest, io)));
+      out.push(...gitHealthChecks(manifest, io.gitHealth, nowMs));
     }
     if (areas.includes('wiring')) {
       out.push(...checkWiring({ karstCli: env.KARST_CLI ?? process.argv[1], isRunnableJsFile: runnableJs }));
@@ -267,6 +286,7 @@ export async function runDoctorCommand(
   env: Readonly<Record<string, string | undefined>> = process.env,
   listSandboxes: ListSandboxes = listSandboxesNode,
   probe: SandboxProbe = SANDBOX_PROBE_NODE,
+  gitHealth: GitHealthProbe = probes.gitHealthProbe,
 ): Promise<never> {
   const args = parseDoctorArgs(rest);
   let manifest: Manifest | undefined;
@@ -277,7 +297,7 @@ export async function runDoctorCommand(
   }
   const report = await runDoctor({
     areas: args.areas, fix: args.fix,
-    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe }),
+    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth }),
     effects: fixEffects(store),
   });
   throw new DoctorExit(args.json ? JSON.stringify(report) : renderDoctorText(report), report.exitCode);

@@ -7,6 +7,20 @@ import type { Store } from './db.js';
  * A PAUSED ticket (a round that started no session) is a different state from a SPENT budget: a pause costs no
  * attempt and is cleared only by a person (override change, approve-one-more, resume).
  */
+/** v106 (T1019): one row per transient CI re-run. Not part of AUTOPILOT_DDL, whose v100 step already ran on old databases. */
+export const AUTOPILOT_RERUNS_DDL = `
+CREATE TABLE IF NOT EXISTS autopilot_reruns (
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  repo       TEXT NOT NULL,
+  run_id     TEXT NOT NULL,
+  check_name TEXT NOT NULL,
+  head_sha   TEXT NOT NULL,
+  pattern    TEXT NOT NULL,
+  rerun_at   INTEGER NOT NULL,
+  PRIMARY KEY (ticket_id, repo, run_id, check_name)
+);
+`;
+
 export const AUTOPILOT_DDL = `
 CREATE TABLE IF NOT EXISTS autopilot_tickets (
   ticket_id     INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
@@ -221,4 +235,29 @@ export function syncAutopilotSessionOwner(store: Store, windowId: string, ownedT
 export function getAutopilotSessionOwner(store: Store, ticketId: number): string | null {
   const row = store.db.prepare('SELECT session_owner AS owner FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { owner: string | null } | undefined;
   return row?.owner ?? null;
+}
+
+/** A transient CI re-run the engine started (T1019). One per (ticket, repo, run, check): a run id belongs to one head. */
+export interface AutopilotRerun {
+  readonly repo: string;
+  readonly runId: string;
+  readonly checkName: string;
+  readonly headSha: string;
+  readonly pattern: string;
+  readonly rerunAt: number;
+}
+
+/** Record a re-run. False when the row exists (a reload or a second window already re-ran this check): the caller must not re-run. */
+export function markAutopilotRerun(store: Store, ticketId: number, r: AutopilotRerun): boolean {
+  return store.db
+    .prepare('INSERT OR IGNORE INTO autopilot_reruns (ticket_id, repo, run_id, check_name, head_sha, pattern, rerun_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(ticketId, r.repo, r.runId, r.checkName, r.headSha, r.pattern, r.rerunAt).changes === 1;
+}
+
+/** The earlier re-run of this check on this run, or null. */
+export function getAutopilotRerun(store: Store, ticketId: number, repo: string, runId: string, checkName: string): AutopilotRerun | null {
+  const row = store.db
+    .prepare('SELECT repo, run_id AS runId, check_name AS checkName, head_sha AS headSha, pattern, rerun_at AS rerunAt FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ?')
+    .get(ticketId, repo, runId, checkName) as AutopilotRerun | undefined;
+  return row ?? null;
 }

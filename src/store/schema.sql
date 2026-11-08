@@ -1519,6 +1519,18 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   PRIMARY KEY (ticket_id, repo, kind)
 );
 
+-- v106 (T1019): one row per transient CI re-run, so a reload or a second window never re-runs the same check twice.
+CREATE TABLE IF NOT EXISTS autopilot_reruns (
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  repo       TEXT NOT NULL,
+  run_id     TEXT NOT NULL,
+  check_name TEXT NOT NULL,
+  head_sha   TEXT NOT NULL,
+  pattern    TEXT NOT NULL,
+  rerun_at   INTEGER NOT NULL,
+  PRIMARY KEY (ticket_id, repo, run_id, check_name)
+);
+
 -- v102: the written answer to a review stall, per ticket and park (`store/stallSuggestions.ts`).
 CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -1532,7 +1544,7 @@ CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   PRIMARY KEY (ticket_id, park_at)
 );
 
--- v106: the reason an agent gave for why a covered @arch block still holds, one row per ticket and key (`store/archCitations.ts`).
+-- v107: the reason an agent gave for why a covered @arch block still holds, one row per ticket and key (`store/archCitations.ts`).
 CREATE TABLE IF NOT EXISTS arch_citations (
   ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   key        TEXT NOT NULL,

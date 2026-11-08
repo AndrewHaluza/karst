@@ -5,6 +5,7 @@ import { getStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
+import { transientRerunStep, type FailedCheck, type TransientCiSeams } from './autopilotRerun.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
@@ -53,6 +54,10 @@ export interface AutopilotDeps {
   /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
+  /** gh seams of the one re-run of a transient CI failure (T1019). Absent: no re-run, today's rules apply. */
+  readonly transientCi?: TransientCiSeams;
+  /** Clock for the re-run settle time. Default: `Date.now`. */
+  readonly now?: () => number;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
   readonly note: (title: string, body: string) => void;
   /** `[ship] autopilot ...` debug line. */
@@ -64,7 +69,9 @@ export type AutopilotResult =
   | { readonly kind: 'ask'; readonly reason: string }
   | { readonly kind: 'armed'; readonly problem: AutopilotKind; readonly used: number; readonly max: number }
   | { readonly kind: 'parked'; readonly reason: string }
-  | { readonly kind: 'cleared' };
+  | { readonly kind: 'cleared' }
+  /** A transient CI failure was re-run once (T1019); the ticket waits for the result. */
+  | { readonly kind: 'rerun' };
 
 const LOG = '[ship] autopilot';
 
@@ -135,7 +142,7 @@ function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: strin
 /** One failing PR and the signature (its failing check names) its budget counts against. */
 interface BudgetTarget { readonly repo: string; readonly signature: string }
 
-interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly targets: readonly BudgetTarget[]; readonly failing?: readonly string[]; readonly cutShort?: boolean }
+interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly targets: readonly BudgetTarget[]; readonly failing?: readonly string[]; readonly cutShort?: boolean; readonly fails?: readonly FailedCheck[] }
 // `failing` and `cutShort` cover EVERY failing PR (the action sends them all); `repo` and `signature` name the first PR in notes; `targets` holds the budget of EVERY failing PR.
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
@@ -151,7 +158,8 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
   const cutShort = ci.prs.some((p) => (p.failedTotal ?? 0) > p.failing.length);
   const targets = ci.prs.map((p) => ({ repo: p.repo, signature: [...new Set(p.failing.map((f) => f.name))].sort().join('\n') }));
-  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, cutShort };
+  const fails = ci.prs.flatMap((p) => p.failing.map((f) => ({ repo: p.repo, cwd: p.cwd, name: f.name, url: f.url })));
+  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, cutShort, fails };
 }
 
 /** An open PR whose stored CI rollup is missing, unreadable or unknown, or still has pending checks (its failing list is partial). */
@@ -242,8 +250,12 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (problem.cutShort) {
     return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
   }
+  // A network fault is re-run once before any park or CI round (T1019). Sandboxed and graph tickets keep today's rules (D482).
+  const rerun = await transientStep(d, problem);
+  if (rerun.kind === 'result') return rerun.result;
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
-    const reason = `auto-fix not run: ci check ${(problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)'} is not on the allowlist`;
+    const name = (problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
+    const reason = `auto-fix not run: ci check ${name} is not on the allowlist${rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : ''}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
   // A sandboxed ticket, or a placement that cannot be read, gets no round (D482): park, write a note, spend no attempt.
@@ -269,6 +281,21 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   return settleRound(d, { kind: problem.kind, repo: problem.repo, used: budget.used, max: budget.max, action: 'Send CI failure to agent', refundAll }, outcome);
+}
+
+/** The transient re-run step: a result to return, or the checks that were re-run before (for the park reason). */
+async function transientStep(d: AutopilotDeps, problem: Problem): Promise<{ kind: 'result'; result: AutopilotResult } | { kind: 'go'; earlier: ReadonlySet<string> }> {
+  const none = { kind: 'go', earlier: new Set<string>() } as const;
+  if (!d.transientCi || !problem.fails) return none;
+  if (d.isGraphTicket() || !(await d.isHostTicket().catch(() => false))) return none;
+  const step = await transientRerunStep(
+    { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.transientCi, now: d.now ?? Date.now, note: d.note, debug: d.debug },
+    problem.fails,
+  );
+  if (step.kind === 'none') return { kind: 'go', earlier: step.earlier };
+  if (step.kind === 'rerun') return { kind: 'result', result: { kind: 'rerun' } };
+  // An unknown result is never a pass: park as a failed action does.
+  return { kind: 'result', result: park(d, 'ci', `auto-fix stopped: ci could not run (${step.reason})`, `the action failed (${step.reason}); the ticket stays in ship and no attempt was used.`, true) };
 }
 
 /** A sandboxed or graph ticket gets no round (D482): park with a note and spend no attempt. Null when the ticket may run a round. */

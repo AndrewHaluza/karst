@@ -2,13 +2,13 @@ import type { Store } from './db.js';
 import type { ArchCitation } from '../model/archCitations.js';
 
 /**
- * Arch citations (v106, @arch:CLI-22): one row per ticket and arch key, the
+ * Arch citations (v107, @arch:CLI-22): one row per ticket and arch key, the
  * reason an agent gave for why a covered block still holds. Store-only — the same
  * functions serve the extension's better-sqlite3 store and the CLI's node:sqlite
  * shim. Re-citing a key replaces its reason.
  */
 
-/** The DDL schema.sql mirrors for a fresh DB (the v106 migration step execs it). */
+/** The DDL schema.sql mirrors for a fresh DB (the v107 migration step execs it). */
 export const ARCH_CITATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS arch_citations (
   ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,

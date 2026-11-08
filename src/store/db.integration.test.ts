@@ -36,6 +36,7 @@ const EXPECTED_TABLES = [
   'review_stall_suggestions',
   'arch_citations',
   'autopilot_budgets',
+  'autopilot_reruns',
   'cloud_session_links',
   'servers',
   'prs',
@@ -336,7 +337,7 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
-  it('migrates a pre-v106 database by adding the arch_citations table, idempotently', () => {
+  it('migrates a pre-v107 database by adding the arch_citations table, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');

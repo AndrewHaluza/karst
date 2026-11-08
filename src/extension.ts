@@ -1945,6 +1945,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isLive: (id) => sessions.isLive(id), windowId,
     canLaunch: (id) => guardCapability.known('sessions', id),
     takeLaunch: launches.take,
+    gh: defaultGhRunnerAsync,
     isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
     conflictInput: (id, repo) => ({

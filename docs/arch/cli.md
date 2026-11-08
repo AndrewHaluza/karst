@@ -264,7 +264,7 @@ In a planning session (`KARST_PLANNING_SESSION` set) `karst context` still print
 END_DOC_BLOCK: [@arch:CLI-15]
 
 ## [@arch:CLI-16] `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
-covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#parseDoctorArgs, src/doctor/applyFixes.ts#applyFixes
+covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#parseDoctorArgs, src/doctor/applyFixes.ts#applyFixes, src/doctor/gitHealthCheck.ts#checkGitHealth
 
 `karst doctor [--fix] [--area tools|manifest|state|wiring] [--json]`; palette: **Karst: Run Doctor**. On demand ONLY — never on activation or on failure; `reconcile.ts` stays the crash-recovery path.
 
@@ -276,6 +276,8 @@ covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#pars
 - **Destructive fixes re-verify at apply time**: a kill needs the pid's start time ≤ `servers.started_at` + 5 s (pid-reuse guard; the registry stores no command line); a prune needs `git status` clean AND no unpushed commits (no upstream = unknown = skipped), runs `git worktree remove` without `--force`, and only for a `done` ticket.
 - **Stuck tickets are report-only** and exclude ship/awaiting-merge, conflicted merge checks, and open blocking subtasks.
 - **Known gaps (follow-ups):** the stuck threshold (120 min) and WAL limit (64 MB) are constants in `doctorCommand.ts`, not manifest fields; stale-outbox and unrecorded-worktree scans need host-owned directories the CLI cannot enumerate, so they report nothing from the CLI; launcher (#53) and the manifest/setup proposal commands (#55) are not wired — wiring skips the launcher check and manifest fixes are exact commands.
+**Git health** (state area, `doctor/gitHealthCheck.ts`, probe `gitHealthProbe`): per distinct git common dir of the manifest repositories, warn on `objects/maintenance.lock` or `gc.pid` older than 6 h (`STALE_GIT_LOCK_MS`; git never removes them, and a stale lock stops every automatic gc) and on more `.pack` files than `gc.autoPackLimit` (default 50, 0 = off). Report-only: the fix is a consented `rm … && git -C <repo> gc` / `git -C <repo> gc` command; doctor never deletes a lock (it carries no PID).
+
 END_DOC_BLOCK: [@arch:CLI-16]
 
 ## [@arch:CLI-18] `close` / `reopen`: a human-only assertion that a ticket was resolved outside karst
@@ -300,7 +302,7 @@ END_DOC_BLOCK: [@arch:CLI-20]
 ## [@arch:CLI-22] `arch cite`: the agent records why a covered @arch block still holds
 covers: src/cli/archCommand.ts#runArchCommand, src/cli/archCommand.ts#parseArchArgs
 
-`karst arch cite <@arch:KEY> --why <reason>` (`cli/archCommand.ts`, v106) answers a docs-gate BLOCK (@arch:DOC-03) when the diff changes covered code and the block still holds. It is a separate parse path in `main.ts`, like `notes post` (@arch:CLI-02): it accepts only its own flags, produces no `Verdict` and never moves a ticket. It is mirrored as the typed MCP tool `arch`.
+`karst arch cite <@arch:KEY> --why <reason>` (`cli/archCommand.ts`, v107) answers a docs-gate BLOCK (@arch:DOC-03) when the diff changes covered code and the block still holds. It is a separate parse path in `main.ts`, like `notes post` (@arch:CLI-02): it accepts only its own flags, produces no `Verdict` and never moves a ticket. It is mirrored as the typed MCP tool `arch`.
 
 The key must head a keyed block in the `docs/arch` the command finds by walking up from its working directory; an unknown key is refused. The reason is untrusted agent prose: it is trimmed, one line, at most `CITE_REASON_MAX` (200) characters, and refused with a control character (`model/archCitations.ts`). The sender is `--ticket`, cross-checked against the session env's `KARST_TICKET`; the verb REFUSES without it (@arch:CLI-11). The store keeps one row per ticket and key in `arch_citations` (`store/archCitations.ts`); citing a key again replaces its reason.
 

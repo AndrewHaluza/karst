@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
-import { AUTOPILOT_DDL } from './autopilot.js';
+import { AUTOPILOT_DDL, AUTOPILOT_RERUNS_DDL } from './autopilot.js';
 import { STALL_SUGGESTIONS_DDL } from './stallSuggestions.js';
 import { ARCH_CITATIONS_DDL } from './archCitations.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
@@ -2891,7 +2891,12 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 106) {
-    // v106: `arch_citations` — the per-ticket record of why a covered @arch block still holds
+    // v106: `autopilot_reruns` (T1019). Additive; an old db has no re-run marker.
+    db.exec(AUTOPILOT_RERUNS_DDL);
+  }
+
+  if (current < 107) {
+    // v107: `arch_citations` — the per-ticket record of why a covered @arch block still holds
     // (`store/archCitations.ts`, @arch:CLI-22). Additive table; an old db has no citations.
     db.exec(ARCH_CITATIONS_DDL);
   }

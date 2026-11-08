@@ -4,7 +4,7 @@ import { createTicket } from './tickets.js';
 import {
   claimAutopilotTicket,
   decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
-  setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
+  getAutopilotRerun, markAutopilotRerun, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
 describe('decideBudget', () => {
@@ -132,5 +132,21 @@ describe('session owner', () => {
     const { store } = two();
     expect(() => syncAutopilotSessionOwner(store, 'W1', [9999])).not.toThrow();
     expect(getAutopilotSessionOwner(store, 9999)).toBeNull();
+  });
+});
+
+describe('autopilot re-run marker (T1019)', () => {
+  const rerun = { repo: 'api', runId: '42', checkName: 'Visual', headSha: 'abcdef123456', pattern: 'request-timed-out', rerunAt: 1000 };
+
+  it('records a re-run once per (ticket, repo, run, check)', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'R-1', title: 't' }).id;
+    expect(getAutopilotRerun(store, id, 'api', '42', 'Visual')).toBeNull();
+    expect(markAutopilotRerun(store, id, rerun)).toBe(true);
+    expect(markAutopilotRerun(store, id, { ...rerun, rerunAt: 2000 })).toBe(false);
+    expect(getAutopilotRerun(store, id, 'api', '42', 'Visual')).toEqual(rerun);
+    // A new run (a new push) and another check get their own re-run.
+    expect(markAutopilotRerun(store, id, { ...rerun, runId: '43' })).toBe(true);
+    expect(markAutopilotRerun(store, id, { ...rerun, checkName: 'CodeQL' })).toBe(true);
   });
 });
