@@ -56,8 +56,12 @@ describe.skipIf(!enabled)('uat:host:docker', () => {
         ui: { screenshot: string };
       };
       expect(evidence.snapshot.tickets.map((t) => t.key)).toContain('FIX-BLOCKED-s1');
-      // The final `read` step: the panel's last posted message holds the new sub-task title.
-      expect(JSON.stringify(evidence.snapshot.webviews)).toContain('Sample sub-task from a real click');
+      // The UI steps after the create: the new sub-task title must show as added text in the panel, not only in posted messages.
+      const added = [4, 5, 6, 9].flatMap((n) => {
+        const step = JSON.parse(readFileSync(join(out, `step-${String(n).padStart(3, '0')}.json`), 'utf8')) as { ui: { textAdded: string[] } };
+        return step.ui.textAdded;
+      });
+      expect(added.join('\n')).toContain('Sample sub-task from a real click');
       expect(existsSync(join(out, evidence.ui.screenshot))).toBe(true);
     } finally {
       rmSync(out, { recursive: true, force: true });

@@ -9,6 +9,15 @@ export function scriptHasUiStep(json) {
   return Array.isArray(list) && list.some((s) => s !== null && typeof s === 'object' && UI_STEP_TYPES.includes(s.type));
 }
 
+/** The Dockerfile sets this variable. A UI script needs the container, so the debugging port never opens on the operator machine. */
+export const CONTAINER_ENV = 'UAT_HOST_CONTAINER';
+
+/** The reason a UI script cannot run here, or null when it can. */
+export function uiHostRefusal(hasUi, env) {
+  if (!hasUi || env[CONTAINER_ENV] === '1') return null;
+  return 'a UI step needs the Docker harness (npm run -s uat:host:docker): the debugging port must stay inside the container';
+}
+
 /** What a run adds for a UI script: the CDP port flag, the channel env, and whether to start the driver. No UI step adds nothing. */
 export function uiHostPlan(hasUi, socketPath) {
   if (!hasUi) return { enabled: false, launchArgs: [], testsEnv: {} };

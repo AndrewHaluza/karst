@@ -151,15 +151,15 @@ async function quickPickRow(page, label, deadline) {
 }
 
 /** Toasts can cover the target. Record their text, then dismiss them (arch:UATHOST-02); a failed dismiss is evidence, not silence. */
-async function clearToasts(page) {
+async function clearToasts(page, deadline) {
   const toasts = page.locator('.notifications-toasts .notification-toast');
   const texts = (await toasts.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
   let clearError;
-  for (let i = 0; i < 20 && await toasts.count() > 0; i++) {
+  for (let i = 0; i < 20 && Date.now() < deadline && await toasts.count() > 0; i++) {
     try {
       const first = toasts.first();
-      await first.hover({ timeout: 2000 });
-      await first.getByRole('button', { name: /clear notification/i }).first().click({ timeout: 2000 });
+      await first.hover({ timeout: Math.min(2000, Math.max(1, deadline - Date.now())) });
+      await first.getByRole('button', { name: /clear notification/i }).first().click({ timeout: Math.min(2000, Math.max(1, deadline - Date.now())) });
     } catch (err) {
       clearError = String(err.message ?? err).split('\n')[0];
       break;
@@ -173,7 +173,7 @@ async function act(page, step, deadline, evidence) {
   const remaining = () => Math.max(1, deadline - Date.now());
   switch (step.type) {
     case 'click': {
-      const toasts = await clearToasts(page);
+      const toasts = await clearToasts(page, deadline);
       evidence.toasts = toasts.texts;
       if (toasts.clearError) evidence.toastClearError = toasts.clearError;
       const t = step.target;

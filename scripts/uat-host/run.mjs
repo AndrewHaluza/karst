@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveInsideCheckout } from './args.mjs';
-import { UI_CDP_PORT, scriptHasUiStep, uiHostPlan } from './uiScript.mjs';
+import { UI_CDP_PORT, scriptHasUiStep, uiHostPlan, uiHostRefusal } from './uiScript.mjs';
 import { AUTH_MOUNT, evalTestsEnv, preflightEval, readNetworkStatus, runRecord } from './evalMode.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -108,6 +108,11 @@ if (probeScriptPath) {
   try {
     hasUi = scriptHasUiStep(JSON.parse(readFileSync(probeScriptPath, 'utf8')));
   } catch { /* unreadable or bad JSON: the host's parseSteps reports it with the step index */ }
+}
+const uiRefusal = uiHostRefusal(hasUi, process.env);
+if (uiRefusal) {
+  console.error(`uat-host: ${uiRefusal}`);
+  process.exit(2);
 }
 const uiSocketPath = join(tmpdir(), `karst-uat-ui-${process.pid}.sock`);
 const uiPlan = uiHostPlan(hasUi, uiSocketPath);

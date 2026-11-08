@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UI_CDP_PORT, diffLines, scriptHasUiStep, uiHostPlan } from './uiScript.mjs';
+import { UI_CDP_PORT, diffLines, scriptHasUiStep, uiHostPlan, uiHostRefusal } from './uiScript.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -56,5 +56,20 @@ describe('diffLines', () => {
   });
   it('reports nothing for equal text', () => {
     expect(diffLines(['a'], ['a'])).toEqual({ textAdded: [], textRemoved: [] });
+  });
+});
+
+describe('uiHostRefusal: a UI script runs only inside the container', () => {
+  it('refuses a UI script outside the container', () => {
+    expect(uiHostRefusal(true, {})).toMatch(/Docker harness/);
+  });
+  it('allows a UI script inside the container', () => {
+    expect(uiHostRefusal(true, { UAT_HOST_CONTAINER: '1' })).toBeNull();
+  });
+  it('allows a script without a UI step anywhere', () => {
+    expect(uiHostRefusal(false, {})).toBeNull();
+  });
+  it('the Dockerfile sets the variable', () => {
+    expect(readFileSync(join(here, '..', '..', 'docker', 'uat-host', 'Dockerfile'), 'utf8')).toContain('ENV UAT_HOST_CONTAINER=1');
   });
 });
