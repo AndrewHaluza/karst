@@ -260,26 +260,19 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
 
   const EVIDENCE = { file: 'out/**/summary.json', whenChanged: ['src/ui/**'] };
 
-  it('keeps requireEvidence when onSkip is edited, and shows it read-only', () => {
+  it('keeps requireEvidence when onSkip is edited', () => {
     const { probe } = mountQuality(
       stateWith({
         uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none', requireEvidence: EVIDENCE } }),
       }),
     );
-    const shown = field('uatTesterRequireEvidence');
-    expect(shown.readOnly).toBe(true);
-    expect(shown.value).toContain('out/**/summary.json');
+    expect(document.querySelector('[name="uatTesterRequireEvidence"]')).toBeNull();
     fireEvent.change(field('uatTesterOnSkip'), { target: { value: 'reask' } });
     expect(uatOf(probe).testerObservations).toEqual({
       blockingSeverity: 'none',
       onSkip: 'reask',
       requireEvidence: EVIDENCE,
     });
-  });
-
-  it('shows no evidence field when the rule is absent', () => {
-    mountQuality(stateWith({ uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none' } }) }));
-    expect(document.querySelector('[name="uatTesterRequireEvidence"]')).toBeNull();
   });
 
   it('keeps the findings controls live when findings are off', () => {
