@@ -9,7 +9,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun } from '../../store/deliverRuns.js';
-import { deliverBlockedPrompt, deliverToPrAction, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -152,6 +152,64 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
     expect(currentDeliverRun(store, id)?.state).toBe('taken-over');
     const notes = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
     expect(notes).toContain('Autopilot: delivery taken over by a manual Deliver; failed: unit; skipped: visual');
+  });
+});
+
+describe('headShaOf (T1018)', () => {
+  const git = (stdout: string, exitCode = 0) => ({ git: vi.fn(async () => ({ stdout, stderr: '', exitCode })) });
+  it('returns a full sha, trimmed, and asks git for HEAD in the worktree', async () => {
+    const g = git(`${SHA}\n`);
+    expect(await headShaOf(g, '/w/r')).toBe(SHA);
+    expect(g.git).toHaveBeenCalledWith(['rev-parse', 'HEAD'], '/w/r');
+  });
+  it('returns null when git fails, even when it printed a sha', async () => {
+    expect(await headShaOf(git(SHA, 128), '/w/r')).toBeNull();
+  });
+  it('returns null for output that is not a full sha', async () => {
+    expect(await headShaOf(git('abc123'), '/w/r')).toBeNull();
+    expect(await headShaOf(git(`${SHA}x`), '/w/r')).toBeNull();
+    expect(await headShaOf(git(`x${SHA}`), '/w/r')).toBeNull();
+    expect(await headShaOf(git(''), '/w/r')).toBeNull();
+  });
+});
+
+describe('takeover note limits (T1018)', () => {
+  it('clips a long gate list to the bulletin title limit with an ellipsis', async () => {
+    seedPr();
+    const run = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['g'.repeat(200)], pid: 1, now: 'T0' });
+    expect(run).toBeGreaterThan(0);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    const titles = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(titles).toHaveLength(1);
+    expect(titles[0]!).toHaveLength(120);
+    expect(titles[0]!.endsWith('\u2026')).toBe(true);
+  });
+
+  it('uses the ticket id as the key when the ticket has none', async () => {
+    seedPr();
+    store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'x', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    expect(conflictRounds.armed(id)).toBeNull();
   });
 });
 

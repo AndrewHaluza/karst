@@ -138,7 +138,7 @@ export interface DeliverHost {
 }
 
 /** The HEAD sha of a worktree, or null when git cannot read it. */
-async function headShaOf(i: Pick<CiActionsInput, 'git'>, cwd: string): Promise<string | null> {
+export async function headShaOf(i: Pick<CiActionsInput, 'git'>, cwd: string): Promise<string | null> {
   const r = await i.git(['rev-parse', 'HEAD'], cwd);
   const sha = r.stdout.trim();
   return r.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;

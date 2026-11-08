@@ -124,4 +124,39 @@ describe('runShipGates evidence (T1018)', () => {
     await runShipGates([pr], { uat: twoGates, runProcess, onOutput: (g, c) => chunks.push(`${g}:${c.text}`) });
     expect(chunks).toEqual(['unit:line', 'docs:line']);
   });
+
+  it('records nothing and opens no run without an evidence target', async () => {
+    const { store, ticketId, pr } = setup();
+    expect(await runShipGates([pr], { uat: twoGates, runProcess: byCommand({}), headSha: async () => 'a'.repeat(40) })).toBeNull();
+    expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
+  it('opens no run when no repo answers a gate', async () => {
+    const { store, ticketId, pr } = setup();
+    expect(await runShipGates([pr], { uat: undefined, evidence: { store, ticketId } })).toBeNull();
+    expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
+  it('stores a null head when no head reader is given, and the run head comes from the first repo', async () => {
+    const { store, ticketId, pr } = setup();
+    await runShipGates([pr], { uat: twoGates, runProcess: byCommand({}), evidence: { store, ticketId } });
+    expect(currentDeliverRun(store, ticketId)?.headSha).toBeNull();
+    expect(listDeliverResults(store, ticketId).map((r) => r.headSha)).toEqual([null, null]);
+  });
+
+  it('stops after the first failing repo and records only the gates that ran', async () => {
+    const { store, ticketId, pr } = setup();
+    const other = { ...pr, repo: 'r2', cwd: mkdtempSync(join(tmpdir(), 'ship-gates-')) };
+    const out = await runShipGates([pr, other], { uat: twoGates, runProcess: byCommand({ u: 1 }), evidence: { store, ticketId }, headSha: async (cwd) => (cwd === pr.cwd ? 'a'.repeat(40) : 'b'.repeat(40)) });
+    expect(out).toMatch(/^r: gate "unit" failed/);
+    expect(listDeliverResults(store, ticketId).map((r) => [r.repo, r.gateName, r.headSha])).toEqual([['r', 'unit', 'a'.repeat(40)], ['r', 'docs', 'a'.repeat(40)]]);
+  });
+
+  it('keeps no summary for a passing gate and pushes progress at start, at each gate end and at close', async () => {
+    const { store, ticketId, pr } = setup();
+    let pushes = 0;
+    await runShipGates([pr], { uat: twoGates, runProcess: byCommand({}), evidence: { store, ticketId }, onProgress: () => { pushes += 1; } });
+    expect(listDeliverResults(store, ticketId).map((r) => r.summary)).toEqual([null, null]);
+    expect(pushes).toBe(1 + 2 * 2 + 1);
+  });
 });
