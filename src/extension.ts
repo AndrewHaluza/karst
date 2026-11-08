@@ -46,7 +46,7 @@ import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopS
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
-import { sessionReaderEnv } from './agent/accounts/registry.js';
+import { activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
@@ -2618,6 +2618,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
     quota: () => quotaService.snapshots(),
     quotaThresholdPct: quotaWarnThresholdPct,
+    quotaAccountOf: activeAccountLabel,
     logError,
   });
   const quotaStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45);
@@ -2631,6 +2632,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     service: quotaService,
     thresholdPct: () => currentManifest()?.quota?.warnThresholdPct,
     coreLabel: (core) => AGENT_PROVIDER_LABELS[core] ?? core,
+    accountOf: activeAccountLabel,
     status: {
       set: (text, tooltip, warning) => {
         quotaStatus.text = text;

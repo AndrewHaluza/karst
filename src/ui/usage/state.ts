@@ -15,7 +15,7 @@ import {
 import { aiCallSiteLabel } from '../../agent/aiCallSites.js';
 import { formatExactTokens, formatTokens, shareOfTotal } from '../../model/tokenFormat.js';
 import { formatId } from '../../model/entityId.js';
-import { buildQuotaView, type QuotaView } from './quotaState.js';
+import { buildQuotaView, type AccountOf, type QuotaView } from './quotaState.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../manifest/validate/quota.js';
 
@@ -143,6 +143,8 @@ export interface UsageStateInput {
   quota?: readonly QuotaSnapshot[];
   /** The manifest's warn threshold; absent = the loader default. */
   quotaThresholdPct?: number;
+  /** Active account name of a core when not 'default'. */
+  quotaAccountOf?: AccountOf;
   /** Injected clock — the rolling ranges are relative to it. */
   now?: () => Date;
 }
@@ -293,7 +295,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   const tab = input.tab ?? 'spend';
   const now = input.now?.() ?? new Date();
   const thresholdPct = input.quotaThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
-  const quota = buildQuotaView(input.quota ?? [], thresholdPct, now);
+  const quota = buildQuotaView(input.quota ?? [], thresholdPct, now, input.quotaAccountOf);
 
   const parsed = parseUsageQuery({
     ...(input.projectId != null ? { projectId: input.projectId } : {}),

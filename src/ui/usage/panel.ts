@@ -2,6 +2,7 @@ import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { Store } from '../../store/db.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildUsageState, type UsageState, type UsageTab } from './state.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import {
   parseUsageMessage,
@@ -51,6 +52,8 @@ export interface UsagePanelDeps {
   quota?: () => readonly QuotaSnapshot[];
   /** The manifest's quota warn threshold. */
   quotaThresholdPct?: () => number;
+  /** Active account name of a core when not 'default' (the quota tab shows it). */
+  quotaAccountOf?: (core: AgentProvider) => string | undefined;
   logError?: LogError;
   /** Injected clock; the rolling ranges are relative to it. */
   now?: () => Date;
@@ -122,6 +125,7 @@ export class UsagePanelManager {
       offset: this.offset,
       limit: DEFAULT_USAGE_LIMIT,
       quota: this.deps.quota?.() ?? [],
+      ...(this.deps.quotaAccountOf ? { quotaAccountOf: this.deps.quotaAccountOf } : {}),
       ...(this.deps.quotaThresholdPct ? { quotaThresholdPct: this.deps.quotaThresholdPct() } : {}),
       ...(this.deps.now ? { now: this.deps.now } : {}),
     });
