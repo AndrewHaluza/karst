@@ -1,0 +1,13 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "command", "command": "karst.openDashboard", "args": [1] },
+    { "type": "read" },
+    { "type": "click", "target": { "act": "create-subtask" } },
+    { "type": "type", "text": "Sample sub-task from a real click", "target": { "quickInput": true }, "submit": true },
+    { "type": "click", "target": { "quickPick": "Non-blocking" } },
+    { "type": "wait", "for": { "notification": "Created sub-task" }, "timeoutMs": 15000 },
+    { "type": "snapshot", "label": "after-create" },
+    { "type": "read" }
+  ]
+}

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FIXTURE_NAMES } from './fixtures.js';
@@ -36,6 +36,35 @@ describe.skipIf(!enabled)('uat:host:docker', () => {
       for (const i of [0, 1, 2]) expect(run.stdout).toContain(`uat-probe: step ${i}`);
       const snap = JSON.parse(readFileSync(join(out, 'step-002.json'), 'utf8')) as { snapshot: { tickets: Array<{ key: string }> } };
       expect(snap.snapshot.tickets.map((t) => t.key)).toEqual(['FIX-MID']);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 900_000);
+
+  it('runs a UI sample: real clicks create a sub-task and the evidence shows it', () => {
+    mkdirSync(join(process.cwd(), 'reports'), { recursive: true });
+    const out = mkdtempSync(join(process.cwd(), 'reports', 'uat-probe-ui-'));
+    try {
+      const run = spawnSync(
+        'npm',
+        ['run', '-s', 'uat:host:docker', '--', '--fixture', 'blocked', '--script', 'scripts/uat-host/samples/ui-subtask.json', '--out', relative(process.cwd(), out)],
+        { encoding: 'utf8' },
+      );
+      expect(run.status, run.stdout + run.stderr).toBe(0);
+      const evidence = JSON.parse(readFileSync(join(out, 'step-008.json'), 'utf8')) as {
+        snapshot: { tickets: Array<{ key: string }>; webviews: unknown };
+        ui: { screenshot: string };
+      };
+      expect(evidence.snapshot.tickets.map((t) => t.key)).toContain('FIX-BLOCKED-s1');
+      // The UI steps after the create: the new sub-task title must show as added text in the panel, not only in posted messages.
+      const added = [3, 4, 5, 8].flatMap((n) => {
+        const step = JSON.parse(readFileSync(join(out, `step-${String(n).padStart(3, '0')}.json`), 'utf8')) as { ui: { textAdded: string[] } };
+        return step.ui.textAdded;
+      });
+      expect(added.join('\n')).toContain('Sample sub-task from a real click');
+      const finalRead = JSON.parse(readFileSync(join(out, 'step-008.json'), 'utf8')) as { ui: { text: string[] } };
+      expect(finalRead.ui.text.join('\n')).toContain('Sample sub-task from a real click');
+      expect(existsSync(join(out, evidence.ui.screenshot))).toBe(true);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
