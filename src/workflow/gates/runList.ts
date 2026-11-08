@@ -79,7 +79,7 @@ export interface RunGatesOptions {
    * Called with a gate's name and the pid of each process it spawns; the
    * returned disposer runs when that process settles. Absent → unregistered.
    */
-  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
+  onGateSpawned?: (gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Whether the base branch's package.json defines `script` (rebase target of a
    * stale ticket branch). Absent → the branch is never treated as stale.
@@ -181,7 +181,7 @@ export async function runGateList(
       signal: opts.signal,
       onDebug,
       onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
-      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid) : undefined,
+      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
     // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).

@@ -330,6 +330,7 @@ import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
+import { bindGateRuns, type GateRunsBinding } from './extension/ops/gateRunsOps.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
@@ -876,6 +877,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // hook reads it (a closure running at remember/forget time, long after the
   // monitor is constructed below); assigned where the monitor is built.
   let resourceMonitor: ResourceMonitor | undefined;
+  const gateRuns = bindGateRuns({ debug: (m) => logger.debug(m), info: (m) => logger.info(m), error: logError });
+  gateRunsBinding = gateRuns;
   const terminalIdentity = makeTerminalIdentityRegistry(
     parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
     (records) => void terminalRecordWriter.enqueue(records),
@@ -3537,8 +3540,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           onGateOutput: (id, stage, gateName, chunk) =>
             gateConsole.append(id, stage, gateName, chunk),
           // Gate processes join the live-pid registry for their lifetime (every outcome).
-          onGateSpawned: (id, gateName, pid) =>
-            resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName }),
+          onGateSpawned: (id, gateName, pid, gateCwd) =>
+            gateRuns.spawned({ ticketId: id, gateName, pid, cwd: gateCwd }, () =>
+              resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
@@ -5901,6 +5905,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   })();
 
+  // Gate process groups a dead host left behind (arch:GATE-ORPHANS): killed only on a
+  // matching leader start time and a cwd inside a `.karst/worktrees/` directory.
+  void gateRuns.reapOrphans();
+
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
@@ -7239,8 +7247,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 }
 
+let gateRunsBinding: GateRunsBinding | undefined;
+
 export async function deactivate(): Promise<void> {
   const cleanupErrors: unknown[] = [];
+  // Sync and first: a reload leaves no gate group (arch:GATE-ORPHANS).
+  try { gateRunsBinding?.registry.killAll(); } catch (error) { cleanupErrors.push(error); }
+  gateRunsBinding = undefined;
   try {
     await cancelAllNpmCommands();
   } catch (error) {
