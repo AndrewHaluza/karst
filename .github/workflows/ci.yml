@@ -211,7 +211,7 @@ jobs:
 
       # Check if any files that can affect the mutation score changed.
       # Extension tests import widely from across src/** (store, agent, workflow, etc.),
-      # and build/test config changes (.nvmrc, package.json, vitest/stryker configs)
+      # and build/test config changes (.nvmrc, package.json, vitest/stryker configs, runtime assets)
       # can alter mutant execution or detection. We fail closed: if git fails,
       # run Stryker. We only skip when changes are strictly outside mutation inputs.
       - name: Check if mutation-relevant files changed
@@ -224,7 +224,11 @@ jobs:
           if ! git fetch --no-tags origin "$BASE_REF"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "git fetch failed; running Stryker (fail-closed)."
-          elif ! CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+          elif ! git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "git diff failed; running Stryker (fail-closed)."
+          else
+            CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
               'src/**' \
               'scripts/**' \
               'package*.json' \
@@ -232,11 +236,9 @@ jobs:
               'tsconfig*.json' \
               'stryker.config.json' \
               'vitest*.config.ts' \
-              '.github/workflows/ci.yml'); then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "git diff failed; running Stryker (fail-closed)."
-          else
-            git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+              'karst.*.yml' \
+              'karst.*.md' \
+              '.github/workflows/ci.yml')
             if [ -z "$CHANGED" ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "No mutation inputs or source code touched in this PR; skipping Stryker."
@@ -306,7 +308,17 @@ jobs:
           {
             echo "## Mutation score"
             echo
-            echo "⏭️ Skipped (no mutation inputs changed: \`src/**\`, \`scripts/**\`, \`package*.json\`, \`.nvmrc\`, \`tsconfig*.json\`, \`stryker.config.json\`, \`vitest*.config.ts\`, \`.github/workflows/ci.yml\`)."
+            echo "⏭️ Skipped (no mutation inputs changed: \`src/**\`, \`scripts/**\`, \`package*.json\`, \`.nvmrc\`, \`tsconfig*.json\`, \`stryker.config.json\`, \`vitest*.config.ts\`, \`karst.*.yml\`, \`karst.*.md\`, \`.github/workflows/ci.yml\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Warn on develop mutation score drop
+        if: always() && github.event_name == 'push' && steps.stryker.outcome == 'failure'
+        run: |
+          echo "::warning::Mutation score on develop is below thresholds.break (85)."
+          {
+            echo "## Mutation score (develop)"
+            echo
+            echo "⚠️ Mutation score on develop is below thresholds.break (85)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the HTML report
