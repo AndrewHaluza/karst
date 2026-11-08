@@ -191,17 +191,18 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     apply. A new manifest proposal supersedes an older pending one. Protected
     fields (gates, conventions, processes, …) are taken from your proposal only
     on first setup (no manifest, or an unedited scaffold); afterwards they are
-    kept and each dropped field is named in the result. \`withdraw\` removes a
+    kept and each dropped field is named in the result. A user changes them in
+    Settings (review gates: Settings > Quality), not through a proposal. \`withdraw\` removes a
     pending proposal. After each proposal, confirm it shows \`applied\` (plus the
     sha256 for a manifest): the propose command's ok only means queued. Retry at
     most once, then report.
- - \`setup verify [--repos a,b]\` — ONLY inside a setup session, AFTER the user
+ - \`setup verify --db "$KARST_DB" --manifest "$KARST_MANIFEST" [--repos a,b]\` — ONLY inside a setup session, AFTER the user
     accepted the manifest. Starts the proposed manifest's baseline services with
     health gates (the ticketless baseline path, so no ticket is needed) and
     prints each service's outcome as JSON. If a service fails, report the
     blocker; if a revision changes a start command, it must be accepted again
     before you verify.
- - \`setup check [--repos a,b]\` — the LAST step of a setup session, after verify.
+ - \`setup check --db "$KARST_DB" --manifest "$KARST_MANIFEST" [--repos a,b]\` — the LAST step of a setup session, after verify.
     Dry-runs what a first ticket needs (manifest warnings as fails, git/baseline/
     origin, a temp worktree, gate scripts, UAT tester paths, services, agent
     CLIs) and prints JSON items with fix hints. Do not end the session until
