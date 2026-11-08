@@ -866,7 +866,8 @@ export async function runUatTester(
   opts: RunUatTesterOpts,
   deps: TesterDeps = {},
 ): Promise<TesterRunResult> {
-  const first = await runTesterOnce(store, opts, deps);
+  const canReask = (opts.onSkip ?? 'pass') !== 'pass';
+  const first = await runTesterOnce(store, opts, deps, canReask);
   if (first.result.kind !== 'skipped' || (opts.onSkip ?? 'pass') === 'pass') return first.result;
   // A skipped run means EVERY target observed nothing, so every target is re-asked
   // — exactly once; the second run's result replaces the first's.
@@ -876,6 +877,7 @@ export async function runUatTester(
       store,
       { ...opts, reaskTitles: first.skippedTitles, reaskEvidence: first.evidenceMissing },
       deps,
+      false,
     )
   ).result;
 }
@@ -884,6 +886,7 @@ async function runTesterOnce(
   store: Store,
   opts: RunUatTesterOpts,
   deps: TesterDeps,
+  canReask: boolean,
 ): Promise<{
   result: TesterRunResult;
   skippedTitles: Record<string, string>;
@@ -891,7 +894,7 @@ async function runTesterOnce(
 }> {
   const skippedTitles: Record<string, string> = {};
   const evidenceMissing: Record<string, string> = {};
-  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing);
+  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing, canReask);
   return { result, skippedTitles, evidenceMissing };
 }
 
@@ -901,6 +904,7 @@ async function runTesterBody(
   deps: TesterDeps,
   skippedTitles: Record<string, string>,
   evidenceMissing: Record<string, string>,
+  canReask: boolean,
 ): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
   const coreHint = testerCoreHint(opts.assignment.provider);
@@ -1270,6 +1274,8 @@ async function runTesterBody(
       if (keptCoverage && observedNothing(keptCoverage.title, keptRest.length) && !stopped) {
         skippedTitles[target.repo] = keptCoverage.title;
       }
+      // Evidence is a property of the worktree: targets that share one (monorepo
+      // `repoPath`) share the verdict, so one probe run covers them all.
       if (!stopped && !partial && opts.requireEvidence !== undefined && opts.git) {
         const evidence = await checkProbeEvidence({
           rule: opts.requireEvidence,
@@ -1364,17 +1370,22 @@ async function runTesterBody(
       )
       .slice(0, cap)
       .map(({ finding }) => finding);
-    const findingIds = recordUatFindings(store, {
-      ticketId: opts.ticketId,
-      processRunId: run.id,
-      // Coverage rides after the cap (never truncated, never counted below).
-      findings: [...observations, ...coverageRecords],
-      createdAt: now(),
-    });
     // Counted over the FINAL capped list, never over `collected` — an
     // observation the cap truncated away was not recorded and must not block.
     const threshold = opts.observationsBlockingSeverity ?? 'none';
     const { blocking, blockingSummary } = countBlockingObservations(observations, threshold);
+    const askedRepos = targetOutcomes.length;
+    const missingRepos = Object.keys(evidenceMissing);
+    // A missing-evidence skip that a re-ask will replace keeps no observations: the
+    // re-ask records its own, so the first set would show twice. Coverage still rides.
+    const replacedByReask = canReask && !partial && askedRepos > 0 && missingRepos.length === askedRepos && blocking === 0;
+    const findingIds = recordUatFindings(store, {
+      ticketId: opts.ticketId,
+      processRunId: run.id,
+      // Coverage rides after the cap (never truncated, never counted below).
+      findings: [...(replacedByReask ? [] : observations), ...coverageRecords],
+      createdAt: now(),
+    });
     if (partial) {
       // A run the budget stopped is recorded as `partial`, never `observed`: it
       // must not read as a clean pass even when the wrap-up recovered nothing.
@@ -1389,14 +1400,12 @@ async function runTesterBody(
         : { kind: 'partial', findingIds, blocking, blockingSummary, detail };
     }
     const skippedRepos = Object.keys(skippedTitles);
-    const askedRepos = targetOutcomes.length;
-    const missingRepos = Object.keys(evidenceMissing);
     const nothingRepos = new Set([...skippedRepos, ...missingRepos]);
     // A target with no evidence observed nothing even when it reported findings;
     // a coverage skip observed nothing only when it kept no observation.
     const allNothing = askedRepos > 0 && nothingRepos.size === askedRepos;
     // Missing evidence never hides a blocking observation: `skipped` carries no blocking count.
-    if (allNothing && (observations.length === 0 || (missingRepos.length === askedRepos && blocking === 0))) {
+    if (allNothing && (observations.length === 0 || replacedByReask || (missingRepos.length === askedRepos && blocking === 0))) {
       const firstMissing = missingRepos[0];
       const detail =
         firstMissing !== undefined

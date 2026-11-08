@@ -4,6 +4,7 @@ import { createTicketFlow } from '../stages/create.js';
 import { transition } from '../machine.js';
 import { runUatTester, type RunUatTesterOpts, type TesterTarget } from './tester.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listUatFindings } from '../../store/uatFindings.js';
 import { checkProbeEvidence, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -205,6 +206,13 @@ describe('runUatTester — requireEvidence', () => {
       ['passed', 'skipped'],
       ['passed', 'skipped'],
     ]);
+  });
+
+  it('a skip for missing evidence records the non-blocking observations once, not once per run', async () => {
+    const { adapter } = scripted([pass]);
+    await runUatTester(store, opts(adapter, { onSkip: 'reask' }), { now, ...none });
+    const nits = listUatFindings(store, ticketId).filter((f) => f.title === 'nit');
+    expect(nits).toHaveLength(1);
   });
 
   it('the re-ask quotes both the coverage skip and the missing evidence', async () => {
