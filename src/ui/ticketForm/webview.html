@@ -939,12 +939,45 @@
       'duplicate-of': 'Duplicate of',
       'duplicated-by': 'Duplicated by',
     };
-    el('dependenciesList').innerHTML = rels.map((r) => {
-      const kind = esc(r.kindLabel || RELATION_LABEL[r.kind] || r.kind);
-      const chip = r.refHtml || (r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${esc(r.ticketId)}">${esc(r.label)}</a>` : esc(r.label));
-      const err = r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${esc(r.id)}">Retry</button>` : '';
-      return `<div>${kind}: ${chip}${err}</div>`;
-    }).join('');
+    const list = el('dependenciesList');
+    list.textContent = '';
+    for (const r of rels) {
+      const row = document.createElement('div');
+      const kind = r.kindLabel || RELATION_LABEL[r.kind] || r.kind;
+      row.appendChild(document.createTextNode(`${kind}: `));
+
+      if (r.refHtml) {
+        const wrap = document.createElement('span');
+        wrap.innerHTML = r.refHtml;
+        while (wrap.firstChild) row.appendChild(wrap.firstChild);
+      } else if (r.ticketId) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.setAttribute('data-act', 'open-dependency');
+        a.setAttribute('data-id', String(r.ticketId));
+        a.textContent = r.label;
+        row.appendChild(a);
+      } else {
+        row.appendChild(document.createTextNode(r.label));
+      }
+
+      if (r.writebackError) {
+        const errSpan = document.createElement('span');
+        errSpan.className = 'error';
+        errSpan.textContent = r.writebackError;
+        row.appendChild(errSpan);
+
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'k-btn k-btn--ghost k-btn--sm';
+        retryBtn.setAttribute('data-act', 'retry-writeback');
+        retryBtn.setAttribute('data-id', String(r.id));
+        retryBtn.textContent = 'Retry';
+        row.appendChild(retryBtn);
+      }
+
+      list.appendChild(row);
+    }
 
     const dc = state.designConstraints;
     el('designConstraintsCard').hidden = !dc;
