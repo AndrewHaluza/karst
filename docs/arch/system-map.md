@@ -463,6 +463,7 @@ erDiagram
   approach_node_runs
   approach_planner_runs
   approach_resource_leases
+  arch_citations
   autopilot_budgets
   autopilot_reruns
   autopilot_tickets
@@ -529,6 +530,7 @@ erDiagram
   process_runs ||--o{ approach_planner_runs : process_run_id
   approach_graph_runs ||--o{ approach_resource_leases : graph_run_id
   approach_node_runs ||--o{ approach_resource_leases : owner_node_run_id
+  tickets ||--o{ arch_citations : ticket_id
   tickets ||--o{ autopilot_budgets : ticket_id
   tickets ||--o{ autopilot_reruns : ticket_id
   tickets ||--o{ autopilot_tickets : ticket_id
