@@ -2439,7 +2439,27 @@ describe("gates process lists resolved gates while the stage runs", () => {
       ["build", "pending"],
     ]);
     expect(rowsOf(view)[0]!.detail).toBe("running…");
-    expect(view.detail).toBe("0/3 command gates passed so far");
+    expect(view.detail).toBe("0/4 command gates passed so far");
+  });
+
+  it("mid-list with disabled gates: the total counts every resolved gate", () => {
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell("uat", "running"),
+        resolvedGates: [
+          { name: "a", disabled: true },
+          { name: "b", disabled: true },
+          { name: "c", disabled: false },
+          { name: "d", disabled: false },
+          { name: "e", disabled: false },
+          { name: "f", disabled: false },
+          { name: "g", disabled: false },
+        ],
+        gateRuns: [run("uat", "c", 0, { runAt: NOW })],
+      }),
+    )[0]!;
+    expect(view.detail).toBe("1/7 command gates passed so far");
+    expect(view.count).toBe("1/7");
   });
 
   it("mid-list: recorded rows win, next unrecorded gate runs, counts stay recorded-only", () => {
