@@ -62,7 +62,7 @@ const localSbx: SbxProcess = {
   run: (command, args, opts) => {
     const argv = command === 'sbx' ? args.slice(args.indexOf('--') + 1) : args;
     const bin = command === 'sbx' ? argv[0]! : command;
-    const r = spawnSync(bin, command === 'sbx' ? argv.slice(1) : [...argv], { cwd: opts?.cwd, encoding: 'utf8', env: { ...process.env, ...opts?.env } });
+    const r = spawnSync(bin, command === 'sbx' ? argv.slice(1) : [...argv], { cwd: opts?.cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...opts?.env } });
     return Promise.resolve<ProcessResult>({ code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr });
   },
 };
@@ -94,6 +94,19 @@ describe('a repeated sandbox sync adds a small pack, not a copy of the history',
     const tip = git(clone, 'rev-parse', 'HEAD').trim();
     git(clone, 'update-ref', 'refs/heads/other', tip);
     agentCommit(clone, 2);
+    const before = dirBytes(join(wt, '.git', 'objects'));
+    await runner.sync!({ hostWorktreePath: wt, branch: BRANCH });
+    const grown = dirBytes(join(wt, '.git', 'objects')) - before;
+    expect(grown).toBeLessThan(historyBytes / 20);
+  });
+
+  it('sbx: the FIRST sync after a host-only commit is thin through a sampled ancestor', async () => {
+    const { wt, clone, historyBytes } = makeHost('sbxfirst');
+    const runner = createSbxSessionRunner({ proc: localSbx, core: 'claude', name: 'karst-ab12cd34-9-claude', existing: [], cloneDir: clone });
+    writeFileSync(join(wt, 'host.txt'), 'host\n');
+    git(wt, 'add', '-A');
+    git(wt, ...ID, 'commit', '-q', '-m', 'host only');
+    agentCommit(clone, 1);
     const before = dirBytes(join(wt, '.git', 'objects'));
     await runner.sync!({ hostWorktreePath: wt, branch: BRANCH });
     const grown = dirBytes(join(wt, '.git', 'objects')) - before;

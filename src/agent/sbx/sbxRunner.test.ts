@@ -116,9 +116,10 @@ describe('createSbxSessionRunner.sync', () => {
     const [head, ...rest] = proc.calls.map(text);
     expect(head).toBe(`${G} rev-parse HEAD`);
     expect(rest[0]).toBe(`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`);
-    const lines = rest.slice(1);
+    expect(rest[1]).toBe(`${G} rev-list --first-parent --max-count=1025 HEAD`);
+    const lines = rest.slice(2);
     expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x ${SHA}$`));
-    expect(proc.calls[2]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+    expect(proc.calls[3]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
     expect(lines[1]).toMatch(new RegExp(`^${G} fetch --no-write-fetch-head \\S+/out\\.bundle \\+refs/heads/feat/x:refs/karst/sandbox/feat/x$`));
     expect(lines.slice(2)).toEqual([`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`, `${G} merge-base --is-ancestor HEAD ${SHA}`, `${G} merge --ff-only ${SHA}`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
