@@ -685,7 +685,15 @@ function gatesProcess(
   const enabledResolved = resolved.filter((g) => !g.disabled).length;
   let detail: string | undefined;
   let count: string | undefined;
-  if (batch.length > 0 && failed === 0 && answered > 0) {
+  // While gates are in flight and none failed, the total is every resolved gate
+  // (recorded rows plus the unrecorded ones, disabled included) so it stays
+  // stable for the whole run instead of growing as each row lands.
+  const inFlightTotal = batch.length + waitingRows.length;
+  const hasUnrecorded = waitingRows.length > 0 && (batch.length > 0 || enabledResolved > 0);
+  if (liveGates && failed === 0 && hasUnrecorded) {
+    detail = `${answered}/${inFlightTotal} command gates passed so far`;
+    count = `${answered}/${inFlightTotal}`;
+  } else if (batch.length > 0 && failed === 0 && answered > 0) {
     detail = `${answered}/${batch.length} command gates passed`;
     count = answered === batch.length ? String(batch.length) : `${answered}/${batch.length}`;
   } else if (failed > 0 && firstFailed) {
@@ -697,8 +705,6 @@ function gatesProcess(
     // run rather than as a promise of more gates.
     detail = `${answered}/${batch.length} command gates passed so far`;
     count = `${answered}/${batch.length}`;
-  } else if (liveGates && batch.length === 0 && enabledResolved > 0) {
-    detail = `0/${enabledResolved} command gates passed so far`;
   } else if (bypassed && batch.length > 0) {
     // A bypassed stage is never green: every gate was withdrawn by the user, so
     // the row states the skip plainly instead of the generic nothing-to-run.

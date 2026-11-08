@@ -2093,6 +2093,31 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(uat.live).toMatchObject({ status: 'run', label: 'Tester' });
   });
 
+  it('the live header never copies the active row text (the row is the ledger of record)', () => {
+    const ticketId = ticketAt('uat');
+    setStage(store, ticketId, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    const gates = uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.detail).toBeTruthy();
+    expect(uat.live).toMatchObject({ status: 'run', label: 'Gates' });
+    expect(uat.live).not.toHaveProperty('detail');
+  });
+
   it('omits the live line for a stage with nothing running or waiting', () => {
     const ticketId = ticketAt('impl');
     setStage(store, ticketId, 'impl', { status: 'passed' });

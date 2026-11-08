@@ -332,8 +332,9 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
  * running process, else the first waiting one. Nothing here is new information
  * — every field comes from a row already in the ledger below — which is what
  * makes it safe as the header's fallback when no ephemeral progress event has
- * arrived (a reopened panel, a window that missed the events). A settled stage
- * has no live line at all.
+ * arrived (a reopened panel, a window that missed the events). It carries no
+ * `detail`: the row below already shows that text, and the header must not
+ * become a second process row. A settled stage has no live line at all.
  */
 function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | undefined {
   const active =
@@ -342,7 +343,6 @@ function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | unde
   return {
     status: active.status === 'run' ? 'run' : 'wait',
     label: active.label,
-    ...(active.detail ? { detail: active.detail } : {}),
     ...(active.duration ? { duration: active.duration } : {}),
   };
 }

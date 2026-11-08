@@ -851,8 +851,8 @@ export function gatesRunningMidListFixture(): InsideRenderFixture {
           kind: 'gates',
           label: 'Gates',
           status: 'run',
-          detail: '2/2 command gates passed so far',
-          count: '2/2',
+          detail: '2/4 command gates passed so far',
+          count: '2/4',
           evidence: {
             kind: 'gates',
             rows: [
