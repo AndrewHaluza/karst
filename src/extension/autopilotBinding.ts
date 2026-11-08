@@ -2,12 +2,12 @@ import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { getTicket } from '../store/tickets.js';
 import type { AutostartCaps } from '../workflow/subtaskAutostart.js';
-import { autopilotSweep, ciOutcome, conflictOutcome } from './ops/autopilotWiring.js';
+import { autopilotSweep, ciOutcome, conflictOutcome, postAutopilotNote } from './ops/autopilotWiring.js';
 import type { ResolveConflictInput } from './ops/conflictResolveOps.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwner } from '../store/autopilot.js';
-import type { FixOutcome } from './ops/autopilotOps.js';
+import { roundDied, type FixOutcome, type Placement } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
@@ -15,15 +15,19 @@ import { makeTransientCiSeams } from '../integrations/ciRerun.js';
 
 /** Tracks the session launch a hand-off started, so autopilot can read a failed launch as a failed round instead of a sent one. */
 export function makeLaunchTracker(
-  execute: (ticketId: number, options: { seedPrompt: string; seedRepo: string }) => Promise<SessionOutcome | undefined>,
+  execute: (ticketId: number, options: { seedPrompt: string; seedRepo: string; failClosed?: true }) => Promise<SessionOutcome | undefined>,
 ): {
   open(ticketId: number, seedPrompt: string, seedRepo: string): void;
   take(ticketId: number): Promise<SessionOutcome | undefined> | undefined;
+  /** While on, a launch opened for the ticket is an Autopilot round: it never falls back to the host (arch:AC-31). */
+  markRound(ticketId: number, on: boolean): void;
 } {
   const pending = new Map<number, Promise<SessionOutcome | undefined>>();
+  const rounds = new Set<number>();
   return {
+    markRound: (ticketId, on) => { if (on) rounds.add(ticketId); else rounds.delete(ticketId); },
     open: (ticketId, seedPrompt, seedRepo) => {
-      pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
+      pending.set(ticketId, execute(ticketId, { seedPrompt, seedRepo, ...(rounds.has(ticketId) ? { failClosed: true as const } : {}) }).catch((err: unknown): SessionOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) })));
     },
     take: (ticketId) => { const p = pending.get(ticketId); pending.delete(ticketId); return p; },
   };
@@ -53,13 +57,17 @@ export function makeSessionOwnerSync(
 }
 
 /**
- * A ticket is a host ticket only when its recorded placement says so (D482). A sandbox placement, and a ticket with no
- * recorded placement, get no round: a sandbox that is not listed (stopped, CLI down) must not read as a host.
+ * Where a ticket runs, from its recorded placement (arch:AC-43). A ticket with no recorded placement rejects: a sandbox
+ * that is not listed (stopped, CLI down) must not read as a host, so the engine parks instead of guessing.
  */
-export function makeHostTicketCheck(
+export function makePlacementCheck(
   placementOf: (ticketId: number) => { readonly backend: string } | null,
-): (ticketId: number) => Promise<boolean> {
-  return async (id) => placementOf(id)?.backend === 'host';
+): (ticketId: number) => Promise<Placement> {
+  return async (id) => {
+    const recorded = placementOf(id);
+    if (recorded === null) throw new Error('no placement is recorded for the ticket');
+    return recorded.backend === 'host' ? 'host' : 'sandbox';
+  };
 }
 
 /** Stop now: only the window that holds the session can end it. Another window reports that the stop did not reach it. */
@@ -72,6 +80,21 @@ export function makeStopSession(d: {
     if (!d.isLive(id)) { d.debug(`[ship] autopilot ticket ${id}: stop now did not reach a session (this window does not hold it)`); return false; }
     await d.stop(id);
     return true;
+  };
+}
+
+/**
+ * The pre-hand-off check of a sandboxed round: the pre-round two-way sync (a dirty or diverged clone blocks, arch:AC-46),
+ * then the recorded dependency setup (a failed setup blocks, arch:AC-47). Returns the blocker reason, or null.
+ */
+export function makeSandboxPreflight(h: {
+  ensureInSync: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  setupFailure: (ticketId: number) => Promise<string | null>;
+}): (ticketId: number) => Promise<string | null> {
+  return async (id) => {
+    const synced = await h.ensureInSync(id);
+    if (!synced.ok) return synced.reason;
+    return h.setupFailure(id);
   };
 }
 
@@ -102,8 +125,12 @@ export interface AutopilotBindingDeps {
   readonly dropConflictRound: (ticketId: number) => void;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
-  /** The ticket runs on the host (no sandbox, placement readable). */
-  readonly isHostTicket: (ticketId: number) => Promise<boolean>;
+  /** Host or sandbox, from the recorded placement; rejects when none is recorded. */
+  readonly placement: (ticketId: number) => Promise<Placement>;
+  /** Sandbox tickets: the blocker reason before a hand-off (clone sync, dependency setup), or null. */
+  readonly sandboxPreflight?: (ticketId: number) => Promise<string | null>;
+  /** Marks the ticket's next launches as Autopilot rounds (fail closed). Default: no mark. */
+  readonly markRound?: (ticketId: number, on: boolean) => void;
   /** The gh runner of the one re-run of a transient CI failure (T1019). Absent: no re-run. */
   readonly gh?: GhRunner;
 }
@@ -112,7 +139,11 @@ export interface AutopilotBindingDeps {
  * Start the autopilot sweep. This window controls a ticket when it holds the session, or when the store shows that no
  * window holds one. When the holder is not known, no round starts (a closed terminal also sets agent_state 'idle').
  */
-export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
+export function startAutopilot(d: AutopilotBindingDeps): {
+  dispose(): void;
+  /** A round's session died right after launch (reported by the launch-failure path): undo the round, pause, no retry. */
+  roundDied(ticketId: number, detail: string): void;
+} {
   const now = d.now ?? Date.now;
   const owner = d.windowId;
   // A live session whose agent runs, or waits on a permission prompt or a question, is in use: no round. An open terminal
@@ -162,8 +193,15 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
     const result = await outcome();
     if (result.kind !== 'sent') { abandonRound(id); return result; }
     const failure = await launchFailure(id);
-    // The CI hand-off already moved the ticket to Implement: the cooldown stays, the engine pauses with a visible reason.
-    return failure !== null ? { kind: 'failed', reason: `session launch failed: ${failure}` } : result;
+    if (failure === null) return result;
+    // A launch that failed for a sandboxed ticket (read-only sandbox, setup failure, no sandbox backend) is an environment
+    // blocker, not an agent failure (arch:AC-31). The CI hand-off already moved the ticket to Implement: the cooldown stays.
+    const placed = await d.placement(id).catch((): Placement => 'host');
+    return placed === 'sandbox' ? { kind: 'env-blocker', reason: failure } : { kind: 'failed', reason: `session launch failed: ${failure}` };
+  };
+  const sentRound = async (id: number, outcome: () => Promise<FixOutcome>): Promise<FixOutcome> => {
+    d.markRound?.(id, true);
+    try { return await sent(id, outcome); } finally { d.markRound?.(id, false); }
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
   // One sweep at a time: overlapping sweeps must not spend the budget twice.
@@ -177,9 +215,10 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         controls: () => (d.canLaunch?.(id) ?? true) && !cooling(id) && ['self', 'none'].includes(holder(id))
           && claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS),
         sessionRunning: () => running(id),
-        isHostTicket: () => d.isHostTicket(id),
-        sendCi: () => sent(id, () => ciOutcome(d.ciInput(id))),
-        sendConflict: (repo) => sent(id, () => conflictOutcome(d.conflictInput(id, repo))),
+        placement: () => d.placement(id),
+        ...(d.sandboxPreflight ? { sandboxPreflight: () => d.sandboxPreflight!(id) } : {}),
+        sendCi: () => sentRound(id, () => ciOutcome(d.ciInput(id))),
+        sendConflict: (repo) => sentRound(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
@@ -189,6 +228,16 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
   };
   const timer = setInterval(sweep, d.intervalMs);
   return {
+    roundDied: (id, detail) => {
+      const projectId = d.projectId();
+      const key = getTicket(d.store, id).key ?? String(id);
+      const result = roundDied({
+        store: d.store, ticketId: id, key, debug: d.debug, dropConflictRound: () => d.dropConflictRound(id),
+        note: (title, body) => { if (projectId !== undefined) postAutopilotNote(d.store, projectId, id, title, body, d.debug); },
+      }, detail);
+      cooldown.delete(id);
+      if (result !== null) d.changed();
+    },
     dispose: () => {
       clearInterval(timer);
       // A window that closes releases its session rows, so another window does not wait for a holder that is gone.

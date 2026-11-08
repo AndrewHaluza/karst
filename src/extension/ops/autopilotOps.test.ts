@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
+import { createTicket, getTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
-import { allChecksAllowed, approveOneMore, autopilotTick, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { allChecksAllowed, approveOneMore, autopilotTick, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -32,6 +32,14 @@ const failing = (...names: string[]) => ({
 function cleanMerge(): void {
   setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'base1', baseRef: 'develop', checkedAt: '2026-01-01T00:00:00Z' });
 }
+function conflict(repo = 'r', baseSha: string | null = 'base1'): void {
+  store.db.prepare('INSERT OR IGNORE INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, repo, `/w/${repo}`, 'b');
+  if (repo !== 'r') {
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, NULL)').run(id, repo, 7, `https://github.com/o/${repo}/pull/7`, 'open');
+  }
+  setMergeCheck(store, { ticketId: id, repo, state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha, baseRef: 'develop', checkedAt: 'x' });
+}
+
 const PASSING = { state: 'passing', total: 3, passed: 3, failed: 0, pending: 0, failedShown: 0, failing: [] };
 
 interface Rig { deps: AutopilotDeps; notes: Array<[string, string]>; debug: ReturnType<typeof vi.fn>; sendCi: ReturnType<typeof vi.fn>; sendConflict: ReturnType<typeof vi.fn> }
@@ -43,7 +51,7 @@ function rig(over: Partial<AutopilotDeps> = {}, outcome: FixOutcome = { kind: 's
   const deps: AutopilotDeps = {
     store, ticketId: id, key: 'AP-1', config: () => CFG,
     controls: () => true, sessionRunning: () => false, concurrencyFull: () => false,
-    isHostTicket: async () => true, isGraphTicket: () => false, sendCiFailure: sendCi, sendConflict, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
+    placement: async () => 'host', isGraphTicket: () => false, sendCiFailure: sendCi, sendConflict, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
     note: (t, b) => void notes.push([t, b]), debug, ...over,
   };
   return { deps, notes, debug, sendCi, sendConflict };
@@ -197,34 +205,197 @@ describe('ci', () => {
   });
 });
 
-describe('sandboxed ticket or unknown placement', () => {
-  it.each([
-    ['a sandboxed ticket', async () => false],
-    ['a placement that cannot be read', async () => { throw new Error('probe failed'); }],
-  ])('parks %s with the required reason and a note, uses no attempt, and runs no round', async (_n, isHostTicket) => {
+describe('placement: host, sandbox or unknown', () => {
+  it('runs the same CI round for a sandboxed ticket as for a host ticket', async () => {
     seedPr(failing('build'));
-    const r = rig({ isHostTicket });
-    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: sandboxed ticket' });
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    expect(await autopilotTick(r.deps)).toMatchObject({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+  });
+
+  it('parks a placement that cannot be read, with a note, no attempt and no round', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => { throw new Error('probe failed'); } });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: placement unknown' });
     expect(r.sendCi).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
     expect(r.notes).toHaveLength(1);
-    expect(r.notes[0]![0]).toBe('Autopilot: auto-fix not run: sandboxed ticket');
-    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: 'auto-fix not run: sandboxed ticket' });
+    expect(r.notes[0]![0]).toBe('Autopilot: auto-fix not run: placement unknown');
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: 'auto-fix not run: placement unknown' });
     await autopilotTick(r.deps);
     expect(r.notes).toHaveLength(1);
   });
 
-  it('does not park a sandboxed ticket whose failing check is not allowlisted twice: the allowlist park comes first', async () => {
+  it('does not run the sandbox preflight for a host ticket', async () => {
+    seedPr(failing('build'));
+    const sandboxPreflight = vi.fn(async () => 'never asked');
+    const r = rig({ sandboxPreflight });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(sandboxPreflight).not.toHaveBeenCalled();
+  });
+
+  it('lets the allowlist park come first for a sandboxed ticket', async () => {
     seedPr(failing('e2e'));
-    const r = rig({ isHostTicket: async () => false });
+    const r = rig({ placement: async () => 'sandbox' });
     expect(await autopilotTick(r.deps)).toMatchObject({ reason: expect.stringContaining('is not on the allowlist') });
   });
 
   it('waits when CI is not failing: a sandboxed ticket with no failure is left alone', async () => {
     seedPr({ ...failing('build'), state: 'pending' });
-    const r = rig({ isHostTicket: async () => false });
+    const sandboxPreflight = vi.fn(async () => null);
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight });
     expect((await autopilotTick(r.deps)).kind).toBe('nothing');
     expect(r.notes).toHaveLength(0);
+    expect(sandboxPreflight).not.toHaveBeenCalled();
+  });
+});
+
+describe('sandbox environment blockers (arch:AC-31, AC-46, AC-47)', () => {
+  const BLOCKER = 'the sandbox clone has uncommitted changes';
+  const blocked = (over: Partial<AutopilotDeps> = {}): Rig => rig({ placement: async () => 'sandbox', sandboxPreflight: async () => BLOCKER, ...over });
+
+  it('parks a CI round at once in ship, before the hand-off, with the paused reason and no attempt used', async () => {
+    seedPr(failing('build'));
+    const r = blocked();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: `auto-fix paused: sandbox ${BLOCKER}` });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'awaiting-merge', reason: `auto-fix paused: sandbox ${BLOCKER}` });
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('stores the blocker as a paused state, apart from a spent budget', async () => {
+    seedPr(failing('build'));
+    await autopilotTick(blocked().deps);
+    const state = getAutopilotTicket(store, id);
+    expect(state.pausedReason).toBe(`auto-fix paused: sandbox ${BLOCKER}`);
+    expect(getAutopilotBudget(store, id, 'r', 'ci')).toMatchObject({ attempts: 0 });
+  });
+
+  it('does not retry a blocker: later ticks run no preflight and no round', async () => {
+    seedPr(failing('build'));
+    const sandboxPreflight = vi.fn(async () => BLOCKER);
+    const r = blocked({ sandboxPreflight });
+    await autopilotTick(r.deps);
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(sandboxPreflight).toHaveBeenCalledTimes(1);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(r.notes).toHaveLength(1);
+  });
+
+  it('treats a preflight that rejects as a blocker, with the message and not a host fallback', async () => {
+    seedPr(failing('build'));
+    const r = blocked({ sandboxPreflight: async () => { throw new Error('sbx ls failed'); } });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix paused: sandbox sbx ls failed' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('gives back the attempts of every failing PR when the preflight blocks', async () => {
+    seedPr(failing('build'));
+    store.db.prepare('INSERT OR IGNORE INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, ?)').run(id, 'r2', 6, 'https://github.com/o/r2/pull/6', 'open', JSON.stringify(failing('lint')));
+    await autopilotTick(blocked().deps);
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(getAutopilotBudget(store, id, 'r2', 'ci').attempts).toBe(0);
+  });
+
+  it('parks a conflict round the same way, never sending Resolve conflicts', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = blocked();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: `auto-fix paused: sandbox ${BLOCKER}` });
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('a sent conflict round of a sandboxed ticket uses Resolve conflicts (sendConflict), never a rebase', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    expect(await autopilotTick(r.deps)).toMatchObject({ kind: 'armed', problem: 'conflicts' });
+    expect(r.sendConflict).toHaveBeenCalledWith('r');
+  });
+
+  it('an env-blocker outcome of the action (read-only sandbox at launch) gives the attempt back and pauses, in ship', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => 'sandbox' }, { kind: 'env-blocker', reason: 'sandbox is read-only' });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix paused: sandbox sandbox is read-only' });
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: sandbox sandbox is read-only');
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+  });
+
+  it('an env-blocker outcome after the hand-off left ship pauses with the same reason', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => 'sandbox' });
+    r.sendCi.mockImplementation(async () => { setStageCurrent(store, id, 'impl'); return { kind: 'env-blocker', reason: 'dependency setup failed' } as FixOutcome; });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix paused: sandbox dependency setup failed' });
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: sandbox dependency setup failed');
+  });
+
+  it('an env-blocker outcome of a conflict round drops the round and uses no attempt', async () => {
+    seedPr(PASSING);
+    conflict();
+    const dropConflictRound = vi.fn();
+    const r = rig({ placement: async () => 'sandbox', dropConflictRound }, { kind: 'env-blocker', reason: 'the sandbox clone has diverged' });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix paused: sandbox the sandbox clone has diverged' });
+    expect(dropConflictRound).toHaveBeenCalledTimes(1);
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+});
+
+describe('a session that dies right after launch (roundDied)', () => {
+  const deps = (r: Rig, drop = vi.fn()) => ({ store, ticketId: id, key: 'AP-1', note: r.deps.note, debug: r.deps.debug, dropConflictRound: drop });
+
+  it('undoes a conflict round: attempt back, round dropped, paused, no retry', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(1);
+    const drop = vi.fn();
+    const result = roundDied(deps(r, drop), 'sbx sandbox launch failed (exit 1): boom');
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix paused: conflicts session died after launch (sbx sandbox launch failed (exit 1): boom)' });
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(getConflictRoundAt(store, id)).toBeNull();
+    expect(getAutopilotTicket(store, id).pausedReason).toContain('conflicts session died after launch');
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(r.sendConflict).toHaveBeenCalledTimes(1);
+  });
+
+  it('undoes a CI round whose hand-off moved the ticket to Implement', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    setStageCurrent(store, id, 'impl');
+    const result = roundDied(deps(r), 'sbx sandbox launch failed (exit 1)');
+    expect(result).toMatchObject({ kind: 'parked', reason: expect.stringContaining('ci session died after launch') });
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix paused: ci session died after launch (sbx sandbox launch failed (exit 1))');
+    expect(r.notes.at(-1)![0]).toBe('Autopilot: auto-fix paused: ci session died after launch (sbx sandbox launch failed (exit 1))');
+    expect(r.notes.at(-1)![1]).toContain('the attempt was given back');
+  });
+
+  it('parks a CI round that is still in ship on the ship row', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => 'sandbox' });
+    await autopilotTick(r.deps);
+    roundDied(deps(r), 'boom');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix paused: ci session died after launch (boom)');
+    expect(r.notes.at(-1)![0]).toBe('Autopilot: auto-fix paused: ci session died after launch (boom)');
+  });
+
+  it('does nothing when no round was sent for the ticket, or when it was already undone', async () => {
+    const r = rig();
+    expect(roundDied(deps(r), 'boom')).toBeNull();
+    seedPr(failing('build'));
+    await autopilotTick(r.deps);
+    expect(roundDied(deps(r), 'boom')).not.toBeNull();
+    expect(roundDied(deps(r), 'boom')).toBeNull();
   });
 });
 
@@ -554,13 +725,6 @@ describe('autopilotTick guards', () => {
 });
 
 describe('conflicts', () => {
-  function conflict(repo = 'r', baseSha: string | null = 'base1'): void {
-    store.db.prepare('INSERT OR IGNORE INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, repo, `/w/${repo}`, 'b');
-    if (repo !== 'r') {
-      store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, ?, NULL)').run(id, repo, 7, `https://github.com/o/${repo}/pull/7`, 'open');
-    }
-    setMergeCheck(store, { ticketId: id, repo, state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha, baseRef: 'develop', checkedAt: 'x' });
-  }
   const setBase = (repo: string, baseSha: string): void => {
     store.db.prepare('UPDATE merge_checks SET base_sha = ? WHERE ticket_id = ? AND repo = ?').run(baseSha, id, repo);
   };
@@ -669,11 +833,11 @@ describe('conflicts', () => {
     expect(r.sendConflict).not.toHaveBeenCalled();
   });
 
-  it('parks a sandboxed ticket as for CI and uses no attempt', async () => {
+  it('parks an unknown placement as for CI and uses no attempt', async () => {
     seedPr(PASSING);
     conflict();
-    const r = rig({ isHostTicket: async () => false });
-    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: sandboxed ticket' });
+    const r = rig({ placement: async () => { throw new Error('none'); } });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: placement unknown' });
     expect(r.sendConflict).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
@@ -882,11 +1046,11 @@ describe('autopilotTick transient CI re-run (T1019)', () => {
     expect(r.readLog).not.toHaveBeenCalled();
   });
 
-  it('keeps today\'s park for a sandboxed ticket', async () => {
+  it('re-runs a transient failure of a sandboxed ticket once, like a host ticket', async () => {
     seedPr(withUrl('Visual'));
-    const r = ciRig(NET_LOG, { isHostTicket: async () => false });
-    expect((await autopilotTick(r.deps)).kind).toBe('parked');
-    expect(r.readLog).not.toHaveBeenCalled();
+    const r = ciRig(NET_LOG, { placement: async () => 'sandbox' });
+    expect((await autopilotTick(r.deps)).kind).toBe('rerun');
+    expect(r.readLog).toHaveBeenCalled();
   });
 
   it('keeps today\'s park for a graph ticket and for a placement that cannot be read', async () => {
@@ -895,7 +1059,7 @@ describe('autopilotTick transient CI re-run (T1019)', () => {
     expect((await autopilotTick(graph.deps)).kind).toBe('parked');
     expect(graph.readLog).not.toHaveBeenCalled();
     store.db.prepare("UPDATE autopilot_tickets SET stopped_reason = NULL WHERE ticket_id = ?").run(id);
-    const unknown = ciRig(NET_LOG, { isHostTicket: async () => { throw new Error('no placement'); } });
+    const unknown = ciRig(NET_LOG, { placement: async () => { throw new Error('no placement'); } });
     await autopilotTick(unknown.deps);
     expect(unknown.readLog).not.toHaveBeenCalled();
   });

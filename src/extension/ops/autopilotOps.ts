@@ -18,9 +18,10 @@ import {
 /**
  * Autopilot (T973, T996): runs the SAME host action a user clicks at ship, without the click:
  * a failed CI check on the manifest allowlist -> Send CI failure to agent; a merge conflict with a known base head ->
- * Resolve conflicts (the resolved merge is delivered by karst behind the gates). Host tickets only.
+ * Resolve conflicts (the resolved merge is delivered by karst behind the gates). A sandboxed ticket gets the same rounds
+ * through the recorded placement (arch:AC-43); the sandbox never falls back to the host (arch:AC-31).
  *
- * Never auto: a rebase on base, a sandboxed ticket (D482), push diverged, merge to base, a closed PR.
+ * Never auto: a rebase on base, push diverged, merge to base, a closed PR.
  * Every decision is a pure read of the store plus injected seams (`vscode`-free); a park writes a bulletin note, never a toast.
  */
 
@@ -29,7 +30,15 @@ export type FixOutcome =
   | { readonly kind: 'sent' }
   /** This window lost the lease before the round started: nothing ran, nothing is parked. */
   | { readonly kind: 'lease-lost' }
-  | { readonly kind: 'failed'; readonly reason: string };
+  | { readonly kind: 'failed'; readonly reason: string }
+  /**
+   * The sandbox cannot run the round (read-only, dependency setup failed, dirty or diverged clone: arch:AC-31/46/47).
+   * An environment blocker, not an agent failure: no attempt is used, the ticket pauses and the round is not retried.
+   */
+  | { readonly kind: 'env-blocker'; readonly reason: string };
+
+/** Where the ticket runs, from its recorded placement (arch:AC-43). A placement that cannot be read rejects. */
+export type Placement = 'host' | 'sandbox';
 
 export interface AutopilotDeps {
   readonly store: Store;
@@ -42,8 +51,13 @@ export interface AutopilotDeps {
   readonly sessionRunning: () => boolean;
   /** The sub-task concurrency limit has no free slot (arch:CONCURRENCY); an auto round counts against it. */
   readonly concurrencyFull: () => boolean;
-  /** The ticket runs on the host. False for a sandboxed ticket and for a placement that cannot be read. */
-  readonly isHostTicket: () => Promise<boolean>;
+  /** Host or sandbox, from the recorded placement. Rejects when the placement cannot be read: the ticket then parks. */
+  readonly placement: () => Promise<Placement>;
+  /**
+   * Sandbox tickets only: checks the sandbox BEFORE the hand-off (clone sync, dependency setup). Returns the blocker
+   * reason, or null when the round may go out. A rejection is a blocker too. Never called for a host ticket.
+   */
+  readonly sandboxPreflight?: () => Promise<string | null>;
   /** The ticket ran an implementation graph: a hand-off to Implement would reach no agent. */
   readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
@@ -75,10 +89,9 @@ export type AutopilotResult =
 
 const LOG = '[ship] autopilot';
 
-/** The park reason for a sandboxed ticket or an unknown placement. */
 const GRAPH_REASON = 'auto-fix not run: graph ticket';
+const UNKNOWN_PLACEMENT_REASON = 'auto-fix not run: placement unknown';
 const STALLED_REASON = 'auto-fix stopped: conflict round did not deliver';
-const SANDBOXED_REASON = 'auto-fix not run: sandboxed ticket';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
   const rows = store.db
@@ -122,7 +135,7 @@ function flightKeyOf(d: Pick<AutopilotDeps, 'store' | 'ticketId'>): string {
   return `${d.store.db.name}:${d.ticketId}`;
 }
 
-function park(d: AutopilotDeps, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
+function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
   // Another writer's block (push-diverged) owns the ship row: leave it untouched.
   if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
   // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
@@ -250,7 +263,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (problem.cutShort) {
     return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
   }
-  // A network fault is re-run once before any park or CI round (T1019). Sandboxed and graph tickets keep today's rules (D482).
+  // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
   const rerun = await transientStep(d, problem);
   if (rerun.kind === 'result') return rerun.result;
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
@@ -258,9 +271,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     const reason = `auto-fix not run: ci check ${name} is not on the allowlist${rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : ''}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
-  // A sandboxed ticket, or a placement that cannot be read, gets no round (D482): park, write a note, spend no attempt.
-  const placement = await placementPark(d, 'ci');
-  if (placement) return placement;
+  // A graph ticket, or a placement that cannot be read, gets no round: park, write a note, spend no attempt.
+  const placed = await placementOf(d, 'ci');
+  if (placed.kind === 'park') return placed.result;
   if (d.concurrencyFull()) return queueWait(d, problem.kind, problem.repo, problem.signature);
 
   // One attempt per failing PR. A spent budget on any of them stops the round, and the attempts taken first are given back.
@@ -277,6 +290,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   }
   if (budget === null) return { kind: 'nothing' };
   const refundAll = (): void => { for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, problem.kind); };
+  // A sandbox blocker parks the ticket here, in ship, BEFORE the hand-off moves it to Implement.
+  const blocked = await sandboxGate(d, placed.placement, problem.kind, problem.repo, refundAll);
+  if (blocked) return blocked;
   // An action that throws reached no agent: it costs no attempt and parks with the error, like a failed fetch.
   const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
@@ -287,7 +303,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
 async function transientStep(d: AutopilotDeps, problem: Problem): Promise<{ kind: 'result'; result: AutopilotResult } | { kind: 'go'; earlier: ReadonlySet<string> }> {
   const none = { kind: 'go', earlier: new Set<string>() } as const;
   if (!d.transientCi || !problem.fails) return none;
-  if (d.isGraphTicket() || !(await d.isHostTicket().catch(() => false))) return none;
+  if (d.isGraphTicket() || (await d.placement().catch(() => null)) === null) return none;
   const step = await transientRerunStep(
     { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.transientCi, now: d.now ?? Date.now, note: d.note, debug: d.debug },
     problem.fails,
@@ -298,16 +314,38 @@ async function transientStep(d: AutopilotDeps, problem: Problem): Promise<{ kind
   return { kind: 'result', result: park(d, 'ci', `auto-fix stopped: ci could not run (${step.reason})`, `the action failed (${step.reason}); the ticket stays in ship and no attempt was used.`, true) };
 }
 
-/** A sandboxed or graph ticket gets no round (D482): park with a note and spend no attempt. Null when the ticket may run a round. */
-async function placementPark(d: AutopilotDeps, kind: AutopilotKind): Promise<AutopilotResult | null> {
-  const hand = kind === 'ci' ? 'Send the failure' : 'Resolve the conflict';
+type PlacementGate = { readonly kind: 'go'; readonly placement: Placement } | { readonly kind: 'park'; readonly result: AutopilotResult };
+
+/** A graph ticket or an unreadable placement gets no round: park with a note and spend no attempt. */
+async function placementOf(d: AutopilotDeps, kind: AutopilotKind): Promise<PlacementGate> {
+  const hand = kind === 'ci' ? 'Send the failure to the agent' : 'Resolve the conflict';
   if (d.isGraphTicket()) {
-    return park(d, kind, GRAPH_REASON, `the ticket ran an implementation graph, so a hand-off to Implement would reach no agent. ${hand} by hand.`);
+    return { kind: 'park', result: park(d, kind, GRAPH_REASON, `the ticket ran an implementation graph, so a hand-off to Implement would reach no agent. ${hand} by hand.`) };
   }
-  if (!(await d.isHostTicket().catch(() => false))) {
-    return park(d, kind, SANDBOXED_REASON, `the ticket is sandboxed or its placement is unknown; autopilot runs host tickets only. ${hand}${kind === 'ci' ? ' to the agent' : ''} by hand.`);
+  try {
+    return { kind: 'go', placement: await d.placement() };
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    return { kind: 'park', result: park(d, kind, UNKNOWN_PLACEMENT_REASON, `the recorded placement cannot be read (${why}); autopilot never guesses the environment. ${hand} by hand.`) };
   }
-  return null;
+}
+
+/** The pause of an environment blocker: visible on the ship row, kept apart from a spent budget, never retried. */
+function sandboxPause(d: AutopilotDeps, kind: AutopilotKind, reason: string): AutopilotResult {
+  return park(d, kind, `auto-fix paused: sandbox ${reason}`, `the sandbox cannot run the ${kind} round (${reason}); no attempt was used and the round is not retried. Fix the sandbox, then set the auto-fix mode again.`, true);
+}
+
+/**
+ * The pre-hand-off sandbox check. A blocker gives the attempts back and pauses the ticket in ship. A host ticket,
+ * or a deps without the seam, passes. A rejection of the seam is a blocker: the environment is not known to be fine.
+ */
+async function sandboxGate(d: AutopilotDeps, placement: Placement, kind: AutopilotKind, repo: string, refundAll: () => void): Promise<AutopilotResult | null> {
+  if (placement !== 'sandbox' || !d.sandboxPreflight) return null;
+  const reason = await d.sandboxPreflight().catch((err: unknown): string => (err instanceof Error ? err.message : String(err)));
+  if (reason === null) return null;
+  refundAll();
+  d.debug(`${LOG} ticket ${d.key} ${kind} round for ${repo} blocked by the sandbox: ${reason}`);
+  return sandboxPause(d, kind, reason);
 }
 
 /** A waiting round must be visible: one note per signature (not per tick), plus a debug line each time. */
@@ -339,23 +377,60 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
     clearParkBlock(d.store, d.ticketId);
     d.note(`Autopilot: ${r.kind} round ${r.used}/${r.max}`, `${d.key}: ran ${r.action} for ${r.repo} (round ${r.used}/${r.max}).`);
     d.debug(`${LOG} ticket ${d.key} ${r.kind} round ${r.used}/${r.max} armed for ${r.repo}`);
+    lastRound.set(flightKeyOf(d), { kind: r.kind, repo: r.repo, refundAll: r.refundAll });
     return { kind: 'armed', problem: r.kind, used: r.used, max: r.max };
   }
   // A failed action reached no agent: it costs no attempt and is not retried. A failed conflict round must not stay armed:
   // a later manual session would get auto-delivery.
   r.refundAll();
   if (r.kind === 'conflicts') { d.dropConflictRound(); clearConflictRound(d.store, d.ticketId); }
+  if (outcome.kind === 'env-blocker') {
+    return getTicket(d.store, d.ticketId).stageCurrent !== 'ship'
+      ? pauseLeftShip(d, r, `auto-fix paused: sandbox ${outcome.reason}`, outcome.reason)
+      : sandboxPause(d, r.kind, outcome.reason);
+  }
   if (getTicket(d.store, d.ticketId).stageCurrent !== 'ship') {
-    // The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not ours
-    // to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
-    const reason = `auto-fix paused: ${r.kind} session did not start (${outcome.reason})`;
-    setAutopilotStopped(d.store, d.ticketId, reason);
-    setAutopilotPaused(d.store, d.ticketId, reason);
-    d.note(`Autopilot: ${reason}`, `${d.key}: the ${r.kind} round for ${r.repo} moved the ticket to Implement but no session started; no attempt was used. Start the agent by hand, then set the auto-fix mode again to resume.`);
-    d.debug(`${LOG} ticket ${d.key} ${r.kind} left ship before the failure: ${outcome.reason}`);
-    return { kind: 'parked', reason };
+    return pauseLeftShip(d, r, `auto-fix paused: ${r.kind} session did not start (${outcome.reason})`, outcome.reason);
   }
   return park(d, r.kind, `auto-fix stopped: ${r.kind} could not run (${outcome.reason})`, `the action failed (${outcome.reason}); the ticket stays in ship and no attempt was used.`, true);
+}
+
+/**
+ * The action already moved the ticket on (CI hand-off to Implement) but no session got the task. The ship row is not
+ * ours to park, so pause autopilot (it stays quiet until a person sets the mode again) and leave a visible stop reason.
+ */
+function pauseLeftShip(d: AutopilotDeps, r: Pick<Settle, 'kind' | 'repo'>, reason: string, detail: string): AutopilotResult {
+  setAutopilotStopped(d.store, d.ticketId, reason);
+  setAutopilotPaused(d.store, d.ticketId, reason);
+  d.note(`Autopilot: ${reason}`, `${d.key}: the ${r.kind} round for ${r.repo} moved the ticket to Implement but no session started; no attempt was used. Start the agent by hand, then set the auto-fix mode again to resume.`);
+  d.debug(`${LOG} ticket ${d.key} ${r.kind} left ship before the failure: ${detail}`);
+  return { kind: 'parked', reason };
+}
+
+/** The round the engine sent last, per ticket: what a session that dies right after launch must undo. */
+const lastRound = new Map<string, { readonly kind: AutopilotKind; readonly repo: string; readonly refundAll: () => void }>();
+
+/**
+ * A session that died right after launch (reported later by the launch-failure path, not by the hand-off): the round did
+ * not reach an agent. It is not a sent round: the attempt is given back, a conflict round is dropped, and the ticket
+ * pauses with a visible reason so the round is not retried. Null when no round is recorded for the ticket.
+ */
+export function roundDied(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug' | 'dropConflictRound'>, detail: string): AutopilotResult | null {
+  const key = flightKeyOf(d);
+  const r = lastRound.get(key);
+  if (!r) return null;
+  lastRound.delete(key);
+  r.refundAll();
+  if (r.kind === 'conflicts') { d.dropConflictRound(); clearConflictRound(d.store, d.ticketId); }
+  const reason = `auto-fix paused: ${r.kind} session died after launch (${detail})`;
+  if (getTicket(d.store, d.ticketId).stageCurrent === 'ship') {
+    return park(d, r.kind, reason, `the session of the ${r.kind} round for ${r.repo} died after launch (${detail}); the attempt was given back and the round is not retried. Start the agent by hand, then set the auto-fix mode again.`, true);
+  }
+  setAutopilotStopped(d.store, d.ticketId, reason);
+  setAutopilotPaused(d.store, d.ticketId, reason);
+  d.note(`Autopilot: ${reason}`, `${d.key}: the session of the ${r.kind} round for ${r.repo} died after launch (${detail}); the attempt was given back and the round is not retried.`);
+  d.debug(`${LOG} ticket ${d.key} ${r.kind} session died after launch: ${detail}`);
+  return { kind: 'parked', reason };
 }
 
 /** One open PR with a recorded merge conflict. `baseSha` is null when the probe did not name the base head. */
@@ -382,8 +457,8 @@ async function runConflictRound(d: AutopilotDeps, cfg: AutopilotConfig, conflict
     d.debug(`${LOG} ticket ${d.key}: conflict on ${conflicted.map((c) => c.repo).join(', ')} has no known base head; resolve it by hand`);
     return { kind: 'ask', reason: 'base head of the conflict is unknown' };
   }
-  const placement = await placementPark(d, 'conflicts');
-  if (placement) return placement;
+  const placed = await placementOf(d, 'conflicts');
+  if (placed.kind === 'park') return placed.result;
   let spent: { repo: string; used: number; max: number } | null = null;
   for (const target of known) {
     const b = takeAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts', target.baseSha, cfg.conflicts.maxRounds);
@@ -391,6 +466,8 @@ async function runConflictRound(d: AutopilotDeps, cfg: AutopilotConfig, conflict
     // The budget is checked first: a spent ticket parks instead of waiting, and a waiting ticket keeps its attempt.
     if (d.concurrencyFull()) { refundAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts'); return queueWait(d, 'conflicts', target.repo, target.baseSha); }
     const refundAll = (): void => refundAutopilotAttempt(d.store, d.ticketId, target.repo, 'conflicts');
+    const blocked = await sandboxGate(d, placed.placement, 'conflicts', target.repo, refundAll);
+    if (blocked) return blocked;
     // An action that throws reached no agent: it costs no attempt and parks with the error.
     const outcome: FixOutcome = await d.sendConflict(target.repo)
       .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));

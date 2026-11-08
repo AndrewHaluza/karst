@@ -53,6 +53,37 @@ describe('sandboxLaunchFailureOptions', () => {
     expect(notified[0]).toContain('Retry');
   });
 
+  describe('an Autopilot round that dies after launch (arch:AC-31)', () => {
+    it('reports the death to the round hook and offers no host action', async () => {
+      const died: Array<[number, string]> = [];
+      const errorActions = vi.fn(async () => undefined);
+      const runOnHost = vi.fn();
+      const { opts } = setup(undefined, {
+        failClosed: true, runOnHost, onRoundDied: (id, detail) => died.push([id, detail]),
+        notify: { info: () => undefined, warn: () => undefined, error: () => Promise.resolve(), errorActions },
+      });
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'boom\n' });
+      expect(died).toEqual([[4, 'sbx sandbox launch failed (exit 1): boom']]);
+      expect(errorActions).not.toHaveBeenCalled();
+    });
+    it('reports a stopped sandbox too, but not an exit karst itself caused', () => {
+      const died: string[] = [];
+      const hostEnded = vi.fn(() => false);
+      const { opts } = setup(undefined, { onRoundDied: (_i, d) => died.push(d), hostEnded });
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'sandbox stopped\n' });
+      expect(died).toHaveLength(1);
+      hostEnded.mockReturnValue(true);
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'boom\n' });
+      expect(died).toHaveLength(1);
+    });
+    it('a hook that throws does not hide the failure notice', () => {
+      const { opts, warns } = setup(undefined, { onRoundDied: () => { throw new Error('hook'); } });
+      opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'boom\n' });
+      expect(warns.some((w) => w.includes('launch failed'))).toBe(true);
+      expect(warns.some((w) => w.includes('hook'))).toBe(true);
+    });
+  });
+
   describe('stale resume id (T896)', () => {
     const tail = 'No conversation found with session ID: f5dadfcf-d1bb-4fc5-beff-0a81b3fb9c8e\n';
 

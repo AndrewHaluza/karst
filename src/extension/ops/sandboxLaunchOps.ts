@@ -180,15 +180,26 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
   readonly confirmHost: (message: string) => Promise<boolean>;
   /** Sync (ff-only) then remove the sandbox; false when kept. */
   readonly removeSandbox: () => Promise<boolean>;
+  /** An Autopilot round (arch:AC-31): never offer the host, never list sandboxes; a host backend is refused. */
+  readonly failClosed?: boolean;
 }
 
-export type HostFallbackResult<T> = { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean } | { readonly kind: 'cancelled' };
+export type HostFallbackResult<T> =
+  | { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean }
+  | { readonly kind: 'cancelled' }
+  /** `failClosed` and the backend came up on the host: no choice was offered, nothing was removed. */
+  | { readonly kind: 'refused'; readonly reason: string };
+
+export const FAIL_CLOSED_REASON = 'the sandbox backend is unavailable and auto-fix never runs on the host';
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
 export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   for (;;) {
     const backend = await input.launch();
-    if (backend.sandboxed || !input.wantsSandbox || !(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
+    if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
+    // Checked BEFORE hasSandbox: a sandbox listing that fails must not let an auto round run on the host.
+    if (input.failClosed) return { kind: 'refused', reason: FAIL_CLOSED_REASON };
+    if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
     const picked = await input.choose(
       `Karst: the sandbox backend for ${input.ticketLabel} is unavailable, but the ticket has a sandbox with the agent's work in it.`,
       [HOST_FALLBACK_RETRY, HOST_FALLBACK_HOST],
