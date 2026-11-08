@@ -57,7 +57,7 @@ flowchart TD
 END_DOC_BLOCK: [@arch:AP-00]
 
 ## [@arch:AP-01] Conflict rounds
-covers: src/extension/ops/autopilotOps.ts, src/extension/ops/autoDeliverOps.ts, src/extension/ops/conflictResolveOps.ts, src/store/autostart.ts
+covers: src/extension/ops/autopilotOps.ts, src/extension/ops/autoDeliverOps.ts, src/extension/ops/conflictResolveOps.ts, src/extension/ops/shipGatesOps.ts, src/store/autostart.ts, src/store/deliverRuns.ts, src/store/deliverFacts.ts
 
 ### Purpose
 Fix a merge conflict on an open PR of a host ticket without a click. The budget, park and note rules of `@arch:AP-00` apply.
@@ -70,10 +70,11 @@ Fix a merge conflict on an open PR of a host ticket without a click. The budget,
 - Conflicts (T996): a conflicted open PR runs `resolveConflictRound`, the same path as the Resolve conflicts click. Karst delivers the resolved merge behind the gates (arch:AC-39). A rebase on base stays a manual click. A conflict round comes before a CI round. Policy `ask` and a conflict with an unknown base head (`baseSha` is null) start no round; that conflict does not block the CI path.
 - Conflict budget: per (PR, `conflicts`). The signature is the base head SHA: a new base head resets the counter. A spent repo is skipped while another conflicted PR of the ticket has attempts. The ticket parks with `auto-fix stopped: conflicts <n>/<max>` only when every conflicted PR is spent. A failed round gives its attempt back.
 - No second conflict round starts while the first round is armed or its auto-deliver runs (`conflictRoundActive`: the in-memory round and `isAutoDelivering`). The stored merge check stays `conflicted` until the next probe, so a cooldown alone is not enough. A sent conflict round clears the stored CI rollup and merge block of that PR, so a rollup of the old head starts no CI round. A round armed for more than 5 minutes with no agent and no delivery never delivered: the engine drops it, writes a note, and the next attempt spends the budget.
+- Auto-deliver record (T1018): `autoDeliverAfterConflict` opens a `deliver_runs` row BEFORE the first ship gate and appends one `deliver_gate_results` row per gate, each with the head SHA (`store/deliverRuns.ts`). These tables are separate from `gate_runs` on purpose: a ship-stage `gate_runs` row would feed the verdict readers. A failure stays on record until a later pass of that gate on a newer head or a user dismiss. A manual Deliver to PR takes over (`takeOverAutoDeliver`): it aborts the gate run, disarms the round, marks the run `taken-over`, writes one bulletin note, and pushes once through the normal path. The auto-deliver does not push after a takeover. While a gate run is the one in progress, `merge: clean` is the LOCAL merge commit and is not on the PR yet.
 END_DOC_BLOCK: [@arch:AP-01]
 
 ## [@arch:AP-02] Autopilot UI
-covers: src/model/inside/autofix.ts, src/ui/dashboard/app/AutofixParts.tsx, src/ui/settings/app/sections/AutopilotSection.tsx
+covers: src/model/inside/autofix.ts, src/model/inside/deliver.ts, src/ui/dashboard/app/AutofixParts.tsx, src/ui/dashboard/app/DeliverRow.tsx, src/ui/settings/app/sections/AutopilotSection.tsx
 
 ### Purpose
 Show the auto-fix state and the controls. The UI adds no new engine rule.
