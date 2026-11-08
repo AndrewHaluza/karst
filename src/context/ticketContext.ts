@@ -34,6 +34,8 @@ import {
 import { subtaskPrSuffix } from './subtaskPrSuffix.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
+import { deliverFailureLine, deliverProgressLine, deliverTakeOverLine, mergeStateWording, type DeliverFacts } from '../model/inside/deliver.js';
+import { deliverFactsFor } from '../store/deliverFacts.js';
 import { listGateRuns } from '../store/gateRuns.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { latestBatch } from '../model/inside/gates.js';
@@ -321,6 +323,8 @@ export interface TicketContext {
   worktrees: TicketContextWorktree[];
   servers: TicketContextServer[];
   prs: TicketContextPr[];
+  /** The auto-deliver of a resolved merge (T1018): progress, kept failures, takeover. Absent when nothing was recorded. */
+  delivery?: DeliverFacts;
   /** Images and video attached to the prompt. Empty when there are none. */
   attachments: TicketContextAttachment[];
   /** Set when this ticket was created via "create follow-up" from a completed parent. */
@@ -397,6 +401,27 @@ function repoRows(name: string, def: RepositoryDef | undefined): TicketContextRe
     ...(u.def.health !== undefined ? { health: u.def.health } : {}),
     ...(u.def.cwd !== undefined ? { cwd: u.def.cwd } : {}),
   }));
+}
+
+/** The delivery facts, only when a run left a record (keeps the JSON of a ticket that never auto-delivered unchanged). */
+function deliveryField(store: Store, ticketId: number): { delivery?: DeliverFacts } {
+  const d = deliverFactsFor(store, ticketId);
+  return d.running === null && d.failures.length === 0 && d.takenOver === null ? {} : { delivery: d };
+}
+
+/** The `## Current stage` lines of the delivery: the progress line, the takeover and the failures kept on record. */
+function deliveryLines(d: DeliverFacts | undefined): string[] {
+  if (d === undefined) return [];
+  const out: string[] = [];
+  const progress = deliverProgressLine(d);
+  if (progress !== null) out.push(`- delivery: ${progress}`);
+  if (d.takenOver !== null) out.push(`- delivery: ${deliverTakeOverLine(d.takenOver)}`);
+  for (const f of d.failures) {
+    const where = f.headSha !== null && f.headSha === d.headSha ? '' : ' (an older head)';
+    const why = f.summary ? ` — ${f.summary.split('\n')[0]}` : '';
+    out.push(`- delivery failure: ${deliverFailureLine(f)}${where}${why}`);
+  }
+  return out;
 }
 
 /** A ticket's cached PR rows with their last merge check, as the context shows them. */
@@ -610,6 +635,7 @@ export function buildTicketContext(
       status: s.status,
     })),
     prs: contextPrs(store, ticketId),
+    ...deliveryField(store, ticketId),
     attachments:
       storageDir === undefined
         ? []
@@ -843,6 +869,7 @@ export function renderTicketContext(
           'advances this stage.',
       );
     }
+    lines.push(...deliveryLines(ctx.delivery));
     parts.push(`## Current stage\n${lines.join('\n')}`);
   }
 
@@ -894,7 +921,7 @@ export function renderTicketContext(
       const status = p.status ? ` [${p.status}]` : '';
       // Suffixed on the existing line rather than given a section of its own: an
       // agent already reads this list, and mergeability is a fact ABOUT the PR.
-      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
+      const merge = p.mergeCheck ? ` · merge: ${mergeStateWording(summarizeMergeCheck(p.mergeCheck), ctx.delivery?.roundActive === true)}` : '';
       return `- ${p.repo} ${num}${status}${url}${merge}`;
     });
     parts.push(`## Pull requests\n${rows.join('\n')}`);

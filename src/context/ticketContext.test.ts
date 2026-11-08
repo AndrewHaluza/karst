@@ -13,6 +13,7 @@ import { setStage } from '../store/stages.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
+import { openDeliverRun, recordDeliverGate, takeOverDeliverRun } from '../store/deliverRuns.js';
 import { computeDriftNotes } from './drift.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
@@ -1946,5 +1947,46 @@ describe('ticket context — drift note', () => {
     const md = renderTicketContext(ctx, (msg) => debugLogs.push(msg), { driftNotes });
     expect(md).not.toContain('Planned against');
     expect(debugLogs.some((l) => l.includes('[context:drift] git failed'))).toBe(true);
+  });
+});
+
+describe('ticket context — auto-deliver of a resolved merge (T1018)', () => {
+  let store: Store;
+  let id: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'PROJ-9', title: 't' }).id;
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('ship', id);
+    setStage(store, id, 'ship', { status: 'running' });
+  });
+  afterEach(() => store.close());
+  const render = (): string => {
+    const ctx = buildTicketContext(store, undefined, id);
+    const withPr = { ...ctx, prs: [{ repo: 'web', number: 5, url: null, status: 'open', mergeCheck: { state: 'clean' as const, files: [], reason: null } }] };
+    return renderTicketContext(withPr);
+  };
+
+  it('prints nothing about a delivery when none was recorded', () => {
+    const md = render();
+    expect(md).not.toContain('delivery');
+    expect(md).toContain('merge: clean');
+    expect(md).not.toContain('local merge commit');
+  });
+
+  it('prints the progress line under Current stage and words clean as the local merge', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'docs', 'visual'], pid: 1, now: 'T' });
+    const md = render();
+    expect(md).toContain('- delivery: Delivering resolved merge: gate 1/3 (unit), push after the gates');
+    expect(md).toContain('merge: clean (the local merge commit, not on the PR yet)');
+  });
+
+  it('keeps a failure and the takeover facts after a manual Deliver', () => {
+    const run = openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'docs'], pid: 1, now: 'T' });
+    recordDeliverGate(store, run, { gateName: 'unit', repo: 'web', exitCode: 2, summary: 'boom\nmore', startedAt: null, endedAt: null });
+    takeOverDeliverRun(store, id, 'T');
+    const md = render();
+    expect(md).toContain('- delivery: Delivery taken over by a manual Deliver; failed: unit; skipped: docs');
+    expect(md).toContain(`- delivery failure: Gate unit failed (exit 2) on ${'a'.repeat(9)} — boom`);
+    expect(md).not.toContain('local merge commit');
   });
 });
