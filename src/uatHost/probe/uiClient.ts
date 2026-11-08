@@ -7,6 +7,8 @@ export interface UiEvidence {
   visibleActs: string[];
   textAdded: string[];
   textRemoved: string[];
+  /** The visible panel text, one entry per line. Present for a `read` step only. */
+  text?: string[];
   /** Toast texts cleared before a `click`. Absent for other steps. */
   toasts?: string[];
 }

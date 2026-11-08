@@ -65,7 +65,8 @@ failure is yours to avoid, not a harness outage.
 - One script per done-when criterion, plus scripts that try to BREAK it.
 - Evidence is `<out>/step-NNN.json` (`{step, result, snapshot}`) and
   `<out>/summary.json` (per-step `pass|fail|timeout`). A UI step adds
-  `ui: {screenshot, visibleActs, textAdded, textRemoved}` and a
+  `ui: {screenshot, visibleActs, textAdded, textRemoved}` (a `read` adds `text`, the
+  full visible panel text) and a
   `step-NNN.png` screenshot in `<out>`. The run stops at
   the first non-pass step and exits nonzero. Read these files with
   `cat`/`jq`; never dump them whole into your report.

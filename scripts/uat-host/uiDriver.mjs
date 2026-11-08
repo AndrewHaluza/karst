@@ -102,7 +102,15 @@ async function readPanel(page) {
         return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
       })
       .map((el) => el.getAttribute('data-act')));
-  const lines = texts.flatMap((t) => t.split('\n').map((l) => l.trim()).filter(Boolean));
+  // innerText skips the value of a field: a sub-task title typed into the edit form lives only there.
+  const values = await inFrames(frames, () =>
+    [...document.querySelectorAll('input, textarea')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && el.type !== 'password' && el.value;
+      })
+      .map((el) => `[field] ${el.value}`));
+  const lines = [...texts, ...values.flat()].flatMap((t) => t.split('\n').map((l) => l.trim()).filter(Boolean));
   return { lines, visibleActs: [...new Set(acts.flat())].sort() };
 }
 
@@ -225,6 +233,7 @@ async function runStep({ index, step, timeoutMs }) {
       if (step.type !== 'read') await sleep(SETTLE_MS);
       const after = await readPanel(page);
       Object.assign(ui, { visibleActs: after.visibleActs, ...diffLines(lastText ?? [], after.lines) });
+      if (step.type === 'read') ui.text = after.lines;
       lastText = after.lines;
       const file = `step-${String(index).padStart(3, '0')}.png`;
       await page.screenshot({ path: join(outDir, file) });
