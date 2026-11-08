@@ -360,7 +360,9 @@
 #section-agents .accounts-core-head { display: flex; flex-wrap: wrap; align-items: end; gap: var(--k-space-4, 12px); }
 #section-agents .accounts-core-head h3 { margin: 0; text-transform: capitalize; }
 #section-agents .accounts-table { width: 100%; border-collapse: collapse; margin-block: var(--k-space-3, 8px); }
-#section-agents .accounts-table th, #section-agents .accounts-table td { text-align: left; padding: var(--k-space-2, 4px) var(--k-space-3, 8px); word-break: normal; }
+#section-agents .accounts-table { font-size: var(--k-text-sm, 12px); }
+#section-agents .accounts-table th, #section-agents .accounts-table td { text-align: left; padding: var(--k-space-2, 4px) var(--k-space-3, 8px); word-break: normal; overflow-wrap: break-word; font-size: inherit; vertical-align: top; }
+#section-agents .accounts-table th { font-weight: 600; }
 #section-agents .accounts-row-actions { display: flex; flex-wrap: wrap; gap: var(--k-space-2, 4px); }
 #section-agents .accounts-error { color: var(--vscode-errorForeground, inherit); }
 #section-agents .accounts-wizard, #section-agents .accounts-delete { border-top: 1px solid var(--vscode-panel-border, transparent); padding-top: var(--k-space-3, 8px); }

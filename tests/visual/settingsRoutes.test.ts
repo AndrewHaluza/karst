@@ -8,7 +8,7 @@ describe('settingsRoutes', () => {
     for (const section of SETTINGS_SECTIONS) expect(covered.has(section)).toBe(true);
   });
 
-  it('opens the 7 Agents hashes', () => {
+  it('opens the 8 Agents hashes', () => {
     const hashes = settingsRoutes().flatMap((r) => (r.hash === undefined ? [] : [r.hash]));
     expect(hashes).toEqual([
       '#agents/roles',
@@ -18,6 +18,7 @@ describe('settingsRoutes', () => {
       '#agents/profiles/long-body-profile',
       '#agents/profiles/tdd-implementer',
       '#agents/profiles/builtin%3AuatTester',
+      '#agents/accounts',
     ]);
   });
 

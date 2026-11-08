@@ -310,6 +310,34 @@ const AUTOPILOT_ON = {
   autopilot: { enabled: true, ci: { policy: 'auto', maxAttempts: 3, checks: ['lint', 'typecheck'] }, conflicts: { policy: 'auto', maxRounds: 2 } },
 };
 
+/** Accounts tab (T1015) with the host's accounts-state pushed after the settings state. */
+function accountsVariant(id: string, cores: unknown[], opts: { skipLayout?: boolean } = {}): Variant {
+  return {
+    ...variant('settings', id, () => ({ messages: [...stateMessage(REALISTIC_SETTINGS).messages, { type: 'accounts-state', cores }] as never }), {
+      baseline: `settings--${id}`,
+      themes: ALL_THEMES,
+      ...(opts.skipLayout ? { skipLayout: true } : {}),
+    }),
+    route: { section: 'agents', hash: formatAgentsHash({ tab: 'accounts' }) },
+    ...(opts.skipLayout ? {} : { layoutRouteId: `agents${formatAgentsHash({ tab: 'accounts' })}` }),
+  };
+}
+
+const DEFAULT_ONLY_CORES = ['claude', 'codex', 'opencode', 'opencode2', 'antigravity'].map((core) => ({
+  core, active: 'default',
+  rows: [{ name: 'default', label: 'Default (CLI home)', active: true, builtIn: true, status: 'signed-in' }],
+}));
+
+const SEVERAL_CORES = DEFAULT_ONLY_CORES.map((c) => c.core !== 'claude' ? c : {
+  core: 'claude', active: 'work',
+  rows: [
+    { name: 'default', label: 'Default (CLI home)', active: false, builtIn: true, status: 'signed-in' },
+    { name: 'work', label: 'work', active: true, builtIn: false, source: 'managed', dir: '/Users/dev/Library/Application Support/Code/User/globalStorage/karst.karst/accounts/claude/work', status: 'signed-in' },
+    { name: 'claude-personal', label: 'claude-personal', active: false, builtIn: false, source: 'command', command: 'claude', dir: '/Users/dev/.claude-personal', status: 'not-signed-in' },
+    { name: 'shared-team', label: 'shared-team', active: false, builtIn: false, source: 'folder', dir: '/Users/dev/team/claude', status: 'unknown' },
+  ],
+});
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -325,7 +353,9 @@ const settingsVariants = (): Variant[] => [
     route: { section: 'agents', hash: formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE }) },
     layoutRouteId: `agents${formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE })}`,
   },
-  ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile'),
+  ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile' && !v.baseline.endsWith('agents-accounts')),
+  accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
+  accountsVariant('accounts-several', SEVERAL_CORES),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
