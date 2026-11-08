@@ -268,11 +268,13 @@ function timelineEvents(
       (m.implementationRunId === null || m.implementationRunId === run.id),
   );
   const lastMark = mine.at(-1);
+  // When the derived `implement` row follows, it supersedes the last mark and alone carries the open status.
+  const derivesImplement = lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE);
   for (const mark of mine) {
     events.push({
       at: mark.markedAt,
       row: {
-        status: mark === lastMark ? openPhaseStatus(run) : 'pass',
+        status: mark === lastMark && !derivesImplement ? openPhaseStatus(run) : 'pass',
         label: mark.phaseName,
         // The prototype's acceptance copy: the phase name first, the report
         // stamp second. Ships pre-worded so the webview renders it verbatim.
@@ -291,7 +293,7 @@ function timelineEvents(
   // It is worded `derived · …` for exactly that reason, and it is skipped both
   // when the agent filed the phase itself and when the run reported no phases
   // at all: the derivation extends an existing log, it does not invent one.
-  if (lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE)) {
+  if (lastMark !== undefined && derivesImplement) {
     const status = openPhaseStatus(run);
     events.push({
       at: lastMark.markedAt,

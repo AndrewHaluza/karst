@@ -215,6 +215,31 @@ describe('doneReceipt', () => {
     expect(view.validated).toBe('1 gate failed on the final run');
   });
 
+  it('reads "No gate ran on the final run" when every final gate was skipped or unanswered', () => {
+    const view = doneReceipt(
+      receiptInput({
+        gateRuns: [
+          gateRun({ stageKey: 'uat', gateName: 'test (web)', exitCode: 0, skipped: true, runAt: NOW }),
+          gateRun({ stageKey: 'review', gateName: 'lint (web)', exitCode: null, runAt: NOW }),
+        ],
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.validated).toBe('No gate ran on the final run');
+  });
+
+  it('counts only answered, non-skipped gates as passed', () => {
+    const view = doneReceipt(
+      receiptInput({
+        gateRuns: [
+          gateRun({ stageKey: 'uat', gateName: 'a', exitCode: 0, runAt: NOW }),
+          gateRun({ stageKey: 'uat', gateName: 'b', exitCode: 0, skipped: true, runAt: NOW }),
+          gateRun({ stageKey: 'uat', gateName: 'c', exitCode: null, runAt: NOW }),
+        ],
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(view.validated).toBe('1 gate passed on the final run');
+  });
+
   it('records the recovery history on the receipt', () => {
     const view = doneReceipt(
       receiptInput({ rounds: [round(), round({ id: 2, round: 2 })] }),
@@ -414,6 +439,29 @@ describe('done receipt: the hero line and the receipt grid', () => {
     const usage = (view.evidence.blocks ?? []).find((b) => b.label === 'AI usage');
     expect(usage).toMatchObject({ value: 'No token usage recorded yet', details: [] });
     expect(usage?.breakdown).toBeUndefined();
+  });
+
+  it('states bypassed, no gate result and passed per stage in the Validated value', () => {
+    const view = doneReceipt(
+      receiptInput({
+        completedAt: NOW,
+        gateRuns: [
+          gateRun({ stageKey: 'uat', gateName: 'a', exitCode: 0, skipped: true }),
+          gateRun({ stageKey: 'review', gateName: 'b', exitCode: null }),
+        ],
+      }),
+    );
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    const validated = (view.evidence.blocks ?? []).find((b) => b.label === 'Validated');
+    expect(validated?.value).toBe('UAT bypassed · Review: no gate result');
+    expect(validated?.details).toEqual([]);
+  });
+
+  it('omits a stage with no batch and still says passed when a gate answered', () => {
+    const view = doneReceipt(receiptInput({ completedAt: NOW, gateRuns: [gateRun({ stageKey: 'uat', gateName: 'a', exitCode: 0 })] }));
+    if (view.status !== 'complete') throw new Error('expected a complete receipt');
+    const validated = (view.evidence.blocks ?? []).find((b) => b.label === 'Validated');
+    expect(validated?.value).toBe('UAT passed');
   });
 
   it('names the recovery rounds in the validation block when any were recorded', () => {

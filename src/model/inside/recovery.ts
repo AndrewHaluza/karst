@@ -10,6 +10,7 @@ import {
   STAGE_TITLES,
   type InsideProcessView,
   type InsideStatus,
+  runEnd,
 } from './types.js';
 
 /**
@@ -146,8 +147,8 @@ export function recoveryProcess(
       ...(detail ? { detail } : {}),
       ...(fixRun?.startedAt
         ? {
-            duration: formatDuration(fixRun.startedAt, fixRun.endedAt ?? now),
-            durationExact: formatExactDuration(fixRun.startedAt, fixRun.endedAt ?? now),
+            // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
+            ...(runEnd(fixRun, now) ? { duration: formatDuration(fixRun.startedAt, runEnd(fixRun, now)), durationExact: formatExactDuration(fixRun.startedAt, runEnd(fixRun, now)) } : {}),
             time: formatTime(fixRun.startedAt),
           }
         : {}),

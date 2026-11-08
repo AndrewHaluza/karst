@@ -51,13 +51,13 @@ import {
   deferredListView,
   formatBytes,
   hasLiveSession,
-  instantMs,
   nodeListView,
   nodeRowAction,
   plannerListView,
   plannerStatus,
   type LedgerEntry,
 } from './graphLedger.js';
+import { instantMs } from './types.js';
 
 export { sanitizeGraphText, GRAPH_TEXT_MAX, AMBIGUOUS_NODE_STATUSES, NODE_OVERRIDE_EDITABLE };
 import { durationBetween, relativeAge, runAge } from './age.js';

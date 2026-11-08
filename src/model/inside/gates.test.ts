@@ -898,6 +898,13 @@ describe("uatProcesses", () => {
     expect(tester.status).not.toBe("fail");
   });
 
+  it("shows no duration for a stale tester run, and a growing one only while it runs", () => {
+    const tester = (over: Parameters<typeof processRun>[0]) =>
+      uatProcesses(qualityInput({ processRuns: [processRun(over)] })).find((p) => p.id === "tester")!;
+    expect(tester({ status: "stale", endedAt: null, resultKind: null }).duration).toBeUndefined();
+    expect(tester({ status: "running", endedAt: null, resultKind: null }).duration).toBeTruthy();
+  });
+
   it("shows the configured assignment only before anything ran; recorded identity wins after", () => {
     const configured = { provider: "claude", model: "opus" };
     const before = uatProcesses(
@@ -2790,6 +2797,9 @@ describe("gates caption: why the gates re-ran, or whose results they are (T938)"
       "Gate results reused from run 5 — only the Tester re-ran",
     );
     expect(rowsOf(p)).toHaveLength(1);
+    // The reused green batch is finished: no spinner, no queued rows while the Tester runs.
+    expect(p.status).toBe("pass");
+    expect(rowsOf(p).map((r) => r.status)).toEqual(["pass"]);
   });
 
   it("says AI review for the review lane reuse", () => {

@@ -582,7 +582,9 @@ describe('implementationSessionProcess', () => {
       );
       const timeline = rows(process);
       expect(timeline.find((r) => r.label === 'research')!.status).toBe('pass');
-      expect(timeline.find((r) => r.label === 'plan')!.status).toBe('run');
+      // The derived implement row supersedes `plan` and alone carries the live status.
+      expect(timeline.find((r) => r.label === 'plan')!.status).toBe('pass');
+      expect(timeline.find((r) => r.label === 'implement')!.status).toBe('run');
     });
 
     it('completes the newest phase once the done marker fired', () => {
@@ -608,7 +610,8 @@ describe('implementationSessionProcess', () => {
       );
       // Nothing closed it and nothing superseded it: the log states absence by
       // saying nothing, never by inventing a verdict.
-      expect(rows(process).find((r) => r.label === 'plan')!.status).toBe('note');
+      expect(rows(process).find((r) => r.label === 'plan')!.status).toBe('pass');
+      expect(rows(process).find((r) => r.label === 'implement')!.status).toBe('note');
     });
 
     it('derives the implement phase the done marker closed', () => {
@@ -640,6 +643,9 @@ describe('implementationSessionProcess', () => {
       const implement = rows(process).find((r) => r.label === 'implement')!;
       expect(implement.status).toBe('run');
       expect(implement.detail).toBe('derived · after the last reported phase');
+      // The derived row carries the live status; the last reported mark is superseded, so one spinner shows.
+      expect(rows(process).find((r) => r.label === 'plan')!.status).toBe('pass');
+      expect(rows(process).filter((r) => r.status === 'run' && r.role === 'phase')).toHaveLength(1);
     });
 
     it('never derives an implement phase the agent reported itself', () => {
@@ -816,7 +822,8 @@ describe('implementationSessionProcess', () => {
       NOW,
     );
     const timeline = rows(process);
-    expect(timeline.find((r) => r.label === 'research')!.status).toBe('note');
+    expect(timeline.find((r) => r.label === 'research')!.status).toBe('pass');
+    expect(timeline.find((r) => r.label === 'implement')!.status).toBe('note');
     expect(timeline.every((r) => r.status !== 'fail')).toBe(true);
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { durationBetween, relativeAge, runAge } from './age.js';
 
 const NOW = '2026-09-06T12:00:00.000Z';
@@ -66,5 +66,19 @@ describe('runAge', () => {
 
   it('renders nothing for a rest-state run with no timestamps at all', () => {
     expect(runAge({ startedAt: null, endedAt: null }, NOW, { live: false })).toBeNull();
+  });
+});
+
+describe('durationBetween with a SQLite stamp under a non-UTC time zone', () => {
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'America/Los_Angeles';
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+  it('reads the stamp as UTC, equal to the ISO stamp', () => {
+    expect(durationBetween('2026-08-09 10:00:00', '2026-08-09T10:03:00Z')).toBe('3m');
   });
 });

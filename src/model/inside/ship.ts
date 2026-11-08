@@ -690,7 +690,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     recorded,
   );
   const merged = current.filter(isMerged).length;
-  const open = current.length - merged;
+  const open = current.filter((p) => !isMerged(p) && p.status !== 'closed').length;
   // NO merged/open chip on this row. The Merge process directly beneath it
   // exists to answer "has this landed", and it already states `1/2 merged` —
   // two rows claiming the same landing count is the duplication being removed.
@@ -792,6 +792,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
         ...row,
         label: `${name} · draft`,
         detail: number ? `${number} · draft — not merged yet` : 'draft — not merged yet',
+        ...(check?.checkedAt ? { time: formatTime(check.checkedAt) } : {}),
+      };
+    }
+    if (pr.status === 'closed') {
+      return {
+        ...row,
+        label: `${name} · closed`,
+        detail: number ? `${number} · closed without merging` : 'closed without merging',
         ...(check?.checkedAt ? { time: formatTime(check.checkedAt) } : {}),
       };
     }

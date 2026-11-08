@@ -483,6 +483,16 @@ describe('shipProcesses', () => {
     expect(rows[0]).toMatchObject({ status: 'wait', label: '/web · draft' });
   });
 
+  it('words a closed PR as closed without merging, still a wait, and leaves it out of the open count', () => {
+    const views = shipProcesses(
+      shipInput({ prs: [pr('/web', { number: 40, status: 'closed' }), pr('/api', { number: 41, status: 'open' })] }),
+    );
+    const rows = rowsOf(views[3]!);
+    expect(rows[0]).toMatchObject({ status: 'wait', label: '/web · closed', detail: '#40 · closed without merging' });
+    expect(rows[1]).toMatchObject({ label: '/api · open' });
+    expect(views[2]!.evidence).toMatchObject({ kind: 'prs', merged: 0, open: 1 });
+  });
+
   it('reads a merge conflict as a WAIT naming the files — never a failed verdict', () => {
     const views = shipProcesses(
       shipInput({

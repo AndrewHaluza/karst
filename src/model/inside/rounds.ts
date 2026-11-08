@@ -107,8 +107,9 @@ function groupAttempts(runs: readonly GateRun[], stageKey: StageKey): AttemptGro
 }
 
 /**
- * One attempt's status, derived ONLY from its own recorded batch — never from
- * another attempt's outcome. A gate that failed (a non-skipped, non-null,
+ * One attempt's status, derived from its own recorded batch — never from
+ * another attempt's outcome. `listGateAttempts` overrides it with `fail` when
+ * the attempt opened a recovery round (the AI lane failed after green gates). A gate that failed (a non-skipped, non-null,
  * non-zero exit) fails the whole attempt; otherwise an attempt that answered
  * at least one gate passed; an attempt that recorded rows but answered none
  * (every gate skipped, or every script missing) states no verdict.
@@ -223,7 +224,8 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
     ]
       .filter(Boolean)
       .join(' · ');
-    const status = isLiveNow ? 'run' : attemptStatus(group.runs);
+    // An attempt that opened a recovery round failed, whatever its gate batch says.
+    const status = isLiveNow ? 'run' : round !== undefined ? 'fail' : attemptStatus(group.runs);
     const time = attemptEarliestStart(group.runs);
     return {
       key: group.key,
