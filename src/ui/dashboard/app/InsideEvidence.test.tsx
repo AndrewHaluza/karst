@@ -367,6 +367,16 @@ describe('Evidence — the session timeline', () => {
     expect(tails[2]!.querySelector('.token-stat')).toBeNull();
   });
 
+  it('draws the bounded remainder as an overflow note below the rail, with its button, not as a rail row', () => {
+    const more = { status: 'note', label: 'more', detail: '+3 more', role: 'event', action: link('x:more', 'open-full-evidence') };
+    withEvidence({ kind: 'timeline', rows: [...rows, more] });
+    expect(all('.session-segments > .timeline-row').length).toBe(rows.length);
+    const note = must('.session-segments + .overflow-note');
+    expect(text(note.querySelector('span'))).toBe('+3 more');
+    expect(note.querySelector('[data-act="inside-action"]')).not.toBeNull();
+    expect(all('.session-segments .phase-row').map((r) => text(r.querySelector('.phase-name')))).toEqual(['Plan', 'Implement', 'Test']);
+  });
+
   it('draws the same rail from the fixture corpus with every host string escaped', () => {
     mountInside(renderStateFor('impl'));
     expect(all('.session-segments > .timeline-row').length).toBeGreaterThan(0);
