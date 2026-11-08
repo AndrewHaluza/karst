@@ -40,7 +40,8 @@ import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { openProcessRun, finishProcessRun, setProcessRunPromptTelemetry } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
-import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
+import { listUatFindings, recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
+import { findingIdentity } from '../../store/findingIdentity.js';
 import { listTokenUsage } from '../../store/tokenUsage.js';
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
@@ -866,8 +867,7 @@ export async function runUatTester(
   opts: RunUatTesterOpts,
   deps: TesterDeps = {},
 ): Promise<TesterRunResult> {
-  const canReask = (opts.onSkip ?? 'pass') !== 'pass';
-  const first = await runTesterOnce(store, opts, deps, canReask);
+  const first = await runTesterOnce(store, opts, deps);
   if (first.result.kind !== 'skipped' || (opts.onSkip ?? 'pass') === 'pass') return first.result;
   // A skipped run means EVERY target observed nothing, so every target is re-asked
   // — exactly once; the second run's result replaces the first's.
@@ -877,7 +877,6 @@ export async function runUatTester(
       store,
       { ...opts, reaskTitles: first.skippedTitles, reaskEvidence: first.evidenceMissing },
       deps,
-      false,
     )
   ).result;
 }
@@ -886,7 +885,6 @@ async function runTesterOnce(
   store: Store,
   opts: RunUatTesterOpts,
   deps: TesterDeps,
-  canReask: boolean,
 ): Promise<{
   result: TesterRunResult;
   skippedTitles: Record<string, string>;
@@ -894,7 +892,7 @@ async function runTesterOnce(
 }> {
   const skippedTitles: Record<string, string> = {};
   const evidenceMissing: Record<string, string> = {};
-  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing, canReask);
+  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing);
   return { result, skippedTitles, evidenceMissing };
 }
 
@@ -904,7 +902,6 @@ async function runTesterBody(
   deps: TesterDeps,
   skippedTitles: Record<string, string>,
   evidenceMissing: Record<string, string>,
-  canReask: boolean,
 ): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
   const coreHint = testerCoreHint(opts.assignment.provider);
@@ -1376,14 +1373,24 @@ async function runTesterBody(
     const { blocking, blockingSummary } = countBlockingObservations(observations, threshold);
     const askedRepos = targetOutcomes.length;
     const missingRepos = Object.keys(evidenceMissing);
-    // A missing-evidence skip that a re-ask will replace keeps no observations: the
-    // re-ask records its own, so the first set would show twice. Coverage still rides.
-    const replacedByReask = canReask && !partial && askedRepos > 0 && missingRepos.length === askedRepos && blocking === 0;
+    // The re-ask never records an observation the first run already recorded, so a
+    // repeat shows once; the first set stays if the re-ask itself fails.
+    const known =
+      opts.reaskEvidence === undefined
+        ? new Set<string>()
+        : new Set(
+            listUatFindings(store, opts.ticketId).map((f) =>
+              findingIdentity({ repo: f.repo ?? '', file: f.filePath, title: f.title }),
+            ),
+          );
+    const recordable = observations.filter(
+      (o) => !known.has(findingIdentity({ repo: o.repo ?? '', file: o.file ?? null, title: o.title })),
+    );
     const findingIds = recordUatFindings(store, {
       ticketId: opts.ticketId,
       processRunId: run.id,
       // Coverage rides after the cap (never truncated, never counted below).
-      findings: [...(replacedByReask ? [] : observations), ...coverageRecords],
+      findings: [...recordable, ...coverageRecords],
       createdAt: now(),
     });
     if (partial) {
@@ -1405,7 +1412,9 @@ async function runTesterBody(
     // a coverage skip observed nothing only when it kept no observation.
     const allNothing = askedRepos > 0 && nothingRepos.size === askedRepos;
     // Missing evidence never hides a blocking observation: `skipped` carries no blocking count.
-    if (allNothing && (observations.length === 0 || replacedByReask || (missingRepos.length === askedRepos && blocking === 0))) {
+    // A coverage skip keeps no observation, so every observation here belongs to a target
+    // with no evidence: with none blocking, the run observed nothing.
+    if (allNothing && blocking === 0) {
       const firstMissing = missingRepos[0];
       const detail =
         firstMissing !== undefined

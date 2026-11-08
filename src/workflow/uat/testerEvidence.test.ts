@@ -215,6 +215,31 @@ describe('runUatTester — requireEvidence', () => {
     expect(nits).toHaveLength(1);
   });
 
+  it('one target with a coverage skip and one with no evidence ends skipped', async () => {
+    const { adapter } = scripted([cov('SKIPPED — a'), pass]);
+    const other: TesterTarget = { ...target, repo: '/api', worktreePath: '/wt/api' };
+    const evidenceFs: EvidenceFs = {
+      list: async (root) => (root === '/wt/web' ? [{ rel: SUMMARY, mtimeMs: Date.now() }] : []),
+      read: async () => '',
+    };
+    const res = await runUatTester(store, opts(adapter, { targets: [target, other] }), { now, evidenceFs });
+    expect(res.kind).toBe('skipped');
+  });
+
+  it('a re-ask that fails keeps the first run observations', async () => {
+    const { adapter } = scripted([pass]);
+    let runs = 0;
+    const failing: AgentAdapter = {
+      ...adapter,
+      runHeadless: async (o) => {
+        if (++runs > 1) throw new Error('boom');
+        return adapter.runHeadless(o);
+      },
+    };
+    await runUatTester(store, opts(failing, { onSkip: 'reask' }), { now, ...none }).catch(() => undefined);
+    expect(listUatFindings(store, ticketId).filter((f) => f.title === 'nit')).toHaveLength(1);
+  });
+
   it('the re-ask quotes both the coverage skip and the missing evidence', async () => {
     const { adapter, calls } = scripted([cov('SKIPPED — x')]);
     await runUatTester(store, opts(adapter, { onSkip: 'reask' }), { now, ...none });
