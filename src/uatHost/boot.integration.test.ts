@@ -52,10 +52,12 @@ describe.skipIf(!enabled)('uat:host:docker', () => {
       );
       expect(run.status, run.stdout + run.stderr).toBe(0);
       const evidence = JSON.parse(readFileSync(join(out, 'step-008.json'), 'utf8')) as {
-        snapshot: { tickets: Array<{ key: string }> };
+        snapshot: { tickets: Array<{ key: string }>; webviews: unknown };
         ui: { screenshot: string };
       };
       expect(evidence.snapshot.tickets.map((t) => t.key)).toContain('FIX-BLOCKED-s1');
+      // The final `read` step: the panel's last posted message holds the new sub-task title.
+      expect(JSON.stringify(evidence.snapshot.webviews)).toContain('Sample sub-task from a real click');
       expect(existsSync(join(out, evidence.ui.screenshot))).toBe(true);
     } finally {
       rmSync(out, { recursive: true, force: true });

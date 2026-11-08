@@ -168,9 +168,9 @@ async function clearToasts(page) {
   return { texts, ...(clearError ? { clearError } : {}) };
 }
 
-async function act(page, step, deadline) {
+/** Fills `evidence` in place, so what was gathered before a throw (the cleared toasts) still reaches the step file. */
+async function act(page, step, deadline, evidence) {
   const remaining = () => Math.max(1, deadline - Date.now());
-  const evidence = {};
   switch (step.type) {
     case 'click': {
       const toasts = await clearToasts(page);
@@ -200,20 +200,19 @@ async function act(page, step, deadline) {
     default:
       throw new UiStepError(`unknown UI step type "${step.type}"`);
   }
-  return evidence;
 }
 
 async function runStep({ index, step, timeoutMs }) {
   const deadline = Date.now() + timeoutMs;
   let status = 'pass';
   let detail;
-  let extra = {};
+  const extra = {};
   let page;
   try {
     page = await attach(deadline);
     if (step.type === 'read') page = await waitForWebview(page, deadline);
     lastText ??= (await readPanel(page)).lines;
-    extra = await act(page, step, deadline);
+    await act(page, step, deadline, extra);
   } catch (err) {
     status = err?.name === 'TimeoutError' ? 'timeout' : 'fail';
     detail = String(err?.message ?? err);

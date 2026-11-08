@@ -80,12 +80,17 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<{ timedOut: tr
 
 type StepOutcome = Omit<StepResult, 'index' | 'type'> & { ui?: UiEvidence };
 
-async function runUiStep(step: UiStep, index: number, opts: RunOptions, timeoutMs: number): Promise<StepOutcome> {
+/**
+ * The driver gets the step timeout, less the reply grace, so the grace fits in the script budget.
+ * Only a budget under UI_GRACE_MS + 1s can still run over, and then by less than the grace.
+ */
+async function runUiStep(step: UiStep, index: number, opts: RunOptions, timeoutMs: number, budgetMs: number): Promise<StepOutcome> {
+  const driverMs = Math.min(timeoutMs, Math.max(1000, budgetMs - UI_GRACE_MS));
   const driver = opts.host.ui;
   if (!driver) return { status: 'fail', detail: 'no UI driver: the harness starts it only for a --script that holds a UI step' };
   try {
-    const r = await withTimeout(driver.run(index, step, timeoutMs), timeoutMs + UI_GRACE_MS);
-    if ('timedOut' in r) return { status: 'timeout', detail: `${step.type} got no reply from the UI driver in ${timeoutMs + UI_GRACE_MS}ms` };
+    const r = await withTimeout(driver.run(index, step, driverMs), driverMs + UI_GRACE_MS);
+    if ('timedOut' in r) return { status: 'timeout', detail: `${step.type} got no reply from the UI driver in ${driverMs + UI_GRACE_MS}ms` };
     return r.value;
   } catch (err) {
     return { status: 'fail', detail: err instanceof Error ? err.message : String(err) };
@@ -95,7 +100,7 @@ async function runUiStep(step: UiStep, index: number, opts: RunOptions, timeoutM
 async function runStep(step: Step, index: number, opts: RunOptions, budgetMs: number): Promise<StepOutcome> {
   const timeoutMs = Math.min(budgetMs, 'timeoutMs' in step && step.timeoutMs ? step.timeoutMs : DEFAULT_STEP_TIMEOUT_MS);
   if (step.type === 'snapshot') return { status: 'pass' };
-  if (isUiStep(step)) return runUiStep(step, index, opts, timeoutMs);
+  if (isUiStep(step)) return runUiStep(step, index, opts, timeoutMs, budgetMs);
   if (step.type === 'command' || step.type === 'restart') {
     const label = step.type === 'restart' ? 'restart' : step.command;
     try {

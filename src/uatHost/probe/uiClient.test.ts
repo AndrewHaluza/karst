@@ -74,4 +74,17 @@ describe('runSteps with UI steps', () => {
     const { results } = await run({ ui: { run: async () => { throw new Error('unreachable'); } } });
     expect(results[0]).toMatchObject({ status: 'fail', detail: 'unreachable' });
   });
+  it('gives the driver the step timeout less the reply grace when the script budget is tight', async () => {
+    const seen: number[] = [];
+    const ev: unknown[] = [];
+    await runSteps(parseSteps([{ type: 'read', timeoutMs: 30_000 }]), {
+      host: {
+        execute: async () => undefined, restart: async () => undefined, snapshot: () => ({}) as never,
+        ui: { run: async (_i, _s, ms) => { seen.push(ms); return { status: 'pass' as const }; } },
+      },
+      totalTimeoutMs: 20_000,
+      writeEvidence: (_i, e) => { ev.push(e); },
+    });
+    expect(seen).toEqual([5000]);
+  });
 });
