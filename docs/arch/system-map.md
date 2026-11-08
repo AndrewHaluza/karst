@@ -475,6 +475,8 @@ erDiagram
   bulletin_notes
   bulletin_reads
   cloud_session_links
+  deliver_gate_results
+  deliver_runs
   fix_deliveries
   fix_round_heads
   gate_runs
@@ -544,6 +546,9 @@ erDiagram
   tickets ||--o{ bulletin_reads : reader_ticket_id
   planning_proposals ||--o{ cloud_session_links : proposal_id
   tickets ||--o{ cloud_session_links : ticket_id
+  deliver_runs ||--o{ deliver_gate_results : run_id
+  tickets ||--o{ deliver_gate_results : ticket_id
+  tickets ||--o{ deliver_runs : ticket_id
   projects ||--o{ fix_deliveries : project_id
   recovery_rounds ||--o{ fix_deliveries : recovery_round_id
   tickets ||--o{ fix_deliveries : ticket_id
