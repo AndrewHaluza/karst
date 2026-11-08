@@ -13,8 +13,8 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { createAccountOps, type AccountOps } from '../../agent/accounts/accountOps.js';
 import { ACCOUNTS_FILE, fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
-import { configureAccounts, configureRecordedAccountLookup, configureSessionLedgerSink, liveHeadlessAccounts, seedSessionLedger } from '../../agent/accounts/registry.js';
-import { loadSessionLedger, saveSessionLedger } from '../../agent/accounts/sessionLedgerStore.js';
+import { configureAccounts, configureRecordedAccountLookup, configureSessionLedgerSink, liveHeadlessAccounts, mergeSessionLedger, seedSessionLedger } from '../../agent/accounts/registry.js';
+import { appendSessionLedger, loadSessionLedger, SESSION_LEDGER_FILE } from '../../agent/accounts/sessionLedgerStore.js';
 import { opencode2Config } from '../../agent/opencode2Binary.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
@@ -91,6 +91,15 @@ export interface AccountsWiring {
 /** Poll period of the `accounts.json` watch: another window's change reaches this one. */
 export const ACCOUNTS_WATCH_MS = 1000;
 
+/** Merge the entries that other windows wrote into the ledger of this window. */
+export async function mergeLedgerFile(root: string, debug?: (message: string) => void): Promise<void> {
+  try {
+    mergeSessionLedger(await loadSessionLedger(root));
+  } catch (e) {
+    debug?.(`[accounts] session ledger not merged: ${String(e)}`);
+  }
+}
+
 export async function wireAccounts(input: {
   readonly globalStorageRoot: string;
   readonly store: Store;
@@ -115,8 +124,8 @@ export async function wireAccounts(input: {
     input.debug?.(`[accounts] session ledger not loaded: ${String(e)}`);
     return {};
   }));
-  configureSessionLedgerSink((entries) => {
-    saveSessionLedger(input.globalStorageRoot, entries).catch((e) => input.debug?.(`[accounts] session ledger not saved: ${String(e)}`));
+  configureSessionLedgerSink((key, account) => {
+    appendSessionLedger(input.globalStorageRoot, key, account).catch((e) => input.debug?.(`[accounts] session ledger not saved: ${String(e)}`));
   });
   const ops = createAccountOps({
     store: publishing,
@@ -138,5 +147,8 @@ export async function wireAccounts(input: {
       publish().catch((e) => input.debug?.(`[accounts] reload failed: ${String(e)}`));
     });
   }
-  return { ops, reload: publish, dispose: () => { configureSessionLedgerSink(undefined); if (watching) unwatchFile(file); } };
+  // Another window appends to the ledger: merge its entries so a resume here finds them.
+  const ledgerFile = join(input.globalStorageRoot, SESSION_LEDGER_FILE);
+  watchFile(ledgerFile, { interval: ACCOUNTS_WATCH_MS, persistent: false }, () => { void mergeLedgerFile(input.globalStorageRoot, input.debug); });
+  return { ops, reload: publish, dispose: () => { configureSessionLedgerSink(undefined); unwatchFile(ledgerFile); if (watching) unwatchFile(file); } };
 }

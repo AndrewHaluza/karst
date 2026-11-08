@@ -8,6 +8,7 @@ import { loadSessionLedger, saveSessionLedger } from './sessionLedgerStore.js';
 import {
   accountForLaunch, configureAccounts, configureRecordedAccountLookup, configureSessionLedgerSink,
   liveHeadlessAccounts, recordHeadlessSession, resetAccounts, resetSessionLedger, SESSION_LEDGER_MAX, seedSessionLedger,
+  mergeSessionLedger,
 } from './registry.js';
 
 afterEach(() => {
@@ -61,14 +62,24 @@ describe('headless session ledger (AC-55)', () => {
     expect(accountForLaunch('claude', '')).toBeUndefined();
   });
 
-  it('sends every change to the sink and keeps a bounded ledger', () => {
-    const sunk: Array<Record<string, string>> = [];
-    configureSessionLedgerSink((e) => sunk.push(e));
+  it('sends one entry per change to the sink and keeps a bounded ledger', () => {
+    const sunk: Array<[string, string]> = [];
+    configureSessionLedgerSink((k, v) => sunk.push([k, v]));
     for (let i = 0; i <= SESSION_LEDGER_MAX; i++) recordHeadlessSession('claude', `s${i}`, 'a');
-    const last = sunk[sunk.length - 1]!;
-    expect(Object.keys(last)).toHaveLength(SESSION_LEDGER_MAX);
-    expect(last['claude:s0']).toBeUndefined();
-    expect(last[`claude:s${SESSION_LEDGER_MAX}`]).toBe('a');
+    expect(sunk[0]).toEqual(['claude:s0', 'a']);
+    expect(sunk).toHaveLength(SESSION_LEDGER_MAX + 1);
+    expect(accountForLaunch('claude', 's0')).toBeUndefined();
+    expect(accountForLaunch('claude', `s${SESSION_LEDGER_MAX}`)).toBe('a');
+  });
+
+  it('merges entries of another window without replacing its own, and stays bounded', () => {
+    recordHeadlessSession('claude', 'mine', 'a');
+    mergeSessionLedger({ 'claude:mine': 'other', 'claude:theirs': 'b' });
+    expect(accountForLaunch('claude', 'mine')).toBe('a');
+    expect(accountForLaunch('claude', 'theirs')).toBe('b');
+    mergeSessionLedger(Object.fromEntries(Array.from({ length: SESSION_LEDGER_MAX }, (_, i) => [`codex:m${i}`, 'c'])));
+    expect(accountForLaunch('claude', 'mine')).toBeUndefined();
+    expect(accountForLaunch('codex', `m${SESSION_LEDGER_MAX - 1}`)).toBe('c');
   });
 
   it('counts two runs of one account and ends them one by one', async () => {

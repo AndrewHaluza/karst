@@ -110,21 +110,42 @@ export function sanitizeToml(text: string): string {
 }
 
 type FileSanitizer = (text: string) => string | undefined;
-const jsonSanitizer: FileSanitizer = (text) => {
+/** `{env:NAME}` and `{file:path}` only POINT at a secret; they are kept. */
+const SECRET_REFERENCE = /^\{(env|file):/;
+const SECRET_VALUE_KEY = /(api[_-]?key|token|secret|password|authorization|credential)/i;
+
+/** A JSON value without string values under a secret-looking key, at any depth (opencode provider options). */
+export function stripSecretValues(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSecretValues);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([k, v]) => !(SECRET_VALUE_KEY.test(k) && typeof v === 'string' && !SECRET_REFERENCE.test(v)))
+      .map(([k, v]) => [k, stripSecretValues(v)]),
+  );
+}
+
+const jsonSanitizer: FileSanitizer = (text) => sanitizeJson(text, (v) => sanitizeSettings(v));
+const opencodeJsonSanitizer: FileSanitizer = (text) => sanitizeJson(text, (v) => stripSecretValues(sanitizeSettings(v)));
+
+function sanitizeJson(text: string, clean_: (value: unknown) => unknown): string | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
-    const clean = sanitizeSettings(parsed);
+    const clean = clean_(parsed);
     return JSON.stringify(clean) === JSON.stringify(parsed) ? text : `${JSON.stringify(clean, null, 2)}\n`;
   } catch {
     return undefined;
   }
-};
+}
 /** Config files that may hold a credential, by file name. Any other file is copied as is. */
 const FILE_SANITIZERS: Readonly<Record<string, FileSanitizer>> = {
   'settings.json': jsonSanitizer,
   'settings.local.json': jsonSanitizer,
   '.mcp.json': jsonSanitizer,
   'config.toml': sanitizeToml,
+  // opencode config: provider options can hold an API key. A .jsonc file cannot be parsed, so it is skipped, never copied raw.
+  'opencode.json': opencodeJsonSanitizer,
+  'opencode.jsonc': opencodeJsonSanitizer,
 };
 
 /** `true` when a path (relative, any depth) must never be copied. */

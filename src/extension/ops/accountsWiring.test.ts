@@ -11,7 +11,7 @@ import { createTicketFlow } from '../../workflow/stages/create.js';
 import { transition } from '../../workflow/machine.js';
 import { confirmSessionLaunchIntent, recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
-import { ACCOUNTS_WATCH_MS, binaryResolves, DEFAULT_DIRS, liveAccountNames, lookupAlias, wireAccounts } from './accountsWiring.js';
+import { ACCOUNTS_WATCH_MS, binaryResolves, DEFAULT_DIRS, liveAccountNames, lookupAlias, mergeLedgerFile, wireAccounts } from './accountsWiring.js';
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-wire-')); });
@@ -92,6 +92,58 @@ it('works without a debug hook when the ledger file can neither be read nor writ
   expect(accountForLaunch('claude', 'nd-1')).toBe('work');
   w.dispose();
   resetSessionLedger();
+  store.close();
+});
+
+it('reports a ledger entry that cannot be saved', async () => {
+  const blocker = join(root, 'blocker');
+  await writeFile(blocker, 'x');
+  const debug = vi.fn();
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: blocker, store, accountStore: memoryAccountStore(), debug });
+  recordHeadlessSession('claude', 'sv-1', 'work');
+  await vi.waitFor(() => expect(debug).toHaveBeenCalledWith(expect.stringContaining('[accounts] session ledger not saved: ')));
+  w.dispose();
+  resetSessionLedger();
+  store.close();
+});
+
+it('keeps the entries of another window and merges them into this window', async () => {
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store });
+  try {
+    await writeFile(join(root, 'session-accounts.json'), JSON.stringify({ 'claude:other': 'w2' }));
+    recordHeadlessSession('claude', 'mine', 'w1');
+    await vi.waitFor(async () => expect(await loadSessionLedger(root)).toEqual({ 'claude:other': 'w2', 'claude:mine': 'w1' }));
+    await vi.waitFor(() => expect(accountForLaunch('claude', 'other')).toBe('w2'), { timeout: ACCOUNTS_WATCH_MS * 5 });
+  } finally {
+    w.dispose();
+    resetSessionLedger();
+    store.close();
+  }
+});
+
+it('merges a ledger file directly, and reports an unreadable one', async () => {
+  await writeFile(join(root, 'session-accounts.json'), JSON.stringify({ 'claude:m1': 'w2' }));
+  await mergeLedgerFile(root);
+  expect(accountForLaunch('claude', 'm1')).toBe('w2');
+  await writeFile(join(root, 'session-accounts.json'), '{bad');
+  const msgs: string[] = [];
+  await mergeLedgerFile(root, (m) => msgs.push(m));
+  expect(msgs).toHaveLength(1);
+  expect(msgs[0]).toMatch(/^\[accounts\] session ledger not merged: /);
+  await expect(mergeLedgerFile(root)).resolves.toBeUndefined();
+  resetSessionLedger();
+});
+
+it('stops merging the ledger of other windows after dispose', async () => {
+  const store = openStore(':memory:');
+  const w = await wireAccounts({ globalStorageRoot: root, store });
+  w.dispose();
+  resetSessionLedger();
+  await writeFile(join(root, 'session-accounts.json'), JSON.stringify({ 'claude:late': 'w2' }));
+  await new Promise((r) => setTimeout(r, ACCOUNTS_WATCH_MS * 2.5));
+  expect(accountForLaunch('claude', 'late')).toBeUndefined();
   store.close();
 });
 

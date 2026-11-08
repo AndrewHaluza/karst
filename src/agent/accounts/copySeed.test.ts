@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { copyAccountSeed, sanitizeMcpServers, sanitizeSettings, sanitizeToml } from './copySeed.js';
+import { copyAccountSeed, stripSecretValues, sanitizeMcpServers, sanitizeSettings, sanitizeToml } from './copySeed.js';
 
 async function setup() {
   const from = await mkdtemp(join(tmpdir(), 'seed-from-'));
@@ -109,5 +109,28 @@ describe('config files without credentials', () => {
     expect(sanitizeSettings([1])).toEqual([1]);
     expect(sanitizeSettings({ env: 5, a: 1 })).toEqual({ env: 5, a: 1 });
     expect(sanitizeToml('a = 1\n')).toBe('a = 1\n');
+  });
+  it('removes provider API keys from the opencode2 config copy and keeps references', async () => {
+    const from = await mkdtemp(join(tmpdir(), 'seed-o-from-'));
+    const to = await mkdtemp(join(tmpdir(), 'seed-o-to-'));
+    await mkdir(join(from, 'config'));
+    await writeFile(join(from, 'config', 'opencode.json'), JSON.stringify({
+      model: 'a/b',
+      provider: { a: { options: { apiKey: 'sk-live', baseURL: 'u', token: '{env:T}' }, list: [{ secret: 'z', n: 1 }] } },
+    }));
+    await writeFile(join(from, 'config', 'opencode.jsonc'), '{ // c\n "apiKey": "sk-live" }');
+    await copyAccountSeed({ core: 'opencode2', fromDir: from, toDir: to, items: ['config'] });
+    const text = await readFile(join(to, 'config', 'opencode.json'), 'utf8');
+    expect(text).not.toContain('sk-live');
+    expect(JSON.parse(text)).toEqual({
+      model: 'a/b',
+      provider: { a: { options: { baseURL: 'u', token: '{env:T}' }, list: [{ n: 1 }] } },
+    });
+    expect(existsSync(join(to, 'config', 'opencode.jsonc'))).toBe(false);
+  });
+  it('stripSecretValues passes scalars through', () => {
+    expect(stripSecretValues(3)).toBe(3);
+    expect(stripSecretValues(null)).toBeNull();
+    expect(stripSecretValues({ apiKey: 5 })).toEqual({ apiKey: 5 });
   });
 });

@@ -60,7 +60,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
   // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
-    ? sandboxAccountBlock(input.core as AccountCore, input.account)
+    ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker')
     : undefined;
   if (accountBlock) return onHost(accountBlock);
   if (backend === 'docker') {

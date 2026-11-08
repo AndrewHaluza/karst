@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { configureAccounts, resetAccounts } from './accounts/registry.js';
 import {
   discoverAntigravityModels,
   discoverClaudeModels,
@@ -265,13 +266,25 @@ describe('provider discovery', () => {
 describe('discoverOpencode2Models', () => {
   afterEach(() => resetOpencode2Config());
 
+  it('runs the models command under the env of the active account', async () => {
+    configureOpencode2({ binaryPath: '/opt/opencode2/bin/opencode' });
+    configureAccounts({ opencode2: { active: 'w', list: { w: { kind: 'subscription', source: 'folder', dir: '/h/w' } } } });
+    const run = vi.fn(completed('opencode-go/space-bunny\n'));
+    try {
+      await discoverOpencode2Models(run);
+    } finally {
+      resetAccounts();
+    }
+    expect(run.mock.calls[0]?.[3]).toMatchObject({ XDG_DATA_HOME: expect.stringContaining('/h/w') });
+  });
+
   it('runs the configured v2 binary with `models --standalone`, never a PATH lookup', async () => {
     configureOpencode2({ binaryPath: '/opt/opencode2/bin/opencode' });
     const run = vi.fn(completed('opencode-go/space-bunny\nopencode-go/mimo-v2.5\n'));
 
     const result = await discoverOpencode2Models(run);
 
-    expect(run).toHaveBeenCalledWith('/opt/opencode2/bin/opencode', ['models', '--standalone']);
+    expect(run).toHaveBeenCalledWith('/opt/opencode2/bin/opencode', ['models', '--standalone'], undefined, {});
     expect(result).toEqual({
       status: 'available',
       models: [

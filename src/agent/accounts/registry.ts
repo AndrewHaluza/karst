@@ -116,7 +116,7 @@ export function accountForLaunch(core: string, resume: string | undefined, expli
 /** Most entries the headless session ledger keeps (the oldest are dropped first). */
 export const SESSION_LEDGER_MAX = 1000;
 const sessionLedger = new Map<string, string>();
-let ledgerSink: ((entries: Record<string, string>) => void) | undefined;
+let ledgerSink: ((key: string, account: string) => void) | undefined;
 const ledgerKey = (core: string, sessionId: string): string => `${core}:${sessionId}`;
 
 /** Load the persisted ledger (host start). */
@@ -125,9 +125,15 @@ export function seedSessionLedger(entries: Readonly<Record<string, string>>): vo
   for (const [k, v] of Object.entries(entries)) sessionLedger.set(k, v);
 }
 
-/** The host persists every change of the ledger through this sink. */
-export function configureSessionLedgerSink(fn: ((entries: Record<string, string>) => void) | undefined): void {
+/** The host persists every new entry (one key, one account) through this sink; it merges, never overwrites. */
+export function configureSessionLedgerSink(fn: ((key: string, account: string) => void) | undefined): void {
   ledgerSink = fn;
+}
+
+/** Add entries that another window wrote; an entry of this window stays. */
+export function mergeSessionLedger(entries: Readonly<Record<string, string>>): void {
+  for (const [k, v] of Object.entries(entries)) if (!sessionLedger.has(k)) sessionLedger.set(k, v);
+  while (sessionLedger.size > SESSION_LEDGER_MAX) sessionLedger.delete(sessionLedger.keys().next().value as string);
 }
 
 export function resetSessionLedger(): void {
@@ -143,7 +149,7 @@ export function recordHeadlessSession(core: AccountCore, sessionId: string, acco
   sessionLedger.delete(key);
   sessionLedger.set(key, account);
   while (sessionLedger.size > SESSION_LEDGER_MAX) sessionLedger.delete(sessionLedger.keys().next().value as string);
-  ledgerSink?.(Object.fromEntries(sessionLedger));
+  ledgerSink?.(key, account);
 }
 
 const liveHeadless = new Map<string, number>();
@@ -176,10 +182,12 @@ export function launchAccountName(core: AccountCore, account: string | undefined
  * in the container, so the launch falls back to the host with this reason.
  * The default, folder and managed accounts only change the home folder.
  */
-export function sandboxAccountBlock(core: AccountCore, account?: string): string | undefined {
+export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' = 'docker'): string | undefined {
   const list = config[core]?.list ?? {};
   const name = account ?? config[core]?.active ?? DEFAULT_ACCOUNT;
   const found = name === DEFAULT_ACCOUNT ? undefined : list[name];
-  if (found?.source !== 'command') return undefined;
-  return `${core} account '${name}' runs the host command '${found.command}', which is not in the container`;
+  // An sbx sandbox keeps its own login and has no account folder: any account but default would run under the wrong login.
+  if (found?.source === 'command') return `${core} account '${name}' runs the host command '${found.command}', which is not in the container`;
+  if (found && backend === 'sbx') return `${core} account '${name}' has its own login, which the sbx sandbox does not use`;
+  return undefined;
 }

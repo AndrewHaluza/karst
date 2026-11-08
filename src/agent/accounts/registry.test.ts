@@ -63,6 +63,14 @@ describe('sandboxAccountBlock', () => {
     expect(sandboxAccountBlock('claude', 'work')).toBeUndefined();
     expect(sandboxAccountBlock('codex')).toBeUndefined();
   });
+  it('blocks every stored account under sbx, and the default account never', () => {
+    configureAccounts(config);
+    expect(sandboxAccountBlock('claude', 'work', 'sbx')).toMatch(/claude account 'work'.*sbx sandbox/);
+    expect(sandboxAccountBlock('claude', 'cmd', 'sbx')).toMatch(/host command/);
+    expect(sandboxAccountBlock('claude', 'default', 'sbx')).toBeUndefined();
+    expect(sandboxAccountBlock('claude', 'work', 'docker')).toBeUndefined();
+    expect(sandboxAccountBlock('opencode', undefined, 'sbx')).toBeUndefined();
+  });
 });
 
 describe('sessionReaderEnv', () => {

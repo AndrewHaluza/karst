@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { configureAccounts, resetAccounts } from './accounts/registry.js';
 import { resolveBackend } from './backendResolver.js';
 import { fakeSbxProcess } from './sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
@@ -11,6 +12,18 @@ const projectRoot = mkdtempSync(join(tmpdir(), 'karst-resolve-'));
 const worktree = { hostWorktreePath: join(projectRoot, '.karst', 'worktrees', 't7'), branch: 'karst/t7' };
 const base = { core: 'claude', projectRoot: '/p', ticketId: 7, proc: fakeSbxProcess() };
 const ok = vi.fn().mockResolvedValue({ ok: true, existing: [] });
+
+describe('resolveBackend account', () => {
+  afterEach(() => resetAccounts());
+  it('uses the host for a stored account under sbx, and sbx for the default account', async () => {
+    configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
+    const blocked = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree });
+    expect(blocked.runner).toBe(HOST_SESSION_RUNNER);
+    expect(blocked.line).toMatch(/^host \(claude account 'work'.*sbx sandbox does not use\)$/);
+    const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
+    expect(def.runner.kind).toBe('sbx');
+  });
+});
 
 describe('resolveBackend', () => {
   it('defaults to host without running preflight', async () => {

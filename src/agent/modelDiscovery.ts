@@ -485,7 +485,7 @@ export async function discoverOpencode2Models(
   }
 
   const oc2 = accountLaunchFor('opencode2', opencode2Command());
-  const result = await run(oc2.binary, [...oc2.args, 'models', '--standalone']);
+  const result = await run(oc2.binary, [...oc2.args, 'models', '--standalone'], undefined, oc2.env);
   const failure = commandFailure(result);
   if (failure) return failure;
 
