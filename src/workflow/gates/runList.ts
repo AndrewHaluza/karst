@@ -4,6 +4,7 @@ import type { ResolvedGate } from './resolve.js';
 import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
+import { leaseGateSlot } from './gateLease.js';
 import { runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
 /**
@@ -97,6 +98,10 @@ export interface RunGatesOptions {
   regenerate?: RegenerateSpec;
   /** True when `runProcess` is a sandbox runner (a missing module then means the sandbox lacks the tool). */
   sandboxed?: boolean;
+  /** Pool root for `maxConcurrent` gate leases; absent → `$TMPDIR/karst-gate-slots`. Tests inject a temp dir. */
+  gateSlotsDir?: string;
+  /** Poll interval of a waiting gate lease; absent → the lease default. */
+  gateSlotPollMs?: number;
 }
 
 export async function runGateList(
@@ -179,6 +184,25 @@ export async function runGateList(
       onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid) : undefined,
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
+    // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
+    let gateLease: { release: () => Promise<void> } | undefined;
+    if (gate.maxConcurrent !== undefined) {
+      try {
+        gateLease = await leaseGateSlot(gate.name, gate.maxConcurrent, {
+          dir: opts.gateSlotsDir,
+          pollMs: opts.gateSlotPollMs,
+          signal: opts.signal,
+          onWait: (held) =>
+            opts.onGateOutput?.(gate.name, {
+              stream: 'stderr',
+              text: `${gate.name}: waiting for a free slot (${held} of ${gate.maxConcurrent} in use by other tickets)\n`,
+            }),
+        });
+      } catch (err) {
+        if (opts.signal?.aborted) return { kind: 'stopped', results };
+        throw err;
+      }
+    }
     // Integration suites own fixed port bands; concurrent gates (other tickets'
     // worktrees) must not share one, so each leases a slot and runs shifted.
     let lease: PortSlotLease | undefined;
@@ -188,6 +212,7 @@ export async function runGateList(
       } catch (err) {
         // Only a Stop is a stop; any other lease failure is an environment fault
         // and must surface, not masquerade as the user cancelling.
+        await gateLease?.release();
         if (opts.signal?.aborted) return { kind: 'stopped', results };
         throw err;
       }
@@ -221,6 +246,7 @@ export async function runGateList(
     }
     } finally {
       await lease?.release();
+      await gateLease?.release();
     }
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };

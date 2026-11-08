@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { runGateList } from './runList.js';
 
@@ -436,5 +439,112 @@ describe('runGateList port slot — review fixes', () => {
     );
     expect(seen).toEqual(['a', 'b']);
     expect(disposed).toBe(2);
+  });
+});
+
+describe('runGateList gate concurrency lease', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const limited = { name: 'sast', command: 'semgrep', args: [], script: null, required: true, maxConcurrent: 1 };
+  const done = { kind: 'completed' as const, exitCode: 0, output: '' };
+  const mkDir = () => mkdtempSync(join(tmpdir(), 'karst-gate-lease-'));
+
+  it('holds the slot during every spawn and frees it after', async () => {
+    const dir = mkDir();
+    try {
+      let heldDuring: string[] = [];
+      await runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        runProcess: async () => {
+          heldDuring = readdirSync(join(dir, 'sast'));
+          return done;
+        },
+      });
+      expect(heldDuring).toEqual(['slot-0']);
+      expect(readdirSync(join(dir, 'sast'))).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('frees the slot when the spawn throws', async () => {
+    const dir = mkDir();
+    try {
+      await expect(
+        runGateList([limited], process.cwd(), {
+          now,
+          gateSlotsDir: dir,
+          runProcess: async () => {
+            throw new Error('boom');
+          },
+        }),
+      ).rejects.toThrow('boom');
+      expect(readdirSync(join(dir, 'sast'))).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not touch the pool for a gate without maxConcurrent', async () => {
+    const dir = mkDir();
+    try {
+      await runGateList([{ ...limited, maxConcurrent: undefined }], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        runProcess: async () => done,
+      });
+      expect(readdirSync(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes one waiting line, then runs once the other run releases', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const lines: string[] = [];
+      let ran = false;
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        onGateOutput: (name, chunk) => lines.push(`${name}|${chunk.stream}|${chunk.text}`),
+        runProcess: async () => ((ran = true), done),
+      });
+      await new Promise((r) => setTimeout(r, 40));
+      expect(ran).toBe(false);
+      expect(lines).toEqual(['sast|stderr|sast: waiting for a free slot (1 of 1 in use by other tickets)\n']);
+      rmSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      const out = await pending;
+      expect(out.kind).toBe('ran');
+      expect(ran).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns stopped when Stop lands during the wait, and never spawns', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const ac = new AbortController();
+      let ran = false;
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        signal: ac.signal,
+        runProcess: async () => ((ran = true), done),
+      });
+      setTimeout(() => ac.abort(), 20);
+      const out = await pending;
+      expect(out.kind).toBe('stopped');
+      expect(ran).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
