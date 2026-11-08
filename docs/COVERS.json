@@ -391,6 +391,9 @@
     "arch:AP-00",
     "arch:AP-01"
   ],
+  "src/extension/ops/autopilotRerun.ts": [
+    "arch:AP-03"
+  ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
   ],
@@ -432,6 +435,9 @@
   ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
+  ],
+  "src/integrations/ciRerun.ts": [
+    "arch:AP-03"
   ],
   "src/integrations/git.ts": [
     "arch:GH-00"
@@ -644,7 +650,8 @@
     "arch:ST-00"
   ],
   "src/store/autopilot.ts": [
-    "arch:AP-00"
+    "arch:AP-00",
+    "arch:AP-03"
   ],
   "src/store/autostart.ts": [
     "arch:AP-01"
@@ -947,6 +954,9 @@
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
+  ],
+  "src/workflow/transientCi.ts": [
+    "arch:AP-03"
   ],
   "src/workflow/uat/aggregate.ts#aggregateUat": [
     "arch:GATE-CAPABILITY"

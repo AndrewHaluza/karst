@@ -35,6 +35,7 @@ const EXPECTED_TABLES = [
   'autopilot_tickets',
   'review_stall_suggestions',
   'autopilot_budgets',
+  'autopilot_reruns',
   'cloud_session_links',
   'servers',
   'prs',

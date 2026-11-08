@@ -10,6 +10,8 @@ import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwn
 import type { FixOutcome } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
+import type { GhRunner } from '../integrations/github.js';
+import { makeTransientCiSeams } from '../integrations/ciRerun.js';
 
 /** Tracks the session launch a hand-off started, so autopilot can read a failed launch as a failed round instead of a sent one. */
 export function makeLaunchTracker(
@@ -102,6 +104,8 @@ export interface AutopilotBindingDeps {
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
   /** The ticket runs on the host (no sandbox, placement readable). */
   readonly isHostTicket: (ticketId: number) => Promise<boolean>;
+  /** The gh runner of the one re-run of a transient CI failure (T1019). Absent: no re-run. */
+  readonly gh?: GhRunner;
 }
 
 /**
@@ -179,6 +183,7 @@ export function startAutopilot(d: AutopilotBindingDeps): { dispose(): void } {
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
+        ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };
