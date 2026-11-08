@@ -611,7 +611,7 @@
   </div>
 
   <div class="setblock" id="dependenciesCard" hidden>
-    <h2>Blocked by</h2>
+    <h2>Relations</h2>
     <div id="dependenciesList" class="chips"></div>
   </div>
 </aside>
@@ -928,7 +928,21 @@
     const rels = state.relations || [];
     const depsCard = el('dependenciesCard');
     depsCard.hidden = rels.length === 0;
-    el('dependenciesList').innerHTML = rels.map((r) => `<div class="chip">${esc(r.kind)}: ${r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${esc(r.ticketId)}">${esc(r.label)}</a>` : esc(r.label)}${r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${esc(r.id)}">Retry</button>` : ''}</div>`).join('');
+    const RELATION_LABEL = {
+      'blocked-by': 'Blocked by',
+      'blocks': 'Blocks',
+      'related-to': 'Related',
+      'parent-of': 'Parent of',
+      'child-of': 'Child of',
+      'duplicate-of': 'Duplicate of',
+      'duplicated-by': 'Duplicated by',
+    };
+    el('dependenciesList').innerHTML = rels.map((r) => {
+      const kind = esc(r.kindLabel || RELATION_LABEL[r.kind] || r.kind);
+      const chip = r.refHtml || (r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${esc(r.ticketId)}">${esc(r.label)}</a>` : esc(r.label));
+      const err = r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${esc(r.id)}">Retry</button>` : '';
+      return `<div>${kind}: ${chip}${err}</div>`;
+    }).join('');
 
     const dc = state.designConstraints;
     el('designConstraintsCard').hidden = !dc;
@@ -2415,7 +2429,7 @@
     if (!target) return;
     e.preventDefault();
     if (target.dataset.act === 'retry-writeback') post({ type: 'retry-relation-writeback', relationId: Number(target.dataset.id) });
-    if (target.dataset.act === 'open-dependency') post({ type: 'open-dependency', ticketId: Number(target.dataset.id) });
+    if (target.dataset.act === 'open-dependency') post({ type: 'open-dependency', ticketId: Number(target.dataset.id || target.dataset.ticket) });
   });
 
   function postPastedFile(file) {

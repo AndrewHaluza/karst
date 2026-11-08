@@ -173,17 +173,27 @@ describe('ticketRelations', () => {
     expect(isBlocked(store, a)).toBe(true);
   });
 
-  it('does not block when the target is done or archived', () => {
+  it('does not block when the target is done, closed or archived', () => {
     const store = openStore(':memory:');
     const a = ticket(store, 'A', 'CU-A');
     const b = ticket(store, 'B', 'CU-B');
     addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'agent' });
+    setStageCurrent(store, b, 'impl');
+    expect(isBlocked(store, a)).toBe(true);
+    expect(listOpenBlockers(store, a)).toHaveLength(1);
+
     setStageCurrent(store, b, 'done');
     expect(isBlocked(store, a)).toBe(false);
+    expect(listOpenBlockers(store, a)).toHaveLength(0);
+
+    setStageCurrent(store, b, 'closed');
+    expect(isBlocked(store, a)).toBe(false);
+    expect(listOpenBlockers(store, a)).toHaveLength(0);
 
     setStageCurrent(store, b, 'impl');
     archiveTicket(store, b);
     expect(isBlocked(store, a)).toBe(false);
+    expect(listOpenBlockers(store, a)).toHaveLength(0);
   });
 
   it('treats an unresolved target_ref as blocking', () => {
@@ -488,6 +498,16 @@ describe('ticketRelations', () => {
       const b = ticket(store, 'B', 'CU-B');
       addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
       setStageCurrent(store, b, 'done');
+
+      expect(listOpenBlockers(store, a)).toHaveLength(0);
+    });
+
+    it('filters out blockers that are closed', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      setStageCurrent(store, b, 'closed');
 
       expect(listOpenBlockers(store, a)).toHaveLength(0);
     });

@@ -43,6 +43,7 @@ import { ticketGlyph } from '../../model/ticketGlyph.js';
 import type { Glyph } from '../../model/glyph.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
+import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 
 export type { CloudSessionChip };
 
@@ -147,18 +148,7 @@ export interface SidebarSections {
  * Live state of one draft dependency. Facts only (UI-R31): the webview picks
  * markup and the shared status marker from `kind` + `glyph`.
  */
-export interface DepStatus {
-  id: number;
-  /** Host-built `D94`. */
-  label: string;
-  kind: 'draft' | 'ticket' | 'done';
-  ticketId: number | null;
-  /** Host-built `T605`; null while the dependency is still a pending draft. */
-  ticketLabel: string | null;
-  /** The ticket's current stage while `kind === 'ticket'`; null otherwise. */
-  stage: string | null;
-  glyph: Glyph | null;
-}
+export type DepStatus = TicketRefView;
 
 export interface PlanningProposalRow {
   id: number;
@@ -319,13 +309,31 @@ export function buildSidebarState(
       ? (ticketPreset: string | null, ticketProvider: AgentProvider | null) =>
           resolvePresetDefaults(opts.manifest!, 'implementation', { ticketPreset, explicitProvider: ticketProvider })
       : undefined;
+    const rawBlockers = listOpenBlockersFor(store, tickets.map((t) => t.id));
+    const blockersByTicket = new Map<number, TicketRefView[]>();
+    for (const [tid, list] of rawBlockers) {
+      blockersByTicket.set(
+        tid,
+        list.map((b) => {
+          if (b.targetTicketId !== null) {
+            try {
+              const target = getTicket(store, b.targetTicketId);
+              return ticketRefView({ ticket: target });
+            } catch {
+              return ticketRefView({ ref: b.label });
+            }
+          }
+          return ticketRefView({ ref: b.label });
+        }),
+      );
+    }
     const nodes = buildTicketNodes(
       tickets,
       opts.labelTemplate,
       opts.defaultProvider,
       parentKeys,
       agentDefaults,
-      listOpenBlockersFor(store, tickets.map((t) => t.id)),
+      blockersByTicket,
       memoryWaitNotes(store),
     );
     const rows = tickets.map((t, i) => {
@@ -464,15 +472,10 @@ function depStatus(store: Store, target: { status: string; ticketId: number | nu
   if (!target) return [];
   const label = formatId('draft', id);
   if (target.status !== 'accepted' || target.ticketId === null) {
-    return [{ id, label, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray' }];
+    return [ticketRefView({ draftId: id, draftLabel: label })];
   }
   const ticket = getTicket(store, target.ticketId);
-  const ticketLabel = formatId('ticket', ticket.id);
-  if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
-    const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
-    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph }];
-  }
-  return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
+  return [ticketRefView({ ticket, draftId: id, draftLabel: label })];
 }
 
 function planningRows(

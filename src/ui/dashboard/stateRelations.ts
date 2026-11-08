@@ -10,6 +10,7 @@ import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import { subtaskAutostartPhase } from '../../model/subtask.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
+import { ticketRefView } from '../shared/ticketRefView.js';
 import { buildStepper } from '../../model/stepper.js';
 import { queuedPositions, SLOT_STAGES } from '../../store/autostart.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
@@ -103,8 +104,15 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
   // A keyless target's label already IS `T<n>` (buildBlockerLabel), so the id is
   // only added when the label doesn't lead with it.
   const blockers = listOpenBlockers(store, ticketId).map((b) => {
-    const id = b.targetTicketId === null ? null : formatId('ticket', b.targetTicketId);
-    return { ticketId: b.targetTicketId, idLabel: id !== null && !b.label.startsWith(id) ? id : null, label: b.label };
+    if (b.targetTicketId !== null) {
+      try {
+        const target = getTicket(store, b.targetTicketId);
+        return ticketRefView({ ticket: target });
+      } catch {
+        return ticketRefView({ ref: b.label });
+      }
+    }
+    return ticketRefView({ ref: b.label });
   });
   const queue = queuedPositions(store, ticketId);
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {

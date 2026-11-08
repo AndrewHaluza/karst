@@ -24,6 +24,28 @@ import {
 import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { buildBlockerLabel, list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
 import { subtaskParentBranch, type PlannedBaseTicket } from '../../workflow/baseRef.js';
+import { ticketRefView, renderTicketRefHtml } from '../shared/ticketRefView.js';
+import type { TicketWithStages } from '../../store/tickets.js';
+
+export const RELATION_LABEL: Record<string, string> = {
+  'blocked-by': 'Blocked by',
+  'blocks': 'Blocks',
+  'related-to': 'Related',
+  'parent-of': 'Parent of',
+  'child-of': 'Child of',
+  'duplicate-of': 'Duplicate of',
+  'duplicated-by': 'Duplicated by',
+};
+
+export interface TicketFormRelation {
+  id: number;
+  kind: string;
+  kindLabel?: string;
+  ticketId: number | null;
+  label: string;
+  writebackError: string | null;
+  refHtml?: string;
+}
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -253,7 +275,7 @@ export interface TicketFormState {
   stepper: StepperCell[];
   /** Prompt attachments, oldest first. Empty in create mode (no ticket yet). */
   attachments: AttachmentView[];
-  relations?: { id: number; kind: string; ticketId: number | null; label: string; writebackError: string | null }[];
+  relations?: TicketFormRelation[];
   failedWritebacks?: number[];
 }
 
@@ -555,12 +577,31 @@ export function buildTicketFormState(
           })),
     relations: listRelationViews(store, ticketId).map((r) => {
       let key = '';
+      let targetTicket: TicketWithStages | null = null;
       if (r.targetTicketId !== null) {
-        try { key = getTicket(store, r.targetTicketId).key ?? ''; } catch { key = ''; }
+        try {
+          targetTicket = getTicket(store, r.targetTicketId);
+          key = targetTicket.key ?? '';
+        } catch {
+          key = '';
+        }
       }
       const label = buildBlockerLabel(r.targetTicketId, key, r.targetRef, r.targetProposalId);
       const stored = listRelations(store, r.derived && r.targetTicketId !== null ? r.targetTicketId : ticketId).find((x) => x.id === r.id);
-      return { id: r.id, kind: r.kind, ticketId: r.targetTicketId, label, writebackError: stored?.writebackError ?? null };
+      const refView = targetTicket
+        ? ticketRefView({ ticket: targetTicket })
+        : ticketRefView({ ref: label });
+      const refHtml = renderTicketRefHtml(refView, { dataAct: 'open-dependency', dataIdAttr: 'data-id' });
+      const kindLabel = RELATION_LABEL[r.kind] ?? r.kind;
+      return {
+        id: r.id,
+        kind: r.kind,
+        kindLabel,
+        ticketId: r.targetTicketId,
+        label,
+        writebackError: stored?.writebackError ?? null,
+        refHtml,
+      };
     }),
     failedWritebacks: listPendingWritebacks(store, ticketId).filter((r) => r.writebackState === 'failed').map((r) => r.id),
   };

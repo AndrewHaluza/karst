@@ -730,7 +730,7 @@ describe('buildSidebarState — planning sessions', () => {
       const dep = insertProposal(store, s.id, { title: 'Dep', ...body });
       const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
       expect(statusOf(d).dependsOnStatus).toEqual([
-        { id: dep, label: `D${dep}`, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray' },
+        expect.objectContaining({ id: dep, kind: 'draft', ticketId: null, idLabel: `D${dep}`, stage: null, glyph: 'gray' }),
       ]);
     });
 
@@ -743,7 +743,7 @@ describe('buildSidebarState — planning sessions', () => {
       const rowGlyph = buildSidebarState(store, { facets: ['all'], filter: '', projectId })
         .sections.current.find((r) => r.ticketId === tid)!.glyph;
       expect(statusOf(d).dependsOnStatus).toEqual([
-        { id: dep, label: `D${dep}`, kind: 'ticket', ticketId: tid, ticketLabel: `T${tid}`, stage: 'impl', glyph: rowGlyph },
+        expect.objectContaining({ id: dep, kind: 'ticket', ticketId: tid, idLabel: `D${dep}→T${tid}`, stage: 'impl', glyph: rowGlyph }),
       ]);
     });
 
@@ -754,7 +754,7 @@ describe('buildSidebarState — planning sessions', () => {
       markDone(store, tid, '2026-01-01T00:00:00.000Z');
       const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
       expect(statusOf(d).dependsOnStatus).toEqual([
-        { id: dep, label: `D${dep}`, kind: 'done', ticketId: tid, ticketLabel: `T${tid}`, stage: null, glyph: 'green' },
+        expect.objectContaining({ id: dep, kind: 'finished', ticketId: tid, idLabel: `D${dep}→T${tid}`, stage: 'done', glyph: 'green' }),
       ]);
     });
 
@@ -764,7 +764,7 @@ describe('buildSidebarState — planning sessions', () => {
       const tid = accept(dep, 'DEP-3');
       archiveTicket(store, tid);
       const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
-      expect(statusOf(d).dependsOnStatus[0]).toMatchObject({ kind: 'done', glyph: 'green', ticketId: tid });
+      expect(statusOf(d).dependsOnStatus[0]).toMatchObject({ kind: 'finished', ticketId: tid });
     });
 
     it('omits a discarded dependency but keeps it in droppedLabels; preserves order', () => {

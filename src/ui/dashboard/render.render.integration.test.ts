@@ -37,7 +37,7 @@ describe('dashboard render — fixture corpus', () => {
       state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] },
     });
     await drainReactWork(h);
-    const chip = h.query('#parentRef .k-chip');
+    const chip = h.query('#parentRef .k-ticket-ref');
     expect(chip?.textContent).toContain('Blocked by T42 · CU-123');
     h.click('#parentRef [data-act="open-dependency"]');
     await drainReactWork(h);

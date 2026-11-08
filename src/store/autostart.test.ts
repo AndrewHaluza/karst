@@ -254,6 +254,22 @@ describe('blocked tickets', () => {
     expect(pending(store, id)).toBe(2);
   });
 
+  it('claimAutostart refuses a blocked sub-task at impl but claims it after the blocker is closed', () => {
+    const blocker = createTicket(store, { key: 'B2', title: 'b2', projectId }).id;
+    updateTicketFields(store, blocker, { sourceRef: 'B-2' });
+    setStageCurrent(store, blocker, 'impl');
+    const id = child();
+    updateTicketFields(store, id, { sourceRef: 'C-2' });
+    addRelation(store, { ticketId: id, kind: 'blocked-by', targetTicketId: blocker, source: 'user' });
+
+    expect(claimAutostart(store, id, CAPS)).toBe(false);
+    expect(pending(store, id)).toBe(1);
+
+    setStageCurrent(store, blocker, 'closed');
+    expect(claimAutostart(store, id, CAPS)).toBe(true);
+    expect(pending(store, id)).toBe(2);
+  });
+
   it('claimAutostart refuses a blocked sub-task with an unresolved ref', () => {
     const id = child();
     updateTicketFields(store, id, { sourceRef: 'C-1' });

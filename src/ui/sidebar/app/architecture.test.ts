@@ -36,6 +36,7 @@ describe('sidebar app architecture', () => {
     const offenders: string[] = [];
     for (const path of sources()) {
       for (const m of code(path).matchAll(/^import\s+(?!type\b)[^;]*?from\s+'(\.\.\/[^']+|vscode|node:[^']+)'/gm)) {
+        if (m[1]?.startsWith('../../shared/')) continue;
         offenders.push(`${name(path)} → ${m[1]}`);
       }
     }

@@ -16,6 +16,7 @@ import { MenuTrigger } from './MenuTrigger.js';
 import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
+import { TicketRefChip } from '../../shared/TicketRefChip.js';
 
 export interface TicketRowProps {
   readonly row: Row;
@@ -116,9 +117,15 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       <span className="name">{row.label}</span>
-      {blockedBy.length ? (
-        <span className="k-chip" title={`Blocked by ${blockedBy.join(', ')}`}>Blocked by {blockedBy.join(', ')}</span>
-      ) : null}
+      {blockedBy.map((refView, i) => (
+        <TicketRefChip
+          key={refView.ticketId ?? refView.keyOrRef ?? i}
+          refView={refView}
+          link={false}
+          prefix="Blocked by "
+          showKey={false}
+        />
+      ))}
       {row.subtaskParentKey && !row.subtaskDepth ? (
         <span className="parentref subtaskref" title={`Sub-task of ${row.subtaskParentKey}`}>⊂ {row.subtaskParentKey}</span>
       ) : row.parentKey ? (

@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { sidebarRenderFixtures } from '../renderFixtures.js';
 import type { SidebarState, TicketRow } from '../state.js';
 import { closeSidebarRealm, renderSidebarApp, type RenderedSidebar } from './renderSidebarApp.js';
+import { ticketRefView } from '../../shared/ticketRefView.js';
 
 afterAll(closeSidebarRealm);
 
@@ -81,8 +82,9 @@ describe('ticket row', () => {
   });
 
   it('shows a Blocked-by chip, a follow-up marker and the active-row mark', async () => {
-    const h = await mount(stateWith({ current: [row(1, { blockedBy: ['A-1', 'B-2'], parentKey: 'PAR-1', isActive: true })] }));
-    expect(text(h.query('.ticket .k-chip'))).toBe('Blocked by A-1, B-2');
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })], parentKey: 'PAR-1', isActive: true })] }));
+    const chips = h.queryAll('.ticket .k-ticket-ref');
+    expect(chips.map(text)).toEqual(['Blocked by A-1', 'Blocked by B-2']);
     expect(text(h.query('.parentref'))).toBe('↳ PAR-1');
     expect(h.query('.ticket')!.classList.contains('active')).toBe(true);
   });

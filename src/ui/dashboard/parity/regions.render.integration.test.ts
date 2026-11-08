@@ -18,6 +18,7 @@ import {
   shipPreviewStateFor,
 } from '../renderFixtures.js';
 import type { DashboardState } from '../state.js';
+import { ticketRefView } from '../../shared/ticketRefView.js';
 
 // ---------------------------------------------------------------------------
 // domSignature: a stable, readable serialisation of a subtree.
@@ -166,7 +167,10 @@ const HEADER: Case[] = [
   ['headerMeta', '#headerMeta', 'review differs (chip)', () => ({ ...populated(), agentSwitch: { ...populated().agentSwitch, modelsByCore: catalog as never }, capabilityIdentity: caps(SONNET) })],
   ['headerMeta', '#headerMeta', 'follow-up, blocked-by and sub-task relations', () => ({
     ...populated(), capabilityIdentity: caps(OPUS), parent: { key: 'FEAT-99', ref: 'T9 · FEAT-99', title: 'Earlier' },
-    blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }, { ticketId: null, idLabel: null, label: 'external', done: true }],
+    blockers: [
+      ticketRefView({ ticket: { id: 42, key: 'CU-123', stageCurrent: 'impl', stages: [] } as any }),
+      ticketRefView({ ref: 'external' }),
+    ],
   })],
 ];
 

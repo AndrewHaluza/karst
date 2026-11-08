@@ -5,8 +5,10 @@
  * ticket they became. Dependencies render as a wrapping chip row below
  * (UI-R43/R44: chips wrap, never truncate the id).
  */
-import type { DepStatus, PlanningProposalRow } from '../state.js';
+import type { PlanningProposalRow } from '../state.js';
 import { ActButton } from './action.js';
+import { useSidebar } from './SidebarContext.js';
+import { TicketRefChip } from '../../shared/TicketRefChip.js';
 import { GLYPH_WORD } from './format.js';
 import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
@@ -32,44 +34,23 @@ export function PlanControl({ action }: { readonly action: PlanAction }) {
   );
 }
 
-/**
- * One chip per dependency: a status marker (the shared g-* tint, never colour
- * alone — the visible text states the kind) + the identifier, which is the link
- * (UI-R09c). Ticket/done chips open the dashboard; a draft chip focuses its
- * target card (handled by the tree).
- */
-function DepChip({ dep }: { readonly dep: DepStatus }) {
-  const glyph = dep.glyph && GLYPH_WORD[dep.glyph] ? dep.glyph : 'gray';
-  const dot = <span className={`pt-dep-dot g-${glyph}`} aria-hidden="true" />;
-  if (dep.kind === 'draft') {
-    return (
-      <button type="button" className="pt-dep" tabIndex={-1} data-dep-draft={Number(dep.id)} aria-label={`${dep.label}, draft pending`}>
-        {dot}
-        <span>{dep.label}</span>
-      </button>
-    );
-  }
-  const stage = dep.kind === 'ticket' && dep.stage ? ` · ${dep.stage}` : '';
-  const name =
-    dep.kind === 'done'
-      ? `${dep.label}, ticket ${dep.ticketLabel} done`
-      : `${dep.label}, ticket ${dep.ticketLabel} in ${dep.stage || 'progress'}`;
-  return (
-    <ActButton spec={{ act: 'open-dashboard', id: Number(dep.ticketId) }} className="pt-dep" tabIndex={-1} aria-label={name}>
-      {dot}
-      <span>{`${dep.label}→${dep.ticketLabel}${stage}`}</span>
-    </ActButton>
-  );
-}
-
 function Deps({ draft }: { readonly draft: PlanningProposalRow }) {
   const deps = draft.dependsOnStatus || [];
   if (!deps.length) return null;
+  const { fire } = useSidebar();
   return (
     <div className="pt-deps-row">
       <span>needs</span>
       {deps.map((x) => (
-        <DepChip key={`${x.kind}${x.id}`} dep={x} />
+        <TicketRefChip
+          key={`${x.kind}:${x.draftId ?? ''}:${x.ticketId ?? ''}:${x.idLabel}`}
+          refView={x}
+          onClick={(e) => {
+            if (x.ticketId !== null) {
+              fire({ act: 'open-dashboard', id: Number(x.ticketId) }, e.currentTarget, e);
+            }
+          }}
+        />
       ))}
     </div>
   );

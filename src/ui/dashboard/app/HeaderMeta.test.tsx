@@ -27,7 +27,7 @@ describe('HeaderMeta — relations', () => {
       headerState({ origin: 'from D88', blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-1' }, { ticketId: null, idLabel: null, label: 'external' }] }),
     );
     expect($('#parentRef').textContent).toBe('from D88 · Blocked by T42 · CU-1 · Blocked by external');
-    const chips = document.querySelectorAll('#parentRef .k-chip');
+    const chips = document.querySelectorAll('#parentRef .k-ticket-ref');
     expect(chips).toHaveLength(2);
     expect(chips[1]!.querySelector('a')).toBeNull();
     const link = $('#parentRef a[data-act="open-dependency"]');
