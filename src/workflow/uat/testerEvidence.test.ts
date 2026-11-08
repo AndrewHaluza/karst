@@ -170,6 +170,14 @@ describe('runUatTester — requireEvidence', () => {
     expect(res.kind).toBe('observed');
   });
 
+  it.each(['claude', 'codex', 'opencode'] as const)('the verdict is the same for provider %s', async (provider) => {
+    const { adapter } = scripted([pass]);
+    const o = opts(adapter, { assignment: { agentName: 'UAT Agent', provider, model: 'm' } });
+    expect((await runUatTester(store, o, { now, ...none })).kind).toBe('skipped');
+    const fresh = fakeFs({ [SUMMARY]: { mtimeMs: Date.now() } });
+    expect((await runUatTester(store, o, { now, evidenceFs: fresh })).kind).toBe('observed');
+  });
+
   it('onSkip pass: one call, no re-ask', async () => {
     const { adapter, calls } = scripted([pass]);
     await runUatTester(store, opts(adapter, { onSkip: 'pass' }), { now, ...none });
