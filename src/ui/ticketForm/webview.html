@@ -782,6 +782,53 @@
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
 
+  // Builds the shared `.k-ticket-ref` chip with DOM nodes only — the state
+  // crosses postMessage, so no HTML from it is ever parsed. The text, classes
+  // and accessible name mirror TicketRefChip / renderTicketRefHtml, so the
+  // ticket form shows the same ticket reference as every other surface.
+  function renderTicketRefNode(view, opts) {
+    opts = opts || {};
+    const prefix = opts.prefix || '';
+    const link = opts.link !== false;
+    const showKey = opts.showKey !== false;
+    const dataAct = opts.dataAct || 'open-dependency';
+    const dataIdAttr = opts.dataIdAttr || 'data-ticket';
+    const parts = view.displayTextParts || { id: '', key: null, stage: null };
+    const tooltip = !showKey && view.keyOrRef ? view.keyOrRef : null;
+
+    const chip = document.createElement('span');
+    chip.className = 'k-ticket-ref';
+    chip.setAttribute('aria-label', view.accessibleName);
+    if (tooltip) chip.setAttribute('title', tooltip);
+
+    if (prefix) {
+      const p = document.createElement('span');
+      p.textContent = prefix;
+      chip.appendChild(p);
+    }
+
+    const dot = document.createElement('span');
+    dot.className = 'k-ticket-ref-dot g-' + view.glyph;
+    dot.setAttribute('aria-hidden', 'true');
+    chip.appendChild(dot);
+
+    const body = document.createElement('span');
+    if (link && view.ticketId !== null && view.ticketId !== undefined) {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.setAttribute('data-act', dataAct);
+      a.setAttribute(dataIdAttr, String(view.ticketId));
+      a.textContent = parts.id;
+      body.appendChild(a);
+    } else {
+      body.appendChild(document.createTextNode(parts.id));
+    }
+    if (showKey && parts.key) body.appendChild(document.createTextNode(' · ' + parts.key));
+    if (parts.stage) body.appendChild(document.createTextNode(' · ' + parts.stage));
+    chip.appendChild(body);
+    return chip;
+  }
+
   // Mirrors MAX_PASTE_BYTES in attachments/ingest.ts. The host re-checks it —
   // this copy exists so the user is told before a large paste crosses
   // postMessage, not after the host silently drops it. webview.test.ts pins the
@@ -946,10 +993,8 @@
       const kind = r.kindLabel || RELATION_LABEL[r.kind] || r.kind;
       row.appendChild(document.createTextNode(`${kind}: `));
 
-      if (r.refHtml) {
-        const wrap = document.createElement('span');
-        wrap.innerHTML = r.refHtml;
-        while (wrap.firstChild) row.appendChild(wrap.firstChild);
+      if (r.refView) {
+        row.appendChild(renderTicketRefNode(r.refView, { dataAct: 'open-dependency', dataIdAttr: 'data-id' }));
       } else if (r.ticketId) {
         const a = document.createElement('a');
         a.href = '#';

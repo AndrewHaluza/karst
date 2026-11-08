@@ -24,7 +24,7 @@ import {
 import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { buildBlockerLabel, list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
 import { subtaskParentBranch, type PlannedBaseTicket } from '../../workflow/baseRef.js';
-import { ticketRefView, renderTicketRefHtml } from '../shared/ticketRefView.js';
+import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
 export const RELATION_LABEL: Record<string, string> = {
@@ -46,7 +46,8 @@ export interface TicketFormRelation {
   ticketId: number | null;
   label: string;
   writebackError: string | null;
-  refHtml?: string;
+  /** Structured view the webview renders with safe DOM nodes (no HTML strings). */
+  refView?: TicketRefView;
 }
 
 /**
@@ -593,7 +594,6 @@ export function buildTicketFormState(
       const refView = targetTicket
         ? ticketRefView({ ticket: targetTicket })
         : ticketRefView({ ref: label });
-      const refHtml = renderTicketRefHtml(refView, { dataAct: 'open-dependency', dataIdAttr: 'data-id' });
       const kindLabel = RELATION_LABEL[r.kind] ?? r.kind;
       return {
         id: r.id,
@@ -602,7 +602,7 @@ export function buildTicketFormState(
         ticketId: r.targetTicketId,
         label,
         writebackError: stored?.writebackError ?? null,
-        refHtml,
+        refView,
       };
     }),
     failedWritebacks: listPendingWritebacks(store, ticketId).filter((r) => r.writebackState === 'failed').map((r) => r.id),
