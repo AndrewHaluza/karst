@@ -70,6 +70,14 @@ const PROXY_ENV = [
   'NO_PROXY=localhost,127.0.0.1', 'no_proxy=localhost,127.0.0.1',
 ];
 
+/** Account folder variables (arch:AC-55): their values are HOST paths. */
+const HOST_ACCOUNT_DIR_ENV = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'ANTIGRAVITY_EXECUTABLE_DATA_DIR'];
+
+/** `env` without the account folder variables: a host path means nothing in the container. */
+export function withoutHostAccountDirs(env: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !HOST_ACCOUNT_DIR_ENV.includes(key)));
+}
+
 /**
  * `--env` flags for the adapter's env. Host XDG paths (opencode2's isolated
  * store) are remapped onto the data volume, with their value in the argv:
@@ -80,7 +88,7 @@ const PROXY_ENV = [
 export function envArgs(env: Readonly<Record<string, string>>): string[] {
   const xdg = containerXdgEnv();
   const flags: string[] = [];
-  for (const key of Object.keys(env).sort()) {
+  for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
     flags.push('--env', key in xdg ? `${key}=${xdg[key]!}` : key);
   }
   for (const entry of [...PROXY_ENV, 'TERM', 'COLORTERM']) flags.push('--env', entry);
@@ -221,7 +229,7 @@ export function headlessExecArgs(
   env: Readonly<Record<string, string>> = {},
 ): string[] {
   // Only karst-made, non-secret values (a container path) ride here as `K=V`.
-  const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
   return [
     'exec', '--interactive', ...envFlags, '--workdir', CONTAINER_REPO, container,
     'sh', '-c', PID_SCRIPT, 'karst-run', checkRunId(runId), command, ...args,
@@ -246,7 +254,7 @@ export function gateRunArgs(
   env: Readonly<Record<string, string>>,
   memory?: DockerMemoryLimits,
 ): string[] {
-  const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
   return [
     'run', '--rm', ...REAPER, '--name', runName, '--network', names.network, ...HARDENING,
     ...memoryArgs(memory?.gateMemory, memory?.gateReservation),

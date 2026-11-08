@@ -192,6 +192,12 @@ export interface AdapterSurfaces {
    * core has no enforced sandbox; the launch fails closed to prompted mode.
    */
   readonly sandboxInteractive: SurfaceSupport;
+  /**
+   * `account` (@arch:AC-55) → the core's own account env (home folder variable)
+   * and the account command in place of the core binary, on every spawn path.
+   * `unsupported` names what the core cannot isolate per account.
+   */
+  readonly accounts: SurfaceSupport;
 }
 
 /** The declared structured-output form of an adapter, or `undefined` when the

@@ -47,6 +47,7 @@
  * - **Idempotent.** Already-true skips the write (and the reformat) entirely.
  */
 
+import { accountReaderEnv } from './accounts/registry.js';
 import {
   chmodSync,
   existsSync,
@@ -66,6 +67,8 @@ import { pidAlive } from '../runtime/pidAlive.js';
 
 /** Shared options for the per-core ensure functions. */
 export interface TrustOptions {
+  /** Account the launch runs under (the RECORDED one on a resume); absent → the active account (@arch:AC-55). */
+  account?: string;
   /**
    * Home directory holding the core's user config. Defaults to the real home;
    * injected by tests so a unit test never touches the operator's config.
@@ -153,7 +156,7 @@ function envDir(value: string | undefined): string | undefined {
  * different file than karst wrote. `opts.home` (tests) wins outright.
  */
 function claudeConfigPath(opts: TrustOptions): string {
-  const base = opts.home ?? envDir(process.env.CLAUDE_CONFIG_DIR) ?? defaultHome();
+  const base = opts.home ?? envDir(accountReaderEnv(process.env, opts.account ? { claude: opts.account } : {}).CLAUDE_CONFIG_DIR) ?? defaultHome();
   return join(base, '.claude.json');
 }
 
@@ -161,7 +164,7 @@ function claudeConfigPath(opts: TrustOptions): string {
 function codexConfigPath(opts: TrustOptions): string {
   const dir = opts.home
     ? join(opts.home, '.codex')
-    : (envDir(process.env.CODEX_HOME) ?? join(defaultHome(), '.codex'));
+    : (envDir(accountReaderEnv(process.env, opts.account ? { codex: opts.account } : {}).CODEX_HOME) ?? join(defaultHome(), '.codex'));
   return join(dir, 'config.toml');
 }
 
@@ -172,7 +175,7 @@ function codexConfigPath(opts: TrustOptions): string {
 function antigravityConfigPath(opts: TrustOptions): string {
   const dir = opts.home
     ? join(opts.home, '.gemini', 'antigravity-cli')
-    : (envDir(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) ??
+    : (envDir(accountReaderEnv(process.env, opts.account ? { antigravity: opts.account } : {}).ANTIGRAVITY_EXECUTABLE_DATA_DIR) ??
        join(defaultHome(), '.gemini', 'antigravity-cli'));
   return join(dir, 'settings.json');
 }

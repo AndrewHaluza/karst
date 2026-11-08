@@ -4,6 +4,20 @@ import type { AgentProvider } from '../manifest/types.js';
 import type { ModelOption } from './modelCatalog.js';
 import { validateModelList } from './modelCatalog.js';
 import { opencode2BinaryPath, opencode2Command } from './opencode2Binary.js';
+import { accountLaunchFor } from './accounts/registry.js';
+
+/** Run a core's discovery command under the active agent account (a no-op for the default account). */
+function runAsAccount(
+  run: CommandRunner,
+  core: 'codex' | 'antigravity' | 'opencode',
+  binary: string,
+  args: readonly string[],
+  input?: string | CommandInteraction,
+): Promise<CommandResult> {
+  const acct = accountLaunchFor(core, binary);
+  if (acct.account === 'default') return input === undefined ? run(binary, args) : run(binary, args, input);
+  return run(acct.binary, [...acct.args, ...args], input, acct.env);
+}
 
 const COMMAND_TIMEOUT_MS = 3_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -61,6 +75,8 @@ export type CommandRunner = (
   command: string,
   args: readonly string[],
   input?: string | CommandInteraction,
+  /** Extra env for the child (an agent account's home variable, @arch:AC-55). */
+  env?: Readonly<Record<string, string>>,
 ) => Promise<CommandResult>;
 
 export type SpawnImpl = typeof spawn;
@@ -82,7 +98,7 @@ export function makeCommandRunner(
   const timeoutMs = limits.timeoutMs ?? COMMAND_TIMEOUT_MS;
   const maxOutputBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
 
-  return (command, args, input) => new Promise((resolve) => {
+  return (command, args, input, env) => new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
@@ -167,7 +183,11 @@ export function makeCommandRunner(
     };
 
     try {
-      child = spawnImpl(command, [...args], { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawnImpl(command, [...args], {
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...(env && Object.keys(env).length > 0 ? { env: { ...process.env, ...env } } : {}),
+      });
       child.stdout?.on('data', (chunk: unknown) => append('stdout', chunk));
       child.stderr?.on('data', (chunk: unknown) => append('stderr', chunk));
       child.stdin?.once('error', (error: Error) => {
@@ -342,7 +362,7 @@ function codexInteraction(): CommandInteraction {
 }
 
 export async function discoverCodexModels(run: CommandRunner = defaultCommandRunner): Promise<DiscoveryResult> {
-  const result = await run('codex', ['app-server', '--stdio'], codexInteraction());
+  const result = await runAsAccount(run, 'codex', 'codex', ['app-server', '--stdio'], codexInteraction());
   const failure = commandFailure(result);
   if (failure) return failure;
 
@@ -355,7 +375,7 @@ export async function discoverCodexModels(run: CommandRunner = defaultCommandRun
 export async function discoverAntigravityModels(
   run: CommandRunner = defaultCommandRunner,
 ): Promise<DiscoveryResult> {
-  const result = await run('agy', ['models']);
+  const result = await runAsAccount(run, 'antigravity', 'agy', ['models']);
   const failure = commandFailure(result);
   if (failure) return failure;
 
@@ -423,7 +443,7 @@ export function parseOpencodeModels(stdout: string): ModelOption[] | undefined {
 export async function discoverOpencodeModels(
   run: CommandRunner = defaultCommandRunner,
 ): Promise<DiscoveryResult> {
-  const result = await run('opencode', ['models']);
+  const result = await runAsAccount(run, 'opencode', 'opencode', ['models']);
   const failure = commandFailure(result);
   if (failure) return failure;
 
@@ -464,7 +484,8 @@ export async function discoverOpencode2Models(
     return unavailable('command-unavailable', 'opencode2 binary is not configured');
   }
 
-  const result = await run(opencode2Command(), ['models', '--standalone']);
+  const oc2 = accountLaunchFor('opencode2', opencode2Command());
+  const result = await run(oc2.binary, [...oc2.args, 'models', '--standalone'], undefined, oc2.env);
   const failure = commandFailure(result);
   if (failure) return failure;
 

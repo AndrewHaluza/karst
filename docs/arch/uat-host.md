@@ -20,6 +20,7 @@ Boots the real built extension in a real VS Code under xvfb inside Docker, with 
 - in: @arch:ABI-01, @arch:ABI-03 — the container builds its own better-sqlite3 for the downloaded VS Code's Electron ABI (derived, ABI-02 verified-only rebuild).
 - in: @arch:AC-08 — `KARST_FAKE_CORE` swaps the adapter at the registry seam; launch mode keeps the real `buildInteractiveCommand`.
 - out: @arch:DBG-03 — launch records never store env values.
+- in: @arch:AC-55 — `resolveAdapter` wraps a real adapter with `withHeadlessLedger`, which records the account of a headless session. A fake core or a launch stub does not use the wrap, so the UAT host does not change.
 - out: @arch:EVIDENCE-STATE — probe snapshots read the live store, not run history.
 
 ### Flow

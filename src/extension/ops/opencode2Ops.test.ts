@@ -1,3 +1,4 @@
+import { configureAccounts, resetAccounts } from '../../agent/accounts/registry.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   configureOpencode2,
@@ -36,6 +37,17 @@ describe('applyOpencode2Config', () => {
   it('keeps a blank setting blank (no PATH fallback)', () => {
     applyOpencode2Config({ binaryPathSetting: '', globalStoragePath: GS });
     expect(opencode2Config()).toEqual({ binaryPath: '', home: HOME });
+  });
+});
+
+describe('checkOpencode2Binary under a command account', () => {
+  afterEach(() => resetAccounts());
+  it('keeps the karst-owned isolation env for a command account with no folder', async () => {
+    configureOpencode2({ binaryPath: BIN, home: HOME });
+    configureAccounts({ opencode2: { active: 'c', list: { c: { kind: 'subscription', source: 'command', command: '/opt/oc/other', dir: '', args: ['--x'], env: { FOO: '1' } } } } });
+    const readVersion = vi.fn(() => ({ stdout: 'opencode v2.0.24\n', exitCode: 0 }));
+    await checkOpencode2Binary({ readVersion, info: vi.fn(), warn: vi.fn() });
+    expect(readVersion).toHaveBeenCalledWith('/opt/oc/other', ['--x', '--version'], { ...XDG, FOO: '1' });
   });
 });
 

@@ -1,4 +1,5 @@
 import { createHostSessionRunner } from './sessionRunner.js';
+import { accountForLaunch, accountLaunchFor, accountReaderEnv, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
@@ -201,6 +202,7 @@ export class ClaudeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    accounts: SUPPORTED,
     sandboxInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
@@ -242,7 +244,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // Claude pushes its rate-limit windows to the cache `quota/claude.ts`
       // reads. The operator's own statusline is chained so the rendered line is
       // unchanged; with none, the wrapper prints nothing.
-      const claudeConfig = claudeConfigDir(process.env);
+      const claudeConfig = claudeConfigDir({ ...process.env, ...accountLaunchFor('claude', CLAUDE_BIN, opts.account).env });
       writeStatuslineWrapper(claudeDir);
       const extraSettings = {
         // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
@@ -370,10 +372,12 @@ export class ClaudeAdapter implements AgentAdapter {
       // commander reads `---…` as an unknown option and `claude` exits 1.
       args.push('--', kickoff.prompt);
     }
+    const acct = accountLaunchFor('claude', CLAUDE_BIN, opts.account);
     return {
-      command: CLAUDE_BIN,
-      args,
-      env: {},
+      command: acct.binary,
+      args: [...acct.args, ...args],
+      env: { ...acct.env },
+      ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(kickoff.ownedPaths.length > 0 ? { ownedPaths: kickoff.ownedPaths } : {}),
       ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
     };
@@ -387,7 +391,7 @@ export class ClaudeAdapter implements AgentAdapter {
    */
   ensureWorkspaceTrusted(
     cwd: string,
-    opts?: { debug?: (message: string) => void },
+    opts?: { debug?: (message: string) => void; account?: string },
   ): void | Promise<void> {
     return ensureClaudeWorkspaceTrusted(cwd, opts);
   }
@@ -401,9 +405,9 @@ export class ClaudeAdapter implements AgentAdapter {
    */
   async resolveResume(
     sessionId: string,
-    opts: { cwd: string; debug?: (message: string) => void },
+    opts: { cwd: string; debug?: (message: string) => void; account?: string },
   ): Promise<string | undefined> {
-    const file = transcriptPathFor(resolveClaudeProjectsDir(process.env), opts.cwd, sessionId);
+    const file = transcriptPathFor(resolveClaudeProjectsDir(accountReaderEnv(process.env, (() => { const a = accountForLaunch('claude', sessionId, opts.account); return a ? { claude: a } : {}; })())), opts.cwd, sessionId);
     try {
       await stat(file);
       return sessionId;
@@ -791,8 +795,10 @@ export class ClaudeAdapter implements AgentAdapter {
     // before an abort, timeout or extension-host restart.
     const consoleOutput = opts.onOutput;
     let streamedStderr = false;
+    const acct = accountLaunchFor('claude', CLAUDE_BIN, accountForLaunch('claude', opts.resume, opts.account));
     const spawn = (a: string[]) =>
-      this.spawnHeadless(CLAUDE_BIN, a, opts.cwd, {
+      this.spawnHeadless(acct.binary, [...acct.args, ...a], opts.cwd, {
+        ...accountSpawnEnv(acct),
         signal: opts.signal,
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,

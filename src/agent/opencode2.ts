@@ -1,4 +1,5 @@
 import { createOpencodeTextCollector } from './opencodeText.js';
+import { accountForLaunch, accountLaunchFor } from './accounts/registry.js';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
@@ -405,6 +406,7 @@ export class Opencode2Adapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    accounts: SUPPORTED,
     sandboxInteractive: unsupported(
       'opencode v2 has no OS-level sandbox: its permission config only allows, asks or denies a ' +
         'tool, and an allowed bash command runs uncontained on the host; contain it with the ' +
@@ -489,8 +491,10 @@ export class Opencode2Adapter implements AgentAdapter {
     const mcp = opts.mcpConfigPath
       ? opencodeMcpSection(readMcpServersConfig(opts.mcpConfigPath))
       : undefined;
+    const acct = accountLaunchFor('opencode2', opencode2Command(), opts.account);
     const env: Record<string, string> = {
       ...opencode2IsolationEnv(opencode2Config().home),
+      ...acct.env,
       ...(configDirEnv ? { OPENCODE_CONFIG_DIR: configDirEnv } : {}),
       OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
         model: opts.model,
@@ -533,9 +537,10 @@ export class Opencode2Adapter implements AgentAdapter {
       }
     }
     return {
-      command: opencode2Command(),
-      args,
+      command: acct.binary,
+      args: [...acct.args, ...args],
       env,
+      ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(ownedPaths ? { ownedPaths } : {}),
       ...(opts.instructions
         ? {
@@ -575,15 +580,17 @@ export class Opencode2Adapter implements AgentAdapter {
       signal?: AbortSignal;
       debug?: (message: string) => void;
       timeoutMs?: number;
+      account?: string;
     },
   ): Promise<Opencode2SessionProbe> {
+    const acct = accountLaunchFor('opencode2', opencode2Command(), accountForLaunch('opencode2', sessionId, opts?.account));
     const args = ['session', 'export', sessionId, '--standalone'];
     opts?.debug?.(
       `[agent:opencode2] pre-check: ${opencode2Command()} ${args.join(' ')} (cwd ${cwd})`,
     );
     let result: HeadlessSpawnResult;
     try {
-      result = await this.spawnHeadless(opencode2Command(), args, cwd, {
+      result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], cwd, {
         signal: opts?.signal,
         timeoutMs: opts?.timeoutMs ?? SESSION_PROBE_TIMEOUT_MS,
         onDebug: opts?.debug,
@@ -591,6 +598,7 @@ export class Opencode2Adapter implements AgentAdapter {
         // left in the worktree stays silent (see opencode2Bridge.ts).
         isolationEnv: {
           ...opencode2IsolationEnv(opencode2Config().home),
+          ...acct.env,
           [KARST_OPENCODE_HEADLESS_ENV]: '1',
         },
       });
@@ -631,6 +639,7 @@ export class Opencode2Adapter implements AgentAdapter {
     if (resume && resume.length > 0) {
       const probe = await this.probeResume(resume, opts.cwd, {
         signal: opts.signal,
+        ...(opts.account !== undefined ? { account: opts.account } : {}),
         debug: opts.debug,
       });
       if (!probe.found) {
@@ -639,6 +648,7 @@ export class Opencode2Adapter implements AgentAdapter {
       }
     }
 
+    const acct = accountLaunchFor('opencode2', opencode2Command(), accountForLaunch('opencode2', opts.resume, opts.account));
     const args = ['run', '--format', 'json', '--standalone'];
     // AC-31: the bypass (`--auto`) is never added — no enforced sandbox contains
     // this run, so it keeps the core's prompted default. The refusal is logged.
@@ -658,7 +668,7 @@ export class Opencode2Adapter implements AgentAdapter {
 
     let result: HeadlessSpawnResult;
     try {
-      result = await this.spawnHeadless(opencode2Command(), args, opts.cwd, {
+      result = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {
         signal: opts.signal,
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,
@@ -670,6 +680,7 @@ export class Opencode2Adapter implements AgentAdapter {
         // to KARST_* keys. The prompt still rides stdin.
         isolationEnv: {
           ...opencode2IsolationEnv(opencode2Config().home),
+          ...acct.env,
           OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
             headless: true,
             ...(isGatePolicy(opts.policy)

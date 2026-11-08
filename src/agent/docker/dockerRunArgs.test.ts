@@ -9,6 +9,7 @@ import {
   HARDENING,
   headlessExecArgs,
   headlessKillArgs,
+  withoutHostAccountDirs,
   interactiveRunArgs,
   rewritePaths,
   serviceRunArgs,
@@ -211,5 +212,18 @@ describe('memory flags', () => {
   it('adds no memory flag without limits', () => {
     expect(interactiveRunArgs(base)).not.toContain('--memory');
     expect(gateRunArgs(names, undefined, 'run', 'npm', [], {})).not.toContain('--memory-reservation');
+  });
+});
+
+describe('host account folders stay out of the container', () => {
+  const env = { CLAUDE_CONFIG_DIR: '/h/c', CODEX_HOME: '/h/x', ANTIGRAVITY_EXECUTABLE_DATA_DIR: '/h/a', KARST_X: '1' };
+  it('drops the account home variables and keeps the rest', () => {
+    expect(withoutHostAccountDirs(env)).toEqual({ KARST_X: '1' });
+  });
+  it('applies to envArgs, headlessExecArgs and gateRunArgs', () => {
+    expect(envArgs(env).join(' ')).not.toMatch(/CLAUDE_CONFIG_DIR|CODEX_HOME|ANTIGRAVITY/);
+    expect(envArgs(env)).toContain('KARST_X');
+    expect(headlessExecArgs('c', 'r1', 'x', [], env).join(' ')).not.toMatch(/\/h\//);
+    expect(gateRunArgs(names, undefined, 'run', 'npm', [], env).join(' ')).not.toMatch(/\/h\//);
   });
 });

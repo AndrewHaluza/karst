@@ -1,4 +1,5 @@
 import { createHostSessionRunner } from './sessionRunner.js';
+import { accountForLaunch, accountLaunchFor, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -218,6 +219,7 @@ export class AntigravityAdapter implements AgentAdapter {
       'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
         'config flag; run `karst mcp install` to register the server at user scope',
     ),
+    accounts: SUPPORTED,
     sandboxInteractive: unsupported(
       '`agy --sandbox` restricts only terminal commands; file edits and the agent tools run ' +
         'uncontained, so it is not an enforced sandbox of the session',
@@ -309,10 +311,12 @@ export class AntigravityAdapter implements AgentAdapter {
     if (spilled.prompt && spilled.prompt.length > 0) {
       args.push('-i', spilled.prompt);
     }
+    const acct = accountLaunchFor('antigravity', AGY_BIN, opts.account);
     return {
-      command: AGY_BIN,
-      args,
-      env: {},
+      command: acct.binary,
+      args: [...acct.args, ...args],
+      env: { ...acct.env },
+      ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(spilled.ownedPaths.length > 0 ? { ownedPaths: spilled.ownedPaths } : {}),
       ...(opts.instructions ? { instructionsChannel: 'pointer' as const } : {}),
     };
@@ -325,7 +329,7 @@ export class AntigravityAdapter implements AgentAdapter {
    */
   ensureWorkspaceTrusted(
     cwd: string,
-    opts?: { debug?: (message: string) => void },
+    opts?: { debug?: (message: string) => void; account?: string },
   ): void | Promise<void> {
     return ensureAntigravityWorkspaceTrusted(cwd, opts);
   }
@@ -556,7 +560,9 @@ export class AntigravityAdapter implements AgentAdapter {
         ? `[agent:antigravity] console stream: forwarding live chunks`
         : `[agent:antigravity] console stream: none — no onOutput hook`,
     );
-    const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd, {
+    const acct = accountLaunchFor('antigravity', AGY_BIN, accountForLaunch('antigravity', opts.resume, opts.account));
+    const r = await this.spawnHeadless(acct.binary, [...acct.args, ...args], opts.cwd, {
+      ...accountSpawnEnv(acct),
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,

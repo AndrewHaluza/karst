@@ -1,5 +1,6 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { accountLaunchFor } from '../accounts/registry.js';
 import { join } from 'node:path';
 import { OPENCODE2_AUTH_LIST_ARGS, opencode2HasCredentials } from '../opencode2Auth.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
@@ -59,6 +60,8 @@ export const AGY_CREDENTIAL_FILES = ['antigravity-oauth-token', 'jetski_state.pb
 export interface SeedAgyInput {
   readonly bridgeDir: string;
   readonly hostHome?: string;
+  /** The account of the launch (recorded on a resume); omit for the active account. */
+  readonly account?: string;
   readonly debug?: (message: string) => void;
 }
 
@@ -100,7 +103,9 @@ export async function seedAgyCredentials(input: SeedAgyInput): Promise<SeedResul
   }
 
   const hostHome = input.hostHome ?? process.env.HOME ?? homedir();
-  const srcDir = join(hostHome, '.gemini', 'antigravity-cli');
+  // @arch:AC-55: the antigravity account folder of the LAUNCH account, when one is set.
+  const accountDir = input.hostHome ? undefined : accountLaunchFor('antigravity', 'agy', input.account).env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  const srcDir = accountDir || join(hostHome, '.gemini', 'antigravity-cli');
   const destDir = join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli');
 
   for (const filename of AGY_CREDENTIAL_FILES) {

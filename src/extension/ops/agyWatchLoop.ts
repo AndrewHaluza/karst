@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { sessionReaderEnv } from '../../agent/accounts/registry.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { HookChannelRecorder } from '../../diagnostics/hookChannel.js';
@@ -15,6 +16,7 @@ import {
 import { agyUsageTick, type AgyConversationUsage, type AgyUsageState } from '../../agent/agyUsageWatch.js';
 import { dispatchHook, type HookPayload } from '../../hooks/dispatch.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { getTicket } from '../../store/tickets.js';
 
 /** How often the Agy conversation watch re-sweeps live terminals. */
 export const AGY_WATCH_INTERVAL_MS = 10_000;
@@ -127,7 +129,6 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
     if (running) return;
     running = true;
     try {
-      const appDataDir = resolveAgyAppDataDir();
       const terminals = [...deps.listTerminals()];
       deps.debug(`[agy] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {
@@ -141,7 +142,7 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
         let snapshot: AgyConversationSnapshot | null = null;
         let agyUsage: AgyConversationUsage | null = null;
         const custom = deps.sandboxAppDataDir?.(named.ticketId);
-        const ticketAppDataDir = custom && existsSync(custom) ? custom : appDataDir;
+        const ticketAppDataDir = custom && existsSync(custom) ? custom : resolveAgyAppDataDir(sessionReaderEnv('antigravity', getTicket(deps.store, named.ticketId).sessionId));
         try {
           const found = findConversationForWorktree(ticketAppDataDir, [worktree.path, CONTAINER_REPO]);
           if (found) {

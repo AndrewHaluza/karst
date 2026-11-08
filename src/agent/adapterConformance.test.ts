@@ -124,6 +124,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'minimalHeadlessContext',
       'interactiveGatePolicy',
       'interactiveAttendedPolicy',
+      'accounts',
     ];
     for (const key of keys) {
       const support = surfaces[key];

@@ -19,6 +19,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { accountReaderEnv, accountsConfig } from './accounts/registry.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 /**
@@ -97,10 +98,13 @@ export function gateDeniedCommands(
  * including the `CLAUDE_CONFIG_DIR` / `CODEX_HOME` overrides when set.
  */
 export function gateProtectedPaths(
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = accountReaderEnv(),
   home: string = homedir(),
 ): string[] {
-  const dirs = [`${home}/.claude`, `${home}/.codex`, env['CLAUDE_CONFIG_DIR'], env['CODEX_HOME']];
+  // @arch:AC-55: every stored account folder is protected, not only the active one:
+  // a launch can run under a recorded account that is not active.
+  const accountDirs = Object.values(accountsConfig()).flatMap((c) => Object.values(c?.list ?? {}).map((a) => a.dir));
+  const dirs = [`${home}/.claude`, `${home}/.codex`, env['CLAUDE_CONFIG_DIR'], env['CODEX_HOME'], ...accountDirs];
   return [
     `${home}/.claude.json`,
     ...dirs.filter((d): d is string => !!d).map((d) => `${d}/**`),

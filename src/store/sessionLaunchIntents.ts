@@ -54,6 +54,8 @@ export interface SessionLaunchIntent {
   model: string | null;
   /** v103: the resolved effort this launch configured; NULL = none/legacy. */
   effort: string | null;
+  /** v105: the agent account this launch ran under; NULL = the default account. */
+  account: string | null;
   /** v33: the configured inside agent name the launch resolved to (fix). */
   agentName: string | null;
   reason: LaunchReason;
@@ -82,6 +84,7 @@ interface SessionLaunchIntentRow {
   provider: string;
   model: string | null;
   effort: string | null;
+  account: string | null;
   agent_name: string | null;
   reason: string;
   session_origin: string;
@@ -94,7 +97,7 @@ interface SessionLaunchIntentRow {
 
 const INTENT_SELECT =
   `SELECT id, ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-          recovery_round_id, provider, model, effort, agent_name, reason, session_origin,
+          recovery_round_id, provider, model, effort, account, agent_name, reason, session_origin,
           provider_session_id, status, created_at, resolved_at, redelivered_at
      FROM session_launch_intents`;
 
@@ -110,6 +113,7 @@ function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
     provider: r.provider,
     model: r.model,
     effort: r.effort,
+    account: r.account,
     agentName: r.agent_name,
     reason: r.reason as LaunchReason,
     sessionOrigin: r.session_origin as LaunchSessionOrigin,
@@ -144,6 +148,8 @@ export interface RecordSessionLaunchIntentInput {
   model?: string | null;
   /** v103: the resolved effort (`#<effort>`) this launch configured, kept apart from `model`. */
   effort?: string | null;
+  /** v105: the agent account this launch runs under; omit/NULL = the default account. */
+  account?: string | null;
   /**
    * v33: the configured inside agent name the launch resolved to. NULL for an
    * implementation launch; a fix launch carries the resolved uat-fix/review-fix
@@ -219,9 +225,9 @@ export function recordSessionLaunchIntent(
       .prepare(
         `INSERT INTO session_launch_intents
            (ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
-            recovery_round_id, provider, model, effort, agent_name, reason, session_origin,
+            recovery_round_id, provider, model, effort, account, agent_name, reason, session_origin,
             provider_session_id, status, created_at, resolved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, NULL)`,
       )
       .run(
         input.ticketId,
@@ -233,6 +239,7 @@ export function recordSessionLaunchIntent(
         input.provider,
         input.model ?? null,
         input.effort ?? null,
+        input.account ?? null,
         input.agentName ?? null,
         input.reason,
         input.sessionOrigin,
@@ -510,4 +517,24 @@ function compatibleSegment(
         ORDER BY id DESC LIMIT 1`,
     )
     .get(runId, provider, providerSessionId) as { id: number } | undefined;
+}
+
+/**
+ * The account a provider session was launched under (@arch:AC-55). A resume
+ * reuses it. `undefined` = no launch intent knows this session; `null` = the
+ * session ran under the built-in default account.
+ */
+export function recordedAccountForSession(
+  store: Store,
+  provider: string,
+  providerSessionId: string,
+): string | null | undefined {
+  const row = store.db
+    .prepare(
+      `SELECT account FROM session_launch_intents
+        WHERE provider = ? AND provider_session_id = ? AND status = 'confirmed'
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(provider, providerSessionId) as { account: string | null } | undefined;
+  return row === undefined ? undefined : row.account;
 }

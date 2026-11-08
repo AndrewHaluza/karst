@@ -219,6 +219,8 @@ export interface PrepareInput {
   /** opencode2 only: how to read the host's karst-isolated credential store. */
   readonly opencode2Host?: { readonly command: string; readonly env: Readonly<Record<string, string>> };
   readonly bridgeDir?: string;
+  /** Account of the launch, for the antigravity credential seed (@arch:AC-55). */
+  readonly account?: string;
   readonly temp?: TempDirs;
   readonly debug?: (message: string) => void;
   /** Baseline host ports the proxy lets the sandbox reach (arch:AC-32). */
@@ -276,7 +278,7 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
     });
   }
   if ((input.core === 'antigravity' || input.core === 'agy') && input.bridgeDir) {
-    const seedInput = { bridgeDir: input.bridgeDir, ...(input.debug ? { debug: input.debug } : {}) };
+    const seedInput = { bridgeDir: input.bridgeDir, ...(input.account !== undefined ? { account: input.account } : {}), ...(input.debug ? { debug: input.debug } : {}) };
     const creds = await seedAgyCredentials(seedInput);
     if (!creds.ok) return creds;
     return seedAgyAutonomousState(seedInput);

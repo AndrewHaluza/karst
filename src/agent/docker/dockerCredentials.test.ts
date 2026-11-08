@@ -6,6 +6,8 @@ import { seedAgyAutonomousState, seedAgyCredentials, seedOpencode2Credentials } 
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
+import { configureAccounts, resetAccounts } from '../accounts/registry.js';
+import { afterEach } from 'vitest';
 
 const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' });
 const HOST_ENV = { XDG_DATA_HOME: '/karst/oc2/data' };
@@ -129,6 +131,25 @@ describe('seedAgyCredentials', () => {
 
     rmSync(bridgeDir, { recursive: true, force: true });
     rmSync(hostHome, { recursive: true, force: true });
+  });
+});
+
+describe('seedAgyCredentials account (AC-55)', () => {
+  afterEach(() => resetAccounts());
+  it('copies from the account folder of the launch, not the active account', async () => {
+    const bridgeDir = mkdtempSync(join(tmpdir(), 'karst-bridge-test-'));
+    const active = mkdtempSync(join(tmpdir(), 'karst-active-'));
+    const recorded = mkdtempSync(join(tmpdir(), 'karst-recorded-'));
+    writeFileSync(join(active, 'antigravity-oauth-token'), 'active-token');
+    writeFileSync(join(recorded, 'antigravity-oauth-token'), 'recorded-token');
+    const acct = (dir: string) => ({ kind: 'subscription' as const, source: 'folder' as const, dir, env: { ANTIGRAVITY_EXECUTABLE_DATA_DIR: dir } });
+    configureAccounts({ antigravity: { active: 'a', list: { a: acct(active), r: acct(recorded) } } });
+    expect(await seedAgyCredentials({ bridgeDir, account: 'r' })).toEqual({ ok: true });
+    const target = join(bridgeDir, 'antigravity', 'gemini', 'antigravity-cli', 'antigravity-oauth-token');
+    expect(readFileSync(target, 'utf8')).toBe('recorded-token');
+    rmSync(bridgeDir, { recursive: true, force: true });
+    rmSync(active, { recursive: true, force: true });
+    rmSync(recorded, { recursive: true, force: true });
   });
 });
 
