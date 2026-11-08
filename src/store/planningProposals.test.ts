@@ -190,14 +190,25 @@ describe('planning proposals', () => {
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
 
-  it('markProposalAccepted keeps a brief the ticket already has (but still records the origin)', () => {
+  it('wraps an existing brief as the planning section when the ticket was never fetched', () => {
     const id = insertProposal(store, sessionId, payload);
     const t = createTicket(store, { key: 'K-2', title: 'saved', projectId });
+    // What the review form's bind seeds: the proposal summary (plus constraints).
     updateTicketFields(store, t.id, { brief: 'user wrote this' });
     markProposalAccepted(store, id, t.id);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe(`user wrote this\n\n## Planning brief\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toBe(`## Planning brief\nuser wrote this\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.source).toBe('planning');
+  });
+
+  it('keeps a fetched provider brief first and puts only the summary under the heading', () => {
+    const id = insertProposal(store, sessionId, payload);
+    const t = createTicket(store, { key: 'K-2b', title: 'saved', projectId });
+    updateTicketFields(store, t.id, { brief: '# Provider\n\nbody', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+    markProposalAccepted(store, id, t.id);
+    expect(getTicket(store, t.id)!.brief).toBe(
+      `# Provider\n\nbody\n\n## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`,
+    );
   });
 
   it('markProposalAccepted gives an empty-summary draft a brief that is just the origin line', () => {

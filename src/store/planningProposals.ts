@@ -442,7 +442,9 @@ function graphHasCycle(edges: Map<number, number[]>): boolean {
  * link it to the session, record the planning origin, and mark the proposal
  * accepted, in one transaction. The proposal's summary becomes the ticket's
  * brief — the form carries only title/description/repos, so this is the one
- * place that preserves it — unless the ticket already has a brief.
+ * place that preserves it — unless the ticket already has a brief. The form
+ * seeds that brief on bind (summary + design constraints), so a brief on a
+ * never-fetched ticket is planning text too and goes under the heading.
  *
  * The proposal's `dependsOn` becomes `blocked-by` rows on the new ticket
  * (source `agent`): a target accepted already resolves to its ticket, a pending
@@ -463,18 +465,27 @@ export function markProposalAccepted(
     const current = requirePending(store, id);
     const p = reviewed ? { ...current, payload: reviewed } : current;
     const ticket = getTicket(store, ticketId);
-    // Seed the summary as the brief only when the ticket has none AND the
-    // summary actually carries text; the origin line is always appended, so the
-    // ticket names the plan and draft it came from.
-    // The planning text goes under PLANNING_BRIEF_HEADING at the end, so a
-    // provider refetch can find it and keep it (see `planningBriefSection`).
-    const existing = ticket.brief?.trim() ? ticket.brief : '';
-    const summary = existing ? '' : p.payload.summary.trim();
+    // The origin line always ends the section, so the ticket names the plan and
+    // draft it came from.
+    // The planning text goes under PLANNING_BRIEF_HEADING so a provider refetch
+    // can find it and keep it (see `planningBriefSection`). Where the heading
+    // goes depends on whether a fetch already wrote the brief:
+    //  - never fetched: the review form seeds its summary (and design
+    //    constraints) as the brief on bind, so every word in it is planning
+    //    text: the heading goes on TOP and the whole brief is the section.
+    //  - fetched: the provider brief stays first and only the summary is
+    //    planning text, so the section goes after it.
+    const existing = ticket.brief?.trim() ? ticket.brief.trim() : '';
+    const summary = p.payload.summary.trim();
     const origin = `Planned in ${formatId('plan', p.sessionId)} as ${formatId('draft', id)}.`;
-    const section = `${PLANNING_BRIEF_HEADING}\n${summary ? `${summary}\n\n` : ''}${origin}`;
+    const section = (body: string): string =>
+      `${PLANNING_BRIEF_HEADING}\n${body ? `${body}\n\n` : ''}${origin}`;
+    const brief = ticket.sourceFetchedAt === null
+      ? section(existing || summary)
+      : existing ? `${existing}\n\n${section(summary)}` : section(summary);
     updateTicketFields(store, ticketId, {
       source: 'planning',
-      brief: existing ? `${existing}\n\n${section}` : section,
+      brief,
       baseShas: p.baseShas,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
