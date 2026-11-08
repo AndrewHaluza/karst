@@ -135,7 +135,7 @@ export interface RunUatOpts {
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /** Registers a gate process pid (returns its disposer); see `RunGatesOptions.onGateSpawned`. */
-  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
+  onGateSpawned?: (gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Live-output hook for the Tester's headless calls (Task 13): forwarded
    * verbatim into `runUatTester`. RAW untrusted CLI prose — the host that

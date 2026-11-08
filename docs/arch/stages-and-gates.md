@@ -239,7 +239,7 @@ END_DOC_BLOCK: [@arch:DRIVER-SEAM]
 
 `tickets.paused_at` (v52; `null` = active) is the ONE flag that says "karst starts no new work on this ticket". Written only by `pauseTicket`/`unpauseTicket` (`store/tickets.ts`), same single-writer discipline as `setStage`.
 
-Pause is a REFUSAL TO START, never a kill:
+Pause is a REFUSAL TO START. It never closes what a human has open, and it writes no stage, verdict or run row. It does abort the driver run of the ticket, and that abort kills the gate process group that runs now (`karst.pauseTicket`). Nothing else is killed:
 
 - **Interactive terminals stay open.** The user is looking at them; closing them would destroy the very context the pause exists to preserve. Pause stops karst from *launching* sessions, gates, graph nodes and ship sagas — it does not reach into what a human already has on screen.
 - **No stage, verdict or run row is rewritten.** A `running` graph run stays `running`; a stage stays where it is. Unpause therefore needs no recovery step — the ticket simply becomes schedulable again.

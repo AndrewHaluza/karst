@@ -68,7 +68,7 @@ sequenceDiagram
 | Worktree deleted outside karst | `reapStaleServers` detects missing cwd on startup/activation | Clears stale rows and reaps attributed orphaned processes |
 
 ### Rules
-@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:ROOT-GEN · @arch:SHARED-VIEW · @arch:SERVERS-PANEL
+@arch:ENTRIES · @arch:SERVICES-WT · @arch:RENDERERS · @arch:PLACEHOLDER · @arch:BRANCH-NAME · @arch:BASE-PULL · @arch:BASE-PER · @arch:SPAWN-ENV · @arch:WT-REMOVE · @arch:CONTAINER · @arch:PORTS · @arch:ORPHANS · @arch:GATE-ORPHANS · @arch:ROOT-GEN · @arch:SHARED-VIEW · @arch:SERVERS-PANEL
 END_DOC_BLOCK: [@arch:WT-00]
 
 ## [@arch:ENTRIES] Repository ENTRIES may share a `repoPath`
@@ -179,6 +179,20 @@ covers: src/runtime/orphanPorts.ts#reapOrphanedPorts, src/runtime/orphanPorts.ts
 
 `stopServersUnder` and `reapStaleServers` both work from a `servers` row, so neither can see a process whose row left with its ticket (archived, deleted, or written before `servers.cwd` existed): reparented to init, holding a port of karst's own range, serving a worktree nobody will spin again — two such had held theirs for 13 hours and two days, and a leaked port is gone from the range for good (100 ports is 50 concurrent worktrees). `runtime/orphanPorts.ts` (`reapOrphanedPorts`, run once per activation from `extension.ts`) asks who listens on karst's ranges and where that process runs, and signals only a pid whose LIVE cwd is inside a `.karst/worktrees/` directory of a declared repository — a path only karst creates. A cwd the OS will not report, a listener anywhere else, and a pid a running row still claims are all left strictly alone. One signal per pid however many ports it holds; reported per port through `describeOrphanReap`, and a refused kill says the orphan is still running rather than reading as a stop that happened. Linking a child's lifetime to the extension host (`PR_SET_PDEATHSIG`) is NOT reachable from Node's `spawn` without a native addon — the sweep is the mechanism, which is why it must stay on the activation path.
 END_DOC_BLOCK: [@arch:ORPHANS]
+
+## [@arch:GATE-ORPHANS] A gate process group that outlives its host is killed from a record file
+covers: src/runtime/gateRuns.ts#createGateRunRegistry, src/runtime/gateRuns.ts#reapOrphanedGates, src/runtime/gateRuns.ts#describeGateReap
+
+`runProcess` starts each gate detached, in its own process group, so Stop, Pause and the 30-minute timeout can kill the whole tree with `killTree`. A window reload or a quit ends the host that owns the timeout and the abort signal, and the group keeps running (for example npm, `sastGate.mjs`, semgrep and semgrep-core). `@arch:ORPHANS` cannot see it, because a gate holds no karst port.
+
+Each running gate therefore writes a record file `$TMPDIR/karst-gate-runs/<pgid>`: host pid, pgid, leader start time, ticket id, gate name and worktree. The record is removed when the gate ends, whatever the outcome. The record is a file, not a store row, so the reaper works when the row is gone or the host died before it wrote.
+
+- **Reload or quit:** `deactivate()` calls `killTree` on every live group of this host. It is synchronous and does not wait for the gates to end.
+- **Crash or forced quit:** at activation, beside `reapOrphanedPorts`, `reapOrphanedGates` reads each record whose host pid is dead. It kills the group only when the leader runs, its start time matches the record, and its live cwd is inside a `.karst/worktrees/` directory. A reused pid, a cwd outside a worktree or a live host pid is never killed. A record whose leader is dead is removed. Each reap is logged with the gate name, ticket id and pid.
+- **Rejected:** `detached: false` (the group kill needs the separate group), and a kill by process name (it could kill a scan of the user).
+
+The headless review agent is not covered here.
+END_DOC_BLOCK: [@arch:GATE-ORPHANS]
 
 ## [@arch:ROOT-GEN] Nothing karst generates goes at the root of a working tree
 covers: src/runtime/serverLog.ts#serverLogPath, src/runtime/karstExcludes.ts#KARST_EXCLUDE_RULES, src/agent/materializedCleanup.ts#OWNED_PREFIXES, src/agent/materializedCleanup.ts#cleanupOwnedPaths

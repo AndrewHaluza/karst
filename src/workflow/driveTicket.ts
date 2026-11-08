@@ -251,7 +251,7 @@ export interface DriveTicketDeps {
     chunk: GateOutputChunk,
   ) => void;
   /** Registers a gate process pid for the ticket (returns its disposer). */
-  onGateSpawned?: (ticketId: number, gateName: string, pid: number) => (() => void) | void;
+  onGateSpawned?: (ticketId: number, gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Called when a ticket reaches the 'done' stage (merged), to trigger
    * autostart of any sub-tasks that were waiting for this ticket to unblock them.
@@ -369,7 +369,7 @@ export async function driveTicket(
               debug: deps.debug,
               contextCommand: deps.contextCommand,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'uat', name, chunk),
-              onGateSpawned: (name, pid) => deps.onGateSpawned?.(id, name, pid),
+              onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(id, name, pid, cwd),
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',
@@ -462,7 +462,7 @@ export async function driveTicket(
               signal: controller.signal,
               debug: deps.debug,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'review', name, chunk),
-              onGateSpawned: (name, pid) => deps.onGateSpawned?.(id, name, pid),
+              onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(id, name, pid, cwd),
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',

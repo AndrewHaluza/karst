@@ -280,8 +280,9 @@ export function makeDashboardActions(
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
     openDependency: (id) => dependencyOps.openDependency(ticketId, id),
-    // Stop the auto-driver's next gate run for this ticket (it halts at the
-    // next boundary check, never mid-gate — see `shouldContinue`).
+    // Stop the auto-driver for this ticket: it halts at the next boundary
+    // check (see `shouldContinue`), and the abort signal also kills the gate
+    // process group that runs now.
     stopDriver: () => driver.requestStop(ticketId),
     // Human confirms ship: open the PR(s) for every hot repo, then let the
     // caller (dashboard) refresh so `done` (or a fresh PR list) shows up. The
