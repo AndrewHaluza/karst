@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../store/db.js';
-import { DoctorExit, parseDoctorArgs, runDoctorCommand, type ListSandboxes, type SandboxProbe } from './doctorCommand.js';
+import { DoctorExit, parseDoctorArgs, runDoctorCommand, type GitHealthProbe, type ListSandboxes, type SandboxProbe } from './doctorCommand.js';
 
 function seed() {
   const store = openStore(':memory:');
@@ -134,14 +134,14 @@ describe('karst doctor command', () => {
 
 describe('karst doctor sandbox orphans (arch:AC-32)', () => {
   const MANIFEST = 'host: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  app:\n    repoPath: ../app\n';
-  async function doctorWith(backend: string, list: ListSandboxes, probe?: SandboxProbe, area = 'state'): Promise<{ id: string; status: string }[]> {
+  async function doctorWith(backend: string, list: ListSandboxes, probe?: SandboxProbe, area = 'state', gitHealth?: GitHealthProbe): Promise<{ id: string; status: string }[]> {
     const dir = mkdtempSync(join(tmpdir(), 'doctor-sbx-'));
     const path = join(dir, 'karst.yml');
     writeFileSync(path, `${MANIFEST}${backend}`);
     const store = seed();
     store.db.prepare("INSERT INTO tickets (id, key, stage_current, archived_at) VALUES (2, 'T-2', 'impl', datetime('now'))").run();
     try {
-      await runDoctorCommand(store, ':memory:', path, ['doctor', '--json', '--area', area], {}, list, probe);
+      await runDoctorCommand(store, ':memory:', path, ['doctor', '--json', '--area', area], {}, list, probe, gitHealth);
     } catch (e) {
       return JSON.parse((e as DoctorExit).output).checks;
     } finally {
@@ -157,6 +157,13 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     expect(list).toHaveBeenCalledWith(expect.stringMatching(/karst\.yml$/));
     const orphans = checks.filter((c) => c.id.startsWith('state.sandbox-orphan.'));
     expect(orphans).toEqual([expect.objectContaining({ id: 'state.sandbox-orphan.karst-ab12cd34-2-claude', status: 'warn' })]);
+  });
+
+  it('state: git health reports each distinct common dir once', async () => {
+    const probe = vi.fn((name: string, repoPath: string) => ({ name, repoPath, commonDir: '/x/.git', packCount: 99, autoPackLimit: 50 }));
+    const checks = await doctorWith('  api:\n    repoPath: ../app\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), undefined, 'state', probe);
+    expect(checks.filter((c) => c.id.startsWith('state.git-pack-count.')).map((c) => c.id)).toEqual(['state.git-pack-count.app']);
+    expect(probe).toHaveBeenCalledTimes(2);
   });
 
   it('without a sandbox backend never lists sandboxes', async () => {

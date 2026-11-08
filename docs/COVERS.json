@@ -372,6 +372,9 @@
   "src/doctor/applyFixes.ts#applyFixes": [
     "arch:CLI-16"
   ],
+  "src/doctor/gitHealthCheck.ts#checkGitHealth": [
+    "arch:CLI-16"
+  ],
   "src/extension/artifactCaptureWiring.ts": [
     "arch:APP-00"
   ],
