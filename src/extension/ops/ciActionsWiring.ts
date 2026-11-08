@@ -16,6 +16,7 @@ import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
 import { autoDeliverAfterConflict, conflictRounds, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
 import { takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
+import { formatId } from '../../model/entityId.js';
 import { nowIso } from '../../model/time.js';
 import { regenerateCommand, type RegenerateEntry } from '../../workflow/gates/regenerate.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
@@ -176,7 +177,7 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
   const taken = takeOverAutoDeliver(i.ticketId, {
     rounds: conflictRounds,
-    key: getTicket(i.store, i.ticketId).key ?? `#${i.ticketId}`,
+    key: getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId),
     recordTakeOver: () => takeOverDeliverRun(i.store, i.ticketId, nowIso()),
     note: (title, body) => postTakeOverNote(i, title, body),
   });

@@ -78,7 +78,7 @@ export function DeliverRow({ notOnPr, inSandbox, canDeliver, auto }: {
                     <button
                       type="button"
                       className="k-btn k-btn--ghost k-btn--sm"
-                      data-act="dismiss-deliver-failure"
+                      data-act="dismiss-deliver-failures"
                       aria-label={`Dismiss the failure of gate ${f.gate}`}
                       onClick={() => send.dismissDeliverFailures(f.gate)}
                     >

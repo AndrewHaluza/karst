@@ -258,7 +258,7 @@ describe('Inside — Deliver to PR', () => {
 
     it('dismisses one gate through the host', () => {
       const h = mountInside(dv(auto({ failures: [failure] })));
-      fireEvent.click(must('[data-act="dismiss-deliver-failure"]'));
+      fireEvent.click(must('[data-act="dismiss-deliver-failures"]'));
       expect(h.send.dismissDeliverFailures).toHaveBeenCalledWith('unit');
     });
 

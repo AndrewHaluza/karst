@@ -474,7 +474,7 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'deliver-to-pr' }], rid: false,
   },
   {
-    act: 'dismiss-deliver-failure', state: deliverFailureState, sel: act('dismiss-deliver-failure'),
+    act: 'dismiss-deliver-failures', state: deliverFailureState, sel: act('dismiss-deliver-failures'),
     posts: [{ type: 'dismiss-deliver-failures', gate: 'unit' }], rid: false, pendingSel: false,
   },
   {
