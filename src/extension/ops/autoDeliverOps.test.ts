@@ -283,6 +283,24 @@ describe('manual Deliver takes over an in-flight auto-deliver (T1018)', () => {
     expect(isAutoDelivering(1)).toBe(false);
   });
 
+  it('a takeover during the final merge check stops the auto-deliver from pushing', async () => {
+    let calls = 0;
+    let rounds!: ReturnType<typeof rig>['rounds'];
+    const notes: string[] = [];
+    const r = rig({
+      verifyMerge: async () => {
+        if (++calls === 2) takeOverAutoDeliver(1, { rounds, recordTakeOver: () => taken, note: (t) => notes.push(t), key: 'T1' });
+        return null;
+      },
+    });
+    rounds = r.rounds;
+    await autoDeliverAfterConflict(r.deps);
+    expect(r.log).not.toContain('ship');
+    expect(r.log.some((l) => l.startsWith('error:'))).toBe(false);
+    expect(notes).toHaveLength(1);
+    expect(isAutoDelivering(1)).toBe(false);
+  });
+
   it('names none when no gate failed or was skipped', () => {
     const notes: string[] = [];
     const { rounds } = rig();

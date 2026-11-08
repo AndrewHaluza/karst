@@ -177,6 +177,8 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         }
         // The gates ran for a while: confirm the tree they checked is still the finished merge.
         const changed = await d.verifyMerge(pr, round);
+        // A manual Deliver may have taken over during this check: it pushes, so this run must not.
+        if (entry.takenOver) return TAKEN_OVER;
         if (changed !== null) d.error(`conflict resolve did not finish: ${changed}`);
         else entry.phase = 'pushing';
         return changed;
