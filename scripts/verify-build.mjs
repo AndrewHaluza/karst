@@ -66,7 +66,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 376 → 384 KB for the Autopilot tab (AutopilotSection, the autopilotDraft
 // helpers, the check allowlist editor; ~7 KB of genuine app code): bundle is
 // 391001 bytes (~2 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 384 * 1024;
+// Raised 384 → 396 KB for the Agents Accounts tab (T1015: AccountsTab, the add
+// wizard with alias import, copy checklist and sign-in steps, the delete confirm;
+// ~19 KB of source, ~12 KB minified): bundle is 403891 bytes (~1.6 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 396 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
