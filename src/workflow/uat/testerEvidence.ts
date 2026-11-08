@@ -26,7 +26,9 @@ export interface EvidenceFs {
 export type EvidenceCheck =
   | { kind: 'not-required' }
   | { kind: 'present'; detail?: string }
-  | { kind: 'missing'; detail: string };
+  | { kind: 'missing'; detail: string }
+  /** The evidence could not be read; the run is never failed or skipped for that. */
+  | { kind: 'unverifiable'; detail: string };
 
 export interface EvidenceCheckInput {
   rule: UatTesterRequireEvidence | undefined;
@@ -40,6 +42,8 @@ export interface EvidenceCheckInput {
 }
 
 const GLOB_CHARS = /[*?[{]/;
+/** The walk stops here, so a huge scratch directory cannot stall the run. */
+export const MAX_EVIDENCE_FILES = 5000;
 
 async function walk(root: string, dir: string, out: EvidenceFile[]): Promise<void> {
   let entries;
@@ -50,6 +54,7 @@ async function walk(root: string, dir: string, out: EvidenceFile[]): Promise<voi
     throw error;
   }
   for (const entry of entries) {
+    if (out.length >= MAX_EVIDENCE_FILES) return;
     const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
     if (entry.isDirectory()) await walk(root, rel, out);
     else if (entry.isFile()) out.push({ rel, mtimeMs: (await stat(join(root, rel))).mtimeMs });
@@ -98,6 +103,15 @@ function firstStepFailed(text: string): boolean {
 }
 
 export async function checkProbeEvidence(input: EvidenceCheckInput): Promise<EvidenceCheck> {
+  try {
+    return await decide(input);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { kind: 'unverifiable', detail: `probe evidence could not be checked: ${reason}` };
+  }
+}
+
+async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   const { rule } = input;
   if (rule === undefined) return { kind: 'not-required' };
   const changed = await changedPaths(input);

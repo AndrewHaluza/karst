@@ -1281,6 +1281,9 @@ async function runTesterBody(
           ...(deps.evidenceFs ? { fs: deps.evidenceFs } : {}),
         });
         if (evidence.kind === 'missing') evidenceMissing[target.repo] = evidence.detail;
+        if (evidence.kind === 'unverifiable') {
+          debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
+        }
         if (evidence.kind === 'present' && evidence.detail) {
           debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
         }
@@ -1391,7 +1394,8 @@ async function runTesterBody(
     // A target with no evidence observed nothing even when it reported findings;
     // a coverage skip observed nothing only when it kept no observation.
     const allNothing = askedRepos > 0 && nothingRepos.size === askedRepos;
-    if (allNothing && (observations.length === 0 || missingRepos.length === askedRepos)) {
+    // Missing evidence never hides a blocking observation: `skipped` carries no blocking count.
+    if (allNothing && (observations.length === 0 || (missingRepos.length === askedRepos && blocking === 0))) {
       const firstMissing = missingRepos[0];
       const detail =
         firstMissing !== undefined

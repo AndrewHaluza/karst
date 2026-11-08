@@ -4,7 +4,7 @@ import { createTicketFlow } from '../stages/create.js';
 import { transition } from '../machine.js';
 import { runUatTester, type RunUatTesterOpts, type TesterTarget } from './tester.js';
 import { listProcessRuns } from '../../store/processRuns.js';
-import { checkProbeEvidence, defaultEvidenceFs, globStaticDir, type EvidenceFs } from './testerEvidence.js';
+import { checkProbeEvidence, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -76,6 +76,12 @@ describe('checkProbeEvidence', () => {
     const res = await checkProbeEvidence(input({ fs: fakeFs({ [SUMMARY]: { mtimeMs: START + 1, body: '{not json' } }) }));
     expect(res).toEqual({ kind: 'present' });
   });
+  it('a file system error means unverifiable, never a throw', async () => {
+    const fs: EvidenceFs = { list: async () => { throw new Error('EACCES'); }, read: async () => '' };
+    const res = await checkProbeEvidence(input({ fs }));
+    expect(res).toMatchObject({ kind: 'unverifiable' });
+    expect((res as { detail: string }).detail).toContain('EACCES');
+  });
   it('globStaticDir returns the directory before the first wildcard', () => {
     expect(globStaticDir('.karst/uat-scratch/out/**/summary.json')).toBe('.karst/uat-scratch/out');
     expect(globStaticDir('*.json')).toBe('');
@@ -132,6 +138,12 @@ describe('runUatTester — requireEvidence', () => {
     expect(res).toMatchObject({ kind: 'skipped' });
     expect((res as { detail: string }).detail).toContain('no probe evidence');
     expect(kinds()).toEqual([['passed', 'skipped']]);
+  });
+
+  it('a blocking observation survives missing evidence: observed, never skipped', async () => {
+    const { adapter } = scripted([[...cov('PASS — x'), { severity: 'high', title: 'bad', detail: '' }]]);
+    const res = await runUatTester(store, opts(adapter, { observationsBlockingSeverity: 'medium' }), { now, ...none });
+    expect(res).toMatchObject({ kind: 'observed', blocking: 1 });
   });
 
   it('evidence newer than the run start → observed', async () => {
@@ -207,6 +219,17 @@ describe('runUatTester — requireEvidence', () => {
 });
 
 describe('defaultEvidenceFs (real files)', () => {
+  it('stops the walk at the file limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'evidence-'));
+    try {
+      await mkdir(join(root, 'out'), { recursive: true });
+      await Promise.all(Array.from({ length: MAX_EVIDENCE_FILES + 5 }, (_, i) => writeFile(join(root, `out/f${i}`), '')));
+      expect(await defaultEvidenceFs.list(root, 'out')).toHaveLength(MAX_EVIDENCE_FILES);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('lists nested files with mtimes, treats a missing dir as empty, and reads text', async () => {
     const root = await mkdtemp(join(tmpdir(), 'evidence-'));
     try {
