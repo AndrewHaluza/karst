@@ -10,6 +10,9 @@ import type { GateOutputChunk } from '../../workflow/gates/run.js';
 import type { Store } from '../../store/db.js';
 import { finishDeliverRun, openDeliverRun, recordDeliverGate, setDeliverProgress } from '../../store/deliverRuns.js';
 import { nowIso } from '../../model/time.js';
+import type { GitRunner } from '../../integrations/git.js';
+import { cutGatesWithoutUiChange } from '../../workflow/gates/uiDiff.js';
+import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
 
 /**
  * The gate set a resolved merge must pass before Karst pushes it (arch:AC-39,
@@ -40,6 +43,11 @@ export interface ShipGatesDeps {
    * The ticket's rendered arch citations and base branch for one PR, so the
    * `docs:gate` gate reads the same `PR_BODY` and `BASE_REF` it reads in UAT.
    */
+  /**
+   * Reads the merged diff so the UI gates are cut when no UI path changed, as UAT does
+   * (@arch:AP-01). Absent → every gate runs.
+   */
+  readonly git?: GitRunner;
   readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
@@ -47,6 +55,8 @@ interface PlannedRepo {
   readonly pr: DeliverPr;
   readonly probe: ReturnType<typeof probeScripts>;
   readonly gates: readonly ResolvedGate[];
+  /** Gates cut by the UI-path rule: kept in the run plan, recorded as skipped, never run. */
+  readonly skipped: readonly ResolvedGate[];
 }
 
 /** Null when every gate passed (or there is nothing to run); else the first failure. */
@@ -59,7 +69,11 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
       if (resolution.blocker === 'nothing-to-run') continue;
       return `${pr.repo}: ${resolution.reason}`;
     }
-    planned.push({ pr, probe, gates: resolution.gates });
+    const baseRef = d.gateEnv?.(pr).baseRef;
+    const cut = d.git && baseRef
+      ? await cutGatesWithoutUiChange(resolution.gates, d.git, pr.cwd, baseRef, d.debug)
+      : { kept: [...resolution.gates], skipped: [] };
+    planned.push({ pr, probe, gates: cut.kept, skipped: cut.skipped });
   }
   const runId = await openRun(planned, d);
   let failure: string | null = null;
@@ -82,7 +96,7 @@ async function openRun(planned: readonly PlannedRepo[], d: ShipGatesDeps): Promi
   const head = planned[0] && d.headSha ? await d.headSha(planned[0].pr.cwd) : null;
   const id = openDeliverRun(d.evidence.store, {
     ticketId: d.evidence.ticketId, headSha: head, pid: process.pid, now: nowIso(),
-    gates: planned.flatMap((p) => p.gates.map((g) => g.name)),
+    gates: planned.flatMap((p) => [...p.gates, ...p.skipped].map((g) => g.name)),
   });
   d.onProgress?.();
   return id;
@@ -93,6 +107,12 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
   const store = d.evidence?.store;
   const head = d.headSha ? await d.headSha(pr.cwd) : null;
   const env = d.gateEnv?.(pr);
+  if (store && runId !== null) {
+    for (const g of p.skipped) {
+      const at = nowIso();
+      recordDeliverGate(store, runId, { gateName: g.name, repo: pr.repo, exitCode: null, headSha: head, summary: NO_UI_CHANGE_REASON, startedAt: at, endedAt: at });
+    }
+  }
   const ran = await runGateList(p.gates, pr.cwd, {
     ...(env ? { prBody: env.prBody } : {}),
     ...(env?.baseRef ? { baseRef: env.baseRef } : {}),
