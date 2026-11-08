@@ -34,6 +34,12 @@ export interface SandboxLaunchFailureInput {
    * failure: the id is dropped and the ticket relaunches once as a fresh session.
    */
   readonly dropStaleResume?: (ticketId: number) => void;
+  /**
+   * An Autopilot round launched this session (arch:AC-31): the host is never offered, and a death after launch is
+   * reported to `onRoundDied` so the round is not counted as sent and not retried.
+   */
+  readonly failClosed?: boolean;
+  readonly onRoundDied?: (ticketId: number, detail: string) => void;
 }
 
 /** The CLI's reply to `--resume <id>` when the sandbox's $HOME holds no such conversation. */
@@ -58,7 +64,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
   mkdirSync(input.captureDir, { recursive: true });
   const report = (message: string): void => {
     const { runOnHost, notify } = input;
-    if (!runOnHost || !notify.errorActions) {
+    if (input.failClosed || !runOnHost || !notify.errorActions) {
       notify.warn(message);
       return;
     }
@@ -103,6 +109,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         void Promise.resolve(input.retrySandbox(input.ticketId)).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} fresh relaunch failed: ${String(e)}`));
         return;
       }
+      roundDied(info);
       if (isSandboxStopped(info.tail)) {
         reportStopped(info);
         return;
@@ -126,6 +133,17 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       reportLaunchFailure(info);
     },
   };
+  /** Tells the Autopilot round that its session died; a failing hook never hides the notice. */
+  function roundDied(info: { runner: string; exitCode: number; tail: string }): void {
+    if (!input.onRoundDied) return;
+    const last = info.tail.split('\n').map((l) => l.trim()).filter((l) => l !== '').pop();
+    const detail = `${info.runner} sandbox launch failed (exit ${info.exitCode})${last ? `: ${last}` : ''}`;
+    try {
+      input.onRoundDied(input.ticketId, detail);
+    } catch (e) {
+      input.warn(`[session] ticket ${input.ticketLabel} the Autopilot round hook failed: ${String(e)}`);
+    }
+  }
   function reportLaunchFailure(info: { runner: string; exitCode: number; tail: string }): void {
     {
       const line = formatLaunchFailure(input.ticketLabel, info.runner, info);

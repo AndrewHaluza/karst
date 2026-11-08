@@ -45,7 +45,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
+import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -304,6 +304,7 @@ import { guardHookNotify, refuseForeignProjectTicket } from './extension/ops/for
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { interruptImplementationRun } from './store/implementationRuns.js'; import { bindMemory, hostSbxMemory, type MemoryBinding } from './extension/memoryBinding.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
+import { readSetupFailure } from './agent/sandboxSetup.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
@@ -1944,17 +1945,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
-  context.subscriptions.push(startAutopilot({
+  const autopilot = startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
     isLive: (id) => sessions.isLive(id), windowId,
     canLaunch: (id) => guardCapability.known('sessions', id),
     takeLaunch: launches.take,
     gh: defaultGhRunnerAsync,
-    isHostTicket: makeHostTicketCheck((id) => getPlacement(localStore, id)),
+    markRound: launches.markRound,
+    placement: makePlacementCheck((id) => getPlacement(localStore, id)),
+    sandboxPreflight: makeSandboxPreflight({
+      ensureInSync: (id) => sandboxLife.ensureInSync(id),
+      setupFailure: async (id) => { const paths = sandboxB?.deps.bridgeOf?.(id); return paths ? readSetupFailure(paths.setupStateFile) : null; },
+    }),
     ciInput: (id) => ({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); } }),
     conflictInput: (id, repo) => ({
-      repo, label: formatId('ticket', id), probeSandbox: () => Promise.resolve({ state: 'absent' as const }),
+      repo, label: formatId('ticket', id),
+      // The recorded placement decides host or sandbox (arch:AC-43); none recorded is unknown, never a host.
+      probeSandbox: async () => { const placed = getPlacement(localStore, id); return placed === null ? { state: 'unknown' as const, reason: 'no placement is recorded' } : placed.backend === 'host' ? { state: 'absent' as const } : { state: 'present' as const }; },
+      prepareSandbox: () => sandboxLife.ensureInSync(id),
       briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
       arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
       notify: (message) => logger.debug(`[ship] autopilot ticket ${formatId('ticket', id)} conflicts: ${message}`),
@@ -1963,7 +1972,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
     conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
     dropConflictRound: (id) => conflictRounds.disarm(id),
-  }));
+  });
+  context.subscriptions.push(autopilot);
   freeSlotOnConflictRoundEnd(localStore);
   context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, dropConflictRound: (id) => conflictRounds.disarm(id), projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));
   // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
@@ -6355,7 +6365,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider; if (!options.recovery && !sessions.isOpen(ticketId) && wantsSbxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && listWorktreesByTicket(localStore, ticketId).length <= 1 && memoryGuard && !(await memoryGuard.admitLaunch(ticketId, options))) return { kind: 'not-applicable', reason: 'cancelled' }; // queued: 'Waiting for memory'; a recovery relaunch is never queued (recoverSession would count it as failed)
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -6622,7 +6632,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), oomReport: (id) => sandboxLife.oomReport(id).catch(() => null), interruptRun: (id, detail) => { interruptImplementationRun(localStore, id, new Date().toISOString(), detail); }, hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), oomReport: (id) => sandboxLife.oomReport(id).catch(() => null), interruptRun: (id, detail) => { interruptImplementationRun(localStore, id, new Date().toISOString(), detail); }, hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), failClosed: options.failClosed === true, onRoundDied: (id, detail) => autopilot.roundDied(id, detail), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

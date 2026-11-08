@@ -1,4 +1,4 @@
-import type { AutopilotDeps, FixOutcome } from './autopilotOps.js';
+import type { AutopilotDeps, FixOutcome, Placement } from './autopilotOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction } from './ciActionsWiring.js';
@@ -52,14 +52,18 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
  */
 export async function conflictOutcome(input: ResolveConflictInput): Promise<FixOutcome> {
   const round = await resolveConflictRound(input);
-  return round.kind === 'sent' ? { kind: 'sent' } : { kind: 'failed', reason: round.reason };
+  if (round.kind === 'sent') return { kind: 'sent' };
+  // A sandbox that cannot be refreshed is an environment blocker, not a missing conflict (arch:AC-46).
+  return round.environment !== undefined ? { kind: 'env-blocker', reason: round.environment } : { kind: 'failed', reason: round.reason };
 }
 
 /** The per-ticket host seams: ownership, session state, placement and the CI and conflict actions. */
 export interface TicketSeams {
   readonly controls: () => boolean;
   readonly sessionRunning: () => boolean;
-  readonly isHostTicket: () => Promise<boolean>;
+  readonly placement: () => Promise<Placement>;
+  /** Sandbox tickets only: the blocker reason before a hand-off, or null (arch:AC-46, AC-47). */
+  readonly sandboxPreflight?: () => Promise<string | null>;
   readonly sendCi: () => Promise<FixOutcome>;
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
@@ -158,7 +162,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         controls: seams.controls,
         sessionRunning: seams.sessionRunning,
         concurrencyFull: () => concurrencyFullFor([...new Map([...listSlotHolders(d.store, projectId), ...armed.values()].map((h) => [h.id, h])).values()], t, d.caps()),
-        isHostTicket: seams.isHostTicket,
+        placement: seams.placement,
+        ...(seams.sandboxPreflight ? { sandboxPreflight: seams.sandboxPreflight } : {}),
         isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
         sendCiFailure: seams.sendCi,
         sendConflict: seams.sendConflict,

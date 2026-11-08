@@ -200,6 +200,12 @@ describe('resolveConflictRound', () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
+  it('a failed sandbox refresh declines with the environment blocker (arch:AC-46)', async () => {
+    const { input, deliver } = click({ probeSandbox: async () => ({ state: 'present' }), prepareSandbox: async () => ({ ok: false as const, reason: 'the sandbox has uncommitted work', diverged: false }) });
+    const out = await resolveConflictRound(input);
+    expect(out).toMatchObject({ kind: 'declined', environment: expect.stringContaining('uncommitted') });
+    expect(deliver).not.toHaveBeenCalled();
+  });
   it('declines with the probe reason when the sandbox state is unknown', async () => {
     const { input, deliver } = click({ probeSandbox: async () => ({ state: 'unknown', reason: 'sbx ls failed' }) });
     const out = await resolveConflictRound(input);

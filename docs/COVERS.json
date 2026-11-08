@@ -385,7 +385,8 @@
     "arch:APP-00"
   ],
   "src/extension/autopilotBinding.ts": [
-    "arch:AP-00"
+    "arch:AP-00",
+    "arch:AP-04"
   ],
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
@@ -395,7 +396,8 @@
   ],
   "src/extension/ops/autopilotOps.ts": [
     "arch:AP-00",
-    "arch:AP-01"
+    "arch:AP-01",
+    "arch:AP-04"
   ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
@@ -426,6 +428,12 @@
   ],
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
+  ],
+  "src/extension/ops/sandboxLaunchFailureOps.ts": [
+    "arch:AP-04"
+  ],
+  "src/extension/ops/sandboxLaunchOps.ts": [
+    "arch:AP-04"
   ],
   "src/extension/ops/serversHostOps.ts": [
     "arch:SERVERS-PANEL"

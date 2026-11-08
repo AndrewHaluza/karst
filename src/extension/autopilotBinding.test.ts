@@ -5,7 +5,7 @@ import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
-import { makeHostTicketCheck, makeLaunchTracker, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
 import { getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { sendCiFailureAction } from './ops/ciActionsWiring.js';
@@ -31,7 +31,7 @@ function rig(over: Partial<AutopilotBindingDeps> = {}) {
     debug, changed: vi.fn(), intervalMs: 1000, windowId: 'W', isLive: () => false,
     ciInput: (ticketId: number) => ({ store, ticketId, debug: () => {}, handOff: () => null }) as never,
     conflictInput: () => ({}) as never, conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {},
-    takeLaunch: () => undefined, isHostTicket: async () => true, ...over,
+    takeLaunch: () => undefined, placement: async () => 'host', ...over,
   };
   return { deps, store, id, debug };
 }
@@ -92,21 +92,115 @@ describe('startAutopilot', () => {
   });
 });
 
-describe('a sandboxed ticket or an unknown placement', () => {
-  beforeEach(() => { vi.useFakeTimers(); vi.mocked(sendCiFailureAction).mockReset(); });
+describe('placement', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.mocked(sendCiFailureAction).mockReset(); vi.mocked(sendCiFailureAction).mockImplementation(async () => {}); });
   afterEach(() => vi.useRealTimers());
 
-  it.each([
-    ['sandboxed', async () => false],
-    ['unknown', async () => { throw new Error('probe failed'); }],
-  ])('runs no round for a %s ticket and parks it with the required reason', async (_n, isHostTicket) => {
-    const r = rig({ isHostTicket });
+  it('runs a CI round for a sandboxed ticket when the preflight is clear', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('parks an unknown placement with the required reason and uses no attempt', async () => {
+    const r = rig({ placement: async () => { throw new Error('probe failed'); } });
     const handle = startAutopilot(r.deps);
     await vi.advanceTimersByTimeAsync(1000);
     handle.dispose();
     expect(sendCiFailureAction).not.toHaveBeenCalled();
-    expect(stageBlock(r.store, r.id, 'ship')?.reason).toBe('auto-fix not run: sandboxed ticket');
+    expect(stageBlock(r.store, r.id, 'ship')?.reason).toBe('auto-fix not run: placement unknown');
     expect(r.store.db.prepare('SELECT COUNT(*) AS n FROM autopilot_budgets').get()).toEqual({ n: 0 });
+  });
+
+  it('pauses a sandboxed ticket on a preflight blocker, with no hand-off', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => 'dependency setup failed' });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(300_000);
+    handle.dispose();
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
+    expect(stageBlock(r.store, r.id, 'ship')?.reason).toBe('auto-fix paused: sandbox dependency setup failed');
+    expect(getAutopilotTicket(r.store, r.id).pausedReason).toBe('auto-fix paused: sandbox dependency setup failed');
+  });
+
+  it('starts no sandbox round in a window that does not control the ticket (arch:AC-37)', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    r.store.db.prepare('INSERT OR IGNORE INTO autopilot_tickets (ticket_id) VALUES (?)').run(r.id);
+    r.store.db.prepare("UPDATE autopilot_tickets SET claim_owner = 'OTHER', claim_until = 99999999999999 WHERE ticket_id = ?").run(r.id);
+    const preflight = vi.fn(async () => null);
+    const handle = startAutopilot({ ...r.deps, sandboxPreflight: preflight });
+    await vi.advanceTimersByTimeAsync(3000);
+    handle.dispose();
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it('only the window with the lease starts the round, when two windows run', async () => {
+    const a = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null, windowId: 'A' });
+    const b = startAutopilot({ ...a.deps, windowId: 'B' });
+    const ha = startAutopilot(a.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    ha.dispose(); b.dispose();
+    expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('a sandbox launch that failed pauses the ticket and uses no attempt', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null, takeLaunch: async () => ({ kind: 'failed', reason: 'sandbox is read-only' }) as never });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(stageBlock(r.store, r.id, 'ship')?.reason).toBe('auto-fix paused: sandbox sandbox is read-only');
+    expect(r.store.db.prepare('SELECT attempts FROM autopilot_budgets').get()).toEqual({ attempts: 0 });
+  });
+
+  it('a launch queued for host memory (not-applicable) does not pause', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null, takeLaunch: async () => ({ kind: 'not-applicable' }) as never });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(getAutopilotTicket(r.store, r.id).pausedReason).toBeFalsy();
+  });
+
+  it('roundDied pauses the ticket, gives the attempt back and is not retried', async () => {
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
+    handle.roundDied(r.id, 'sbx sandbox launch failed (exit 1)');
+    expect(r.store.db.prepare('SELECT attempts FROM autopilot_budgets').get()).toEqual({ attempts: 0 });
+    expect(getAutopilotTicket(r.store, r.id).pausedReason).toBe('auto-fix paused: ci session died after launch (sbx sandbox launch failed (exit 1))');
+    expect(stageBlock(r.store, r.id, 'ship')?.reason).toBe('auto-fix paused: ci session died after launch (sbx sandbox launch failed (exit 1))');
+    await vi.advanceTimersByTimeAsync(300_000);
+    handle.dispose();
+    expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
+    expect(r.deps.changed).toHaveBeenCalled();
+  });
+
+  it('roundDied for a ticket with no round does nothing', () => {
+    const r = rig();
+    const handle = startAutopilot(r.deps);
+    handle.roundDied(r.id, 'boom');
+    handle.dispose();
+    expect(getAutopilotTicket(r.store, r.id).pausedReason).toBeFalsy();
+  });
+});
+
+describe('makePlacementCheck and makeSandboxPreflight', () => {
+  it('maps the recorded backend: host, any other as sandbox, none throws', async () => {
+    const of = (b: string | null) => makePlacementCheck(() => (b === null ? null : { backend: b } as never))(1);
+    await expect(of('host')).resolves.toBe('host');
+    await expect(of('docker')).resolves.toBe('sandbox');
+    await expect(of('sbx')).resolves.toBe('sandbox');
+    await expect(of(null)).rejects.toThrow();
+  });
+
+  it('the preflight gives a sync failure first, then a setup failure, then null', async () => {
+    const mk = (sync: string | null, setup: string | null) => makeSandboxPreflight({ ensureInSync: async () => (sync === null ? { ok: true } : { ok: false, reason: sync }) as never, setupFailure: async () => setup });
+    await expect(mk('diverged', 'setup')(1)).resolves.toBe('diverged');
+    await expect(mk(null, 'dependency setup failed')(1)).resolves.toBe('dependency setup failed');
+    await expect(mk(null, null)(1)).resolves.toBeNull();
   });
 });
 
@@ -247,6 +341,20 @@ describe('makeLaunchTracker', () => {
     t.open(3, 'p', 'r');
     expect(await t.take(3)).toEqual({ kind: 'failed', reason: 'plain' });
   });
+
+  it('marks a launch as an Autopilot round (failClosed) only while the mark is on', async () => {
+    const execute = vi.fn(async () => ({ kind: 'launched' }));
+    const t = makeLaunchTracker(execute as never);
+    t.markRound(1, true);
+    t.open(1, 'p', 'r');
+    expect(execute).toHaveBeenLastCalledWith(1, { seedPrompt: 'p', seedRepo: 'r', failClosed: true });
+    t.markRound(1, false);
+    t.open(1, 'p', 'r');
+    expect(execute).toHaveBeenLastCalledWith(1, { seedPrompt: 'p', seedRepo: 'r' });
+    t.markRound(1, true);
+    t.open(2, 'p', 'r');
+    expect(execute).toHaveBeenLastCalledWith(2, { seedPrompt: 'p', seedRepo: 'r' });
+  });
 });
 
 describe('registerAutopilotCommands', () => {
@@ -302,13 +410,6 @@ describe('window helpers', () => {
     store.db.close();
     makeSessionOwnerSync(store, 'W', logError)([id]);
     expect(logError).toHaveBeenCalledWith('karst: session owner sync failed', expect.anything());
-  });
-
-  it('makeHostTicketCheck is true only for a recorded host placement', async () => {
-    expect(await makeHostTicketCheck(() => ({ backend: 'host' }))(1)).toBe(true);
-    expect(await makeHostTicketCheck(() => ({ backend: 'docker' }))(1)).toBe(false);
-    expect(await makeHostTicketCheck(() => ({ backend: 'sbx' }))(1)).toBe(false);
-    expect(await makeHostTicketCheck(() => null)(1)).toBe(false);
   });
 
   it('makeStopSession ends a held session, and reports a session this window does not hold', async () => {

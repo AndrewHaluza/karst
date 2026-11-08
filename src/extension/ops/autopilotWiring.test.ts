@@ -56,7 +56,7 @@ describe('autopilotSweep', () => {
   const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 3, checks: ['build'] }, conflicts: { policy: 'auto' as const, maxRounds: 2 } };
   const seams = (over: Partial<TicketSeams> = {}): TicketSeams => ({
     controls: () => true, sessionRunning: () => false,
-    isHostTicket: async () => true, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const),
+    placement: async () => 'host' as const, sendCi: vi.fn(async () => ({ kind: 'sent' }) as const),
     sendConflict: vi.fn(async () => ({ kind: 'sent' }) as const), conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {}, ...over,
   });
 
@@ -259,6 +259,10 @@ describe('conflictOutcome', () => {
   const input = (briefFor: () => string | null) => ({ repo: 'r', label: 'T1', probeSandbox: async () => ({ state: 'absent' }), briefFor, notify: vi.fn(), deliver: vi.fn() }) as never;
   it('is sent when the round reached the agent', async () => {
     expect(await conflictOutcome(input(() => 'BRIEF'))).toEqual({ kind: 'sent' });
+  });
+  it('is an env-blocker when the sandbox refresh failed', async () => {
+    const i = { repo: 'r', label: 'T1', probeSandbox: async () => ({ state: 'present' }), prepareSandbox: async () => ({ ok: false, reason: 'the clone has diverged', diverged: true }), briefFor: () => 'BRIEF', notify: vi.fn(), deliver: vi.fn() } as never;
+    expect(await conflictOutcome(i)).toMatchObject({ kind: 'env-blocker', reason: expect.stringContaining('diverged') });
   });
   it('is failed, with the decline reason, when the round reached no agent', async () => {
     expect(await conflictOutcome(input(() => null))).toMatchObject({ kind: 'failed', reason: expect.stringContaining('nothing to resolve') });
