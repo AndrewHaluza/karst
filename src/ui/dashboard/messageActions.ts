@@ -89,6 +89,8 @@ export interface DashboardActions {
   rebaseOnBase: () => void | Promise<void>;
   /** Sync the sandbox, then ship's push onto the open PR ("Deliver to PR"). */
   deliverToPr: () => void | Promise<void>;
+  /** Dismiss the kept auto-deliver gate failures of one gate, or of every gate when null (T1018). */
+  dismissDeliverFailures: (gate: string | null) => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
   /** Create a sub-task under this ticket (host prompts for the title). */

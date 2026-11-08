@@ -15,6 +15,7 @@ import type { AutopilotSlice } from '../stateAutofix.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { liveOperation, overlayProcesses } from './insideLive.js';
 import { STAGE_TITLE } from './railText.js';
+import type { DeliverFacts } from '../../../model/inside/deliver.js';
 
 export interface MenuFlags {
   /** Send back to Implement (the stage the host names). */
@@ -37,7 +38,7 @@ export interface Frame {
   /** Set when the strip shows a stage that is not the ticket's current one: the title Back returns to. */
   readonly back: string | null;
   readonly menu: MenuFlags;
-  readonly deliver: { readonly notOnPr: number; readonly inSandbox: number } | null;
+  readonly deliver: { readonly notOnPr: number; readonly inSandbox: number; readonly canDeliver: boolean; readonly auto: DeliverFacts | null } | null;
   /** Ship only, and only while the header's ship slot waits for Confirm / Retry. */
   readonly preview: { readonly data: ShipPreview | null } | null;
   /** Ship only: the auto-fix override, effective mode and action log (T1004). */
@@ -73,7 +74,7 @@ export const frameOf =
         ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
         rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
       },
-      deliver: dv && dv.available && key === 'ship' ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox } : null,
+      deliver: dv && key === 'ship' && (dv.available || dv.auto) ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox, canDeliver: dv.available, auto: dv.auto ?? null } : null,
       autopilot: key === 'ship' ? (state.autopilot ?? null) : null,
       preview: key === 'ship' && (slot === 'confirm' || slot === 'retry') ? { data: state.shipPreview ?? null } : null,
     };

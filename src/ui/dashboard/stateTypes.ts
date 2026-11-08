@@ -1,4 +1,5 @@
 import type { AutopilotSlice } from './stateAutofix.js';
+import type { DeliverFacts } from '../../model/inside/deliver.js';
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentBackends } from '../../agent/backendChoices.js';
@@ -426,7 +427,13 @@ export interface DashboardState {
    * sandbox) and how many of them are still in the sandbox. Host-measured on the
    * PR refresh; `available` is false when both are 0.
    */
-  deliver: { available: boolean; notOnPr: number; inSandbox: number };
+  deliver: {
+    available: boolean;
+    notOnPr: number;
+    inSandbox: number;
+    /** The auto-deliver of a resolved merge (T1018): progress, kept failures, takeover. Host-read; the webview only words it. */
+    auto?: DeliverFacts;
+  };
   /**
    * How many review items are open on this ticket's pull requests — live,
    * unresolved, not withdrawn. Carried on the snapshot (the same read the menu

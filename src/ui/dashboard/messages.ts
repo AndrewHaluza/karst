@@ -112,6 +112,8 @@ export type WebviewMessage =
   | { type: 'autopilot-retry' }
   | { type: 'rebase-on-base' }
   | { type: 'deliver-to-pr' }
+  /** Dismiss the kept auto-deliver gate failures: one gate, or all when `gate` is absent (T1018). */
+  | { type: 'dismiss-deliver-failures'; gate?: string }
   /**
    * Open a stage's recorded log (uat/review artifact) in an editor. Carries the
    * stage key ONLY, never a path: the host re-derives the artifact path from

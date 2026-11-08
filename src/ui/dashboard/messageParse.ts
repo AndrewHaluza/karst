@@ -128,6 +128,9 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'rebase-on-base' };
     case 'deliver-to-pr':
       return { type: 'deliver-to-pr' };
+    case 'dismiss-deliver-failures':
+      if (m.gate === undefined) return { type: 'dismiss-deliver-failures' };
+      return typeof m.gate === 'string' && m.gate.length > 0 && m.gate.length <= 200 ? { type: 'dismiss-deliver-failures', gate: m.gate } : null;
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'create-subtask':

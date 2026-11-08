@@ -40,6 +40,7 @@ import { defaultGhRunnerAsync } from '../integrations/github.js';
 import { mergeTicketPr } from '../workflow/mergePr.js';
 import { dismissTicketPr, undismissTicketPr } from '../workflow/dismissPr.js';
 import { nowIso } from '../model/time.js';
+import { dismissDeliverFailures } from '../store/deliverRuns.js';
 import { findTicketPr } from '../store/prs.js';
 import { resumeBlockedStage } from '../workflow/stageResume.js';
 import { runKilledGatesOnHost } from './ops/runGateOnHost.js';
@@ -416,6 +417,7 @@ export function makeDashboardActions(
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
+    dismissDeliverFailures: (gate) => { dismissDeliverFailures(store, ticketId, gate, nowIso()); afterServerChange(); },
     // Auto-fix controls (T1004): the command owns the store write, the note and the confirmation.
     autopilotOverride: (mode) => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, mode),
     autopilotApproveOne: (repo, kind) => void vscode.commands.executeCommand('karst.autopilot.approveOne', ticketId, { repo, kind }),
