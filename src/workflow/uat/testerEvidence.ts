@@ -18,8 +18,12 @@ export interface EvidenceFile {
 
 /** The file system seam: tests inject a fake, the default reads the real worktree. */
 export interface EvidenceFs {
-  /** Every file below `dir` (relative to `root`); an absent directory is an empty list. */
-  list(root: string, dir: string): Promise<EvidenceFile[]>;
+  /**
+   * Every file below `dir` (relative to `root`) that `match` accepts; an absent
+   * directory is an empty list. Throws when the walk visits too many entries,
+   * so a truncated list can never read as "no evidence".
+   */
+  list(root: string, dir: string, match: (rel: string) => boolean): Promise<EvidenceFile[]>;
   read(path: string): Promise<string>;
 }
 
@@ -42,10 +46,16 @@ export interface EvidenceCheckInput {
 }
 
 const GLOB_CHARS = /[*?[{]/;
-/** The walk stops here, so a huge scratch directory cannot stall the run. */
+/** The walk fails past this many entries, so a huge scratch directory cannot stall the run. */
 export const MAX_EVIDENCE_FILES = 5000;
 
-async function walk(root: string, dir: string, out: EvidenceFile[]): Promise<void> {
+interface WalkState {
+  out: EvidenceFile[];
+  visited: number;
+  match: (rel: string) => boolean;
+}
+
+async function walk(root: string, dir: string, state: WalkState): Promise<void> {
   let entries;
   try {
     entries = await readdir(join(root, dir), { withFileTypes: true });
@@ -54,18 +64,23 @@ async function walk(root: string, dir: string, out: EvidenceFile[]): Promise<voi
     throw error;
   }
   for (const entry of entries) {
-    if (out.length >= MAX_EVIDENCE_FILES) return;
+    state.visited += 1;
+    if (state.visited > MAX_EVIDENCE_FILES) {
+      throw new Error(`more than ${MAX_EVIDENCE_FILES} entries under ${dir || '.'}`);
+    }
     const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
-    if (entry.isDirectory()) await walk(root, rel, out);
-    else if (entry.isFile()) out.push({ rel, mtimeMs: (await stat(join(root, rel))).mtimeMs });
+    if (entry.isDirectory()) await walk(root, rel, state);
+    else if (entry.isFile() && state.match(rel)) {
+      state.out.push({ rel, mtimeMs: (await stat(join(root, rel))).mtimeMs });
+    }
   }
 }
 
 export const defaultEvidenceFs: EvidenceFs = {
-  async list(root, dir) {
-    const out: EvidenceFile[] = [];
-    await walk(root, dir, out);
-    return out;
+  async list(root, dir, match) {
+    const state: WalkState = { out: [], visited: 0, match };
+    await walk(root, dir, state);
+    return state.out;
   },
   read: (path) => readFile(path, 'utf8'),
 };
@@ -121,7 +136,7 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   if (trigger === undefined) return { kind: 'not-required' };
   const fs = input.fs ?? defaultEvidenceFs;
   const pattern = globToRegExp(rule.file);
-  const files = await fs.list(input.worktreePath, globStaticDir(rule.file));
+  const files = await fs.list(input.worktreePath, globStaticDir(rule.file), (rel) => pattern.test(rel));
   const fresh = files.filter((f) => pattern.test(f.rel) && f.mtimeMs >= input.startedAtMs);
   if (fresh.length === 0) {
     return {

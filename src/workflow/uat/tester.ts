@@ -1285,6 +1285,7 @@ async function runTesterBody(
           debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
         }
         if (evidence.kind === 'present' && evidence.detail) {
+          opts.warn?.(`uat tester: ${target.repo} — ${evidence.detail}`);
           debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
         }
       }

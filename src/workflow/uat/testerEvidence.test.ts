@@ -219,12 +219,12 @@ describe('runUatTester — requireEvidence', () => {
 });
 
 describe('defaultEvidenceFs (real files)', () => {
-  it('stops the walk at the file limit', async () => {
+  it('fails the walk past the entry limit instead of truncating', async () => {
     const root = await mkdtemp(join(tmpdir(), 'evidence-'));
     try {
       await mkdir(join(root, 'out'), { recursive: true });
       await Promise.all(Array.from({ length: MAX_EVIDENCE_FILES + 5 }, (_, i) => writeFile(join(root, `out/f${i}`), '')));
-      expect(await defaultEvidenceFs.list(root, 'out')).toHaveLength(MAX_EVIDENCE_FILES);
+      await expect(defaultEvidenceFs.list(root, 'out', () => true)).rejects.toThrow('entries under out');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -236,10 +236,10 @@ describe('defaultEvidenceFs (real files)', () => {
       await mkdir(join(root, 'out/run1'), { recursive: true });
       await writeFile(join(root, 'out/run1/summary.json'), '{"a":1}');
       await writeFile(join(root, 'out/top.txt'), 'x');
-      const files = await defaultEvidenceFs.list(root, 'out');
+      const files = await defaultEvidenceFs.list(root, 'out', () => true);
       expect(files.map((f) => f.rel).sort()).toEqual(['out/run1/summary.json', 'out/top.txt']);
       expect(files.every((f) => f.mtimeMs > 0)).toBe(true);
-      expect(await defaultEvidenceFs.list(root, 'absent')).toEqual([]);
+      expect(await defaultEvidenceFs.list(root, 'absent', () => true)).toEqual([]);
       expect(await defaultEvidenceFs.read(join(root, 'out/top.txt'))).toBe('x');
     } finally {
       await rm(root, { recursive: true, force: true });
