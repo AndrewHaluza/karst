@@ -334,7 +334,7 @@ repositories:
 #     # refuses the action when a generated file would need merging.
 #     # ship:
 #     #   exclude: [dist/**, "*.lock.json"]
-#     #   regenerate: ["npm run -s docs:covers", "npm run -s docs:graph"]
+#     #   regenerate: ["npm run -s docs:covers", "npm run -s docs:graph", "npm run -s docs:schema"]
 
 #     # Dependencies for SANDBOXED tickets: run inside the sandbox clone before its
 #     # gates (a clone has no main checkout to resolve node_modules from). Re-run
