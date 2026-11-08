@@ -18,6 +18,7 @@ export const TICKET = 942017;
 
 const SENDERS = [
   'insideAction',
+  'unpauseExecution',
   'selectGateAttempt',
   'selectFindingsRepo',
   'refreshShipPreview',

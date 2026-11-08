@@ -248,6 +248,28 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     })),
   },
   { stage: 'impl', id: 'passed', state: fromFacts('impl', { cells: { impl: { status: 'passed' } } }) },
+  {
+    // A session with more rows than the timeline limit: the host ships the production '+N more' row (`role: 'event'` + action).
+    stage: 'impl',
+    id: 'bounded-timeline',
+    // A new route would add the shared rail and PR-row layout findings to the ledger as NEW; the screenshot still records.
+    skipLayout: true,
+    state: legacy('impl', (s, v) => {
+      const session = v.processes.find((p) => p.id === 'session');
+      if (!session) throw new Error('insideCases: no legacy impl session row');
+      const rails = Array.from({ length: 20 }, (_, i) => ({ status: 'pass', label: `step ${i + 1}`, detail: 'done', time: `09:${String(10 + i).padStart(2, '0')}` }));
+      const more = {
+        status: 'note',
+        label: 'more',
+        detail: '+7 more',
+        role: 'event',
+        action: { actionId: 'case:open-full-evidence', kind: 'open-full-evidence', label: 'Show 7 more' },
+      };
+      const evidence = { kind: 'timeline', rows: [...rails, more] } as unknown as typeof session.evidence;
+      const processes = v.processes.map((p) => (p === session ? { ...p, evidence } : p));
+      return { ...s, insideViews: { ...s.insideViews, impl: { ...v, processes } } };
+    }),
+  },
 
   // uat
   { stage: 'uat', id: 'pending', state: fromFacts('uat', {}) },

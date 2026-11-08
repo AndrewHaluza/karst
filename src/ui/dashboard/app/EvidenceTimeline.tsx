@@ -6,6 +6,7 @@
 import type { EvidenceRow } from '../../../model/inside/types.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { TimelineTokens } from './InsideClocks.js';
+import { Overflow } from './EvidenceParts.js';
 import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
@@ -100,12 +101,20 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
 }
 
 export function EvidenceTimeline({ rows, stage, id }: { readonly rows: readonly EvidenceRow[]; readonly stage: string; readonly id: string }) {
+  // The bounded remainder (`role: 'event'`) is not history: it is the control that reveals the withheld rows, drawn
+  // below the rail like the other bodies' remainder, so it stays reachable where `.timeline-tail` is hidden.
+  const more = rows.find((r) => r.role === 'event');
   return (
-    <div className="session-segments">
-      {rows.map((r, i) => (
-        // The rail is ordered history: a row keeps its place, so its position is part of its identity.
-        <Row key={`${i}:${r.label}`} r={r} stage={stage} id={id} index={i} />
-      ))}
-    </div>
+    <>
+      <div className="session-segments">
+        {rows.map((r, i) =>
+          r.role === 'event' ? null : (
+            // The rail is ordered history: a row keeps its place, so its position is part of its identity.
+            <Row key={`${i}:${r.label}`} r={r} stage={stage} id={id} index={i} />
+          ),
+        )}
+      </div>
+      <Overflow o={more} />
+    </>
   );
 }

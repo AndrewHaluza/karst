@@ -66,7 +66,15 @@ function Footer({ footer }: { readonly footer: readonly string[] | undefined }) 
 /** Inline Unpause on a paused stage's row — the pause chip alone was missed (D303). */
 function UnpauseButton() {
   const send = useDashboardSend();
-  const onClick = usePendingAction((requestId) => send.unpauseExecution(requestId));
+  const pend = usePendingAction((requestId) => send.unpauseExecution(requestId));
+  const onClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      // Inside a <summary>: without this the click would also toggle the disclosure.
+      e.preventDefault();
+      pend(e);
+    },
+    [pend],
+  );
   return (
     <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" onClick={onClick}>
       Unpause
@@ -78,7 +86,15 @@ const ProcessRow = memo(
   function ProcessRow({ p, stageKey, consoleStage, open }: RowProps) {
     const { memory } = useInsideScope();
     const key = `${stageKey}:${p.id}`;
-    const onToggle = useCallback((e: SyntheticEvent<HTMLDetailsElement>) => memory.toggled(key, e.currentTarget.open), [memory, key]);
+    // The native `toggle` also fires when React sets `open` itself (an auto-open of a running row): that is not a user
+    // choice. Record it only when the user already has a verdict on this row, or the DOM differs from what React set.
+    const onToggle = useCallback(
+      (e: SyntheticEvent<HTMLDetailsElement>) => {
+        const isOpen = e.currentTarget.open;
+        if (memory.explicit(key) !== null || isOpen !== open) memory.toggled(key, isOpen);
+      },
+      [memory, key, open],
+    );
     const running = p.autofix?.state === 'running';
     const glyph = <span className={`glyph ${p.status}`} {...(running ? { role: 'img' } : {})} aria-label={p.statusLabel || statusWord(p.status)} />;
     const name = (

@@ -217,6 +217,13 @@ describe('Ledger — the action button', () => {
     expect(fireEvent.click(button())).toBe(false);
     expect(d.open).toBe(false);
   });
+
+  it('does not toggle the disclosure the Unpause button sits in', () => {
+    mountInside(rows('uat', [proc('a', { evidence: gatesEvidence, paused: true })]));
+    const d = row('a') as HTMLDetailsElement;
+    expect(fireEvent.click(must('[data-act="unpause-execution"]'))).toBe(false);
+    expect(d.open).toBe(false);
+  });
 });
 
 describe('Ledger — disclosure memory', () => {
@@ -265,6 +272,22 @@ describe('Ledger — disclosure memory', () => {
     const h = mountInside(rows('uat', [proc('gates', { kind: 'gates', status: 'run', evidence: gatesEvidence })]));
     expect(open('gates')).toBe(true);
     h.emit({ type: 'state', state: rows('uat', [proc('gates', { kind: 'gates', status: 'pass', evidence: gatesEvidence })]) } as HostMessage);
+    expect(open('gates')).toBe(false);
+  });
+
+  it('a toggle the browser fires for the open attribute React set is not a user choice', () => {
+    const h = mountInside(rows('uat', [proc('gates', { kind: 'gates', status: 'run', evidence: gatesEvidence })]));
+    // Chromium fires `toggle` for any change of `open`, also for the one React made: the DOM state equals the prop.
+    fireEvent(row('gates'), new Event('toggle'));
+    h.emit({ type: 'state', state: rows('uat', [proc('gates', { kind: 'gates', status: 'pass', evidence: gatesEvidence })]) } as HostMessage);
+    expect(open('gates')).toBe(false);
+  });
+
+  it('keeps the closed verdict when the user opens and then closes a row that the prop shows closed', () => {
+    const h = mountInside(rows('uat', [proc('gates', { kind: 'gates', status: 'pass', evidence: gatesEvidence })]));
+    toggle('gates', true);
+    toggle('gates', false);
+    h.emit({ type: 'state', state: rows('uat', [proc('gates', { kind: 'gates', status: 'run', evidence: gatesEvidence })]) } as HostMessage);
     expect(open('gates')).toBe(false);
   });
 });
