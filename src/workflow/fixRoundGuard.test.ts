@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
 import { openRecoveryRound } from '../store/recoveryRounds.js';
@@ -74,5 +77,60 @@ describe('fix-round no-new-commit guard', () => {
     await expect(
       assertFixHasNewCommit(store, ticketId, gitAt({ '/wt/api': 'a1', '/wt/web': 'w1' })),
     ).rejects.toThrow(/no new commit/);
+  });
+  describe('operator manifest change', () => {
+    let dir: string;
+    let manifestPath: string;
+    const git = gitAt({ '/wt/api': 'a1', '/wt/web': 'w1' });
+    const rowOf = () =>
+      store.db.prepare('SELECT manifest_path AS p, manifest_sha AS s, fix_commit_sha AS c FROM recovery_rounds WHERE id = ?').get(roundId) as {
+        p: string | null; s: string | null; c: string | null;
+      };
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-fixguard-'));
+      manifestPath = join(dir, 'karst.yml');
+      writeFileSync(manifestPath, 'a: 1\n');
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('records the manifest path and a sha256 of its bytes', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      const row = rowOf();
+      expect(row.p).toBe(manifestPath);
+      expect(row.s).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('records NULL for no manifest or an unreadable file', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, join(dir, 'missing.yml'));
+      expect(rowOf()).toMatchObject({ p: null, s: null });
+    });
+
+    it('accepts a changed manifest with unchanged HEADs and leaves fix_commit_sha null', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      writeFileSync(manifestPath, 'a: 2\n');
+      await expect(assertFixHasNewCommit(store, ticketId, git)).resolves.toBeUndefined();
+      expect(rowOf().c).toBeNull();
+    });
+
+    it('refuses an unchanged manifest and names both signals', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      await expect(assertFixHasNewCommit(store, ticketId, git)).rejects.toThrow(NO_NEW_COMMIT_REASON);
+      await expect(assertFixHasNewCommit(store, ticketId, git)).rejects.toThrow(/no new commit since this fix round started/);
+      await expect(assertFixHasNewCommit(store, ticketId, git)).rejects.toThrow(/a change to the manifest at /);
+    });
+
+    it('refuses when the recorded manifest became unreadable', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      rmSync(manifestPath);
+      await expect(assertFixHasNewCommit(store, ticketId, git)).rejects.toThrow(NO_NEW_COMMIT_REASON);
+    });
+
+    it('keeps the first manifest snapshot on a re-nudge', async () => {
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      writeFileSync(manifestPath, 'a: 2\n');
+      await snapshotFixRoundHeads(store, ticketId, roundId, git, manifestPath);
+      await expect(assertFixHasNewCommit(store, ticketId, git)).resolves.toBeUndefined();
+    });
   });
 });

@@ -3560,6 +3560,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           signal: driver.signalFor(ticketId),
           resumeFix: (id, gate, attempts, roundId, process) =>
             snapshotThenResume(localStore, id, process === null ? null : roundId, defaultGitRunner,
+              cliEntryAndManifest(context).manifestPath ?? null,
               (err) => logError(`karst: fix-round HEAD snapshot for ticket ${id} failed`, err),
               () => void resumeFixSessionOnce(id, gate, attempts, roundId, process)
                 .catch((err) => logError(`karst: resuming the fix session for ticket ${id} failed`, err))),
