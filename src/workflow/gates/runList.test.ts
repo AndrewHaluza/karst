@@ -402,6 +402,31 @@ describe('runGateList base ref env', () => {
   });
 });
 
+describe('runGateList PR_BODY env (docs gate citations)', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gates = [{ name: 'docs:gate', command: 'npm', args: ['run', '-s', 'docs:gate'], script: null, required: true }];
+  const run = async (opts: Record<string, unknown>) => {
+    const seen: Array<readonly string[]> = [];
+    await runGateList(gates, process.cwd(), { now, ...opts, runProcess: async (_c, args) => (seen.push(args), { kind: 'completed', exitCode: 0, output: '' }) });
+    return seen[0];
+  };
+  it('passes the citation text as PR_BODY with the base branch as BASE_REF', async () => {
+    expect(await run({ baseRef: 'develop', prBody: '@arch:CLI-02 — holds' })).toEqual([
+      'KARST_BASE_REF=develop', 'PR_BODY=@arch:CLI-02 — holds', 'BASE_REF=develop', 'npm', 'run', '-s', 'docs:gate',
+    ]);
+  });
+  it('passes an empty PR_BODY when nothing is cited', async () => {
+    expect(await run({ baseRef: 'develop', prBody: '' })).toContain('PR_BODY=');
+  });
+  it('keeps the text as one argument (never evaluated by a shell)', async () => {
+    const args = (await run({ baseRef: 'main', prBody: '$(touch x); a b' })) ?? [];
+    expect(args).toContain('PR_BODY=$(touch x); a b');
+  });
+  it('sets no PR_BODY when the caller gives none', async () => {
+    expect((await run({ baseRef: 'develop' }))?.some((a) => a.startsWith('PR_BODY='))).toBe(false);
+  });
+});
+
 describe('runGateList port slot — review fixes', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
   const gate = { name: 'test:integration', command: 'npm', args: ['run', 'test:integration'], script: null, required: true, onResourceKill: 'host' as const };

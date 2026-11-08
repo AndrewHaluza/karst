@@ -34,6 +34,7 @@ const EXPECTED_TABLES = [
   'gate_slots',
   'autopilot_tickets',
   'review_stall_suggestions',
+  'arch_citations',
   'autopilot_budgets',
   'cloud_session_links',
   'servers',
@@ -332,6 +333,26 @@ describe('openStore', () => {
       ),
     );
     expect(cols2.has('agent_preset')).toBe(true);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
+  it('migrates a pre-v106 database by adding the arch_citations table, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL)');
+    legacy.pragma('user_version = 105');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const cols = (migrated.db.prepare("PRAGMA table_info('arch_citations')").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(['ticket_id', 'key', 'reason', 'updated_at']);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 

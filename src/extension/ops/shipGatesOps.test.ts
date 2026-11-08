@@ -61,4 +61,12 @@ describe('runShipGates', () => {
     const r = await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse });
     expect(r).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
   });
+  it('runs every gate with the ticket citations as PR_BODY and its base branch', async () => {
+    const argsSeen: Array<readonly string[]> = [];
+    const runProcess: GateProcessRunner = async (_c, args) => { argsSeen.push(args); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const pr = repoWith({ test: 'x' });
+    const gateEnv = (p: { repo: string }) => ({ prBody: `@arch:CLI-02 — for ${p.repo}`, baseRef: 'develop' });
+    expect(await runShipGates([pr], { uat: undefined, runProcess, gateEnv })).toBeNull();
+    expect(argsSeen[0]).toEqual(expect.arrayContaining(['PR_BODY=@arch:CLI-02 — for r', 'BASE_REF=develop']));
+  });
 });

@@ -193,6 +193,27 @@ describe('renderFixBrief', () => {
     expect(brief).toContain('src/pages/index.vue:23:9 Replace `x` with `y`');
   });
 
+  it('names both ways out of a docs-gate BLOCK', () => {
+    const brief = renderFixBrief(
+      'PROJ-12',
+      [{ stageKey: 'uat', status: 'failed', verdict: 'gates failed: docs:gate' }],
+      [],
+      [gate({ stageKey: 'uat', gateName: 'docs:gate', exitCode: 1, summary: '✗ BLOCK diff changes resolveAdapter in src/agent/registry.ts (covered by @arch:UATHOST-00)' })],
+    );
+    expect(brief).toContain('Edit the block and commit the edit');
+    expect(brief).toContain('karst arch cite @arch:KEY --why');
+  });
+
+  it('adds no cite hint for other failures', () => {
+    const brief = renderFixBrief(
+      'PROJ-13',
+      [{ stageKey: 'uat', status: 'failed' }],
+      [],
+      [gate({ stageKey: 'uat', gateName: 'lint', exitCode: 1, summary: 'x.ts:1 bad' })],
+    );
+    expect(brief).not.toContain('arch cite');
+  });
+
   it('lists only the latest batch of failing gates, never a superseded run', () => {
     const brief = renderFixBrief(
       'PROJ-11',

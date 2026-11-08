@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { globToRegExp, parseDiff, run } from './docsGate.mjs';
+import { renderCitationText } from '../src/model/archCitations.js';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'docsGate.mjs');
 const dirs = [];
@@ -77,6 +78,24 @@ describe('docsGate', () => {
     r.commit();
     expect(r.run('touches @arch:T-01 as documented').block).toBe(false);
     expect(r.run('@arch:T-010').block).toBe(true);
+  });
+
+  it('passes on a body built from citations for the cited key only', () => {
+    const r = repo(COVERS);
+    r.put('src/a.ts', SRC.replace('return 1', 'return 10'));
+    r.commit();
+    const cited = renderCitationText([{ key: '@arch:T-01', reason: 'alpha keeps its contract' }]);
+    expect(r.run(cited).block).toBe(false);
+    const other = renderCitationText([{ key: '@arch:T-02', reason: 'unrelated block' }]);
+    expect(r.run(other).block).toBe(true);
+  });
+
+  it('a reason cannot cite a second key', () => {
+    const r = repo(COVERS);
+    r.put('src/a.ts', SRC.replace('return 1', 'return 10'));
+    r.commit();
+    const body = renderCitationText([{ key: '@arch:T-02', reason: 'see @arch:T-01 for more' }]);
+    expect(r.run(body).block).toBe(true);
   });
 
   it('passes when the covering block is edited', () => {

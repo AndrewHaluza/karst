@@ -21,6 +21,7 @@ import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
+import { upsertArchCitation } from '../../store/archCitations.js';
 
 function seedWorktree(
   store: Store,
@@ -1793,6 +1794,49 @@ setTimeout(() => {
       expect(summaryCount).toBe(1);
     });
 
+    describe('design rules section (arch citations)', () => {
+      const cite = (): void => {
+        upsertArchCitation(store, id, { key: '@arch:UATHOST-00', reason: 'keeps the <host> order @bob' });
+      };
+      const noDiff: GitRunner = async (args) => (args[0] === 'diff' ? { stdout: '', stderr: '', exitCode: 1 } : { stdout: '', stderr: '', exitCode: 0 });
+      const bodyOf = (creates: string[][]): string => creates[0]![creates[0]!.indexOf('--body') + 1]!;
+
+      it('appends the section after the AI body and escapes the reason', async () => {
+        seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+        cite();
+        const { gh, creates } = recordingGh();
+        const adapter: AgentAdapter = { ...fakeAdapter(), runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '## Summary\n\nGenerated body.' }) };
+        await shipTicket(store, { ticketId: id }, gh, adapter, noDiff);
+        const body = bodyOf(creates);
+        expect(body).toContain('Generated body.');
+        expect(body.endsWith('## Design rules checked\n\n- @arch:UATHOST-00 — keeps the &lt;host&gt; order &#64;bob\n')).toBe(true);
+      });
+
+      it('appends the section to the template fallback when the AI call fails', async () => {
+        seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+        cite();
+        const { gh, creates } = recordingGh();
+        const adapter: AgentAdapter = { ...fakeAdapter(), runHeadless: async () => { throw new Error('rate limited'); } };
+        await shipTicket(store, { ticketId: id }, gh, adapter, noDiff);
+        expect(bodyOf(creates)).toContain('## Design rules checked\n\n- @arch:UATHOST-00');
+      });
+
+      it('appends the section to the deterministic body', async () => {
+        seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+        cite();
+        const { gh, creates } = recordingGh();
+        await shipTicket(store, { ticketId: id, prDescriptionProcess: null }, gh, undefined, noDiff);
+        expect(bodyOf(creates)).toContain('- @arch:UATHOST-00 — keeps');
+      });
+
+      it('writes no section when nothing is cited', async () => {
+        seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+        const { gh, creates } = recordingGh();
+        await shipTicket(store, { ticketId: id, prDescriptionProcess: null }, gh, undefined, noDiff);
+        expect(bodyOf(creates)).not.toContain('Design rules checked');
+      });
+    });
+
     it('still describes when the diff cannot be read — a failed read never fails ship', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh } = recordingGh();
@@ -2647,6 +2691,24 @@ setTimeout(() => {
           'Generated PR body.',
         ]);
         expect(headless).toBe(1);
+      });
+
+      it('backfills an empty description with the design rules section', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        upsertArchCitation(store, id, { key: '@arch:CLI-02', reason: 'verb stays separate' });
+        const { gh, args } = ghBlindProbe('');
+        await shipTicket(store, { ticketId: id, prDescriptionProcess: null }, gh, undefined, fakeGit().git);
+        const edit = args.find((a) => a[1] === 'edit')!;
+        expect(edit[4]).toContain('## Design rules checked\n\n- @arch:CLI-02 — verb stays separate');
+      });
+
+      it('adds the section to a description a human wrote, keeping the prose', async () => {
+        seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+        upsertArchCitation(store, id, { key: '@arch:CLI-02', reason: 'verb stays separate' });
+        const { gh, args } = ghBlindProbe('prose a human wrote');
+        await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+        const edit = args.find((a) => a[1] === 'edit')!;
+        expect(edit[4]).toBe('prose a human wrote\n\n## Design rules checked\n\n- @arch:CLI-02 — verb stays separate\n');
       });
 
       it('keeps a description the reused PR already has', async () => {

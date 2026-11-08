@@ -19,6 +19,11 @@ export interface ShipGatesDeps {
   readonly runProcess?: GateProcessRunner;
   readonly hostProcess?: GateProcessRunner;
   readonly debug?: (message: string) => void;
+  /**
+   * The ticket's rendered arch citations and base branch for one PR, so the
+   * `docs:gate` gate reads the same `PR_BODY` and `BASE_REF` it reads in UAT.
+   */
+  readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
 /** Null when every gate passed (or there is nothing to run); else the first failure. */
@@ -30,7 +35,10 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
       if (resolution.blocker === 'nothing-to-run') continue;
       return `${pr.repo}: ${resolution.reason}`;
     }
+    const env = d.gateEnv?.(pr);
     const ran = await runGateList(resolution.gates, pr.cwd, {
+      ...(env ? { prBody: env.prBody } : {}),
+      ...(env?.baseRef ? { baseRef: env.baseRef } : {}),
       scriptsAvailable: (script, derived) => (probe.kind === 'ok' ? probe.scripts[script] !== undefined : derived),
       ...(d.runProcess ? { runProcess: d.runProcess } : {}),
       ...(d.hostProcess ? { hostProcess: d.hostProcess } : {}),

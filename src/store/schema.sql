@@ -1531,3 +1531,12 @@ CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   updated_at   TEXT NOT NULL,
   PRIMARY KEY (ticket_id, park_at)
 );
+
+-- v106: the reason an agent gave for why a covered @arch block still holds, one row per ticket and key (`store/archCitations.ts`).
+CREATE TABLE IF NOT EXISTS arch_citations (
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  reason     TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (ticket_id, key)
+);

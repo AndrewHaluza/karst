@@ -235,6 +235,14 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     optional: a missing post is allowed. The note is always written as
     untrusted agent prose, and the merged diff decides who sees it.
 
+ - \`arch cite <@arch:KEY> --why <reason>\` — when a docs-gate BLOCK says your
+    diff changes a symbol an @arch block covers, you have two ways out: edit and
+    commit that block, or cite it here with ONE line (max 200 characters) saying
+    why the block still holds. The key must head a block in docs/arch. A second
+    cite of the same key replaces its reason. Karst hands the citations to the
+    docs gate as the PR body and lists them under "Design rules checked" in the
+    PR. Karst never cites for you. Needs the session's \`KARST_TICKET\`.
+
 - \`blocked [--kind <kind>] [--json]\` — **read** every open ticket that has a
   stage block: key, stage, kind, since, reason and agent state; for
   \`review-stalled\` also the blocking findings per review round. A ticket parked

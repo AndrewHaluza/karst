@@ -9,6 +9,7 @@ import { SpinCancelledError } from '../../runtime/spin.js';
 import { transition } from '../machine.js';
 import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
+import { upsertArchCitation } from '../../store/archCitations.js';
 import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { isCoverageRecord } from '../../model/coverageRecord.js';
@@ -123,6 +124,27 @@ describe('runUat', () => {
     });
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(listGateRuns(store, id)).toEqual([]);
+  });
+
+  it('hands the gate run the ticket arch citations as PR_BODY text', async () => {
+    upsertArchCitation(store, id, { key: '@arch:UATHOST-00', reason: 'keeps the order' });
+    let seen: string | undefined = 'unset';
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ runGates: async (gates, _cwd, opts) => { seen = opts?.prBody; return { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })) }; } }),
+    );
+    expect(seen).toBe('@arch:UATHOST-00 — keeps the order');
+  });
+
+  it('hands the gate run an empty PR_BODY when nothing is cited', async () => {
+    let seen: string | undefined = 'unset';
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ runGates: async (gates, _cwd, opts) => { seen = opts?.prBody; return { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })) }; } }),
+    );
+    expect(seen).toBe('');
   });
 
   it('files the regenerate row with one repository suffix and keeps the suffix on an ordinary gate', async () => {

@@ -86,6 +86,13 @@ export interface RunGatesOptions {
   baseDefinesScript?: (script: string) => Promise<boolean>;
   /** The base ref named in the stale-branch reason. */
   baseRef?: string;
+  /**
+   * The ticket's rendered arch citations (@arch:CLI-22). When set (an empty string is a value:
+   * "nothing cited"), every gate process gets `PR_BODY=<text>` and `BASE_REF=<baseRef>`, which is
+   * what `scripts/docsGate.mjs` reads. The text is passed as one argv element of `env`, never
+   * through a shell, and the gate reads it as text.
+   */
+  prBody?: string;
   /** Where each gate runs; absent → the host `runProcess`. A sandboxed ticket passes its runner's `runGate` (arch:AC-32). */
   runProcess?: GateProcessRunner;
   /** Runs a gate declared `sandbox: host`; absent → such a gate uses `runProcess` like any other. Declared order is kept (arch:AC-36). */
@@ -198,7 +205,10 @@ export async function runGateList(
     const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
     // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
     // The ticket's base branch reaches every gate process, host or sandbox (the D360 drift check reads it).
-    const baseEnv = opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : [];
+    const baseEnv = [
+      ...(opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : []),
+      ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
+    ];
     const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
       extraEnv.length + offsetEnv.length + baseEnv.length > 0
         ? run('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)

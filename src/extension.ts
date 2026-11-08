@@ -1,6 +1,9 @@
 import { makeStartGuards, type SessionOutcome } from './extension/ops/startOutcome.js';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './attachments/kinds.js';
 import { hostFallbackPrompts } from './extension/ops/sandboxLaunchOps.js';
+import { renderCitationText } from './model/archCitations.js';
+import { listArchCitations } from './store/archCitations.js';
+import { resolveTicketBaseRef } from './workflow/baseRef.js';
 import { listInstalled } from './approaches/pkg.js';
 import { packagedApproachDefs } from './approaches/withBuiltInApproaches.js';
 import { listTicketLifecycle } from './store/runningServers.js';
@@ -3847,7 +3850,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
     if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
-      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m) };
+      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m),
+        gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; } };
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
     }

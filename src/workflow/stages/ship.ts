@@ -44,7 +44,9 @@ import {
   type ShipStep,
 } from './shipStore.js';
 import { adoptMergedPr, probeMergedNothingNew } from '../mergedNothingNew.js';
-import { backfillDescription, bodyHash, generateDescription, noteReusedPr } from './shipDescription.js';
+import { backfillDescription, bodyHash, generateDescription, noteReusedPr, syncDesignRules } from './shipDescription.js';
+import { appendDesignRulesSection } from '../../model/archCitations.js';
+import { listArchCitations } from '../../store/archCitations.js';
 import {
   describeGitFailure,
   changedPathsMatching,
@@ -1568,7 +1570,10 @@ export async function shipTicket(
             );
             return deterministicDescription(ctx);
           };
-          const buildBody = async (): Promise<string> => {
+          // The agent's arch citations, appended AFTER sanitizing, to every body Karst writes
+          // (AI, template fallback, backfill). The AI prompt never sees them.
+          const citations = listArchCitations(store, opts.ticketId);
+          const buildBodyRaw = async (): Promise<string> => {
             // A configured template that never asks for prose needs no model call
             // and no branch reads.
             if (descriptionTemplate && !usesDescription(descriptionTemplate)) {
@@ -1615,6 +1620,7 @@ export async function shipTicket(
             }
             return runDescriptionStep(opts.prDescriptionProcess, promptCtx);
           };
+          const buildBody = async (): Promise<string> => appendDesignRulesSection(await buildBodyRaw(), citations);
 
           let opened: OpenedPr;
           if (existing) {
@@ -1663,8 +1669,9 @@ export async function shipTicket(
               buildBody,
               onProgress,
               { store, run },
-              () => templateBody({}),
+              () => appendDesignRulesSection(templateBody({}), citations),
             );
+            await syncDesignRules(gh, wt.repo, wt.path, existing.url, citations, onProgress);
             markShipOperationApplied(store, prOp.intentId, {
               appliedAt: nowIso(),
               resolvedAt: nowIso(),
@@ -1731,6 +1738,7 @@ export async function shipTicket(
                 onProgress,
                 { store, run },
               );
+              await syncDesignRules(gh, wt.repo, wt.path, created.url, citations, onProgress);
             }
             markShipOperationApplied(store, prOp.intentId, {
               appliedAt: nowIso(),
@@ -1776,6 +1784,7 @@ export async function shipTicket(
           // persisted evidence then read "pr step not recorded" for the very PR
           // this run updated. Record the step the normal path would have written
           // (FIX-46 review). No operation intent: no external PR mutation ran.
+          await syncDesignRules(gh, wt.repo, wt.path, prior.url, listArchCitations(store, opts.ticketId), onProgress);
           onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
           const landedNumber = prior.number;
           const prStep = openShipRepoStep(store, {
