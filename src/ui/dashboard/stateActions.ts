@@ -15,7 +15,7 @@ import type { DeliverFacts } from '../../model/inside/deliver.js';
 /** The auto-deliver facts of a ticket, only when a run left a record (a ticket that never auto-delivered carries none). */
 function readDeliverAuto(store: Store, ticketId: number): DeliverFacts | undefined {
   const f = deliverFactsFor(store, ticketId);
-  return f.running === null && f.failures.length === 0 && f.takenOver === null ? undefined : f;
+  return f.running === null && f.failures.length === 0 && f.takenOver === null && !f.roundActive ? undefined : f;
 }
 
 /** The action-availability reads of one snapshot, in their fixed order. */

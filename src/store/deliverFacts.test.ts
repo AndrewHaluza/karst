@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
+import { setMergeCheck } from './mergeChecks.js';
+import { markConflictRound } from './autopilot.js';
 import { openDeliverRun, recordDeliverGate, takeOverDeliverRun } from './deliverRuns.js';
 import { deliverFactsFor } from './deliverFacts.js';
 
@@ -26,5 +28,20 @@ describe('deliverFactsFor', () => {
     expect(f.takenOver).toEqual({ failed: ['unit'], skipped: ['docs'] });
     expect(f.running).toBeNull();
     expect(f.failures).toMatchObject([{ gate: 'unit', exitCode: 3 }]);
+  });
+  it('takes the current head from the merge probe, not the last run', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T' });
+    setMergeCheck(store, { ticketId: id, repo: 'r', state: 'clean', files: [], reason: null, headSha: 'b'.repeat(40), baseSha: null, baseRef: null, checkedAt: 'T2' });
+    expect(deliverFactsFor(store, id).headSha).toBe('b'.repeat(40));
+  });
+  it('is round-active while an Autopilot conflict round is armed, before any gate runs', () => {
+    markConflictRound(store, id, 1);
+    expect(deliverFactsFor(store, id)).toMatchObject({ running: null, roundActive: true });
+  });
+  it('names a skipped gate that repeats in another repo once per missing result', () => {
+    const run = openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'unit', 'docs'], pid: 1, now: 'T' });
+    rec(run, 'unit', 0);
+    takeOverDeliverRun(store, id, 'T');
+    expect(deliverFactsFor(store, id).takenOver).toEqual({ failed: [], skipped: ['unit', 'docs'] });
   });
 });

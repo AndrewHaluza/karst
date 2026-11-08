@@ -406,7 +406,7 @@ function repoRows(name: string, def: RepositoryDef | undefined): TicketContextRe
 /** The delivery facts, only when a run left a record (keeps the JSON of a ticket that never auto-delivered unchanged). */
 function deliveryField(store: Store, ticketId: number): { delivery?: DeliverFacts } {
   const d = deliverFactsFor(store, ticketId);
-  return d.running === null && d.failures.length === 0 && d.takenOver === null ? {} : { delivery: d };
+  return d.running === null && d.failures.length === 0 && d.takenOver === null && !d.roundActive ? {} : { delivery: d };
 }
 
 /** The `## Current stage` lines of the delivery: the progress line, the takeover and the failures kept on record. */

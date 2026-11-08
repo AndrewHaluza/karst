@@ -170,16 +170,27 @@ export interface TakeOver {
   readonly skipped: readonly string[];
 }
 
+/** The planned gates that have no result yet. A name that repeats (one gate per repo) is missing once per absent result. */
+export function skippedGates(planned: readonly string[], resultNames: readonly string[]): string[] {
+  const left = new Map<string, number>();
+  for (const n of resultNames) left.set(n, (left.get(n) ?? 0) + 1);
+  return planned.filter((g) => {
+    const n = left.get(g) ?? 0;
+    if (n === 0) return true;
+    left.set(g, n - 1);
+    return false;
+  });
+}
+
 /** Mark the running run `taken-over`; null when none runs. Failed = non-zero results, skipped = planned gates with no result. */
 export function takeOverDeliverRun(store: Store, ticketId: number, now: string): TakeOver | null {
   const run = currentDeliverRun(store, ticketId);
   if (run === null || run.state !== 'running') return null;
   const results = listDeliverResults(store, ticketId).filter((r) => r.runId === run.id);
   store.db.prepare("UPDATE deliver_runs SET state = 'taken-over', current_gate = NULL, ended_at = ? WHERE id = ?").run(now, run.id);
-  const done = new Set(results.map((r) => r.gateName));
   return {
     failed: results.filter((r) => r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName),
-    skipped: run.gates.filter((g) => !done.has(g)),
+    skipped: skippedGates(run.gates, results.map((r) => r.gateName)),
   };
 }
 
