@@ -73,7 +73,7 @@
   overflow-wrap:anywhere;white-space:normal;min-width:0;min-width:0}
 #inside .graph-node-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
   overflow-wrap:anywhere;white-space:normal;min-width:0;min-width:0}
-#inside .graph-node-detail{display:flex;align-items:center;gap:var(--p-s2);min-width:0;
+#inside .graph-node-detail{display:flex;flex-wrap:wrap;align-items:center;gap:var(--p-s2);min-width:0;
   overflow-wrap:anywhere;white-space:normal;min-width:0;font-size:var(--p-sm);line-height:18px}
 /* The control's own column: never shrinks, never wraps its label, always
    stays inside the bordered box at the row's right end. Local geometry

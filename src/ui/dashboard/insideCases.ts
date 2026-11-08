@@ -1,6 +1,6 @@
 import type { DashboardState } from './state.js';
 import type { AutofixRowView } from '../../model/inside/autofix.js';
-import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { GraphNodeListRow, InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
 import { populatedStateFor, renderFixtures, shipPreviewStateFor } from './renderFixtures.js';
@@ -215,6 +215,78 @@ const parkPatch = (blocked: NonNullable<DashboardState['currentStage']>['blocked
   currentStage: s.currentStage ? { ...s.currentStage, blocked } : s.currentStage,
 });
 
+
+// ------------------------------------------------- long-text and menu cases (T1039)
+
+const LONG_WORDS = 'overlong-repository-identifier-without-any-break-opportunity-' + 'x'.repeat(40);
+const LONG_SENTENCE =
+  'The resolver applied the override before the base ref was known, so the picker showed a stale branch for every repository in the ticket';
+const LONG_KEYS = new Set(['repo', 'repoDisplay', 'summary', 'message', 'detail', 'note', 'title', 'reason', 'label']);
+
+/** Deep copy of a view where every long-text key carries a long unbroken string, so a clipped cell shows. */
+function lengthen<T>(value: T, key = ''): T {
+  if (typeof value === 'string') return (LONG_KEYS.has(key) && value ? `${value} ${key === 'repo' || key === 'repoDisplay' ? LONG_WORDS : LONG_SENTENCE}` : value) as T;
+  if (Array.isArray(value)) return value.map((v) => lengthen(v, key)) as unknown as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, lengthen(v, k)])) as T;
+  }
+  return value;
+}
+
+const longViewPatch = (stage: InsideStageKey) => (s: DashboardState): DashboardState => ({
+  ...s,
+  insideViews: { ...s.insideViews, [stage]: lengthen(s.insideViews[stage]) },
+});
+
+/** The stage menu offers actions: Retry only, or Retry plus Send back (UI brief states). */
+const menuPatch = (sendBack: boolean) => (s: DashboardState): DashboardState => ({
+  ...s,
+  rerunGate: { available: true, stage: 'review' } as DashboardState['rerunGate'],
+  sendBack: sendBack ? ({ available: true, stage: 'review' } as DashboardState['sendBack']) : s.sendBack,
+});
+
+/** HAND-WRITTEN: twelve round tabs and a long caption (the model caps real attempts lower); the round row must wrap, not clip. */
+const manyRoundsPatch = (count: number, note: string) => (s: DashboardState): DashboardState => {
+  const view = s.insideViews.review;
+  const base = view.attempts?.[0];
+  if (!base) throw new Error('insideCases: no review attempt to repeat');
+  const attempts = Array.from({ length: count }, (_, i) => ({ ...base, key: `sr:${i + 1}` as typeof base.key, label: `R${i + 1}`, round: i + 1, latest: i === count - 1 }));
+  return {
+    ...s,
+    insideViews: { ...s.insideViews, review: { ...view, attempts, selectedAttempt: attempts[count - 1]!.key, attemptNote: note } },
+  };
+};
+
+const LONG_GATE = caseGate({ id: 1, stageKey: 'review', gateName: `test (${LONG_WORDS})`, exitCode: 1, summary: LONG_SENTENCE });
+const LONG_FINDING = caseFinding({ id: 1, severity: 'high', title: `${LONG_SENTENCE} ${LONG_WORDS}`, processRunId: 21 });
+
+/** HAND-WRITTEN: one graph node whose reason, identity and outcome are long, with its age and visit facts beside them. */
+const longGraphNodePatch = (s: DashboardState): DashboardState => {
+  const view = s.insideViews.impl;
+  const node = {
+    entry: 'node' as const,
+    nodeRunId: 7,
+    nodeId: `worker-${LONG_WORDS}`,
+    nodeKind: 'worker',
+    status: 'blocked',
+    displayStatus: 'fail' as const,
+    identity: `claude · claude-opus-4-1 · high · ${LONG_WORDS}`,
+    visit: 'visit 3/40',
+    age: 'ran 3m',
+    outcome: LONG_SENTENCE,
+    reason: `${LONG_SENTENCE} ${LONG_WORDS}`,
+  } as unknown as GraphNodeListRow;
+  const graph: InsideProcessView = {
+    id: 'graph',
+    kind: 'graph',
+    label: 'Implementation graph',
+    status: 'fail',
+    evidence: { kind: 'rows', rows: [], nodes: [node] },
+  } as InsideProcessView;
+  const processes = [...view.processes, graph];
+  return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } };
+};
+
 // ------------------------------------------------------------------- registry
 
 export const INSIDE_CASES: readonly InsideCase[] = [
@@ -247,6 +319,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       },
     })),
   },
+  { stage: 'impl', id: 'graph-long-reason', skipLayout: true, state: legacy('impl', (s) => longGraphNodePatch(s)) },
   { stage: 'impl', id: 'passed', state: fromFacts('impl', { cells: { impl: { status: 'passed' } } }) },
 
   // uat
@@ -385,6 +458,30 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       findingsRepoSelection: { review: CASE_WEB },
     }),
   },
+  {
+    stage: 'review',
+    id: 'menu-retry-only', skipLayout: true,
+    state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, menuPatch(false)),
+  },
+  {
+    stage: 'review',
+    id: 'menu-retry-send-back', skipLayout: true,
+    state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, menuPatch(true)),
+  },
+  { stage: 'review', id: 'rounds-12', skipLayout: true, state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s · no fix attempts left')) },
+  { stage: 'review', id: 'long-attempt-note', skipLayout: true, state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(2, `${LONG_SENTENCE} ${LONG_WORDS}`)) },
+  {
+    stage: 'review',
+    id: 'long-gate-detail', skipLayout: true,
+    state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, longViewPatch('review')),
+  },
+  {
+    stage: 'review',
+    id: 'long-finding-title', skipLayout: true,
+    state: fromFacts('review', { cells: { review: { status: 'failed' } }, processRuns: [reviewRun({ resultKind: 'findings' })], findings: [LONG_FINDING] }),
+  },
+  { stage: 'ship', id: 'long-repo-names', skipLayout: true, state: legacy('ship', (s) => longViewPatch('ship')(s)) },
+  { stage: 'done', id: 'long-text', skipLayout: true, state: legacy('done', (s) => longViewPatch('done')(s)) },
   { stage: 'review', id: 'fix-running', state: fromFacts('review', loopFacts('review', 'live')) },
   { stage: 'review', id: 'passed-round-2', state: fromFacts('review', loopFacts('review', 'passed')) },
   {
