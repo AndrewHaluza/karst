@@ -516,6 +516,49 @@ ${onSkip === null ? '' : `    onSkip: ${onSkip}\n`}`;
     });
   });
 
+  describe('uat.testerObservations.requireEvidence', () => {
+    const read = (block: string | null) => {
+      const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  testerObservations:
+    blockingSeverity: none
+${block === null ? '' : block}`;
+      const { path, cleanup } = fixture(yaml);
+      try {
+        return loadManifest(path).uat?.testerObservations;
+      } finally {
+        cleanup();
+      }
+    };
+    const ok = `    requireEvidence:
+      file: '.karst/uat-scratch/out/**/summary.json'
+      whenChanged: ['src/ui/**', 'src/extension.ts']
+`;
+
+    it('reads a valid rule', () => {
+      expect(read(ok)?.requireEvidence).toEqual({
+        file: '.karst/uat-scratch/out/**/summary.json',
+        whenChanged: ['src/ui/**', 'src/extension.ts'],
+      });
+    });
+    it('keeps onSkip beside it', () => {
+      expect(read(`    onSkip: reask\n${ok}`)).toMatchObject({ onSkip: 'reask', requireEvidence: { file: expect.any(String) } });
+    });
+    it('is absent when omitted', () => {
+      expect(read(null)?.requireEvidence).toBeUndefined();
+    });
+    it.each([
+      ['a non-mapping', '    requireEvidence: yes\n', 'requireEvidence must be a mapping'],
+      ['a missing file', "    requireEvidence:\n      whenChanged: ['a/**']\n", 'requireEvidence.file must be a non-empty string'],
+      ['an absolute file', "    requireEvidence:\n      file: /x/summary.json\n      whenChanged: ['a/**']\n", 'requireEvidence.file must be a repo-relative glob'],
+      ['an empty whenChanged', "    requireEvidence:\n      file: a.json\n      whenChanged: []\n", 'requireEvidence.whenChanged must be a non-empty list'],
+      ['a parent segment', "    requireEvidence:\n      file: a.json\n      whenChanged: ['../x']\n", 'whenChanged[0] must be a repo-relative glob'],
+    ])('rejects %s', (_n, block, message) => {
+      expect(() => read(block)).toThrow(message);
+    });
+  });
+
   it('defaults uat.testerObservations.blockingSeverity to none', () => {
     const yaml = `${VALID}
 uat:

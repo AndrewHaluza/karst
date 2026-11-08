@@ -121,6 +121,8 @@ END_DOC_BLOCK: [@arch:LEGACY]
 ## [@arch:BLOCKSEV] `uat.testerObservations.blockingSeverity` is a manifest knob only
 
 `UatConfig.testerObservations?.blockingSeverity` (`Severity | 'none'`, validated in `manifest/validate/uat.ts` against the same closed vocabulary as `review.findings.blockingSeverity`) is the ONE knob a project can set to opt a Tester observation's severity into blocking UAT's verdict. It is a manifest knob only — no Settings field. It is LIVE: `stages/uat.ts` threads it into `runUatTester` and turns a nonzero blocking count into a failed UAT verdict with a Tester-attributed recovery round (see `docs/arch/stages-and-gates.md`, "UAT Tester observations are advisory BY DEFAULT"). An absent `uat:` key, an absent `testerObservations:` key, and an absent `blockingSeverity:` all read as `'none'`, so every existing manifest and every manifest that omits the block keeps today's advisory-only Tester behavior byte-identically. Every read coalesces to `'none'`: the loader leaves the block undefined when absent but materializes `{ blockingSeverity: 'none' }` when it is present-but-empty.
+
+`uat.testerObservations.requireEvidence: {file, whenChanged}` (both repo-relative globs, no leading `/`, no `..`; `whenChanged` non-empty) is an opt-in sibling, validated in `manifest/validate/uat.ts`. Absent means no check, so other repos do not change. It is yml-set; the Quality section shows it as read-only text beside `onSkip` and keeps it when `onSkip` is edited. Behavior: `arch:UAT-OBS-RUNS` in `stages-and-gates.md`.
 END_DOC_BLOCK: [@arch:BLOCKSEV]
 
 ## [@arch:TESTER-BUDGET] `uat.tester.tokenBudget` is a manifest knob only

@@ -60,6 +60,8 @@ import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
+import { checkProbeEvidence, evidenceReaskPrefix, type EvidenceFs } from './testerEvidence.js';
+import type { UatTesterRequireEvidence } from '../../manifest/types.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 
@@ -304,8 +306,16 @@ export interface RunUatTesterOpts {
    * what a second skip means (pass, or park).
    */
   onSkip?: OnSkip;
+  /**
+   * `uat.testerObservations.requireEvidence`. Absent → no check. Present → a
+   * target whose ticket diff matches `whenChanged` and that left no `file` newer
+   * than the run start observed nothing, whatever it reported (arch:UAT-OBS-RUNS).
+   */
+  requireEvidence?: UatTesterRequireEvidence;
   /** Internal: repo → the coverage title to quote in the one re-ask prefix. */
   reaskTitles?: Readonly<Record<string, string>>;
+  /** Internal: repo → the missing-evidence detail to name in the one re-ask prefix. */
+  reaskEvidence?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -692,6 +702,8 @@ export function testerPartialDetail(
 export interface TesterDeps {
   /** Injected clock, so tests are deterministic. */
   now?: () => string;
+  /** Injected file system for the evidence check; absent → the real worktree. */
+  evidenceFs?: EvidenceFs;
 }
 
 /**
@@ -859,17 +871,28 @@ export async function runUatTester(
   // A skipped run means EVERY target observed nothing, so every target is re-asked
   // — exactly once; the second run's result replaces the first's.
   opts.debug?.(`[gate] uat tester ticket ${opts.ticketId}: observed nothing — re-asking once`);
-  return (await runTesterOnce(store, { ...opts, reaskTitles: first.skippedTitles }, deps)).result;
+  return (
+    await runTesterOnce(
+      store,
+      { ...opts, reaskTitles: first.skippedTitles, reaskEvidence: first.evidenceMissing },
+      deps,
+    )
+  ).result;
 }
 
 async function runTesterOnce(
   store: Store,
   opts: RunUatTesterOpts,
   deps: TesterDeps,
-): Promise<{ result: TesterRunResult; skippedTitles: Record<string, string> }> {
+): Promise<{
+  result: TesterRunResult;
+  skippedTitles: Record<string, string>;
+  evidenceMissing: Record<string, string>;
+}> {
   const skippedTitles: Record<string, string> = {};
-  const result = await runTesterBody(store, opts, deps, skippedTitles);
-  return { result, skippedTitles };
+  const evidenceMissing: Record<string, string> = {};
+  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing);
+  return { result, skippedTitles, evidenceMissing };
 }
 
 async function runTesterBody(
@@ -877,9 +900,11 @@ async function runTesterBody(
   opts: RunUatTesterOpts,
   deps: TesterDeps,
   skippedTitles: Record<string, string>,
+  evidenceMissing: Record<string, string>,
 ): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
   const coreHint = testerCoreHint(opts.assignment.provider);
+  const startedAt = now();
   const run = openProcessRun(store, {
     ticketId: opts.ticketId,
     stageKey: 'uat',
@@ -890,7 +915,7 @@ async function runTesterBody(
     provider: opts.assignment.provider,
     model: opts.assignment.model ?? null,
     pid: process.pid,
-    startedAt: now(),
+    startedAt,
     promptTelemetry: coreHint ? { coreHint } : null,
   });
   const close = (
@@ -1050,7 +1075,12 @@ async function runTesterBody(
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
-      const prompt = reaskTitle === undefined ? basePrompt : `${reaskPrefix(reaskTitle)}\n\n${basePrompt}`;
+      const reaskMissing = opts.reaskEvidence?.[target.repo];
+      const prefixes = [
+        ...(reaskTitle === undefined ? [] : [reaskPrefix(reaskTitle)]),
+        ...(reaskMissing === undefined ? [] : [evidenceReaskPrefix(reaskMissing)]),
+      ];
+      const prompt = prefixes.length === 0 ? basePrompt : `${prefixes.join('\n\n')}\n\n${basePrompt}`;
       // Prompt 09: when the core declares native structured output support, ask
       // its CLI to ENFORCE the observation array shape (claude `--json-schema`,
       // codex `--output-schema`) instead of relying on the prose output rules
@@ -1240,6 +1270,21 @@ async function runTesterBody(
       if (keptCoverage && observedNothing(keptCoverage.title, keptRest.length) && !stopped) {
         skippedTitles[target.repo] = keptCoverage.title;
       }
+      if (!stopped && !partial && opts.requireEvidence !== undefined && opts.git) {
+        const evidence = await checkProbeEvidence({
+          rule: opts.requireEvidence,
+          worktreePath: target.worktreePath,
+          baseRef: target.baseRef,
+          branch: target.branch,
+          startedAtMs: Date.parse(startedAt),
+          git: opts.git,
+          ...(deps.evidenceFs ? { fs: deps.evidenceFs } : {}),
+        });
+        if (evidence.kind === 'missing') evidenceMissing[target.repo] = evidence.detail;
+        if (evidence.kind === 'present' && evidence.detail) {
+          debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
+        }
+      }
       const parsed = keptRest.map((f) => ({
         severity: f.severity,
         repo: f.repo,
@@ -1341,9 +1386,19 @@ async function runTesterBody(
     }
     const skippedRepos = Object.keys(skippedTitles);
     const askedRepos = targetOutcomes.length;
-    if (askedRepos > 0 && skippedRepos.length === askedRepos && observations.length === 0) {
-      const firstTitle = skippedTitles[skippedRepos[0]!]!;
-      const detail = skippedDetail({ repo: skippedRepos[0]!, title: firstTitle }, askedRepos);
+    const missingRepos = Object.keys(evidenceMissing);
+    const nothingRepos = new Set([...skippedRepos, ...missingRepos]);
+    // A target with no evidence observed nothing even when it reported findings;
+    // a coverage skip observed nothing only when it kept no observation.
+    const allNothing = askedRepos > 0 && nothingRepos.size === askedRepos;
+    if (allNothing && (observations.length === 0 || missingRepos.length === askedRepos)) {
+      const firstMissing = missingRepos[0];
+      const detail =
+        firstMissing !== undefined
+          ? askedRepos > 1
+            ? `${firstMissing}: ${evidenceMissing[firstMissing]!}`
+            : evidenceMissing[firstMissing]!
+          : skippedDetail({ repo: skippedRepos[0]!, title: skippedTitles[skippedRepos[0]!]! }, askedRepos);
       close('passed', 'skipped');
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — skipped (${detail})`);
       return { kind: 'skipped', findingIds, detail };

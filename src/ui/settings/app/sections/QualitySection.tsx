@@ -100,6 +100,7 @@ export function QualitySection() {
   const stallProblems = stallErrors(stall, review.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS);
   const testerEnabled = uat.testerObservations !== undefined;
   const testerOnSkip: TesterOnSkip = uat.testerObservations?.onSkip ?? UAT_TESTER_ON_SKIP;
+  const requireEvidence = uat.testerObservations?.requireEvidence;
   const testerSeverity =
     uat.testerObservations?.blockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
 
@@ -198,6 +199,7 @@ export function QualitySection() {
                       edit((current) =>
                         updateUat(current, {
                           testerObservations: {
+                            ...uat.testerObservations,
                             blockingSeverity: testerSeverity,
                             onSkip: value as TesterOnSkip,
                           },
@@ -205,6 +207,20 @@ export function QualitySection() {
                       ),
                   }}
                 />
+                {requireEvidence !== undefined ? (
+                  <Field
+                    label="Required probe evidence"
+                    help="Read-only. Set in karst.yml: uat.testerObservations.requireEvidence."
+                    control={{
+                      kind: 'input',
+                      name: 'uatTesterRequireEvidence',
+                      type: 'text',
+                      readOnly: true,
+                      value: `${requireEvidence.file} when ${requireEvidence.whenChanged.join(', ')} changed`,
+                      onChange: () => undefined,
+                    }}
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>
