@@ -377,7 +377,7 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
     clearParkBlock(d.store, d.ticketId);
     d.note(`Autopilot: ${r.kind} round ${r.used}/${r.max}`, `${d.key}: ran ${r.action} for ${r.repo} (round ${r.used}/${r.max}).`);
     d.debug(`${LOG} ticket ${d.key} ${r.kind} round ${r.used}/${r.max} armed for ${r.repo}`);
-    lastRound.set(flightKeyOf(d), { kind: r.kind, repo: r.repo, refundAll: r.refundAll });
+    lastRound.set(flightKeyOf(d), { kind: r.kind, repo: r.repo, refundAll: r.refundAll, sentAt: Date.now() });
     return { kind: 'armed', problem: r.kind, used: r.used, max: r.max };
   }
   // A failed action reached no agent: it costs no attempt and is not retried. A failed conflict round must not stay armed:
@@ -408,7 +408,10 @@ function pauseLeftShip(d: AutopilotDeps, r: Pick<Settle, 'kind' | 'repo'>, reaso
 }
 
 /** The round the engine sent last, per ticket: what a session that dies right after launch must undo. */
-const lastRound = new Map<string, { readonly kind: AutopilotKind; readonly repo: string; readonly refundAll: () => void }>();
+const lastRound = new Map<string, { readonly kind: AutopilotKind; readonly repo: string; readonly refundAll: () => void; readonly sentAt: number }>();
+
+/** A session that dies "right after launch" does so inside this window; a later launch failure is not this round's. */
+export const ROUND_LAUNCH_DEATH_WINDOW_MS = 2 * 60_000;
 
 /**
  * A session that died right after launch (reported later by the launch-failure path, not by the hand-off): the round did
@@ -420,6 +423,10 @@ export function roundDied(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 
   const r = lastRound.get(key);
   if (!r) return null;
   lastRound.delete(key);
+  if (Date.now() - r.sentAt > ROUND_LAUNCH_DEATH_WINDOW_MS) {
+    d.debug(`${LOG} ticket ${d.key} launch failure ignored: the ${r.kind} round was sent more than ${ROUND_LAUNCH_DEATH_WINDOW_MS / 1000}s ago`);
+    return null;
+  }
   r.refundAll();
   if (r.kind === 'conflicts') { d.dropConflictRound(); clearConflictRound(d.store, d.ticketId); }
   const reason = `auto-fix paused: ${r.kind} session died after launch (${detail})`;

@@ -7,7 +7,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { clearConflictRound, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
-import { allChecksAllowed, approveOneMore, autopilotTick, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { allChecksAllowed, approveOneMore, autopilotTick, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -387,6 +387,21 @@ describe('a session that dies right after launch (roundDied)', () => {
     roundDied(deps(r), 'boom');
     expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix paused: ci session died after launch (boom)');
     expect(r.notes.at(-1)![0]).toBe('Autopilot: auto-fix paused: ci session died after launch (boom)');
+  });
+
+  it('ignores a launch failure that comes after the launch window: the round was healthy', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => 'sandbox', sandboxPreflight: async () => null });
+    const now = vi.spyOn(Date, 'now');
+    try {
+      expect((await autopilotTick(r.deps)).kind).toBe('armed');
+      now.mockReturnValue(Date.now() + ROUND_LAUNCH_DEATH_WINDOW_MS + 1);
+      expect(roundDied(deps(r), 'a later relaunch failed')).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
   });
 
   it('does nothing when no round was sent for the ticket, or when it was already undone', async () => {
