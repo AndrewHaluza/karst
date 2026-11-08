@@ -147,6 +147,8 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const config = await deps.store.load();
     const acct = config[core]?.list[name];
     // A folder or alias account that already has settings: offer, but check nothing.
+    // An account with no folder has nowhere to copy into: offer nothing.
+    if (acct && !acct.dir) return [];
     const preChecked = !acct || acct.source === 'managed';
     return SEED_ITEMS[core].map((i) => ({ ...i, checked: preChecked && i.checked }));
   }
@@ -155,6 +157,8 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const config = await deps.store.load();
     const target = findAccount(config, core, to);
     if (!target) throw new Error("Copy needs a stored target account, not 'default'.");
+    // A command account with no folder has dir '': it would resolve to the process cwd.
+    if (!target.dir) throw new Error(`The ${core} account '${to}' has no folder to copy into.`);
     return copyAccountSeed({ core, fromDir: deps.defaultDir(core), toDir: target.dir, items, overwrite, home: deps.home });
   }
 

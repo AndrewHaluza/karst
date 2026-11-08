@@ -53,6 +53,10 @@ export function AccountsTab({ route }: AccountsTabProps) {
   const stillThere = deleting !== null
     && cores?.find((c) => c.core === deleting.core)?.rows.some((r) => r.name === deleting.row.name) === true;
   const confirm = stillThere ? deleting : null;
+  // Forget the request once its account is gone, so adding the same name again does not reopen it.
+  useEffect(() => {
+    if (deleting !== null && cores !== null && !stillThere) setDeleting(null);
+  }, [deleting, cores, stillThere]);
   const deleteError = confirm !== null && last !== null && last.seq > confirm.openedSeq
     && last.message.type === 'accounts-error' && last.message.op === 'accounts-delete'
     ? last.message.message

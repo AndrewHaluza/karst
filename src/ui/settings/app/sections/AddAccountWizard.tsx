@@ -4,6 +4,7 @@
  * alias parse); the wizard only holds what the user typed. Nothing here is part
  * of the manifest Save: each step applies at once.
  */
+import { parseAliasInput } from '../../aliasInput.js';
 import { useEffect, useRef, useState } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
@@ -141,8 +142,13 @@ export function AddAccountWizard({ core, onClose }: AddAccountWizardProps) {
                 help="Karst reads the alias from your shell and fills command, folder and environment. No new login is needed."
               />
               <Button variant="secondary" size="sm" disabled={alias === ''} onClick={() => {
+                const parsed = parseAliasInput(alias);
+                if (parsed === null) {
+                  setAliasReason('Karst found no alias name in that text. Type the alias name, or paste the whole alias line.');
+                  return;
+                }
                 setAliasReason(null);
-                send.accounts({ type: 'accounts-import-alias', core, alias });
+                send.accounts({ type: 'accounts-import-alias', core, ...parsed });
               }}>Import alias</Button>
               {aliasReason !== null ? <p className="accounts-error">{aliasReason} Fill the fields below by hand instead.</p> : null}
             </div>

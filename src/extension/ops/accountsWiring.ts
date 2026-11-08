@@ -17,6 +17,7 @@ import { configureAccounts, configureRecordedAccountLookup, configureSessionLedg
 import { appendSessionLedger, loadSessionLedger, SESSION_LEDGER_FILE } from '../../agent/accounts/sessionLedgerStore.js';
 import { opencode2Config } from '../../agent/opencode2Binary.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
+import { createFileSignedInProbe } from '../../agent/accounts/signedInProbe.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
 
 const ALIAS_LOOKUP_TIMEOUT_MS = 3000;
@@ -135,7 +136,7 @@ export async function wireAccounts(input: {
     liveAccounts: async (core) => [...new Set([...liveAccountNames(input.store, core), ...liveHeadlessAccounts(core)])],
     binaryResolves,
     lookupAlias,
-    signedIn: async () => undefined,
+    signedIn: createFileSignedInProbe(home, (core) => DEFAULT_DIRS[core](home)),
     ...(input.debug ? { debug: input.debug } : {}),
   });
   // Another window may change accounts.json: re-publish so this window does not

@@ -146,6 +146,38 @@ describe('Accounts tab', () => {
     expect(within(wizard).getByText(/config is already shared/i)).toBeTruthy();
   });
 
+  it('sends pasted alias text with the alias name found in it', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    fireEvent.change(within(wizardOf()).getByLabelText(/source/i), { target: { value: 'command' } });
+    const imp = document.querySelector('[data-region="accounts-alias-import"]') as HTMLElement;
+    const text = "alias cw='CLAUDE_CONFIG_DIR=$HOME/.cw claude'";
+    fireEvent.change(within(imp).getByLabelText(/alias/i), { target: { value: text } });
+    fireEvent.click(within(imp).getByRole('button', { name: /import alias/i }));
+    expect(bridge.last('accounts-import-alias')).toMatchObject({ core: 'claude', alias: 'cw', text });
+  });
+
+  it('refuses pasted text with no alias name without asking the host', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    fireEvent.change(within(wizardOf()).getByLabelText(/source/i), { target: { value: 'command' } });
+    const imp = document.querySelector('[data-region="accounts-alias-import"]') as HTMLElement;
+    fireEvent.change(within(imp).getByLabelText(/alias/i), { target: { value: 'some words here' } });
+    fireEvent.click(within(imp).getByRole('button', { name: /import alias/i }));
+    expect(bridge.last('accounts-import-alias')).toBeUndefined();
+    expect(within(imp).getByText(/no alias name/i)).toBeTruthy();
+  });
+
+  it('does not reopen a closed delete confirmation when the same name is added again', () => {
+    const { push } = mount();
+    fireEvent.click(screen.getByRole('button', { name: /delete work/i }));
+    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeTruthy();
+    push({ type: 'accounts-state', cores: [CORE('claude', [FOLDER]), CORE('codex'), CORE('opencode')] });
+    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
+    push({ type: 'accounts-state', cores: [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')] });
+    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
+  });
+
   it('imports an alias, shows env keys only, and shows a refusal reason', () => {
     const { bridge, push } = mount();
     fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);

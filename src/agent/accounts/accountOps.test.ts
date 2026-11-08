@@ -142,6 +142,15 @@ describe('account ops', () => {
   });
 });
 
+describe('an account with no folder', () => {
+  it('offers no copy items and refuses a copy, so nothing is written to the cwd', async () => {
+    const { ops } = setup();
+    await ops.createAccount('opencode2', 'c', { source: 'command', command: 'oc2-c' });
+    expect(await ops.seedItems('opencode2', 'c')).toEqual([]);
+    await expect(ops.copyAccountSeed('opencode2', 'c', ['settings'])).rejects.toThrow(/no folder/);
+  });
+});
+
 describe('alias import keeps the arguments', () => {
   it('stores args for a folder account (the alias uses the default binary)', async () => {
     const { ops, store } = setup();
