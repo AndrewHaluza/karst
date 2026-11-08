@@ -7,6 +7,8 @@ import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
+import type { GitRunner } from '../../integrations/git.js';
+import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
 
 const repoWith = (scripts: Record<string, string>) => {
   const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
@@ -186,5 +188,51 @@ describe('runShipGates evidence (T1018)', () => {
     const uat = { gates: [{ name: 'lint', kind: 'script', script: 'lint' }], repositories: {} } as never;
     expect(await runShipGates([pr], { uat, runProcess: byCommand({}), evidence: { store, ticketId } })).toBeNull();
     expect(listDeliverResults(store, ticketId)).toMatchObject([{ gateName: 'lint', exitCode: 0 }]);
+  });
+});
+
+describe('runShipGates UI cut (same rule as UAT)', () => {
+  const uiGates = { gates: [{ name: 'unit', kind: 'script', script: 'test' }, { name: 'visual', kind: 'script', script: 'test:visual:docker' }, { name: 'layout', kind: 'script', script: 'test:layout:docker' }], repositories: {} } as never;
+  const scripts = { test: 'x', 'test:visual:docker': 'x', 'test:layout:docker': 'x' };
+  const names = ['test', 'test:visual:docker', 'test:layout:docker'];
+  const gitDiff = (files: string[], failDiff = false): GitRunner => async (args) => {
+    if (args[0] === 'merge-base') return { exitCode: 0, stdout: 'abc\n', stderr: '' };
+    if (args[0] === 'diff') return failDiff ? { exitCode: 128, stdout: '', stderr: 'bad' } : { exitCode: 0, stdout: files.join('\0') + '\0', stderr: '' };
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const run = async (git: GitRunner) => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (_cmd, args) => { ran.push(args.find((a) => names.includes(a)) ?? '?'); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const pr = repoWith(scripts);
+    const out = await runShipGates([pr], { uat: uiGates, runProcess, git, gateEnv: () => ({ prBody: '', baseRef: 'develop' }), evidence: { store, ticketId } });
+    return { out, ran, store, ticketId };
+  };
+
+  it('runs no visual/layout gate and records both as skipped when the diff has no UI path', async () => {
+    const { out, ran, store, ticketId } = await run(gitDiff(['src/store/a.ts']));
+    expect(out).toBeNull();
+    expect(ran).toEqual(['test']);
+    expect(currentDeliverRun(store, ticketId)?.gates).toEqual(['unit', 'visual', 'layout']);
+    const rows = listDeliverResults(store, ticketId);
+    expect(rows.map((r) => [r.gateName, r.exitCode])).toEqual([['visual', null], ['layout', null], ['unit', 0]]);
+    expect(rows[0]!.summary).toBe(NO_UI_CHANGE_REASON);
+    expect(rows[1]!.summary).toBe(NO_UI_CHANGE_REASON);
+  });
+  it('runs the UI gates when the diff has a UI path', async () => {
+    const { ran } = await run(gitDiff(['src/ui/a.tsx']));
+    expect(ran).toEqual(names);
+  });
+  it('runs the UI gates when the diff is unreadable', async () => {
+    const { ran } = await run(gitDiff([], true));
+    expect(ran).toEqual(names);
+  });
+  it('runs the UI gates when no base ref is known', async () => {
+    const pr = repoWith(scripts);
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (_cmd, args) => { ran.push(args.find((a) => names.includes(a)) ?? '?'); return { kind: 'completed', exitCode: 0, output: '' }; };
+    await runShipGates([pr], { uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']) });
+    expect(ran).toEqual(names);
   });
 });
