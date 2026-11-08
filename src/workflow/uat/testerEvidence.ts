@@ -106,14 +106,16 @@ async function changedPaths(input: EvidenceCheckInput): Promise<string[] | null>
   return null;
 }
 
-/** A summary whose FIRST step did not pass: the harness failed, the run still produced evidence. */
-function firstStepFailed(text: string): boolean {
+type FirstStep = 'passed' | 'failed' | 'unreadable';
+
+/** The state of a summary's FIRST step: a failed harness still produced evidence, an unreadable file is said so. */
+function firstStepState(text: string): FirstStep {
   try {
     const parsed = JSON.parse(text) as { results?: Array<{ status?: unknown }> };
     const first = parsed.results?.[0]?.status;
-    return first === 'fail' || first === 'timeout';
+    return first === 'fail' || first === 'timeout' ? 'failed' : 'passed';
   } catch {
-    return false;
+    return 'unreadable';
   }
 }
 
@@ -145,15 +147,19 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
     };
   }
   const newest = fresh.reduce((a, b) => (b.mtimeMs > a.mtimeMs ? b : a));
-  let failed = false;
+  let state: FirstStep;
   try {
-    failed = firstStepFailed(await fs.read(join(input.worktreePath, newest.rel)));
+    state = firstStepState(await fs.read(join(input.worktreePath, newest.rel)));
   } catch {
-    failed = false;
+    state = 'unreadable';
   }
-  return failed
-    ? { kind: 'present', detail: `probe evidence found (${newest.rel}); its first step reports a harness failure, so the run still counts as evidence` }
-    : { kind: 'present' };
+  if (state === 'failed') {
+    return { kind: 'present', detail: `probe evidence found (${newest.rel}); its first step reports a harness failure, so the run still counts as evidence` };
+  }
+  if (state === 'unreadable') {
+    return { kind: 'present', detail: `probe evidence found (${newest.rel}); the summary could not be read, so its first step is unknown and the run still counts as evidence` };
+  }
+  return { kind: 'present' };
 }
 
 /** The text prepended to the Tester prompt on the one re-ask after a missing-evidence skip. */

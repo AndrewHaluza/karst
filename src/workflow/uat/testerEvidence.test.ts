@@ -26,9 +26,11 @@ const gitDiff = (paths: string[]): GitRunner => async (args) =>
     ? { exitCode: 0, stdout: paths.join('\n'), stderr: '' }
     : { exitCode: 1, stdout: '', stderr: '' };
 
+const PASSING_SUMMARY = JSON.stringify({ total: 1, ran: 1, results: [{ status: 'pass' }] });
+
 const fakeFs = (files: Record<string, { mtimeMs: number; body?: string }>): EvidenceFs => ({
   list: async () => Object.entries(files).map(([rel, f]) => ({ rel, mtimeMs: f.mtimeMs })),
-  read: async (path) => files[path.slice(path.indexOf('.karst'))]?.body ?? '',
+  read: async (path) => files[path.slice(path.indexOf('.karst'))]?.body ?? PASSING_SUMMARY,
 });
 
 const input = (over: Partial<Parameters<typeof checkProbeEvidence>[0]>) => ({
@@ -72,9 +74,17 @@ describe('checkProbeEvidence', () => {
     expect(res.kind).toBe('present');
     expect((res as { detail: string }).detail).toContain('harness failure');
   });
-  it('an unreadable summary still counts as evidence', async () => {
+  it('an unreadable summary still counts as evidence, and the detail says so', async () => {
     const res = await checkProbeEvidence(input({ fs: fakeFs({ [SUMMARY]: { mtimeMs: START + 1, body: '{not json' } }) }));
-    expect(res).toEqual({ kind: 'present' });
+    expect(res.kind).toBe('present');
+    expect((res as { detail: string }).detail).toContain('could not be read');
+  });
+  it('a summary the file system cannot read still counts as evidence, and the detail says so', async () => {
+    const base = fakeFs({ [SUMMARY]: { mtimeMs: START + 1 } });
+    const fs: EvidenceFs = { list: base.list, read: async () => { throw new Error('EACCES'); } };
+    const res = await checkProbeEvidence(input({ fs }));
+    expect(res.kind).toBe('present');
+    expect((res as { detail: string }).detail).toContain('could not be read');
   });
   it('a file system error means unverifiable, never a throw', async () => {
     const fs: EvidenceFs = { list: async () => { throw new Error('EACCES'); }, read: async () => '' };
