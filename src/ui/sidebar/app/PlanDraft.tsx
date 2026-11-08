@@ -9,7 +9,6 @@ import type { PlanningProposalRow } from '../state.js';
 import { ActButton } from './action.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketRefChip } from '../../shared/TicketRefChip.js';
-import { GLYPH_WORD } from './format.js';
 import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
 import { acceptedTicketId, draftActions, type PlanAction } from './planModel.js';
@@ -35,9 +34,9 @@ export function PlanControl({ action }: { readonly action: PlanAction }) {
 }
 
 function Deps({ draft }: { readonly draft: PlanningProposalRow }) {
+  const { fire } = useSidebar();
   const deps = draft.dependsOnStatus || [];
   if (!deps.length) return null;
-  const { fire } = useSidebar();
   return (
     <div className="pt-deps-row">
       <span>needs</span>
