@@ -87,6 +87,11 @@ export interface DashboardAgentContext {
    * Plain data (no functions) suitable for serialization via postMessage.
    */
   capabilityIdentity?: Record<PresetCapability, CapabilityIdentity | null>;
+  /**
+   * Cores the host knows cannot run now, with the reason the picker shows as the
+   * sub-label (e.g. "not installed"). Plain data; a core absent here is offered.
+   */
+  unavailableCores?: Partial<Record<AgentProvider, string>>;
 }
 
 /**
@@ -249,7 +254,7 @@ export interface DashboardState {
    * switch popover's inherit rows.
    */
   agentSwitch: {
-    cores: { id: AgentProvider; label: string }[];
+    cores: { id: AgentProvider; label: string; disabledReason?: string }[];
     models: Record<string, { model: string | null; label: string }[]>;
     modelsByCore: ModelCatalog;
     recentByCore: Record<string, string[]>;

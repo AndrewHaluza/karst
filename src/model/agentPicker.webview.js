@@ -205,22 +205,112 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
   return out;
 }
 
-/** One model row: name + variant, capability chips, free tag, saved tag. */
-function apModelItemHtml(m, saved, tags, routes) {
+/** The capability filters, in display order; `free` reads the model id's free flag. */
+var AP_CAPS = [
+  ['all', 'All'], ['vision', 'Vision'], ['multimodal', 'Multimodal'],
+  ['audio', 'Audio'], ['text-only', 'Text-only'], ['free', 'Free'],
+];
+
+/** Display label of a capability id. */
+function apCapLabel(cap) {
+  for (var i = 0; i < AP_CAPS.length; i++) if (AP_CAPS[i][0] === cap) return AP_CAPS[i][1];
+  return cap;
+}
+
+/** True when a catalog model passes a capability filter ('all' passes everything). */
+function apHasCap(m, cap) {
+  if (!cap || cap === 'all') return true;
+  if (cap === 'free') return apParseModelId(m.id, m.label).free;
+  return !!(m.tags && m.tags.indexOf(cap) >= 0);
+}
+
+/** Does a catalog model match a lowercased query (name, id, vendor, route id/name)? */
+function apMatchesQuery(m, routes, q) {
+  if (!q) return true;
+  return apFilterModels([m], routes, q).length > 0;
+}
+
+/**
+ * The capability tabs of a core's catalog: `All` always, then each capability at
+ * least one model of the core has. The count follows the live search. A zero
+ * count stays in the list (dimmed) so the row of tabs does not jump while typing.
+ */
+function apCapTabs(models, routes, q, cap) {
+  var out = [];
+  for (var i = 0; i < AP_CAPS.length; i++) {
+    var id = AP_CAPS[i][0];
+    var present = id === 'all';
+    var n = 0;
+    for (var j = 0; j < models.length; j++) {
+      if (!apHasCap(models[j], id)) continue;
+      present = true;
+      if (apMatchesQuery(models[j], routes, q)) n++;
+    }
+    if (present) out.push({ id: id, label: AP_CAPS[i][1], count: n, selected: id === cap });
+  }
+  return out;
+}
+
+/** Capability tab buttons (role=tab); a zero-count tab is dimmed and aria-disabled. */
+function apCapTabsHtml(tabs) {
+  var out = '';
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    out += '<button type="button" role="tab" class="ap-cap' + (t.count ? '' : ' ap-cap--zero') + '"'
+      + ' data-ap-cap="' + apEsc(t.id) + '" aria-selected="' + (t.selected ? 'true' : 'false') + '"'
+      + (t.count || t.id === 'all' ? '' : ' aria-disabled="true"')
+      + ' tabindex="' + (t.selected ? '0' : '-1') + '">' + apEsc(t.label)
+      + '<span class="ap-cap-n">' + t.count + '</span></button>';
+  }
+  return out;
+}
+
+/** Escape `text` and wrap the first case-insensitive match of `q` in <mark>. */
+function apHighlight(text, q) {
+  var raw = String(text === null || text === undefined ? '' : text);
+  if (!q) return apEsc(raw);
+  var at = raw.toLowerCase().indexOf(q);
+  if (at < 0) return apEsc(raw);
+  return apEsc(raw.slice(0, at)) + '<mark>' + apEsc(raw.slice(at, at + q.length)) + '</mark>'
+    + apEsc(raw.slice(at + q.length));
+}
+
+/** The "subscription" / "API key" word of a route header; '' when the route declares none. */
+function apBillingLabel(routes, route) {
+  var meta = apRouteMeta(routes, route);
+  if (!meta || !meta.billing) return '';
+  return meta.billing === 'subscription' ? 'subscription' : 'API key';
+}
+
+var AP_CHECK_SVG = '<svg class="ap-ck" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/**
+ * One model row: name + variant, capability chips, free tag, saved tag.
+ * `view` (optional) switches on the staged-panel extras: a check on the staged
+ * row, the `current` tag, search highlight, and the route mark on Last-used rows.
+ */
+function apModelItemHtml(m, saved, tags, routes, view) {
+  var v = view || {};
   var sel = m.id === saved;
   var p = apParseModelId(m.id, m.label);
   var variant = p.variant ? '<span class="ap-variant"> ' + apEsc(p.variant) + '</span>' : '';
   var free = p.free ? '<span class="ap-free">free</span>' : '';
+  var cur = v.currentId && v.currentId === m.id ? '<span class="ap-cur">current</span>' : '';
+  var mark = v.routeMark && p.route ? apRouteIconHtml(p.route, routes) : '';
+  var name = v.q ? apHighlight(apModelName(p, routes), v.q) : apEsc(apModelName(p, routes));
   // The full id lives in the row's title and data attribute (UI-R44) — the old
   // second line repeated the name the user had just read.
-  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
+  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="' + (v.staged ? '-1' : '0') + '"'
     + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '"'
     + ' data-ap-full="' + apEsc(m.id) + '" title="' + apEsc(m.id) + '">'
-    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(apModelName(p, routes)) + variant + '</div>'
+    + (v.staged ? (sel ? AP_CHECK_SVG : '<span class="ap-ck-gap" aria-hidden="true"></span>') : '')
+    + '<div class="ap-model-main"><div class="ap-model-name">' + mark + name + variant + '</div>'
     + apModelTagsHtml(tags)
     + '</div>'
-    + free
-    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
+    + free + cur
+    + (sel && !v.staged ? '<span class="ap-model-tag">saved</span>' : '')
     + '</div>';
 }
 
@@ -251,7 +341,7 @@ function apModelGroups(models) {
  * dropped BEFORE their heading is emitted — a heading with no rows under it is
  * noise, not structure.
  */
-function apModelListHtml(models, saved, routes, skip, tagsOf) {
+function apModelListHtml(models, saved, routes, skip, tagsOf, view) {
   var groups = apModelGroups(models);
   var visible = [];
   for (var gi = 0; gi < groups.length; gi++) {
@@ -278,13 +368,16 @@ function apModelListHtml(models, saved, routes, skip, tagsOf) {
     if (named && group.route) {
       out += '<div class="ap-group-label" role="presentation">'
         + apRouteIconHtml(group.route, routes)
-        + '<span>' + apEsc(apRouteName(routes, group.route)) + '</span></div>';
+        + '<span>' + apEsc(apRouteName(routes, group.route)) + '</span>'
+        + (apBillingLabel(routes, group.route)
+          ? '<span class="ap-billing">' + apBillingLabel(routes, group.route) + '</span>' : '')
+        + '</div>';
     }
     for (var j = 0; j < group.vendors.length; j++) {
       var vg = group.vendors[j];
       if (vg.vendor) out += '<div class="ap-group-sub" role="presentation">' + apEsc(vg.vendor) + '</div>';
       for (var k = 0; k < vg.models.length; k++) {
-        out += apModelItemHtml(vg.models[k], saved, tagsOf ? tagsOf(vg.models[k].id) : undefined, routes);
+        out += apModelItemHtml(vg.models[k], saved, tagsOf ? tagsOf(vg.models[k].id) : undefined, routes, view);
       }
     }
   }
@@ -303,56 +396,65 @@ function apFilterModels(models, routes, q) {
   return out;
 }
 
-/** Model options for the selected core: inherit row (when labeled) then models. */
-function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, routes, query) {
+/**
+ * Model options for the selected core: inherit row (when labeled), the "Last
+ * used" group, then route → vendor groups. `cap` narrows by capability; `view`
+ * carries the staged-panel extras (see apModelItemHtml). With no `cap` and no
+ * `view` the output is the pre-tabs list.
+ */
+function apInheritRowHtml(inheritLabel, saved, show) {
+  if (!inheritLabel || !show) return '';
+  return '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
+    + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
+    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+}
+function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, routes, query, cap, view) {
   var list = (catalog && catalog[provider]) || [];
   var q = String(query === null || query === undefined ? '' : query).trim().toLowerCase();
+  var capId = cap || 'all';
+  var v = view ? Object.assign({}, view, { q: q }) : (q ? { q: q } : undefined);
   var tagsOf = function (id) { return apTags(catalog, provider, id); };
-  if (q) {
-    var hits = apFilterModels(list, routes, q);
-    if (!hits.length) {
-      return list.length
-        ? '<div class="ap-empty">No models match "' + apEsc(query) + '".</div>'
-        : '<div class="ap-empty">No models listed for this core.</div>';
-    }
-    return apModelListHtml(hits, saved, routes, {}, tagsOf);
+  var vis = [];
+  for (var n = 0; n < list.length; n++) {
+    if (apHasCap(list[n], capId) && apMatchesQuery(list[n], routes, q)) vis.push(list[n]);
   }
+  if (!vis.length) {
+    if (!list.length) return apInheritRowHtml(inheritLabel, saved, !q) + '<div class="ap-empty">No models listed for this core.</div>';
+    return '<div class="ap-empty">No models match' + (q ? ' "' + apEsc(query) + '"' : '')
+      + ' in ' + apEsc(apCapLabel(capId)) + '.</div>';
+  }
+  if (q) return apModelListHtml(vis, saved, routes, {}, tagsOf, v);
   var out = '';
-  if (inheritLabel) {
-    out += '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
-      + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
-      + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+  if (inheritLabel && capId === 'all') {
+    out += apInheritRowHtml(inheritLabel, saved, true);
   }
-  if (list.length === 0) {
-    out += '<div class="ap-empty">No models listed for this core.</div>';
-  } else {
-    // The "Last used" group: models the user actually used recently, newest
-    // first, up to 5, rendered BEFORE the full list. Only ids still in the
-    // catalog render — a recent id that left the catalog is not a dead option.
-    // When the recent set already covers the WHOLE catalog, the header is omitted.
-    var recent = [];
-    var recentSet = {};
-    var recentList = recentIds || [];
-    for (var r = 0; r < recentList.length && recent.length < 5; r++) {
-      var rid = recentList[r];
-      if (recentSet[rid]) continue;
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].id === rid) {
-          recent.push(list[i]);
-          recentSet[rid] = true;
-          break;
-        }
+  // The "Last used" group: models the user actually used recently, newest
+  // first, up to 5, rendered BEFORE the full list. Only ids still visible
+  // render — a recent id that left the catalog is not a dead option. When the
+  // recent set already covers every visible model, the header is omitted.
+  var recent = [];
+  var recentSet = {};
+  var recentList = recentIds || [];
+  for (var r = 0; r < recentList.length && recent.length < 5; r++) {
+    var rid = recentList[r];
+    if (recentSet[rid]) continue;
+    for (var i = 0; i < vis.length; i++) {
+      if (vis[i].id === rid) {
+        recent.push(vis[i]);
+        recentSet[rid] = true;
+        break;
       }
     }
-    if (recent.length > 0 && recent.length < list.length) {
-      out += '<div class="ap-group-label" role="presentation">Last used</div>';
-    }
-    for (var k = 0; k < recent.length; k++) {
-      out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id), routes);
-    }
-    out += apModelListHtml(list, saved, routes, recentSet, tagsOf);
   }
-  if (saved && list.length > 0 && !list.some(function (m) { return m.id === saved; })) {
+  if (recent.length > 0 && recent.length < vis.length) {
+    out += '<div class="ap-group-label" role="presentation">Last used</div>';
+  }
+  var recentView = v ? Object.assign({}, v, { routeMark: true }) : { routeMark: true };
+  for (var k = 0; k < recent.length; k++) {
+    out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id), routes, recentView);
+  }
+  out += apModelListHtml(vis, saved, routes, recentSet, tagsOf, v);
+  if (saved && capId === 'all' && !list.some(function (m) { return m.id === saved; })) {
     out += '<div class="ap-group-label" role="presentation">Saved model (unavailable)</div>'
       + '<div class="ap-model-item active" role="option" tabindex="0" data-ap-model="'
       + apEsc(saved) + '" aria-selected="true" data-ap-full="' + apEsc(saved)
@@ -361,7 +463,6 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, r
   }
   return out;
 }
-
 
 /**
  * A clipping trigger label points at its trigger (UI-R44). The describedby exists to satisfy
@@ -381,6 +482,7 @@ function apCoreTriggerName(caption, coreName) {
 function apModelMenuHtml() {
   return '<div class="ap-search"><input type="text" placeholder="Search models…"'
     + ' aria-label="Search models" data-ap-search /></div>'
+    + '<div class="ap-caps" role="tablist" aria-label="Model capability" data-ap-caps></div>'
     + '<div class="ap-scroll" data-ap-list="model"></div>'
     + '<div class="ap-menu-foot" aria-live="polite" data-ap-foot></div>';
 }
@@ -543,6 +645,372 @@ function apPresetOptionsHtml(pm, sel) {
   return out.join('');
 }
 
+/**
+ * Bring a capability tablist up to date. When the tab set is unchanged the
+ * buttons are updated in place (count, selection, dimming) so the clicked tab
+ * and its focus survive; a changed set (a core switch) is rebuilt.
+ */
+function apSyncCaps(container, tabs) {
+  if (!container) return;
+  var btns = container.querySelectorAll('[data-ap-cap]');
+  var same = btns.length === tabs.length;
+  for (var i = 0; same && i < tabs.length; i++) {
+    if (btns[i].getAttribute('data-ap-cap') !== tabs[i].id) same = false;
+  }
+  if (!same) { container.innerHTML = apCapTabsHtml(tabs); return; }
+  for (var j = 0; j < tabs.length; j++) {
+    var t = tabs[j];
+    var b = btns[j];
+    b.setAttribute('aria-selected', t.selected ? 'true' : 'false');
+    b.setAttribute('tabindex', t.selected ? '0' : '-1');
+    b.classList.toggle('ap-cap--zero', !t.count);
+    if (!t.count && t.id !== 'all') b.setAttribute('aria-disabled', 'true');
+    else b.removeAttribute('aria-disabled');
+    var n = b.querySelector('.ap-cap-n');
+    if (n) n.textContent = String(t.count);
+  }
+}
+
+/** The enabled (not aria-disabled) tabs of a tablist, in DOM order. */
+function apEnabledTabs(container, selector) {
+  var all = container ? container.querySelectorAll(selector) : [];
+  var out = [];
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].getAttribute('aria-disabled') !== 'true') out.push(all[i]);
+  }
+  return out;
+}
+
+/**
+ * Where an arrow / Home / End key lands among the enabled tabs: the target tab
+ * for `key` relative to `from`, wrapping at the ends; null for any other key.
+ */
+function apTabTarget(enabled, from, key) {
+  if (!enabled.length) return null;
+  var idx = enabled.indexOf(from);
+  if (key === 'Home') return enabled[0];
+  if (key === 'End') return enabled[enabled.length - 1];
+  if (key === 'ArrowDown' || key === 'ArrowRight') return enabled[(idx + 1) % enabled.length];
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return enabled[(idx < 0 ? 0 : idx - 1 + enabled.length) % enabled.length];
+  return null;
+}
+
+/** Container width (px) below which the core list wraps into a horizontal row. */
+var AP_NARROW_PX = 660;
+
+/** One core tab: brand icon + label, sub-label `current` or the disabled reason. */
+function apCoreTabHtml(core, state, currentCore, selectedId) {
+  var id = core && core.id !== undefined ? core.id : core;
+  var label = (core && core.label) || (typeof agentLabel === 'function' ? agentLabel(id) : id);
+  var reason = core && core.disabledReason ? core.disabledReason : '';
+  var icon = typeof agentIconHtml === 'function' ? agentIconHtml(id) : '';
+  if (!icon) icon = '<span class="agenticon" aria-hidden="true"><span class="ap-mono">' + apEsc(String(label).charAt(0).toUpperCase()) + '</span></span>';
+  var sub = reason || (id === currentCore ? 'current' : '');
+  var sel = id === selectedId;
+  return '<button type="button" role="tab" class="ap-core-tab" data-ap-core-tab="' + apEsc(id) + '"'
+    + ' aria-selected="' + (sel ? 'true' : 'false') + '"' + (reason ? ' aria-disabled="true"' : '')
+    + ' tabindex="' + (sel ? '0' : '-1') + '" title="' + apEsc(reason ? label + ' \u2014 ' + reason : label) + '">'
+    + icon + '<span class="ap-cn">' + apEsc(label) + (sub ? '<small>' + apEsc(sub) + '</small>' : '') + '</span></button>';
+}
+
+/** The effort row of the staged panel: advertised efforts only, or the no-effort text. */
+function apStagedEffortHtml(catalog, core, model, effort) {
+  if (!model) return '<span class="ap-eff-label">Effort</span><span class="ap-eff-none">Pick a model</span>';
+  var efforts = apEfforts(catalog, core, model);
+  if (!efforts || efforts.length === 0) {
+    return '<span class="ap-eff-label">Effort</span>'
+      + '<span class="ap-eff-none">\u2014 this model has no effort levels</span>';
+  }
+  var out = '<span class="ap-eff-label">Effort</span><span class="ap-seg-effort" role="group" aria-label="Effort">';
+  for (var i = 0; i < efforts.length; i++) {
+    out += '<button type="button" class="ap-eff-btn" data-ap-effort-opt="' + apEsc(efforts[i]) + '"'
+      + ' aria-pressed="' + (efforts[i] === effort ? 'true' : 'false') + '">' + apEsc(efforts[i]) + '</button>';
+  }
+  return out + '</span>';
+}
+
+/**
+ * The 'staged' picker (dashboard agent switch): a core list, search, capability
+ * tabs, the model list, an effort row and a Cancel / Switch agent footer. Picks
+ * change local state only; `onCommit({core, model, effort})` fires from the
+ * footer button, enabled once the staged value differs from the running one.
+ */
+function mountStagedPicker(root, o) {
+  var cores = o.cores || [];
+  var catalog = o.catalog || {};
+  var recent = o.recent || {};
+  var routes = o.routes || {};
+  var showEffort = o.showEffort !== false;
+  var disabled = !!o.disabled;
+  var currentCore = o.currentCore || '';
+  var inherit = o.inherit || {};
+  var inheritCore = o.inheritCore || '';
+  var onCommit = o.onCommit;
+  var onCancel = o.onCancel;
+  var base = { core: (o.value && o.value.core) || '', model: (o.value && o.value.model) || '', effort: (o.value && o.value.effort) || '' };
+  var state = { core: base.core, model: base.model, effort: base.effort };
+  var cap = 'all';
+  var q = '';
+
+  root.innerHTML = '<div class="ap-staged" data-ap-staged>'
+    + '<div class="ap-staged-body">'
+    + '<div class="ap-cores" data-ap-cores role="tablist" aria-orientation="vertical" aria-label="Agent core"></div>'
+    + '<div class="ap-staged-main">'
+    + '<div class="ap-search"><input type="text" class="k-input" placeholder="Search models" aria-label="Search models"'
+    + ' autocomplete="off" data-ap-search /></div>'
+    + '<div class="ap-caps" role="tablist" aria-label="Model capability" data-ap-caps></div>'
+    + '<div class="ap-scroll" role="listbox" aria-label="Models" data-ap-list="model"></div>'
+    + '</div></div>'
+    + (showEffort ? '<div class="ap-eff" data-ap-effort-row></div>' : '')
+    + '<div class="ap-staged-foot"><span class="ap-fid" data-ap-fid></span>'
+    + '<button type="button" class="k-btn k-btn--secondary" data-ap-cancel>Cancel</button>'
+    + '<button type="button" class="k-btn k-btn--primary" data-ap-commit>Switch agent</button></div>'
+    + '</div>';
+
+  var $ = function (sel) { return root.querySelector(sel); };
+  var effectiveCurrentCore = function () { return currentCore || base.core; };
+
+  function dirty() {
+    return state.core !== base.core || state.model !== base.model || state.effort !== base.effort;
+  }
+
+  function measure() {
+    var w = root.clientWidth || (root.getBoundingClientRect ? root.getBoundingClientRect().width : 0);
+    var narrow = w > 0 && w < AP_NARROW_PX;
+    $('[data-ap-cores]').setAttribute('aria-orientation', narrow ? 'horizontal' : 'vertical');
+    $('[data-ap-staged]').setAttribute('data-narrow', narrow ? 'true' : 'false');
+  }
+
+  function renderCores() {
+    var html = '';
+    for (var i = 0; i < cores.length; i++) html += apCoreTabHtml(cores[i], state, effectiveCurrentCore(), state.core);
+    $('[data-ap-cores]').innerHTML = html;
+  }
+
+  function markCoreSelection() {
+    var tabs = root.querySelectorAll('[data-ap-core-tab]');
+    for (var i = 0; i < tabs.length; i++) {
+      var on = tabs[i].getAttribute('data-ap-core-tab') === state.core;
+      tabs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+      tabs[i].setAttribute('tabindex', on ? '0' : '-1');
+    }
+  }
+
+  function renderCaps() {
+    apSyncCaps($('[data-ap-caps]'), apCapTabs(catalog[state.core] || [], routes, q.toLowerCase(), cap));
+  }
+
+  function renderList() {
+    $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
+      catalog, state.core, state.model, apInheritLabels(inherit, inheritCore, state.core).model || '',
+      recent[state.core], routes, q, cap,
+      { staged: true, currentId: state.core === base.core ? base.model : '' },
+    );
+  }
+
+  function renderEffort() {
+    var row = $('[data-ap-effort-row]');
+    if (!row) return;
+    row.innerHTML = apStagedEffortHtml(catalog, state.core, state.model, state.effort);
+    var btns = row.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = disabled;
+  }
+
+  function renderFoot() {
+    var fid = $('[data-ap-fid]');
+    fid.textContent = state.model || '\u2014';
+    fid.setAttribute('title', state.model || '');
+    $('[data-ap-commit]').disabled = disabled || !dirty();
+    $('[data-ap-cancel]').disabled = false;
+  }
+
+  function renderAll() {
+    renderCores();
+    renderCaps();
+    renderList();
+    renderEffort();
+    renderFoot();
+    setDisabled(disabled);
+    measure();
+  }
+
+  function setDisabled(on) {
+    disabled = !!on;
+    var ctl = root.querySelectorAll('button[data-ap-core-tab], button[data-ap-cap], button[data-ap-effort-opt], [data-ap-search]');
+    for (var i = 0; i < ctl.length; i++) ctl[i].disabled = disabled;
+    var commit = $('[data-ap-commit]');
+    if (commit) commit.disabled = disabled || !dirty();
+  }
+
+  function effortFor(core, model) {
+    return core === base.core && model === base.model ? base.effort : '';
+  }
+
+  function pickCore(id) {
+    if (id === state.core) return;
+    var list = catalog[id] || [];
+    var model = apLastUsedModel(catalog, id, recent[id]) || (list[0] ? list[0].id : '');
+    state = { core: id, model: model, effort: effortFor(id, model) };
+    cap = 'all';
+    markCoreSelection();
+    renderCaps();
+    renderList();
+    renderEffort();
+    renderFoot();
+  }
+
+  // The picked row changes in place: the clicked node stays in the document, so
+  // an outside-click handler on the host never mistakes the pick for an outside click.
+  function pickModel(id) {
+    state.model = id;
+    state.effort = effortFor(state.core, id);
+    var items = root.querySelectorAll('[data-ap-list="model"] [role="option"]');
+    for (var i = 0; i < items.length; i++) {
+      var on = items[i].getAttribute('data-ap-model') === id;
+      items[i].setAttribute('aria-selected', on ? 'true' : 'false');
+      items[i].classList.toggle('active', on);
+      var ck = items[i].querySelector('.ap-ck, .ap-ck-gap');
+      if (ck) {
+        var next = document.createElement('span');
+        next.innerHTML = on ? AP_CHECK_SVG : '<span class="ap-ck-gap" aria-hidden="true"></span>';
+        items[i].replaceChild(next.firstChild, ck);
+      }
+    }
+    renderEffort();
+    renderFoot();
+  }
+
+  function pickEffort(value) {
+    state.effort = value;
+    var btns = root.querySelectorAll('[data-ap-effort-opt]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-ap-effort-opt') === value ? 'true' : 'false');
+    }
+    renderFoot();
+  }
+
+  function setCap(id) {
+    cap = id;
+    renderCaps();
+    renderList();
+  }
+
+  function rowsOf() { return root.querySelectorAll('[data-ap-list="model"] [role="option"]'); }
+
+  root.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var coreTab = t.closest('[data-ap-core-tab]');
+    if (coreTab) {
+      if (!disabled && coreTab.getAttribute('aria-disabled') !== 'true') pickCore(coreTab.getAttribute('data-ap-core-tab'));
+      return;
+    }
+    var capTab = t.closest('[data-ap-cap]');
+    if (capTab) {
+      if (!disabled && capTab.getAttribute('aria-disabled') !== 'true') setCap(capTab.getAttribute('data-ap-cap'));
+      return;
+    }
+    var row = t.closest('[data-ap-model]');
+    if (row) { if (!disabled) pickModel(row.getAttribute('data-ap-model') || ''); return; }
+    var eff = t.closest('[data-ap-effort-opt]');
+    if (eff) { if (!disabled) pickEffort(eff.getAttribute('data-ap-effort-opt')); return; }
+    if (t.closest('[data-ap-commit]')) {
+      if (!disabled && dirty() && typeof onCommit === 'function') {
+        onCommit({ core: state.core, model: state.model, effort: state.effort });
+      }
+      return;
+    }
+    if (t.closest('[data-ap-cancel]') && typeof onCancel === 'function') onCancel();
+  });
+
+  root.addEventListener('input', function (e) {
+    if (!e.target || !e.target.hasAttribute || !e.target.hasAttribute('data-ap-search')) return;
+    q = String(e.target.value || '').trim();
+    renderCaps();
+    renderList();
+  });
+
+  root.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    if (e.key === 'Escape') {
+      if (t.hasAttribute && t.hasAttribute('data-ap-search') && t.value) {
+        e.stopPropagation();
+        t.value = '';
+        q = '';
+        renderCaps();
+        renderList();
+        return;
+      }
+      if (typeof onCancel === 'function') onCancel();
+      return;
+    }
+    var tab = t.closest('[data-ap-core-tab], [data-ap-cap]');
+    if (tab) {
+      var core = tab.hasAttribute('data-ap-core-tab');
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tab.click(); return; }
+      var dest = apTabTarget(apEnabledTabs(tab.parentNode, core ? '[data-ap-core-tab]' : '[data-ap-cap]'), tab, e.key);
+      if (dest) { e.preventDefault(); dest.focus(); }
+      return;
+    }
+    if (t.hasAttribute && t.hasAttribute('data-ap-search')) {
+      if (e.key === 'ArrowDown') {
+        var first = rowsOf()[0];
+        if (first) { e.preventDefault(); first.focus(); }
+      } else if (e.key === 'Enter') {
+        var pick = rowsOf()[0];
+        if (pick) { e.preventDefault(); pick.click(); }
+      }
+      return;
+    }
+    var rowEl = t.closest('[role="option"]');
+    if (!rowEl) return;
+    var rows = rowsOf();
+    var at = Array.prototype.indexOf.call(rows, rowEl);
+    if (e.key === 'ArrowDown' && at < rows.length - 1) { e.preventDefault(); rows[at + 1].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); (at > 0 ? rows[at - 1] : $('[data-ap-search]')).focus(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); rowEl.click(); }
+  });
+
+  var observer = null;
+  if (typeof ResizeObserver === 'function') {
+    observer = new ResizeObserver(function () { measure(); });
+    observer.observe(root);
+  }
+
+  renderAll();
+  var instance = {
+    getValue: function () { return { core: state.core, model: state.model, effort: state.effort }; },
+    // A new running-session value restages the draft from it.
+    setValue: function (v) {
+      base = { core: (v && v.core) || '', model: (v && v.model) || '', effort: (v && v.effort) || '' };
+      state = { core: base.core, model: base.model, effort: base.effort };
+      cap = 'all';
+      q = '';
+      var input = $('[data-ap-search]');
+      if (input) input.value = '';
+      renderAll();
+    },
+    setDisabled: setDisabled,
+    setMode: function () {},
+    _configure: function (next) {
+      cores = (next && next.cores) || [];
+      catalog = (next && next.catalog) || {};
+      recent = (next && next.recent) || {};
+      routes = (next && next.routes) || {};
+      showEffort = next ? next.showEffort !== false : true;
+      disabled = !!(next && next.disabled);
+      currentCore = (next && next.currentCore) || '';
+      inherit = (next && next.inherit) || {};
+      inheritCore = (next && next.inheritCore) || '';
+      onCommit = next && next.onCommit;
+      onCancel = next && next.onCancel;
+    },
+  };
+  root.__apInstance = instance;
+  return instance;
+}
+
 /** Render the whole picker into the given root. Returns the live value object. */
 function mountAgentPicker(root, opts) {
   if (!root) return null;
@@ -555,6 +1023,7 @@ function mountAgentPicker(root, opts) {
     root.__apInstance.setValue(o.value || {});
     return root.__apInstance;
   }
+  if (o.mode === 'staged') return mountStagedPicker(root, o);
   var cores = o.cores || [];
   var catalog = o.catalog || {};
   var recent = o.recent || {};
@@ -578,6 +1047,9 @@ function mountAgentPicker(root, opts) {
     model: value.model || '',
     effort: value.effort || '',
   };
+  // Capability tab of the open model menu; reset to All when the core changes.
+  var cap = 'all';
+  var capCore = state.core;
   // presetMode (opt-in): a Preset | Core + model switch. Absent = the markup
   // and the onChange payload stay exactly as before.
   var pm = o.presetMode || null;
@@ -671,9 +1143,11 @@ function mountAgentPicker(root, opts) {
     // keydown listener would never see another key.
     var wasOpen = !!(modelMenu && !modelMenu.hidden);
     var focused = wasOpen ? apMenuFocus(modelMenu, document) : null;
+    if (capCore !== state.core) { cap = 'all'; capCore = state.core; }
     modelMenu.innerHTML = apModelMenuHtml();
+    apSyncCaps(modelMenu.querySelector('[data-ap-caps]'), apCapTabs(catalog[state.core] || [], routes, '', cap));
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, labels().model, recent[state.core], routes,
+      catalog, state.core, state.model, labels().model, recent[state.core], routes, '', cap,
     );
     var coreLabel = modelLabel();
     var coreTrigger = $('[data-ap-trigger="core"]');
@@ -849,6 +1323,21 @@ function mountAgentPicker(root, opts) {
       if (!disabled) setMode(modeBtn.getAttribute('data-ap-mode'));
       return;
     }
+    var capTab = t.closest ? t.closest('[data-ap-cap]') : null;
+    if (capTab) {
+      if (!disabled && capTab.getAttribute('aria-disabled') !== 'true') {
+        cap = capTab.getAttribute('data-ap-cap') || 'all';
+        var sInput = $('[data-ap-search]');
+        var sq = sInput ? String(sInput.value || '') : '';
+        apSyncCaps($('[data-ap-caps]'), apCapTabs(catalog[state.core] || [], routes, sq.trim().toLowerCase(), cap));
+        var lst = $('[data-ap-list="model"]');
+        lst.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, labels().model, recent[state.core], routes, sq, cap);
+        var its = lst.querySelectorAll('[role="option"]');
+        apMarkActive(its, its.length ? 0 : -1);
+        syncMenuFoot($('[data-ap-shell="model"]'));
+      }
+      return;
+    }
     var coreOpt = t.closest ? t.closest('[data-ap-core]') : null;
     if (coreOpt) {
       var nextCore = coreOpt.getAttribute('data-ap-core') || '';
@@ -904,8 +1393,10 @@ function mountAgentPicker(root, opts) {
     if (search === null) return;
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
+    var qv = String(e.target.value || '');
+    apSyncCaps($('[data-ap-caps]'), apCapTabs(catalog[state.core] || [], routes, qv.trim().toLowerCase(), cap));
     listEl.innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, labels().model, recent[state.core], routes, e.target.value,
+      catalog, state.core, state.model, labels().model, recent[state.core], routes, qv, cap,
     );
     var items = listEl.querySelectorAll('[role="option"]');
     apMarkActive(items, items.length ? 0 : -1);
@@ -940,12 +1431,20 @@ function mountAgentPicker(root, opts) {
       return;
     }
     if (!apKeyOwnedBy(shell, e.target)) return;
+    var capTab = e.target.closest && e.target.closest('[data-ap-cap]');
+    if (capTab) {
+      // A capability tab moves like a tablist: Left/Right/Home/End between the enabled tabs.
+      var capDest = apTabTarget(apEnabledTabs(capTab.parentNode, '[data-ap-cap]'), capTab, e.key);
+      if (capDest) { e.preventDefault(); capDest.focus(); return; }
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       moveActive(shell, e.key === 'ArrowDown' ? 1 : -1, e.target);
       return;
     }
     if (e.key === 'Enter') {
+      // A capability tab answers its own Enter (native button click).
+      if (e.target.closest && e.target.closest('[data-ap-cap]')) return;
       // The focused row wins: a key pressed on a row that is not highlighted
       // must choose that row, not the highlight (review finding, round 4).
       var row = apOptionAt(shell, e.target) || apActiveOption(shell);

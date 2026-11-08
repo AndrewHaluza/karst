@@ -34,6 +34,14 @@ karstTest.describe('full-page screenshots', () => {
         if (v.width !== undefined) await page.setViewportSize({ width: v.width, height: (page.viewportSize()?.height ?? 720) });
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
         for (const pill of v.pills ?? []) await page.getByRole('button', { name: new RegExp(`^${pill}`) }).first().click();
+        if (v.agentPopover !== undefined) {
+          const steps = v.agentPopover;
+          await page.locator('#agentButton').click();
+          if (steps.core !== undefined) await page.locator(`[data-ap-core-tab="${steps.core}"]`).click();
+          if (steps.q !== undefined) await page.locator('[data-ap-search]').fill(steps.q);
+          if (steps.cap !== undefined) await page.locator(`[data-ap-cap="${steps.cap}"]`).click();
+          if (steps.model !== undefined) await page.locator(`[data-ap-model="${steps.model}"]`).click();
+        }
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -30,13 +30,15 @@ export interface RouteMeta {
   readonly icon: string;
   /** Short subscription marker drawn on the icon's corner ('Z', 'Go'). */
   readonly badge?: string;
+  /** How the route is paid for: a flat subscription, or a metered API key. */
+  readonly billing: 'subscription' | 'api-key';
 }
 
 /** THE route registry. A new gateway = one entry here + one icon file. */
 export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
-  opencode: { name: 'OpenCode Zen', icon: 'opencode.svg', badge: 'Z' },
-  'opencode-go': { name: 'OpenCode Go', icon: 'opencode.svg', badge: 'Go' },
-  openrouter: { name: 'OpenRouter', icon: 'openrouter.svg' },
+  opencode: { name: 'OpenCode Zen', icon: 'opencode.svg', badge: 'Z', billing: 'subscription' },
+  'opencode-go': { name: 'OpenCode Go', icon: 'opencode.svg', badge: 'Go', billing: 'subscription' },
+  openrouter: { name: 'OpenRouter', icon: 'openrouter.svg', billing: 'api-key' },
 };
 
 /** Where the route SVGs are read from at runtime (the src tree under vitest, `dist/` shipped). */
@@ -79,7 +81,7 @@ export function routeIdentityJs(): string {
   const routes = Object.fromEntries(
     Object.entries(ROUTE_META).map(([route, meta]) => [
       route,
-      { name: meta.name, badge: meta.badge ?? '', iconSvg: routeIconSvg(route) },
+      { name: meta.name, badge: meta.badge ?? '', billing: meta.billing, iconSvg: routeIconSvg(route) },
     ]),
   );
   return `var AP_ROUTES = ${JSON.stringify(routes)};`;

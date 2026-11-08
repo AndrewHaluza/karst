@@ -591,6 +591,15 @@ describe('buildDashboardState', () => {
     expect(state.agentSession.canSwitch).toBe(false);
   });
 
+  it('marks a core the host reports unavailable with its reason, and no other core', () => {
+    const t = createTicket(store, { key: 'SW-UN', title: 'switch' });
+    const state = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, {
+      unavailableCores: { opencode2: 'not installed' },
+    });
+    expect(state.agentSwitch.cores.find((c) => c.id === 'opencode2')?.disabledReason).toBe('not installed');
+    expect(state.agentSwitch.cores.find((c) => c.id === 'claude')).not.toHaveProperty('disabledReason');
+  });
+
   it('exposes the header agent-switch choices for every implemented core', () => {
     const t = createTicket(store, { key: 'SW-CH', title: 'switch' });
     const state = buildDashboardState(store, t.id);

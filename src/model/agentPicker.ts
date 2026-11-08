@@ -23,7 +23,24 @@
  *     disabled,         // lock the whole picker (session-open)
  *     showEffort,       // false = never render the effort/variant field
  *     onChange,         // ({ core, model, effort }) => void
+ *     mode,             // 'inline' (default) | 'staged' (dashboard switch)
+ *     currentCore,      // staged: core of the running session ("current" sub-label)
+ *     onCommit,         // staged: ({ core, model, effort }) => void, "Switch agent"
+ *     onCancel,         // staged: () => void, "Cancel" or a second Esc
  *   })
+ *
+ * `cores[i].disabledReason` (e.g. "not installed") renders that core disabled,
+ * with the reason as its sub-label; the keyboard skips it.
+ *
+ * Capability tabs (All, Vision, Multimodal, Audio, Text-only, Free) sit above
+ * the model list in both modes. Each shows a live count for the selected core
+ * and the current search; a capability no model of the core has is not drawn.
+ *
+ * `mode: 'staged'` renders the core list (a vertical tablist at container
+ * width >= 660 px, a wrapping row below), search, tabs, the list, an effort
+ * row and a Cancel / "Switch agent" footer. Picks change local state only and
+ * `onChange` never fires; `onCommit` fires from the footer button, enabled
+ * once core, model or effort differs from `value`.
  *
  * `recent` feeds the model menu's "Last used" group (design § model UX): a
  * provider with a long catalog (opencode) buries a user's habitual pick, so the

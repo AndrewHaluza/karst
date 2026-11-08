@@ -834,7 +834,7 @@ describe('route → vendor grouping and the full-id footer', () => {
 
   it('reports no match for a filter that hits nothing', () => {
     expect(fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'zzz'))
-      .toContain('No models match "zzz".');
+      .toContain('No models match "zzz" in All.');
   });
 
   it('keeps the saved-unavailable row reachable with its full id', () => {

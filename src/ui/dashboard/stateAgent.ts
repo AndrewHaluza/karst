@@ -137,7 +137,10 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
   return {
     agentSession,
     agentSwitch: {
-      cores: agentSwitchCoreChoices(),
+      cores: agentSwitchCoreChoices().map((core) => {
+        const reason = agentContext.unavailableCores?.[core.id];
+        return reason ? { ...core, disabledReason: reason } : core;
+      }),
       models: switchModels,
       modelsByCore: catalog,
       recentByCore,
