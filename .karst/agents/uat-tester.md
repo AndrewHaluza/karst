@@ -56,7 +56,9 @@ failure is yours to avoid, not a harness outage.
   (`text`, target `{quickInput:true}` or `{selector, surface}`, optional
   `submit:true`), `press` (`key`) and `read` (visible text and `data-act`
   list). A hidden or covered target fails with the reason in
-  `result.detail`; never work around it. Samples:
+  `result.detail`; never work around it. Each UI step records `ui.textAdded` and
+  `ui.textRemoved` against the text after the previous UI step: read the change in
+  the step that caused it (the `click`), not in a later `read`. Samples:
   `scripts/uat-host/samples/ui-subtask.json`, `ui-resume.json`,
   `ui-hidden.json`. Model a script on `scripts/uat-host/samples/smoke.json`. Start
   with a `wait` for log `Karst activated`.

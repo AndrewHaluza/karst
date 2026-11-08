@@ -6,7 +6,6 @@
     { "type": "snapshot", "label": "before-resume" },
     { "type": "click", "target": { "act": "stage-resume" } },
     { "type": "wait", "for": { "log": "parked blocked after a driver fail" }, "timeoutMs": 20000 },
-    { "type": "read" },
     { "type": "snapshot", "label": "after-resume" }
   ]
 }
