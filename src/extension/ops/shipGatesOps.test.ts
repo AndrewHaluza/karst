@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runShipGates } from './shipGatesOps.js';
+import { openStore } from '../../store/db.js';
+import { createTicket } from '../../store/tickets.js';
+import { currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 
 const repoWith = (scripts: Record<string, string>) => {
@@ -60,5 +63,65 @@ describe('runShipGates', () => {
     const refuse: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'no exec', output: 'refused' }) as never;
     const r = await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse });
     expect(r).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
+  });
+});
+
+describe('runShipGates evidence (T1018)', () => {
+  const twoGates = { gates: [{ name: 'unit', kind: 'command', command: 'u', args: [] }, { name: 'docs', kind: 'command', command: 'd', args: [] }], repositories: {} } as never;
+  const setup = () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    return { store, ticketId, pr: { repo: 'r', number: 1, branch: 'b', cwd } };
+  };
+  const byCommand = (codes: Record<string, number>): GateProcessRunner => async (cmd) => ({ kind: 'completed', exitCode: codes[cmd] ?? 0, output: codes[cmd] ? 'boom: broke' : 'ok' });
+
+  it('opens a run first and writes one result per gate with the head SHA', async () => {
+    const { store, ticketId, pr } = setup();
+    const out = await runShipGates([pr], { uat: twoGates, runProcess: byCommand({}), evidence: { store, ticketId }, headSha: async () => 'f'.repeat(40) });
+    expect(out).toBeNull();
+    expect(listDeliverResults(store, ticketId).map((r) => [r.gateName, r.exitCode, r.headSha])).toEqual([['unit', 0, 'f'.repeat(40)], ['docs', 0, 'f'.repeat(40)]]);
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ state: 'passed', gates: ['unit', 'docs'], finished: 2 });
+  });
+
+  it('records every gate also when the first gate fails, and keeps the failure summary', async () => {
+    const { store, ticketId, pr } = setup();
+    const out = await runShipGates([pr], { uat: twoGates, runProcess: byCommand({ u: 3 }), evidence: { store, ticketId }, headSha: async () => 'a'.repeat(40) });
+    expect(out).toMatch(/gate "unit" failed \(exit 3\)/);
+    const rows = listDeliverResults(store, ticketId);
+    expect(rows.map((r) => [r.gateName, r.exitCode])).toEqual([['unit', 3], ['docs', 0]]);
+    expect(rows[0]!.summary).toBe('boom: broke');
+    expect(currentDeliverRun(store, ticketId)?.state).toBe('failed');
+  });
+
+  it('shows the running gate while it runs', async () => {
+    const { store, ticketId, pr } = setup();
+    const seen: Array<string | null | undefined> = [];
+    const runProcess: GateProcessRunner = async () => { seen.push(currentDeliverRun(store, ticketId)?.currentGate); return { kind: 'completed', exitCode: 0, output: '' }; };
+    await runShipGates([pr], { uat: twoGates, runProcess, evidence: { store, ticketId }, headSha: async () => null });
+    expect(seen).toEqual(['unit', 'docs']);
+  });
+
+  it('a stopped run keeps the results of the gates that finished and records no result for the killed gate', async () => {
+    const { store, ticketId, pr } = setup();
+    const ac = new AbortController();
+    let n = 0;
+    const runProcess: GateProcessRunner = async () => {
+      n += 1;
+      if (n === 2) { ac.abort(); return { kind: 'aborted' } as never; }
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    const out = await runShipGates([pr], { uat: twoGates, runProcess, signal: ac.signal, evidence: { store, ticketId }, headSha: async () => 'a'.repeat(40) });
+    expect(out).toMatch(/gate run was stopped/);
+    expect(listDeliverResults(store, ticketId).map((r) => r.gateName)).toEqual(['unit']);
+    expect(currentDeliverRun(store, ticketId)?.state).toBe('stopped');
+  });
+
+  it('forwards gate output to the console sink', async () => {
+    const { pr } = setup();
+    const chunks: string[] = [];
+    const runProcess: GateProcessRunner = async (_c, _a, _cwd, o) => { o?.onOutput?.({ stream: 'stdout', text: 'line' }); return { kind: 'completed', exitCode: 0, output: 'line' }; };
+    await runShipGates([pr], { uat: twoGates, runProcess, onOutput: (g, c) => chunks.push(`${g}:${c.text}`) });
+    expect(chunks).toEqual(['unit:line', 'docs:line']);
   });
 });

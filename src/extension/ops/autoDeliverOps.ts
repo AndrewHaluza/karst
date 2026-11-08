@@ -51,6 +51,9 @@ export function createConflictRounds(onDisarm?: (ticketId: number) => void): Con
 
 type Git = (cwd: string, args: readonly string[]) => Promise<GitResult>;
 
+/** The reason a taken-over auto-deliver gives to refuse its own push; never shown as an error. */
+const TAKEN_OVER = 'a manual Deliver took over';
+
 const MARKER_RE = '^(<<<<<<< |>>>>>>> )';
 
 /** Null when the merge in `cwd` is finished; else why it is not. */
@@ -78,14 +81,61 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
   readonly rounds: ConflictRounds;
   /** Null when the merge is finished and the ship-stage gates pass on it; else the reason. */
   readonly verifyMerge: (pr: DeliverPr, round: ResolvedRound) => Promise<string | null>;
-  readonly runGates: (prs: readonly DeliverPr[]) => Promise<string | null>;
+  /** `signal` aborts the running gate process when a manual Deliver takes over (T1018). */
+  readonly runGates: (prs: readonly DeliverPr[], signal: AbortSignal) => Promise<string | null>;
   /** The dashboard's transient "Delivering resolved merge to PR #n…" line. */
   readonly status: (message: string) => void;
   /** The INFO log line (not the user toast). */
   readonly log: (message: string) => void;
 }
 
-const inFlight = new Set<number>();
+interface InFlight {
+  readonly controller: AbortController;
+  /** `gates`: a takeover may still stop it. `pushing`: the push has begun and a takeover would double it. */
+  phase: 'gates' | 'pushing';
+  takenOver: boolean;
+}
+const inFlight = new Map<number, InFlight>();
+
+/** Where the in-flight auto-deliver of this ticket is, or null when none runs. */
+export function autoDeliverPhase(ticketId: number): 'gates' | 'pushing' | null {
+  return inFlight.get(ticketId)?.phase ?? null;
+}
+
+/** What `takeOverAutoDeliver` did: `none` = no auto-deliver runs; `pushing` = it already pushes, so the manual push must wait. */
+export type TakeOverResult = 'none' | 'taken-over' | 'pushing';
+
+export interface TakeOverDeps {
+  readonly rounds: ConflictRounds;
+  readonly key: string;
+  /** Marks the stored run `taken-over`; the failed and skipped gates, or null when no run was open. */
+  readonly recordTakeOver: () => { readonly failed: readonly string[]; readonly skipped: readonly string[] } | null;
+  readonly note: (title: string, body: string) => void;
+}
+
+const list = (names: readonly string[]): string => (names.length === 0 ? 'none' : names.join(', '));
+
+/** The bulletin line of a takeover (@arch:AP-00: every action writes a note). */
+export function deliverTakeOverNote(t: { readonly failed: readonly string[]; readonly skipped: readonly string[] }): string {
+  return `Autopilot: delivery taken over by a manual Deliver; failed: ${list(t.failed)}; skipped: ${list(t.skipped)}`;
+}
+
+/**
+ * A manual Deliver during the auto-deliver's gates takes over (T1018): stop the gate run, disarm the round, write one
+ * note. The caller then pushes through the normal Deliver path; the auto-deliver's verify refuses, so it never pushes.
+ */
+export function takeOverAutoDeliver(ticketId: number, d: TakeOverDeps): TakeOverResult {
+  const entry = inFlight.get(ticketId);
+  if (entry === undefined) return 'none';
+  if (entry.phase === 'pushing' || entry.takenOver) return entry.takenOver ? 'taken-over' : 'pushing';
+  entry.takenOver = true;
+  entry.controller.abort();
+  d.rounds.disarm(ticketId);
+  const facts = d.recordTakeOver() ?? { failed: [], skipped: [] };
+  const title = deliverTakeOverNote(facts);
+  d.note(title, `${d.key}: ${title.replace(/^Autopilot: /, '')}. The failed gates stay on record on the ship panel.`);
+  return 'taken-over';
+}
 
 /** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
 export function isAutoDelivering(ticketId: number): boolean {
@@ -106,7 +156,8 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
   if (round === null || inFlight.has(d.ticketId) || d.agentActive()) return;
   const targets = d.targets();
   if (!targets.available) return; // not at ship, no open PR, or a ship run is in flight: the manual button decides
-  inFlight.add(d.ticketId);
+  const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
+  inFlight.set(d.ticketId, entry);
   try {
     const pr = targets.prs.find((p) => p.repo === round.repo) ?? targets.prs[0]!;
     d.status(`Delivering resolved merge to PR #${pr.number ?? '?'}…`);
@@ -118,7 +169,8 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
           d.error(`conflict resolve did not finish: ${unfinished}`);
           return unfinished;
         }
-        const failed = await d.runGates(targets.prs);
+        const failed = await d.runGates(targets.prs, entry.controller.signal);
+        if (entry.takenOver) return TAKEN_OVER;
         if (failed !== null) {
           d.error(`Resolved merge not delivered: a ship-stage gate failed — ${failed}`);
           return failed;
@@ -126,6 +178,7 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         // The gates ran for a while: confirm the tree they checked is still the finished merge.
         const changed = await d.verifyMerge(pr, round);
         if (changed !== null) d.error(`conflict resolve did not finish: ${changed}`);
+        else entry.phase = 'pushing';
         return changed;
       },
     });

@@ -7,6 +7,8 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
+import { conflictRounds, autoDeliverAfterConflict } from './autoDeliverOps.js';
+import { openDeliverRun, recordDeliverGate, currentDeliverRun } from '../../store/deliverRuns.js';
 import { deliverBlockedPrompt, deliverToPrAction, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
@@ -123,6 +125,33 @@ describe('sendCiFailureAction', () => {
     expect(files).toContain('lint');
     expect(i.confirm).toHaveBeenCalledWith('Send CI failure to the agent?', expect.any(String), 'Send to agent');
     expect(i.handOff).toHaveBeenCalled();
+  });
+});
+
+describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
+  it('stops the gate run, disarms the round, pushes once, writes the note and the auto-deliver never pushes', async () => {
+    seedPr();
+    const gateRun = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'visual'], pid: 1, now: 'T0' });
+    recordDeliverGate(store, gateRun, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'boom', startedAt: null, endedAt: null });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const autoShip = vi.fn(async () => {});
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('r: gate run was stopped'); else signal.addEventListener('abort', () => resolve('r: gate run was stopped')); }),
+      blocked: async () => {}, runShip: autoShip, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const i = input();
+    await deliverToPrAction(i);
+    await auto;
+    expect(i.deliver.runShip).toHaveBeenCalledOnce();
+    expect(autoShip).not.toHaveBeenCalled();
+    expect(conflictRounds.armed(id)).toBeNull();
+    expect(currentDeliverRun(store, id)?.state).toBe('taken-over');
+    const notes = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(notes).toContain('Autopilot: delivery taken over by a manual Deliver; failed: unit; skipped: visual');
   });
 });
 

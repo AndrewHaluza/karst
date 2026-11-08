@@ -5,6 +5,7 @@ import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
 import { AUTOPILOT_DDL } from './autopilot.js';
 import { STALL_SUGGESTIONS_DDL } from './stallSuggestions.js';
+import { DELIVER_RUNS_DDL } from './deliverRuns.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
@@ -2887,6 +2888,12 @@ function migrateLocked(db: Database): void {
     if (intentCols105.size > 0 && !intentCols105.has('account')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN account TEXT');
     }
+  }
+
+  if (current < 106) {
+    // v106: `deliver_runs` + `deliver_gate_results` — the record of an auto-deliver gate run (T1018,
+    // `store/deliverRuns.ts`). Additive tables; an old db has none and no delivery is on record.
+    db.exec(DELIVER_RUNS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

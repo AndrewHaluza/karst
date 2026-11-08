@@ -13,7 +13,10 @@ import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
-import { autoDeliverAfterConflict, conflictRounds, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
+import { autoDeliverAfterConflict, conflictRounds, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
+import { takeOverDeliverRun } from '../../store/deliverRuns.js';
+import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
+import { nowIso } from '../../model/time.js';
 import { regenerateCommand, type RegenerateEntry } from '../../workflow/gates/regenerate.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
@@ -134,6 +137,13 @@ export interface DeliverHost {
   readonly tracker: UndeliveredTracker;
 }
 
+/** The HEAD sha of a worktree, or null when git cannot read it. */
+async function headShaOf(i: Pick<CiActionsInput, 'git'>, cwd: string): Promise<string | null> {
+  const r = await i.git(['rev-parse', 'HEAD'], cwd);
+  const sha = r.stdout.trim();
+  return r.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+}
+
 const gitFor = (i: Pick<CiActionsInput, 'git'>) => async (cwd: string, args: readonly string[]) => {
   const r = await i.git([...args], cwd);
   return { code: r.exitCode, stdout: r.stdout };
@@ -147,8 +157,34 @@ export function refreshUndeliveredFor(i: Pick<CiActionsInput, 'store' | 'ticketI
   });
 }
 
+/** The bulletin note of a takeover; a failed post is logged and never stops the push. */
+function postTakeOverNote(i: CiActionsInput, title: string, body: string): void {
+  const clip = (t: string, max: number): string => (t.length <= max ? t : `${t.slice(0, max - 1)}\u2026`);
+  try {
+    postAgentNote(i.store, { projectId: getTicket(i.store, i.ticketId).projectId, fromTicketId: i.ticketId, title: clip(title, BULLETIN_TITLE_MAX), body: clip(body, BULLETIN_BODY_MAX) });
+  } catch (err) {
+    i.debug(`[ship] takeover note failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Deliver to PR. While the auto-deliver of a resolved merge still runs its gates this click TAKES OVER (T1018): the
+ * gate run stops, the round disarms, and the normal push below runs once. The auto-deliver refuses its own push.
+ * Once the auto-deliver pushes, a second push would double it, so the click waits.
+ */
 export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
+  const taken = takeOverAutoDeliver(i.ticketId, {
+    rounds: conflictRounds,
+    key: getTicket(i.store, i.ticketId).key ?? `#${i.ticketId}`,
+    recordTakeOver: () => takeOverDeliverRun(i.store, i.ticketId, nowIso()),
+    note: (title, body) => postTakeOverNote(i, title, body),
+  });
+  if (taken === 'pushing') {
+    i.info('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
+    i.afterServerChange();
+    return;
+  }
   await deliverToPr({
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
@@ -173,7 +209,7 @@ export function autoDeliverAction(
     ticketId: i.ticketId,
     key: extra.key, status: extra.status, log: extra.log,
     rounds: conflictRounds,
-    runGates: (prs) => runShipGates(prs, extra.gate),
+    runGates: (prs, signal) => runShipGates(prs, { ...extra.gate, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange }),
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
