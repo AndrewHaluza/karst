@@ -27,6 +27,7 @@ export interface DeclaredGate {
   args?: string[]; // kind: 'command'
   sandbox?: 'host' | 'inside';
   onResourceKill?: ResourceKillPolicy;
+  maxConcurrent?: number;
 }
 
 export interface ResolvedGate {
@@ -47,6 +48,8 @@ export interface ResolvedGate {
   sandbox?: 'host';
   /** What to do when the gate is OOM-killed with no failing test; absent = `retry-then-park`. */
   onResourceKill?: ResourceKillPolicy;
+  /** Host-wide cap on concurrent runs of this gate; absent = no limit. */
+  maxConcurrent?: number;
 }
 
 export type GateResolution =
@@ -79,10 +82,11 @@ function resolveDeclared(gate: DeclaredGate): ResolvedGate {
   };
 }
 
-function hostMark(gate: DeclaredGate): { sandbox?: 'host'; onResourceKill?: ResourceKillPolicy } {
+function hostMark(gate: DeclaredGate): { sandbox?: 'host'; onResourceKill?: ResourceKillPolicy; maxConcurrent?: number } {
   return {
     ...(gate.sandbox === 'host' ? { sandbox: 'host' as const } : {}),
     ...(gate.onResourceKill !== undefined ? { onResourceKill: gate.onResourceKill } : {}),
+    ...(gate.maxConcurrent !== undefined ? { maxConcurrent: gate.maxConcurrent } : {}),
   };
 }
 

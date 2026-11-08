@@ -534,6 +534,9 @@
   "src/runtime/branchName.ts#suffixBranchForCollision": [
     "arch:BRANCH-NAME"
   ],
+  "src/runtime/claimLease.ts#leaseClaimSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "src/runtime/containerRows.ts#applyContainers": [
     "arch:RESMON-CONTAINERS"
   ],
@@ -899,6 +902,12 @@
   ],
   "src/workflow/gates/capabilityGap.ts#launcherModuleNotFound": [
     "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/gates/gateLease.ts#leaseGateSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
+  "src/workflow/gates/runList.ts#runGateList": [
+    "arch:GATE-CONCURRENCY"
   ],
   "src/workflow/merge*.ts": [
     "arch:GH-00"
