@@ -365,7 +365,7 @@ export interface RecordFixLaunchIntentInput {
   model?: string | null;
   /** v103: the resolved effort this Fix launch configured (T1005). */
   effort?: string | null;
-  /** v104: the agent account this Fix launch ran under; omitted = the default account. */
+  /** v105: the agent account this Fix launch ran under; omitted = the default account. */
   account?: string | null;
   /**
    * v33: the CONFIGURED Fix process agent name (uat-fix/review-fix), resolved

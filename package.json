@@ -134,6 +134,7 @@
       },
       { "command": "karst.autopilot.setOverride", "title": "Karst: Set Auto-Fix Mode for Ticket" },
       { "command": "karst.autopilot.approveOne", "title": "Karst: Approve One More Auto-Fix Attempt" },
+      { "command": "karst.autopilot.retry", "title": "Karst: Retry Auto-Fix" },
       { "command": "karst.autopilot.stop", "title": "Karst: Stop Auto-Fix" },
       {
         "command": "karst.openSession",

@@ -228,6 +228,8 @@ CREATE TABLE IF NOT EXISTS process_runs (
   artifact_path TEXT,                 -- path of the artifact the process produced, if any
   failure_detail TEXT,                -- v81: bounded one-line failure sentence for a failed run
   prompt_telemetry TEXT,              -- v57: JSON blob of prompt-effectiveness facts for this run
+  child_pid     INTEGER,              -- v104: the headless child's pid (NOT the host `pid`); NULL = none recorded
+  child_started_at TEXT,              -- v104: ISO spawn time of that child; identity evidence against pid reuse
   started_at    TEXT NOT NULL,
   ended_at      TEXT                  -- NULL while running AND on a stale run
 );
@@ -274,7 +276,7 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   -- segments and displays) so the ModelSelected guard can compare the effort
   -- the TUI actually used (T1005).
   effort        TEXT,
-  -- v104: the agent ACCOUNT this launch ran under (@arch:AC-55). NULL = the
+  -- v105: the agent ACCOUNT this launch ran under (@arch:AC-55). NULL = the
   -- built-in default account (no override). A resume reuses this name.
   account       TEXT,
   -- v33: the CONFIGURED inside agent name a fix launch resolved to (the

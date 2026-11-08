@@ -11,6 +11,8 @@ import {
   describeStaleProcessRun,
   getProcessRunById,
   setProcessRunPromptTelemetry,
+  recordProcessRunChild,
+  onProcessRunsSuperseded,
   type ProcessRun,
   type ProcessRunStatus,
 } from './processRuns.js';
@@ -362,6 +364,75 @@ describe('process_runs', () => {
       const run = open();
       finishProcessRun(store, run.id, 'failed', '2026-08-08T10:01:00.000Z', 'execution-failed', null);
       expect(getProcessRunById(store, run.id)!.failureDetail).toBeNull();
+    });
+  });
+  describe('headless child (v104)', () => {
+    const open = (over: Partial<Parameters<typeof openProcessRun>[1]> = {}) =>
+      openProcessRun(store, {
+        ticketId,
+        stageKey: 'review',
+        processId: 'review',
+        attempt: 0,
+        pid: 4242,
+        startedAt: '2026-01-02T03:04:05.000Z',
+        ...over,
+      });
+
+    it('a new run has no child; the host pid keeps its meaning', () => {
+      const run = open();
+      expect(run.pid).toBe(4242);
+      expect(run.childPid).toBeNull();
+      expect(run.childStartedAt).toBeNull();
+    });
+
+    it('records the child pid and spawn time on a running run', () => {
+      const run = open();
+      expect(recordProcessRunChild(store, run.id, 999, '2026-01-02T03:04:06.000Z')).toBe(true);
+      const read = getProcessRunById(store, run.id)!;
+      expect(read.childPid).toBe(999);
+      expect(read.childStartedAt).toBe('2026-01-02T03:04:06.000Z');
+      expect(read.pid).toBe(4242);
+    });
+
+    it('does not record a child on a run that is no longer running', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'passed', '2026-01-02T03:05:00.000Z');
+      expect(recordProcessRunChild(store, run.id, 999, '2026-01-02T03:04:06.000Z')).toBe(false);
+      expect(getProcessRunById(store, run.id)!.childPid).toBeNull();
+    });
+
+    it('hands the superseded runs (already stale, child intact) to onSuperseded', () => {
+      const old = open();
+      recordProcessRunChild(store, old.id, 999, '2026-01-02T03:04:06.000Z');
+      const seen: ProcessRun[] = [];
+      onProcessRunsSuperseded(store, (runs) => seen.push(...runs));
+      const next = open();
+      expect(seen.map((r) => [r.id, r.status, r.childPid])).toEqual([[old.id, 'stale', 999]]);
+      expect(seen.map((r) => r.id)).not.toContain(next.id);
+    });
+
+    it('does not call onSuperseded when nothing was superseded or a sibling process runs', () => {
+      const calls: number[] = [];
+      open({ processId: 'other' });
+      onProcessRunsSuperseded(store, (runs) => calls.push(runs.length));
+      open();
+      expect(calls).toEqual([]);
+    });
+
+    it('stops calling the handler once it is unbound', () => {
+      const calls: number[] = [];
+      const unbind = onProcessRunsSuperseded(store, (runs) => calls.push(runs.length));
+      open();
+      unbind();
+      open();
+      expect(calls).toEqual([]);
+    });
+
+    it('reconcile reports a dead-owner run with its child so the host can reap it', () => {
+      const run = open();
+      recordProcessRunChild(store, run.id, 999, '2026-01-02T03:04:06.000Z');
+      const stale = reconcileProcessRuns(store, () => false);
+      expect(stale.map((s) => [s.run.id, s.run.childPid])).toEqual([[run.id, 999]]);
     });
   });
 });

@@ -2863,11 +2863,28 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 104) {
-    // v104: `session_launch_intents.account` — the agent account a launch ran
+    // v104: `process_runs.child_pid` + `child_started_at` — the pid and spawn
+    // time of the HEADLESS CHILD a run started. `pid` keeps its meaning (the
+    // opening host); a host that died on a window reload left its child
+    // running, and only this pair lets a later host find it and prove it is
+    // still that child before it kills the group (T1012). NULL is honest for
+    // every pre-v104 row: no child was recorded. The guard reads the CURRENT
+    // columns, so a fresh DB and a re-open are no-ops.
+    const cols104 = tableColumns(db, 'process_runs');
+    if (cols104.size > 0 && !cols104.has('child_pid')) {
+      db.exec('ALTER TABLE process_runs ADD COLUMN child_pid INTEGER');
+    }
+    if (cols104.size > 0 && !cols104.has('child_started_at')) {
+      db.exec('ALTER TABLE process_runs ADD COLUMN child_started_at TEXT');
+    }
+  }
+
+  if (current < 105) {
+    // v105: `session_launch_intents.account` — the agent account a launch ran
     // under (@arch:AC-55). NULL = the built-in default account, and is honest
-    // for every pre-v104 row.
-    const intentCols104 = tableColumns(db, 'session_launch_intents');
-    if (intentCols104.size > 0 && !intentCols104.has('account')) {
+    // for every pre-v105 row.
+    const intentCols105 = tableColumns(db, 'session_launch_intents');
+    if (intentCols105.size > 0 && !intentCols105.has('account')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN account TEXT');
     }
   }

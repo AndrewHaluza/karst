@@ -16,6 +16,7 @@ import { getTicket } from '../../store/tickets.js';
 import { allGraphRunsClosed } from '../../store/graph/graphRuns.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { pidAlive } from '../../runtime/pidAlive.js';
+import { reapOrphanedChildren } from './orphanReap.js';
 import { reconcileOnStart } from '../../recovery/reconcile.js';
 import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js';
 import { isPortOpen } from '../../runtime/portConflict.js';
@@ -172,9 +173,17 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   // Reported, never silent — an invisibly-discarded run is the whole failure
   // this closes, and a sweep that quietly corrected the data would repeat it.
   try {
-    for (const r of reconcileProcessRuns(deps.store, pidAlive)) {
+    const staleRuns = reconcileProcessRuns(deps.store, pidAlive);
+    for (const r of staleRuns) {
       deps.info(describeStaleProcessRun(r));
     }
+    // A window reload does not kill a headless child: its owner host is dead
+    // (that is why the run is stale), so reap the child's process group. The
+    // reap re-checks owner and identity before any signal (T1012).
+    await reapOrphanedChildren(
+      staleRuns.map((r) => r.run),
+      { debug: deps.debug, logError: deps.logError },
+    );
   } catch (err) {
     deps.logError('karst: stale process-run sweep failed', err);
   }

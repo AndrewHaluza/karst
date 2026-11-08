@@ -168,6 +168,23 @@ const graphState = (): DashboardState => {
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } } as unknown as DashboardState;
 };
 
+/** The ship view with an auto-fix round running on the Merge row (T1004). */
+const autofixRunningState = (): DashboardState => {
+  const s = populatedStateFor('ship');
+  const view = s.insideViews.ship;
+  const autofix = {
+    state: 'running', message: 'Auto-fix: conflict on web #421 · round 1 of 2',
+    steps: ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'], activeStep: 0, stopAfterRequested: false,
+  };
+  const merge = { ...(view.processes.find((p) => p.id === 'merge') ?? view.processes[0]!), status: 'run', autofix };
+  const processes = view.processes.map((p) => (p.id === merge.id ? merge : p));
+  return {
+    ...s,
+    autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [] },
+    insideViews: { ...s.insideViews, ship: { ...view, processes } },
+  } as unknown as DashboardState;
+};
+
 /** An artifact whose findings span two repos, so the detail view offers the repo scope chips. */
 const artifactFindingsState = (): DashboardState => {
   const s = artifactState();
@@ -258,6 +275,12 @@ const headerMenu = (item: string) => (h: RenderHandle) => {
 
 export const act = (a: string, extra = ''): string => `[data-act="${a}"]${extra}`;
 const forRepo = (a: string): string => act(a, `[data-repo="${REPO}"]`);
+
+/** Opens the "Stop now…" confirm (idempotent: a no-op once the confirm shows). */
+const openStopConfirm = (h: RenderHandle): void => {
+  const open = q(h, act('autopilot-stop-confirm'));
+  if (open) clickEl(open);
+};
 
 export const COVERED: readonly ParityCase[] = [
   // --- header --------------------------------------------------------------
@@ -386,6 +409,28 @@ export const COVERED: readonly ParityCase[] = [
       ciFailure: { available: true, repos: [REPO] },
     }),
     sel: '.mgbtn' + act('send-ci-failure'), posts: [{ type: 'send-ci-failure' }], rid: false, pendingSel: '.mgbtn[aria-busy="true"]',
+  },
+
+  // --- auto-fix on the ship panel (T1004) ---------------------------------
+  {
+    act: 'autopilot-override', state: autofixRunningState, sel: act('autopilot-override') + '[data-mode="off"]',
+    posts: [{ type: 'autopilot-override', mode: 'off' }], rid: true,
+  },
+  {
+    act: 'autopilot-stop-after', state: autofixRunningState, sel: act('autopilot-stop-after'),
+    posts: [{ type: 'autopilot-stop', when: 'after-round' }], rid: true,
+  },
+  {
+    act: 'autopilot-stop-confirm', state: autofixRunningState, sel: act('autopilot-stop-confirm'), posts: [],
+    after: (h) => { if (!q(h, act('autopilot-stop-now'))) throw new Error('the confirm did not open'); },
+  },
+  {
+    act: 'autopilot-stop-cancel', state: autofixRunningState, prep: openStopConfirm, sel: act('autopilot-stop-cancel'), posts: [],
+    after: (h) => { if (q(h, act('autopilot-stop-now'))) throw new Error('the confirm stayed open'); },
+  },
+  {
+    act: 'autopilot-stop-now', state: autofixRunningState, prep: openStopConfirm, sel: act('autopilot-stop-now'),
+    posts: [{ type: 'autopilot-stop', when: 'now' }], rid: true, pendingSel: false,
   },
 
   // --- stage ⋯ menu + inside ----------------------------------------------

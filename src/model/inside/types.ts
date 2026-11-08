@@ -2,6 +2,7 @@ import type { StageKey } from '../types.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { AttemptKey, GateAttemptView } from './rounds.js';
 import type { InsideStallView } from './stall.js';
+import type { AutofixRowView } from './autofix.js';
 
 /**
  * How an operation row reads.
@@ -792,6 +793,12 @@ export interface InsideProcessView {
    * a control with nothing to choose.
    */
   repoFilter?: { repos: readonly string[]; selected: string | null };
+  /**
+   * Auto-fix state on the Merge row (T1004): the message replaces `detail`, and a running round
+   * adds the step line and the Stop actions. Host-derived (`model/inside/autofix.ts`); the webview
+   * renders it verbatim. Absent → the row is a plain Merge row.
+   */
+  autofix?: AutofixRowView;
 }
 
 /**

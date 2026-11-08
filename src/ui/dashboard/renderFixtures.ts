@@ -1102,6 +1102,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     brief: null,
     rail: { main: [] },
     insideViews,
+    autopilot: { override: 'inherit', projectDefault: false, effective: false, banner: null, log: [] },
     presentedStage: stage,
     approach: null,
     artifacts: [],

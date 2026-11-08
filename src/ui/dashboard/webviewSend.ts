@@ -111,6 +111,11 @@ export function createSender(api: WebviewApi) {
     addressPrFeedback: (requestId?: string) =>
       send({ type: 'address-pr-feedback' }, requestId),
     sendCiFailure: (requestId?: string) => send({ type: 'send-ci-failure' }, requestId),
+    autopilotOverride: (mode: Msg<'autopilot-override'>['mode'], requestId?: string) => send({ type: 'autopilot-override', mode }, requestId),
+    autopilotApproveOne: (repo: string, kind: Msg<'autopilot-approve-one'>['kind'], requestId?: string) =>
+      send({ type: 'autopilot-approve-one', repo, kind }, requestId),
+    autopilotStop: (when: Msg<'autopilot-stop'>['when'], requestId?: string) => send({ type: 'autopilot-stop', when }, requestId),
+    autopilotRetry: (requestId?: string) => send({ type: 'autopilot-retry' }, requestId),
     rebaseOnBase: (requestId?: string) => send({ type: 'rebase-on-base' }, requestId),
     deliverToPr: (requestId?: string) => send({ type: 'deliver-to-pr' }, requestId),
     openStageLog: (stageKey: Msg<'open-stage-log'>['stageKey'], requestId?: string) =>

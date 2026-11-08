@@ -63,7 +63,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 374 → 376 KB for the Quality `review.stallDetection` row (enabled toggle,
 // two number inputs, draft validation; ~1.8 KB of genuine app code): bundle is
 // 383760 bytes (~1.2 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 376 * 1024;
+// Raised 376 → 384 KB for the Autopilot tab (AutopilotSection, the autopilotDraft
+// helpers, the check allowlist editor; ~7 KB of genuine app code): bundle is
+// 391001 bytes (~2 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 384 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

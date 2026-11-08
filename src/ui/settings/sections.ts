@@ -27,6 +27,7 @@ export const SETTINGS_SECTIONS = [
   'agents',
   'ticketing',
   'quality',
+  'autopilot',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -40,6 +41,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   agents: 'Agents',
   ticketing: 'Ticketing',
   quality: 'Quality',
+  autopilot: 'Autopilot',
 };
 
 export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]> = {
@@ -83,6 +85,8 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   ],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],
+  // One page = one manifest key (@arch:SAVE): a Save here writes `autopilot` and nothing else.
+  autopilot: ['autopilot'],
 };
 
 /**

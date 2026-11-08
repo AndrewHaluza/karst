@@ -16,6 +16,8 @@ function makeRun(overrides: Partial<ProcessRun> & { id: number }): ProcessRun {
     provider: null,
     model: null,
     pid: null,
+    childPid: null,
+    childStartedAt: null,
     status: 'passed',
     resultKind: 'validated',
     artifactPath: null,

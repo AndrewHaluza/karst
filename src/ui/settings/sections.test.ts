@@ -51,6 +51,7 @@ describe('settings sections — vocabulary', () => {
         'approaches',
         'archiveDoneAfterDays',
         'archivePlanningAfterDays',
+        'autopilot',
         'baselineBranch',
         'closeDoneTerminalsWithTicket',
         'conventions',

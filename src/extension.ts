@@ -337,6 +337,7 @@ import {
   setProcessRunPromptTelemetry,
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
+import { bindOrphanReap, recordSpawnedChild } from './extension/ops/orphanReap.js';
 import { archiveInactiveWorktrees, compactArchivedWorktrees } from './runtime/archiveBulk.js';
 import { makePortAllocator } from './resolver/allocator.js';
 import {
@@ -632,6 +633,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m) }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
   const logError: LogError = (m, e) => logger.error(m, e);
+  // T1012: reap the headless child of a run a new open supersedes (dead owner only).
+  context.subscriptions.push({ dispose: bindOrphanReap(localStore, { debug: (m) => logger.debug(m), logError }) });
   const notify = vscodeNotify;
   // Hook-channel observation for the issue report. A failed agent-side hook says
   // only "exited with code 1"; these counters are the host's half of that.
@@ -1249,13 +1252,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Live-pid registry hook, injected at the same seam: every agent process
       // this window spawns is registered the moment it exists and unregistered
       // wherever the run settles, attributed to the call that spawned it.
-      onSpawned: (pid, tracking) =>
-        resourceMonitor?.registerPid({
+      onSpawned: (pid, tracking) => {
+        recordSpawnedChild(localStore, tracking, pid, logError); // T1012: lets a later host reap it
+        return resourceMonitor?.registerPid({
           pid,
           kind: 'agent',
           ticketId: tracking?.ticketId ?? null,
           label: tracking ? aiCallSiteLabel(tracking.callSite) : null,
-        }),
+        });
+      },
     });
     const resilience = () => currentManifest()?.resilience ?? DEFAULT_RESILIENCE;
     return resilientAdapter(metered, {

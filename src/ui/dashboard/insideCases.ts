@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import type { AutofixRowView } from '../../model/inside/autofix.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
@@ -38,6 +39,8 @@ export interface InsideCase {
   readonly aliasOf?: string;
   /** A new dashboard route would add rows to the layout ledger, which only ever shrinks. */
   readonly skipLayout?: boolean;
+  /** Baselines in dark, light and high contrast, not dark only (the amber and blue states must hold in every theme). */
+  readonly allThemes?: boolean;
 }
 
 /** Build a case from rows: `current` is the stage the ticket sits on. */
@@ -67,6 +70,50 @@ function legacy(stage: InsideStageKey, patch: (s: DashboardState, v: InsideStage
     return patch({ ...base, insideViews: { ...base.insideViews, [stage]: f.view } }, f.view);
   };
 }
+
+// ------------------------------------------------- auto-fix on the ship panel (T1004)
+
+type AutopilotPatch = Partial<DashboardState['autopilot']>;
+
+const AUTOFIX_STEPS_CONFLICT = ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'];
+const AUTOFIX_STEPS_CI = ['host fetched log (gh)', 'agent fixing', 'gates', 'push', 'wait for CI'];
+
+/**
+ * HAND-WRITTEN: the legacy ship view with auto-fix state on its Merge row. `row` is the host-built view;
+ * `banner` (with `reason`) parks the ticket the way the engine does (an awaiting-merge block). The cases skip the
+ * layout ledger: it only ever shrinks, and these are new dashboard routes.
+ */
+function autofixShip(
+  row: AutofixRowView | null,
+  slice: AutopilotPatch,
+  park?: { readonly reason: string },
+): () => DashboardState {
+  return legacy('ship', (s, v) => {
+    const processes = v.processes.map((p) => {
+      if (p.id !== 'merge' || !row) return p;
+      const status = row.state === 'running' ? ('run' as const) : ('wait' as const);
+      return { ...p, status, detail: row.message, autofix: row };
+    });
+    const cell = s.currentStage ?? caseCell('ship', 'running');
+    return {
+      ...s,
+      autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], ...slice },
+      insideViews: { ...s.insideViews, ship: { ...v, processes } },
+      currentStage: park
+        ? { ...cell, blocked: { kind: 'awaiting-merge', reason: park.reason, at: t(30), resumable: false } }
+        : cell,
+    } as DashboardState;
+  });
+}
+
+const RUNNING_CONFLICT: AutofixRowView = {
+  state: 'running', message: 'Auto-fix: conflict on web #421 · round 1 of 2', steps: AUTOFIX_STEPS_CONFLICT, activeStep: 1, stopAfterRequested: false,
+};
+const RUNNING_CI: AutofixRowView = {
+  state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 2 of 3', steps: AUTOFIX_STEPS_CI, activeStep: 1, stopAfterRequested: false,
+};
+const PARKED = { steps: [], activeStep: 0, stopAfterRequested: false };
+const LOG = ['Autopilot: fixed lint on api #88', 'Autopilot: resolved conflicts on web #421'];
 
 // ----------------------------------------------------------- gate-stage rows
 
@@ -383,6 +430,77 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'ci-failure',
     state: legacy('ship', (s) => ({ ...s, ciFailure: { available: true, repos: ['web'] } })),
+  },
+
+  // auto-fix on the Merge row and the blocked banner (T1004): HAND-WRITTEN, outside the layout ledger
+  { stage: 'ship', id: 'auto-conflict-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CONFLICT, { log: LOG }) },
+  { stage: 'ship', id: 'auto-ci-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on', log: LOG }) },
+  {
+    stage: 'ship',
+    id: 'auto-budget-spent',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip(
+      { ...PARKED, state: 'spent', message: 'Auto-fix stopped: CI failed 3 of 3 attempts on api #88' },
+      {
+        banner: {
+          state: 'spent', title: 'lint', titleHref: 'https://github.com/example/api/actions/runs/1', titleSuffix: 'failed on api #88',
+          cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
+          primary: { act: 'autopilot-approve-one', label: 'Approve 1 more attempt', repo: 'api', kind: 'ci' },
+          secondary: { act: 'send-ci-failure', label: 'Send CI failure with a note…' },
+          history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20', 'Attempt 3 · lint · 09:31'],
+        },
+        log: LOG,
+      },
+      { reason: 'auto-fix stopped: ci 3/3' },
+    ),
+  },
+  {
+    stage: 'ship',
+    id: 'auto-gh-failed',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip(
+      { ...PARKED, state: 'gh-failed', message: 'Auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' },
+      {
+        banner: {
+          state: 'gh-failed', title: 'Auto-fix paused', titleSuffix: 'could not read CI', cause: 'Could not read CI for api #88 (gh: HTTP 502)',
+          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: null, history: [],
+        },
+      },
+      { reason: 'auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' },
+    ),
+  },
+  {
+    stage: 'ship',
+    id: 'auto-status-unknown',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip({ ...PARKED, state: 'unknown', message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.' }, {}),
+  },
+  {
+    stage: 'ship',
+    id: 'auto-override-off',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip(null, { override: 'off', effective: false }),
+  },
+  {
+    stage: 'ship',
+    id: 'auto-sandbox-paused',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip(
+      { ...PARKED, state: 'paused', message: 'Auto-fix paused: sandbox clone is dirty' },
+      {
+        banner: {
+          state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket',
+          cause: 'The sandbox cannot run a round. Fix the sandbox, then retry.',
+          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Open sync diff' }, history: [],
+        },
+      },
+      { reason: 'auto-fix paused: sandbox clone is dirty' },
+    ),
   },
 
   // done — HAND-WRITTEN receipt (needs merged-PR + saga evidence rows)

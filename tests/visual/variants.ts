@@ -125,7 +125,7 @@ function dashboardScenario(
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.aliasOf === undefined).map((c) =>
-    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), c.skipLayout ? { skipLayout: true } : undefined),
+    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.skipLayout ? { skipLayout: true } : {}), ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
   );
 
 /** T1001: the stall panel in each state, in all three themes. Screenshot-only: the panel adds no layout route. */
@@ -293,6 +293,23 @@ function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant 
   };
 }
 
+/** Autopilot route in one state: off is the default `route-autopilot`; on and a host fault are these (T1004). */
+function autopilotVariant(id: string, over: Record<string, unknown>, validation?: { ok: false; error: string }): Variant {
+  const manifest = { ...REALISTIC_SETTINGS.manifest, ...over };
+  return {
+    ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest, ...(validation ? { validation } : {}) } as never), {
+      baseline: `settings--${id}`,
+      themes: ALL_THEMES,
+      skipLayout: true,
+    }),
+    route: { section: 'autopilot' },
+  };
+}
+
+const AUTOPILOT_ON = {
+  autopilot: { enabled: true, ci: { policy: 'auto', maxAttempts: 3, checks: ['lint', 'typecheck'] }, conflicts: { policy: 'auto', maxRounds: 2 } },
+};
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -313,6 +330,8 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
+  autopilotVariant('autopilot-on', AUTOPILOT_ON),
+  autopilotVariant('autopilot-invalid', { autopilot: { ...AUTOPILOT_ON.autopilot, conflicts: { policy: 'auto', maxRounds: 0 } } }, { ok: false, error: 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1' }),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
 ];
 

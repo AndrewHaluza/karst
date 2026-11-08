@@ -89,6 +89,7 @@ export function sectionForError(raw: string | null): SettingsSection | null {
   // The preset vocabulary lives on the Agents page too.
   if (/\b(agentPresets|activeAgentPreset|defaultAgentPreset)\b/.test(msg)) return 'agents';
   if (/^uat\b|^review\b/.test(msg)) return 'quality';
+  if (/^autopilot\b/.test(msg)) return 'autopilot';
   if (/^(host|portRange|baselineBranch|ticketLabelTemplate|agentProvider)\b/.test(msg)) {
     return 'general';
   }

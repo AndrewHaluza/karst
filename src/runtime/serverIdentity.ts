@@ -69,7 +69,7 @@ export interface ProcessFacts extends ProcessFactsSource {
 }
 
 /** How far a live process's start time may drift from the recorded one and still count as a match. */
-const START_TIME_TOLERANCE_MS = 2_000;
+export const START_TIME_TOLERANCE_MS = 2_000;
 
 /**
  * Parse an ISO timestamp (`servers.started_at`, written by `startHot` at spawn

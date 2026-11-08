@@ -1,3 +1,4 @@
+import type { AutofixRowView } from '../../model/inside/autofix.js';
 import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import type { Store } from '../../store/db.js';
 import { listServersByTicket } from '../../store/dashboard.js';
@@ -35,6 +36,7 @@ export interface InsideSectionInput {
   implSession?: ImplSessionReading | null;
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   findingsBlockingSeverity: Severity | 'none';
+  autofix?: AutofixRowView | null;
   displayBlocking?: {
     review?: Severity | 'none';
     tester?: Severity | 'none';
@@ -51,7 +53,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking,
+    findingsBlockingSeverity, displayBlocking, autofix,
   } = input;
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -132,6 +134,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     mergeChecks,
     shipFindings,
     findingsBlockingSeverity,
+    autofix,
     reviewBlockingSeverity: displayBlocking?.review,
     testerBlockingSeverity: displayBlocking?.tester,
     reviewStallDetection: displayBlocking?.reviewStall,

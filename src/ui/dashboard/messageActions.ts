@@ -80,6 +80,12 @@ export interface DashboardActions {
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;
+  /** Auto-fix controls (T1004): the host re-derives the ticket and applies the command. */
+  autopilotOverride: (mode: 'inherit' | 'on' | 'off') => void | Promise<void>;
+  autopilotApproveOne: (repo: string, kind: 'conflicts' | 'ci') => void | Promise<void>;
+  autopilotStop: (when: 'after-round' | 'now') => void | Promise<void>;
+  /** Re-run the round once the cause is fixed: clears a pause or a gh failure. */
+  autopilotRetry: () => void | Promise<void>;
   rebaseOnBase: () => void | Promise<void>;
   /** Sync the sandbox, then ship's push onto the open PR ("Deliver to PR"). */
   deliverToPr: () => void | Promise<void>;

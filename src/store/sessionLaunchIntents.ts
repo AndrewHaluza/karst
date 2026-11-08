@@ -54,7 +54,7 @@ export interface SessionLaunchIntent {
   model: string | null;
   /** v103: the resolved effort this launch configured; NULL = none/legacy. */
   effort: string | null;
-  /** v104: the agent account this launch ran under; NULL = the default account. */
+  /** v105: the agent account this launch ran under; NULL = the default account. */
   account: string | null;
   /** v33: the configured inside agent name the launch resolved to (fix). */
   agentName: string | null;
@@ -148,7 +148,7 @@ export interface RecordSessionLaunchIntentInput {
   model?: string | null;
   /** v103: the resolved effort (`#<effort>`) this launch configured, kept apart from `model`. */
   effort?: string | null;
-  /** v104: the agent account this launch runs under; omit/NULL = the default account. */
+  /** v105: the agent account this launch runs under; omit/NULL = the default account. */
   account?: string | null;
   /**
    * v33: the configured inside agent name the launch resolved to. NULL for an

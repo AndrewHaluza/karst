@@ -28,6 +28,7 @@ import {
 } from '../../model/inside/gates.js';
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
 import type { CurrentAttempt } from '../../model/inside/currentAttempt.js';
+import type { AutofixRowView } from '../../model/inside/autofix.js';
 import { shipProcesses, type ShipProcessesInput } from '../../model/inside/ship.js';
 import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import { doneReceipt, type DoneReceiptInput, type DoneReceiptView } from '../../model/inside/done.js';
@@ -104,6 +105,8 @@ export interface InsideViewsInput {
   mergeChecks: ShipProcessesInput['mergeChecks'];
   shipFindings: ShipProcessesInput['findings'];
   findingsBlockingSeverity: Severity | 'none';
+  /** The Merge row's auto-fix reading (T1004), or null. */
+  autofix?: AutofixRowView | null;
   reviewBlockingSeverity?: Severity | 'none';
   testerBlockingSeverity?: Severity | 'none';
   reviewStallDetection?: ReviewStallDetection;
@@ -166,6 +169,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     mergeChecks,
     shipFindings,
     findingsBlockingSeverity,
+    autofix,
     reviewBlockingSeverity,
     testerBlockingSeverity,
     reviewStallDetection,
@@ -288,6 +292,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         tokens: tokensFor('pr-description'),
         findings: shipFindings,
         findingsBlockingSeverity,
+        autofix: autofix ?? null,
       }),
       now,
     ),

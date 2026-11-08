@@ -215,7 +215,7 @@ describe('session launch intents', () => {
   });
 });
 
-describe('launch intent account (v104)', () => {
+describe('launch intent account (v105)', () => {
   it('records the account and finds it again by provider session id', () => {
     const store = openStore(':memory:');
     const ticketId = createTicketFlow(store, { key: 'T-9', title: 't' }).id;
