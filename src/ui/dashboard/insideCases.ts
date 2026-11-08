@@ -252,6 +252,8 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // A session with more rows than the timeline limit: the host ships the production '+N more' row (`role: 'event'` + action).
     stage: 'impl',
     id: 'bounded-timeline',
+    // A new route would add the shared rail and PR-row layout findings to the ledger as NEW; the screenshot still records.
+    skipLayout: true,
     state: legacy('impl', (s, v) => {
       const session = v.processes.find((p) => p.id === 'session');
       if (!session) throw new Error('insideCases: no legacy impl session row');
