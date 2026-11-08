@@ -6,7 +6,7 @@ import type { WebviewMessage } from './messages.js';
 type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }>;
 
 import {
-  isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, storedPath, storedSha,
+  isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isConsoleStage, storedPath, storedSha,
   MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES,
   BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS,
 } from './messageValidate.js';
@@ -312,7 +312,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // The stage is narrowed to GATE_STAGES here, at the trust boundary; a
     // non-gate stage (or a malformed payload) drops the whole message.
     case 'stage-log-request':
-      return isGateStage(m.stage) ? { type: 'stage-log-request', stage: m.stage } : null;
+      return isConsoleStage(m.stage) ? { type: 'stage-log-request', stage: m.stage } : null;
     // The process is narrowed to the closed AgentProcessId set; anything else
     // drops the whole message.
     case 'agent-log-request':

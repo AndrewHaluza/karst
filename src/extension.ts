@@ -383,6 +383,7 @@ import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { resilientAdapter, type ModelFallbackEvent } from './agent/resilientAdapter.js';
 import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
+import type { GateOutputChunk } from './workflow/gates/run.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
@@ -3848,9 +3849,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
     if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
-      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m), onOutput: (g: string, c: { text: string }) => { for (const line of c.text.split(/\r?\n/)) if (line.trim() !== '') logger.info(`[ship gate ${g}] ${line}`); } };
+      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m), onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c) };
       const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
-      void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
+      gateConsole.reset(ticketId, 'ship');
+      void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
     }
   }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded); context.subscriptions.push(startBackgroundWaitSweep(localStore, turnTracker, notifyHook, (m) => logger.debug(m)));
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);

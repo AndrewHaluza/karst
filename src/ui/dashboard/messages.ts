@@ -1,5 +1,5 @@
 import type { StageKey } from '../../model/types.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
 
 /**
@@ -256,7 +256,7 @@ export type WebviewMessage =
    * row's recorded artifactPath from the store, reads it, and answers with
    * `stage-log`; the answer message (ok or error) is the terminal outcome.
    */
-  | { type: 'stage-log-request'; stage: GateStage }
+  | { type: 'stage-log-request'; stage: ConsoleStage }
   /**
    * Ask the host to push one gate-lane AI process's console tail (the UAT
    * Tester or the Review findings lane) for the terminal "detailed mode" view.

@@ -1,6 +1,6 @@
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { LiveClocks } from './liveTick.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { DashboardState } from './state.js';
 import type { WorktreeStats } from './worktreeStats.js';
@@ -48,7 +48,7 @@ export type HostMessage =
    * renders exactly these two shapes. `truncated` is true when the file was
    * cut at the read cap (defensive; the recording itself caps at 1 MiB).
    */
-  | { type: 'stage-log'; stage: GateStage; result: StageLogResult }
+  | { type: 'stage-log'; stage: ConsoleStage; result: StageLogResult }
   /** The answer to `xterm-request`: the bundle text, or null when unavailable. */
   | { type: 'xterm'; js: string | null }
   /**
@@ -74,7 +74,7 @@ export type HostMessage =
    * appends it to the open console for that stage only — the durable record
    * stays the stage artifact the post-run `stage-log` answer reads.
    */
-  | { type: 'stage-output'; stage: GateStage; text: string }
+  | { type: 'stage-output'; stage: ConsoleStage; text: string }
   /**
    * The answer to `server-logs-request`: all server log contents for this ticket.
    * `servers` is the ordered list matching the dashboard's server rows. The

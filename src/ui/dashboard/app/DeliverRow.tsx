@@ -9,7 +9,7 @@
  * of the progress line is announced. The button stays enabled during an auto-deliver; its title is the hint.
  */
 import { useCallback, type MouseEvent } from 'react';
-import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
+import { useDashboardSend, useOps, useOverlays, usePendingOps } from './DashboardAppContext.js';
 import { beginPending } from './usePendingAction.js';
 import {
   deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, shortSha,
@@ -27,6 +27,7 @@ export function DeliverRow({ notOnPr, inSandbox, canDeliver, auto }: {
   readonly auto: DeliverFacts | null;
 }) {
   const send = useDashboardSend();
+  const overlays = useOverlays();
   const ops = usePendingOps();
   const busy = useOps().running.has('deliver');
   const onClick = useCallback(
@@ -58,6 +59,16 @@ export function DeliverRow({ notOnPr, inSandbox, canDeliver, auto }: {
           onClick={onClick}
         >
           Deliver to PR
+        </button>
+      ) : null}
+      {auto ? (
+        <button
+          type="button"
+          className="k-btn k-btn--ghost k-btn--sm"
+          data-act="open-ship-console"
+          onClick={() => overlays.openConsole('ship', null)}
+        >
+          Gate output
         </button>
       ) : null}
       {progress || takenOver ? (

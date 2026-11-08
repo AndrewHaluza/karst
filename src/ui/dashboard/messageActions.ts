@@ -1,5 +1,5 @@
 import type { StageKey } from '../../model/types.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { InsideActionResult, AgentProcessId, WebviewMessage } from './messages.js';
 
@@ -104,7 +104,7 @@ export interface DashboardActions {
   /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
   openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
-  requestStageLog: (stage: GateStage) => void | Promise<void>;
+  requestStageLog: (stage: ConsoleStage) => void | Promise<void>;
   /** Push one gate-lane AI process's console tail to the panel; the `agent-log` message is the outcome. */
   requestAgentLog: (processId: AgentProcessId) => void | Promise<void>;
   /**
