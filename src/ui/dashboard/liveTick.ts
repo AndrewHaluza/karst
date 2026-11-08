@@ -73,10 +73,16 @@ export function changedPaths(prev: unknown, next: unknown, prefix = '', depth = 
 }
 
 /** One running process row's clock text. */
-export interface ProcessClocks {
+export interface RowClocks {
   time?: string;
   duration?: string;
   durationExact?: string;
+}
+
+/** The clock fields of one running process: its own, those of its evidence rows and the age of its graph nodes, by index. */
+export interface ProcessClocks extends RowClocks {
+  rows?: RowClocks[];
+  nodes?: Array<{ age?: string }>;
 }
 
 /** One stage's clock text: the header clock, the live op, its running rows. */
@@ -98,7 +104,16 @@ export function liveClocks(state: DashboardState): LiveClocks {
     const processes: Record<string, ProcessClocks> = {};
     for (const p of view.processes) {
       if (p.status !== 'run') continue;
-      processes[p.id] = { time: p.time, duration: p.duration, durationExact: p.durationExact };
+      const ev = p.evidence;
+      const rows = ev && 'rows' in ev ? ev.rows.map((r) => ({ time: r.time, duration: r.duration, durationExact: r.durationExact })) : undefined;
+      const nodes = ev && ev.kind === 'rows' && ev.nodes ? ev.nodes.map((n) => ({ age: n.age })) : undefined;
+      processes[p.id] = {
+        time: p.time,
+        duration: p.duration,
+        durationExact: p.durationExact,
+        ...(rows ? { rows } : {}),
+        ...(nodes ? { nodes } : {}),
+      };
     }
     out[key] = {
       clock: view.clock,

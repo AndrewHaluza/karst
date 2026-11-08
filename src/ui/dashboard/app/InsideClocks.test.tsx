@@ -60,7 +60,7 @@ function at(n: number, over: { readonly structure?: string } = {}): DashboardSta
             duration: `${n}s`,
             evidence: { kind: 'rows', rows: [{ label: 'step', status: 'run', detail: 'building', duration: `${n}s` }], nodes: nodes.map((x) => ({ ...x, age: `${n}m` })) },
           }),
-          proc('gates', { kind: 'gates', status: 'pass', evidence: { kind: 'gates', rows: [{ label: 'lint', status: 'pass', duration: '1s' }], passed: 1, failed: 0, skipped: 0 } }),
+          proc('gates', { kind: 'gates', status: 'run', evidence: { kind: 'gates', rows: [{ label: 'lint', status: 'run', duration: `${n}s` }, { label: 'fmt', status: 'pass', duration: '1s' }], passed: 1, failed: 0, skipped: 0 } }),
         ],
       }),
     },
@@ -110,7 +110,7 @@ describe('a live push re-renders only the clock and token leaves (A4)', () => {
 
   it('touches nothing in the DOM but the leaves’ own text', () => {
     const h = mountInside(at(1));
-    const leaves = '.inside-meta, .inside-live .duration, [data-proc-id] > summary .duration, [data-proc-id] > summary .token-stat, .timeline-tail .token-stat';
+    const leaves = '.inside-meta, .inside-live .duration, [data-proc-id] > summary .duration, [data-proc-id] > summary .token-stat, .timeline-tail .token-stat, .graph-node-age, .ev-time, .ev-dur';
     const changed: Node[] = [];
     const observer = new MutationObserver((records) => {
       for (const r of records) changed.push(r.target);
@@ -178,5 +178,53 @@ describe('a live push re-renders only the clock and token leaves (A4)', () => {
     push(h, at(5), { live: true });
     expect(text(must('.inside-live .duration'))).toBe('5s');
     expect(all('.inside-live .sep')).toHaveLength(2);
+  });
+
+  it('advances a running gate row, a finished row and a graph node age on a live state push, with no structural render', () => {
+    const h = mountInside(at(1));
+    const settled = structural.renders;
+    expect(text(must('.graph-node-age'))).toBe('1m');
+    expect(text(must('.gate-state.run .ev-dur'))).toBe('1s');
+    push(h, at(4), { live: true });
+    expect(structural.renders).toBe(settled);
+    expect(text(must('.graph-node-age'))).toBe('4m');
+    expect(text(must('.gate-state.run .ev-dur'))).toBe('4s');
+    expect(text(must('.gate-state.pass .ev-dur'))).toBe('1s');
+    expect(text(must('.ev-state.run .ev-dur'))).toBe('4s');
+  });
+
+  it('advances them on a clocks message, and leaves a finished row alone', () => {
+    const h = mountInside(at(1));
+    const settled = structural.renders;
+    const graph = must('.graph-node-age');
+    h.emit({
+      type: 'clocks',
+      clocks: {
+        impl: {
+          clock: 'x',
+          processes: {
+            gates: { rows: [{ duration: '5s' }, { duration: '99s' }] },
+            graph: { rows: [{ duration: '8s', time: '09:13', durationExact: '8.0s' }], nodes: [{ age: '8m' }] },
+          },
+        },
+      },
+    } as HostMessage);
+    expect(structural.renders).toBe(settled);
+    expect(must('.graph-node-age')).toBe(graph);
+    expect(text(graph)).toBe('8m');
+    expect(text(must('.ev-state.run .ev-dur'))).toBe('8s');
+    expect(must('.ev-state.run .ev-dur').getAttribute('title')).toBe('8.0s · started 09:13');
+    expect(text(must('.gate-state.run .ev-dur'))).toBe('5s');
+    // The host sends only running rows' clocks; a finished row of a running process is overwritten only by what it sends.
+  });
+
+  it('shows and advances the elapsed time while a gate overlay is on screen', () => {
+    const h = mountInside(at(1));
+    h.emit({ type: 'inside-progress', event: { kind: 'active', ticketId: 1, stage: 'impl', processId: 'gates', live: { status: 'run', label: 'lint' } } } as HostMessage);
+    expect(text(must('.inside-live .duration'))).toBe('1s');
+    push(h, at(2), { live: true });
+    expect(text(must('.inside-live .duration'))).toBe('2s');
+    h.emit({ type: 'clocks', clocks: { impl: { clock: 'c', live: '9s', processes: {} } } } as HostMessage);
+    expect(text(must('.inside-live .duration'))).toBe('9s');
   });
 });
