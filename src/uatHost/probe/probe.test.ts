@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { probeEnabled } from './gate.js';
 import { ProbeRecorder, normalizeLogLine } from './recorder.js';
 import { conditionMet, runSteps, type ProbeHost, type Snapshot, type SnapshotScope } from './runner.js';
-import { parseSteps } from './steps.js';
+import { hasUiStep, isUiStep, parseSteps } from './steps.js';
 
 const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [] });
 
@@ -45,6 +45,47 @@ describe('parseSteps', () => {
     [[{ type: 'wait', for: { ticketStage: { key: 'A' } } }], 'string key and stage'],
   ])('rejects %j', (input, msg) => {
     expect(() => parseSteps(input)).toThrow(msg);
+  });
+});
+
+describe('parseSteps: UI steps', () => {
+  it('accepts every UI step shape and clamps the timeout', () => {
+    const input = [
+      { type: 'click', target: { act: 'create-subtask' }, timeoutMs: 999_999 },
+      { type: 'click', target: { quickPick: 'Non-blocking' } },
+      { type: 'click', target: { selector: '#go', surface: 'workbench' } },
+      { type: 'type', text: 'My title', target: { quickInput: true }, submit: true },
+      { type: 'type', text: 'x', target: { selector: 'input', surface: 'webview' } },
+      { type: 'press', key: 'Control+Shift+P' },
+      { type: 'read' },
+    ];
+    const steps = parseSteps(input);
+    expect(steps).toEqual([{ ...input[0], timeoutMs: 60_000 }, ...input.slice(1)]);
+    expect(steps.every(isUiStep)).toBe(true);
+    expect(hasUiStep(steps)).toBe(true);
+  });
+  it('a script of the old step types holds no UI step', () => {
+    const steps = parseSteps([{ type: 'snapshot' }, { type: 'restart' }]);
+    expect(hasUiStep(steps)).toBe(false);
+  });
+  it.each([
+    [{ type: 'click' }, '"target" must be an object'],
+    [{ type: 'click', target: {} }, 'one of act, quickPick, selector'],
+    [{ type: 'click', target: { act: '' } }, 'non-empty string'],
+    [{ type: 'click', target: { act: 'a"] , [x' } }, 'plain data-act token'],
+    [{ type: 'click', target: { act: 'a', extra: 1 } }, 'unknown field "extra"'],
+    [{ type: 'click', target: { selector: '#a' } }, 'needs surface'],
+    [{ type: 'click', target: { selector: '#a', surface: 'page' } }, 'needs surface'],
+    [{ type: 'click', target: { act: 'a' }, force: true }, 'unknown field "force"'],
+    [{ type: 'type', target: { quickInput: true } }, 'text needs a non-empty string'],
+    [{ type: 'type', text: 't', target: { quickInput: false } }, 'quickInput must be true'],
+    [{ type: 'type', text: 't', target: { act: 'a' } }, 'one of quickInput, selector'],
+    [{ type: 'type', text: 't', target: { quickInput: true }, submit: 'yes' }, 'submit must be a boolean'],
+    [{ type: 'press', key: 'Ctrl-P' }, 'key must be'],
+    [{ type: 'press' }, 'key needs a non-empty string'],
+    [{ type: 'read', target: { act: 'a' } }, 'unknown field "target"'],
+  ])('refuses %j', (step, msg) => {
+    expect(() => parseSteps([step])).toThrow(msg);
   });
 });
 

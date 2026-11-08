@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveInsideCheckout } from './args.mjs';
+import { UI_CDP_PORT, scriptHasUiStep, uiHostPlan } from './uiScript.mjs';
 import { AUTH_MOUNT, evalTestsEnv, preflightEval, readNetworkStatus, runRecord } from './evalMode.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,6 +102,15 @@ const probeEnv = scriptArg
       ...(probeTotalMs ? { UAT_PROBE_TOTAL_MS: probeTotalMs } : {}),
       ...(probeMaxStepMs ? { UAT_PROBE_MAX_STEP_MS: probeMaxStepMs } : {}) }
   : {};
+// A UI step needs the Playwright driver and the CDP port; a script without one runs exactly as before (arch:UATHOST-02).
+let hasUi = false;
+if (probeScriptPath) {
+  try {
+    hasUi = scriptHasUiStep(JSON.parse(readFileSync(probeScriptPath, 'utf8')));
+  } catch { /* unreadable or bad JSON: the host's parseSteps reports it with the step index */ }
+}
+const uiSocketPath = join(tmpdir(), `karst-uat-ui-${process.pid}.sock`);
+const uiPlan = uiHostPlan(hasUi, uiSocketPath);
 // runTests has no timeout of its own: this is the backstop so a wedged host can never hang the run.
 const hardTimeoutMs = Number(argValue('--hard-timeout-ms') ?? process.env.UAT_PROBE_HARD_TIMEOUT_MS ?? 300_000);
 
@@ -158,6 +168,7 @@ if (evalCore) {
   }
 }
 let code = 1;
+let uiDriver;
 try {
   const userData = join(root, 'user-data');
   const extensionsDir = join(root, 'extensions');
@@ -192,6 +203,7 @@ try {
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,
       ...probeEnv,
+      ...uiPlan.testsEnv,
     },
     launchArgs: [
       workspaceDir,
@@ -201,6 +213,7 @@ try {
       '--disable-workspace-trust',
       '--no-sandbox',
       '--disable-gpu',
+      ...uiPlan.launchArgs,
     ],
   }));
 
@@ -215,6 +228,10 @@ try {
       } catch (err) { console.error(`uat-host: could not save karst.db — ${err instanceof Error ? err.message : err}`); }
     }
   };
+  if (uiPlan.enabled) {
+    uiDriver = spawn(process.execPath, [join(here, 'uiDriver.mjs'), '--socket', uiSocketPath, '--port', String(UI_CDP_PORT), '--out', probeOutPath], { stdio: 'inherit' });
+    uiDriver.on('error', (err) => console.error(`uat-host: ui driver failed — ${err.message}`));
+  }
   const { child, exit } = startRun(optionsPath);
   let timer;
   const deadline = new Promise((r) => { timer = setTimeout(() => r({ timedOut: true }), hardTimeoutMs); });
@@ -233,6 +250,8 @@ try {
 } catch (err) {
   console.error('uat-host: FAILED —', err instanceof Error ? err.message : err);
 } finally {
+  if (uiDriver?.pid) { try { uiDriver.kill('SIGKILL'); } catch { /* already gone */ } }
+  rmSync(uiSocketPath, { force: true });
   rmSync(root, { recursive: true, force: true });
 }
 process.exit(code);

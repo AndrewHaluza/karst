@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "command", "command": "karst.openDashboard", "args": [1] },
+    { "type": "read" },
+    { "type": "snapshot", "label": "before-resume" },
+    { "type": "click", "target": { "act": "stage-resume" } },
+    { "type": "wait", "for": { "log": "parked blocked after a driver fail" }, "timeoutMs": 20000 },
+    { "type": "read" },
+    { "type": "snapshot", "label": "after-resume" }
+  ]
+}

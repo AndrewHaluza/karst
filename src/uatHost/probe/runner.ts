@@ -1,5 +1,6 @@
-import type { Step, WaitCondition } from './steps.js';
-import { DEFAULT_STEP_TIMEOUT_MS } from './steps.js';
+import type { Step, UiStep, WaitCondition } from './steps.js';
+import { DEFAULT_STEP_TIMEOUT_MS, isUiStep } from './steps.js';
+import { UI_GRACE_MS, type UiDriver, type UiEvidence } from './uiClient.js';
 import type { LaunchRecord } from '../launchRecord.js';
 
 export interface TicketEvidence {
@@ -27,6 +28,8 @@ export interface ProbeHost {
   restart(): Promise<void>;
   /** No scope means the full snapshot (evidence); `tickets: false` skips the store read. */
   snapshot(scope?: SnapshotScope): Snapshot;
+  /** Present only when the harness started the Playwright driver (the script holds a UI step). */
+  ui?: UiDriver;
 }
 export type StepStatus = 'pass' | 'fail' | 'timeout';
 export interface StepResult {
@@ -75,9 +78,24 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<{ timedOut: tr
   }
 }
 
-async function runStep(step: Step, opts: RunOptions, budgetMs: number): Promise<Omit<StepResult, 'index' | 'type'>> {
+type StepOutcome = Omit<StepResult, 'index' | 'type'> & { ui?: UiEvidence };
+
+async function runUiStep(step: UiStep, index: number, opts: RunOptions, timeoutMs: number): Promise<StepOutcome> {
+  const driver = opts.host.ui;
+  if (!driver) return { status: 'fail', detail: 'no UI driver: the harness starts it only for a --script that holds a UI step' };
+  try {
+    const r = await withTimeout(driver.run(index, step, timeoutMs), timeoutMs + UI_GRACE_MS);
+    if ('timedOut' in r) return { status: 'timeout', detail: `${step.type} got no reply from the UI driver in ${timeoutMs + UI_GRACE_MS}ms` };
+    return r.value;
+  } catch (err) {
+    return { status: 'fail', detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function runStep(step: Step, index: number, opts: RunOptions, budgetMs: number): Promise<StepOutcome> {
   const timeoutMs = Math.min(budgetMs, 'timeoutMs' in step && step.timeoutMs ? step.timeoutMs : DEFAULT_STEP_TIMEOUT_MS);
   if (step.type === 'snapshot') return { status: 'pass' };
+  if (isUiStep(step)) return runUiStep(step, index, opts, timeoutMs);
   if (step.type === 'command' || step.type === 'restart') {
     const label = step.type === 'restart' ? 'restart' : step.command;
     try {
@@ -106,9 +124,10 @@ export async function runSteps(steps: Step[], opts: RunOptions): Promise<StepRes
     const budget = end - Date.now();
     const outcome = budget <= 0
       ? { status: 'timeout' as const, detail: 'script total timeout exceeded' }
-      : await runStep(step, opts, budget);
-    const result: StepResult = { index, type: step.type, ...outcome };
-    await opts.writeEvidence(index, { step, result, snapshot: opts.host.snapshot() });
+      : await runStep(step, index, opts, budget);
+    const { ui, ...rest } = outcome as StepOutcome;
+    const result: StepResult = { index, type: step.type, ...rest };
+    await opts.writeEvidence(index, { step, result, snapshot: opts.host.snapshot(), ...(ui ? { ui } : {}) });
     results.push(result);
     if (result.status !== 'pass') break;
   }
