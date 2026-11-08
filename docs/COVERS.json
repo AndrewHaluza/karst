@@ -228,6 +228,12 @@
   "src/cli/**": [
     "arch:CLI-00"
   ],
+  "src/cli/archCommand.ts#parseArchArgs": [
+    "arch:CLI-22"
+  ],
+  "src/cli/archCommand.ts#runArchCommand": [
+    "arch:CLI-22"
+  ],
   "src/cli/assertMigrated.ts#assertExactSchema": [
     "arch:CLI-08",
     "arch:ST-00"

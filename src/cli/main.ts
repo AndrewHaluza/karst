@@ -38,6 +38,7 @@ import { getProjectById, getProjectBySlug } from '../store/projects.js';
 import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
+import { runArchCommand } from './archCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -655,6 +656,22 @@ export function runCli(
     }
   }
 
+  // `karst arch cite <key> --why <reason>` — records why a covered @arch block
+  // still holds (@arch:CLI-22). Its OWN parse path (archCommand.ts), like
+  // `notes`: the caller is `--ticket`, cross-checked against `KARST_TICKET`.
+  if (subcommand === 'arch') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return runArchCommand(store, found, effectiveRest, { sessionTicketKey: env.KARST_TICKET, cwd: process.cwd() });
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseFixBriefArgs(effectiveRest, ticket);
@@ -705,7 +722,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 
