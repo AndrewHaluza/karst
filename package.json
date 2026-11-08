@@ -60,7 +60,7 @@
     "docs:lint": "node scripts/docsKeys.mjs lint",
     "docs:index": "node scripts/docsKeys.mjs index",
     "docs:covers": "node scripts/docsKeys.mjs covers",
-    "docs:check": "node scripts/docsKeys.mjs lint && node scripts/docsKeys.mjs index --check && node scripts/docsKeys.mjs covers --check",
+    "docs:check": "node scripts/docsKeys.mjs lint && node scripts/docsKeys.mjs index --check && node scripts/docsKeys.mjs covers --check && tsx scripts/archSchema.ts --check",
     "docs:mermaid": "node scripts/docsMermaid.mjs",
     "docs:graph": "node scripts/archGraph.mjs",
     "docs:gate": "node scripts/docsGate.mjs",
