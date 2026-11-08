@@ -218,6 +218,51 @@ describe('autoDeliverAction records its gate run (T1018)', () => {
 });
 
 describe('takeover note limits (T1018)', () => {
+  it('a manual Deliver while the auto-deliver pushes does nothing more and says so', async () => {
+    seedPr();
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    let release: () => void = () => {};
+    const pushing = new Promise<void>((r) => { release = r; });
+    let started: () => void = () => {};
+    const inPush = new Promise<void>((r) => { started = r; });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: async () => null,
+      blocked: async () => {}, runShip: async () => { started(); await pushing; }, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await inPush;
+    const i = input();
+    await deliverToPrAction(i);
+    expect(i.info).toHaveBeenCalledWith('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
+    expect(i.afterServerChange).toHaveBeenCalled();
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+    release();
+    await auto;
+  });
+
+  it('keeps a note title of exactly the limit unclipped', async () => {
+    seedPr();
+    const name = 'g'.repeat(120 - 'Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: '.length);
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: [name], pid: 1, now: 'T0' });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    const titles = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(titles[0]!).toBe(`Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: ${name}`);
+    expect(titles[0]!).toHaveLength(120);
+  });
+
   it('clips a long gate list to the bulletin title limit with an ellipsis', async () => {
     seedPr();
     const run = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['g'.repeat(200)], pid: 1, now: 'T0' });
