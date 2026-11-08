@@ -1,3 +1,4 @@
+import { LOCAL_MERGE_NOTE } from './inside/deliver.js';
 import type { MergeCheckRow } from '../store/mergeChecks.js';
 import type { MergeState } from '../workflow/mergeCheck.js';
 import { formatAge, formatPrStamp } from './prPanelView.js';
@@ -61,6 +62,7 @@ function detailsLabelFor(state: MergeState, files: readonly string[], reason: st
 export function buildMergeCheckPanelRows(
   checks: readonly MergeCheckRow[],
   now: string,
+  roundActive = false,
 ): MergeCheckPanelRow[] {
   return checks.map((check) => {
     // Both are scoped to the state that can carry them, so a row written by a
@@ -70,6 +72,8 @@ export function buildMergeCheckPanelRows(
     const reason = check.state === 'unknown' ? (check.reason ?? '') : '';
     const parts = [
       check.state,
+      // While a conflict round is armed or delivering, `clean` is the local merge commit (T1018).
+      roundActive && check.state === 'clean' ? LOCAL_MERGE_NOTE : '',
       files.length > 0 ? plural(files.length, 'file') : '',
       check.baseRef ? `vs ${check.baseRef}` : '',
       formatAge(check.checkedAt, now),

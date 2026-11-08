@@ -89,7 +89,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
           {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} /> : null}
         </div>
         {/* "Deliver to PR": the count line + action, ship only, hidden while nothing is undelivered. */}
-        {deliver ? <DeliverRow notOnPr={deliver.notOnPr} inSandbox={deliver.inSandbox} /> : null}
+        {deliver ? <DeliverRow notOnPr={deliver.notOnPr} inSandbox={deliver.inSandbox} canDeliver={deliver.canDeliver} auto={deliver.auto} /> : null}
         {/* ONE slot for the round row and its caption, so the ledger keeps its sibling position (layout ledger keys are nth-child paths). */}
         {(view.attempts?.length ?? 0) >= 2 || view.attemptNote ? (
           <div className="attempt-slot">

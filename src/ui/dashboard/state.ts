@@ -285,6 +285,7 @@ export function buildDashboardState(
     ciFailure,
     rebase,
     undelivered,
+    deliverAuto,
     openPrFeedback,
   } = readActionStates(store, ticketId, agentContext);
   const evidence = readEvidence(store, ticketId);
@@ -413,7 +414,7 @@ export function buildDashboardState(
     rerunGate,
     resetStage,
     prFeedbackFix,
-    ...shipActionViews({ ciFailure, rebase, undelivered }, ticket.stageCurrent),
+    ...shipActionViews({ ciFailure, rebase, undelivered, deliverAuto }, ticket.stageCurrent),
     openPrFeedback,
   };
 }

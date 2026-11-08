@@ -146,3 +146,13 @@ describe('GateConsole', () => {
     expect(posted.slice(2).map((p) => p.text)).toEqual(['c', '\n$ unit\nd']);
   });
 });
+
+describe('GateConsole ship stage', () => {
+  it('streams ship output and flushes it with the ticket', () => {
+    const posts: Array<[number, string, string]> = [];
+    const c = new GateConsole({ onOutput: (t, st, text) => posts.push([t, st, text]) });
+    c.append(5, 'ship', 'unit', { stream: 'stdout', text: 'ok\n' } as never);
+    c.flushTicket(5);
+    expect(posts).toEqual([[5, 'ship', '\n$ unit\nok\n']]);
+  });
+});

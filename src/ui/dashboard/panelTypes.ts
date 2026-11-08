@@ -1,5 +1,5 @@
 import type { AgentProcessId, DashboardActions, StageLogResult } from './messages.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -83,7 +83,7 @@ export interface DashboardBinding {
 export type ActionsFactory = (ticketId: number) => DashboardActions;
 
 /** Resolve one gate stage's console log host-side (store + fs). */
-export type StageLogReader = (ticketId: number, stage: GateStage) => StageLogResult;
+export type StageLogReader = (ticketId: number, stage: ConsoleStage) => StageLogResult;
 
 /** Resolve one gate-lane AI process's console tail host-side (fs). */
 export type AgentLogReader = (ticketId: number, processId: AgentProcessId) => StageLogResult;

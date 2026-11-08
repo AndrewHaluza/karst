@@ -25,6 +25,7 @@ const SENDERS = [
   'resetStage',
   'addressPrFeedback',
   'deliverToPr',
+  'dismissDeliverFailures',
   'sendCiFailure',
   'rebaseOnBase',
   'rerunGate',

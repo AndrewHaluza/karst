@@ -1,5 +1,5 @@
 import { sanitizeAgentOutput } from '../../agent/outputTail.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import { CONSOLE_STAGES, type ConsoleStage } from '../../store/ticketGates.js';
 import type { GateOutputChunk } from './run.js';
 
 /**
@@ -30,7 +30,7 @@ export interface GateConsoleOptions {
    * an OPEN stage console. Absent → no live streaming (the artifact is still
    * written and readable after the run).
    */
-  onOutput?: (ticketId: number, stage: GateStage, text: string) => void;
+  onOutput?: (ticketId: number, stage: ConsoleStage, text: string) => void;
   /** Verbose decision-point logging (§ debug logging), prefixed `[gate]`. */
   debug?: (message: string) => void;
 }
@@ -38,11 +38,10 @@ export interface GateConsoleOptions {
 export const GATE_CONSOLE_FLUSH_MS = 150;
 export const GATE_CONSOLE_MAX_BUFFER = 16_384;
 
-const GATE_STAGES: readonly GateStage[] = ['uat', 'review'];
 
 interface Pending {
   readonly ticketId: number;
-  readonly stage: GateStage;
+  readonly stage: ConsoleStage;
   readonly gateName: string;
   text: string;
   chars: number;
@@ -57,7 +56,7 @@ export class GateConsole {
 
   constructor(private readonly options: GateConsoleOptions) {}
 
-  private key(ticketId: number, stage: GateStage): string {
+  private key(ticketId: number, stage: ConsoleStage): string {
     return `${ticketId}:${stage}`;
   }
 
@@ -67,7 +66,7 @@ export class GateConsole {
    * posted as ONE live append per flush (timer, size cap, gate change, reset,
    * or `flush` at run end). Never throws.
    */
-  append(ticketId: number, stage: GateStage, gateName: string, chunk: GateOutputChunk): void {
+  append(ticketId: number, stage: ConsoleStage, gateName: string, chunk: GateOutputChunk): void {
     const clean = sanitizeAgentOutput(chunk.text);
     if (clean.length === 0) return;
     const key = this.key(ticketId, stage);
@@ -87,24 +86,24 @@ export class GateConsole {
   }
 
   /** Post any buffered output now (call when a gate run ends). */
-  flush(ticketId: number, stage: GateStage): void {
+  flush(ticketId: number, stage: ConsoleStage): void {
     this.flushKey(this.key(ticketId, stage));
   }
 
   /** Flush, then forget which gate is current, so the next chunk re-headers. */
-  reset(ticketId: number, stage: GateStage): void {
+  reset(ticketId: number, stage: ConsoleStage): void {
     this.flush(ticketId, stage);
     this.currentGate.delete(this.key(ticketId, stage));
   }
 
   /** `flush` both gate-running stages of a ticket (the driver's run end). */
   flushTicket(ticketId: number): void {
-    for (const stage of GATE_STAGES) this.flush(ticketId, stage);
+    for (const stage of CONSOLE_STAGES) this.flush(ticketId, stage);
   }
 
   /** `reset` both gate-running stages of a ticket (the driver's run start). */
   resetTicket(ticketId: number): void {
-    for (const stage of GATE_STAGES) this.reset(ticketId, stage);
+    for (const stage of CONSOLE_STAGES) this.reset(ticketId, stage);
   }
 
   /** Cancel every pending timer; buffered output is discarded. */

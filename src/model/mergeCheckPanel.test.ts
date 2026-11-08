@@ -33,6 +33,13 @@ describe('buildMergeCheckPanelRows', () => {
     expect(out!.reason).toBe('');
   });
 
+  it('says a clean check is the local merge commit while a conflict round is active', () => {
+    const [clean] = buildMergeCheckPanelRows([row()], NOW, true);
+    expect(clean!.headline).toBe('clean · the local merge commit, not on the PR yet · vs develop · 4m ago');
+    const [conflicted] = buildMergeCheckPanelRows([row({ state: 'conflicted', files: ['a.ts'] })], NOW, true);
+    expect(conflicted!.headline).toBe('conflicted · 1 file · vs develop · 4m ago');
+  });
+
   it('puts the conflict count on the line and the paths in the body', () => {
     const [out] = buildMergeCheckPanelRows(
       [row({ state: 'conflicted', files: ['CLAUDE.md', 'src/a.ts', 'src/b.ts', 'src/c.ts'] })],

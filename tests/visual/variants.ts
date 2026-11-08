@@ -147,6 +147,14 @@ const insideCaseVariants = (): Variant[] =>
     variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.skipLayout ? { skipLayout: true } : {}), ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
   );
 
+/** T1018: the auto-deliver lines of the Deliver row at the mid and narrow tiers (the wide tier is the plain case). */
+const deliverAutoTierVariants = (): Variant[] =>
+  INSIDE_CASES.filter((c) => c.id.startsWith('deliver-auto-')).flatMap((c) =>
+    ([['mid', 800], ['narrow', 360]] as const).map(([tier, width]) =>
+      variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { skipLayout: true, width }),
+    ),
+  );
+
 /** T1001: the stall panel in each state, in all three themes. Screenshot-only: the panel adds no layout route. */
 const stallVariants = (): Variant[] => {
   const one = (id: string, kind: StallFixtureKind, extra: { width?: number; pills?: readonly string[] } = {}): Variant =>
@@ -310,6 +318,7 @@ const dashboardVariants = (): Variant[] => [
     sharedServers: sharedServerFixtures(),
   }))),
   ...insideCaseVariants(),
+  ...deliverAutoTierVariants(),
   ...agentPopoverVariants(),
   ...drillDownVariants(),
   // D283: one-shot edge ring pulse when revealed, framed statically in reduced-motion state.

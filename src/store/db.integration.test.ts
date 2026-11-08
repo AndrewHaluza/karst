@@ -22,6 +22,8 @@ import {
 
 const EXPECTED_TABLES = [
   'projects',
+  'deliver_runs',
+  'deliver_gate_results',
   'tickets',
   'stages',
   'gate_runs',

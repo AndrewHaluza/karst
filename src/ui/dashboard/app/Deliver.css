@@ -1,0 +1,13 @@
+/* The auto-deliver lines inside the Deliver row (T1018). Existing tokens only; long names and summaries wrap (UI-R44). */
+#inside .inside-deliver{flex-wrap:wrap}
+#inside .deliver-progress,#inside .deliver-gate-failures{flex:1 1 100%;min-width:0;margin:0;overflow-wrap:anywhere}
+#inside .deliver-progress{color:var(--p-running)}
+#inside .deliver-failure-group{margin:0}
+#inside .deliver-failure-head{margin:0 0 var(--p-s1);font-size:var(--p-xs);font-weight:var(--k-weight-semibold);color:var(--p-muted2)}
+#inside .deliver-gate-failures ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--p-s1)}
+#inside .deliver-gate-failures li{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--p-s1) var(--p-s3);min-width:0}
+#inside .deliver-failure-line{color:var(--p-attention);min-width:0}
+#inside .deliver-failure-summary{flex:1 1 100%;min-width:0;font-family:var(--p-mono);color:var(--p-muted2);white-space:pre-wrap}
+@media (max-width: 699px){
+  #inside .inside-deliver{justify-content:flex-start}
+}

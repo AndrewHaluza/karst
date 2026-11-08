@@ -10,6 +10,14 @@ export const GATE_STAGES = ['uat', 'review'] as const;
 export type GateStage = (typeof GATE_STAGES)[number];
 
 /**
+ * The stages that own a console: the gate stages plus `ship`, whose auto-deliver
+ * gate run streams live output (T1018, @arch:GATE-OUTPUT). `ship` has no stage
+ * artifact; its post-run console reads the kept `deliver_gate_results` summaries.
+ */
+export const CONSOLE_STAGES = ['uat', 'review', 'ship'] as const;
+export type ConsoleStage = (typeof CONSOLE_STAGES)[number];
+
+/**
  * Which named gates this ticket has switched off, per stage.
  *
  * An empty array is the whole meaning of "nothing disabled" — there is no

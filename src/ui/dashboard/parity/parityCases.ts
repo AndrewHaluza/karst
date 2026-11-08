@@ -54,6 +54,17 @@ const shipMenuState = (): DashboardState =>
     deliver: { available: true, notOnPr: 2, inSandbox: 1 },
   });
 
+const deliverFailureState = (): DashboardState =>
+  st('ship', {
+    deliver: {
+      available: true, notOnPr: 2, inSandbox: 0,
+      auto: {
+        running: null, takenOver: null, roundActive: false, headSha: 'a1b2c3d4e5f6',
+        failures: [{ gate: 'unit', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f6', summary: 'boom' }],
+      },
+    },
+  });
+
 const uatMenuState = (): DashboardState =>
   st('uat', {
     sendBack: { available: true, stage: 'uat' },
@@ -461,6 +472,10 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'deliver-to-pr', state: shipMenuState, sel: act('deliver-to-pr'),
     posts: [{ type: 'deliver-to-pr' }], rid: false,
+  },
+  {
+    act: 'dismiss-deliver-failures', state: deliverFailureState, sel: act('dismiss-deliver-failures'),
+    posts: [{ type: 'dismiss-deliver-failures', gate: 'unit' }], rid: false, pendingSel: false,
   },
   {
     act: 'inside-action', state: () => st('impl'), sel: act('inside-action', '[data-action-id="fixture:open-full-evidence:1"]'),

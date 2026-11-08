@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import { listServersByTicket } from '../../store/dashboard.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import { parseInsideProgress } from './messages.js';
 import type { AgentProcessId, StageLogResult } from './messages.js';
 import type {
@@ -54,7 +54,7 @@ export class DashboardConsole {
    * post the `stage-log` message. The answer IS the terminal outcome — always
    * sent (ok or error), never left to a watchdog (UI-R13).
    */
-  requestStageLog(ticketId: number, stage: GateStage): void {
+  requestStageLog(ticketId: number, stage: ConsoleStage): void {
     const panel = this.panelFor(ticketId);
     if (!panel) return;
     const result = this.stageLogReader
@@ -96,7 +96,7 @@ export class DashboardConsole {
    * (the `GateConsole` sink); this boundary forwards it verbatim to the open
    * stage console.
    */
-  postStageOutput(ticketId: number, stage: GateStage, text: string): void {
+  postStageOutput(ticketId: number, stage: ConsoleStage, text: string): void {
     const panel = this.panelFor(ticketId);
     if (!panel) return;
     panel.postMessage({ type: 'stage-output', stage, text });

@@ -1552,3 +1552,31 @@ CREATE TABLE IF NOT EXISTS arch_citations (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (ticket_id, key)
 );
+
+-- v108 (T1018): the record of an auto-deliver gate run (`store/deliverRuns.ts`).
+CREATE TABLE IF NOT EXISTS deliver_runs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  head_sha    TEXT,
+  gates       TEXT NOT NULL,
+  current_gate TEXT,
+  state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
+  pid         INTEGER,
+  started_at  TEXT NOT NULL,
+  ended_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
+CREATE TABLE IF NOT EXISTS deliver_gate_results (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id       INTEGER NOT NULL REFERENCES deliver_runs(id) ON DELETE CASCADE,
+  ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  gate_name    TEXT NOT NULL,
+  repo         TEXT NOT NULL,
+  exit_code    INTEGER,
+  head_sha     TEXT,
+  summary      TEXT,
+  started_at   TEXT,
+  ended_at     TEXT,
+  dismissed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ticket_id, id);
