@@ -158,6 +158,8 @@ export interface DepStatus {
   /** The ticket's current stage while `kind === 'ticket'`; null otherwise. */
   stage: string | null;
   glyph: Glyph | null;
+  /** Host-built `P43` of the target draft's planning session; set only when it is NOT the card's own session. */
+  sessionLabel?: string;
 }
 
 export interface PlanningProposalRow {
@@ -166,7 +168,7 @@ export interface PlanningProposalRow {
   idLabel: string;
   /** Host-built `T583` of the ticket this draft became; null while pending. */
   ticketIdLabel: string | null;
-  /** `D<n>` of each entry in `dependsOn`, same order. */
+  /** `D<n>` (or `T<n>`) of each entry in `dependsOn`, same order. */
   dependsOnLabels: string[];
   /** Live state of each dependency, same order as `dependsOn`; discarded targets are omitted. */
   dependsOnStatus: DepStatus[];
@@ -175,8 +177,8 @@ export interface PlanningProposalRow {
   title: string;
   status: 'pending' | 'accepted';
   ticketId: number | null;
-  /** Host proposal ids this draft waits on (`D<n>`), in file order. */
-  dependsOn: number[];
+  /** What this draft waits on, in file order: host proposal ids (`D<n>`) and `T<n>` ticket ids. */
+  dependsOn: (number | string)[];
   /**
    * Host proposal ids pruned from `dependsOn` because their target was discarded.
    * A pending draft's card renders these as a warning; absent/empty when none.
@@ -459,20 +461,44 @@ function unlinkedRows(cloud: ReturnType<typeof cloudSessionsForSidebar> | undefi
 
 const isId = (n: number): boolean => Number.isSafeInteger(n) && n >= 1;
 
+/** The ticket id of a `T<n>` dependsOn entry, or undefined for a draft id. */
+const ticketDepId = (d: number | string): number | undefined => {
+  if (typeof d !== 'string') return undefined;
+  const n = Number(d.slice(1));
+  return isId(n) ? n : undefined;
+};
+
+/** One `T<n>` dependency's live state: the ticket itself is the target, so `label` and `ticketLabel` match. */
+function ticketDepStatus(store: Store, ticketId: number): DepStatus[] {
+  let ticket;
+  try {
+    ticket = getTicket(store, ticketId);
+  } catch {
+    return [];
+  }
+  const label = formatId('ticket', ticketId);
+  if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
+    const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
+    return [{ id: ticketId, label, kind: 'done', ticketId, ticketLabel: label, stage: null, glyph }];
+  }
+  return [{ id: ticketId, label, kind: 'ticket', ticketId, ticketLabel: label, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
+}
+
 /** One dependency's live state; `[]` when the target is gone (discarded edges render via `droppedLabels`). */
-function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number): DepStatus[] {
+function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number, sessionLabel?: string): DepStatus[] {
   if (!target) return [];
+  const tag = sessionLabel === undefined ? {} : { sessionLabel };
   const label = formatId('draft', id);
   if (target.status !== 'accepted' || target.ticketId === null) {
-    return [{ id, label, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray' }];
+    return [{ id, label, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray', ...tag }];
   }
   const ticket = getTicket(store, target.ticketId);
   const ticketLabel = formatId('ticket', ticket.id);
   if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
     const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
-    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph }];
+    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph, ...tag }];
   }
-  return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
+  return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket), ...tag }];
 }
 
 function planningRows(
@@ -510,8 +536,19 @@ function planningRows(
         id: p.id,
         idLabel: formatId('draft', p.id),
         ticketIdLabel: p.ticketId === null ? null : formatId('ticket', p.ticketId),
-        dependsOnLabels: (p.payload.dependsOn ?? []).filter(isId).map((n) => formatId('draft', n)),
-        dependsOnStatus: (p.payload.dependsOn ?? []).filter(isId).flatMap((n) => depStatus(store, byId.get(n), n)),
+        dependsOnLabels: (p.payload.dependsOn ?? []).flatMap((d) => {
+          const t = ticketDepId(d);
+          if (t !== undefined) return [formatId('ticket', t)];
+          return typeof d === 'number' && isId(d) ? [formatId('draft', d)] : [];
+        }),
+        dependsOnStatus: (p.payload.dependsOn ?? []).flatMap((d) => {
+          const t = ticketDepId(d);
+          if (t !== undefined) return ticketDepStatus(store, t);
+          if (typeof d !== 'number' || !isId(d)) return [];
+          const target = byId.get(d);
+          const cross = target !== undefined && target.sessionId !== p.sessionId;
+          return depStatus(store, target, d, cross ? formatId('plan', target.sessionId) : undefined);
+        }),
         title: p.payload.title,
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,

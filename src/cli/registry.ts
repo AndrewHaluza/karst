@@ -153,6 +153,17 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'queue',
+    summary: "List the project's pending drafts and not-started top-level tickets, to find ids for a draft's dependsOn.",
+    input: obj({ json: bool }),
+    globals: { db: true, manifest: true },
+    toArgv: (input) => {
+      const argv = ['queue'];
+      pushFlag(argv, '--json', input.json);
+      return argv;
+    },
+  },
+  {
     name: 'stage',
     summary: 'Fire the done marker for impl or fix (the only agent transition).',
     input: obj({ stage: { type: 'string', enum: ['impl', 'fix'] } }, ['stage']),

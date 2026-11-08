@@ -111,7 +111,7 @@ export function fixtureDraft(
   return {
     idLabel: `D${d.id}`,
     ticketIdLabel: d.ticketId === null ? null : `T${d.ticketId}`,
-    dependsOnLabels: d.dependsOn.map((n) => `D${n}`),
+    dependsOnLabels: d.dependsOn.map((n) => (typeof n === 'string' ? n : `D${n}`)),
     dependsOnStatus: [],
     ...(d.droppedDepends ? { droppedLabels: d.droppedDepends.map((n) => `D${n}`) } : {}),
     ...d,
@@ -325,6 +325,8 @@ function planningDepsState(): SidebarState {
     dep(92, 'ticket', 605, 'impl', 'blue'),
     dep(91, 'done', 604, null, 'green'),
   ];
+  const crossSession: DepStatus = { ...dep(498, 'draft', null, null, 'gray'), sessionLabel: 'P43' };
+  const directTicket: DepStatus = { ...dep(610, 'ticket', 610, 'impl', 'blue'), label: 'T610' };
   return {
     ...emptyState(),
     sections: { current: [fixtureRow(0, { glyph: 'blue' })], awaitingReview: [], recentlyDone: [], olderDone: [] },
@@ -333,6 +335,7 @@ function planningDepsState(): SidebarState {
       proposals: [
         fixtureDraft({ id: 94, title: 'Pending prerequisite', status: 'pending', ticketId: null, dependsOn: [] }),
         fixtureDraft({ id: 95, title: 'Needs three things', status: 'pending', ticketId: null, dependsOn: [94, 92, 91], dependsOnStatus }),
+        fixtureDraft({ id: 97, title: 'Needs another session and a ticket', status: 'pending', ticketId: null, dependsOn: [498, 'T610'], dependsOnStatus: [crossSession, directTicket] }),
         fixtureDraft({ id: 96, title: 'Accepted with deps', status: 'accepted', ticketId: 606, dependsOn: [92, 91], dependsOnStatus: dependsOnStatus.slice(1) }),
       ],
     })],

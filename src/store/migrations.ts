@@ -2917,5 +2917,15 @@ function migrateLocked(db: Database): void {
     if (cols109.size > 0 && !cols109.has('manifest_sha')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN manifest_sha TEXT');
   }
 
+  if (current < 110) {
+    // v110: `planning_proposals.depends_on_tickets` — a JSON array of the open ticket ids a draft
+    // waits on (a `T<n>` dependsOn entry). Draft ids stay in `depends_on`. Additive; `'[]'` is
+    // honest for every pre-v110 row (none could name a ticket).
+    const cols110 = tableColumns(db, 'planning_proposals');
+    if (cols110.size > 0 && !cols110.has('depends_on_tickets')) {
+      db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_on_tickets TEXT NOT NULL DEFAULT '[]'");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

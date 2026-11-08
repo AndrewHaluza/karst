@@ -654,22 +654,32 @@ describe('planning outbox', () => {
     expect(warns).toEqual([]);
   });
 
-  it('rejects dependsOn of another session, a discarded proposal, and a cycle, writing nothing', () => {
+  it('stores a dependsOn on a draft of another session and on an open ticket', () => {
     const other = createPlanningSession(store, { projectId, title: 'other', core: 'claude', model: null }).id;
     const foreign = insertProposal(store, other, good);
+    const ticket = createTicket(store, { key: 'K-open', title: 'open', projectId });
+    put(`${UUID(1)}.json`, { ...good, title: 'cross dep', dependsOn: [`D${foreign}`, `T${ticket.id}`] });
+    make().scan();
+
+    const stored = pending().find((p) => p.payload.title === 'cross dep')!;
+    expect(stored.payload.dependsOn).toEqual([foreign, `T${ticket.id}`]);
+    expect(warns).toEqual([]);
+  });
+
+  it('rejects dependsOn of a discarded proposal, an unknown ticket and a cycle, writing nothing', () => {
     const discarded = insertProposal(store, sessionId, good);
     discardProposal(store, discarded);
     const a = insertProposal(store, sessionId, good);
     const b = insertProposal(store, sessionId, { ...good, title: 'b', dependsOn: [a] });
 
-    put(`${UUID(1)}.json`, { ...good, title: 'foreign dep', dependsOn: [foreign] });
-    put(`${UUID(2)}.json`, { ...good, title: 'dead dep', dependsOn: [discarded] });
+    put(`${UUID(1)}.json`, { ...good, title: 'dead dep', dependsOn: [discarded] });
+    put(`${UUID(2)}.json`, { ...good, title: 'ghost ticket', dependsOn: ['T999999'] });
     // Revising `a` to wait on `b` closes the cycle a→b→a.
     put(`${UUID(3)}.json`, { ...good, id: a, title: 'cycle', dependsOn: [b] });
     make().scan();
 
-    expect(warns.join()).toMatch(/not a proposal of this session/);
     expect(warns.join()).toMatch(/discarded/);
+    expect(warns.join()).toMatch(/not a ticket of this project/);
     expect(warns.join()).toMatch(/cycle/);
     expect(getProposal(store, a)!.payload.dependsOn ?? []).toEqual([]);
     expect(readdirSync(outbox)).toEqual([]);

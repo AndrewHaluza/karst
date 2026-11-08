@@ -34,13 +34,15 @@ export interface Proposal {
    */
   id?: number;
   /**
-   * Optional host proposal ids this draft waits on — the same `#N` ids
-   * `draft propose` prints and `draft list` shows. They name drafts of THIS
-   * session (the host rejects a foreign id), are resolved to ticket links when
-   * the target is accepted, and are pruned if it is discarded. `deduped` here;
-   * the host additionally rejects unknown/cross-session ids and cycles.
+   * Optional entries this draft waits on: a host proposal id (`3` or `D3`, a
+   * draft of ANY session of the project, as `karst queue` lists) or a `T<n>`
+   * open ticket. Drafts are resolved to ticket links when the target is
+   * accepted and pruned if it is discarded; a ticket becomes a `blocked-by`
+   * row on accept. Normalized here to a number (draft) or a `T<n>` string
+   * (ticket) and deduped; the host additionally rejects unknown ids, other
+   * projects' ids, closed tickets and cycles.
    */
-  dependsOn?: number[];
+  dependsOn?: (number | `T${number}`)[];
   /**
    * Optional design rules and prior work the draft builds on: `@arch:KEY`,
    * a commit hash, a `D<n>`/`T<n>`/`#N` ref (draft/ticket/PR) or free text. Trimmed, deduped,
@@ -66,6 +68,18 @@ function asDraftNumber(v: unknown): number | undefined {
   if (typeof v !== 'string') return undefined;
   try {
     return parseId(v, 'draft').n;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A dependsOn entry as a draft number or a `T<n>` ticket string; anything else is undefined. */
+function asDependency(v: unknown): number | `T${number}` | undefined {
+  const draft = asDraftNumber(v);
+  if (draft !== undefined) return draft;
+  if (typeof v !== 'string') return undefined;
+  try {
+    return `T${parseId(v, 'ticket').n}`;
   } catch {
     return undefined;
   }
@@ -98,13 +112,13 @@ export function validateProposal(raw: unknown): ProposalResult {
     if (id === undefined) return fail('id must be a positive integer or a D<n> id');
   }
 
-  let dependsOn: number[] | undefined;
+  let dependsOn: (number | `T${number}`)[] | undefined;
   if ('dependsOn' in rec) {
     const v = rec.dependsOn;
-    if (!Array.isArray(v)) return fail('dependsOn must be an array of positive integers or D<n> ids');
-    const nums = v.map(asDraftNumber);
-    if (!nums.every((d): d is number => d !== undefined)) {
-      return fail('every dependsOn entry must be a positive integer or a D<n> id');
+    if (!Array.isArray(v)) return fail('dependsOn must be an array of positive integers, D<n> ids or T<n> ids');
+    const nums = v.map(asDependency);
+    if (!nums.every((d): d is number | `T${number}` => d !== undefined)) {
+      return fail('every dependsOn entry must be a positive integer, a D<n> id or a T<n> id');
     }
     dependsOn = [...new Set(nums)];
     if (dependsOn.length > MAX_PROPOSAL_DEPENDS_ON) {

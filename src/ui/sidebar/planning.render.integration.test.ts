@@ -259,6 +259,15 @@ describe('sidebar planning drafts', () => {
       expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605 · impl', 'D91→T604']);
     });
 
+    it('shows the session of a cross-session draft and a T<n> ticket chip with one id', async () => {
+      const h = await renderSidebarApp();
+      await withDeps(h);
+      expect(chips(h, 97).map((c) => c.textContent!.trim())).toEqual(['D498 · P43', 'T610 · impl']);
+      expect(chips(h, 97).map((c) => c.getAttribute('aria-label'))).toEqual([
+        'D498, draft pending', 'ticket T610 in impl',
+      ]);
+    });
+
     it('gives each chip an accessible name and a status marker carrying the glyph class', async () => {
       const h = await renderSidebarApp();
       await withDeps(h);

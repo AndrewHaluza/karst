@@ -1,6 +1,6 @@
 import type { Store } from './db.js';
 import { getTicket, updateTicketFields } from './tickets.js';
-import { linkPlanningTicket } from './planningSessions.js';
+import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
@@ -14,17 +14,26 @@ import { formatId } from '../model/entityId.js';
  * of the prefilled ticket form mints the ticket, then this links and resolves it.
  */
 
+/** One `dependsOn` entry: a draft id (number) or an open ticket (`T<n>`). */
+export type ProposalDependency = number | `T${number}`;
+
+const ticketDep = (n: number): ProposalDependency => `T${n}`;
+const isTicketDep = (d: ProposalDependency): d is `T${number}` => typeof d === 'string';
+const depTicketId = (d: `T${number}`): number => Number(d.slice(1));
+
 export interface ProposalPayload {
   title: string;
   description: string;
   summary: string;
   repos: string[];
   /**
-   * Host proposal ids this draft waits on. Stored in the dedicated
-   * `planning_proposals.depends_on` JSON column, NOT in `payload_json`; reads
-   * merge it back onto the payload so callers see one object. Absent when empty.
+   * What this draft waits on: host proposal ids of ANY session of the project
+   * (numbers) and open ticket ids (`T<n>`). Draft ids live in the dedicated
+   * `planning_proposals.depends_on` JSON column and ticket ids in
+   * `depends_on_tickets`, NOT in `payload_json`; reads merge both back onto the
+   * payload (drafts first) so callers see one object. Absent when empty.
    */
-  dependsOn?: number[];
+  dependsOn?: ProposalDependency[];
   /** Design rules / prior work the draft cites (see `Proposal.constraints`). Absent when none. */
   constraints?: string[];
 }
@@ -67,6 +76,7 @@ interface ProposalRow {
   payload_json: string;
   base_shas?: string | null;
   depends_on: string;
+  depends_on_tickets?: string | null;
   depends_dropped: string;
   status: ProposalStatus;
   ticket_id: number | null;
@@ -79,7 +89,7 @@ interface ProposalRow {
 }
 
 const COLUMNS =
-  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_on_tickets, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
 
 /** A JSON column holding a positive-integer id array, decoded defensively —
  *  a corrupt or non-array value reads as none. */
@@ -95,15 +105,20 @@ function parseIdArray(raw: string | null): number[] {
   }
 }
 
-/** Split the public payload into the stored body and its `depends_on` column;
- *  `warnings` ride in the body under the reserved `hostWarnings` key. */
+/** Split the public payload into the stored body and its `depends_on` (draft ids)
+ *  and `depends_on_tickets` (ticket ids) columns; `warnings` ride in the body
+ *  under the reserved `hostWarnings` key. */
 function splitPayload(
   payload: ProposalPayload,
   warnings: readonly string[],
-): { body: string; dependsOn: string } {
+): { body: string; dependsOn: string; dependsOnTickets: string } {
   const { dependsOn = [], ...rest } = payload;
   const body = warnings.length > 0 ? { ...rest, hostWarnings: warnings } : rest;
-  return { body: JSON.stringify(body), dependsOn: JSON.stringify(dependsOn) };
+  return {
+    body: JSON.stringify(body),
+    dependsOn: JSON.stringify(dependsOn.filter((d): d is number => !isTicketDep(d))),
+    dependsOnTickets: JSON.stringify(dependsOn.filter(isTicketDep).map(depTicketId)),
+  };
 }
 
 function parseBaseShas(raw: string | null | undefined): Record<string, string> {
@@ -125,7 +140,10 @@ function toProposal(r: ProposalRow): PlanningProposal {
   const { hostWarnings, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & { hostWarnings?: unknown };
   const warnings =
     Array.isArray(hostWarnings) && hostWarnings.every((w): w is string => typeof w === 'string') ? hostWarnings : [];
-  const dependsOn = parseIdArray(r.depends_on);
+  const dependsOn: ProposalDependency[] = [
+    ...parseIdArray(r.depends_on),
+    ...parseIdArray(r.depends_on_tickets ?? null).map(ticketDep),
+  ];
   if (dependsOn.length > 0) payload.dependsOn = dependsOn;
   return {
     id: r.id,
@@ -159,12 +177,12 @@ export function insertProposal(
   // migrated v65 DB the v66 column is nullable (SQLite forbids a function
   // default in ALTER TABLE ADD COLUMN), so a bare INSERT would write NULL and
   // the proposal would vanish from the session index.
-  const { body, dependsOn } = splitPayload(payload, warnings);
+  const { body, dependsOn, dependsOnTickets } = splitPayload(payload, warnings);
   const { lastInsertRowid } = store.db
     .prepare(
-      "INSERT INTO planning_proposals (session_id, payload_json, base_shas, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+      "INSERT INTO planning_proposals (session_id, payload_json, base_shas, depends_on, depends_on_tickets, source_uuid, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
     )
-    .run(sessionId, body, JSON.stringify(baseShas), dependsOn, sourceUuid);
+    .run(sessionId, body, JSON.stringify(baseShas), dependsOn, dependsOnTickets, sourceUuid);
   return Number(lastInsertRowid);
 }
 
@@ -225,6 +243,18 @@ export function listSessionProposals(store: Store, sessionId: number): PlanningP
   return rows.map(toProposal);
 }
 
+/** Every proposal of the project, any session and status, oldest first. */
+export function listProjectProposals(store: Store, projectId: number): PlanningProposal[] {
+  const rows = store.db
+    .prepare(
+      `SELECT ${COLUMNS} FROM planning_proposals p
+       JOIN planning_sessions s ON s.id = p.session_id
+       WHERE s.project_id = ? ORDER BY p.id`,
+    )
+    .all(projectId) as ProposalRow[];
+  return rows.map(toProposal);
+}
+
 export function countPending(store: Store, sessionId: number): number {
   const row = store.db
     .prepare("SELECT COUNT(*) AS n FROM planning_proposals WHERE session_id = ? AND status = 'pending'")
@@ -253,22 +283,22 @@ export function updateProposalPayload(
   baseShas?: Record<string, string>,
 ): void {
   requirePending(store, id);
-  const { body, dependsOn } = splitPayload(payload, warnings);
+  const { body, dependsOn, dependsOnTickets } = splitPayload(payload, warnings);
   const cur = getProposal(store, id);
   const shasJson = JSON.stringify(baseShas ?? cur?.baseShas ?? {});
   if (sourceUuid === undefined) {
     store.db
       .prepare(
-        "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
       )
-      .run(body, shasJson, dependsOn, id);
+      .run(body, shasJson, dependsOn, dependsOnTickets, id);
     return;
   }
   store.db
     .prepare(
-      "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
-    .run(body, shasJson, dependsOn, sourceUuid, id);
+    .run(body, shasJson, dependsOn, dependsOnTickets, sourceUuid, id);
 }
 
 /** Replace only a pending proposal's host warnings (a late async check result). */
@@ -314,10 +344,13 @@ export function discardProposal(store: Store, id: number): number[] {
       });
     }
     const pruned: number[] = [];
-    for (const other of listSessionProposals(store, p.sessionId)) {
+    const projectId = getPlanningSession(store, p.sessionId)?.projectId;
+    // Dependents may live in ANY session of the project (cross-session edges).
+    const everyProposal = projectId === undefined ? listSessionProposals(store, p.sessionId) : listProjectProposals(store, projectId);
+    for (const other of everyProposal) {
       const deps = other.payload.dependsOn ?? [];
       if (!deps.includes(id)) continue;
-      const remaining = JSON.stringify(deps.filter((d) => d !== id));
+      const remaining = JSON.stringify(deps.filter((d): d is number => typeof d === 'number' && d !== id));
       if (other.status === 'pending') {
         const dropped = new Set([...other.droppedDepends, id]);
         store.db
@@ -363,40 +396,95 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
   );
 }
 
+const DONE_STAGE = 'done';
+
+const nodeOfDraft = (id: number): string => `D${id}`;
+const nodeOfTicket = (id: number): string => `T${id}`;
+const nodeOfDep = (d: ProposalDependency): string => (isTicketDep(d) ? d : nodeOfDraft(d));
+/** Sentinel for a create: the draft has no id yet, and no real node is called `new`. */
+const NEW_NODE = 'new';
+
+/** A ticket dependency problem, or undefined when the ticket is an open one of the project. */
+function ticketDepProblem(store: Store, projectId: number, ticketId: number): string | undefined {
+  const row = store.db
+    .prepare('SELECT project_id, archived_at, stage_current FROM tickets WHERE id = ?')
+    .get(ticketId) as { project_id: number | null; archived_at: string | null; stage_current: string | null } | undefined;
+  const name = formatId('ticket', ticketId);
+  if (!row || row.project_id !== projectId) return `dependsOn ${name} is not a ticket of this project`;
+  if (row.archived_at !== null) return `dependsOn ${name} is archived`;
+  if (row.stage_current === DONE_STAGE) return `dependsOn ${name} is already done`;
+  return undefined;
+}
+
+/** The project's dependency graph: every non-discarded proposal's edges, an
+ *  accepted proposal's link to its ticket, and every `blocked-by` relation row. */
+function projectGraph(
+  store: Store,
+  projectId: number,
+  incomingId: number | undefined,
+  dependsOn: readonly ProposalDependency[],
+): Map<string, string[]> {
+  const edges = new Map<string, string[]>();
+  for (const p of listProjectProposals(store, projectId)) {
+    if (p.status === 'discarded') continue;
+    const own = incomingId === p.id ? dependsOn : (p.payload.dependsOn ?? []);
+    const out = own.map(nodeOfDep);
+    if (p.status === 'accepted' && p.ticketId !== null) out.push(nodeOfTicket(p.ticketId));
+    edges.set(nodeOfDraft(p.id), out);
+  }
+  const relations = store.db
+    .prepare(
+      `SELECT r.ticket_id, r.target_ticket_id, r.target_proposal_id FROM ticket_relations r
+       JOIN tickets t ON t.id = r.ticket_id
+       WHERE r.kind = 'blocked-by' AND t.project_id = ?
+         AND (r.target_ticket_id IS NOT NULL OR r.target_proposal_id IS NOT NULL)`,
+    )
+    .all(projectId) as { ticket_id: number; target_ticket_id: number | null; target_proposal_id: number | null }[];
+  for (const r of relations) {
+    const from = nodeOfTicket(r.ticket_id);
+    const to = r.target_ticket_id !== null ? nodeOfTicket(r.target_ticket_id) : nodeOfDraft(r.target_proposal_id!);
+    edges.set(from, [...(edges.get(from) ?? []), to]);
+  }
+  if (incomingId === undefined) edges.set(NEW_NODE, dependsOn.map(nodeOfDep));
+  return edges;
+}
+
 /**
  * Why `dependsOn` cannot be ingested for a proposal of `sessionId`, or undefined
- * when it is valid. Every id must name a NON-discarded proposal of the SAME
- * session, and substituting the incoming edges must leave the session's
- * `depends_on` graph acyclic. `incomingId` is the proposal being created or
- * revised (undefined for a create — a fresh draft has no id yet).
+ * when it is valid. A draft id must name a NON-discarded proposal of ANY session
+ * of the SAME project; a ticket id (`T<n>`) must name a ticket of the same
+ * project that is neither archived nor done. Substituting the incoming edges
+ * must leave the PROJECT graph acyclic: every non-discarded proposal's edges
+ * plus the `blocked-by` relation rows. `incomingId` is the proposal being
+ * created or revised (undefined for a create — a fresh draft has no id yet).
  */
 export function validateProposalDependsOn(
   store: Store,
   sessionId: number,
   incomingId: number | undefined,
-  dependsOn: readonly number[],
+  dependsOn: readonly ProposalDependency[],
 ): string | undefined {
   if (dependsOn.length === 0) return undefined;
-  const proposals = listSessionProposals(store, sessionId);
-  const byId = new Map(proposals.map((p) => [p.id, p]));
-  for (const depId of dependsOn) {
-    const dep = byId.get(depId);
-    if (!dep) return `dependsOn ${formatId('draft', depId)} is not a proposal of this session`;
-    if (dep.status === 'discarded') return `dependsOn ${formatId('draft', depId)} was already discarded`;
+  const projectId = getPlanningSession(store, sessionId)?.projectId;
+  if (projectId === undefined) return 'dependsOn cannot be checked: the planning session is unknown';
+  const byId = new Map(listProjectProposals(store, projectId).map((p) => [p.id, p]));
+  for (const dep of dependsOn) {
+    if (isTicketDep(dep)) {
+      const problem = ticketDepProblem(store, projectId, depTicketId(dep));
+      if (problem) return problem;
+      continue;
+    }
+    const found = byId.get(dep);
+    if (!found) return `dependsOn ${formatId('draft', dep)} is not a proposal of this project`;
+    if (found.status === 'discarded') return `dependsOn ${formatId('draft', dep)} was already discarded`;
   }
-  const edges = new Map<number, number[]>();
-  for (const p of proposals) {
-    edges.set(p.id, incomingId === p.id ? [...dependsOn] : (p.payload.dependsOn ?? []));
-  }
-  // A create has no row yet; sentinel 0 is never a real id (AUTOINCREMENT ≥ 1).
-  if (incomingId === undefined) edges.set(0, [...dependsOn]);
-  return graphHasCycle(edges) ? 'dependsOn would create a cycle' : undefined;
+  return graphHasCycle(projectGraph(store, projectId, incomingId, dependsOn)) ? 'dependsOn would create a cycle' : undefined;
 }
 
-function graphHasCycle(edges: Map<number, number[]>): boolean {
+function graphHasCycle(edges: Map<string, string[]>): boolean {
   // 0 = unseen, 1 = on the current DFS stack, 2 = settled.
-  const state = new Map<number, 0 | 1 | 2>();
-  const visit = (n: number): boolean => {
+  const state = new Map<string, 0 | 1 | 2>();
+  const visit = (n: string): boolean => {
     state.set(n, 1);
     for (const dep of edges.get(n) ?? []) {
       const s = state.get(dep);
@@ -470,13 +558,30 @@ function recordDroppedDependency(store: Store, proposalId: number, depId: number
     .run(JSON.stringify([...current, depId]), proposalId);
 }
 
+/** A `T<n>` dependsOn entry becomes a blocked-by row on the new ticket. A ticket
+ *  that vanished, left the project or is the ticket itself is skipped, never thrown. */
+function addTicketDependency(store: Store, ticketId: number, projectId: number | undefined, targetId: number): void {
+  if (targetId === ticketId) return;
+  const row = store.db.prepare('SELECT project_id FROM tickets WHERE id = ?').get(targetId) as
+    | { project_id: number | null }
+    | undefined;
+  if (!row || row.project_id !== projectId) return;
+  addRelation(store, { ticketId, kind: 'blocked-by', targetTicketId: targetId, source: 'agent' });
+}
+
 /** Materialize this proposal's `dependsOn` as blocked-by rows and resolve the
  *  pending dependents that targeted it. Called inside the accept transaction. */
 function applyProposalDependencies(store: Store, p: PlanningProposal, ticketId: number): void {
+  const projectId = getPlanningSession(store, p.sessionId)?.projectId;
   for (const depId of p.payload.dependsOn ?? []) {
+    if (isTicketDep(depId)) {
+      addTicketDependency(store, ticketId, projectId, depTicketId(depId));
+      continue;
+    }
     const dep = getProposal(store, depId);
-    // Ingest guaranteed same-session, non-discarded; stay defensive anyway.
-    if (!dep || dep.sessionId !== p.sessionId || dep.status === 'discarded') continue;
+    // Ingest guaranteed same-project, non-discarded; stay defensive anyway.
+    if (!dep || dep.status === 'discarded') continue;
+    if (getPlanningSession(store, dep.sessionId)?.projectId !== projectId) continue;
     if (dep.status === 'accepted' && dep.ticketId === null) {
       // Its ticket was deleted: nothing left to wait on, so the edge is dropped
       // (mirrors discard) rather than left as a proposal link that never resolves.

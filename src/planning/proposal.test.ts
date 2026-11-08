@@ -25,9 +25,22 @@ describe('validateProposal', () => {
   });
 
   it('names D<n> in the failure and still catches a prefixed self-reference', () => {
-    const r = validateProposal({ ...ok, dependsOn: ['T2'] });
+    const r = validateProposal({ ...ok, dependsOn: ['P2'] });
     expect(r.ok === false && r.reason).toContain('D<n>');
+    expect(r.ok === false && r.reason).toContain('T<n>');
     expect(validateProposal({ ...ok, id: 7, dependsOn: ['D7'] }).ok).toBe(false);
+  });
+
+  it('normalizes D<n> and T<n> dependsOn entries, keeps order and dedupes', () => {
+    expect(validateProposal({ ...ok, dependsOn: ['T5', 'd3', 3, 't5', 'D4'] })).toEqual({
+      ok: true,
+      value: { ...ok, dependsOn: ['T5', 3, 4] },
+    });
+  });
+
+  it('keeps the self-reference ban for a draft id but lets a ticket share its number', () => {
+    expect(validateProposal({ ...ok, id: 7, dependsOn: ['T7'] }).ok).toBe(true);
+    expect(validateProposal({ ...ok, id: 7, dependsOn: [7] }).ok).toBe(false);
   });
 
   it('accepts the four id/dependsOn combinations and dedupes dependsOn', () => {
@@ -52,7 +65,9 @@ describe('validateProposal', () => {
     ['a fractional id', { ...ok, id: 1.5 }],
     ['a null id', { ...ok, id: null }],
     ['a non-array dependsOn', { ...ok, dependsOn: 7 }],
-    ['a ticket-prefixed dependsOn entry', { ...ok, dependsOn: ['T2'] }],
+    ['a plan-prefixed dependsOn entry', { ...ok, dependsOn: ['P2'] }],
+    ['a bare T dependsOn entry', { ...ok, dependsOn: ['T'] }],
+    ['a zero ticket dependsOn entry', { ...ok, dependsOn: ['T0'] }],
     ['a boolean dependsOn entry', { ...ok, dependsOn: [true] }],
     ['a non-draft prefixed id', { ...ok, id: 'P7' }],
     ['a zero dependsOn entry', { ...ok, dependsOn: [0] }],
