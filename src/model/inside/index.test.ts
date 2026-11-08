@@ -316,7 +316,7 @@ describe('quality process reducers (re-exported)', () => {
     uatFindings: [],
     processRuns: [],
     rounds: [],
-    services: [{ service: 'web', status: 'running' as const, host: '127.0.0.1', port: 4100 }],
+    services: [{ service: 'web', status: 'running' as const, host: '127.0.0.1', port: 4100, startedAt: null }],
     now: NOW,
   };
 

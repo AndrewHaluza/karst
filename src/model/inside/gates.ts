@@ -795,20 +795,34 @@ export interface ServiceStatusView {
   port: number | null;
   /** Why a failed row failed (UAT's `boot-failed` reason), when the host has one. */
   reason?: string | null;
+  /** ISO time the server row started; compared with the UAT attempt start. */
+  startedAt: string | null;
+}
+
+/** True when the row started at or after the UAT attempt; an absent or unparseable time is false. */
+function inCurrentAttempt(s: ServiceStatusView, attemptStart: string | undefined): boolean {
+  if (!attemptStart || !s.startedAt) return false;
+  const attempt = Date.parse(attemptStart);
+  const started = Date.parse(s.startedAt);
+  return !Number.isNaN(attempt) && !Number.isNaN(started) && started >= attempt;
 }
 
 /**
  * The services process: host-known read-only context, read from the ticket's
- * server rows. It states what UAT started (a live URL), what failed (the health
- * reason), what was stopped after UAT, and — when the ticket has no rows at all
- * — that there is nothing to spin. It NEVER contributes a verdict: the process
- * status stays neutral whatever the rows say, because a service is an
- * environment, not a gate.
+ * server rows. A row is in the current attempt when its `startedAt` is at or
+ * after the cell's `startedAt`. Parent status, first match wins: a pending
+ * cell is `pending`; a failed row in the current attempt is `fail`; a running
+ * row, or any row in the current attempt, is `pass`; otherwise `note` (no rows,
+ * or only old rows). The status is display only: it never changes the stage
+ * verdict or the gate outcome. Child rows: running with a URL is `pass`; failed
+ * is `fail`; stopped in the current attempt is `pass` ("stopped after UAT");
+ * stopped before it is `note` ("stopped").
  */
 function servicesProcess(
   cell: StepperCell,
   services: readonly ServiceStatusView[],
 ): InsideProcessView {
+  const current = (s: ServiceStatusView): boolean => inCurrentAttempt(s, cell.startedAt);
   const rows: EvidenceRow[] = services.map((s) => {
     if (s.status === 'running' && s.host !== null && s.port !== null) {
       return { status: 'pass', label: s.service, detail: `http://${s.host}:${s.port}` };
@@ -817,13 +831,19 @@ function servicesProcess(
       const reason = s.reason?.trim() ?? '';
       return { status: 'fail', label: s.service, detail: reason === '' ? 'failed to start' : reason };
     }
-    return { status: 'note', label: s.service, detail: 'stopped after UAT' };
+    return current(s)
+      ? { status: 'pass', label: s.service, detail: 'stopped after UAT' }
+      : { status: 'note', label: s.service, detail: 'stopped' };
   });
+  let status: InsideProcessView['status'] = 'note';
+  if (cell.status === 'pending') status = 'pending';
+  else if (services.some((s) => s.status === 'failed' && current(s))) status = 'fail';
+  else if (services.some((s) => s.status === 'running' || current(s))) status = 'pass';
   return {
     id: 'services',
     kind: 'services',
     label: 'Services',
-    status: cell.status === 'pending' ? 'pending' : 'note',
+    status,
     detail:
       services.length > 0
         ? services.map((s) => s.service).join(' · ')

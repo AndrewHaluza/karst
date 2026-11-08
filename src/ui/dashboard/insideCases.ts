@@ -256,7 +256,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     id: 'services-booting',
     state: fromFacts('uat', {
       cells: { uat: { status: 'running' } },
-      services: [{ service: 'web', status: 'stopped', host: null, port: null }],
+      services: [{ service: 'web', status: 'stopped', host: null, port: null, startedAt: null }],
     }),
   },
   {
@@ -266,7 +266,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       cells: { uat: { status: 'running' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
       processRuns: [uatTesterRun({ status: 'running', endedAt: null })],
-      services: [{ service: 'web', status: 'running', host: 'localhost', port: 5173 }],
+      services: [{ service: 'web', status: 'running', host: 'localhost', port: 5173, startedAt: null }],
     }),
   },
   {
@@ -302,8 +302,8 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     state: fromFacts(
       'uat',
       {
-        cells: { uat: { status: 'running' } },
-        services: [{ service: 'web', status: 'failed', host: null, port: null, reason: 'nothing listening on :5173 after 30s' }],
+        cells: { uat: { status: 'running', startedAt: t(20) } },
+        services: [{ service: 'web', status: 'failed', host: null, port: null, reason: 'nothing listening on :5173 after 30s', startedAt: t(21) }],
       },
       parkPatch({ kind: 'boot-failed', reason: 'nothing listening on :5173 after 30s', at: t(25), resumable: true }),
     ),
