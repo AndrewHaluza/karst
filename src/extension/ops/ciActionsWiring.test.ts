@@ -8,8 +8,8 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict } from './autoDeliverOps.js';
-import { openDeliverRun, recordDeliverGate, currentDeliverRun } from '../../store/deliverRuns.js';
-import { deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
+import { autoDeliverAction, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -170,6 +170,50 @@ describe('headShaOf (T1018)', () => {
     expect(await headShaOf(git(`${SHA}x`), '/w/r')).toBeNull();
     expect(await headShaOf(git(`x${SHA}`), '/w/r')).toBeNull();
     expect(await headShaOf(git(''), '/w/r')).toBeNull();
+  });
+});
+
+describe('autoDeliverAction records its gate run (T1018)', () => {
+  const gates = { gates: [{ name: 'unit', kind: 'command', command: 'u', args: [] }, { name: 'docs', kind: 'command', command: 'd', args: [] }], repositories: {} } as never;
+
+  const run = async (exit: number) => {
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({
+      git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 })),
+    });
+    const seen: Array<string | null | undefined> = [];
+    const runProcess = async () => { seen.push(currentDeliverRun(store, id)?.currentGate); return { kind: 'completed' as const, exitCode: exit, output: exit === 0 ? 'ok' : 'boom: broke' }; };
+    await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess } });
+    return { i, seen };
+  };
+
+  it('opens a run, writes a result per gate with the head sha, pushes once and tells the dashboard', async () => {
+    const { i, seen } = await run(0);
+    expect(seen).toEqual(['unit', 'docs']);
+    expect(listDeliverResults(store, id).map((r) => [r.gateName, r.exitCode, r.headSha])).toEqual([['unit', 0, SHA], ['docs', 0, SHA]]);
+    expect(currentDeliverRun(store, id)?.state).toBe('passed');
+    expect(i.deliver.runShip).toHaveBeenCalledOnce();
+    expect(i.afterServerChange).toHaveBeenCalled();
+  });
+
+  it('keeps the failure on record and does not push when a gate fails', async () => {
+    const { i } = await run(2);
+    expect(currentDeliverRun(store, id)?.state).toBe('failed');
+    expect(listDeliverResults(store, id)[0]).toMatchObject({ gateName: 'unit', exitCode: 2, headSha: SHA, summary: 'boom: broke' });
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+  });
+
+  it('refuses to deliver while the agent runs', async () => {
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
+    store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({ git: vi.fn(async () => ({ stdout: `${SHA}\n`, stderr: '', exitCode: 0 })) });
+    await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates } });
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+    expect(currentDeliverRun(store, id)).toBeNull();
   });
 });
 
