@@ -161,7 +161,7 @@ function serviceView(
   status: ServiceStatusView["status"],
   extra: Partial<ServiceStatusView> = {},
 ): ServiceStatusView {
-  return { service, status, host: "127.0.0.1", port: 4100, ...extra };
+  return { service, status, host: "127.0.0.1", port: 4100, startedAt: null, ...extra };
 }
 
 function qualityInput(
@@ -945,60 +945,100 @@ describe("uatProcesses", () => {
     });
   });
 
+  const ATTEMPT = "2026-07-20T12:00:00.000Z";
+  const NEW_ROW = "2026-07-20T12:00:05.000Z";
+  const OLD_ROW = "2026-07-20T11:00:00.000Z";
+  const servicesOf = (services: ServiceStatusView[], c = qualityInput().cell) =>
+    uatProcesses(qualityInput({ cell: c, services })).find(
+      (p) => p.id === "services",
+    )!;
+
   it("keeps services pending before the stage runs, naming the server rows after", () => {
-    const before = uatProcesses(
-      qualityInput({
-        cell: cell("uat", "pending"),
-        services: [
-          serviceView("web", "running"),
-          serviceView("api", "stopped"),
-        ],
-      }),
-    ).find((p) => p.id === "services")!;
+    const before = servicesOf(
+      [
+        serviceView("web", "failed", { startedAt: NEW_ROW }),
+        serviceView("api", "stopped"),
+      ],
+      cell("uat", "pending"),
+    );
     expect(before.status).toBe("pending");
     expect(before.detail).toBe("web · api");
-
-    const after = uatProcesses(
-      qualityInput({ services: [serviceView("web", "running")] }),
-    ).find((p) => p.id === "services")!;
-    expect(after.status).toBe("note");
-    expect(after.detail).toBe("web");
   });
 
-  it("renders a running service as its live URL, a failed one as its health reason, a stopped one as stopped after UAT", () => {
-    const views = uatProcesses(
-      qualityInput({
-        services: [
-          serviceView("web", "running", { host: "127.0.0.1", port: 4123 }),
-          serviceView("api", "failed", {
-            reason: "nothing is listening on 127.0.0.1:4100",
-          }),
-          serviceView("db", "stopped"),
-        ],
+  it("marks the Services row pass when a service runs now, even from an old row", () => {
+    const p = servicesOf([serviceView("web", "running", { startedAt: OLD_ROW })]);
+    expect(p.status).toBe("pass");
+    expect(p.detail).toBe("web");
+  });
+
+  it("marks the Services row pass when UAT spun services that are now stopped", () => {
+    const p = servicesOf([serviceView("db", "stopped", { startedAt: NEW_ROW })]);
+    expect(p.status).toBe("pass");
+  });
+
+  it("treats a row that starts exactly at the attempt start as current", () => {
+    const p = servicesOf([serviceView("db", "stopped", { startedAt: ATTEMPT })]);
+    expect(p.status).toBe("pass");
+  });
+
+  it("marks the Services row fail when a service failed in the current attempt", () => {
+    const p = servicesOf([serviceView("api", "failed", { startedAt: NEW_ROW })]);
+    expect(p.status).toBe("fail");
+  });
+
+  it("lets a failed current row win over a running row", () => {
+    const p = servicesOf([
+      serviceView("web", "running", { startedAt: NEW_ROW }),
+      serviceView("api", "failed", { startedAt: NEW_ROW }),
+    ]);
+    expect(p.status).toBe("fail");
+  });
+
+  it("keeps the Services row neutral for an old failed row", () => {
+    const p = servicesOf([serviceView("api", "failed", { startedAt: OLD_ROW })]);
+    expect(p.status).toBe("note");
+  });
+
+  it("keeps old rows neutral when a gate failed before the spin of a re-entered UAT", () => {
+    const p = servicesOf([
+      serviceView("web", "stopped", { startedAt: OLD_ROW }),
+      serviceView("api", "failed", { startedAt: OLD_ROW }),
+    ]);
+    expect(p.status).toBe("note");
+    expect(rowsOf(p)[0]).toEqual({ status: "note", label: "web", detail: "stopped" });
+  });
+
+  it("treats an absent or unparseable start time as not in the current attempt", () => {
+    const p = servicesOf([
+      serviceView("web", "stopped", { startedAt: null }),
+      serviceView("api", "failed", { startedAt: "not a date" }),
+      serviceView("db", "stopped"),
+    ]);
+    expect(p.status).toBe("note");
+  });
+
+  it("renders a running service as its live URL, a failed one as its health reason, a current stopped one as stopped after UAT", () => {
+    const services = servicesOf([
+      serviceView("web", "running", { host: "127.0.0.1", port: 4123, startedAt: NEW_ROW }),
+      serviceView("api", "failed", {
+        reason: "nothing is listening on 127.0.0.1:4100",
+        startedAt: NEW_ROW,
       }),
-    );
-    const services = views.find((p) => p.id === "services")!;
-    // The process NEVER contributes a verdict: its status stays neutral however
-    // the rows read.
-    expect(services.status).toBe("note");
-    const rows = rowsOf(services);
-    expect(rows).toEqual([
+      serviceView("db", "stopped", { startedAt: NEW_ROW }),
+    ]);
+    expect(rowsOf(services)).toEqual([
       { status: "pass", label: "web", detail: "http://127.0.0.1:4123" },
       {
         status: "fail",
         label: "api",
         detail: "nothing is listening on 127.0.0.1:4100",
       },
-      { status: "note", label: "db", detail: "stopped after UAT" },
+      { status: "pass", label: "db", detail: "stopped after UAT" },
     ]);
   });
 
   it("states a failed service with no recorded reason plainly, never a blank detail", () => {
-    const services = uatProcesses(
-      qualityInput({
-        services: [serviceView("api", "failed", { reason: null })],
-      }),
-    ).find((p) => p.id === "services")!;
+    const services = servicesOf([serviceView("api", "failed", { reason: null })]);
     expect(rowsOf(services)[0]).toEqual({
       status: "fail",
       label: "api",
@@ -1007,24 +1047,16 @@ describe("uatProcesses", () => {
   });
 
   it('reports no server rows as "no services — nothing to spin"', () => {
-    const services = uatProcesses(qualityInput({ services: [] })).find(
-      (p) => p.id === "services",
-    )!;
+    const services = servicesOf([]);
     expect(services.status).toBe("note");
     expect(services.detail).toBe("no services — nothing to spin");
   });
 
-  it("names every server row in order without claiming they ran", () => {
-    const views = uatProcesses(
-      qualityInput({
-        services: [
-          serviceView("api", "stopped"),
-          serviceView("web", "running"),
-        ],
-      }),
-    );
-    const services = views.find((p) => p.id === "services")!;
-    expect(services.status).toBe("note");
+  it("names every server row in order", () => {
+    const services = servicesOf([
+      serviceView("api", "stopped"),
+      serviceView("web", "running"),
+    ]);
     expect(services.detail).toBe("api · web");
   });
 

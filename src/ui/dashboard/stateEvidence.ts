@@ -139,6 +139,7 @@ export function serviceStatusViews(
     status: s.status === 'running' || s.status === 'failed' ? s.status : 'stopped',
     host: s.host,
     port: s.port,
+    startedAt: s.startedAt,
     ...(s.status === 'failed' && serviceFailureReason !== null
       ? { reason: serviceFailureReason }
       : {}),
