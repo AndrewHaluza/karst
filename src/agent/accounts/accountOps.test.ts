@@ -83,6 +83,14 @@ describe('account ops', () => {
     expect(debug.some((m) => m.includes('not removed') && m.includes('claude/w'))).toBe(true);
   });
 
+  it('keeps the managed folder when removeFolder is false', async () => {
+    const { ops, store } = setup();
+    await ops.createAccount('claude', 'w', { source: 'managed' });
+    await ops.deleteAccount('claude', 'w', { removeFolder: false });
+    expect(store.current().claude?.list.w).toBeUndefined();
+    expect((await stat(join(root, 'accounts', 'claude', 'w'))).isDirectory()).toBe(true);
+  });
+
   it('keeps the files of a folder account on delete', async () => {
     const { ops } = setup();
     await ops.createAccount('claude', 'f', { source: 'folder', dir: root });
@@ -131,6 +139,15 @@ describe('account ops', () => {
     const r = await ops.copyAccountSeed('claude', 'w', ['settings']);
     expect(r.skipped[0]?.reason).toMatch(/not present/);
     await expect(ops.copyAccountSeed('claude', 'default', ['settings'])).rejects.toThrow();
+  });
+});
+
+describe('an account with no folder', () => {
+  it('offers no copy items and refuses a copy, so nothing is written to the cwd', async () => {
+    const { ops } = setup();
+    await ops.createAccount('opencode2', 'c', { source: 'command', command: 'oc2-c' });
+    expect(await ops.seedItems('opencode2', 'c')).toEqual([]);
+    await expect(ops.copyAccountSeed('opencode2', 'c', ['settings'])).rejects.toThrow(/no folder/);
   });
 });
 

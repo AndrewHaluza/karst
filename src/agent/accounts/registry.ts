@@ -4,7 +4,7 @@
  * `accountLaunchFor` at every spawn; with no config it is the default no-op.
  */
 import { AccountNotFoundError, activeAccountName, resolveAccountLaunch, type AccountLaunch } from './resolve.js';
-import { DEFAULT_ACCOUNT, type AccountCore, type AccountsConfig } from './types.js';
+import { DEFAULT_ACCOUNT, isAccountCore, type AccountCore, type AccountsConfig } from './types.js';
 
 let config: AccountsConfig = {};
 
@@ -32,6 +32,13 @@ export function accountLaunchFor(core: AccountCore, defaultBinary: string, accou
 /** Headless spawn options for an account launch: empty for the default account (byte-for-byte unchanged). */
 export function accountSpawnEnv(launch: AccountLaunch): { isolationEnv?: Record<string, string> } {
   return Object.keys(launch.env).length > 0 ? { isolationEnv: { ...launch.env } } : {};
+}
+
+/** The active account of a core when it is not 'default' (shown in the quota views); otherwise undefined. */
+export function activeAccountLabel(core: string): string | undefined {
+  if (!isAccountCore(core)) return undefined;
+  const name = activeAccountName(config, core);
+  return name === DEFAULT_ACCOUNT ? undefined : name;
 }
 
 const READER_CORES: readonly AccountCore[] = ['claude', 'codex', 'antigravity', 'opencode'];

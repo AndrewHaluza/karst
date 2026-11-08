@@ -94,3 +94,11 @@ describe('buildQuotaView', () => {
     expect(view.rows[0]!.windows.map((w) => w.usedPct)).toEqual([77, 100]);
   });
 });
+
+describe('buildQuotaView — account name (D505)', () => {
+  it('appends the account to the core label only when one is given', () => {
+    const snap = { core: 'claude', state: 'unknown', reason: 'x' } as unknown as Parameters<typeof buildQuotaView>[0][number];
+    expect(buildQuotaView([snap], 80, new Date(), () => 'work').rows[0]?.label).toMatch(/ · work$/);
+    expect(buildQuotaView([snap], 80, new Date(), () => undefined).rows[0]?.label).not.toContain('·');
+  });
+});

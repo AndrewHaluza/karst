@@ -34,6 +34,8 @@ export interface QuotaOpsDeps {
   /** The manifest's warn threshold; `undefined` = the loader default (80). */
   thresholdPct: () => number | undefined;
   coreLabel: (core: AgentProvider) => string;
+  /** Active account name of a core when not 'default'; the badge shows it. */
+  accountOf?: (core: AgentProvider) => string | undefined;
   status: QuotaStatusSink;
   /** The non-blocking warning seam (`vscode.window.showWarningMessage`). */
   notify: (message: string) => void;
@@ -75,6 +77,7 @@ export class QuotaOps {
       this.threshold(),
       this.deps.coreLabel,
       this.now(),
+      this.deps.accountOf,
     );
     if (!indicator) {
       this.deps.status.hide();

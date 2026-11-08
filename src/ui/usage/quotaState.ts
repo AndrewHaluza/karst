@@ -30,6 +30,9 @@ export interface QuotaWindowView {
   resetsIn: string | null;
 }
 
+/** The active account name of a core when it is not 'default'; shown beside the core label. */
+export type AccountOf = (core: AgentProvider) => string | undefined;
+
 export interface QuotaRowView {
   core: AgentProvider;
   /** Display label for the core (registry-derived). */
@@ -102,8 +105,10 @@ function windowView(
   };
 }
 
-function rowView(snapshot: QuotaSnapshot, thresholdPct: number, now: Date): QuotaRowView {
-  const label = AGENT_PROVIDER_LABELS[snapshot.core] ?? snapshot.core;
+function rowView(snapshot: QuotaSnapshot, thresholdPct: number, now: Date, accountOf?: AccountOf): QuotaRowView {
+  const account = accountOf?.(snapshot.core);
+  const coreLabel = AGENT_PROVIDER_LABELS[snapshot.core] ?? snapshot.core;
+  const label = account ? `${coreLabel} · ${account}` : coreLabel;
   if (snapshot.state !== 'ok') {
     return {
       core: snapshot.core,
@@ -134,8 +139,9 @@ export function buildQuotaView(
   snapshots: readonly QuotaSnapshot[],
   thresholdPct: number,
   now: Date,
+  accountOf?: AccountOf,
 ): QuotaView {
-  const rows = snapshots.map((snapshot) => rowView(snapshot, thresholdPct, now));
+  const rows = snapshots.map((snapshot) => rowView(snapshot, thresholdPct, now, accountOf));
   const anyNear = snapshots.some((snapshot) => {
     const tightest = tightestUsedPct(snapshot, now);
     return tightest !== null && tightest >= thresholdPct;

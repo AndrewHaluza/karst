@@ -97,7 +97,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     await deps.store.save(withCore(config, core, { active: name, list: { ...(prev?.list ?? {}) } }));
   }
 
-  async function deleteAccount(core: AccountCore, name: string): Promise<void> {
+  async function deleteAccount(core: AccountCore, name: string, options: { readonly removeFolder?: boolean } = {}): Promise<void> {
     if (name === DEFAULT_ACCOUNT) throw new Error("The built-in 'default' account cannot be deleted.");
     const config = await deps.store.load();
     const account = findAccount(config, core, name) as Account;
@@ -106,7 +106,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const { [name]: _removed, ...rest } = prev.list;
     await deps.store.save(withCore(config, core, { active: prev.active === name ? DEFAULT_ACCOUNT : prev.active, list: rest }));
     // Only a managed folder is removed; a folder or command account keeps the user's files.
-    if (account.source !== 'managed') return;
+    if (account.source !== 'managed' || options.removeFolder === false) return;
     // The stored dir is data from a file: remove it only when it is exactly the folder karst made.
     if (resolve(account.dir) !== resolve(sourceDir(core, name))) {
       deps.debug?.(`[accounts] not removed ${core}/${name}: dir is not the managed folder`);
@@ -147,6 +147,8 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const config = await deps.store.load();
     const acct = config[core]?.list[name];
     // A folder or alias account that already has settings: offer, but check nothing.
+    // An account with no folder has nowhere to copy into: offer nothing.
+    if (acct && !acct.dir) return [];
     const preChecked = !acct || acct.source === 'managed';
     return SEED_ITEMS[core].map((i) => ({ ...i, checked: preChecked && i.checked }));
   }
@@ -155,6 +157,8 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const config = await deps.store.load();
     const target = findAccount(config, core, to);
     if (!target) throw new Error("Copy needs a stored target account, not 'default'.");
+    // A command account with no folder has dir '': it would resolve to the process cwd.
+    if (!target.dir) throw new Error(`The ${core} account '${to}' has no folder to copy into.`);
     return copyAccountSeed({ core, fromDir: deps.defaultDir(core), toDir: target.dir, items, overwrite, home: deps.home });
   }
 

@@ -268,7 +268,9 @@ it('wires the managed root, debug, status and the recorded-account lookup', asyn
   await w.ops.createAccount('claude', 'm', { source: 'managed' });
   expect(accountsConfig().claude?.list.m?.dir).toBe(join(root, 'accounts', 'claude', 'm'));
   expect(debug.some((m) => m.includes('claude/m'))).toBe(true);
-  expect(await w.ops.accountStatus('claude', 'm')).toBe('unknown');
+  expect(await w.ops.accountStatus('claude', 'm')).toBe('not-signed-in');
+  await writeFile(join(root, 'accounts', 'claude', 'm', '.credentials.json'), '{}');
+  expect(await w.ops.accountStatus('claude', 'm')).toBe('signed-in');
   // A publishing save keeps the file and the registry equal.
   const second = await wireAccounts({ globalStorageRoot: root, store });
   expect(accountsConfig().claude?.list.m).toBeDefined();

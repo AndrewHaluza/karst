@@ -1,10 +1,12 @@
 /**
- * The Agents page: ONE place for agent identity. Two tabs —
+ * The Agents page: ONE place for agent identity. Three tabs —
  *
  *  - **Roles**: the preset selector, the roles table (every cell shows where its
  *    value comes from), the Default row and preset comparison;
  *  - **Agent profiles**: the reusable profiles with their real text, plus the
- *    built-in prompt behind each role.
+ *    built-in prompt behind each role;
+ *  - **Accounts**: the machine-local subscription accounts of each agent core
+ *    (applied at once, never part of the manifest Save).
  *
  * An edit always lands in the layer that wins — the pin when the role is pinned,
  * otherwise the selected preset — so no edit can be dead (`rolesModel.ts`).
@@ -20,9 +22,10 @@ import { Button } from '../primitives/Button.js';
 import { RolesTab } from './RolesTab.js';
 import { BackendPanel } from './BackendPanel.js';
 import { ProfilesTab } from './ProfilesTab.js';
+import { AccountsTab } from './AccountsTab.js';
 import { formatAgentsHash, parseAgentsHash, type AgentsRoute, type AgentsTab } from './agentsRoute.js';
 
-const TABS: readonly AgentsTab[] = ['roles', 'profiles'];
+const TABS: readonly AgentsTab[] = ['roles', 'profiles', 'accounts'];
 
 /**
  * What the unsaved bar is waiting on. A route move (another tab or profile) is
@@ -68,7 +71,7 @@ export function AgentsSection() {
   // opened it on Escape / Keep editing (UI-R23, R27).
   const saveRef = useRef<HTMLButtonElement>(null);
   const returnRef = useRef<HTMLElement | null>(null);
-  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null });
+  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null, accounts: null });
   // Bumped when a resolved move must land focus on a profile item. The list
   // owns its item refs, so the request travels as a prop, not a DOM query.
   const [focusTick, setFocusTick] = useState(0);
@@ -178,6 +181,7 @@ export function AgentsSection() {
   const labels: Record<AgentsTab, string> = {
     roles: 'Roles',
     profiles: `Agent profiles (${profileCount})`,
+    accounts: 'Accounts',
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, tab: AgentsTab): void => {
@@ -262,6 +266,8 @@ export function AgentsSection() {
       <div data-region="content" role="tabpanel" id={`agents-panel-${route.tab}`} aria-labelledby={`agents-tab-${route.tab}`}>
         {route.tab === 'roles' ? (
           <RolesTab route={route} navigate={navigate} />
+        ) : route.tab === 'accounts' ? (
+          <AccountsTab route={route} navigate={navigate} />
         ) : (
           <ProfilesTab route={route} navigate={navigate} buffers={buffers} setBuffer={setBuffer} focusTick={focusTick} />
         )}

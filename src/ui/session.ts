@@ -2,7 +2,7 @@ import { launchHasMcp } from '../agent/karstCommandText.js';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
-import { accountForLaunch } from '../agent/accounts/registry.js';
+import { accountForLaunch, activeAccountLabel } from '../agent/accounts/registry.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
 import { formatSandboxMode, launchSandbox } from '../agent/sandbox.js';
 import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
@@ -715,7 +715,7 @@ export class SessionManager {
       }
       terminal = this.host.createTerminal({
         name: terminalName,
-        description: naming ? undefined : (label?.title ?? undefined),
+        description: sessionDescription(naming ? undefined : label?.title, account ?? activeAccountLabel(identity?.provider ?? '')),
         cwd: placed.cwd,
         shellPath: placed.shellPath,
         shellArgs: placed.shellArgs,
@@ -991,4 +991,11 @@ function sandboxBridge(
 ): { readonly paths: BridgePaths; readonly channel: HookChannel } | undefined {
   const runDir = paths && runner.bridgeRunDir?.(paths);
   return paths && runDir !== undefined ? { paths, channel: sandboxHookChannel(paths, launchId, runDir) } : undefined;
+}
+
+/** The tab description: the ticket title, then the account name when it is not 'default' (D505). */
+function sessionDescription(title: string | null | undefined, account: string | null | undefined): string | undefined {
+  const shown = account != null && account !== 'default' ? `account: ${account}` : undefined;
+  if (title && shown) return `${title} · ${shown}`;
+  return title || shown;
 }

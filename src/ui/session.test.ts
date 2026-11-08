@@ -675,6 +675,16 @@ describe('SessionManager', () => {
     expect(terminals[0]!.description).toBe('Fix login');
   });
 
+  it('adds the account name to the description when the account is not default', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new DefaultedSessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' }, undefined, undefined, undefined, undefined, undefined, [], { account: 'work' });
+    expect(terminals[0]!.description).toBe('Fix login · account: work');
+    mgr.openSession(adapter, 2, '/wt/b', { key: 'PROJ-43', title: 'Other' }, undefined, undefined, undefined, undefined, undefined, [], { account: 'default' });
+    expect(terminals[1]!.description).toBe('Other');
+  });
+
   it('uses the naming bag for terminal name, icon and color when provided', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();

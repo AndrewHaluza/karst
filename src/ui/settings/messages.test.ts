@@ -172,6 +172,7 @@ describe('routeSettingsAction', () => {
       fetchTicketStatuses: [],
       fetchTicketLists: [],
       openGraphPrompt: [],
+      accounts: [],
     };
     return {
       calls,
@@ -194,6 +195,7 @@ describe('routeSettingsAction', () => {
       fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
       fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
       openGraphPrompt: (identity) => { calls['openGraphPrompt']!.push(identity); },
+      accounts: (m) => { calls['accounts']!.push(m); },
       browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
       openManifest: () => { calls['openManifest']!.push(true); },
     };
@@ -359,5 +361,38 @@ describe('fetch-ticket-lists', () => {
     const actions = { fetchTicketLists: (t: string) => calls.push(t) } as unknown as SettingsActions;
     routeSettingsAction({ type: 'fetch-ticket-lists', teamId: '9001' }, actions);
     expect(calls).toEqual(['9001']);
+  });
+});
+
+describe('parseSettingsMessage — accounts (D505)', () => {
+  it('accepts well-formed accounts messages', () => {
+    expect(parseSettingsMessage({ type: 'accounts-load' })).toEqual({ type: 'accounts-load' });
+    expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'folder', dir: '/h/w' } }))
+      .toEqual({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'folder', dir: '/h/w' } });
+    expect(parseSettingsMessage({ type: 'accounts-add', core: 'codex', name: 'c', spec: { source: 'command', command: 'codex-w', args: ['-x'] } }))
+      .toEqual({ type: 'accounts-add', core: 'codex', name: 'c', spec: { source: 'command', command: 'codex-w', args: ['-x'] } });
+    expect(parseSettingsMessage({ type: 'accounts-import-alias', core: 'claude', alias: 'claude-work' }))
+      .toEqual({ type: 'accounts-import-alias', core: 'claude', alias: 'claude-work' });
+    expect(parseSettingsMessage({ type: 'accounts-delete', core: 'claude', name: 'w', removeFolder: false }))
+      .toEqual({ type: 'accounts-delete', core: 'claude', name: 'w', removeFolder: false });
+    expect(parseSettingsMessage({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: ['skills'] }))
+      .toEqual({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: ['skills'] });
+  });
+
+  it('drops an unknown core, a missing name and a bad spec', () => {
+    expect(parseSettingsMessage({ type: 'accounts-set-active', core: 'nope', name: 'w' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-set-active', core: 'claude', name: '' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'folder' } })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'command', command: 'c', args: [1] } })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-delete', core: 'claude', name: 'w' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: [1] })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-import-alias', core: 'claude', alias: 'a', text: 5 })).toBeNull();
+  });
+
+  it('routes an accounts message to actions.accounts', () => {
+    const seen: unknown[] = [];
+    const actions = { accounts: (m: unknown) => seen.push(m) } as unknown as SettingsActions;
+    routeSettingsAction({ type: 'accounts-set-active', core: 'claude', name: 'w' }, actions);
+    expect(seen).toEqual([{ type: 'accounts-set-active', core: 'claude', name: 'w' }]);
   });
 });

@@ -353,3 +353,26 @@
   #section-agents .agents-profiles:not(.has-selection) .agents-detail { display: none; }
   #section-agents .agents-back { display: inline-flex; }
 }
+
+/* Accounts tab (D505): one block per core; the table stacks into cards at <=699px. */
+#section-agents .accounts-core { border: 1px solid var(--vscode-panel-border, transparent); border-radius: var(--k-radius-2, 4px); padding: var(--k-space-4, 12px); margin-block: var(--k-space-4, 12px); }
+#section-agents .accounts-core.is-selected { border-color: var(--vscode-focusBorder, currentColor); }
+#section-agents .accounts-core-head { display: flex; flex-wrap: wrap; align-items: end; gap: var(--k-space-4, 12px); }
+#section-agents .accounts-core-head h3 { margin: 0; text-transform: capitalize; }
+#section-agents .accounts-table { width: 100%; border-collapse: collapse; margin-block: var(--k-space-3, 8px); }
+#section-agents .accounts-table { font-size: var(--k-text-sm, 12px); }
+#section-agents .accounts-table th, #section-agents .accounts-table td { text-align: left; padding: var(--k-space-2, 4px) var(--k-space-3, 8px); word-break: normal; overflow-wrap: break-word; font-size: inherit; vertical-align: top; }
+#section-agents .accounts-table th { font-weight: 600; }
+#section-agents .accounts-row-actions { display: flex; flex-wrap: wrap; gap: var(--k-space-2, 4px); }
+#section-agents .accounts-error { color: var(--vscode-errorForeground, inherit); }
+#section-agents .accounts-wizard, #section-agents .accounts-delete { border-top: 1px solid var(--vscode-panel-border, transparent); padding-top: var(--k-space-3, 8px); }
+#section-agents .accounts-steps { display: flex; gap: var(--k-space-4, 12px); list-style: none; padding: 0; }
+#section-agents .accounts-steps [aria-current="step"] { font-weight: 600; }
+#section-agents .accounts-checklist { list-style: none; padding: 0; }
+#section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
+@media (max-width: 699px) {
+  #section-agents .accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #section-agents .accounts-table, #section-agents .accounts-table tbody, #section-agents .accounts-table tr, #section-agents .accounts-table td { display: block; }
+  #section-agents .accounts-table tr { border: 1px solid var(--vscode-panel-border, transparent); margin-block: var(--k-space-3, 8px); }
+  #section-agents .accounts-table td::before { content: attr(data-label) ': '; font-weight: 600; }
+}

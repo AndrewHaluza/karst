@@ -64,3 +64,16 @@ describe('buildQuotaIndicator', () => {
     expect(indicator?.warning).toBe(false);
   });
 });
+
+describe('buildQuotaIndicator — account name (D505)', () => {
+  const snap = { core: 'claude', state: 'ok', readAt: '2026-01-01T00:00:00Z', source: 's', windows: [{ label: '5h', usedPct: 40, resetsAt: null }] } as unknown as Parameters<typeof buildQuotaIndicator>[0][number];
+  const now = new Date('2026-01-01T00:01:00Z');
+  it('shows the account beside the core when it is not default', () => {
+    const r = buildQuotaIndicator([snap], 80, () => 'Claude', now, () => 'work');
+    expect(r?.text).toContain('Claude (work) 40%');
+    expect(r?.tooltip).toContain('Claude (work): 40% of 5h');
+  });
+  it('shows no account when none is given', () => {
+    expect(buildQuotaIndicator([snap], 80, () => 'Claude', now, () => undefined)?.text).toContain('Claude 40%');
+  });
+});

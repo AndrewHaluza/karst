@@ -17,6 +17,8 @@ import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { assertProfileEffort, EffortError } from '../../agent/effort.js';
+import type { AccountsWebviewMessage } from './accountsMessages.js';
+import type { AccountsHost } from './accountsHost.js';
 import { mergeSection, type SettingsSection } from './sections.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
@@ -114,6 +116,11 @@ export interface SettingsActionsDeps {
    * override wins over the packaged bytes).
    */
   revealGraphPrompt(identity: string): Promise<void>;
+  /**
+   * Accounts tab (D505) host: absent when the accounts seam is not wired. Built per
+   * panel from `post`, so replies reach the panel that asked.
+   */
+  accountsHost?(post: (message: SettingsHostMessage) => void): AccountsHost;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -180,6 +187,7 @@ function validateDefaultEffort(manifest: Manifest, catalog: ModelCatalog): void 
 
 export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActionsFactory {
   return (ctx: SettingsActionsCtx): SettingsActions => {
+    let accountsHost: AccountsHost | undefined;
     /**
      * THE Settings write seam: every manifest write routes through here, and
      * the approaches list is reduced to the DELTA against the packaged built-in
@@ -690,6 +698,15 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }
+      },
+
+      async accounts(message: AccountsWebviewMessage): Promise<void> {
+        const host = accountsHost ?? (deps.accountsHost ? (accountsHost = deps.accountsHost(ctx.post)) : undefined);
+        if (!host) {
+          ctx.post({ type: 'accounts-error', op: message.type, message: 'Agent accounts are not available in this window.' });
+          return;
+        }
+        await host.handle(message);
       },
 
       async openGraphPrompt(identity: string): Promise<void> {

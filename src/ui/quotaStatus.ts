@@ -32,6 +32,7 @@ export function buildQuotaIndicator(
   thresholdPct: number,
   coreLabel: (core: AgentProvider) => string,
   now: Date,
+  accountOf?: (core: AgentProvider) => string | undefined,
 ): QuotaIndicator | null {
   const known: KnownEntry[] = [];
   for (const snapshot of snapshots) {
@@ -40,14 +41,19 @@ export function buildQuotaIndicator(
   }
   if (known.length === 0) return null;
 
+  // The account name rides beside the core when the active account is not 'default'.
+  const named = (core: AgentProvider): string => {
+    const account = accountOf?.(core);
+    return account ? `${coreLabel(core)} (${account})` : coreLabel(core);
+  };
   const segments = known.map(
-    ({ snapshot, window }) => `${coreLabel(snapshot.core)} ${Math.round(window.usedPct)}%`,
+    ({ snapshot, window }) => `${named(snapshot.core)} ${Math.round(window.usedPct)}%`,
   );
   const warning = known.some(({ window }) => window.usedPct >= thresholdPct);
   const tooltip = known
     .map(({ snapshot, window }) => {
       const reset = window.resetsAt ? ` · resets ${window.resetsAt}` : '';
-      return `${coreLabel(snapshot.core)}: ${Math.round(window.usedPct)}% of ${window.label}${reset}`;
+      return `${named(snapshot.core)}: ${Math.round(window.usedPct)}% of ${window.label}${reset}`;
     })
     .concat(`Warn threshold ${thresholdPct}%`)
     .join('\n');

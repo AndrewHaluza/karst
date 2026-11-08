@@ -9,6 +9,11 @@ describe('agents route', () => {
     expect(parseAgentsHash('#agents/profiles/reviewer')).toEqual({ tab: 'profiles', selected: 'reviewer' });
     expect(parseAgentsHash('#agents/profiles')).toEqual({ tab: 'profiles' });
   });
+  it('parses the accounts tab with an optional core', () => {
+    expect(parseAgentsHash('#agents/accounts')).toEqual({ tab: 'accounts' });
+    expect(parseAgentsHash('#agents/accounts/codex')).toEqual({ tab: 'accounts', selected: 'codex' });
+    expect(parseAgentsHash(formatAgentsHash({ tab: 'accounts', selected: 'claude' }))).toEqual({ tab: 'accounts', selected: 'claude' });
+  });
   it('redirects old Presets links and unknown hashes to the Roles tab', () => {
     expect(parseAgentsHash('#presets')).toEqual({ tab: 'roles' });
     expect(parseAgentsHash('#presets/x?compare=a')).toEqual({ tab: 'roles' });

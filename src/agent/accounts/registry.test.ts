@@ -83,3 +83,14 @@ describe('sessionReaderEnv', () => {
     expect(sessionReaderEnv('claude', 's-gone').CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR);
   });
 });
+
+describe('activeAccountLabel (D505)', () => {
+  it('is the active account name, and undefined for default or a non-account core', async () => {
+    const { activeAccountLabel, configureAccounts, resetAccounts } = await import('./registry.js');
+    configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/w' } } } });
+    expect(activeAccountLabel('claude')).toBe('work');
+    expect(activeAccountLabel('codex')).toBeUndefined();
+    expect(activeAccountLabel('gemini')).toBeUndefined();
+    resetAccounts();
+  });
+});
