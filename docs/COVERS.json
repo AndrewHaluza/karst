@@ -118,10 +118,10 @@
     "arch:UATHOST-01"
   ],
   "scripts/uat-host/uiDriver.mjs": [
-    "arch:UATHOST-02"
+    "arch:UATHOST-06"
   ],
   "scripts/uat-host/uiScript.mjs": [
-    "arch:UATHOST-02"
+    "arch:UATHOST-06"
   ],
   "scripts/vitestGate.mjs": [
     "arch:GATE-REPEAT"
@@ -863,7 +863,7 @@
     "arch:UATHOST-02"
   ],
   "src/uatHost/probe/uiClient.ts": [
-    "arch:UATHOST-02"
+    "arch:UATHOST-06"
   ],
   "src/uatHost/probe/vscodeProbe.ts#installProbeRecorder": [
     "arch:UATHOST-00",
