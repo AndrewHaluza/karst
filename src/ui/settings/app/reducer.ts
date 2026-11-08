@@ -34,6 +34,7 @@ import type { TicketList } from '../../../integrations/ticketing.js';
 import type { SettingsProcessAssignmentView } from '../processAssignmentViews.js';
 import type { SettingsSection } from '../sections.js';
 import type { BackendStatuses, SettingsState } from '../state.js';
+import type { AccountsCoreView, AccountsHostMessage } from '../accountsMessages.js';
 import type { SettingsHostMessage } from '../messages.js';
 import { clone, dirtySectionsOf, overlaySections, sectionsToKeep } from './draft.js';
 import { pickDefaultStartStatus } from './diagnostics.js';
@@ -109,6 +110,15 @@ export interface SettingsAppState {
   readonly lists: ListFetch;
   /** Terminal receipts from `action-result`, keyed by correlation id. */
   readonly receipts: Readonly<Record<string, ActionReceipt>>;
+  /** Machine-local Accounts tab (D505): the host's last list, and the last reply to an action. */
+  readonly accounts: AccountsAppState;
+}
+
+export interface AccountsAppState {
+  /** Null until the host answers `accounts-load`. */
+  readonly cores: readonly AccountsCoreView[] | null;
+  /** The latest reply that is not a list push; `seq` grows so the same reply twice still notifies. */
+  readonly last: { readonly seq: number; readonly message: AccountsHostMessage } | null;
 }
 
 const EMPTY_DRAFT = {} as unknown as Manifest;
@@ -137,6 +147,7 @@ export const INITIAL_SETTINGS_APP_STATE: SettingsAppState = {
   statuses: IDLE_STATUSES,
   lists: IDLE_LISTS,
   receipts: {},
+  accounts: { cores: null, last: null },
 };
 
 /**
@@ -327,6 +338,21 @@ export function settingsAppReducer(
 
     case 'repo-path-picked':
       return applyRepoPath(state, message.name, message.path);
+
+    case 'accounts-state':
+      return { ...state, accounts: { ...state.accounts, cores: message.cores } };
+
+    case 'accounts-added':
+    case 'accounts-alias-result':
+    case 'accounts-seed':
+    case 'accounts-copy-result':
+    case 'accounts-status':
+    case 'accounts-folder-picked':
+    case 'accounts-error':
+      return {
+        ...state,
+        accounts: { ...state.accounts, last: { seq: (state.accounts.last?.seq ?? 0) + 1, message } },
+      };
 
     case 'action-result':
       return {

@@ -48,6 +48,7 @@ import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { sessionReaderEnv } from './agent/accounts/registry.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
+import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor } from './extension/ops/fixRerunOps.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
@@ -2316,6 +2317,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
         await vscode.window.showTextDocument(doc, { preview: true });
       },
+      ...(accountsWiring ? { accountsHost: (post: Parameters<typeof bindAccountsHost>[1]) => bindAccountsHost(accountsWiring.ops, post) } : {}),
     }),
     listInstalledApproachIds,
     () => hasToken(context),

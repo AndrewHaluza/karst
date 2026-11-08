@@ -6,6 +6,8 @@ import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { normalizeSection, type SettingsSection } from './sections.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
+import { isAccountCore, type AccountCore } from '../../agent/accounts/types.js';
+import type { AccountsHostMessage, AccountsWebviewMessage, AccountSpecInput } from './accountsMessages.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
@@ -51,7 +53,9 @@ export type SettingsWebviewMessage =
    * / `karst-graph-node`). The identity is a closed set — the host resolves it
    * against the stable override registry and refuses anything else.
    */
-  | { type: 'open-graph-prompt'; identity: string };
+  | { type: 'open-graph-prompt'; identity: string }
+  /** Machine-local Accounts tab (D505): applies at once, never part of the manifest Save. */
+  | AccountsWebviewMessage;
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -78,6 +82,7 @@ export type SettingsHostMessage =
   /** Sandbox backend readiness (arch:AC-32), on its own message: probes can take seconds (docker build). */
   | { type: 'backend-status'; status: BackendStatuses }
   | { type: 'repo-path-picked'; name: string; path: string }
+  | AccountsHostMessage
   | ActionResultMessage;
 
 /**
@@ -204,6 +209,8 @@ export interface SettingsActions {
   openManifest(): void | Promise<void>;
   /** Reveal the effective prompt file for a graph prompt identity. */
   openGraphPrompt(identity: string): void | Promise<void>;
+  /** One Accounts-tab message (D505); the host replies with `accounts-*` messages. */
+  accounts(message: AccountsWebviewMessage): void | Promise<void>;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -296,7 +303,7 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
     case 'open-graph-prompt':
       return str('identity') ? { type: 'open-graph-prompt', identity: raw.identity as string } : null;
     default:
-      return null;
+      return parseAccountsMessage(raw);
   }
 }
 
@@ -356,5 +363,65 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.openManifest();
     case 'open-graph-prompt':
       return actions.openGraphPrompt(msg.identity);
+    default:
+      return actions.accounts(msg);
+  }
+}
+
+const ACCOUNT_NAME_MAX = 200;
+
+function parseSpec(raw: unknown): AccountSpecInput | null {
+  if (!isRecord(raw)) return null;
+  const text = (k: string): string | undefined => (typeof raw[k] === 'string' && (raw[k] as string).length > 0 && (raw[k] as string).length <= 4096 ? (raw[k] as string) : undefined);
+  if (raw.source === 'managed') return { source: 'managed' };
+  if (raw.source === 'folder') {
+    const dir = text('dir');
+    return dir ? { source: 'folder', dir } : null;
+  }
+  if (raw.source === 'command') {
+    const command = text('command');
+    if (!command) return null;
+    const args = raw.args;
+    if (args !== undefined && !(Array.isArray(args) && args.every((a) => typeof a === 'string'))) return null;
+    const dir = text('dir');
+    return { source: 'command', command, ...(dir ? { dir } : {}), ...(args ? { args: args as string[] } : {}) };
+  }
+  return null;
+}
+
+/** Narrow an Accounts-tab message; a wrong core, name or shape is dropped. */
+function parseAccountsMessage(raw: unknown): AccountsWebviewMessage | null {
+  if (!isRecord(raw)) return null;
+  const name = typeof raw.name === 'string' && raw.name.length > 0 && raw.name.length <= ACCOUNT_NAME_MAX ? raw.name : null;
+  const core: AccountCore | null = isAccountCore(raw.core) ? raw.core : null;
+  switch (raw.type) {
+    case 'accounts-load':
+      return { type: 'accounts-load' };
+    case 'accounts-pick-folder':
+      return { type: 'accounts-pick-folder' };
+    case 'accounts-add': {
+      const spec = parseSpec(raw.spec);
+      return core && name && spec ? { type: 'accounts-add', core, name, spec } : null;
+    }
+    case 'accounts-import-alias': {
+      const alias = typeof raw.alias === 'string' && raw.alias.length > 0 && raw.alias.length <= ACCOUNT_NAME_MAX ? raw.alias : null;
+      if (!core || !alias) return null;
+      if (raw.text !== undefined && (typeof raw.text !== 'string' || raw.text.length > 4096)) return null;
+      return { type: 'accounts-import-alias', core, alias, ...(typeof raw.text === 'string' && raw.text ? { text: raw.text } : {}) };
+    }
+    case 'accounts-set-active':
+      return core && name ? { type: 'accounts-set-active', core, name } : null;
+    case 'accounts-delete':
+      return core && name && typeof raw.removeFolder === 'boolean' ? { type: 'accounts-delete', core, name, removeFolder: raw.removeFolder } : null;
+    case 'accounts-seed-items':
+      return core && name ? { type: 'accounts-seed-items', core, name } : null;
+    case 'accounts-login':
+      return core && name ? { type: 'accounts-login', core, name } : null;
+    case 'accounts-copy-seed':
+      return core && name && Array.isArray(raw.items) && raw.items.every((i) => typeof i === 'string')
+        ? { type: 'accounts-copy-seed', core, name, items: raw.items as string[] }
+        : null;
+    default:
+      return null;
   }
 }

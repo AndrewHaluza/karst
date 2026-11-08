@@ -83,6 +83,14 @@ describe('account ops', () => {
     expect(debug.some((m) => m.includes('not removed') && m.includes('claude/w'))).toBe(true);
   });
 
+  it('keeps the managed folder when removeFolder is false', async () => {
+    const { ops, store } = setup();
+    await ops.createAccount('claude', 'w', { source: 'managed' });
+    await ops.deleteAccount('claude', 'w', { removeFolder: false });
+    expect(store.current().claude?.list.w).toBeUndefined();
+    expect((await stat(join(root, 'accounts', 'claude', 'w'))).isDirectory()).toBe(true);
+  });
+
   it('keeps the files of a folder account on delete', async () => {
     const { ops } = setup();
     await ops.createAccount('claude', 'f', { source: 'folder', dir: root });

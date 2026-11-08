@@ -72,6 +72,7 @@ function make(
       browseRepoPath: () => {},
       openManifest: () => {},
       openGraphPrompt: () => {},
+      accounts: () => {},
     }),
     () => [],
     hasToken,
@@ -237,6 +238,7 @@ describe('SettingsManager', () => {
           browseRepoPath: () => {},
           openManifest: () => {},
           openGraphPrompt: () => {},
+      accounts: () => {},
         }),
       );
       await mgr.open();

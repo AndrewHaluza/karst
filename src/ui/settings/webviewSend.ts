@@ -15,6 +15,7 @@
 
 import type { BackendWant } from '../../agent/backendChoices.js';
 import type { SettingsWebviewMessage } from './messages.js';
+import type { AccountsWebviewMessage } from './accountsMessages.js';
 
 /** The minimal host API a sender posts through. */
 export interface WebviewApi {
@@ -103,6 +104,8 @@ export function createSender(api: WebviewApi) {
       identity: Msg<'open-graph-prompt'>['identity'],
       requestId?: string,
     ) => send({ type: 'open-graph-prompt', identity }, requestId),
+    /** One Accounts-tab message (D505). */
+    accounts: (message: AccountsWebviewMessage, requestId?: string) => send(message, requestId),
   };
 }
 

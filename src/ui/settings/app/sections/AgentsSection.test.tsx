@@ -134,7 +134,7 @@ describe('Agents page — tabs and location', () => {
   it('renders a tablist with Roles and Agent profiles (n), arrow keys switch, the hash follows', () => {
     mount();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (2)']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (2)', 'Accounts']);
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' });
     expect(screen.getAllByRole('tab')[1]!.getAttribute('aria-selected')).toBe('true');
@@ -153,9 +153,9 @@ describe('Agents page — tabs and location', () => {
     mount();
     const tabs = (): HTMLElement[] => screen.getAllByRole('tab');
     fireEvent.keyDown(tabs()[0]!, { key: 'End' });
-    expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true');
-    expect(window.location.hash).toBe('#agents/profiles');
-    fireEvent.keyDown(tabs()[1]!, { key: 'Home' });
+    expect(tabs()[2]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/accounts');
+    fireEvent.keyDown(tabs()[2]!, { key: 'Home' });
     expect(tabs()[0]!.getAttribute('aria-selected')).toBe('true');
     expect(window.location.hash).toBe('#agents/roles');
   });
