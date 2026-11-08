@@ -190,7 +190,7 @@ jobs:
 
   mutation:
     name: Mutation score
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -205,11 +205,39 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      # Check if any files that affect the mutation score changed.
+      # Only src/extension/**/*.ts is mutated (stryker.config.json), and only
+      # src/extension/**/*.test.ts and src/agent/quota/**/*.test.ts are executed
+      # (vitest.mutation.config.ts). If a PR touched none of these, the mutation
+      # score cannot change and we can skip the heavy rebuild and Stryker run.
+      - name: Check if mutation-relevant files changed
+        id: filter
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF" || true
+          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+            'src/extension/**' \
+            'src/agent/quota/**' \
+            'stryker.config.json' \
+            'vitest.mutation.config.ts' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No extension source or test files touched in this PR; skipping Stryker."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Mutation-relevant files changed:"
+            echo "$CHANGED"
+          fi
+
       - run: npm ci
+        if: steps.filter.outputs.skip != 'true'
 
       # Stryker runs vitest, which loads better-sqlite3, and `test:mutation`
       # has no pre-hook of its own. Rebuild explicitly.
       - name: Rebuild better-sqlite3 for the Node ABI
+        if: steps.filter.outputs.skip != 'true'
         run: npm run rebuild:node
 
       # Blocking gate (CI-MAKE-MUTATION-SCORE-JOB): the score is global
@@ -220,6 +248,7 @@ jobs:
       # still count, so the score stays global. Restore the newest cache from
       # any run (restore-keys); save a fresh one per commit.
       - name: Restore the Stryker incremental cache
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
           path: reports/stryker-incremental.json
@@ -228,6 +257,7 @@ jobs:
 
       - name: Run Stryker
         id: stryker
+        if: steps.filter.outputs.skip != 'true'
         # Local config is silent (html+json only); CI wants the per-file table in the log.
         run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json --incremental --incrementalFile reports/stryker-incremental.json
 
@@ -236,12 +266,15 @@ jobs:
       # failure from failing the job on its own — the report degrades to no
       # annotations instead.
       - name: Compute the PR's changed files
-        if: always()
+        if: always() && steps.filter.outputs.skip != 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch --no-tags origin "$BASE_REF" || true
-          git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+          touch changed-files.txt
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF" || true
+            git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+          fi
           echo "Changed files:"; cat changed-files.txt
 
       # Replaces the old "exit code 1 and nothing else" publish step: turn the
@@ -251,7 +284,7 @@ jobs:
       # pass/fail is the Stryker step alone, and a failing run still shows the
       # report here.
       - name: Publish the mutation mini report
-        if: always()
+        if: always() && steps.filter.outputs.skip != 'true'
         run: |
           node scripts/mutationSummary.mjs \
             --report reports/mutation/mutation.json \
@@ -259,8 +292,17 @@ jobs:
             --changed changed-files.txt \
             --summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Publish skipped mutation report
+        if: steps.filter.outputs.skip == 'true'
+        run: |
+          {
+            echo "## Mutation score"
+            echo
+            echo "✅ Skipped: No files under \`src/extension/**\` or test files covering them were changed in this PR."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the HTML report
-        if: always()
+        if: always() && steps.filter.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mutation-report
