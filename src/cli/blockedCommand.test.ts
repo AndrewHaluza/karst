@@ -176,4 +176,60 @@ describe('karst blocked — report', () => {
     setStage(store, t.id, 'fix', { status: 'failed', verdict: 'fix attempts exhausted', endedAt: '2026-11-03T09:00:00.000Z' });
     expect(collectBlocked(store, scope).summary).toEqual([{ kind: 'fix-parked', now: 0, before: 1 }]);
   });
+
+  describe('auto-deliver of a resolved merge', () => {
+    const GATES = JSON.stringify(['lint', 'unit', 'visual']);
+    function awaitingMerge(key: string): number {
+      const t = createTicket(store, { key, title: key });
+      setStage(store, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'the pull request has changes and is not merged yet', blockedAt: '2026-11-04T00:00:00.000Z' });
+      return t.id;
+    }
+    function run(ticketId: number, state: string, currentGate: string | null, startedAt: string): void {
+      store.db
+        .prepare('INSERT INTO deliver_runs (ticket_id, gates, current_gate, state, started_at) VALUES (?, ?, ?, ?, ?)')
+        .run(ticketId, GATES, currentGate, state, startedAt);
+    }
+
+    it('adds one auto-deliver line and the JSON field for a running run', () => {
+      const id = awaitingMerge('K-1');
+      run(id, 'running', 'visual', '2026-11-04T18:09:36.000Z');
+      const text = runBlockedCommand(store, { json: false }, scope).split('\n');
+      expect(text).toContain('  auto-deliver: gate visual (3 of 3) since 2026-11-04T18:09:36.000Z');
+      expect(text[0]).toContain('K-1  stage=ship  kind=awaiting-merge');
+      expect(text[1]).toContain('reason: the pull request has changes');
+      const json = JSON.parse(runBlockedCommand(store, { json: true }, scope));
+      expect(json.rows[0].delivering).toEqual({ gate: 'visual', index: 3, total: 3, startedAt: '2026-11-04T18:09:36.000Z' });
+    });
+
+    it('uses the newest running run', () => {
+      const id = awaitingMerge('K-1');
+      run(id, 'running', 'lint', '2026-11-04T18:00:00.000Z');
+      run(id, 'running', 'unit', '2026-11-04T18:05:00.000Z');
+      expect(collectBlocked(store, scope).rows[0]!.delivering).toMatchObject({ gate: 'unit', index: 2 });
+    });
+
+    it.each(['passed', 'failed', 'stopped'])('adds nothing for a %s run', (state) => {
+      const id = awaitingMerge('K-1');
+      run(id, state, 'visual', '2026-11-04T18:09:36.000Z');
+      expect('delivering' in collectBlocked(store, scope).rows[0]!).toBe(false);
+      expect(runBlockedCommand(store, { json: false }, scope)).not.toContain('auto-deliver');
+    });
+
+    it('adds nothing for a ticket with no run, between gates, or an unknown gate', () => {
+      const id = awaitingMerge('K-1');
+      expect(collectBlocked(store, scope).rows[0]!.delivering).toBeUndefined();
+      run(id, 'running', null, '2026-11-04T18:09:36.000Z');
+      expect(collectBlocked(store, scope).rows[0]!.delivering).toBeUndefined();
+      run(id, 'running', 'nope', '2026-11-04T18:10:00.000Z');
+      expect(collectBlocked(store, scope).rows[0]!.delivering).toBeUndefined();
+    });
+
+    it('treats a missing deliver_runs table (an old db) as no delivery', () => {
+      awaitingMerge('K-1');
+      store.db.exec('DROP TABLE deliver_gate_results; DROP TABLE deliver_runs;');
+      const rows = collectBlocked(store, scope).rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.delivering).toBeUndefined();
+    });
+  });
 });

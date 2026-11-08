@@ -44,6 +44,15 @@ export interface BlockedRound {
   readonly findings: readonly string[];
 }
 
+/** An auto-deliver gate run in progress on a resolved merge (@arch:EVIDENCE-WHEN). */
+export interface BlockedDelivering {
+  readonly gate: string;
+  /** 1-based position of the running gate in the planned gate list. */
+  readonly index: number;
+  readonly total: number;
+  readonly startedAt: string;
+}
+
 export interface BlockedRow {
   readonly key: string;
   readonly stage: string;
@@ -53,6 +62,8 @@ export interface BlockedRow {
   readonly agentState: string | null;
   /** Present only for `review-stalled`: the blocking findings per review round. */
   readonly rounds?: readonly BlockedRound[];
+  /** Present only while a `deliver_runs` row of the ticket is `running`. */
+  readonly delivering?: BlockedDelivering;
 }
 
 export interface BlockedCount {
@@ -112,6 +123,39 @@ function roundsFor(store: Store, ticketId: number, floor: Severity | 'none'): Bl
   }));
 }
 
+interface DeliverRunRow {
+  gates: string;
+  current_gate: string | null;
+  started_at: string;
+}
+
+/**
+ * The newest running auto-deliver run of a ticket, or undefined. A plain SELECT (@arch:CLI-05).
+ * A missing table (an old db), a run between gates or an unreadable gate list all mean no delivery.
+ */
+function deliveringFor(store: Store, ticketId: number): BlockedDelivering | undefined {
+  let row: DeliverRunRow | undefined;
+  try {
+    row = store.db
+      .prepare("SELECT gates, current_gate, started_at FROM deliver_runs WHERE ticket_id = ? AND state = 'running' ORDER BY id DESC LIMIT 1")
+      .get(ticketId) as DeliverRunRow | undefined;
+  } catch (err) {
+    if (err instanceof Error && /no such table/i.test(err.message)) return undefined;
+    throw err;
+  }
+  if (row === undefined || row.current_gate === null) return undefined;
+  let gates: unknown;
+  try {
+    gates = JSON.parse(row.gates);
+  } catch {
+    return undefined; // an unreadable gate list shows no progress, never a crash
+  }
+  if (!Array.isArray(gates)) return undefined;
+  const at = gates.indexOf(row.current_gate);
+  if (at < 0) return undefined;
+  return { gate: row.current_gate, index: at + 1, total: gates.length, startedAt: row.started_at };
+}
+
 export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedReport {
   const now = (scope.now?.() ?? new Date()).getTime();
   const windowStart = new Date(now - BASELINE_WINDOW_DAYS * DAY_MS).toISOString();
@@ -150,6 +194,7 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     reason: r.blocked_reason ?? '',
     agentState: r.agent_state,
     ...(r.blocked_kind === 'review-stalled' ? { rounds: roundsFor(store, r.id, scope.stallFloor ?? DEFAULT_STALL_FLOOR) } : {}),
+    ...withDelivering(deliveringFor(store, r.id)),
   }));
 
   // `blocked_at` is written as an ISO-8601 UTC string, so string order is time order.
@@ -189,6 +234,10 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
   return { rows, summary };
 }
 
+function withDelivering(d: BlockedDelivering | undefined): { delivering?: BlockedDelivering } {
+  return d === undefined ? {} : { delivering: d };
+}
+
 function filterKind(report: BlockedReport, kind: string | undefined): BlockedReport {
   if (kind === undefined) return report;
   return { rows: report.rows.filter((r) => r.kind === kind), summary: report.summary.filter((s) => s.kind === kind) };
@@ -206,6 +255,10 @@ function renderRow(r: BlockedRow): string[] {
   const lines = [head, `  reason: ${r.reason.replace(/\s+/g, ' ').trim()}`];
   for (const round of r.rounds ?? []) {
     lines.push(`  round ${round.attempt}: ${round.findings.length === 0 ? 'clean' : round.findings.join(', ')}`);
+  }
+  if (r.delivering !== undefined) {
+    const d = r.delivering;
+    lines.push(`  auto-deliver: gate ${d.gate} (${d.index} of ${d.total}) since ${d.startedAt}`);
   }
   return lines;
 }
