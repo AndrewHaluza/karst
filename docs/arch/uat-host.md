@@ -36,7 +36,7 @@ flowchart LR
   H -. CDP port 9222, inside the container .-> E
 ```
 
-Only a script that holds a UI step (`click`, `type`, `press`, `read`) opens `--remote-debugging-port=9222` on VS Code and makes `run.mjs` start `scripts/uat-host/uiDriver.mjs`. The driver is a separate Node process that uses the dev dependency `@playwright/test`; `dist` does not bundle it. The extension host sends each UI step to the driver over a unix socket. The port stays inside the container (no `-p`). A script without a UI step runs as before.
+Only a script that holds a UI step (`click`, `type`, `press`, `read`) opens `--remote-debugging-port=9222` on VS Code and makes `run.mjs` start `scripts/uat-host/uiDriver.mjs`. The driver is a separate Node process that uses the dev dependency `@playwright/test`; `dist` does not bundle it. The extension host sends each UI step to the driver over a unix socket. The port stays inside the container (no `-p`). `run.mjs` refuses (exit 2) a UI script when `UAT_HOST_CONTAINER=1` (set by the Dockerfile) is absent, so the port never opens on the operator machine. A script without a UI step runs as before.
 
 The `wait` step (`parseSteps`) takes one of `ticketStage`, `ticketSettled` (the ticket entered `ship`, or its current stage is blocked), `notification`, `log`, `launch` or `webviewMessage`; a wait that is not met in its `timeoutMs` is a reported `timeout`, not a throw.
 
