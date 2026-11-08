@@ -132,7 +132,7 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     expect(refreshed).toContain(sessionId);
-    expect(getTicket(store, t.id)!.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${proposalId}.`);
+    expect(getTicket(store, t.id)!.brief).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${proposalId}.`);
   });
 
   it('a form-saved ticket is linked even if the draft was revised while the form was open, with a warning', async () => {

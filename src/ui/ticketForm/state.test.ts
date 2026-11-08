@@ -4,6 +4,9 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
+import { upsertProject } from '../../store/projects.js';
+import { createPlanningSession } from '../../store/planningSessions.js';
+import { insertProposal, markProposalAccepted } from '../../store/planningProposals.js';
 import { applyPrefill, buildTicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import {
@@ -720,13 +723,25 @@ describe('applyPrefill — approved-draft base picks', () => {
     expect(applyPrefill(built, prefill).briefSource).toEqual({ kind: 'manual' });
   });
 
-  it('edit mode: provider only when the ticket has a sourceRef', () => {
+  it('edit mode: provider only when a fetch wrote the brief, draft for a never-fetched planned ticket', () => {
     const fetched = createTicket(store, { key: 'F-1', title: 'f' });
-    updateTicketFields(store, fetched.id, { sourceRef: 'abc' });
-    const drafted = createTicket(store, { key: 'D-1', title: 'd' });
+    updateTicketFields(store, fetched.id, { sourceRef: 'abc', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+    const boundOnly = createTicket(store, { key: 'B-1', title: 'b' });
+    updateTicketFields(store, boundOnly.id, { sourceRef: 'abd' });
+    const hand = createTicket(store, { key: 'D-1', title: 'd' });
+    const projectId = upsertProject(store, { slug: 'brief-src' }).id;
+    const sessionId = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const draftId = insertProposal(store, sessionId, { title: 'p', description: 'd', summary: 'sum', repos: [] });
+    const planned = createTicket(store, { key: 'PL-1', title: 'p', projectId });
+    markProposalAccepted(store, draftId, planned.id);
+    updateTicketFields(store, planned.id, { sourceRef: 'abe' });
     const b = (id: number) => buildTicketFormState(store, MANIFEST, () => [], () => [], id).briefSource;
     expect(b(fetched.id).kind).toBe('provider');
-    expect(b(drafted.id)).toEqual({ kind: 'manual' });
+    expect(b(boundOnly.id)).toEqual({ kind: 'manual' });
+    expect(b(hand.id)).toEqual({ kind: 'manual' });
+    expect(b(planned.id)).toEqual({ kind: 'draft', draftId });
+    updateTicketFields(store, planned.id, { sourceFetchedAt: '2026-01-02T00:00:00.000Z' });
+    expect(b(planned.id).kind).toBe('provider');
   });
 
   it('names the sub-task parent as T<n> on create, and the ticket as T<n> · KEY on edit', () => {
