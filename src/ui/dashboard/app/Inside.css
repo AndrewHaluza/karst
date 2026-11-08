@@ -198,12 +198,12 @@
 #inside .glyph.wait{color:var(--p-attention)}
 #inside .glyph.run{color:var(--p-running)}
 #inside .glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;
-  border-bottom:1.5px solid currentColor;transform:translateY(-1px) rotate(-45deg)}
+  border-bottom:1.5px solid currentColor;transform:translate(-0.5px,-1px) rotate(-45deg)}
 #inside .glyph.fail:before,#inside .glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;
   border-radius:var(--k-border-w);background:currentColor;left:50%;top:50%;transform-origin:center}
 #inside .glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)}
 #inside .glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
-#inside .glyph.pending:before,#inside .glyph.note:before{content:"";width:3px;height:3px;
+#inside .glyph.pending:before,#inside .glyph.note:before{content:"";width:4px;height:4px;
   border-radius:var(--k-radius-circle);background:currentColor}
 #inside .glyph.run:before{content:"";width:8px;height:8px;border:1.5px solid currentColor;
   border-right-color:transparent;border-radius:var(--k-radius-circle);animation:spin var(--k-dur-spin) linear infinite}
@@ -211,7 +211,7 @@
   top:4px;border-radius:var(--k-border-w);background:currentColor}
 #inside .glyph.wait:before{left:5px}
 #inside .glyph.wait:after{right:5px}
-#inside .glyph.skip:before{content:"";width:7px;height:1px;background:currentColor;transform:rotate(-45deg)}
+#inside .glyph.skip:before{content:"";width:8px;height:2px;background:currentColor;transform:rotate(-45deg)}
 
 #inside .op-name{display:flex;align-items:center;gap:var(--p-s2);min-height:18px;line-height:18px;
   font-size:var(--p-sm);font-weight:var(--k-weight-medium);color:var(--p-text);
