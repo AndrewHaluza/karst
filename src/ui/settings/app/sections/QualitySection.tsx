@@ -198,6 +198,7 @@ export function QualitySection() {
                       edit((current) =>
                         updateUat(current, {
                           testerObservations: {
+                            ...uat.testerObservations,
                             blockingSeverity: testerSeverity,
                             onSkip: value as TesterOnSkip,
                           },
