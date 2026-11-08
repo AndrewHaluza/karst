@@ -8,13 +8,14 @@
  */
 import type { GraphDagView, GraphNodeListRow } from '../../../model/inside/types.js';
 import { InsideActionButton } from './InsideParts.js';
+import { GraphNodeAge } from './InsideClocks.js';
 import { useDagShown, useInsideScope } from './InsideMemory.js';
 import { statusWord, withKeys } from './insideText.js';
 
-export function GraphNodeList({ nodes }: { readonly nodes: readonly GraphNodeListRow[] }) {
+export function GraphNodeList({ nodes, stage, id }: { readonly nodes: readonly GraphNodeListRow[]; readonly stage: string; readonly id: string }) {
   return (
     <div className="graph-nodes">
-      {withKeys(nodes, (n) => `${n.entry}:${n.nodeRunId ?? ''}:${n.nodeId}`).map(([key, n]) => (
+      {withKeys(nodes, (n) => `${n.entry}:${n.nodeRunId ?? ''}:${n.nodeId}`).map(([key, n], index) => (
         <div className="graph-entry" key={key}>
           <div className="graph-node">
             {/* The status word rides the glyph's accessible name; the raw node-run status is the row's own verdict text and stays visible as meta. */}
@@ -24,7 +25,7 @@ export function GraphNodeList({ nodes }: { readonly nodes: readonly GraphNodeLis
             <span className="graph-node-detail">
               {n.identity ? <span className="graph-node-identity">{n.identity}</span> : null}
               {n.visit ? <span className="graph-node-visit">{n.visit}</span> : null}
-              {n.age ? <span className="graph-node-age">{n.age}</span> : null}
+              <GraphNodeAge stage={stage} id={id} index={index} />
               {n.override ? <span className="graph-node-override">{n.override}</span> : null}
               {n.outcome ? <span className="graph-node-fact">{n.outcome}</span> : null}
               {n.reason ? <span className="graph-node-reason">{n.reason}</span> : null}

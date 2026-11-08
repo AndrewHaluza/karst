@@ -11,18 +11,18 @@ import { EvidenceTimeline } from './EvidenceTimeline.js';
 export function EvidenceBody({ ev, p, stageKey }: { readonly ev: ProcessEvidenceView; readonly p: InsideProcessView; readonly stageKey: string }) {
   switch (ev.kind) {
     case 'gates':
-      return <EvidenceGates ev={ev} />;
+      return <EvidenceGates ev={ev} stage={stageKey} id={p.id} />;
     case 'findings':
       return <EvidenceFindings ev={ev} p={p} stageKey={stageKey} />;
     case 'timeline':
       return <EvidenceTimeline rows={ev.rows} stage={stageKey} id={p.id} />;
     case 'commits':
-      return <EvidenceCommits ev={ev} />;
+      return <EvidenceCommits ev={ev} stage={stageKey} id={p.id} />;
     case 'prs':
-      return <EvidencePrs ev={ev} />;
+      return <EvidencePrs ev={ev} stage={stageKey} id={p.id} />;
     case 'receipt':
       return <EvidenceReceipt ev={ev} />;
     default:
-      return <EvidenceRows ev={ev} />;
+      return <EvidenceRows ev={ev} stage={stageKey} id={p.id} />;
   }
 }
