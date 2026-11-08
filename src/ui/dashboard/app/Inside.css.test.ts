@@ -221,3 +221,21 @@ describe('the thin round row', () => {
     expect(block).toContain('#inside .attempt-tab-tail');
   });
 });
+
+describe('the status glyph marks sit at the ring center (T1014)', () => {
+  const rule = (sel: string): string => new RegExp(`${escapeRegExp(sel)}\\s*\\{[^}]*\\}`).exec(CSS)?.[0] ?? '';
+  // The ring content box is 14px (16px less the 1px border): an odd mark cannot sit on a whole pixel.
+  it('draws the pending and note dot at an even 4px size', () => {
+    const dot = rule('#inside .glyph.pending:before,#inside .glyph.note:before');
+    expect(dot).toContain('width:4px;height:4px');
+    expect(dot).not.toContain('3px');
+  });
+  it('draws the skip line at an even 8px x 2px size', () => {
+    const line = rule('#inside .glyph.skip:before');
+    expect(line).toContain('width:8px;height:2px');
+    expect(line).not.toContain('7px');
+  });
+  it('shifts the pass check 0.5px left to cancel its horizontal offset', () => {
+    expect(rule('#inside .glyph.pass:before')).toContain('translate(-0.5px,-1px) rotate(-45deg)');
+  });
+});
