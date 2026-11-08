@@ -159,4 +159,24 @@ describe('runShipGates evidence (T1018)', () => {
     expect(listDeliverResults(store, ticketId).map((r) => r.summary)).toEqual([null, null]);
     expect(pushes).toBe(1 + 2 * 2 + 1);
   });
+
+  it('records a failure for a required script gate the repo cannot answer, and never spawns it', async () => {
+    const { store, ticketId } = setup();
+    const pr = repoWith({ test: 'x' });
+    const uat = { gates: [{ name: 'lint', kind: 'script', script: 'lint' }], repositories: {} } as never;
+    let spawned = 0;
+    const runProcess: GateProcessRunner = async () => { spawned += 1; return { kind: 'completed', exitCode: 0, output: '' }; };
+    const out = await runShipGates([pr], { uat, runProcess, evidence: { store, ticketId }, headSha: async () => 'c'.repeat(40) });
+    expect(out).toMatch(/^r: gate "lint" failed \(exit 1\)/);
+    expect(spawned).toBe(0);
+    expect(listDeliverResults(store, ticketId)).toMatchObject([{ gateName: 'lint', exitCode: 1, headSha: 'c'.repeat(40) }]);
+  });
+
+  it('runs a script gate the repo defines', async () => {
+    const { store, ticketId } = setup();
+    const pr = repoWith({ lint: 'x' });
+    const uat = { gates: [{ name: 'lint', kind: 'script', script: 'lint' }], repositories: {} } as never;
+    expect(await runShipGates([pr], { uat, runProcess: byCommand({}), evidence: { store, ticketId } })).toBeNull();
+    expect(listDeliverResults(store, ticketId)).toMatchObject([{ gateName: 'lint', exitCode: 0 }]);
+  });
 });
