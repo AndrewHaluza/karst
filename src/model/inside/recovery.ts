@@ -1,7 +1,7 @@
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
-import { executionView, type SessionConfiguredInput } from './agent.js';
+import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { fixDeliveryNote, type FixDeliveryFacts } from './fixDeliveryNote.js';
 import {
   formatDuration,
@@ -109,11 +109,15 @@ export function recoveryProcess(
   // the collapsed Fix row keeps reporting that stale `failed` round forever,
   // reading as a currently-blocking fix on a stage that has since passed.
   stagePassed?: boolean,
+  // The ledger read for the fix process run of the LATEST round — the run the
+  // row's time and duration come from. Absent → no pill.
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null,
 ): RecoveryProcessView | null {
   if (rounds.length === 0) return null;
   const latest = rounds[rounds.length - 1]!;
   const fixRun = processRuns.find((r) => r.id === latest.fixProcessRunId);
   const status: InsideStatus = stagePassed === true ? 'pass' : roundStatus(latest);
+  const fixTokens = fixRun && tokensForRuns ? tokensForRuns([fixRun]) : null;
 
   // The COLLAPSED fix row is never silent (handoff §11 + §3.8): every state
   // names what is happening, the exhausted one states what to do.
@@ -145,6 +149,7 @@ export function recoveryProcess(
       label: 'Fix',
       status,
       ...(detail ? { detail } : {}),
+      ...(fixTokens ? { tokens: tokenView(fixTokens) } : {}),
       ...(fixRun?.startedAt
         ? {
             // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.

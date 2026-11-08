@@ -278,6 +278,30 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       processRuns: [uatTesterRun()],
     }),
   },
+  {
+    // T1041: a running tester run has no ledger row yet, so the pill states why.
+    stage: 'uat',
+    id: 'tokens-pending',
+    skipLayout: true,
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'running' } },
+      gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
+      processRuns: [uatTesterRun({ status: 'running', endedAt: null })],
+      tokensForRuns: () => ({ total: 0, pending: true }),
+    }),
+  },
+  {
+    // T1041: a finished run whose rows are all estimates shows the marked estimate.
+    stage: 'uat',
+    id: 'tokens-estimate',
+    skipLayout: true,
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
+      processRuns: [uatTesterRun()],
+      tokensForRuns: () => ({ total: 0, cacheRead: 0, estimatedCalls: 2, estimatedTotal: 3700 }),
+    }),
+  },
   { stage: 'uat', id: 'fix-running', state: fromFacts('uat', loopFacts('uat', 'live')) },
   {
     // T938: round 2 is the recovery revalidation, so its gates carry the "why they re-ran" caption.

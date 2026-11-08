@@ -24,6 +24,7 @@ import {
   batchForAttempt,
   latestAttemptKey,
   processRunForAttempt,
+  processRunsForAttempt,
   roundsForAttempt,
   attemptKey,
   type AttemptKey,
@@ -286,6 +287,12 @@ export interface QualityProcessesInput {
   /** A RECORDED token summary for the stage's AI process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
   /**
+   * The token claim of the runs the row shows, read by the host from the
+   * ledger. The model picks WHICH runs (the shown attempt, all its targets);
+   * the host reads what they spent. Wins over `tokens` when given.
+   */
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
+  /**
    * Mint an opaque action for an evidence row, or return undefined when the
    * caller attaches none. Absent → rows carry no actions.
    */
@@ -337,6 +344,15 @@ function processRunStatus(run: ProcessRun, failedResultKinds: readonly string[])
 }
 
 /** The shared spine of the Tester/Review process rows. */
+function shownTokens(
+  input: QualityProcessesInput,
+  eff: EffectiveAttempt,
+  processId: 'tester' | 'review',
+): SessionTokensInput | null | undefined {
+  if (input.tokensForRuns === undefined) return input.tokens;
+  return input.tokensForRuns(eff.empty ? [] : processRunsForAttempt(input.processRuns, processId, eff.key));
+}
+
 function aiProcessBase(
   cell: StepperCell,
   run: ProcessRun | undefined,
@@ -962,7 +978,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const base = aiProcessBase(input.cell, run, input.configured, input.tokens, input.now, {
+  const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'tester'), input.now, {
     id: 'tester',
     label: 'Tester',
     failedResultKinds: ['verification-failed', 'unreadable-output'],
@@ -1075,7 +1091,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const base = aiProcessBase(input.cell, run, input.configured, input.tokens, input.now, {
+  const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'review'), input.now, {
     id: 'review',
     label: 'Review',
     failedResultKinds: ['blocking'],
@@ -1158,6 +1174,7 @@ function stageRecovery(
     input.now,
     input.configured,
     isLatest && displayStatus(input.cell) === 'passed',
+    input.tokensForRuns,
   );
 }
 

@@ -105,6 +105,15 @@ describe('sanitizeGraphText', () => {
 });
 
 describe('graphInsideProcess', () => {
+  it('the Graph row carries the spend of the graph run (problem 3)', () => {
+    const view = graphInsideProcess(input({ tokens: { total: 4_200 } }));
+    expect(view!.tokens).toMatchObject({ state: 'measured', total: '4.2k' });
+  });
+
+  it('a running graph with nothing counted yet reads pending, and no claim adds no pill', () => {
+    expect(graphInsideProcess(input({ tokens: { total: 0, pending: true } }))!.tokens).toMatchObject({ state: 'pending' });
+    expect(graphInsideProcess(input())!.tokens).toBeUndefined();
+  });
   it('is null when the feature flag is off', () => {
     expect(graphInsideProcess(input({ enabled: false }))).toBeNull();
   });

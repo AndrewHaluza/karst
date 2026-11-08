@@ -101,9 +101,11 @@ function prefillProcess(
   runs: readonly ProcessRun[],
   tokens: SessionTokensInput | null | undefined,
   now: string,
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null,
 ): InsideProcessView | null {
   const run = latestPrefillRun(runs);
   if (!run) return null;
+  const shown = tokensForRuns ? tokensForRuns([run]) : tokens;
   const status: InsideStatus =
     run.status === 'passed'
       ? 'pass'
@@ -133,7 +135,7 @@ function prefillProcess(
         }
       : {}),
     ...(run.provider ? { execution: executionView(run.provider, run.model) } : {}),
-    ...(tokens ? { tokens: tokenView(tokens) } : {}),
+    ...(shown ? { tokens: tokenView(shown) } : {}),
     evidence: { kind: 'rows', rows: [] },
   };
 }
@@ -156,6 +158,7 @@ export function scopeProcesses(
   now: string,
   processRuns?: readonly ProcessRun[],
   tokens?: SessionTokensInput | null,
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null,
 ): InsideProcessView[] {
   const count = selectedRepos.length;
   const ran = cell.status !== 'pending';
@@ -224,7 +227,7 @@ export function scopeProcesses(
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const prefill = prefillProcess(processRuns ?? [], tokens, now);
+  const prefill = prefillProcess(processRuns ?? [], tokens, now, tokensForRuns);
   return [
     ...(prefill ? [prefill] : []),
     hotSet,
