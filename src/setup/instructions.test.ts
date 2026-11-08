@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Manifest } from '../manifest/types.js';
+import { sessionCliEnv } from '../agent/cliEnv.js';
+import { parseGlobalFlags } from '../cli/main.js';
+import { parseSetupCheckArgs } from '../cli/setupCheck.js';
+import { parseSetupVerifyArgs } from '../cli/setupVerify.js';
 import {
   KARST_SETUP_SESSION_ENV,
   setupAddDirs,
@@ -32,6 +36,43 @@ describe('setupInstructions', () => {
     expect(text).toContain('setup verify');
     expect(text).toContain('setup check');
     expect(text).toMatch(/End the session ONLY when it reports ok/);
+  });
+
+  it('names gates as a field a re-run does not change and routes the user to Settings', () => {
+    expect(text).toMatch(/re-run changes only `repositories` and their services/);
+    expect(text).toMatch(/restores all other\s+fields[^.]*gates/);
+    expect(text).toContain('Settings > Quality');
+    expect(text).toMatch(/before you write a draft/);
+  });
+
+  it('limits the fix loop to fails the commands can fix and reports protected-field fails', () => {
+    expect(text).toMatch(/Fix each fail that these commands can fix/);
+    expect(text).toMatch(/fail in a protected field[^.]*Settings/);
+  });
+
+  it('prints setup verify and setup check with their required flags', () => {
+    const flags = '--db "$KARST_DB" --manifest "$KARST_MANIFEST"';
+    expect(text).toContain(`setup verify ${flags}`);
+    expect(text).toContain(`setup check ${flags}`);
+  });
+
+  it.each([
+    ['check', parseSetupCheckArgs],
+    ['verify', parseSetupVerifyArgs],
+  ] as const)('the printed setup %s line passes argument parsing in a setup session env', (verb, parse) => {
+    const env = sessionCliEnv({ cliEntry: '/x/cli.js', dbPath: '/d/karst.db', manifestPath: '/w/karst.yml' });
+    const line = text.split('\n').find((l) => l.includes(`setup ${verb} --db`));
+    expect(line).toBeDefined();
+    const argv = line!
+      .slice(line!.indexOf(`setup ${verb}`))
+      .split('`')[0]!
+      .trim()
+      .split(/\s+/)
+      .map((a) => a.replace(/^"\$(\w+)"$/, (_m, name: string) => env[name] ?? `<unset ${name}>`));
+    const flags = parseGlobalFlags(argv);
+    expect(flags.db).toBe('/d/karst.db');
+    expect(flags.manifest).toBe('/w/karst.yml');
+    expect(() => parse(flags.rest)).not.toThrow();
   });
 
   it('states the process rules a check cannot enforce', () => {
