@@ -116,9 +116,10 @@ describe('createSbxSessionRunner.sync', () => {
     const [head, ...rest] = proc.calls.map(text);
     expect(head).toBe(`${G} rev-parse HEAD`);
     expect(rest[0]).toBe(`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`);
-    const lines = rest.slice(1);
+    expect(rest[1]).toBe(`${G} rev-list --first-parent --max-count=1025 HEAD`);
+    const lines = rest.slice(2);
     expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x ${SHA}$`));
-    expect(proc.calls[2]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+    expect(proc.calls[3]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
     expect(lines[1]).toMatch(new RegExp(`^${G} fetch --no-write-fetch-head \\S+/out\\.bundle \\+refs/heads/feat/x:refs/karst/sandbox/feat/x$`));
     expect(lines.slice(2)).toEqual([`${G} rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}`, `${G} merge-base --is-ancestor HEAD ${SHA}`, `${G} merge --ff-only ${SHA}`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
@@ -512,5 +513,58 @@ describe('createSbxSessionRunner memory limit, OOM report and stop', () => {
     const proc = fakeSbxProcess();
     await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).stop!();
     expect(proc.calls.map((c) => [c.command, ...c.args])).toEqual([['sbx', 'stop', NAME]]);
+  });
+});
+
+describe('createSbxSessionRunner guest memory', () => {
+  const GM = `sbx exec ${NAME} -- sudo -n sh -c`;
+  const gmCalls = (proc: ReturnType<typeof fakeSbxProcess>) => proc.probes.filter((c) => c.args.includes('sudo'));
+
+  it('runs after a good write probe, with sudo and the marker', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+    const gm = gmCalls(proc);
+    expect(gm).toHaveLength(1);
+    expect(gm[0]!.args.slice(0, 7)).toEqual(['exec', NAME, '--', 'sudo', '-n', 'sh', '-c']);
+    expect(gm[0]!.args.at(-1)!.startsWith('# karst-guest-memory')).toBe(true);
+    expect(proc.probes.indexOf(proc.probes.find((c) => c.args.some((a) => a.includes('.karst-write-probe')))!)).toBeLessThan(proc.probes.indexOf(gm[0]!));
+  });
+
+  it('runs at most once per 5 min', async () => {
+    let t = 1_000_000;
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], now: () => t });
+    await runner.ensureWritable!();
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(1);
+    t += 300_000;
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(2);
+  });
+
+  it('a failure logs, does not block, and retries next time', async () => {
+    const proc = fakeSbxProcess({ [GM]: { code: 1, stderr: 'sudo: a password is required' } });
+    const log = vi.fn();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], log, now: () => 5 });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0]![0]).toContain('guest memory reclaimer not started (exit 1): sudo: a password is required');
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(2);
+  });
+
+  it('is not run when the write probe fails', async () => {
+    const proc = fakeSbxProcess({ [`sbx exec ${NAME} -- sh -c for d in`]: { code: 73, stderr: 'sh: 1: cannot create /tmp/x: Read-only file system' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
+    expect(gmCalls(proc)).toHaveLength(0);
+  });
+
+  it('the sync path starts it too', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await runner.sync!(ticket);
+    expect(gmCalls(proc).length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -228,6 +228,12 @@
   "src/cli/**": [
     "arch:CLI-00"
   ],
+  "src/cli/archCommand.ts#parseArchArgs": [
+    "arch:CLI-22"
+  ],
+  "src/cli/archCommand.ts#runArchCommand": [
+    "arch:CLI-22"
+  ],
   "src/cli/assertMigrated.ts#assertExactSchema": [
     "arch:CLI-08",
     "arch:ST-00"
@@ -372,11 +378,15 @@
   "src/doctor/applyFixes.ts#applyFixes": [
     "arch:CLI-16"
   ],
+  "src/doctor/gitHealthCheck.ts#checkGitHealth": [
+    "arch:CLI-16"
+  ],
   "src/extension/artifactCaptureWiring.ts": [
     "arch:APP-00"
   ],
   "src/extension/autopilotBinding.ts": [
-    "arch:AP-00"
+    "arch:AP-00",
+    "arch:AP-04"
   ],
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
@@ -386,7 +396,11 @@
   ],
   "src/extension/ops/autopilotOps.ts": [
     "arch:AP-00",
-    "arch:AP-01"
+    "arch:AP-01",
+    "arch:AP-04"
+  ],
+  "src/extension/ops/autopilotRerun.ts": [
+    "arch:AP-03"
   ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
@@ -415,11 +429,20 @@
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
   ],
+  "src/extension/ops/sandboxLaunchFailureOps.ts": [
+    "arch:AP-04"
+  ],
+  "src/extension/ops/sandboxLaunchOps.ts": [
+    "arch:AP-04"
+  ],
   "src/extension/ops/serversHostOps.ts": [
     "arch:SERVERS-PANEL"
   ],
   "src/extension/ops/sharedServerOps.ts": [
     "arch:SERVERS-PANEL"
+  ],
+  "src/extension/ops/shipGatesOps.ts": [
+    "arch:AP-01"
   ],
   "src/extension/ops/storedArtifactOps.ts": [
     "arch:APP-00"
@@ -429,6 +452,9 @@
   ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
+  ],
+  "src/integrations/ciRerun.ts": [
+    "arch:AP-03"
   ],
   "src/integrations/git.ts": [
     "arch:GH-00"
@@ -487,6 +513,9 @@
   "src/model/inside/autofix.ts": [
     "arch:AP-02"
   ],
+  "src/model/inside/deliver.ts": [
+    "arch:AP-02"
+  ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
@@ -525,6 +554,9 @@
   "src/runtime/branchName.ts#suffixBranchForCollision": [
     "arch:BRANCH-NAME"
   ],
+  "src/runtime/claimLease.ts#leaseClaimSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "src/runtime/containerRows.ts#applyContainers": [
     "arch:RESMON-CONTAINERS"
   ],
@@ -545,6 +577,15 @@
   ],
   "src/runtime/env.ts#shadowedOverrideKeys": [
     "arch:SPAWN-ENV"
+  ],
+  "src/runtime/gateRuns.ts#createGateRunRegistry": [
+    "arch:GATE-ORPHANS"
+  ],
+  "src/runtime/gateRuns.ts#describeGateReap": [
+    "arch:GATE-ORPHANS"
+  ],
+  "src/runtime/gateRuns.ts#reapOrphanedGates": [
+    "arch:GATE-ORPHANS"
   ],
   "src/runtime/health.ts#HealthForeignInstanceError": [
     "arch:PORTS"
@@ -641,7 +682,8 @@
     "arch:ST-00"
   ],
   "src/store/autopilot.ts": [
-    "arch:AP-00"
+    "arch:AP-00",
+    "arch:AP-03"
   ],
   "src/store/autostart.ts": [
     "arch:AP-01"
@@ -668,6 +710,12 @@
   ],
   "src/store/db.ts": [
     "arch:ABI-00"
+  ],
+  "src/store/deliverFacts.ts": [
+    "arch:AP-01"
+  ],
+  "src/store/deliverRuns.ts": [
+    "arch:AP-01"
   ],
   "src/store/findingIdentity.ts": [
     "arch:REVIEW-STALL"
@@ -820,6 +868,9 @@
   "src/ui/dashboard/app/AutofixParts.tsx": [
     "arch:AP-02"
   ],
+  "src/ui/dashboard/app/DeliverRow.tsx": [
+    "arch:AP-02"
+  ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"
   ],
@@ -890,6 +941,12 @@
   "src/workflow/gates/capabilityGap.ts#launcherModuleNotFound": [
     "arch:GATE-CAPABILITY"
   ],
+  "src/workflow/gates/gateLease.ts#leaseGateSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
+  "src/workflow/gates/runList.ts#runGateList": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "src/workflow/merge*.ts": [
     "arch:GH-00"
   ],
@@ -944,6 +1001,9 @@
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
+  ],
+  "src/workflow/transientCi.ts": [
+    "arch:AP-03"
   ],
   "src/workflow/uat/aggregate.ts#aggregateUat": [
     "arch:GATE-CAPABILITY"

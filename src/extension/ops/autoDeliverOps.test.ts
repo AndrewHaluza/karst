@@ -6,6 +6,9 @@ import {
   armConflictRound,
   autoDeliverAfterConflict,
   isAutoDelivering,
+  takeOverAutoDeliver,
+  deliverTakeOverNote,
+  autoDeliverPhase,
   isConflictRoundStalled,
   CONFLICT_ROUND_STALL_MS,
   createConflictRounds,
@@ -251,5 +254,73 @@ describe('isConflictRoundStalled', () => {
     expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS + 1)).toBe(true);
     rounds.disarm(9);
     expect(rounds.armedAt(9)).toBeNull();
+  });
+});
+
+describe('manual Deliver takes over an in-flight auto-deliver (T1018)', () => {
+  const taken = { failed: ['unit'], skipped: ['visual', 'docs'] };
+
+  it('aborts the gate run, disarms the round, writes one note, and the auto-deliver never pushes', async () => {
+    let seenSignal: AbortSignal | undefined;
+    let release!: (v: string | null) => void;
+    const { deps, rounds, log } = rig({
+      runGates: (_prs, signal) => { seenSignal = signal; return new Promise((r) => { release = r; signal.addEventListener('abort', () => r('r: gate run was stopped')); }); },
+    });
+    const auto = autoDeliverAfterConflict(deps);
+    await vi.waitFor(() => expect(seenSignal).toBeDefined());
+    expect(autoDeliverPhase(1)).toBe('gates');
+    const notes: Array<[string, string]> = [];
+    const result = takeOverAutoDeliver(1, { rounds, recordTakeOver: () => taken, note: (t, b) => notes.push([t, b]), key: 'T1' });
+    expect(result).toBe('taken-over');
+    expect(seenSignal?.aborted).toBe(true);
+    expect(rounds.armed(1)).toBeNull();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]![0]).toBe('Autopilot: delivery taken over by a manual Deliver; failed: unit; skipped: visual, docs');
+    await auto;
+    release(null);
+    expect(log.filter((l) => l === 'ship')).toHaveLength(0);
+    expect(log.some((l) => l.startsWith('error:'))).toBe(false);
+    expect(isAutoDelivering(1)).toBe(false);
+  });
+
+  it('a takeover during the final merge check stops the auto-deliver from pushing', async () => {
+    let calls = 0;
+    let rounds!: ReturnType<typeof rig>['rounds'];
+    const notes: string[] = [];
+    const r = rig({
+      verifyMerge: async () => {
+        if (++calls === 2) takeOverAutoDeliver(1, { rounds, recordTakeOver: () => taken, note: (t) => notes.push(t), key: 'T1' });
+        return null;
+      },
+    });
+    rounds = r.rounds;
+    await autoDeliverAfterConflict(r.deps);
+    expect(r.log).not.toContain('ship');
+    expect(r.log.some((l) => l.startsWith('error:'))).toBe(false);
+    expect(notes).toHaveLength(1);
+    expect(isAutoDelivering(1)).toBe(false);
+  });
+
+  it('names none when no gate failed or was skipped', () => {
+    const notes: string[] = [];
+    const { rounds } = rig();
+    // not in flight: nothing is taken over and nothing is written
+    expect(takeOverAutoDeliver(1, { rounds, recordTakeOver: () => ({ failed: [], skipped: [] }), note: (t) => notes.push(t), key: 'T1' })).toBe('none');
+    expect(notes).toEqual([]);
+    expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('does not take over once the auto-deliver pushes', async () => {
+    let result: ReturnType<typeof takeOverAutoDeliver> | undefined;
+    const { deps, rounds } = rig();
+    const notes: string[] = [];
+    const run = { ...deps, runShip: async () => { result = takeOverAutoDeliver(1, { rounds, recordTakeOver: () => taken, note: (t) => notes.push(t), key: 'T1' }); } };
+    await autoDeliverAfterConflict(run);
+    expect(result).toBe('pushing');
+    expect(notes).toEqual([]);
+  });
+
+  it('words the note with none for empty lists', () => {
+    expect(deliverTakeOverNote({ failed: [], skipped: [] })).toBe('Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: none');
   });
 });

@@ -369,6 +369,8 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   end_reason TEXT,        -- v94: why the round closed, when the status alone does not say
   host_rerun_at TEXT,     -- v94: stamp of the one host re-run of the failed gates for a refused no-commit fix marker
   fix_commit_sha TEXT,    -- v95: the HEAD the fix round committed (first worktree whose HEAD moved); NULL = unknown
+  manifest_path TEXT,     -- v108: the operator manifest file recorded when the fix round opened; NULL = none
+  manifest_sha TEXT,      -- v108: sha256 of that file's bytes at that time; NULL = none or unreadable
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
@@ -1519,6 +1521,18 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   PRIMARY KEY (ticket_id, repo, kind)
 );
 
+-- v106 (T1019): one row per transient CI re-run, so a reload or a second window never re-runs the same check twice.
+CREATE TABLE IF NOT EXISTS autopilot_reruns (
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  repo       TEXT NOT NULL,
+  run_id     TEXT NOT NULL,
+  check_name TEXT NOT NULL,
+  head_sha   TEXT NOT NULL,
+  pattern    TEXT NOT NULL,
+  rerun_at   INTEGER NOT NULL,
+  PRIMARY KEY (ticket_id, repo, run_id, check_name)
+);
+
 -- v102: the written answer to a review stall, per ticket and park (`store/stallSuggestions.ts`).
 CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -1531,3 +1545,40 @@ CREATE TABLE IF NOT EXISTS review_stall_suggestions (
   updated_at   TEXT NOT NULL,
   PRIMARY KEY (ticket_id, park_at)
 );
+
+-- v107: the reason an agent gave for why a covered @arch block still holds, one row per ticket and key (`store/archCitations.ts`).
+CREATE TABLE IF NOT EXISTS arch_citations (
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  reason     TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (ticket_id, key)
+);
+
+-- v108 (T1018): the record of an auto-deliver gate run (`store/deliverRuns.ts`).
+CREATE TABLE IF NOT EXISTS deliver_runs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  head_sha    TEXT,
+  gates       TEXT NOT NULL,
+  current_gate TEXT,
+  state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
+  pid         INTEGER,
+  started_at  TEXT NOT NULL,
+  ended_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
+CREATE TABLE IF NOT EXISTS deliver_gate_results (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id       INTEGER NOT NULL REFERENCES deliver_runs(id) ON DELETE CASCADE,
+  ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  gate_name    TEXT NOT NULL,
+  repo         TEXT NOT NULL,
+  exit_code    INTEGER,
+  head_sha     TEXT,
+  summary      TEXT,
+  started_at   TEXT,
+  ended_at     TEXT,
+  dismissed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ticket_id, id);

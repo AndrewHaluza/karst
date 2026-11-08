@@ -4,6 +4,7 @@ import type { ResolvedGate } from './resolve.js';
 import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
+import { leaseGateSlot } from './gateLease.js';
 import { runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
 /**
@@ -78,7 +79,7 @@ export interface RunGatesOptions {
    * Called with a gate's name and the pid of each process it spawns; the
    * returned disposer runs when that process settles. Absent → unregistered.
    */
-  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
+  onGateSpawned?: (gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Whether the base branch's package.json defines `script` (rebase target of a
    * stale ticket branch). Absent → the branch is never treated as stale.
@@ -86,6 +87,13 @@ export interface RunGatesOptions {
   baseDefinesScript?: (script: string) => Promise<boolean>;
   /** The base ref named in the stale-branch reason. */
   baseRef?: string;
+  /**
+   * The ticket's rendered arch citations (@arch:CLI-22). When set (an empty string is a value:
+   * "nothing cited"), every gate process gets `PR_BODY=<text>` and `BASE_REF=<baseRef>`, which is
+   * what `scripts/docsGate.mjs` reads. The text is passed as one argv element of `env`, never
+   * through a shell, and the gate reads it as text.
+   */
+  prBody?: string;
   /** Where each gate runs; absent → the host `runProcess`. A sandboxed ticket passes its runner's `runGate` (arch:AC-32). */
   runProcess?: GateProcessRunner;
   /** Runs a gate declared `sandbox: host`; absent → such a gate uses `runProcess` like any other. Declared order is kept (arch:AC-36). */
@@ -97,6 +105,10 @@ export interface RunGatesOptions {
   regenerate?: RegenerateSpec;
   /** True when `runProcess` is a sandbox runner (a missing module then means the sandbox lacks the tool). */
   sandboxed?: boolean;
+  /** Pool root for `maxConcurrent` gate leases; absent → `$TMPDIR/karst-gate-slots`. Tests inject a temp dir. */
+  gateSlotsDir?: string;
+  /** Poll interval of a waiting gate lease; absent → the lease default. */
+  gateSlotPollMs?: number;
 }
 
 export async function runGateList(
@@ -176,9 +188,28 @@ export async function runGateList(
       signal: opts.signal,
       onDebug,
       onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
-      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid) : undefined,
+      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
+    // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
+    let gateLease: { release: () => Promise<void> } | undefined;
+    if (gate.maxConcurrent !== undefined) {
+      try {
+        gateLease = await leaseGateSlot(gate.name, gate.maxConcurrent, {
+          dir: opts.gateSlotsDir,
+          pollMs: opts.gateSlotPollMs,
+          signal: opts.signal,
+          onWait: (held) =>
+            opts.onGateOutput?.(gate.name, {
+              stream: 'stderr',
+              text: `${gate.name}: waiting for a free slot (${held} of ${gate.maxConcurrent} in use by other tickets)\n`,
+            }),
+        });
+      } catch (err) {
+        if (opts.signal?.aborted) return { kind: 'stopped', results };
+        throw err;
+      }
+    }
     // Integration suites own fixed port bands; concurrent gates (other tickets'
     // worktrees) must not share one, so each leases a slot and runs shifted.
     let lease: PortSlotLease | undefined;
@@ -188,6 +219,7 @@ export async function runGateList(
       } catch (err) {
         // Only a Stop is a stop; any other lease failure is an environment fault
         // and must surface, not masquerade as the user cancelling.
+        await gateLease?.release();
         if (opts.signal?.aborted) return { kind: 'stopped', results };
         throw err;
       }
@@ -198,7 +230,10 @@ export async function runGateList(
     const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
     // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
     // The ticket's base branch reaches every gate process, host or sandbox (the D360 drift check reads it).
-    const baseEnv = opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : [];
+    const baseEnv = [
+      ...(opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : []),
+      ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
+    ];
     const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
       extraEnv.length + offsetEnv.length + baseEnv.length > 0
         ? run('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
@@ -221,6 +256,7 @@ export async function runGateList(
     }
     } finally {
       await lease?.release();
+      await gateLease?.release();
     }
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };

@@ -1,3 +1,4 @@
+import { GUEST_MEMORY_MARKER } from './sbxGuestMemory.js';
 import type { ProcessResult, ProcessRunOptions, SbxProcess } from './sbxProcess.js';
 
 export interface FakeCall {
@@ -16,7 +17,7 @@ export function fakeSbxProcess(
   opts: { readonly keepListing?: boolean } = {},
 ): SbxProcess & { readonly calls: FakeCall[]; readonly probes: FakeCall[] } {
   const calls: FakeCall[] = [];
-  /** The sandbox write probes (`ensureWritable`), kept apart so call-order assertions on the real work stay stable. */
+  /** The sandbox write probes and the guest-memory call (`ensureWritable`), kept apart so call-order assertions on the real work stay stable. */
   const probes: FakeCall[] = [];
   // A successful (or already-gone) `rm` drops the name from later listings, like the real inventory.
   const gone = new Set<string>();
@@ -24,7 +25,7 @@ export function fakeSbxProcess(
     calls,
     probes,
     run: (command, args, runOpts) => {
-      (args.some((a) => a.includes('.karst-write-probe')) || isGitVersion(command, args) ? probes : calls).push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
+      (args.some((a) => a.includes('.karst-write-probe')) || args.some((a) => a.startsWith(GUEST_MEMORY_MARKER)) || isGitVersion(command, args) ? probes : calls).push({ command, args: [...args], ...(runOpts ? { opts: runOpts } : {}) });
       const line = [command, ...args].join(' ');
       // Host git runs with `-c k=v` isolation flags; keys may omit them.
       const bare = line.replace(/^git (?:-c \S+ )+/, 'git ');

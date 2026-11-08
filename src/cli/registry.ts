@@ -169,6 +169,14 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     toArgv: (input) => ['phase', requireString(input, 'name')],
   },
   {
+    name: 'arch',
+    summary: 'Record why an @arch block still holds (cite): the docs gate reads the citations as the PR body.',
+    input: obj({ action: { type: 'string', enum: ['cite'] }, key: str, why: str }, ['key', 'why']),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => ['arch', 'cite', requireString(input, 'key'), '--why', requireString(input, 'why')],
+  },
+  {
     name: 'artifact',
     summary:
       'Capture a file outside the outputs globs into the ticket artifacts (add, needs kind), or print a stored artifact by tree path (show, e.g. _karst/alignment/intent-spec.md).',

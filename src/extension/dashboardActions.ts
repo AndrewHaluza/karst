@@ -33,13 +33,14 @@ import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan
 import type { BootstrapRelaunchRequest } from '../approaches/graph/coordinator/recovery.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
 import { parseLaunchWorktreeConfig } from '../commands/launchWorktreeConfig.js';
-import { getDisabledGates, setDisabledGates, type GateStage } from '../store/ticketGates.js';
+import { getDisabledGates, setDisabledGates, type ConsoleStage, type GateStage } from '../store/ticketGates.js';
 import { ALL_SERVICES, setServiceEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { parseEnvText } from '../runtime/env.js';
 import { defaultGhRunnerAsync } from '../integrations/github.js';
 import { mergeTicketPr } from '../workflow/mergePr.js';
 import { dismissTicketPr, undismissTicketPr } from '../workflow/dismissPr.js';
 import { nowIso } from '../model/time.js';
+import { dismissDeliverFailures } from '../store/deliverRuns.js';
 import { findTicketPr } from '../store/prs.js';
 import { resumeBlockedStage } from '../workflow/stageResume.js';
 import { runKilledGatesOnHost } from './ops/runGateOnHost.js';
@@ -163,7 +164,7 @@ export function makeDashboardActions(
   // Resolve one gate stage's console log via the dashboard manager, which owns
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
-  requestStageLog: (stage: GateStage) => void,
+  requestStageLog: (stage: ConsoleStage) => void,
   // Resolve one gate-lane AI process's console tail via the dashboard manager.
   requestAgentLog: (processId: AgentProcessId) => void,
   // Combined server logs: read all server log files and start polling.
@@ -280,8 +281,9 @@ export function makeDashboardActions(
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
     openDependency: (id) => dependencyOps.openDependency(ticketId, id),
-    // Stop the auto-driver's next gate run for this ticket (it halts at the
-    // next boundary check, never mid-gate — see `shouldContinue`).
+    // Stop the auto-driver for this ticket: it halts at the next boundary
+    // check (see `shouldContinue`), and the abort signal also kills the gate
+    // process group that runs now.
     stopDriver: () => driver.requestStop(ticketId),
     // Human confirms ship: open the PR(s) for every hot repo, then let the
     // caller (dashboard) refresh so `done` (or a fresh PR list) shows up. The
@@ -416,6 +418,7 @@ export function makeDashboardActions(
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
+    dismissDeliverFailures: (gate) => { dismissDeliverFailures(store, ticketId, gate, nowIso()); afterServerChange(); },
     // Auto-fix controls (T1004): the command owns the store write, the note and the confirmation.
     autopilotOverride: (mode) => void vscode.commands.executeCommand('karst.autopilot.setOverride', ticketId, mode),
     autopilotApproveOne: (repo, kind) => void vscode.commands.executeCommand('karst.autopilot.approveOne', ticketId, { repo, kind }),

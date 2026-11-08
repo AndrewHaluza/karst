@@ -3,8 +3,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
-import { AUTOPILOT_DDL } from './autopilot.js';
+import { AUTOPILOT_DDL, AUTOPILOT_RERUNS_DDL } from './autopilot.js';
 import { STALL_SUGGESTIONS_DDL } from './stallSuggestions.js';
+import { DELIVER_RUNS_DDL } from './deliverRuns.js';
+import { ARCH_CITATIONS_DDL } from './archCitations.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
@@ -2887,6 +2889,32 @@ function migrateLocked(db: Database): void {
     if (intentCols105.size > 0 && !intentCols105.has('account')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN account TEXT');
     }
+  }
+
+  if (current < 106) {
+    // v106: `autopilot_reruns` (T1019). Additive; an old db has no re-run marker.
+    db.exec(AUTOPILOT_RERUNS_DDL);
+  }
+
+  if (current < 107) {
+    // v107: `arch_citations` — the per-ticket record of why a covered @arch block still holds
+    // (`store/archCitations.ts`, @arch:CLI-22). Additive table; an old db has no citations.
+    db.exec(ARCH_CITATIONS_DDL);
+  }
+
+  if (current < 108) {
+    // v108: `deliver_runs` + `deliver_gate_results` — the record of an auto-deliver gate run (T1018,
+    // `store/deliverRuns.ts`). Additive tables; an old db has none and no delivery is on record.
+    db.exec(DELIVER_RUNS_DDL);
+  }
+
+  if (current < 109) {
+    // v109: `recovery_rounds.manifest_path` + `manifest_sha` — the operator manifest file and a
+    // sha256 of its bytes when a fix round opened, so `stage fix pass` accepts a manifest-only fix
+    // (@arch:AC-45). Additive; NULL = no manifest recorded (every pre-v109 round).
+    const cols109 = tableColumns(db, 'recovery_rounds');
+    if (cols109.size > 0 && !cols109.has('manifest_path')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN manifest_path TEXT');
+    if (cols109.size > 0 && !cols109.has('manifest_sha')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN manifest_sha TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

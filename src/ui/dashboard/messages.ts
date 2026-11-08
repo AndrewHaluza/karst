@@ -1,5 +1,5 @@
 import type { StageKey } from '../../model/types.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
 
 /**
@@ -112,6 +112,8 @@ export type WebviewMessage =
   | { type: 'autopilot-retry' }
   | { type: 'rebase-on-base' }
   | { type: 'deliver-to-pr' }
+  /** Dismiss the kept auto-deliver gate failures: one gate, or all when `gate` is absent (T1018). */
+  | { type: 'dismiss-deliver-failures'; gate?: string }
   /**
    * Open a stage's recorded log (uat/review artifact) in an editor. Carries the
    * stage key ONLY, never a path: the host re-derives the artifact path from
@@ -254,7 +256,7 @@ export type WebviewMessage =
    * row's recorded artifactPath from the store, reads it, and answers with
    * `stage-log`; the answer message (ok or error) is the terminal outcome.
    */
-  | { type: 'stage-log-request'; stage: GateStage }
+  | { type: 'stage-log-request'; stage: ConsoleStage }
   /**
    * Ask the host to push one gate-lane AI process's console tail (the UAT
    * Tester or the Review findings lane) for the terminal "detailed mode" view.

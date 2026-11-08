@@ -25,6 +25,7 @@ export type CloneResult = { readonly ok: true } | { readonly ok: false; readonly
  * ticket is one. So the sandbox clones from a standalone, non-worktree clone of
  * the ticket branch with its own `.git` (never hardlinked to, nor sharing, the
  * host's: arch:AC-32). `origin` is dropped so the sandbox sees no host path.
+ * `--no-local` uses the pack transport, so the clone holds only objects reachable from the ticket branch (a path clone copies every pack, unreachable ones too).
  */
 export async function prepareSbxClone(
   proc: SbxProcess,
@@ -33,7 +34,7 @@ export async function prepareSbxClone(
   // Always rebuilt: this runs only while no sandbox exists, so a leftover clone is stale, never live work.
   await rm(input.dir, { recursive: true, force: true });
   await mkdir(dirname(input.dir), { recursive: true });
-  const cloned = await proc.run('git', ['clone', '--no-hardlinks', '--branch', input.branch, input.worktree, input.dir]);
+  const cloned = await proc.run('git', ['clone', '--no-local', '--single-branch', '--branch', input.branch, input.worktree, input.dir]);
   if (cloned.code !== 0) return { ok: false, reason: `sandbox clone failed: ${cloned.stderr.trim()}` };
   const dropped = await proc.run('git', ['-C', input.dir, 'remote', 'remove', 'origin']);
   if (dropped.code !== 0) {

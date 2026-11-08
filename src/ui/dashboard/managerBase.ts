@@ -1,5 +1,5 @@
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProcessId } from './messages.js';
 import type { DashboardConsole } from './consoleOutput.js';
 import { pushSnapshot, type SnapshotPushDeps } from './snapshotPush.js';
@@ -32,7 +32,7 @@ export abstract class DashboardManagerBase {
   /**
    * Answer a `stage-log-request`. The answer IS the terminal outcome (UI-R13).
    */
-  requestStageLog(ticketId: number, stage: GateStage): void {
+  requestStageLog(ticketId: number, stage: ConsoleStage): void {
     this.console.requestStageLog(ticketId, stage);
   }
 
@@ -55,7 +55,7 @@ export abstract class DashboardManagerBase {
    * Push one sanitized live chunk of a gate stage's deterministic gate output
    * to the ticket's panel; no-op if the panel is not open.
    */
-  postStageOutput(ticketId: number, stage: GateStage, text: string): void {
+  postStageOutput(ticketId: number, stage: ConsoleStage, text: string): void {
     this.console.postStageOutput(ticketId, stage, text);
   }
 

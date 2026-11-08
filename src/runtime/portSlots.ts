@@ -1,6 +1,6 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { leaseClaimSlot } from './claimLease.js';
 
 /** Env var shifting every integration-suite port band; unset → 0 (CI and local runs unchanged). */
 export const PORT_OFFSET_ENV = 'KARST_TEST_PORT_OFFSET';
@@ -53,111 +53,23 @@ export interface LeaseOptions {
   isAlive?: (pid: number) => boolean;
 }
 
-/** Owner is the extension-host pid: slots are per HOST process, so a slot a live host leaks stays held until the host exits. */
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-const NO_OWNER_STALE_MS = 60_000;
-/** The reclaim mutex guards a few fs calls; one older than this belongs to a dead holder. */
-const RECLAIM_LOCK_STALE_MS = 10_000;
-
-async function isStale(path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
-  try {
-    return !isAlive(Number(((await readFile(join(path, 'owner'), 'utf8')) as string).trim()));
-  } catch {
-    // Claim dir exists but its owner file is not written yet (mid-claim) or never was.
-    try {
-      return Date.now() - (await stat(path)).mtimeMs > NO_OWNER_STALE_MS;
-    } catch {
-      return true;
-    }
-  }
-}
-
-async function claimFresh(path: string): Promise<boolean> {
-  try {
-    await mkdir(path);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw err;
-  }
-  await writeFile(join(path, 'owner'), String(process.pid));
-  return true;
-}
-
-/**
- * Take over a stale claim. Check-then-remove-then-mkdir is not atomic: two
- * reclaimers could both see it stale, and the second `rm` would delete the
- * first's brand-new claim. A short mutex dir serialises the whole sequence; a
- * loser just reports "busy" and the lease loop polls again.
- */
-async function reclaimStale(dir: string, path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
-  const lock = join(dir, 'reclaim.lock');
-  try {
-    await mkdir(lock);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    const age = await stat(lock).then((st) => Date.now() - st.mtimeMs, () => 0);
-    if (age > RECLAIM_LOCK_STALE_MS) await rm(lock, { recursive: true, force: true });
-    return false;
-  }
-  try {
-    if (!(await isStale(path, isAlive))) return false;
-    await rm(path, { recursive: true, force: true });
-    return await claimFresh(path);
-  } finally {
-    await rm(lock, { recursive: true, force: true });
-  }
-}
-
-async function tryClaim(dir: string, slot: number, isAlive: (pid: number) => boolean): Promise<boolean> {
-  const path = join(dir, `slot-${slot}`);
-  if (await claimFresh(path)) return true;
-  if (!(await isStale(path, isAlive))) return false;
-  return reclaimStale(dir, path, isAlive);
-}
-
 /**
  * Lease one port-band slot for a gate run. Waits (logged) while every slot is
  * held; never shares one. A slot whose owner pid is dead (kill/OOM/crash) is
  * reclaimed, so an abnormal exit cannot leak it.
  */
 export async function leasePortSlot(opts: LeaseOptions = {}): Promise<PortSlotLease> {
-  const dir = opts.dir ?? DEFAULT_LOCK_DIR;
-  const isAlive = opts.isAlive ?? pidAlive;
-  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
-  await mkdir(dir, { recursive: true });
-  let logged = false;
-  for (;;) {
+  const lease = await leaseClaimSlot({
+    dir: opts.dir ?? DEFAULT_LOCK_DIR,
+    slots: PORT_SLOT_COUNT,
+    pollMs: opts.pollMs ?? DEFAULT_POLL_MS,
+    signal: opts.signal,
+    isAlive: opts.isAlive,
+    onWait: () => opts.onDebug?.(`[gate] all ${PORT_SLOT_COUNT} port slots held by concurrent gates — waiting for one`),
+  }).catch((err: unknown) => {
     if (opts.signal?.aborted) throw new Error('port slot lease aborted');
-    for (let slot = 0; slot < PORT_SLOT_COUNT; slot++) {
-      if (!(await tryClaim(dir, slot, isAlive))) continue;
-      let released = false;
-      opts.onDebug?.(`[gate] port slot ${slot} leased (offset ${slot * PORT_SLOT_STRIDE})`);
-      return {
-        slot,
-        offset: slot * PORT_SLOT_STRIDE,
-        release: async () => {
-          if (released) return;
-          released = true;
-          await rm(join(dir, `slot-${slot}`), { recursive: true, force: true });
-        },
-      };
-    }
-    if (!logged) {
-      opts.onDebug?.(`[gate] all ${PORT_SLOT_COUNT} port slots held by concurrent gates — waiting for one`);
-      logged = true;
-    }
-    await new Promise<void>((resolve) => {
-      const t = setTimeout(resolve, pollMs);
-      opts.signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-    });
-  }
+    throw err;
+  });
+  opts.onDebug?.(`[gate] port slot ${lease.slot} leased (offset ${lease.slot * PORT_SLOT_STRIDE})`);
+  return { slot: lease.slot, offset: lease.slot * PORT_SLOT_STRIDE, release: lease.release };
 }

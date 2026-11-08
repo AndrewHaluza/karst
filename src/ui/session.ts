@@ -114,6 +114,8 @@ export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 
 /** Host command context that must survive a failed-resume retry. */
 export interface OpenSessionOptions {
+  /** An Autopilot round launch (arch:AC-31): a sandbox backend that is unavailable is refused, never run on the host. */
+  failClosed?: boolean;
   /** Per-ticket evidence bridge for a sandboxed launch (arch:AC-34). Host-internal. */
   bridge?: { readonly paths: BridgePaths };
   /** Attaches the ticket's bridge; called only when the resolved runner enforces a sandbox. */

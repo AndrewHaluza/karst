@@ -7,7 +7,9 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
-import { deliverBlockedPrompt, deliverToPrAction, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { conflictRounds, autoDeliverAfterConflict } from './autoDeliverOps.js';
+import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
+import { autoDeliverAction, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -123,6 +125,180 @@ describe('sendCiFailureAction', () => {
     expect(files).toContain('lint');
     expect(i.confirm).toHaveBeenCalledWith('Send CI failure to the agent?', expect.any(String), 'Send to agent');
     expect(i.handOff).toHaveBeenCalled();
+  });
+});
+
+describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
+  it('stops the gate run, disarms the round, pushes once, writes the note and the auto-deliver never pushes', async () => {
+    seedPr();
+    const gateRun = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'visual'], pid: 1, now: 'T0' });
+    recordDeliverGate(store, gateRun, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'boom', startedAt: null, endedAt: null });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const autoShip = vi.fn(async () => {});
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('r: gate run was stopped'); else signal.addEventListener('abort', () => resolve('r: gate run was stopped')); }),
+      blocked: async () => {}, runShip: autoShip, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const i = input();
+    await deliverToPrAction(i);
+    await auto;
+    expect(i.deliver.runShip).toHaveBeenCalledOnce();
+    expect(autoShip).not.toHaveBeenCalled();
+    expect(conflictRounds.armed(id)).toBeNull();
+    expect(currentDeliverRun(store, id)?.state).toBe('taken-over');
+    const notes = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(notes).toContain('Autopilot: delivery taken over by a manual Deliver; failed: unit; skipped: visual');
+  });
+});
+
+describe('headShaOf (T1018)', () => {
+  const git = (stdout: string, exitCode = 0) => ({ git: vi.fn(async () => ({ stdout, stderr: '', exitCode })) });
+  it('returns a full sha, trimmed, and asks git for HEAD in the worktree', async () => {
+    const g = git(`${SHA}\n`);
+    expect(await headShaOf(g, '/w/r')).toBe(SHA);
+    expect(g.git).toHaveBeenCalledWith(['rev-parse', 'HEAD'], '/w/r');
+  });
+  it('returns null when git fails, even when it printed a sha', async () => {
+    expect(await headShaOf(git(SHA, 128), '/w/r')).toBeNull();
+  });
+  it('returns null for output that is not a full sha', async () => {
+    expect(await headShaOf(git('abc123'), '/w/r')).toBeNull();
+    expect(await headShaOf(git(`${SHA}x`), '/w/r')).toBeNull();
+    expect(await headShaOf(git(`x${SHA}`), '/w/r')).toBeNull();
+    expect(await headShaOf(git(''), '/w/r')).toBeNull();
+  });
+});
+
+describe('autoDeliverAction records its gate run (T1018)', () => {
+  const gates = { gates: [{ name: 'unit', kind: 'command', command: 'u', args: [] }, { name: 'docs', kind: 'command', command: 'd', args: [] }], repositories: {} } as never;
+
+  const run = async (exit: number) => {
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({
+      git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 })),
+    });
+    const seen: Array<string | null | undefined> = [];
+    const runProcess = async () => { seen.push(currentDeliverRun(store, id)?.currentGate); return { kind: 'completed' as const, exitCode: exit, output: exit === 0 ? 'ok' : 'boom: broke' }; };
+    await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess } });
+    return { i, seen };
+  };
+
+  it('opens a run, writes a result per gate with the head sha, pushes once and tells the dashboard', async () => {
+    const { i, seen } = await run(0);
+    expect(seen).toEqual(['unit', 'docs']);
+    expect(listDeliverResults(store, id).map((r) => [r.gateName, r.exitCode, r.headSha])).toEqual([['unit', 0, SHA], ['docs', 0, SHA]]);
+    expect(currentDeliverRun(store, id)?.state).toBe('passed');
+    expect(i.deliver.runShip).toHaveBeenCalledOnce();
+    expect(i.afterServerChange).toHaveBeenCalled();
+  });
+
+  it('keeps the failure on record and does not push when a gate fails', async () => {
+    const { i } = await run(2);
+    expect(currentDeliverRun(store, id)?.state).toBe('failed');
+    expect(listDeliverResults(store, id)[0]).toMatchObject({ gateName: 'unit', exitCode: 2, headSha: SHA, summary: 'boom: broke' });
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+  });
+
+  it('refuses to deliver while the agent runs', async () => {
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
+    store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({ git: vi.fn(async () => ({ stdout: `${SHA}\n`, stderr: '', exitCode: 0 })) });
+    await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates } });
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+    expect(currentDeliverRun(store, id)).toBeNull();
+  });
+});
+
+describe('takeover note limits (T1018)', () => {
+  it('a manual Deliver while the auto-deliver pushes does nothing more and says so', async () => {
+    seedPr();
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    let release: () => void = () => {};
+    const pushing = new Promise<void>((r) => { release = r; });
+    let started: () => void = () => {};
+    const inPush = new Promise<void>((r) => { started = r; });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: async () => null,
+      blocked: async () => {}, runShip: async () => { started(); await pushing; }, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await inPush;
+    const i = input();
+    await deliverToPrAction(i);
+    expect(i.info).toHaveBeenCalledWith('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
+    expect(i.afterServerChange).toHaveBeenCalled();
+    expect(i.deliver.runShip).not.toHaveBeenCalled();
+    release();
+    await auto;
+  });
+
+  it('keeps a note title of exactly the limit unclipped', async () => {
+    seedPr();
+    const name = 'g'.repeat(120 - 'Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: '.length);
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: [name], pid: 1, now: 'T0' });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    const titles = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(titles[0]!).toBe(`Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: ${name}`);
+    expect(titles[0]!).toHaveLength(120);
+  });
+
+  it('clips a long gate list to the bulletin title limit with an ellipsis', async () => {
+    seedPr();
+    const run = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['g'.repeat(200)], pid: 1, now: 'T0' });
+    expect(run).toBeGreaterThan(0);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    const titles = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(titles).toHaveLength(1);
+    expect(titles[0]!).toHaveLength(120);
+    expect(titles[0]!.endsWith('\u2026')).toBe(true);
+  });
+
+  it('uses the ticket id as the key when the ticket has none', async () => {
+    seedPr();
+    store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'x', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await deliverToPrAction(input());
+    await auto;
+    expect(conflictRounds.armed(id)).toBeNull();
   });
 });
 

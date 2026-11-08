@@ -190,7 +190,11 @@ jobs:
 
   mutation:
     name: Mutation score
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    concurrency:
+      group: mutation-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    continue-on-error: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -205,11 +209,53 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      # Check if any files that can affect the mutation score changed.
+      # Extension tests import widely from across src/** (store, agent, workflow, etc.),
+      # and build/test config changes (.nvmrc, package.json, vitest/stryker configs, runtime assets)
+      # can alter mutant execution or detection. We fail closed: if git fails,
+      # run Stryker. We only skip when changes are strictly outside mutation inputs.
+      - name: Check if mutation-relevant files changed
+        id: filter
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          touch changed-files.txt
+          if ! git fetch --no-tags origin "$BASE_REF"; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "git fetch failed; running Stryker (fail-closed)."
+          elif ! git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "git diff failed; running Stryker (fail-closed)."
+          else
+            CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+              'src/**' \
+              'scripts/**' \
+              'package*.json' \
+              '.nvmrc' \
+              'tsconfig*.json' \
+              'stryker.config.json' \
+              'vitest*.config.ts' \
+              'karst.*.yml' \
+              'karst.*.md' \
+              '.github/workflows/ci.yml')
+            if [ -z "$CHANGED" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No mutation inputs or source code touched in this PR; skipping Stryker."
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Mutation-relevant files changed:"
+              echo "$CHANGED"
+            fi
+          fi
+
       - run: npm ci
+        if: steps.filter.outputs.skip != 'true'
 
       # Stryker runs vitest, which loads better-sqlite3, and `test:mutation`
       # has no pre-hook of its own. Rebuild explicitly.
       - name: Rebuild better-sqlite3 for the Node ABI
+        if: steps.filter.outputs.skip != 'true'
         run: npm run rebuild:node
 
       # Blocking gate (CI-MAKE-MUTATION-SCORE-JOB): the score is global
@@ -220,6 +266,7 @@ jobs:
       # still count, so the score stays global. Restore the newest cache from
       # any run (restore-keys); save a fresh one per commit.
       - name: Restore the Stryker incremental cache
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
           path: reports/stryker-incremental.json
@@ -228,20 +275,16 @@ jobs:
 
       - name: Run Stryker
         id: stryker
+        if: steps.filter.outputs.skip != 'true'
         # Local config is silent (html+json only); CI wants the per-file table in the log.
         run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json --incremental --incrementalFile reports/stryker-incremental.json
 
-      # The changed-file list powers the inline annotations, so compute it
-      # before the report. `|| true` (and the `if: always()`) keep a diff
-      # failure from failing the job on its own — the report degrades to no
-      # annotations instead.
-      - name: Compute the PR's changed files
-        if: always()
-        env:
-          BASE_REF: ${{ github.base_ref }}
+      # The changed-file list powers the inline annotations. For push to develop,
+      # ensure changed-files.txt exists.
+      - name: Ensure changed files list exists
+        if: always() && steps.filter.outputs.skip != 'true'
         run: |
-          git fetch --no-tags origin "$BASE_REF" || true
-          git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+          touch changed-files.txt
           echo "Changed files:"; cat changed-files.txt
 
       # Replaces the old "exit code 1 and nothing else" publish step: turn the
@@ -251,7 +294,7 @@ jobs:
       # pass/fail is the Stryker step alone, and a failing run still shows the
       # report here.
       - name: Publish the mutation mini report
-        if: always()
+        if: always() && steps.filter.outputs.skip != 'true'
         run: |
           node scripts/mutationSummary.mjs \
             --report reports/mutation/mutation.json \
@@ -259,8 +302,27 @@ jobs:
             --changed changed-files.txt \
             --summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Publish skipped mutation report
+        if: steps.filter.outputs.skip == 'true'
+        run: |
+          {
+            echo "## Mutation score"
+            echo
+            echo "⏭️ Skipped (no mutation inputs changed: \`src/**\`, \`scripts/**\`, \`package*.json\`, \`.nvmrc\`, \`tsconfig*.json\`, \`stryker.config.json\`, \`vitest*.config.ts\`, \`karst.*.yml\`, \`karst.*.md\`, \`.github/workflows/ci.yml\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Warn on develop mutation score drop
+        if: always() && github.event_name == 'push' && steps.stryker.outcome == 'failure'
+        run: |
+          echo "::warning::Mutation score on develop is below thresholds.break (85)."
+          {
+            echo "## Mutation score (develop)"
+            echo
+            echo "⚠️ Mutation score on develop is below thresholds.break (85)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the HTML report
-        if: always()
+        if: always() && steps.filter.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mutation-report

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_AUTO_PACK_LIMIT, type GitRepoHealth } from './gitHealthCheck.js';
 
 /**
  * Real machine probes for `karst doctor`. This runs in the short-lived CLI
@@ -180,4 +181,25 @@ export function countInotifyWatches(procRoot: string = '/proc', uid: number = pr
     }
   }
   return sawReadable || entries.length === 0 ? total : undefined;
+}
+
+/** Git maintenance facts of one repository: lock and gc.pid ages, pack count, `gc.autoPackLimit`. `undefined` when it is not a git repo. */
+export function gitHealthProbe(name: string, repoPath: string): GitRepoHealth | undefined {
+  const dir = run('git', ['-C', repoPath, 'rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (!dir.ok || dir.out === '') return undefined;
+  const commonDir = dir.out;
+  const mtime = (p: string): number | undefined => {
+    try { return statSync(p).mtimeMs; } catch { return undefined; } // an absent file is the expected case
+  };
+  let packCount = 0;
+  try { packCount = readdirSync(join(commonDir, 'objects', 'pack')).filter((f) => f.endsWith('.pack')).length; } catch { /* no pack dir: 0 packs */ }
+  const v = run('git', ['-C', repoPath, 'config', '--get', 'gc.autoPackLimit']);
+  const parsed = Number.parseInt(v.out, 10);
+  const autoPackLimit = v.ok && Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_AUTO_PACK_LIMIT;
+  return {
+    name, repoPath, commonDir,
+    maintenanceLockMtimeMs: mtime(join(commonDir, 'objects', 'maintenance.lock')),
+    gcPidMtimeMs: mtime(join(commonDir, 'gc.pid')),
+    packCount, autoPackLimit,
+  };
 }

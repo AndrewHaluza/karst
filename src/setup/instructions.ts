@@ -1,5 +1,5 @@
 import type { Manifest } from '../manifest/types.js';
-import { KARST_CLI_ENV, KARST_MANIFEST_ENV, envRef } from '../agent/cliEnv.js';
+import { KARST_CLI_ENV, KARST_DB_ENV, KARST_MANIFEST_ENV, envRef } from '../agent/cliEnv.js';
 import { MCP_TOOLS_PREFERRED } from '../agent/promptText.js';
 
 /**
@@ -42,6 +42,7 @@ export function setupInstructions(input: SetupInstructionsInput): string {
   const { title, manifest } = input;
   const cli = envRef(KARST_CLI_ENV);
   const manifestFlag = `--manifest ${envRef(KARST_MANIFEST_ENV)}`;
+  const dbFlags = `--db ${envRef(KARST_DB_ENV)} ${manifestFlag}`;
   const current = enabledRepos(manifest);
   const currentList = current.length
     ? current.map(([name, def]) => `- ${name}: ${def.repoPath} (base ${def.baselineBranch ?? manifest!.baselineBranch})`)
@@ -92,23 +93,26 @@ export function setupInstructions(input: SetupInstructionsInput): string {
     '   It writes the proposal to your $KARST_SETUP_OUTBOX. The extension shows the user a diff',
     '   against the current karst.yml (or the scaffold), lists every start command it would run,',
     '   and applies it only when the user accepts. When a karst.yml already exists, propose a',
-    '   MINIMAL edit: keep id, presets, agent settings, processes and any field you did not infer;',
-    '   only add or correct repositories and services. NEVER change `id` — that starts an empty board.',
+    '   MINIMAL edit. A re-run changes only `repositories` and their services; the host restores all other',
+    '   fields (id, presets, agent settings, processes, gates). If the user asks for another field, send',
+    '   them to Settings (for review gates: Settings > Quality) before you write a draft.',
+    '   NEVER change `id` — that starts an empty board.',
     `   The command's ok only means the proposal was queued. After EACH proposal run \`node ${cli} setup status\``,
     '   and confirm that proposal id shows `applied` (for a manifest, with the karst.yml sha256). `pending` = the',
     '   user has not answered yet; `declined`/`invalid`/`superseded` carry a reason. Make at most ONE retry of a',
     '   failed proposal, then stop and report it — do not loop.',
     '',
-    `7) VERIFY: after the user accepts, run \`node ${cli} setup verify\` — it spins the baseline services`,
+    `7) VERIFY: after the user accepts, run \`node ${cli} setup verify ${dbFlags}\` — it spins the baseline services`,
     '   with health gates and reports each outcome. If a revision changes any start command, it must',
     '   be accepted again before it is spun, because spinning runs code from the repo. Loop until',
     '   every service is healthy, or stop and report the blocker plainly.',
     '',
-    `8) CHECK (required last step): run \`node ${cli} setup check\`. It dry-runs everything a first`,
+    `8) CHECK (required last step): run \`node ${cli} setup check ${dbFlags}\`. It dry-runs everything a first`,
     '   ticket needs: manifest warnings (all count as failures), git repo, baseline branch, origin',
     '   and its reachability, a throwaway worktree from the baseline, gate scripts on the baseline,',
     '   UAT tester paths, services, and the agent CLIs. It also works with no services (greenfield',
-    '   and gate-only repos). Fix each fail (setup propose-change / manifest propose) and re-run.',
+    '   and gate-only repos). Fix each fail that these commands can fix (setup propose-change /',
+    '   manifest propose) and re-run. For a fail in a protected field, report the fail and the Settings route.',
     '   End the session ONLY when it reports ok, or after you report every remaining fail to the',
     '   user with the proposed fix for each.',
     '',

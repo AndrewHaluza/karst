@@ -556,6 +556,8 @@ export interface GateDef {
   sandbox?: 'host' | 'inside';
   /** A gate killed by the OOM killer (exit 137, no failing test): `retry-then-park` (default) | `park` | `host`. */
   onResourceKill?: 'retry-then-park' | 'park' | 'host';
+  /** Most runs of this gate that may go at once on this host, across tickets; absent = no limit (arch:GATE-CONCURRENCY). */
+  maxConcurrent?: number;
   /** `false` keeps the definition but skips the gate project-wide; absent = on. */
   enabled?: boolean;
 }

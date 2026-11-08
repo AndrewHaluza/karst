@@ -129,7 +129,7 @@ export interface RunReviewOpts {
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /** Registers a gate process pid (returns its disposer); see `RunGatesOptions.onGateSpawned`. */
-  onGateSpawned?: (gateName: string, pid: number) => (() => void) | void;
+  onGateSpawned?: (gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Live-output hook for the findings lane's headless calls (Task 13):
    * forwarded verbatim into `planAndRunFindingsLane`. RAW untrusted CLI prose —

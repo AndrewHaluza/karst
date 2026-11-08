@@ -118,6 +118,8 @@ export function createSender(api: WebviewApi) {
     autopilotRetry: (requestId?: string) => send({ type: 'autopilot-retry' }, requestId),
     rebaseOnBase: (requestId?: string) => send({ type: 'rebase-on-base' }, requestId),
     deliverToPr: (requestId?: string) => send({ type: 'deliver-to-pr' }, requestId),
+    dismissDeliverFailures: (gate?: string, requestId?: string) =>
+      send(gate === undefined ? { type: 'dismiss-deliver-failures' } : { type: 'dismiss-deliver-failures', gate }, requestId),
     openStageLog: (stageKey: Msg<'open-stage-log'>['stageKey'], requestId?: string) =>
       send({ type: 'open-stage-log', stageKey }, requestId),
     resolveConflicts: (repo: Msg<'resolve-conflicts'>['repo'], requestId?: string) =>

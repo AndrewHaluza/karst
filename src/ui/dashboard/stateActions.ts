@@ -9,6 +9,14 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
 import type { DashboardAgentContext, DashboardState } from './stateTypes.js';
+import { deliverFactsFor } from '../../store/deliverFacts.js';
+import type { DeliverFacts } from '../../model/inside/deliver.js';
+
+/** The auto-deliver facts of a ticket, only when a run left a record (a ticket that never auto-delivered carries none). */
+function readDeliverAuto(store: Store, ticketId: number): DeliverFacts | undefined {
+  const f = deliverFactsFor(store, ticketId);
+  return f.running === null && f.failures.length === 0 && f.takenOver === null && !f.roundActive ? undefined : f;
+}
 
 /** The action-availability reads of one snapshot, in their fixed order. */
 export function readActionStates(store: Store, ticketId: number, agentContext: DashboardAgentContext) {
@@ -42,23 +50,27 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
     ciFailure,
     rebase,
     undelivered,
+    deliverAuto: readDeliverAuto(store, ticketId),
     openPrFeedback,
   };
 }
 
 /** The ship CI/rebase/deliver slots of the dashboard state, projected from the reads above. */
 export function shipActionViews(
-  states: Pick<ReturnType<typeof readActionStates>, 'ciFailure' | 'rebase' | 'undelivered'>,
+  states: Pick<ReturnType<typeof readActionStates>, 'ciFailure' | 'rebase' | 'undelivered' | 'deliverAuto'>,
   stageCurrent: string | null,
 ): Pick<DashboardState, 'ciFailure' | 'rebase' | 'deliver'> {
-  const { ciFailure, rebase, undelivered } = states;
+  const { ciFailure, rebase, undelivered, deliverAuto } = states;
   return {
     ciFailure: ciFailure.available
       ? { available: true, repos: ciFailure.prs.map((p) => p.repo) }
       : { available: false, repos: [] },
     rebase: rebase.available ? { available: true, stage: stageCurrent ?? undefined } : { available: false },
-    deliver: undelivered
-      ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }
-      : { available: false, notOnPr: 0, inSandbox: 0 },
+    deliver: {
+      ...(undelivered
+        ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }
+        : { available: false, notOnPr: 0, inSandbox: 0 }),
+      ...(deliverAuto ? { auto: deliverAuto } : {}),
+    },
   };
 }

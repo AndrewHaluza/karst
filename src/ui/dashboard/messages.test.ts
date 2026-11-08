@@ -55,6 +55,7 @@ function actions(): DashboardActions {
     autopilotRetry: vi.fn(),
     rebaseOnBase: vi.fn(),
     deliverToPr: vi.fn(),
+    dismissDeliverFailures: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
     createSubtask: vi.fn(),
@@ -382,6 +383,18 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'deliver-to-pr' }, a);
     expect(a.deliverToPr).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches dismiss-deliver-failures with an optional gate', () => {
+    expect(parseWebviewMessage({ type: 'dismiss-deliver-failures', x: 1 })).toEqual({ type: 'dismiss-deliver-failures' });
+    expect(parseWebviewMessage({ type: 'dismiss-deliver-failures', gate: 'unit' })).toEqual({ type: 'dismiss-deliver-failures', gate: 'unit' });
+    expect(parseWebviewMessage({ type: 'dismiss-deliver-failures', gate: '' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'dismiss-deliver-failures', gate: 5 })).toBeNull();
+    const a = actions();
+    routeAction({ type: 'dismiss-deliver-failures', gate: 'unit' }, a);
+    expect(a.dismissDeliverFailures).toHaveBeenCalledWith('unit');
+    routeAction({ type: 'dismiss-deliver-failures' }, a);
+    expect(a.dismissDeliverFailures).toHaveBeenLastCalledWith(null);
   });
 
   it('parses and dispatches create-follow-up-ticket', () => {
@@ -1003,6 +1016,13 @@ describe('parseInsideProgress', () => {
   });
 });
 
+describe('stage-log-request ship', () => {
+  it('accepts the ship console and refuses an unknown stage', () => {
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'ship' })).toEqual({ type: 'stage-log-request', stage: 'ship' });
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'deploy' })).toBeNull();
+  });
+});
+
 describe('stage-log-request', () => {
   it('accepts a gate stage (uat/review) only — closed vocabulary (UI-R16)', () => {
     expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'uat' })).toEqual({
@@ -1013,9 +1033,8 @@ describe('stage-log-request', () => {
       type: 'stage-log-request',
       stage: 'review',
     });
-    // Non-gate stages, missing stage, and wrong types all drop the message.
+    // Stages without a console (ship has one since T1018), missing stage, and wrong types all drop the message.
     expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'impl' })).toBeNull();
-    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'ship' })).toBeNull();
     expect(parseWebviewMessage({ type: 'stage-log-request' })).toBeNull();
     expect(parseWebviewMessage({ type: 'stage-log-request', stage: 42 })).toBeNull();
   });
