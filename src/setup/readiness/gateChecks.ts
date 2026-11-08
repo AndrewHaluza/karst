@@ -80,6 +80,26 @@ async function scriptItems(m: Manifest, baselineOf: Baseline, p: ReadinessProbes
   return out;
 }
 
+/** A review gate `<name>` should run the repository's `gate:<name>` script when the baseline defines it. */
+async function formItems(m: Manifest, baselineOf: Baseline, p: ReadinessProbes): Promise<ReadinessItem[]> {
+  const out: ReadinessItem[] = [];
+  for (const { where, gate } of reviewGates(m)) {
+    const wanted = `gate:${gate.name}`;
+    if (scriptOf(gate) === wanted) continue;
+    for (const [name, repo] of targets(m, gate)) {
+      const branch = baselineOf(name);
+      if (!(await p.baseDefinesScript(repo.repoPath, branch, wanted))) continue;
+      out.push({
+        id: `gates.form.${where}`,
+        status: 'warn',
+        detail: `review gate "${gate.name}" does not run script "${wanted}", which exists on ${branch} in ${name}`,
+        fix: `run it as \`npm run -s ${wanted}\` in Settings > Quality, or ignore this if the other command is intended`,
+      });
+    }
+  }
+  return out;
+}
+
 function testerItem(m: Manifest, p: ReadinessProbes): ReadinessItem | undefined {
   const tv = m.uat?.testerVerifier;
   if (!tv) return undefined;
@@ -103,6 +123,7 @@ export async function checkGates(m: Manifest, baselineOf: Baseline, p: Readiness
     reviewItem(m, p),
     uatItem(m),
     ...(await scriptItems(m, baselineOf, p)),
+    ...(await formItems(m, baselineOf, p)),
     testerItem(m, p),
   ].filter((i): i is ReadinessItem => i !== undefined);
 }
