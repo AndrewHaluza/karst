@@ -70,4 +70,48 @@ describe('checkGates', () => {
     expect(ids(await checkGates(manifest({ uat: uat([], bin) }), main, fakeProbes({ binaryResolves: () => false })))).toContain('uat.tester:fail');
     expect(ids(await checkGates(manifest({ uat: uat([], bin) }), main, fakeProbes()))).toContain('uat.tester:ok');
   });
+
+  describe('gate form (gate:<name> convention)', () => {
+    const direct: GateDef = { name: 'sast', kind: 'command', command: 'semgrep', args: ['scan', 'src'] };
+    const only = (name: string) => (_r: string, _b: string, s: string) => Promise.resolve(s === name);
+    const formItem = (items: { id: string }[]) => items.find((i) => i.id.startsWith('gates.form.'));
+
+    it('warns when a direct gate has a gate:<name> script on the baseline', async () => {
+      const m = manifest({ review: review([direct]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: only('gate:sast') }));
+      const item = formItem(items) as { id: string; status: string; detail: string; fix: string };
+      expect(item.id).toBe('gates.form.review.gates[0]');
+      expect(item.status).toBe('warn');
+      expect(item.detail).toContain('sast');
+      expect(item.detail).toContain('gate:sast');
+      expect(item.fix).toContain('npm run -s gate:sast');
+      expect(item.fix).toContain('Settings > Quality');
+    });
+    it('adds no item when the gate runs npm run -s gate:<name>', async () => {
+      const m = manifest({ review: review([{ ...npmGate('gate:sast'), name: 'sast' }]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: only('gate:sast') }));
+      expect(formItem(items)).toBeUndefined();
+    });
+    it('adds no item when gate:<name> does not exist', async () => {
+      const m = manifest({ review: review([direct]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: async () => false }));
+      expect(formItem(items)).toBeUndefined();
+    });
+    it('does not check uat gates', async () => {
+      const m = manifest({ uat: uat([direct]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: only('gate:sast') }));
+      expect(formItem(items)).toBeUndefined();
+    });
+    it('skips a repository that the gate does not target', async () => {
+      const m = manifest({ review: review([{ ...direct, repo: 'api' }]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: only('gate:sast') }));
+      expect(formItem(items)).toBeUndefined();
+    });
+    it('keeps no fail item, so ok stays true with only this warn', async () => {
+      const m = manifest({ review: review([direct]) });
+      const items = await checkGates(m, main, fakeProbes({ baseDefinesScript: only('gate:sast') }));
+      expect(items.some((i) => i.status === 'fail')).toBe(false);
+      expect(items.filter((i) => i.status === 'warn').map((i) => i.id)).toEqual(['gates.form.review.gates[0]']);
+    });
+  });
 });
