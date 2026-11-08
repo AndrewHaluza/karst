@@ -359,6 +359,29 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a pre-v109 database by adding the recovery_rounds manifest columns, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE recovery_rounds (id INTEGER PRIMARY KEY, ticket_id INTEGER)');
+    legacy.pragma('user_version = 108');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('recovery_rounds')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['manifest_path', 'manifest_sha']));
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'manifest_path')).toHaveLength(1);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
   it('migrates a pre-v63 tickets table by adding the sub-task columns and index, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

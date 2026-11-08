@@ -2908,5 +2908,14 @@ function migrateLocked(db: Database): void {
     db.exec(DELIVER_RUNS_DDL);
   }
 
+  if (current < 109) {
+    // v109: `recovery_rounds.manifest_path` + `manifest_sha` — the operator manifest file and a
+    // sha256 of its bytes when a fix round opened, so `stage fix pass` accepts a manifest-only fix
+    // (@arch:AC-45). Additive; NULL = no manifest recorded (every pre-v109 round).
+    const cols109 = tableColumns(db, 'recovery_rounds');
+    if (cols109.size > 0 && !cols109.has('manifest_path')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN manifest_path TEXT');
+    if (cols109.size > 0 && !cols109.has('manifest_sha')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN manifest_sha TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

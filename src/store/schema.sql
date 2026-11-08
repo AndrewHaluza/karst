@@ -369,6 +369,8 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   end_reason TEXT,        -- v94: why the round closed, when the status alone does not say
   host_rerun_at TEXT,     -- v94: stamp of the one host re-run of the failed gates for a refused no-commit fix marker
   fix_commit_sha TEXT,    -- v95: the HEAD the fix round committed (first worktree whose HEAD moved); NULL = unknown
+  manifest_path TEXT,     -- v108: the operator manifest file recorded when the fix round opened; NULL = none
+  manifest_sha TEXT,      -- v108: sha256 of that file's bytes at that time; NULL = none or unreadable
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
