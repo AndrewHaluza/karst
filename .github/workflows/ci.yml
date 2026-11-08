@@ -191,6 +191,10 @@ jobs:
   mutation:
     name: Mutation score
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    concurrency:
+      group: mutation-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    continue-on-error: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -205,30 +209,42 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      # Check if any files that affect the mutation score changed.
-      # Only src/extension/**/*.ts is mutated (stryker.config.json), and only
-      # src/extension/**/*.test.ts and src/agent/quota/**/*.test.ts are executed
-      # (vitest.mutation.config.ts). If a PR touched none of these, the mutation
-      # score cannot change and we can skip the heavy rebuild and Stryker run.
+      # Check if any files that can affect the mutation score changed.
+      # Extension tests import widely from across src/** (store, agent, workflow, etc.),
+      # and build/test config changes (.nvmrc, package.json, vitest/stryker configs)
+      # can alter mutant execution or detection. We fail closed: if git fails,
+      # run Stryker. We only skip when changes are strictly outside mutation inputs.
       - name: Check if mutation-relevant files changed
         id: filter
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch --no-tags origin "$BASE_REF" || true
-          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
-            'src/extension/**' \
-            'src/agent/quota/**' \
-            'stryker.config.json' \
-            'vitest.mutation.config.ts' || true)
-          if [ -z "$CHANGED" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No extension source or test files touched in this PR; skipping Stryker."
-          else
+          touch changed-files.txt
+          if ! git fetch --no-tags origin "$BASE_REF"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Mutation-relevant files changed:"
-            echo "$CHANGED"
+            echo "git fetch failed; running Stryker (fail-closed)."
+          elif ! CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+              'src/**' \
+              'scripts/**' \
+              'package*.json' \
+              '.nvmrc' \
+              'tsconfig*.json' \
+              'stryker.config.json' \
+              'vitest*.config.ts' \
+              '.github/workflows/ci.yml'); then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "git diff failed; running Stryker (fail-closed)."
+          else
+            git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+            if [ -z "$CHANGED" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No mutation inputs or source code touched in this PR; skipping Stryker."
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Mutation-relevant files changed:"
+              echo "$CHANGED"
+            fi
           fi
 
       - run: npm ci
@@ -261,20 +277,12 @@ jobs:
         # Local config is silent (html+json only); CI wants the per-file table in the log.
         run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json --incremental --incrementalFile reports/stryker-incremental.json
 
-      # The changed-file list powers the inline annotations, so compute it
-      # before the report. `|| true` (and the `if: always()`) keep a diff
-      # failure from failing the job on its own — the report degrades to no
-      # annotations instead.
-      - name: Compute the PR's changed files
+      # The changed-file list powers the inline annotations. For push to develop,
+      # ensure changed-files.txt exists.
+      - name: Ensure changed files list exists
         if: always() && steps.filter.outputs.skip != 'true'
-        env:
-          BASE_REF: ${{ github.base_ref }}
         run: |
           touch changed-files.txt
-          if [ -n "$BASE_REF" ]; then
-            git fetch --no-tags origin "$BASE_REF" || true
-            git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
-          fi
           echo "Changed files:"; cat changed-files.txt
 
       # Replaces the old "exit code 1 and nothing else" publish step: turn the
@@ -298,7 +306,7 @@ jobs:
           {
             echo "## Mutation score"
             echo
-            echo "✅ Skipped: No files under \`src/extension/**\` or test files covering them were changed in this PR."
+            echo "⏭️ Skipped (no mutation inputs changed: \`src/**\`, \`scripts/**\`, \`package*.json\`, \`.nvmrc\`, \`tsconfig*.json\`, \`stryker.config.json\`, \`vitest*.config.ts\`, \`.github/workflows/ci.yml\`)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the HTML report
