@@ -65,7 +65,7 @@ export function DeliverRow({ notOnPr, inSandbox, canDeliver, auto }: {
         <button
           type="button"
           className="k-btn k-btn--ghost k-btn--sm"
-          data-act="open-ship-console"
+          data-act="console"
           onClick={() => overlays.openConsole('ship', null)}
         >
           Gate output
