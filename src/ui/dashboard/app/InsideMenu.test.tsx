@@ -214,6 +214,61 @@ describe('Inside — Deliver to PR', () => {
     expect(btn.hasAttribute('aria-busy')).toBe(false);
   });
 
+  describe('auto-deliver of a resolved merge (T1018)', () => {
+    const A = 'a'.repeat(40);
+    const B = 'b'.repeat(40);
+    const failure = { gate: 'unit', repo: 'r', exitCode: 2, headSha: A, summary: 'boom\nline two' };
+    const auto = (over: Record<string, unknown> = {}) => ({ running: null, failures: [], takenOver: null, roundActive: false, headSha: A, ...over });
+    const dv = (a: Record<string, unknown>) => state({ available: true, notOnPr: 2, inSandbox: 0, auto: a });
+
+    it('(a) shows no progress or failure region without an auto-deliver', () => {
+      mountInside(state({ available: true, notOnPr: 2, inSandbox: 0 }));
+      expect(q('[data-region="deliver-progress"]')).toBeNull();
+      expect(q('[data-region="deliver-gate-failures"]')).toBeNull();
+    });
+
+    it('(b) words gate n/m and hints the button, which stays enabled', () => {
+      mountInside(dv(auto({ running: { n: 2, m: 5, gate: 'docs-graph' }, roundActive: true })));
+      expect(text(must('[data-region="deliver-progress"]'))).toBe('Delivering resolved merge: gate 2/5 (docs-graph), push after the gates');
+      const btn = must<HTMLButtonElement>('[data-act="deliver-to-pr"]');
+      expect(btn.disabled).toBe(false);
+      expect(btn.title).toBe('Auto-deliver runs gate 2/5 (docs-graph). Deliver now skips the remaining gates.');
+      expect(must('.inside-deliver').getAttribute('role')).toBe('status');
+    });
+
+    it('(c) lists a failure on the current head and names it in the hint', () => {
+      mountInside(dv(auto({ running: { n: 3, m: 5, gate: 'visual' }, failures: [failure], roundActive: true })));
+      const region = must('[data-region="deliver-gate-failures"]');
+      expect(text(region)).toContain(`On the current head ${'a'.repeat(9)}`);
+      expect(text(region)).toContain(`Gate unit failed (exit 2) on ${'a'.repeat(9)}`);
+      expect(must<HTMLButtonElement>('[data-act="deliver-to-pr"]').title).toBe(`Gate unit failed (exit 2) on ${'a'.repeat(9)}. Deliver now pushes it anyway.`);
+    });
+
+    it('(d) words the takeover with its failed and skipped gates and keeps the failure', () => {
+      mountInside(dv(auto({ takenOver: { failed: ['unit'], skipped: ['visual', 'docs'] }, failures: [failure] })));
+      expect(text(must('[data-region="deliver-progress"]'))).toBe('Delivery taken over by a manual Deliver; failed: unit; skipped: visual, docs');
+      expect(q('[data-region="deliver-gate-failures"]')).not.toBeNull();
+    });
+
+    it('(e) groups a failure of an older head after a new push and gives no hint', () => {
+      mountInside(dv(auto({ headSha: B, failures: [failure] })));
+      expect(text(must('[data-region="deliver-gate-failures"]'))).toContain(`On an older head ${'a'.repeat(9)}`);
+      expect(must<HTMLButtonElement>('[data-act="deliver-to-pr"]').title).toContain('push the branch');
+    });
+
+    it('dismisses one gate through the host', () => {
+      const h = mountInside(dv(auto({ failures: [failure] })));
+      fireEvent.click(must('[data-act="dismiss-deliver-failures"]'));
+      expect(h.send.dismissDeliverFailures).toHaveBeenCalledWith('unit');
+    });
+
+    it('shows the record without the button when nothing is left to push', () => {
+      mountInside(state({ available: false, notOnPr: 0, inSandbox: 0, auto: auto({ failures: [failure] }) }));
+      expect(q('[data-act="deliver-to-pr"]')).toBeNull();
+      expect(q('[data-region="deliver-gate-failures"]')).not.toBeNull();
+    });
+  });
+
   it('keeps one className through the whole request (the runtime’s is-pending lives on it)', () => {
     mountInside(state({ available: true, notOnPr: 2, inSandbox: 0 }));
     const btn = must<HTMLButtonElement>('[data-act="deliver-to-pr"]');

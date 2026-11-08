@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GateProcessRunner, ProcessOutcome } from '../workflow/gates/run.js';
-import { ensureSandboxSetup, resetSetupLocks, SETUP_BOUND_MS, type SetupDeps } from './sandboxSetup.js';
+import { ensureSandboxSetup, readSetupFailure, resetSetupLocks, SETUP_BOUND_MS, type SetupDeps } from './sandboxSetup.js';
 
 const HASH = 'a'.repeat(64);
 const done = (output = '', exitCode = 0): ProcessOutcome => ({ kind: 'completed', exitCode, output, stdout: output });
@@ -304,5 +304,33 @@ describe('ensureSandboxSetup', () => {
       expect(r.setups()).toHaveLength(1);
       expect(existsSync(r.deps.stateFile)).toBe(false);
     });
+  });
+});
+
+describe('readSetupFailure (arch:AC-47)', () => {
+  const dir = (): string => mkdtempSync(join(tmpdir(), 'karst-setup-state-'));
+  const state = (status: string): string => JSON.stringify({ fingerprint: 'f', status, exitCode: 1, at: 1 });
+  it('names a failed setup of the first repo', async () => {
+    const d = dir();
+    writeFileSync(join(d, '7.setup.json'), state('failed'));
+    expect(await readSetupFailure(join(d, '7.setup.json'))).toBe('dependency setup failed');
+  });
+  it('names a failed setup of a further repo, and ignores another ticket', async () => {
+    const d = dir();
+    writeFileSync(join(d, '7.setup.json'), state('ok'));
+    writeFileSync(join(d, '7.api.setup.json'), state('failed'));
+    writeFileSync(join(d, '70.setup.json'), state('failed'));
+    expect(await readSetupFailure(join(d, '7.setup.json'))).toBe('dependency setup failed');
+    expect(await readSetupFailure(join(d, '8.setup.json'))).toBeNull();
+  });
+  it('is null for ok, running, deferred, a missing dir and unreadable json', async () => {
+    const d = dir();
+    for (const status of ['ok', 'running', 'deferred']) {
+      writeFileSync(join(d, '7.setup.json'), state(status));
+      expect(await readSetupFailure(join(d, '7.setup.json'))).toBeNull();
+    }
+    writeFileSync(join(d, '7.setup.json'), '{not json');
+    expect(await readSetupFailure(join(d, '7.setup.json'))).toBeNull();
+    expect(await readSetupFailure(join(d, 'nope', '7.setup.json'))).toBeNull();
   });
 });

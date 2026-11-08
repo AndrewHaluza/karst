@@ -103,6 +103,8 @@ export function routeAction(
       return actions.rebaseOnBase();
     case 'deliver-to-pr':
       return actions.deliverToPr();
+    case 'dismiss-deliver-failures':
+      return actions.dismissDeliverFailures(msg.gate ?? null);
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'create-subtask':

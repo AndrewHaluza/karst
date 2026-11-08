@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getStage } from '../../store/stages.js';
-import type { GateStage } from '../../store/ticketGates.js';
+import type { ConsoleStage } from '../../store/ticketGates.js';
+import { listDeliverResults } from '../../store/deliverRuns.js';
 import type { StageLogResult } from './messages.js';
 
 /**
@@ -18,11 +19,12 @@ export const STAGE_LOG_READ_CAP_BYTES = 2 * 1024 * 1024;
 export function readStageLog(
   store: Store,
   ticketId: number,
-  stage: GateStage,
+  stage: ConsoleStage,
   readFile: (path: string) => string,
   debug?: (msg: string) => void,
 ): StageLogResult {
   debug?.(`[stage-log] reading ${stage} for ticket ${ticketId}`);
+  if (stage === 'ship') return readShipLog(store, ticketId);
   const row = getStage(store, ticketId, stage);
   const path = row?.artifactPath;
   if (!path) {
@@ -43,4 +45,17 @@ export function readStageLog(
     debug?.(`[stage-log] artifact file unreadable: ${path}`);
     return { kind: 'error', message: 'The recorded log file is no longer available.' };
   }
+}
+
+/**
+ * The post-run ship console: the live stream persists nothing (@arch:GATE-OUTPUT), so the
+ * record is the kept gate results of the auto-deliver (gate, exit code, head, summary).
+ */
+function readShipLog(store: Store, ticketId: number): StageLogResult {
+  const results = listDeliverResults(store, ticketId);
+  if (results.length === 0) return { kind: 'error', message: 'This ticket has no recorded delivery gate run.' };
+  const content = results
+    .map((r) => `$ ${r.gateName} (${r.repo}) exit ${r.exitCode ?? 'none'} on ${r.headSha?.slice(0, 9) ?? 'unknown head'}\n${r.summary ?? ''}\n`)
+    .join('\n');
+  return { kind: 'ok', content, truncated: false };
 }

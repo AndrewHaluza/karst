@@ -118,6 +118,32 @@ describe('launchWithoutSilentHostFallback (F14)', () => {
     expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
     expect(i.removeSandbox).not.toHaveBeenCalled();
   });
+  describe('failClosed (an Autopilot round, arch:AC-31)', () => {
+    it('refuses a host launch without a choice, a removal or a second launch', async () => {
+      const i = base({ failClosed: true });
+      const r = await launchWithoutSilentHostFallback(i);
+      expect(r).toEqual({ kind: 'refused', reason: 'the sandbox backend is unavailable and auto-fix never runs on the host' });
+      expect(i.choose).not.toHaveBeenCalled();
+      expect(i.removeSandbox).not.toHaveBeenCalled();
+      expect(i.launch).toHaveBeenCalledTimes(1);
+    });
+    it('checks failClosed BEFORE hasSandbox: a listing failure does not launch on the host', async () => {
+      const hasSandbox = vi.fn(async () => { throw new Error('listing failed'); });
+      const r = await launchWithoutSilentHostFallback(base({ failClosed: true, hasSandbox }));
+      expect(r.kind).toBe('refused');
+      expect(hasSandbox).not.toHaveBeenCalled();
+    });
+    it('refuses even when the ticket has no sandbox yet and the backend wants one', async () => {
+      const r = await launchWithoutSilentHostFallback(base({ failClosed: true, hasSandbox: async () => false }));
+      expect(r.kind).toBe('refused');
+    });
+    it('still launches a sandboxed backend', async () => {
+      expect(await launchWithoutSilentHostFallback(base({ failClosed: true, launch: async () => box }))).toMatchObject({ kind: 'launched', freshSession: false });
+    });
+    it('a ticket that does not want a sandbox launches on the host', async () => {
+      expect(await launchWithoutSilentHostFallback(base({ failClosed: true, wantsSandbox: false }))).toMatchObject({ kind: 'launched' });
+    });
+  });
   it('confirmed host option removes the sandbox and launches fresh; a kept sandbox cancels', async () => {
     const i = base({ choose: vi.fn(async () => HOST_FALLBACK_HOST) });
     expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'launched', freshSession: true });

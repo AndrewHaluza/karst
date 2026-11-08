@@ -22,6 +22,8 @@ import {
 
 const EXPECTED_TABLES = [
   'projects',
+  'deliver_runs',
+  'deliver_gate_results',
   'tickets',
   'stages',
   'gate_runs',
@@ -357,13 +359,13 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
-  it('migrates a pre-v108 database by adding the recovery_rounds manifest columns, idempotently', () => {
+  it('migrates a pre-v109 database by adding the recovery_rounds manifest columns, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
     const legacy = new Database(path);
     legacy.exec('CREATE TABLE recovery_rounds (id INTEGER PRIMARY KEY, ticket_id INTEGER)');
-    legacy.pragma('user_version = 107');
+    legacy.pragma('user_version = 108');
     legacy.close();
 
     const colsOf = (s: ReturnType<typeof openStore>) =>

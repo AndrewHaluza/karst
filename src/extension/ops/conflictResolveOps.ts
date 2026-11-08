@@ -43,18 +43,19 @@ export interface ResolveConflictInput {
 
 const DIRTY_HINT = ' Use "Stash and update" on the dashboard Sandbox card to park the sandbox changes, then click Resolve conflicts again.';
 
-async function prepare(input: ResolveConflictInput): Promise<string | null> {
+async function prepare(input: ResolveConflictInput): Promise<{ readonly message: string; readonly blocker: string } | null> {
   if (!input.prepareSandbox) return null;
   const result = await input.prepareSandbox().catch((err: unknown): EnsureSyncResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err), diverged: false }));
   if (result.ok) return null;
   const dirty = /uncommitted/i.test(result.reason);
-  return `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}`;
+  return { blocker: result.reason, message: `Could not refresh the sandbox of ticket ${input.label} with the latest base branch, so no conflict brief was sent: ${result.reason}.${dirty ? DIRTY_HINT : ''}` };
 }
 
 /** What one conflict round did: the brief went out, or the round was declined with the user-facing reason. */
 export type ConflictRoundOutcome =
   | { readonly kind: 'sent' }
-  | { readonly kind: 'declined'; readonly reason: string };
+  /** `environment`: the short reason the sandbox could not be refreshed (dirty or diverged clone, arch:AC-46). Not a missing conflict. */
+  | { readonly kind: 'declined'; readonly reason: string; readonly environment?: string };
 
 /**
  * The round itself, shared by the click and by Autopilot (T996): the click shows a decline as a toast,
@@ -73,7 +74,7 @@ export async function resolveConflictRound(input: ResolveConflictInput): Promise
   }
   if (sandboxed) {
     const failure = await prepare(input);
-    if (failure !== null) return { kind: 'declined', reason: failure };
+    if (failure !== null) return { kind: 'declined', reason: failure.message, environment: failure.blocker };
   }
   input.arm?.(input.repo);
   input.deliver(brief, input.repo);

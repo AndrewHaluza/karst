@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import type { GateProcessRunner } from '../workflow/gates/run.js';
 import { blockedHostsFromOutput, blockedSuffix, failedTail, npmDebugLogPath, quoteLine } from './sandboxSetupDiagnose.js';
 import type { SetupWindow } from './sessionRunner.js';
@@ -86,6 +86,20 @@ export function resetSetupLocks(): void {
 
 export function setupInProgress(key: string): boolean {
   return locks.has(key);
+}
+
+/**
+ * The recorded setup of a ticket's sandbox: a `failed` state (first repo `<id>.setup.json` or a further
+ * `<id>.<repo>.setup.json`) is an environment blocker (arch:AC-47). Missing or unreadable state is not a failure.
+ */
+export async function readSetupFailure(stateFile: string): Promise<string | null> {
+  const own = basename(stateFile).replace(/\.setup\.json$/, '');
+  const names = await readdir(dirname(stateFile)).catch((): string[] => []);
+  const mine = names.filter((n) => n.endsWith('.setup.json') && (n === `${own}.setup.json` || n.startsWith(`${own}.`)));
+  for (const name of mine) {
+    if ((await readState(join(dirname(stateFile), name)))?.status === 'failed') return 'dependency setup failed';
+  }
+  return null;
 }
 
 async function readState(file: string): Promise<SetupState | undefined> {
