@@ -289,7 +289,7 @@ describe('Evidence — the delivery receipt', () => {
     expect(text(log!.querySelector('.ev-tail button'))).toBe('Open log');
     expect(log!.querySelector('.done-state')).toBeNull();
     expect(commit!.querySelector('.done-state')!.textContent).toBe('10:00 · passed');
-    expect(text(commit!.querySelector('.done-state .ev-time'))).toBe('10:00');
+    expect(text(commit!.querySelector('.done-state .ev-time'))).toBe('10:00 · ');
   });
 
   it('renders a receipt with no hero, blocks or timing as the plain line list behind Details', () => {

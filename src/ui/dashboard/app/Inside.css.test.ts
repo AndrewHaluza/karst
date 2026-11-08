@@ -211,8 +211,9 @@ describe('Inside CSS — the container queries', () => {
 
 describe('the thin round row', () => {
   const rule = (sel: string): string => new RegExp(`${escapeRegExp(sel)}\\s*\\{[^}]*\\}`).exec(CSS)?.[0] ?? '';
-  it('never wraps and underlines the selected tab', () => {
-    expect(rule('#inside .attempt-tabs')).toContain('flex-wrap:nowrap');
+  it('wraps with visible overflow, so every round stays reachable, and underlines the selected tab', () => {
+    expect(rule('#inside .attempt-tabs')).toContain('flex-wrap:wrap');
+    expect(rule('#inside .attempt-tabs')).toContain('overflow:visible');
     expect(rule('#inside .attempt-tab[aria-selected="true"]')).toMatch(/box-shadow|border-bottom/);
   });
   it('drops the label and tail in the narrow tier', () => {

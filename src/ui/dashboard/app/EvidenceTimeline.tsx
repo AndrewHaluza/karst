@@ -75,7 +75,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
     return (
       <div className="timeline-row timeline-start">
         <span className="timeline-slot">
-          {r.status === 'pass' ? <span className="glyph phase-status pass" aria-label="passed" /> : <span className="timeline-node start" aria-hidden="true" />}
+          {r.status === 'pass' ? <span className="glyph phase-status pass" role="img" aria-label="passed" /> : <span className="timeline-node start" aria-hidden="true" />}
         </span>
         <span className="timeline-start-label">{r.label}</span>
         <IdentityCell r={r} />
@@ -88,7 +88,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
   return (
     <div className={`timeline-row phase-row${status === 'run' ? ' current' : ''}`}>
       <span className="timeline-slot phase-rail">
-        <span className={`glyph phase-status ${status}`} aria-label={statusWord(status)} />
+        <span className={`glyph phase-status ${status}`} role="img" aria-label={statusWord(status)} />
       </span>
       <span className="phase-name">{r.label}</span>
       <span className={`phase-detail ${status}`}>{r.detail || ''}</span>

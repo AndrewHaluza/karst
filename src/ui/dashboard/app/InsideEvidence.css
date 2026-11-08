@@ -4,7 +4,7 @@
   gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
 #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .ev-detail{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .ev-detail{color:var(--p-muted);overflow-wrap:anywhere;white-space:normal;min-width:0;
   font-size:var(--p-sm);line-height:18px}
 #inside{--ev-timing-w:calc(var(--inside-time-w) + var(--inside-dur-w) + var(--p-s2))}
 #inside .ev-state,#inside .gate-state{min-height:18px;display:grid;align-items:center;
@@ -70,26 +70,26 @@
 #inside .graph-entry:last-child{border-bottom:0}
 #inside .graph-node .glyph{justify-self:start}
 #inside .graph-node-name{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-text);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  overflow-wrap:anywhere;white-space:normal;min-width:0;min-width:0}
 #inside .graph-node-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  overflow-wrap:anywhere;white-space:normal;min-width:0;min-width:0}
 #inside .graph-node-detail{display:flex;align-items:center;gap:var(--p-s2);min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+  overflow-wrap:anywhere;white-space:normal;min-width:0;font-size:var(--p-sm);line-height:18px}
 /* The control's own column: never shrinks, never wraps its label, always
    stays inside the bordered box at the row's right end. Local geometry
    only — the button itself stays the shared `.k-btn` primitive
    (UI-R07/R08). */
 #inside .graph-node .ev-tail{flex:none;justify-self:end;white-space:nowrap}
 #inside .graph-node .ev-tail .k-btn{white-space:nowrap;flex:none}
-#inside .graph-node-identity{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#inside .graph-node-identity{color:var(--p-muted);overflow-wrap:anywhere;white-space:normal;min-width:0}
 #inside .graph-node-visit{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
 #inside .graph-node-override{color:var(--p-running);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
 /* The node's age — the one fact that separates a live run from a stale one.
    Same muted mono weight as the visit budget: a supporting fact, never a
    verdict, and the host formats it (the webview never computes a duration). */
 #inside .graph-node-age{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-#inside .graph-node-fact{color:var(--p-muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .graph-node-reason{color:var(--p-attention);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#inside .graph-node-fact{color:var(--p-muted2);overflow-wrap:anywhere;white-space:normal;min-width:0}
+#inside .graph-node-reason{color:var(--p-attention);overflow-wrap:anywhere;white-space:normal;min-width:0}
 
 /* Gates */
 #inside .gates-caption{margin:0 0 var(--k-space-1);font-size:var(--k-text-sm);color:var(--k-text-dim);overflow-wrap:anywhere;white-space:normal}
@@ -105,10 +105,10 @@
 #inside .gates.no-repo .gate-row{grid-template-columns:18px minmax(110px,150px) minmax(0,1fr) var(--ev-timing-w)}
 #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
 #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  overflow-wrap:anywhere;white-space:normal;min-width:0}
 #inside .gate-repo{color:var(--p-text)}
 #inside .gate-name{color:var(--p-muted)}
-#inside .gate-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .gate-detail{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 
 /* Findings — one blueprint for Review findings and UAT observations */
@@ -129,7 +129,7 @@
 #inside .sev.sev-medium{color:var(--k-sev-medium)}
 #inside .sev.sev-low{color:var(--k-sev-low)}
 #inside .sev.sev-info{color:var(--k-sev-info)}
-#inside .finding-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+#inside .finding-title{overflow-wrap:anywhere;white-space:normal;min-width:0;font-size:var(--p-sm);line-height:18px}
 #inside .finding-loc{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
   white-space:nowrap;display:inline-flex;align-items:center;min-width:0}
 #inside .finding-time{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
@@ -198,7 +198,7 @@
 #inside .phase-status.glyph.run:before{width:7px;height:7px}
 #inside .phase-status.glyph.pass:before{width:5px;height:3px}
 #inside .phase-name{color:var(--p-text);font-size:var(--p-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .phase-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .phase-detail{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 #inside .phase-detail.run{color:var(--p-running)}
 #inside .phase-detail.fail{color:var(--p-failed)}
@@ -225,7 +225,7 @@
   padding:0 var(--p-s2);border:var(--k-border-w) solid var(--p-edge-done);border-radius:var(--p-r2);
   background:var(--p-tint-done)}
 #inside .done-hero-main{color:var(--p-strong);font-size:var(--p-sm);font-weight:var(--k-weight-semibold)}
-#inside .done-hero-sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .done-hero-sub{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 #inside .done-hero-time{margin-left:auto;color:var(--p-muted2);font-family:var(--p-mono);
   font-size:var(--p-xs);white-space:nowrap}
@@ -233,7 +233,7 @@
   align-items:center;min-height:24px;padding:0 var(--p-s2)}
 #inside .done-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .done-copy{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .done-copy{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 #inside .done-state{color:var(--p-passed);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
 #inside .done-check{flex:none}
@@ -285,7 +285,7 @@
 #inside .done-timing-value{color:var(--p-strong);font-size:var(--p-sm);
   font-weight:var(--k-weight-semibold);white-space:nowrap}
 #inside .done-timing-items{min-width:0;color:var(--p-muted);font-family:var(--p-mono);
-  font-size:var(--p-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  font-size:var(--p-xs);overflow-wrap:anywhere;white-space:normal;min-width:0}
 
 /* Ship · Commit: one block per repository, its provenance pill, its commits */
 #inside .commit-grid{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
@@ -295,8 +295,8 @@
 #inside .commit-repo-head{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) auto var(--inside-time-w) var(--inside-dur-w);
   gap:var(--p-s2);align-items:center;min-height:29px;padding:0 var(--p-s2)}
 #inside .commit-repo-name{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .commit-repo-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  overflow-wrap:anywhere;white-space:normal;min-width:0}
+#inside .commit-repo-summary{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 #inside .commit-time{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
   white-space:nowrap}
@@ -321,21 +321,21 @@
   text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
   text-decoration-color:var(--p-border2);text-underline-offset:2px;cursor:pointer;
   font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle;
-  border-radius:var(--k-radius-1)}
+  border-radius:var(--p-r1)}
 #inside .obj-link:hover{color:var(--k-link);text-decoration-color:currentColor}
 #inside .obj-link:focus-visible{outline:1px solid var(--p-running);outline-offset:2px}
-#inside .commit-message{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+#inside .commit-message{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
 
 /* Ship · Pull request: the recorded path per repository */
 #inside .pr-branches{display:grid;gap:var(--k-space-1)}
-#inside .pr-branch{display:grid;grid-template-columns:44px minmax(0,1fr) var(--inside-time-w) var(--inside-dur-w);align-items:center;gap:var(--p-s1);min-height:29px;
+#inside .pr-branch{display:grid;grid-template-columns:minmax(72px,90px) minmax(0,1fr) var(--inside-time-w) var(--inside-dur-w);align-items:center;gap:var(--p-s1);min-height:29px;
   padding:0 var(--p-s2);border-radius:var(--p-r1)}
 #inside .pr-branch.current{background:var(--p-tint-run)}
-#inside .pr-repo{width:44px;flex:none;color:var(--p-strong);font-family:var(--p-mono);
-  font-size:var(--p-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#inside .pr-path{min-width:0;display:flex;align-items:center;gap:var(--p-s1);
-  overflow:hidden;font-size:var(--p-sm)}
+#inside .pr-repo{color:var(--p-strong);font-family:var(--p-mono);
+  font-size:var(--p-xs);overflow-wrap:anywhere;white-space:normal;min-width:0}
+#inside .pr-path{min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--p-s1);
+  overflow-wrap:anywhere;font-size:var(--p-sm)}
 #inside .pr-object{display:inline-flex;align-items:center;gap:var(--p-s1);min-height:18px;
   line-height:18px;white-space:nowrap}
 #inside .pr-link{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);

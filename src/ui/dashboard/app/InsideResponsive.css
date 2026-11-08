@@ -14,6 +14,9 @@
 @container (max-width: 430px){
   #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
   #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
+  /* has-actions outranks the rule above: keep the menu in its own track on row one. */
+  #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto}
+  #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
   #inside .inside-meta{grid-column:2}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
