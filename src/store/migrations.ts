@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
-import { AUTOPILOT_DDL } from './autopilot.js';
+import { AUTOPILOT_DDL, AUTOPILOT_RERUNS_DDL } from './autopilot.js';
 import { STALL_SUGGESTIONS_DDL } from './stallSuggestions.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
@@ -2887,6 +2887,11 @@ function migrateLocked(db: Database): void {
     if (intentCols105.size > 0 && !intentCols105.has('account')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN account TEXT');
     }
+  }
+
+  if (current < 106) {
+    // v106: `autopilot_reruns` (T1019). Additive; an old db has no re-run marker.
+    db.exec(AUTOPILOT_RERUNS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
