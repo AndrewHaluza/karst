@@ -514,3 +514,56 @@ describe('createSbxSessionRunner memory limit, OOM report and stop', () => {
     expect(proc.calls.map((c) => [c.command, ...c.args])).toEqual([['sbx', 'stop', NAME]]);
   });
 });
+
+describe('createSbxSessionRunner guest memory', () => {
+  const GM = `sbx exec ${NAME} -- sudo -n sh -c`;
+  const gmCalls = (proc: ReturnType<typeof fakeSbxProcess>) => proc.probes.filter((c) => c.args.includes('sudo'));
+
+  it('runs after a good write probe, with sudo and the marker', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+    const gm = gmCalls(proc);
+    expect(gm).toHaveLength(1);
+    expect(gm[0]!.args.slice(0, 7)).toEqual(['exec', NAME, '--', 'sudo', '-n', 'sh', '-c']);
+    expect(gm[0]!.args.at(-1)!.startsWith('# karst-guest-memory')).toBe(true);
+    expect(proc.probes.indexOf(proc.probes.find((c) => c.args.some((a) => a.includes('.karst-write-probe')))!)).toBeLessThan(proc.probes.indexOf(gm[0]!));
+  });
+
+  it('runs at most once per 5 min', async () => {
+    let t = 1_000_000;
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], now: () => t });
+    await runner.ensureWritable!();
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(1);
+    t += 300_000;
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(2);
+  });
+
+  it('a failure logs, does not block, and retries next time', async () => {
+    const proc = fakeSbxProcess({ [GM]: { code: 1, stderr: 'sudo: a password is required' } });
+    const log = vi.fn();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], log, now: () => 5 });
+    expect(await runner.ensureWritable!()).toEqual({ ok: true });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0]![0]).toContain('guest memory reclaimer not started (exit 1): sudo: a password is required');
+    await runner.ensureWritable!();
+    expect(gmCalls(proc)).toHaveLength(2);
+  });
+
+  it('is not run when the write probe fails', async () => {
+    const proc = fakeSbxProcess({ [`sbx exec ${NAME} -- sh -c for d in`]: { code: 73, stderr: 'sh: 1: cannot create /tmp/x: Read-only file system' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    expect(await runner.ensureWritable!()).toEqual({ ok: false, reason: 'sandbox filesystem is read-only: stop the sandbox, then Karst: Open AI Session' });
+    expect(gmCalls(proc)).toHaveLength(0);
+  });
+
+  it('the sync path starts it too', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await runner.sync!(ticket);
+    expect(gmCalls(proc).length).toBeGreaterThanOrEqual(1);
+  });
+});
