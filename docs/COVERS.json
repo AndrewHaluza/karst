@@ -421,6 +421,9 @@
   "src/extension/ops/sharedServerOps.ts": [
     "arch:SERVERS-PANEL"
   ],
+  "src/extension/ops/shipGatesOps.ts": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/storedArtifactOps.ts": [
     "arch:APP-00"
   ],
@@ -485,6 +488,9 @@
     "arch:IDS-01"
   ],
   "src/model/inside/autofix.ts": [
+    "arch:AP-02"
+  ],
+  "src/model/inside/deliver.ts": [
     "arch:AP-02"
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
@@ -669,6 +675,12 @@
   "src/store/db.ts": [
     "arch:ABI-00"
   ],
+  "src/store/deliverFacts.ts": [
+    "arch:AP-01"
+  ],
+  "src/store/deliverRuns.ts": [
+    "arch:AP-01"
+  ],
   "src/store/findingIdentity.ts": [
     "arch:REVIEW-STALL"
   ],
@@ -818,6 +830,9 @@
     "arch:UATHOST-03"
   ],
   "src/ui/dashboard/app/AutofixParts.tsx": [
+    "arch:AP-02"
+  ],
+  "src/ui/dashboard/app/DeliverRow.tsx": [
     "arch:AP-02"
   ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
