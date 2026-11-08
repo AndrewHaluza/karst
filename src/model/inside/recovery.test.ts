@@ -232,6 +232,13 @@ describe('recoveryProcess', () => {
     expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
   });
 
+  it('shows no duration for a stale fix run, and a growing one only while it runs', () => {
+    const stale = fixRun({ id: 7, status: 'stale', endedAt: null });
+    expect(recoveryProcess([round({ fixProcessRunId: 7 })], [stale], NOW)!.process.duration).toBeUndefined();
+    const live = fixRun({ id: 8, status: 'running', endedAt: null });
+    expect(recoveryProcess([round({ fixProcessRunId: 8 })], [live], NOW)!.process.duration).toBe('25m 0s');
+  });
+
   it('shows the fix execution identity the round recorded', () => {
     const run = fixRun({ id: 7 });
     const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;

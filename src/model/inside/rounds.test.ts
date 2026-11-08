@@ -256,6 +256,23 @@ describe('listGateAttempts', () => {
     expect(views[1]!.status).toBe('pass');
   });
 
+  it('reads fail for a passed-gate attempt that opened a recovery round, and labels it', () => {
+    const runs = [
+      gate('uat', 'lint', 0, { stageRunId: 1, runAt: '2026-07-20T12:00:00.000Z' }),
+      gate('uat', 'lint', 0, { stageRunId: 2, runAt: '2026-07-20T12:10:00.000Z' }),
+    ];
+    const views = listGateAttempts({
+      gateRuns: runs,
+      processRuns: [],
+      rounds: [round({ sourceStage: 'uat', sourceStageRunId: 1, round: 1 })],
+      stageKey: 'uat',
+      running: false,
+    });
+    expect(views[0]!.status).toBe('fail');
+    expect(views[0]!.statusLabel).toBe('failed');
+    expect(views[1]!.status).toBe('pass');
+  });
+
   it('bounds to the newest ATTEMPT_TABS_LIMIT attempts', () => {
     const runs = Array.from({ length: ATTEMPT_TABS_LIMIT + 5 }, (_, i) =>
       gate('uat', 'lint', 0, {

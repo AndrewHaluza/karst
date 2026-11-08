@@ -38,16 +38,30 @@ import {
 /** The changes-surface row is evidence, not a gate — never counted. */
 const CHANGES_GATE = 'changes';
 
+/** A gate answered when it was not skipped and recorded an exit code. */
+function answered(r: GateRun): boolean {
+  return !r.skipped && r.exitCode !== null;
+}
+
+/** One stage's verdict word; a batch with no answer is never a pass. */
+function stageVerdict(name: string, batch: readonly GateRun[]): string {
+  const answers = batch.filter(answered);
+  if (answers.some((r) => r.exitCode !== 0)) return `${name} failed`;
+  if (answers.length > 0) return `${name} passed`;
+  return batch.every((r) => r.skipped) ? `${name} bypassed` : `${name}: no gate result`;
+}
+
 /** How the final gate batches read: counts over the LATEST runs of both stages. */
 function finalGateWording(gateRuns: readonly GateRun[]): string {
   const uat = latestBatch(gateRuns, 'uat').filter((r) => r.gateName !== CHANGES_GATE);
   const review = latestBatch(gateRuns, 'review').filter((r) => r.gateName !== CHANGES_GATE);
   const batch = [...uat, ...review];
-  const passed = batch.filter((r) => r.exitCode === 0).length;
-  const failed = batch.filter((r) => r.exitCode !== null && r.exitCode !== 0).length;
+  const passed = batch.filter((r) => answered(r) && r.exitCode === 0).length;
+  const failed = batch.filter((r) => answered(r) && r.exitCode !== 0).length;
   if (failed > 0) {
     return `${failed} gate${failed === 1 ? '' : 's'} failed on the final run`;
   }
+  if (passed === 0) return 'No gate ran on the final run';
   return `${passed} gate${passed === 1 ? '' : 's'} passed on the final run`;
 }
 
@@ -135,12 +149,10 @@ function validatedBlock(input: DoneReceiptInput): ReceiptBlockView {
   const review = finalBatch(input.gateRuns, 'review');
   const verdicts = ([['UAT', uat], ['Review', review]] as const)
     .filter(([, batch]) => batch.length > 0)
-    .map(([name, batch]) =>
-      batch.some((r) => r.exitCode !== null && r.exitCode !== 0) ? `${name} failed` : `${name} passed`,
-    );
+    .map(([name, batch]) => stageVerdict(name, batch));
   const batch = [...uat, ...review];
-  const passed = batch.filter((r) => r.exitCode === 0).length;
-  const failed = batch.filter((r) => r.exitCode !== null && r.exitCode !== 0).length;
+  const passed = batch.filter((r) => answered(r) && r.exitCode === 0).length;
+  const failed = batch.filter((r) => answered(r) && r.exitCode !== 0).length;
   const details: string[] = [];
   if (passed > 0) details.push(`${plural(passed, 'final gate check', 'final gate checks')} passed`);
   if (failed > 0) details.push(`${plural(failed, 'final gate check', 'final gate checks')} failed`);

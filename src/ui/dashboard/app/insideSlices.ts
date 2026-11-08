@@ -56,6 +56,7 @@ export const frameOf =
     const view = viewOf(snapshot, stage);
     if (!state || !view) return null;
     const key = view.stageKey;
+    const ownStage = state.stageCurrent ? state.presentedStage || state.stageCurrent : '';
     const sb = state.sendBack;
     const rg = state.rerunGate;
     const dv = state.deliver;
@@ -65,7 +66,8 @@ export const frameOf =
       live: liveOperation(view, snapshot.liveOps),
       ticketId: state.ticketId,
       // "Not the current stage" is only meaningful when there IS one: on a ticket that never started, every stage is equally uncurrent.
-      back: state.stageCurrent && stage !== state.stageCurrent ? STAGE_TITLE[state.stageCurrent] || state.stageCurrent : null,
+      // In a fix round `stageCurrent` is `fix` while `presentedStage` is the gate being retried; the ticket's own stage is the presented one.
+      back: ownStage && stage !== ownStage ? STAGE_TITLE[ownStage] || ownStage : null,
       menu: {
         sendBack: !!(sb && sb.available && key === sb.stage),
         retry: rg && rg.available && key === rg.stage ? rg.stage : null,

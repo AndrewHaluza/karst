@@ -13,6 +13,7 @@
  * anything, and a coarse bucket is deliberate: the panel answers "how old",
  * not "how long exactly", which is what the evidence rows carry.
  */
+import { instantMs } from './types.js';
 
 /** Coarse buckets, largest unit that yields a whole number ≥ 1. */
 const UNITS: readonly { ms: number; suffix: string }[] = [
@@ -30,8 +31,8 @@ const UNITS: readonly { ms: number; suffix: string }[] = [
  */
 export function durationBetween(fromIso: string | null | undefined, toIso: string): string | null {
   if (!fromIso) return null;
-  const from = Date.parse(fromIso);
-  const to = Date.parse(toIso);
+  const from = instantMs(fromIso);
+  const to = instantMs(toIso);
   if (Number.isNaN(from) || Number.isNaN(to)) return null;
   const span = Math.max(0, to - from);
   for (const unit of UNITS) {

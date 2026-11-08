@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import type { StepperCell } from '../stepper.js';
-import { EVIDENCE_KINDS, formatClock, formatExactDuration, formatTime, dotFor } from './types.js';
+import { EVIDENCE_KINDS, formatClock, formatDuration, formatExactDuration, formatShortTime, formatTime, dotFor } from './types.js';
 
 const NOW = '2026-08-09T12:30:00.000Z';
 
@@ -75,5 +75,30 @@ describe('formatClock', () => {
 describe('EVIDENCE_KINDS', () => {
   it('has no round-list kind — Fix reports only the selected round', () => {
     expect(EVIDENCE_KINDS).not.toContain('recovery');
+  });
+});
+
+describe('SQLite stamps read as UTC under a non-UTC time zone', () => {
+  const SQL = '2026-08-09 10:06:14';
+  const ISO = '2026-08-09T10:06:14Z';
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'America/Los_Angeles';
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  it('formatTime and formatShortTime match the equal ISO stamp', () => {
+    expect(formatTime(SQL)).toBe(formatTime(ISO));
+    expect(formatShortTime(SQL)).toBe(formatShortTime(ISO));
+    expect(formatShortTime(SQL)).not.toBe('');
+  });
+
+  it('formatDuration and formatExactDuration match the equal ISO pair', () => {
+    expect(formatDuration(SQL, '2026-08-09 10:07:14')).toBe('1m 0s');
+    expect(formatDuration(SQL, '2026-08-09T10:07:14Z')).toBe('1m 0s');
+    expect(formatExactDuration('2026-08-09 10:06:14', '2026-08-09T10:06:16Z')).toBe('2.000s');
   });
 });

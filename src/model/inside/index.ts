@@ -8,6 +8,7 @@ import {
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
+  runEnd,
 } from './types.js';
 import { bounded } from './bounds.js';
 import { reviewProcesses, uatProcesses } from './gates.js';
@@ -126,8 +127,8 @@ function prefillProcess(
             : 'analysis interrupted — no outcome',
     ...(run.startedAt
       ? {
-          duration: formatDuration(run.startedAt, run.endedAt ?? now),
-          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
+          ...(runEnd(run, now) ? { duration: formatDuration(run.startedAt, runEnd(run, now)), durationExact: formatExactDuration(run.startedAt, runEnd(run, now)) } : {}),
           time: formatTime(run.startedAt),
         }
       : {}),

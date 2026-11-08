@@ -252,6 +252,13 @@ describe('scopeProcesses', () => {
   });
 
   describe('the AI prefill process (Task 10b)', () => {
+    it('shows no duration for a stale analysis, and a growing one only while it runs', () => {
+      const build = (over: Parameters<typeof prefillRun>[0]) =>
+        scopeProcesses(scopeCell('pending'), ['api'], [], NOW, [prefillRun(over)], null)[0]!;
+      expect(build({ status: 'stale', endedAt: null }).duration).toBeUndefined();
+      expect(build({ status: 'running', endedAt: null }).duration).toBe('1h 0m');
+    });
+
     it('appears FIRST when an analysis ran, with its AI identity and recorded spend', () => {
       const processes = scopeProcesses(
         scopeCell('pending'),

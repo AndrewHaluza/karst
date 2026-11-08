@@ -39,6 +39,7 @@ import {
   type InsideProcessView,
   type InsideStatus,
   type StageOp,
+  runEnd,
 } from './types.js';
 
 /**
@@ -355,8 +356,8 @@ function aiProcessBase(
         : 'note',
     ...(run?.startedAt
       ? {
-          duration: formatDuration(run.startedAt, run.endedAt ?? now),
-          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
+          ...(runEnd(run, now) ? { duration: formatDuration(run.startedAt, runEnd(run, now)), durationExact: formatExactDuration(run.startedAt, runEnd(run, now)) } : {}),
           time: formatTime(run.startedAt),
         }
       : {}),
@@ -552,8 +553,10 @@ function gatesProcess(
   const batchStageRunId = batch.length > 0 ? (batch[0]!.stageRunId ?? null) : null;
   const aiProcessId = stageKey === 'review' ? 'review' : 'tester';
   const aiRun = eff.empty ? undefined : processRunForAttempt(processRuns, aiProcessId, eff.key);
+  // A reused batch belongs to an earlier stage run, so the stage-run comparison below can never match it: the AI lane re-running alone means the gates are done.
   const gatesDone =
     settled ||
+    reusedFrom !== null ||
     (batchStageRunId !== null &&
       aiRun !== undefined &&
       aiRun.stageRunId === batchStageRunId &&
