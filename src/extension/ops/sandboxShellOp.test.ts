@@ -39,7 +39,7 @@ describe('openSandboxShellOp', () => {
   it('opens in the project root when the ticket has no worktree', async () => {
     const openTerminal = vi.fn();
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
-    const bare = { ticketId: 7, ticketLabel: 'T7', core: 'opencode', worktree: null };
+    const bare = { ticketId: 7, ticketLabel: 'T7', core: 'opencode', worktree: undefined };
     await expect(openSandboxShellOp({ notify: notify(), projectRoot: '/p', dockerProc, openTerminal }, bare)).resolves.toBe(true);
     expect(openTerminal.mock.calls[0]![0].cwd).toBe('/p');
   });
