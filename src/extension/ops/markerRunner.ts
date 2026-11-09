@@ -1,9 +1,10 @@
+import { MARKER_VIA_BRIDGE_ENV } from '../../workflow/fixHostRerunRequest.js';
 import type { MarkerRunner } from '../../agent/bridge/bridgeSink.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { spawnHeadlessCli, type HeadlessSpawnResult } from '../../agent/headlessSpawn.js';
 
 /** The async spawn seam (production: `spawnHeadlessCli`; never `spawnSync`). */
-export type MarkerSpawn = (command: string, args: readonly string[], cwd: string) => Promise<HeadlessSpawnResult>;
+export type MarkerSpawn = (command: string, args: readonly string[], cwd: string, env?: Readonly<Record<string, string>>) => Promise<HeadlessSpawnResult>;
 
 /** Host facts for one ticket's done-marker CLI run; none come from the bridge line. */
 export interface MarkerRunnerFacts {
@@ -34,7 +35,7 @@ const PERMANENT_SYNC = /output exceeded \d+ bytes/;
  */
 export function createMarkerRunner(
   facts: MarkerRunnerFacts,
-  spawn: MarkerSpawn = (command, args, cwd) => spawnHeadlessCli(command, args, cwd),
+  spawn: MarkerSpawn = (command, args, cwd, env) => spawnHeadlessCli(command, args, cwd, env ? { env } : {}),
 ): MarkerRunner {
   return async (stage) => {
     if (facts.ensureSynced) {
@@ -45,7 +46,7 @@ export function createMarkerRunner(
       facts.cliEntry, 'stage', stage, 'pass',
       '--db', facts.dbPath, '--manifest', facts.manifestPath, '--ticket', facts.ticketKey,
     ];
-    const result = await spawn(facts.nodePath, args, facts.cwd);
+    const result = await spawn(facts.nodePath, args, facts.cwd, { [MARKER_VIA_BRIDGE_ENV]: '1' });
     return result.exitCode === 0
       ? { code: 0, stderr: result.stderr }
       : { code: result.exitCode, stderr: result.stderr, transient: !PERMANENT_REFUSAL.test(result.stderr) };

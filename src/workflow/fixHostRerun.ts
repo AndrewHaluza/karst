@@ -78,7 +78,7 @@ export interface HostRerunReply {
 }
 
 /** The gates of the source stage's LATEST batch that ran and exited non-zero. */
-function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
+export function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
   const own = runs.filter((r) => r.stageKey === stage && r.command !== null);
   const latest = own.reduce((max, r) => (r.runAt > max ? r.runAt : max), '');
   return own

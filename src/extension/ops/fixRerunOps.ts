@@ -5,6 +5,7 @@ import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import { regenerateRepoOf, runRegenerate, type RegenerateSpec } from '../../workflow/gates/regenerate.js';
 import { nowIso } from '../../model/time.js';
 import type { MarkerStage } from '../../agent/markerStage.js';
+import { runRequestedHostReruns } from '../../workflow/fixHostRerunRequest.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import {
   describeHostRerun,
@@ -86,4 +87,31 @@ export function makeRecoverRefusal(
 export function hostRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
   const runGate = makeGateRerun(deps);
   return (ticketId) => hostRerunFailedGates(deps.store, ticketId, { runGate });
+}
+
+export interface RequestedRerunSweepDeps extends GateRerunDeps {
+  readonly projectId: () => number | undefined;
+  readonly debug?: (message: string) => void;
+}
+
+/**
+ * The extension sweep for host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a
+ * re-run request; run it here, never in the CLI. A tick that finds a run in flight does nothing.
+ */
+export function makeRequestedRerunSweep(deps: RequestedRerunSweepDeps): () => Promise<void> {
+  const runGate = makeGateRerun(deps);
+  let running = false;
+  return async () => {
+    const projectId = deps.projectId();
+    if (running || projectId === undefined) return;
+    running = true;
+    try {
+      const outcomes = await runRequestedHostReruns(deps.store, projectId, { runGate });
+      for (const o of outcomes) deps.debug?.(`[fix-rerun] requested by the host CLI: ${o.kind}`);
+    } catch (err) {
+      deps.debug?.(`[fix-rerun] sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      running = false;
+    }
+  };
 }

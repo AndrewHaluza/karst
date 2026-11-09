@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
-import { makeGateRerun, makeRecoverRefusal } from './fixRerunOps.js';
+import { makeGateRerun, makeRecoverRefusal, makeRequestedRerunSweep } from './fixRerunOps.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 
 const gate = { gateName: 'unit (web)', repo: 'web', command: 'npm', args: ['run', 'test:unit'], kind: 'command' as const };
@@ -117,5 +117,36 @@ describe('makeRecoverRefusal', () => {
   it('returns undefined when the host did nothing', async () => {
     const recover = makeRecoverRefusal(7, { ...deps, rerun: async () => ({ kind: 'not-applicable' as const }) });
     expect(await recover('fix', NO_NEW_COMMIT_REASON)).toBeUndefined();
+  });
+});
+
+describe('makeRequestedRerunSweep', () => {
+  it('runs a requested re-run once and reports a failed sweep without throwing', async () => {
+    const store = openStore(':memory:');
+    const { upsertProject } = await import('../../store/projects.js');
+    const { requestHostRerun } = await import('../../workflow/fixHostRerunRequest.js');
+    const { openRecoveryRound } = await import('../../store/recoveryRounds.js');
+    const { recordGateRun } = await import('../../store/gateRuns.js');
+    const project = upsertProject(store, { slug: 'p' });
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't', projectId: project.id }).id;
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, 'web', '/wt/web', 'b');
+    recordGateRun(store, { ticketId, stageKey: 'uat', attempt: 1, runAt: '2026-01-01T00:00:00Z', gates: [{ gateName: 'unit (web)', exitCode: 1, repo: 'web', command: 'npm', args: ['t'], summary: 's' }] });
+    const round = openRecoveryRound(store, { ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: '2026-01-01T00:00:00Z' } as never);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(round.id);
+    requestHostRerun(store, ticketId, '2026-01-01T00:00:00Z');
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: 'ok' }));
+    const debug = vi.fn();
+    const sweep = makeRequestedRerunSweep({ store, runnerFor: () => run, projectId: () => project.id, debug });
+    await sweep();
+    await sweep();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(debug).toHaveBeenCalledWith('[fix-rerun] requested by the host CLI: passed');
+    expect(store.db.prepare('SELECT status FROM recovery_rounds WHERE id = ?').get(round.id)).toEqual({ status: 'passed' });
+  });
+
+  it('does nothing without a project', async () => {
+    const run = vi.fn<GateProcessRunner>();
+    await makeRequestedRerunSweep({ store: openStore(':memory:'), runnerFor: () => run, projectId: () => undefined })();
+    expect(run).not.toHaveBeenCalled();
   });
 });

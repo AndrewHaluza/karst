@@ -12,7 +12,7 @@ import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBrief
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
-import { assertFixHasNewCommit } from '../workflow/fixRoundGuard.js';
+import { assertFixHasNewCommitOrRequestRerun, MARKER_VIA_BRIDGE_ENV } from '../workflow/fixHostRerunRequest.js';
 import { assertUiParityFresh } from '../workflow/uiParityGuard.js';
 import { runParityVitest } from './uiParityRunner.js';
 import { assertDocsBlocksWithinCap } from '../workflow/docsBlockGuard.js';
@@ -752,6 +752,7 @@ async function assertMarkerHasWork(
   ticket: string,
   verbose: boolean,
   stage: 'impl' | 'fix',
+  viaBridge: boolean,
 ): Promise<void> {
   let manifest: Manifest;
   try {
@@ -770,7 +771,7 @@ async function assertMarkerHasWork(
       defaultGitRunner,
       verbose ? (m: string) => process.stderr.write(`${m}\n`) : undefined,
     );
-    if (stage === 'fix') await assertFixHasNewCommit(store, found.id, defaultGitRunner);
+    if (stage === 'fix') await assertFixHasNewCommitOrRequestRerun(store, found.id, defaultGitRunner, undefined, { viaBridge });
     // A parity probe that cannot run (timeout, spawn error) is not a verdict: the marker goes through.
     try {
       await assertUiParityFresh(store, found.id, defaultGitRunner, runParityVitest);
@@ -902,7 +903,7 @@ export async function runCliAsync(
   // base. The probe is async, the marker itself is not: check first, then hand
   // the unchanged argv to the synchronous path.
   if (rest[0] === 'stage' && (rest[1] === 'impl' || rest[1] === 'fix') && db && ticket && manifestPath) {
-    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1]);
+    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1], env[MARKER_VIA_BRIDGE_ENV] === '1');
   }
   if (rest[0] === 'base') {
     if (!db) throw new Error('missing --db <path>');

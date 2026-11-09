@@ -2937,5 +2937,12 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 112) {
+    // v112: `recovery_rounds.host_rerun_requested_at` — a refused host CLI `stage fix pass` asks the
+    // extension for the one host gate re-run (@arch:AC-45). Additive; NULL = no request.
+    const cols112 = tableColumns(db, 'recovery_rounds');
+    if (cols112.size > 0 && !cols112.has('host_rerun_requested_at')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_requested_at TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

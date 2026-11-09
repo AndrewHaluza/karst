@@ -120,6 +120,7 @@ describe('makeBridgeBuild', () => {
       '/bin/node',
       ['/ext/cli.js', 'stage', 'impl', 'pass', '--db', '/g/karst.db', '--manifest', '/r/karst.yml', '--ticket', 'K-1'],
       '/wt/t1',
+      { KARST_MARKER_VIA_BRIDGE: '1' },
     );
   });
 
