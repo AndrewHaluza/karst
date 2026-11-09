@@ -754,7 +754,8 @@
     "arch:SCHEMA-CHECK"
   ],
   "src/store/planningProposals.ts": [
-    "arch:PLANNING"
+    "arch:PLANNING",
+    "arch:PLANNING-DEPS"
   ],
   "src/store/planningSessions.ts": [
     "arch:PLANNING"

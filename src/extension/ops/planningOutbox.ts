@@ -238,9 +238,10 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     const { id: requestedId, ...payload } = read.value;
     const uuid = proposal.replace(/\.json$/, '');
 
-    // Dependencies name host proposal ids of THIS session: an unknown id, a
-    // discarded one, a foreign session's, or an edge that would close a cycle
-    // is refused before anything is written.
+    // Dependencies name drafts of ANY session of this project or its open
+    // tickets (`T<n>`): an unknown id, a discarded draft, another project's id,
+    // a closed ticket, or an edge that would close a cycle is refused before
+    // anything is written.
     const depReason = validateProposalDependsOn(
       deps.store,
       sessionId,

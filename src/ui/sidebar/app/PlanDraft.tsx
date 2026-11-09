@@ -45,19 +45,20 @@ function DepChip({ dep }: { readonly dep: DepStatus }) {
     return (
       <button type="button" className="pt-dep" tabIndex={-1} data-dep-draft={Number(dep.id)} aria-label={`${dep.label}, draft pending`}>
         {dot}
-        <span>{dep.label}</span>
+        <span>{dep.sessionLabel ? `${dep.label} · ${dep.sessionLabel}` : dep.label}</span>
       </button>
     );
   }
   const stage = dep.kind === 'ticket' && dep.stage ? ` · ${dep.stage}` : '';
-  const name =
-    dep.kind === 'done'
-      ? `${dep.label}, ticket ${dep.ticketLabel} done`
-      : `${dep.label}, ticket ${dep.ticketLabel} in ${dep.stage || 'progress'}`;
+  const session = dep.sessionLabel ? ` · ${dep.sessionLabel}` : '';
+  // A `T<n>` dependency names the ticket itself: one id, no arrow.
+  const direct = dep.label === dep.ticketLabel;
+  const subject = direct ? `ticket ${dep.label}` : `${dep.label}, ticket ${dep.ticketLabel}`;
+  const name = dep.kind === 'done' ? `${subject} done` : `${subject} in ${dep.stage || 'progress'}`;
   return (
     <ActButton spec={{ act: 'open-dashboard', id: Number(dep.ticketId) }} className="pt-dep" tabIndex={-1} aria-label={name}>
       {dot}
-      <span>{`${dep.label}→${dep.ticketLabel}${stage}`}</span>
+      <span>{`${direct ? dep.label : `${dep.label}→${dep.ticketLabel}`}${stage}${session}`}</span>
     </ActButton>
   );
 }
@@ -69,7 +70,7 @@ function Deps({ draft }: { readonly draft: PlanningProposalRow }) {
     <div className="pt-deps-row">
       <span>needs</span>
       {deps.map((x) => (
-        <DepChip key={`${x.kind}${x.id}`} dep={x} />
+        <DepChip key={x.label} dep={x} />
       ))}
     </div>
   );

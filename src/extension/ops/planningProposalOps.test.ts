@@ -164,6 +164,17 @@ describe('planningProposalOps', () => {
     expect(warns.join(' ')).toContain(`D${dependent}, D${second} no longer wait on it`);
   });
 
+  it('refreshes the index of another session whose draft a discard pruned', async () => {
+    const other = createPlanningSession(store, { projectId, title: 'Other', core: 'claude', model: null }).id;
+    const dependent = insertProposal(store, other, {
+      title: 'Dependent', description: 'd', summary: 's', repos: ['api'], dependsOn: [proposalId],
+    });
+    choice = 'discard';
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
+    expect([...refreshed].sort()).toEqual([sessionId, other].sort());
+  });
+
   it('review passes constraints, doc names and host warnings to the form', async () => {
     const id = insertProposal(
       store, sessionId,

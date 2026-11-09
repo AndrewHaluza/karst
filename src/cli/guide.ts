@@ -132,7 +132,12 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     rejected; it becomes the ticket's brief. Propose once per ticket when the
     work splits. When one draft waits on another, add \`"dependsOn":[N,…]\` —
     the host ids already assigned to the drafts it needs (the #N each propose
-    prints and \`draft list\` shows), up to 32, of THIS session; the ordering
+    prints and \`draft list\` shows), up to 32. An entry is an integer or
+    \`D<n>\` (a draft of ANY session of the project) or \`T<n>\` (an open
+    ticket of the project, not done and not archived); \`queue\` lists the
+    candidates. The host rejects an unknown id, a discarded draft, a closed
+    ticket and a cycle. You may only revise your OWN drafts: add the edge
+    from your draft to the other one, never the reverse. The ordering
     becomes blocked-by links when those drafts become tickets. Do NOT describe
     ordering in prose. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
     \`@arch:KEY\`, a commit hash, a \`D<n>\`/\`T<n>\` ref, or free text) to cite the design rules
@@ -144,6 +149,12 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     object: the host replaces that draft's content in place (only while it is
     still pending and yours), prints the same id, and re-announces it. Cite
     drafts to the user as \`#N\`.
+ - \`queue [--json]\` — read-only. Lists the project's pending drafts (every
+    planning session) and its top-level tickets waiting at \`scope\`: id
+    (\`D<n>\`/\`T<n>\`), session (\`P<n>\`, drafts only), title (90 chars), and
+    what each one waits on (\`dependsOn\` / open blockers). Use it to find the
+    ids to put in a draft's \`dependsOn\`. A planning session reads it through
+    \`KARST_DB_READONLY\`, scoped by \`KARST_PROJECT\`.
  - \`draft list\` — ONLY inside a planning session. Reads the session's proposal
     index and prints its drafts as JSON \`[{"id":N,"status":…,"title":…}]\`; use
     it to re-read the ids and statuses (a draft a human already accepted or

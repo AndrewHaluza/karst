@@ -56,14 +56,21 @@ const strArray: JsonSchema = { type: 'array', items: str };
  * therefore may not contain a comma: `["a,b"]` would round-trip as two values.
  */
 const csvArray: JsonSchema = { type: 'array', items: { type: 'string', pattern: '^[^,]*$' } };
-/** Host proposal ids a draft waits on; `draft propose` takes them in its JSON. */
+/** A host proposal id (`N`, `D<n>`); `draft propose` takes it in its JSON. */
 const draftRef: JsonSchema = {
   anyOf: [
     { type: 'integer', minimum: 1 },
     { type: 'string', pattern: '^[Dd]?[1-9][0-9]*$' },
   ],
 };
-const proposalIdArray: JsonSchema = { type: 'array', items: draftRef };
+/** What a draft waits on: a draft (`N`, `D<n>`) or an open ticket (`T<n>`). */
+const dependsOnRef: JsonSchema = {
+  anyOf: [
+    { type: 'integer', minimum: 1 },
+    { type: 'string', pattern: '^[DdTt]?[1-9][0-9]*$' },
+  ],
+};
+const dependsOnArray: JsonSchema = { type: 'array', items: dependsOnRef };
 
 function obj(
   properties: Readonly<Record<string, JsonSchema>>,
@@ -148,6 +155,17 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     toArgv: (input) => {
       const argv = ['blocked'];
       pushFlag(argv, '--kind', input.kind);
+      pushFlag(argv, '--json', input.json);
+      return argv;
+    },
+  },
+  {
+    name: 'queue',
+    summary: "List the project's pending drafts and not-started top-level tickets, to find ids for a draft's dependsOn.",
+    input: obj({ json: bool }),
+    globals: { db: true, manifest: true },
+    toArgv: (input) => {
+      const argv = ['queue'];
       pushFlag(argv, '--json', input.json);
       return argv;
     },
@@ -373,7 +391,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         summary: str,
         repos: csvArray,
         id: draftRef,
-        dependsOn: proposalIdArray,
+        dependsOn: dependsOnArray,
         constraints: strArray,
       },
       ['title', 'description', 'summary', 'repos'],
