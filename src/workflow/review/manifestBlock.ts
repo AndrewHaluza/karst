@@ -15,14 +15,17 @@ export function buildManifestBlock(m: OperatorManifestInfo): string[] {
     m.content.length > MANIFEST_BLOCK_MAX_CHARS
       ? `${m.content.slice(0, MANIFEST_BLOCK_MAX_CHARS)}\n… (truncated)`
       : m.content;
+  // A fence longer than any backtick run in the content, so the content cannot close it.
+  const longest = Math.max(0, ...(body.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
   return [
     ``,
     `The operator manifest \`${m.path}\` changed since the ticket's fix rounds began.`,
     `It is outside the git diff: \`.karst/\` is git-excluded, so a change there never appears in the diff.`,
     `Do NOT report a manifest change as missing from the diff. Judge the content below instead.`,
     `Current content of the manifest:`,
-    '```yaml',
+    `${fence}yaml`,
     body,
-    '```',
+    fence,
   ];
 }

@@ -127,6 +127,7 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
   });
   it('is not changed when the sha equals the recorded one, or no round recorded one and the file predates the ticket', async () => {
     const same = setup('same: 1', 'same: 1');
+    utimesSync(same.path, new Date('2000-01-01'), new Date('2000-01-01'));
     expect((await same.b(same.id))?.operatorManifest).toBeUndefined();
     const none = setup(null, 'x: 1');
     utimesSync(none.path, new Date('2000-01-01'), new Date('2000-01-01'));
@@ -163,5 +164,9 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
   it('counts an impl-stage change (no round yet) when the file is newer than the ticket', async () => {
     const { b, id, path } = setup(null, 'new: 1');
     expect((await b(id))?.operatorManifest).toEqual({ path, content: 'new: 1', changed: true });
+  });
+  it('keeps an impl-stage change visible after a fix round recorded the changed sha', async () => {
+    const { b, id, path } = setup('new: 1', 'new: 1');
+    expect((await b(id))?.operatorManifest?.changed).toBe(true);
   });
 });

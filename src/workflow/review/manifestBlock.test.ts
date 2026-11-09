@@ -22,6 +22,18 @@ describe('buildManifestBlock', () => {
   });
 });
 
+describe('buildManifestBlock fence', () => {
+  it('uses a fence the content cannot close', () => {
+    const lines = buildManifestBlock({ path: 'm', content: 'a: |\n  ```\n  ````\nb: 1', changed: true });
+    expect(lines).toContain('`````yaml');
+    expect(lines[lines.length - 1]).toBe('`````');
+  });
+  it('uses three backticks for plain content', () => {
+    const lines = buildManifestBlock({ path: 'm', content: 'a: 1', changed: true });
+    expect(lines).toContain('```yaml');
+  });
+});
+
 describe('findings prompt manifest section', () => {
   it('carries the manifest for a ticket with a changed manifest, also with custom instructions', () => {
     const a = { ...A, operatorManifest: { path: '/p/.karst/karst.yml', content: 'requireEvidence: true', changed: true } };

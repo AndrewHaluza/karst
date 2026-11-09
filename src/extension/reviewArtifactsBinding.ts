@@ -11,18 +11,19 @@ import { getTicket } from '../store/tickets.js';
 import { makeReviewArtifactsLoader } from '../workflow/review/artifactsLoader.js';
 
 /**
- * A fix round records the manifest sha when it opens; a difference from it is a change. An impl-stage
- * change precedes every round, so with no recorded sha the file counts as changed when it was
- * modified after the ticket was created.
+ * The manifest counts as changed when it was modified after the ticket was created (this covers an
+ * impl-stage change, which precedes every fix round and would otherwise sit in the round's base sha),
+ * or when its sha differs from the sha the first fix round recorded.
  */
 function manifestChanged(registry: Store, ticketId: number, sha: string, mtimeMs: number): boolean {
+  const row = registry.db.prepare('SELECT created_at FROM tickets WHERE id = ?').get(ticketId) as { created_at: string } | undefined;
+  const createdMs = row ? Date.parse(`${row.created_at.replace(' ', 'T')}Z`) : Number.NaN;
+  if (Number.isFinite(createdMs) && mtimeMs > createdMs) return true;
   for (const r of listRecoveryRounds(registry, ticketId)) {
     const base = fixRoundManifest(registry, r.id)?.sha ?? null;
     if (base !== null) return base !== sha;
   }
-  const row = registry.db.prepare('SELECT created_at FROM tickets WHERE id = ?').get(ticketId) as { created_at: string } | undefined;
-  const createdMs = row ? Date.parse(`${row.created_at.replace(' ', 'T')}Z`) : Number.NaN;
-  return Number.isFinite(createdMs) && mtimeMs > createdMs;
+  return false;
 }
 
 /** Binds the review artifacts loader to the registry, the artifact store root and the live manifest. */
