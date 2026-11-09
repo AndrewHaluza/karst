@@ -15,6 +15,8 @@ import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
 import { assertFixHasNewCommit } from '../workflow/fixRoundGuard.js';
 import { assertUiParityFresh } from '../workflow/uiParityGuard.js';
 import { runParityVitest } from './uiParityRunner.js';
+import { assertDocsBlocksWithinCap } from '../workflow/docsBlockGuard.js';
+import { runDocsLint } from './docsLintRunner.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { runPhaseCommand } from './phase.js';
 import { runArtifactAddCommand } from './artifactAdd.js';
@@ -775,6 +777,13 @@ async function assertMarkerHasWork(
     } catch (e) {
       if (e instanceof Error && e.message.startsWith('cannot mark this stage done')) throw e;
       if (verbose) process.stderr.write(`[marker] ui parity probe unavailable: ${String(e)}\n`);
+    }
+    // Same rule for the docs block-size lint: a probe that cannot run is not a verdict.
+    try {
+      await assertDocsBlocksWithinCap(store, found.id, defaultGitRunner, runDocsLint);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('cannot mark this stage done')) throw e;
+      if (verbose) process.stderr.write(`[marker] docs lint probe unavailable: ${String(e)}\n`);
     }
   } finally {
     store.close();

@@ -53,6 +53,10 @@ The marker is REFUSED while `tickets.agent_state = 'waiting'` — the agent aske
 the user a question and is blocked on their input, so the stage is not done.
 `cli/stage.ts`'s `assertMarkerNotWhileWaiting` is the choke point: the CLI is the
 ONLY entry that ever fires a marker (impl and fix both), so the guard lives there.
+The CLI marker path also refuses (`cannot mark this stage done`) when a `docs/**`
+file the ticket changed holds a block over the `@arch:DOC-01` cap
+(`workflow/docsBlockGuard.ts`, fed by `scripts/docsKeys.mjs lint`). Warnings and
+untouched files never refuse; a lint that cannot run lets the marker through.
 
 The concrete marker command is rendered by `karst context` under
 `## How this stage ends` (`cli/context.ts`'s `renderStageEnding`), resolved from
