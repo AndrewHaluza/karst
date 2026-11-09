@@ -95,6 +95,18 @@ describe('sendCiFailureToAgent', () => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
     expect(d.handOff).not.toHaveBeenCalled();
   });
+  it('a delivered hand-off marks the send-back event read', async () => {
+    seed([{ name: 'build', url: null }]);
+    const { d } = deps();
+    await sendCiFailureToAgent(d);
+    expect(listInbox(store, id, { unreadOnly: true })).toHaveLength(0);
+  });
+  it('a refused hand-off keeps the send-back event unread for the next launch', async () => {
+    seed([{ name: 'build', url: null }]);
+    const { d } = deps({ handOff: vi.fn(() => 'the ticket is paused.') });
+    await sendCiFailureToAgent(d);
+    expect(listInbox(store, id, { unreadOnly: true })).toHaveLength(1);
+  });
   it('a hand-off refusal says no session was started, never "sent to the agent"', async () => {
     seed([{ name: 'build', url: null }]);
     const { d } = deps({ handOff: vi.fn(() => 'the ticket is paused.') });

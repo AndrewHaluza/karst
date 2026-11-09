@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
-import { listInbox } from '../../store/ticketMessages.js';
+import { listInbox, markRead } from '../../store/ticketMessages.js';
 
 /** The done-marker sentence that ends every send-back brief. */
 export const SEND_BACK_DONE_MARKER =
@@ -28,4 +28,14 @@ export function sendBackBriefForTicket(store: Store, ticketId: number): SendBack
   const latest = events[events.length - 1];
   if (latest === undefined) return null;
   return { text: `${latest.body.slice(SEND_BACK_EVENT_PREFIX.length)}\n${SEND_BACK_DONE_MARKER}`, messageIds: events.map((m) => m.id) };
+}
+
+/**
+ * Mark the send-back events read once a hand-off delivered the reason to a
+ * session (a nudge or a seeded launch). A later launch at `impl` then does not
+ * replay a reason the agent already received.
+ */
+export function markSendBackDelivered(store: Store, ticketId: number): void {
+  const brief = sendBackBriefForTicket(store, ticketId);
+  if (brief !== null) markRead(store, brief.messageIds);
 }
