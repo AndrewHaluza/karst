@@ -62,7 +62,7 @@ describe('TicketRefChip', () => {
   it('renders button link for planning draft dependency', () => {
     const t = mockTicket({ id: 970, key: 'FEAT-200', stageCurrent: 'done' });
     const view = ticketRefView({ draftId: 445, ticket: t });
-    const { container } = render(<TicketRefChip refView={view} link />);
+    const { container } = render(<TicketRefChip refView={view} linkTarget="chip" dataAct="open-dashboard" />);
 
     const btn = container.querySelector('button.k-ticket-ref')!;
     expect(btn).not.toBeNull();
@@ -71,6 +71,45 @@ describe('TicketRefChip', () => {
     expect(btn.getAttribute('data-act')).toBe('open-dashboard');
     expect(btn.getAttribute('data-id')).toBe('970');
     expect(btn.getAttribute('aria-label')).toBe('D445, ticket T970 done');
+  });
+
+  it('renders a plain chip for a draft blocker when link={false}, never a nested button', () => {
+    const view = ticketRefView({ draftId: 445 });
+    const { container } = render(<TicketRefChip refView={view} link={false} prefix="Blocked by " />);
+
+    const chip = container.querySelector('.k-ticket-ref')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.querySelector('button')).toBeNull();
+    expect(chip.querySelector('a')).toBeNull();
+    expect(chip.textContent).toBe('Blocked by D445');
+  });
+
+  it('renders a draft-origin ticket blocker as plain text inside the row click target', () => {
+    const t = mockTicket({ id: 970, key: 'FEAT-200', stageCurrent: 'impl' });
+    const view = ticketRefView({ draftId: 445, ticket: t });
+    const { container } = render(<TicketRefChip refView={view} link={false} prefix="Blocked by " showKey={false} />);
+
+    const chip = container.querySelector('.k-ticket-ref')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.querySelector('button')).toBeNull();
+    expect(chip.textContent).toBe('Blocked by D445→T970 · impl');
+  });
+
+  it('honours prefix when the whole chip is the link', () => {
+    const t = mockTicket({ id: 970, key: 'FEAT-200', stageCurrent: 'review' });
+    const view = ticketRefView({ draftId: 445, ticket: t });
+    const { container } = render(<TicketRefChip refView={view} linkTarget="chip" prefix="needs " dataAct="open-dashboard" />);
+
+    const btn = container.querySelector('button.k-ticket-ref')!;
+    expect(btn.textContent).toBe('needs D445→T970 · review');
+  });
+
+  it('does not throw for a pre-upgrade snapshot string blocker', () => {
+    const view = 'BLOCK-7' as unknown as ReturnType<typeof ticketRefView>;
+    const { container } = render(<TicketRefChip refView={view} link={false} prefix="Blocked by " />);
+
+    const chip = container.querySelector('.k-ticket-ref')!;
+    expect(chip.textContent).toBe('Blocked by BLOCK-7');
   });
 
   describe('parity between React and HTML string output for each kind (Requirement D)', () => {

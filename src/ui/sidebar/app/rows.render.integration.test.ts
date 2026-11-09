@@ -97,6 +97,14 @@ describe('ticket row', () => {
     expect(h.queryAll('.ticket .k-ticket-ref')).toHaveLength(2);
   });
 
+  it('renders a proposal-only blocker as plain text inside the row target, never a nested button (UI-R09)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ draftId: 94 })] })] }));
+    const chip = h.query('.ticket .k-ticket-ref')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.querySelector('button')).toBeNull();
+    expect(text(chip)).toBe('Blocked by D94');
+  });
+
   it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', async () => {
     const h = await mount(base);
     const warns = h.queryAll('.nextact.warn');
