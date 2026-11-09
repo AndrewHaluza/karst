@@ -45,11 +45,11 @@ if (!isKnownProvider(provider)) {
   process.exit(2);
 }
 const dbPath = flag('db');
-const ws = buildWorkspace(flag('root'), provider, spec.taskRepo);
+const ws = buildWorkspace(flag('root'), provider, spec.taskRepo, spec.autopilot);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, spec, { repoPath: ws.repoDir });
 // A default worktree row needs a real checkout, or a stage that reads the diff has nothing to read.
-for (const t of spec.tickets) if (t.worktree && !t.repo) addTicketWorktree(ws.repoDir, t.key);
+for (const t of spec.tickets) if (t.worktree && !t.repo) addTicketWorktree(ws.repoDir, t.key, t.worktreeConflict === true);
 store.db.close();
 console.log(JSON.stringify({ workspaceDir: ws.workspaceDir, tickets: ids.length }));

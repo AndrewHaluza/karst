@@ -28,12 +28,43 @@ export interface RecoveryRoundSeed {
   triggerDetail: string;
   maxRounds: number;
 }
-/** The small allow-list of tables a fixture file may fill to model stranded/recovery states. */
+export interface PrSeed {
+  repo: string;
+  number: number;
+  url: string;
+  status: 'open' | 'draft' | 'closed' | 'merged';
+  headRef?: string;
+  baseRef?: string;
+  mergeBlock?: 'clean' | 'blocked' | 'behind' | 'dirty' | 'unstable' | 'draft' | 'has_hooks';
+}
+export interface MergeCheckSeed {
+  repo: string;
+  state: 'clean' | 'conflicted' | 'unknown';
+  files: string[];
+  reason: string | null;
+  headSha: string | null;
+  baseSha: string | null;
+  baseRef: string | null;
+}
+export interface ReviewFindingSeed {
+  attempt: number;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  repo: string;
+  file: string | null;
+  line: number | null;
+  title: string;
+  detail: string;
+  source: 'agent' | 'human';
+}
+/** The small allow-list of tables a fixture file may fill to model stranded/recovery/engine states. */
 export interface RowSeeds {
   stageRuns: StageRunSeed[];
   processRuns: ProcessRunSeed[];
   gateRuns: GateRunSeed[];
   recoveryRounds: RecoveryRoundSeed[];
+  prs: PrSeed[];
+  mergeChecks: MergeCheckSeed[];
+  reviewFindings: ReviewFindingSeed[];
 }
 /** Where a seeded ticket's worktree row points; replaces the old fixed `/fixture/repo`. */
 export interface RepoBinding { repoPath: string; baseRef: string; worktreePath: string }
@@ -51,10 +82,22 @@ export interface TicketSeed {
   archived?: boolean;
   /** Give the ticket a worktree row (the checkout itself is not created). */
   worktree?: boolean;
+  /** The manifest repo name the worktree row carries (default: the repo path). The conflict brief matches merge checks to worktrees by this name. */
+  worktreeRepo?: string;
+  /** Make the default worktree branch conflict with `main` (a real git conflict, so the recomputed merge check stays `conflicted`). */
+  worktreeConflict?: boolean;
+  /** Record the ticket's placement. Autopilot parks a ticket with no placement ('placement unknown'). Only `host` runs in the container. */
+  placement?: 'host';
   rows?: Partial<RowSeeds>;
 }
 /** A gate in the scratch manifest: argv-based, no shell. Only these two names are allowed. */
 export interface TaskGate { name: 'test' | 'typecheck'; command: string; args: string[] }
+/** The optional `autopilot:` block of the scratch manifest; omitted keys take the manifest defaults. */
+export interface AutopilotSeed {
+  enabled: boolean;
+  ci?: { policy?: 'auto' | 'ask'; maxAttempts?: number; checks?: string[] };
+  conflicts?: { policy?: 'auto' | 'ask'; maxRounds?: number };
+}
 /** The external task repo the scratch karst.yml points at (eval runs). */
 export interface TaskRepo { name: string; repoPath: string; baseRef: string; gates: TaskGate[] }
 export interface FixtureSpec {
@@ -64,6 +107,8 @@ export interface FixtureSpec {
   tickets: TicketSeed[];
   /** Manifest `agentProvider`; defaults to claude. */
   provider?: string;
+  /** Written into the scratch manifest as `autopilot:` (JSON is YAML flow). */
+  autopilot?: AutopilotSeed;
   /** Scripted headless answers for the fake core (played only under `KARST_FAKE_CORE=1`). */
   fakeCore?: FakeCoreScript;
 }
@@ -109,8 +154,12 @@ export function fixtureSpec(name: FixtureName): FixtureSpec {
 
 const yamlStr = (v: string): string => JSON.stringify(v);
 
+function autopilotLines(autopilot?: AutopilotSeed): string[] {
+  return autopilot ? [`autopilot: ${JSON.stringify(autopilot)}`] : [];
+}
+
 /** Scratch manifest for an eval run: one repo at `repoPath`, only the declared gates (JSON is YAML flow). */
-export function taskManifestText(task: TaskRepo, provider = 'claude'): string {
+export function taskManifestText(task: TaskRepo, provider = 'claude', autopilot?: AutopilotSeed): string {
   const lines = [
     'host: 127.0.0.1',
     'portRange: [4000, 4100]',
@@ -128,13 +177,13 @@ export function taskManifestText(task: TaskRepo, provider = 'claude'): string {
       lines.push(`    - ${JSON.stringify({ name: g.name, kind: 'command', command: g.command, args: g.args })}`);
     }
   }
-  return [...lines, ''].join('\n');
+  return [...lines, ...autopilotLines(autopilot), ''].join('\n');
 }
 
 /** A command gate that always passes: the harness checks the UI and the fake core, not a real test run. */
 const NOOP_GATE = JSON.stringify({ name: 'noop', kind: 'command', command: 'node', args: ['-e', '0'] });
 
-export function manifestText(repoPath: string, provider = 'claude'): string {
+export function manifestText(repoPath: string, provider = 'claude', autopilot?: AutopilotSeed): string {
   return [
     'host: 127.0.0.1',
     'portRange: [4000, 4100]',
@@ -147,6 +196,7 @@ export function manifestText(repoPath: string, provider = 'claude'): string {
     '    signals: [app]',
     // The scratch repo has no package.json, so without a declared gate review and uat block at `nothing-to-run`.
     ...['review', 'uat'].flatMap((stage) => [`${stage}:`, '  gates:', `    - ${NOOP_GATE}`]),
+    ...autopilotLines(autopilot),
     '',
   ].join('\n');
 }

@@ -883,6 +883,9 @@
     "arch:UATHOST-00",
     "arch:UATHOST-02"
   ],
+  "src/uatHost/probe/storeEvidence.ts#readTickets": [
+    "arch:UATHOST-07"
+  ],
   "src/uatHost/probe/uiClient.ts": [
     "arch:UATHOST-06"
   ],

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { manifestText, taskManifestText, type TaskRepo } from './fixtures.js';
+import { manifestText, taskManifestText, type AutopilotSeed, type TaskRepo } from './fixtures.js';
 
 export interface Workspace { workspaceDir: string; repoDir: string; remoteDir: string; manifestPath: string }
 
@@ -14,7 +14,7 @@ const git = (args: string[], cwd?: string): void => {
   execFileSync('git', args, { cwd, env: GIT_ENV, stdio: 'pipe' });
 };
 
-export function buildWorkspace(root: string, provider?: string, taskRepo?: TaskRepo): Workspace {
+export function buildWorkspace(root: string, provider?: string, taskRepo?: TaskRepo, autopilot?: AutopilotSeed): Workspace {
   const remoteDir = join(root, 'remote.git');
   const workspaceDir = join(root, 'workspace');
   const repoDir = join(workspaceDir, 'repo');
@@ -28,16 +28,24 @@ export function buildWorkspace(root: string, provider?: string, taskRepo?: TaskR
   git(['remote', 'add', 'origin', remoteDir], repoDir);
   git(['push', '-u', 'origin', 'main'], repoDir);
   mkdirSync(join(workspaceDir, '.karst'), { recursive: true });
-  writeFileSync(manifestPath, taskRepo ? taskManifestText(taskRepo, provider) : manifestText(repoDir, provider));
+  writeFileSync(manifestPath, taskRepo ? taskManifestText(taskRepo, provider, autopilot) : manifestText(repoDir, provider, autopilot));
   return { workspaceDir, repoDir, remoteDir, manifestPath };
 }
 
-/** A real git worktree on `karst/<key>` with one commit past `main`, so a stage that reads the diff has one. */
-export function addTicketWorktree(repoDir: string, key: string): string {
+/** A real git worktree on `karst/<key>` with one commit past `main`, so a stage that reads the diff has one. With `conflict`, `main` also changes the same file, so a merge of the branch conflicts. */
+export function addTicketWorktree(repoDir: string, key: string, conflict = false): string {
   const path = join(repoDir, '.karst', 'worktrees', key);
   git(['worktree', 'add', '-b', `karst/${key}`, path, 'main'], repoDir);
   writeFileSync(join(path, `${key}.txt`), `change for ${key}\n`);
   git(['add', '.'], path);
   git(['commit', '-m', `change for ${key}`], path);
+  // `main` gets a different line in the same new file: the branch no longer merges clean.
+  if (conflict) {
+    writeFileSync(join(repoDir, `${key}.txt`), `competing change for ${key}\n`);
+    git(['add', `${key}.txt`], repoDir);
+    git(['commit', '-m', `competing change for ${key}`], repoDir);
+    // The merge probe measures against `origin/main`, so the competing commit must reach the remote.
+    git(['push', 'origin', 'main'], repoDir);
+  }
   return path;
 }
