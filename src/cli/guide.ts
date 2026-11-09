@@ -155,9 +155,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     still pending and yours), prints the same id, and re-announces it. Cite
     drafts to the user as \`#N\`.
  - \`queue [--json]\` — read-only. Lists the project's pending drafts (every
-    planning session) and its top-level tickets waiting at \`scope\`: id
+    planning session) and its top-level tickets waiting at \`scope\` in ONE computed order (a blocker first, then
+    priority, then age; a blocker takes the highest priority of the items that
+    wait on it): position, id
     (\`D<n>\`/\`T<n>\`), session (\`P<n>\`, drafts only), \`priority\` (a draft's reason as \`priorityReason\` in \`--json\`), title (90 chars), and
-    what each one waits on (\`dependsOn\` / open blockers). Use it to find the
+    what each one waits on (\`waitsOn\`), and a short \`why\` (\`↑ from D498\`, \`waits on T12\`, \`cycle\`). Use it to find the
     ids to put in a draft's \`dependsOn\`. A planning session reads it through
     \`KARST_DB_READONLY\`, scoped by \`KARST_PROJECT\`.
  - \`draft list\` — ONLY inside a planning session. Reads the session's proposal

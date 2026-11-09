@@ -16,6 +16,7 @@ import { pageHostBridge, type SidebarHostBridge } from './hostBridge.js';
 import { SearchBox } from './SearchBox.js';
 import { SidebarProvider } from './SidebarContext.js';
 import { PlanningPane } from './PlanningPane.js';
+import { QueuePane } from './QueuePane.js';
 import { TicketsPane } from './TicketsPane.js';
 import { Toolbar } from './Toolbar.js';
 
@@ -33,6 +34,7 @@ export function App({ bridge }: { readonly bridge?: SidebarHostBridge }) {
       <SearchBox />
       <div className="panes" id="panes">
         <PlanningPane />
+        <QueuePane />
         <TicketsPane />
       </div>
       <ContextMenu />

@@ -532,6 +532,9 @@
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
+  "src/model/queueOrder.ts": [
+    "arch:QUEUE-ORDER"
+  ],
   "src/model/reviewStall.ts#evaluateReviewStall": [
     "arch:REVIEW-STALL"
   ],
@@ -794,6 +797,9 @@
   ],
   "src/store/prs.ts#updatePrDetail": [
     "arch:GH-03"
+  ],
+  "src/store/queueItems.ts": [
+    "arch:QUEUE-ORDER"
   ],
   "src/store/schema.sql": [
     "arch:SCHEMA-CHECK"

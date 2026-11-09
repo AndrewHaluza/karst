@@ -247,6 +247,19 @@ level only, and the host validates both. The urgent and high chips share one tin
 is dim text. The
 approved layout is `docs/ui/prototypes/queue-pane.html` (section 2). The menu list
 opens inline, not as a flyout, because the menu window scrolls and would clip it.
+A third pane, **Queue** (`QueuePane.tsx` on `Pane.tsx`), sits between Planning and
+Tickets and shows the one computed order of `@arch:QUEUE-ORDER`. It is collapsed
+by default (pure view state, never posted) and has no actions. Open, it takes at
+most about 30% of the height and its body scrolls on its own. Each row is one line:
+position (tabular digits), the priority chip (none for normal), the id with a muted
+session suffix (`D452 · P17`, `T997`), the title with an ellipsis, and a muted
+reason (`↑ D498`, `waits T12`, `cycle`). A click opens a draft's Review or a
+ticket's dashboard. The row menu reuses the Priority submenu. The pane refreshes
+with the sidebar snapshot: it adds no timer. The region is `data-region="queue"`
+and declares `container-type: inline-size`, so at a narrow width (about 20em) the
+reason and the session suffix drop first. The states are empty, populated,
+long-content (40 items), loading, error and collapsed. The prototype is
+`docs/ui/prototypes/queue-pane.html` (sections 1 and 3).
 END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
 
 ## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021)
