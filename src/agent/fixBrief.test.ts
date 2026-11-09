@@ -3,7 +3,13 @@ import { REVIEW_SWEEP_RULE } from './fixBrief.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
-import { hasLinkedPrototype, PROTOTYPE_REGION_CHECKLIST_RULE, renderFixBrief } from './fixBrief.js';
+import {
+  FIX_GATE_LIST_HEADER,
+  FIX_GATE_LIST_MAX,
+  hasLinkedPrototype,
+  PROTOTYPE_REGION_CHECKLIST_RULE,
+  renderFixBrief,
+} from './fixBrief.js';
 
 function finding(over: Partial<Finding> = {}): Finding {
   return {
@@ -410,6 +416,68 @@ describe('renderFixBrief', () => {
       );
       const occurrences = (brief ?? '').split(PROTOTYPE_REGION_CHECKLIST_RULE).length - 1;
       expect(occurrences).toBe(1);
+    });
+  });
+
+  describe('gate list before the marker', () => {
+    const uatBatch = (over: Partial<GateRun>[]): GateRun[] =>
+      over.map((o, i) => gate({ id: i + 1, stageKey: 'uat', ...o }));
+
+    it('lists the passed gates of the latest batch for a review-failed brief', () => {
+      const runs = uatBatch([
+        { gateName: 'unit (web)', exitCode: 0, command: 'npm', args: ['run', '-s', 'test'] },
+        { gateName: 'docs (web)', exitCode: 0, command: 'npm', args: ['run', '-s', 'docs:check'] },
+      ]);
+      const brief = renderFixBrief('P-1', [{ stageKey: 'review', status: 'failed' }], [], runs);
+      expect(brief).toContain(FIX_GATE_LIST_HEADER);
+      expect(brief).toContain('- unit (web): npm run -s test');
+      expect(brief).toContain('- docs (web): npm run -s docs:check');
+    });
+
+    it('lists failing and passed gates of the latest batch only', () => {
+      const runs = [
+        gate({ id: 1, stageKey: 'uat', runAt: '2026-08-01T09:00:00.000Z', gateName: 'old', exitCode: 0 }),
+        gate({ id: 2, stageKey: 'uat', runAt: '2026-08-01T10:00:00.000Z', gateName: 'fails', exitCode: 1 }),
+        gate({ id: 3, stageKey: 'uat', runAt: '2026-08-01T10:00:00.000Z', gateName: 'passes', exitCode: 0 }),
+      ];
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain('- fails: npm run lint');
+      expect(brief).toContain('- passes: npm run lint');
+      expect(brief).not.toContain('- old:');
+    });
+
+    it('does not list a skipped gate', () => {
+      const runs = uatBatch([{ gateName: 'off', exitCode: null, skipped: true }, { gateName: 'on', exitCode: 0 }]);
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain('- on:');
+      expect(brief).not.toContain('- off:');
+    });
+
+    it('omits the section when no gate run exists', () => {
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }]);
+      expect(brief).not.toContain(FIX_GATE_LIST_HEADER);
+    });
+
+    it('omits the section when every gate of the batch is skipped', () => {
+      const runs = uatBatch([{ gateName: 'off', exitCode: null, skipped: true }]);
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }], [], runs);
+      expect(brief).not.toContain(FIX_GATE_LIST_HEADER);
+    });
+
+    it('omits the section from the PR-feedback brief', () => {
+      const runs = uatBatch([{ gateName: 'unit', exitCode: 0 }]);
+      const brief = renderFixBrief('P-1', [{ stageKey: 'ship', status: 'failed' }], [], runs, [feedback()]);
+      expect(brief).not.toContain(FIX_GATE_LIST_HEADER);
+    });
+
+    it('bounds the list and says how many lines were cut', () => {
+      const runs = uatBatch(
+        Array.from({ length: FIX_GATE_LIST_MAX + 3 }, (_, i) => ({ gateName: `g${i}`, exitCode: 0 })),
+      );
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain(`- g${FIX_GATE_LIST_MAX - 1}:`);
+      expect(brief).not.toContain(`- g${FIX_GATE_LIST_MAX}:`);
+      expect(brief).toContain('3 more gates not shown');
     });
   });
 });
