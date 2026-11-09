@@ -1,9 +1,16 @@
 import type { AutofixRowView } from '../../model/inside/autofix.js';
 import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import type { Store } from '../../store/db.js';
+import type { ProcessRun } from '../../store/processRuns.js';
 import { listServersByTicket } from '../../store/dashboard.js';
-import { summarizeRecordedTokenUsage, summarizeRecordedTokenUsageByRole } from '../../store/tokenUsage.js';
-import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
+import {
+  summarizeRecordedTokenUsage,
+  summarizeRecordedTokenUsageByRole,
+  summarizeRecordedTokenUsageForGraphRun,
+  summarizeRecordedTokenUsageForRuns,
+} from '../../store/tokenUsage.js';
+import { graphInsideProcess, graphRunIsLive, type GraphInsideInput } from '../../model/inside/graph.js';
+import { runsTokens, usageTokens } from '../../model/inside/runTokens.js';
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
@@ -62,7 +69,22 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
 
   // Computed once: this used to be called separately by the spread's guard
   // and its element, building the whole projection twice and discarding one.
-  const graphInsideProcessOnce = graphInsideProcess(graphInside);
+  // The graph run's spend is linked by planner and node run ids, so the host
+  // reads it by graph run and the model only states it (@arch:AC-14).
+  const graphInsideProcessOnce = graphInsideProcess(
+    graphInside?.graphRun
+      ? {
+          ...graphInside,
+          tokens: usageTokens(
+            summarizeRecordedTokenUsageForGraphRun(store, ticket.id, graphInside.graphRun.id),
+            graphRunIsLive(graphInside),
+          ),
+        }
+      : graphInside,
+  );
+  // Round-scoped reads: the model picks the runs a row shows, the ledger read is injected.
+  const tokensForRuns = (runs: readonly ProcessRun[]) =>
+    runsTokens(runs, (ids) => summarizeRecordedTokenUsageForRuns(store, ticket.id, ids));
 
   const {
     presentedStage,
@@ -113,6 +135,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     marks,
     assignmentFor,
     tokensFor,
+    tokensForRuns,
     attach,
     gateRuns,
     findings,

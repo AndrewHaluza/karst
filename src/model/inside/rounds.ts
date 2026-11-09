@@ -381,3 +381,20 @@ export function processRunForAttempt(
   }
   return best;
 }
+
+/**
+ * EVERY process run of one attempt: one attempt can run several targets, and
+ * each target is its own run, so a count for the attempt is their sum. The
+ * attempt is the one `processRunForAttempt` names (latest when `key` is null).
+ * A run with no stage run id belongs to no attempt but itself.
+ */
+export function processRunsForAttempt(
+  runs: readonly ProcessRun[],
+  processId: string,
+  key: AttemptKey | null,
+): ProcessRun[] {
+  const shown = processRunForAttempt(runs, processId, key);
+  if (shown === undefined) return [];
+  if (shown.stageRunId === null) return [shown];
+  return runs.filter((r) => r.processId === processId && r.stageRunId === shown.stageRunId);
+}

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { ProcessRun } from '../../store/processRuns.js';
 import type { ShipCommit, ShipEvidence, ShipRepoEvidence, ShipRepoStepEvidence, ShipRun, ShipStep } from '../../store/shipRuns.js';
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { Finding } from '../../store/reviewFindings.js';
@@ -1182,6 +1183,43 @@ describe('ship process rows: descriptions and identity (Task 869egdr2u)', () => 
     expect(prRow.execution).toMatchObject({ provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' });
     expect(prRow.tokens?.state).toBe('measured');
     expect(prRow.detail).toBe('1 created · 1 adopted');
+  });
+
+  it('the Pull request pill counts only the pr-description run the row shows (problem 5)', () => {
+    const descRun = (id: number): ProcessRun => ({
+      id,
+      ticketId: 1,
+      stageKey: 'ship',
+      processId: 'pr-description',
+      attempt: 0,
+      stageRunId: null,
+      agentName: null,
+      provider: 'claude',
+      model: null,
+      pid: null,
+      childPid: null,
+      childStartedAt: null,
+      status: 'passed',
+      resultKind: null,
+      artifactPath: null,
+      failureDetail: null,
+      promptTelemetry: null,
+      startedAt: NOW,
+      endedAt: NOW,
+    });
+    const seen: number[][] = [];
+    const views = shipProcesses(
+      shipInput({
+        processRuns: [descRun(5), descRun(9)],
+        tokensForRuns: (runs) => {
+          seen.push(runs.map((r) => r.id));
+          return { total: 0, estimatedCalls: 1, estimatedTotal: 3_700 };
+        },
+      }),
+    );
+    const prRow = views.find((v) => v.id === 'pr')!;
+    expect(seen).toEqual([[9]]);
+    expect(prRow.tokens).toMatchObject({ state: 'estimated', estimateOnly: true, total: '3.7k' });
   });
 
   it('mints the open-pr capability on the branch number from the current PR row', () => {

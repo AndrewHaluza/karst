@@ -945,6 +945,55 @@ describe("uatProcesses", () => {
     });
   });
 
+  describe("round-scoped pill (T1041)", () => {
+    // The fake ledger: run id -> measured tokens. Unlisted runs recorded nothing.
+    const ledger = (spend: Record<number, number>) => (runs: readonly ProcessRun[]) => {
+      const total = runs.reduce((n, r) => n + (spend[r.id] ?? 0), 0);
+      if (total > 0) return { total } as { total: number };
+      return runs.some((r) => r.status === "running") ? { total: 0, pending: true } : null;
+    };
+    const pillOf = (extra: Partial<QualityProcessesInput>) =>
+      uatProcesses(qualityInput(extra)).find((p) => p.id === "tester")!.tokens;
+
+    it("a running Tester with no count yet shows the counted-at-end pill (problem 1)", () => {
+      const running = processRun({ stageRunId: 31, status: "running", endedAt: null, resultKind: null });
+      const t = pillOf({
+        cell: cell("uat", "running", { startedAt: "2026-07-20T12:00:00.000Z" }),
+        processRuns: [running],
+        tokensForRuns: ledger({}),
+      });
+      expect(t).toMatchObject({ state: "pending", label: "Σ counted at end" });
+    });
+
+    it("counts only the shown attempt: a running round 2 does not show round 1's total (problem 5)", () => {
+      const r1 = processRun({ stageRunId: 41 });
+      const r2 = processRun({ stageRunId: 42, status: "running", endedAt: null, resultKind: null });
+      const t = pillOf({
+        cell: cell("uat", "running", { startedAt: "2026-07-20T12:10:00.000Z" }),
+        processRuns: [r1, r2],
+        tokensForRuns: ledger({ [r1.id]: 298_000 }),
+      });
+      expect(t).toMatchObject({ state: "pending" });
+    });
+
+    it("follows the round tab: the selected earlier round shows its own total", () => {
+      const r1 = processRun({ stageRunId: 51 });
+      const r2 = processRun({ stageRunId: 52 });
+      const spend = { [r1.id]: 1_000, [r2.id]: 20_000 };
+      const first = pillOf({ processRuns: [r1, r2], tokensForRuns: ledger(spend), selectedAttempt: attemptKey(51, "") });
+      const second = pillOf({ processRuns: [r1, r2], tokensForRuns: ledger(spend), selectedAttempt: attemptKey(52, "") });
+      expect(first).toMatchObject({ state: "measured", total: "1k" });
+      expect(second).toMatchObject({ state: "measured", total: "20k" });
+    });
+
+    it("counts every run of one attempt together (one attempt can run several targets)", () => {
+      const a = processRun({ stageRunId: 61 });
+      const b = processRun({ stageRunId: 61 });
+      const t = pillOf({ processRuns: [a, b], tokensForRuns: ledger({ [a.id]: 300, [b.id]: 400 }) });
+      expect(t).toMatchObject({ state: "measured", total: "700" });
+    });
+  });
+
   const ATTEMPT = "2026-07-20T12:00:00.000Z";
   const NEW_ROW = "2026-07-20T12:00:05.000Z";
   const OLD_ROW = "2026-07-20T11:00:00.000Z";
