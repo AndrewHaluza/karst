@@ -243,8 +243,8 @@ Its tooltip and accessible name read `<Level> · planner: "<reason>"` or
 `<Level> · set by you`. The row menu has a "Priority" entry that opens the four
 levels (a check on the current one) and Clear, for a pending draft and a ticket at
 `scope`; it posts `plan-proposal-priority` or `set-priority` with a numeric id and a
-level only, and the host validates both. The urgent chip uses the danger pair; high
-and low are tinted, because only danger and success own a filled foreground. The
+level only, and the host validates both. The urgent and high chips share one tinted, bordered shape (danger and warning color); low
+is dim text. The
 approved layout is `docs/ui/prototypes/queue-pane.html` (section 2). The menu list
 opens inline, not as a flyout, because the menu window scrolls and would clip it.
 END_DOC_BLOCK: [@ui:SIDEBAR-PANES]

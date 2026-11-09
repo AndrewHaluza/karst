@@ -389,7 +389,7 @@
   .ctxsub [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
   /* Priority chip: the level word is the text. Urgent is the filled danger pair; high and low are tinted, because only danger/success own a filled foreground pair (UI-R29). */
   .k-pri{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);line-height:var(--k-text-base);padding:0 var(--k-space-2);border-radius:var(--k-radius-sm);letter-spacing:.04em;white-space:nowrap;vertical-align:baseline}
-  .k-pri--urgent{background:var(--k-danger);color:var(--k-danger-fg)}
+  .k-pri--urgent{color:var(--k-danger);background:color-mix(in srgb,var(--k-danger) 16%,transparent);border:var(--k-border-w) solid var(--k-danger)}
   .k-pri--high{color:var(--k-warning);background:color-mix(in srgb,var(--k-warning) 16%,transparent);border:var(--k-border-w) solid var(--k-warning)}
   .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
   .ctxdivider{height:var(--k-border-w);margin:var(--k-space-2) 0;background:var(--k-border)}
