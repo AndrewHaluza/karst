@@ -27,6 +27,6 @@ export function reaskPrefix(coverageTitle: string): string {
   const title = quoted.length > MAX_SKIP_DETAIL ? `${quoted.slice(0, MAX_SKIP_DETAIL - 1)}…` : quoted;
   return (
     `Your previous UAT run on this ticket observed nothing. You reported: "${title}".\n` +
-    'Before you report SKIPPED again, try to exercise the change another way: use the probe, or run the changed code from source with `npx tsx` (a CLI verb or a short script that imports the changed module). Do not install packages and do not run a test runner. Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.'
+    'Before you report SKIPPED again, try to exercise the change another way: use the probe, or run the changed code from source with `npx tsx` (a CLI verb or a short script that imports the changed module). Do not run a test runner. Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.'
   );
 }

@@ -86,10 +86,11 @@ failure is yours to avoid, not a harness outage.
 
 The run needs at least one probe run: a run with no new `summary.json` under `.karst/uat-scratch/out/` counts as observed nothing.
 
-Every observation MUST cite probe JSON as evidence: the run's `--out`
-path, the step index, and the field, e.g.
-`out/blocked/step-003.json snapshot.tickets[0].stage`. An observation
-without such a citation is not reported. Findings from code reading
+Every observation MUST cite evidence. A probe observation cites probe
+JSON: the run's `--out` path, the step index, and the field, e.g.
+`out/blocked/step-003.json snapshot.tickets[0].stage`. A direct-run
+observation (see Direct run) cites the command and its output. An
+observation without one of these citations is not reported. Findings from code reading
 alone stay banned. `medium` and above (the blocking severities,
 `arch:BLOCKSEV`) require a citation of an observed failure; a guess
 must not be reported above `info`.
