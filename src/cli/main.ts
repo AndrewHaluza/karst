@@ -12,7 +12,7 @@ import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBrief
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
-import { assertFixHasNewCommit } from '../workflow/fixRoundGuard.js';
+import { assertFixHasNewCommitOrRequestRerun } from '../workflow/fixHostRerunRequest.js';
 import { assertUiParityFresh } from '../workflow/uiParityGuard.js';
 import { runParityVitest } from './uiParityRunner.js';
 import { defaultGitRunner } from '../integrations/git.js';
@@ -768,7 +768,7 @@ async function assertMarkerHasWork(
       defaultGitRunner,
       verbose ? (m: string) => process.stderr.write(`${m}\n`) : undefined,
     );
-    if (stage === 'fix') await assertFixHasNewCommit(store, found.id, defaultGitRunner);
+    if (stage === 'fix') await assertFixHasNewCommitOrRequestRerun(store, found.id, defaultGitRunner);
     // A parity probe that cannot run (timeout, spawn error) is not a verdict: the marker goes through.
     try {
       await assertUiParityFresh(store, found.id, defaultGitRunner, runParityVitest);

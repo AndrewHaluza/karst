@@ -432,6 +432,27 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'priority_override')).toHaveLength(1);
   });
 
+  it('migrates a pre-v112 database by adding recovery_rounds.host_rerun_requested_at, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE recovery_rounds (id INTEGER PRIMARY KEY)');
+    legacy.pragma('user_version = 111');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('recovery_rounds')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('host_rerun_requested_at');
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
+  });
+
   it('migrates a pre-v63 tickets table by adding the sub-task columns and index, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

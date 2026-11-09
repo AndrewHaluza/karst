@@ -39,3 +39,26 @@ export function parkRoundOutOfFixing(store: Store, roundId: number, reason: stri
     .run(reason, at, roundId);
   return Number(result.changes) === 1;
 }
+
+/**
+ * A refused host CLI fix marker asks the extension for the host re-run (v112
+ * `recovery_rounds.host_rerun_requested_at`). One request per round, and none once the
+ * re-run ran (`host_rerun_at`). Returns false when the request is not new.
+ */
+export function claimHostRerunRequest(store: Store, roundId: number, at: string): boolean {
+  const result = store.db
+    .prepare('UPDATE recovery_rounds SET host_rerun_requested_at = ? WHERE id = ? AND host_rerun_requested_at IS NULL AND host_rerun_at IS NULL')
+    .run(at, roundId);
+  return Number(result.changes) === 1;
+}
+
+/** Tickets of one project whose active round asked for the host re-run that has not started. */
+export function ticketsWithRequestedHostRerun(store: Store, projectId: number): number[] {
+  const rows = store.db
+    .prepare(
+      `SELECT DISTINCT r.ticket_id FROM recovery_rounds r JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ? AND r.status IN ('pending','fixing') AND r.host_rerun_requested_at IS NOT NULL AND r.host_rerun_at IS NULL`,
+    )
+    .all(projectId) as { ticket_id: number }[];
+  return rows.map((r) => r.ticket_id);
+}

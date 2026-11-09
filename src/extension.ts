@@ -53,7 +53,7 @@ import { activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
-import { hostRerunFor } from './extension/ops/fixRerunOps.js';
+import { hostRerunFor, makeRequestedRerunSweep } from './extension/ops/fixRerunOps.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
@@ -2003,6 +2003,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
   });
+  // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
+  const requestedRerunSweep = makeRequestedRerunSweep({ store: localStore, projectId: () => currentProject()?.id, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, hostRunner: runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate, debug: (m) => logger.debug(m) });
+  const requestedRerunTimer = setInterval(() => void requestedRerunSweep(), FIX_DELIVERY_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(requestedRerunTimer) });
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
