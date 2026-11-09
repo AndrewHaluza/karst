@@ -123,8 +123,18 @@ function count(v: unknown): number | null {
  *
  * Returns null when no message contributed.
  */
-export function parseClaudeTranscript(text: string): ClaudeTranscriptUsage | null {
+export function parseClaudeTranscript(
+  text: string,
+  opts: { dedupeMessages?: boolean } = {},
+): ClaudeTranscriptUsage | null {
   if (text.length === 0) return null;
+  // Claude writes ONE transcript line per content block of an API message, each
+  // repeating the message's usage. Interactive metering sums lines as they come
+  // (its cumulative-delta ledger is calibrated on that); the live headless
+  // reading must equal the call's own envelope, so it counts each `message.id`
+  // once (measured: 5 API calls, envelope output 434, line sum 596).
+  // The LAST line of a message wins, in case a later block carries a final count.
+  const byMessage = opts.dedupeMessages === true ? new Map<string, [number, number, number, number]>() : null;
 
   let input = 0;
   let output = 0;
@@ -164,11 +174,25 @@ export function parseClaudeTranscript(text: string): ClaudeTranscriptUsage | nul
     const uuid = record['uuid'];
     if (typeof uuid !== 'string' || uuid.length === 0) continue;
 
+    const messageId = message['id'];
+    if (byMessage !== null && typeof messageId === 'string' && messageId.length > 0) {
+      byMessage.set(messageId, [inputCount, outputCount, cacheReadCount ?? 0, cacheWriteCount ?? 0]);
+      lastUuid = uuid;
+      continue;
+    }
+
     input += inputCount;
     output += outputCount;
     cacheRead += cacheReadCount ?? 0;
     cacheWrite += cacheWriteCount ?? 0;
     lastUuid = uuid;
+  }
+
+  for (const [i, o, r, w] of byMessage?.values() ?? []) {
+    input += i;
+    output += o;
+    cacheRead += r;
+    cacheWrite += w;
   }
 
   if (lastUuid === null) return null;

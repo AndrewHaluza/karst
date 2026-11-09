@@ -15,6 +15,7 @@ import type { AdapterSurfaces } from './surfaces.js';
 import type { EntryBasename } from './workflowCommand.js';
 import type { SessionInstructions } from './instructions.js';
 import type { SandboxPolicy } from './sandbox.js';
+import type { LiveHeadlessSession } from './liveHeadlessUsage.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -53,6 +54,8 @@ export interface UsageTracking {
   /** The graph node run the call was made inside (Slice-3 T10). */
   approachNodeRunId?: number | null;
 }
+
+export type { LiveHeadlessSession } from './liveHeadlessUsage.js';
 
 export interface RunHeadlessOpts {
   prompt: string;
@@ -136,6 +139,15 @@ export interface RunHeadlessOpts {
    * the run settles. Absent → the spawner never calls it.
    */
   onSpawned?: (pid: number) => (() => void) | void;
+  /**
+   * Live-usage hook (@arch:AC-14). A core whose headless call writes usage to a
+   * file while it runs reports where, once per spawn (a retry reports a new
+   * one). The returned release drops that reading: the adapter calls it when it
+   * abandons an attempt, and `instrumentAdapter` calls it after it records the
+   * call's single ledger row. Absent, or a core that never calls it → the row
+   * keeps its "counted at end" placeholder.
+   */
+  onLiveSession?: (session: LiveHeadlessSession) => (() => void) | void;
   /**
    * Live-output hook, forwarded verbatim to the headless spawn's
    * `HeadlessSpawnOptions.onOutput`: called with each decoded stdout/stderr

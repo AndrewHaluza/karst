@@ -189,6 +189,25 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     );
   });
 
+  it('offers a live usage session only where the core can name its transcript (@arch:AC-14)', async () => {
+    const adapter = resolveAdapter(provider);
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    const sessions: Array<{ sessionId: string; transcriptPath: string }> = [];
+    await adapter.runHeadless({ ...baseOpts(), onLiveSession: (s) => void sessions.push(s) });
+    if (provider === 'claude') {
+      // A new run names its own session, keeps the single-envelope output, and reports the same id.
+      const args = calls[0]!.args;
+      expect(args).toContain('--session-id');
+      expect(args[args.indexOf('--output-format') + 1]).toBe('json');
+      expect(sessions).toHaveLength(1);
+      expect(args[args.indexOf('--session-id') + 1]).toBe(sessions[0]!.sessionId);
+      expect(sessions[0]!.transcriptPath.endsWith(`${sessions[0]!.sessionId}.jsonl`)).toBe(true);
+    } else {
+      expect(calls[0]!.args, `${provider} has no live reader`).not.toContain('--session-id');
+      expect(sessions, `${provider} has no live reader`).toHaveLength(0);
+    }
+  });
+
   it('carries the resume id into a headless run', async () => {
     const adapter = resolveAdapter(provider);
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });

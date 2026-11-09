@@ -10,7 +10,7 @@ import {
   summarizeRecordedTokenUsageForRuns,
 } from '../../store/tokenUsage.js';
 import { graphInsideProcess, graphRunIsLive, type GraphInsideInput } from '../../model/inside/graph.js';
-import { runsTokens, usageTokens } from '../../model/inside/runTokens.js';
+import { runsTokens, usageTokens, type LiveRunUsageReader } from '../../model/inside/runTokens.js';
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
@@ -24,6 +24,8 @@ import type { DashboardState } from './stateTypes.js';
 import type { getTicket } from '../../store/tickets.js';
 
 export interface InsideSectionInput {
+  /** Live reading of running headless calls, held in memory by the host (@arch:AC-14). */
+  liveRunUsage?: LiveRunUsageReader;
   ticket: ReturnType<typeof getTicket>;
   stepper: StepperCell[];
   currentStage: StepperCell | null;
@@ -60,7 +62,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking, autofix,
+    findingsBlockingSeverity, displayBlocking, autofix, liveRunUsage,
   } = input;
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -84,7 +86,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   );
   // Round-scoped reads: the model picks the runs a row shows, the ledger read is injected.
   const tokensForRuns = (runs: readonly ProcessRun[]) =>
-    runsTokens(runs, (ids) => summarizeRecordedTokenUsageForRuns(store, ticket.id, ids));
+    runsTokens(runs, (ids) => summarizeRecordedTokenUsageForRuns(store, ticket.id, ids), liveRunUsage);
 
   const {
     presentedStage,

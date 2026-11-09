@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runsTokens, type RunUsage } from './runTokens.js';
 import { tokenView } from './agent.js';
 import type { ProcessRun } from '../../store/processRuns.js';
@@ -87,5 +87,33 @@ describe('tokenView for rounds', () => {
   it('the session reading is unchanged for a legacy input', () => {
     expect(tokenView({ total: 1200, estimatedCalls: 3 })).toMatchObject({ state: 'estimated', total: '1.2k' });
     expect((tokenView({ total: 1200, estimatedCalls: 3 }) as { estimateOnly?: boolean }).estimateOnly).toBeUndefined();
+  });
+});
+
+describe('runsTokens live reading (@arch:AC-14)', () => {
+  const none: RunUsage = { total: 0, cacheRead: 0, estimatedCalls: 0, estimatedTotal: 0 };
+  const live = (total: number, cacheRead: number) => () => ({ total, cacheRead });
+
+  it('a running row with no ledger row shows the live reading: fresh tokens and cache reads beside them', () => {
+    expect(runsTokens([run(1, 'running')], () => none, live(9102, 9000))).toEqual({
+      total: 9102,
+      cacheRead: 9000,
+      estimatedCalls: 0,
+      estimatedTotal: 0,
+    });
+  });
+  it('no reading keeps the placeholder', () => {
+    expect(runsTokens([run(1, 'running')], () => none, () => null)).toEqual({ total: 0, pending: true });
+    expect(runsTokens([run(1, 'running')], () => none)).toEqual({ total: 0, pending: true });
+  });
+  it('adds to the ledger rows of another call of the same round', () => {
+    const recorded: RunUsage = { total: 1000, cacheRead: 400, estimatedCalls: 0, estimatedTotal: 0 };
+    expect(runsTokens([run(1, 'running')], () => recorded, live(500, 100))).toMatchObject({ total: 1500, cacheRead: 500 });
+  });
+  it('an ended run reads only the ledger: the row replaces the reading', () => {
+    const recorded: RunUsage = { total: 1000, cacheRead: 400, estimatedCalls: 0, estimatedTotal: 0 };
+    const reader = vi.fn(live(999, 0));
+    expect(runsTokens([run(1, 'passed')], () => recorded, reader)).toMatchObject({ total: 1000, cacheRead: 400 });
+    expect(reader).not.toHaveBeenCalled();
   });
 });

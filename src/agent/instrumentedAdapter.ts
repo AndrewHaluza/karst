@@ -9,6 +9,7 @@ import type {
   UsageTracking,
 } from './adapter.js';
 import type { TokenUsageEntry } from '../store/tokenUsage.js';
+import type { LiveHeadlessSession } from './liveHeadlessUsage.js';
 import { UNKNOWN_CALL_SITE } from './aiCallSites.js';
 import { estimateTokenUsage, usageFromError, type TokenUsage } from './tokenUsage.js';
 
@@ -71,6 +72,13 @@ export interface InstrumentOptions {
    * spawned it. The host binds it to `ResourceMonitor.registerPid`.
    */
   onSpawned?: (pid: number, tracking?: UsageTracking) => (() => void) | void;
+  /**
+   * Live-usage registry hook (@arch:AC-14), bound with the call's own `tracking`
+   * like `onSpawned`. The returned release runs AFTER the call's single ledger
+   * row is written, so the ledger row replaces the live reading with no gap and
+   * no overlap. The host binds it to `LiveHeadlessUsage.register`.
+   */
+  onLiveSession?: (session: LiveHeadlessSession, tracking?: UsageTracking) => (() => void) | void;
   /**
    * Host env for every headless child (e.g. the karst CLI refs from
    * `cliEnv.ts`), resolved per call from its `tracking` and merged UNDER the
@@ -175,6 +183,17 @@ export function instrumentAdapter(
       const hostEnv = options.env?.(opts.tracking);
       const env = hostEnv ? { ...hostEnv, ...opts.env } : opts.env;
       let result: HeadlessResult;
+      // Releases of the live readings this call started; run once, after the ledger write.
+      const liveReleases: Array<() => void> = [];
+      const releaseLive = (): void => {
+        for (const release of liveReleases.splice(0)) {
+          try {
+            release();
+          } catch (error) {
+            options.debug?.(`[agent] live usage release failed: ${String(error)}`);
+          }
+        }
+      };
       try {
         result = await adapter.runHeadless({
           ...opts,
@@ -182,6 +201,16 @@ export function instrumentAdapter(
           debug: options.debug,
           ...(options.onSpawned
             ? { onSpawned: (pid: number) => options.onSpawned!(pid, opts.tracking) }
+            : {}),
+          ...(options.onLiveSession
+            ? {
+                onLiveSession: (session: LiveHeadlessSession) => {
+                  const release = options.onLiveSession!(session, opts.tracking);
+                  if (!release) return undefined;
+                  liveReleases.push(release);
+                  return release;
+                },
+              }
             : {}),
         });
       } catch (error) {
@@ -191,13 +220,21 @@ export function instrumentAdapter(
         // A failure after the provider counted the input is still spend. When
         // it reported nothing, the prompt was sent regardless — estimate the
         // input and claim no output, since none came back.
-        record(opts, resolveUsage(usageFromError(error), opts.prompt, '', opts.model), 'error');
+        try {
+          record(opts, resolveUsage(usageFromError(error), opts.prompt, '', opts.model), 'error');
+        } finally {
+          releaseLive();
+        }
         throw error;
       }
       options.debug?.(
         `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'}): call returned — recording usage as ok`,
       );
-      record(opts, resolveUsage(result.usage, opts.prompt, result.raw, opts.model), 'ok');
+      try {
+        record(opts, resolveUsage(result.usage, opts.prompt, result.raw, opts.model), 'ok');
+      } finally {
+        releaseLive();
+      }
       return result;
     },
   };
