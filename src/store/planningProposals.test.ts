@@ -581,14 +581,25 @@ describe('planning proposals', () => {
       expect(effectiveProposalPriority(getProposal(store, id)!)).toBeNull();
     });
 
-    it('accept writes the effective priority to a ticket without one and puts the reason in the brief', () => {
+    it('accept writes a user override to tickets.priority_override, not tickets.priority, and names it in the brief', () => {
       const id = insertProposal(store, sessionId, withPrio);
       setProposalPriorityOverride(store, id, 'urgent');
       const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
       markProposalAccepted(store, id, t.id);
       const after = getTicket(store, t.id);
-      expect(after.priority).toBe('urgent');
+      expect(after.priorityOverride).toBe('urgent');
+      expect(after.priority).toBeNull();
       expect(after.brief).toContain('Priority: urgent (set by you)');
+    });
+
+    it('accept writes a user override even when the provider already gave a priority', () => {
+      const id = insertProposal(store, sessionId, payload);
+      setProposalPriorityOverride(store, id, 'low');
+      const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+      updateTicketFields(store, t.id, { priority: 'high' });
+      markProposalAccepted(store, id, t.id);
+      expect(getTicket(store, t.id)).toMatchObject({ priority: 'high', priorityOverride: 'low' });
+      expect(getTicket(store, t.id).brief).toContain('Priority: low (set by you)');
     });
 
     it('accept without an override names the planner reason in the brief', () => {
@@ -596,16 +607,16 @@ describe('planning proposals', () => {
       const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
       markProposalAccepted(store, id, t.id);
       expect(getTicket(store, t.id).priority).toBe('high');
+      expect(getTicket(store, t.id).priorityOverride).toBeNull();
       expect(getTicket(store, t.id).brief).toContain('Priority: high (planner: blocks login)');
     });
 
-    it('accept keeps a provider priority and names a user override as the reason source', () => {
-      const id = insertProposal(store, sessionId, payload);
-      setProposalPriorityOverride(store, id, 'low');
+    it('accept of a planner-only priority keeps a provider priority and writes no override', () => {
+      const id = insertProposal(store, sessionId, withPrio);
       const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
-      updateTicketFields(store, t.id, { priority: 'high' });
+      updateTicketFields(store, t.id, { priority: 'low' });
       markProposalAccepted(store, id, t.id);
-      expect(getTicket(store, t.id).priority).toBe('high');
+      expect(getTicket(store, t.id)).toMatchObject({ priority: 'low', priorityOverride: null });
       expect(getTicket(store, t.id).brief).not.toContain('Priority:');
     });
 

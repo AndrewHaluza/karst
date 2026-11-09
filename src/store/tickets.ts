@@ -15,6 +15,7 @@ import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
 import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
 import { formatId } from '../model/entityId.js';
+import { asPriorityLevel, PRIORITY_LEVELS, type PriorityLevel } from '../model/priority.js';
 
 export interface Ticket {
   id: number;
@@ -120,6 +121,8 @@ export interface Ticket {
    * provider did not expose one (a manual ticket, or an unfetched one).
    */
   priority: string | null;
+  /** The priority the user set in karst (v113); a provider fetch never writes it; `null` = none. */
+  priorityOverride: string | null;
   /** Task execution pause timestamp; `null` = active, non-null = execution paused. */
   pausedAt: string | null;
   /** State of servers-stop-on-done handling (v87); null = not evaluated / pre-v87 ticket. */
@@ -172,6 +175,7 @@ interface TicketRow {
   autostart_pending: number;
   autostart_claimed_at?: string | null;
   priority: string | null;
+  priority_override?: string | null;
   paused_at: string | null;
   servers_on_done?: string | null;
 }
@@ -253,6 +257,7 @@ function rowToTicket(r: TicketRow): Ticket {
     autostartStarting: r.autostart_pending === 2,
     autostartClaimedAt: r.autostart_claimed_at ?? null,
     priority: r.priority,
+    priorityOverride: r.priority_override ?? null,
     pausedAt: r.paused_at ?? null,
     serversOnDone: isServersOnDoneState(r.servers_on_done) ? r.servers_on_done : null,
   };
@@ -627,6 +632,11 @@ export interface TicketFieldsPatch {
    * to NULL. Populated by the ticket form's fetch, never authored by the user.
    */
   priority?: string;
+  /**
+   * The user's priority (v113 `priority_override`); `null` clears it. Host-owned: the
+   * fetch never passes it. A value outside the four levels throws.
+   */
+  priorityOverride?: PriorityLevel | null;
 }
 
 /**
@@ -693,6 +703,12 @@ export function updateTicketFields(
   }
   if (patch.priority !== undefined) {
     columns.priority = patch.priority === '' ? null : patch.priority;
+  }
+  if (patch.priorityOverride !== undefined) {
+    if (patch.priorityOverride !== null && asPriorityLevel(patch.priorityOverride) === undefined) {
+      throw new Error(`priorityOverride must be one of ${PRIORITY_LEVELS.join(', ')}`);
+    }
+    columns.priority_override = patch.priorityOverride;
   }
 
   const entries = Object.entries(columns);

@@ -43,7 +43,11 @@ function QueueRow({ row }: { readonly row: QueueRowView }) {
         onClick={(e) => fire(spec, e.currentTarget, e)}
       >
         <span className="q-pos">{row.position}</span>
-        <PriorityChip level={row.level} source="ticket" />
+        <PriorityChip
+          level={row.level}
+          source={row.level === row.ownLevel ? row.prioritySource : null}
+          provider={row.providerLabel === null ? undefined : { label: row.providerLabel, level: row.providerPriority }}
+        />
         <span className="q-id">
           {row.idLabel}
           {row.sessionLabel ? <span className="q-sx"> · {row.sessionLabel}</span> : null}

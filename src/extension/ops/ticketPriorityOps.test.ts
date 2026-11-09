@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
-import { createTicket, getTicket, setStageCurrent, archiveTicket } from '../../store/tickets.js';
+import { createTicket, getTicket, setStageCurrent, archiveTicket, updateTicketFields } from '../../store/tickets.js';
 import { setTicketPriorityOp, type TicketPriorityDeps } from './ticketPriorityOps.js';
 
 describe('setTicketPriorityOp', () => {
@@ -33,11 +33,23 @@ describe('setTicketPriorityOp', () => {
   it('sets then clears the priority of a top-level ticket at scope', async () => {
     const t = scoped();
     await setTicketPriorityOp(deps(), t.id, 'high');
-    expect(getTicket(store, t.id).priority).toBe('high');
+    expect(getTicket(store, t.id).priorityOverride).toBe('high');
     await setTicketPriorityOp(deps(), t.id, null);
-    expect(getTicket(store, t.id).priority).toBeNull();
+    expect(getTicket(store, t.id).priorityOverride).toBeNull();
     expect(changes).toBe(2);
     expect(errors).toEqual([]);
+  });
+
+  it('writes only priority_override: the provider priority survives a set and a Clear, and a fetch keeps the override', async () => {
+    const t = scoped();
+    updateTicketFields(store, t.id, { priority: 'low' });
+    await setTicketPriorityOp(deps(), t.id, 'high');
+    expect(getTicket(store, t.id)).toMatchObject({ priority: 'low', priorityOverride: 'high' });
+    // the ticket-form fetch writes only `priority`
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    expect(getTicket(store, t.id)).toMatchObject({ priority: 'urgent', priorityOverride: 'high' });
+    await setTicketPriorityOp(deps(), t.id, null);
+    expect(getTicket(store, t.id)).toMatchObject({ priority: 'urgent', priorityOverride: null });
   });
 
   it('refuses an unknown ticket, a foreign project, a started, an archived and a sub-task ticket', async () => {
@@ -57,7 +69,7 @@ describe('setTicketPriorityOp', () => {
     expect(errors[2]).toContain('has left scope');
     expect(errors[3]).toContain('archived');
     expect(errors[4]).toContain('sub-task');
-    expect([t, started, archived, child].map((x) => getTicket(store, x.id).priority)).toEqual([null, null, null, null]);
+    expect([t, started, archived, child].map((x) => getTicket(store, x.id).priorityOverride)).toEqual([null, null, null, null]);
     expect(changes).toBe(0);
   });
 

@@ -60,6 +60,23 @@ describe('karst queue — output', () => {
     expect(rows[1]).toMatchObject({ position: 2, priorityReason: 'data loss', waitsOn: [`D${blocker}`], why: `waits on D${blocker}` });
   });
 
+  it('--json names who set each priority and orders a ticket by its effective value', () => {
+    const mk = (key: string, extra: string): number => {
+      const t = createTicket(store, { key, title: key, projectId });
+      store.db.prepare(`UPDATE tickets SET stage_current = 'scope'${extra} WHERE id = ?`).run(t.id);
+      return t.id;
+    };
+    const provider = mk('K1', ", priority = 'normal'");
+    const you = mk('K2', ", priority = 'low', priority_override = 'urgent'");
+    const draft = insertProposal(store, s1, { ...payload, priority: 'high' });
+    const json = JSON.parse(runQueueCommand(store, { json: true }, { projectId })) as { id: string; priority: string; prioritySource: string | null }[];
+    expect(json.map((r) => [r.id, r.priority, r.prioritySource])).toEqual([
+      [`T${you}`, 'urgent', 'you'],
+      [`D${draft}`, 'high', 'planner'],
+      [`T${provider}`, 'normal', 'provider'],
+    ]);
+  });
+
   it('cuts a long title to 90 characters', () => {
     insertProposal(store, s1, { ...payload, title: 'x'.repeat(200) });
     const row = collectQueue(store, { projectId })[0]!;

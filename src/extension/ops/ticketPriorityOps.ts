@@ -35,8 +35,9 @@ export function priorityRefusal(
 
 /**
  * Set (or clear with `null`) the priority of a top-level ticket at `scope`.
- * A provider fetch still overwrites the value (the provider stays the source
- * of truth); nothing is written back to the provider.
+ * The level goes to the host-owned `priority_override`, so a provider fetch never
+ * overwrites it; Clear removes the override and the provider value shows again.
+ * Nothing is written back to the provider.
  */
 export async function setTicketPriorityOp(
   deps: TicketPriorityDeps,
@@ -49,6 +50,6 @@ export async function setTicketPriorityOp(
     await deps.notify.error(`Ticket ${label} ${refusal}; its priority was not changed.`);
     return;
   }
-  updateTicketFields(deps.store, ticketId, { priority: level ?? '' });
+  updateTicketFields(deps.store, ticketId, { priorityOverride: level });
   deps.onChange();
 }
