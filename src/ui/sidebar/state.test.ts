@@ -843,3 +843,30 @@ describe('buildSidebarState — planning sessions', () => {
     expect(chip.displayTextParts.id).toBe(`D${draft}`);
   });
 });
+
+describe('buildSidebarState queue', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+  const draft = { title: 'Draft', description: 'd', summary: 's', repos: ['api'] };
+
+  it('is empty without a project', () => {
+    expect(buildSidebarState(store, { facets: ['all'], filter: '' }).queue).toEqual({ rows: [], drafts: 0, sessions: 0, tickets: 0 });
+  });
+
+  it('carries the computed order with the reason of each place', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const blocker = insertProposal(store, session, { ...draft, title: 'Blocker' });
+    const urgent = insertProposal(store, session, { ...draft, title: 'Urgent', priority: 'urgent', dependsOn: [blocker] });
+    const cycleA = insertProposal(store, session, { ...draft, title: 'Plain' });
+    const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(queue.rows.map((r) => [r.position, r.idLabel, r.sessionLabel, r.level, r.why, r.whyKind])).toEqual([
+      [1, `D${blocker}`, `P${session}`, 'urgent', `↑ D${urgent}`, 'raised'],
+      [2, `D${urgent}`, `P${session}`, 'urgent', `waits D${blocker}`, 'waits'],
+      [3, `D${cycleA}`, `P${session}`, 'normal', '', 'none'],
+    ]);
+    expect(queue).toMatchObject({ drafts: 3, sessions: 1, tickets: 0 });
+    expect(queue.rows[1]).toMatchObject({ kind: 'draft', id: urgent, ownLevel: 'urgent' });
+  });
+});

@@ -477,6 +477,12 @@ const serverLogsVariants = (): Variant[] => {
   ];
 };
 
+/** The Queue pane is collapsed by default; the shot needs it open (view state, never posted). */
+const openQueue = (corpus: () => ViewCorpus): (() => ViewCorpus) => () => ({
+  ...corpus(),
+  viewState: { view: { collapsed: { queue: false } } },
+});
+
 const sidebarVariants = (): Variant[] => {
   const s = fixtureCorpus.bind(null, 'sidebar', sidebarRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   return [
@@ -487,6 +493,9 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'long-content', s('multi-facet')),
     variant('sidebar', 'planning-deps', s('planning-deps')),
     variant('sidebar', 'priority', s('priority')),
+    variant('sidebar', 'queue-empty', openQueue(s('empty'))),
+    variant('sidebar', 'queue-populated', openQueue(s('queue'))),
+    variant('sidebar', 'queue-long-content', openQueue(s('queue-long'))),
     variant('sidebar', 'subtasks', s('subtasks')),
     variant('sidebar', 'filtered', s('filtered')),
     variant('sidebar', 'cloud-sessions', s('cloud-sessions')),

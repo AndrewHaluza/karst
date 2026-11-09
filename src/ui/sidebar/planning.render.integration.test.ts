@@ -17,7 +17,7 @@ describe('sidebar planning tree', () => {
   it('renders a Planning tree above the ticket sections', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
-    expect(h.queryAll('.pane-title').map((n) => n.textContent)).toEqual(['Planning', 'Tickets']);
+    expect(h.queryAll('.pane-title').map((n) => n.textContent)).toEqual(['Planning', 'Queue', 'Tickets']);
     expect(h.queryAll('.sec-name').map((n) => n.textContent)).toContain('Current');
     expect(h.query('[data-pane="planning"] [role="tree"]')).not.toBeNull();
     const tree = h.query('[role="tree"]')!;

@@ -1,3 +1,5 @@
+import { EMPTY_QUEUE } from './state.js';
+import type { QueueRowView } from './state.js';
 import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow, PlanningProposalRow, DepStatus } from './state.js';
 import type { SidebarWorktree } from './state.js';
 import type { TicketPeek } from './peek.js';
@@ -25,11 +27,13 @@ export type SidebarScenario =
   | 'subtasks'
   | 'planning-deps'
   | 'priority'
+  | 'queue'
+  | 'queue-long'
   | 'hostile'
   | 'cloud-sessions';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'priority', 'hostile', 'cloud-sessions',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions',
 ];
 
 export interface SidebarRenderFixture {
@@ -103,6 +107,7 @@ function emptyState(): SidebarState {
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -176,6 +181,7 @@ function allSectionsState(): SidebarState {
     },
     done: [],
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [fixtureDraft({ id: 501, title: 'Add rate limit', status: 'pending', ticketId: null, dependsOn: [] }), fixtureDraft({ id: 503, title: 'Split auth module', status: 'accepted', ticketId: 3, dependsOn: [501] })] }), fixturePlanningRow(89)],
     unlinkedCloudSessions: [],
   };
@@ -193,6 +199,7 @@ function doneFacetState(): SidebarState {
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: doneRows,
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -210,6 +217,7 @@ function archivedFacetState(): SidebarState {
       fixtureRow(1, { label: 'DELETED-2', glyph: 'gray' }),
       fixtureRow(2, { label: 'DELETED-3', glyph: 'gray' }),
     ],
+    queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(77, { title: 'Old plan', status: 'archived' })],
     unlinkedCloudSessions: [],
   };
@@ -228,6 +236,7 @@ function multiFacetState(): SidebarState {
       fixtureRow(2, { glyph: 'red' }),
       fixtureRow(3, { glyph: 'red' }),
     ],
+    queue: EMPTY_QUEUE,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -246,6 +255,7 @@ function filteredState(): SidebarState {
     },
     done: [],
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -296,6 +306,7 @@ function subtasksState(): SidebarState {
     },
     done: [],
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -316,6 +327,7 @@ function hostileState(): SidebarState {
     },
     done: [],
     rows: [],
+    queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [fixtureDraft({ id: 502, title: HOSTILE_LABEL, status: 'pending', ticketId: null, dependsOn: [] })], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
     unlinkedCloudSessions: [],
   };
@@ -345,6 +357,7 @@ function planningDepsState(): SidebarState {
   return {
     ...emptyState(),
     sections: { current: [fixtureRow(0, { glyph: 'blue' })], awaitingReview: [], recentlyDone: [], olderDone: [] },
+    queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(17, {
       title: 'Sidebar drafts',
       proposals: [
@@ -367,6 +380,7 @@ function priorityState(): SidebarState {
     ...emptyState(),
     counts: fixtureCounts({ all: 4 }),
     sections: { current: [scoped(0, 'urgent'), scoped(1, 'high'), scoped(2, null), scoped(3, 'low')], awaitingReview: [], recentlyDone: [], olderDone: [] },
+    queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(17, {
       title: 'Prioritized drafts',
       proposals: [
@@ -417,6 +431,39 @@ function cloudSessionsState(): SidebarState {
   };
 }
 
+export function fixtureQueueRow(position: number, overrides: Partial<QueueRowView> = {}): QueueRowView {
+  const id = 450 + position;
+  return {
+    position, kind: 'draft', id, idLabel: `D${id}`, sessionLabel: 'P17', title: `Queue item ${position}`,
+    level: 'normal', inheritedFrom: null, waitsOn: [], cycle: false, why: '', whyKind: 'none', ownLevel: null,
+    ...overrides,
+  };
+}
+
+/** Raised blocker, urgent and high drafts, a waiting draft, a scope ticket and a cycle: every reason kind. */
+function queueRows(): QueueRowView[] {
+  return [
+    fixtureQueueRow(1, { id: 497, idLabel: 'D497', title: 'Add the shared retry helper', level: 'urgent', inheritedFrom: 'D498', why: '↑ D498', whyKind: 'raised' }),
+    fixtureQueueRow(2, { id: 498, idLabel: 'D498', title: 'Fix the data loss on a failed accept', level: 'urgent', ownLevel: 'urgent', waitsOn: ['D497'], why: 'waits D497', whyKind: 'waits' }),
+    fixtureQueueRow(3, { id: 452, idLabel: 'D452', title: 'Split the auth module', level: 'high', ownLevel: 'high', sessionLabel: 'P18' }),
+    fixtureQueueRow(4, { kind: 'ticket', id: 997, idLabel: 'T997', sessionLabel: null, title: 'Cut the cold start of the sidebar', waitsOn: ['T12'], why: 'waits T12', whyKind: 'waits' }),
+    fixtureQueueRow(5, { id: 460, idLabel: 'D460', title: 'Rename the stage runner option', level: 'low', ownLevel: 'low' }),
+    fixtureQueueRow(6, { id: 461, idLabel: 'D461', title: 'Move the gate log to its own table', why: 'cycle', whyKind: 'cycle', cycle: true }),
+  ];
+}
+
+function queueState(): SidebarState {
+  const rows = queueRows();
+  return { ...allSectionsState(), queue: { rows, drafts: 5, sessions: 2, tickets: 1 } };
+}
+
+function queueLongState(): SidebarState {
+  const rows = Array.from({ length: 40 }, (_, i) =>
+    fixtureQueueRow(i + 1, { title: i % 7 === 0 ? `A very long queue item title ${i + 1} that must end in an ellipsis and never wrap` : `Queue item ${i + 1}`, ...(i % 5 === 0 ? { level: 'high' as const, inheritedFrom: 'D400', why: '↑ D400', whyKind: 'raised' as const } : {}) }),
+  );
+  return { ...allSectionsState(), queue: { rows, drafts: 40, sessions: 4, tickets: 0 } };
+}
+
 const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   empty: emptyState,
   'all-sections': allSectionsState,
@@ -427,6 +474,8 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   subtasks: subtasksState,
   'planning-deps': planningDepsState,
   priority: priorityState,
+  queue: queueState,
+  'queue-long': queueLongState,
   hostile: hostileState,
   'cloud-sessions': cloudSessionsState,
 };

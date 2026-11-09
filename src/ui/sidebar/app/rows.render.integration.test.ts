@@ -484,7 +484,7 @@ describe('search box', () => {
 describe('host feed', () => {
   it('remembers the last snapshot with setState so a re-resolved view repaints at once', async () => {
     const h = await mount(base);
-    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, tickets: false }, showArchivedPlans: false } });
+    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false }, showArchivedPlans: false } });
   });
 
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {
