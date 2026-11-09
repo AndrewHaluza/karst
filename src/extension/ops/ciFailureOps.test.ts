@@ -72,12 +72,12 @@ describe('sendCiFailureToAgent', () => {
   });
   describe('external check with open bot alerts', () => {
     const fb = (over: Record<string, unknown>) => {
-      const r = { author: 'github-advanced-security', type: 'Bot', resolved: 0, outdated: 0, path: 'src/a.html', line: 951, body: '## CodeQL / Client-side cross-site scripting\n\nUnsafe DOM write.', kind: 'thread', absent: null, ...over };
+      const r = { prUrl: 'https://github.com/o/r/pull/7', author: 'github-advanced-security', type: 'Bot', resolved: 0, outdated: 0, path: 'src/a.html', line: 951, body: '## CodeQL / Client-side cross-site scripting\n\nUnsafe DOM write.', kind: 'thread', absent: null, ...over };
       store.db.prepare(
         `INSERT INTO pr_feedback (ticket_id, repo, pr_url, kind, upstream_key, state, is_resolved, is_outdated, path, line,
            author_login, author_type, author_association, body, first_seen_at, last_seen_at, absent_at)
-         VALUES (?, 'r', 'https://github.com/o/r/pull/7', ?, ?, NULL, ?, ?, ?, ?, ?, ?, '', ?, 't', 't', ?)`,
-      ).run(id, r.kind, `k${Math.random()}`, r.resolved, r.outdated, r.path, r.line, r.author, r.type, r.body, r.absent);
+         VALUES (?, 'r', ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, '', ?, 't', 't', ?)`,
+      ).run(id, r.prUrl, r.kind, `k${Math.random()}`, r.resolved, r.outdated, r.path, r.line, r.author, r.type, r.body, r.absent);
     };
     const ext = () => seed([{ name: 'CodeQL', url: 'https://github.com/o/r/runs/99' }]);
     const reasonOf = () => listInbox(store, id, { unreadOnly: false })[0]!.body;
@@ -98,6 +98,8 @@ describe('sendCiFailureToAgent', () => {
       ['outdated', { outdated: 1 }],
       ['human', { type: 'User', author: 'alice' }],
       ['absent', { absent: '2026-01-01' }],
+      ['review-kind', { kind: 'review' }],
+      ['other-PR', { prUrl: 'https://github.com/o/r/pull/8' }],
       ['other heading', { body: '## Other tool\n\nx' }],
     ])('ignores a %s thread', async (_n, over) => {
       ext();
@@ -106,6 +108,16 @@ describe('sendCiFailureToAgent', () => {
       await sendCiFailureToAgent(d);
       expect(written['ci-failure-7.log']).toContain('CodeQL: no Actions log (external check), see https://github.com/o/r/runs/99');
       expect(written['ci-failure-7.log']).not.toContain('src/a.html');
+    });
+    it('lists several alerts and tolerates a missing path or line', async () => {
+      ext();
+      fb({});
+      fb({ path: null, line: null, body: '## codeql / Second one' });
+      fb({ line: null, body: '### CodeQL: Third' });
+      const { d, written } = deps();
+      await sendCiFailureToAgent(d);
+      expect(reasonOf()).toContain('CodeQL: 3 open alerts — src/a.html:951 Client-side cross-site scripting | (no path) Second one | src/a.html Third');
+      expect(written['ci-failure-7.log']).toContain('3 open alerts');
     });
     it('keeps the log bound for a huge alert body', async () => {
       ext();
