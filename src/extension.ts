@@ -63,6 +63,8 @@ import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { autoDeliverAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
+import { sendBackBriefForTicket } from './extension/ops/sendBackBriefForTicket.js';
+import { markRead } from './store/ticketMessages.js';
 import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
 import { watchExternalChanges } from './store/externalChanges.js';
@@ -6458,6 +6460,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const fixBrief =
         t.stageCurrent === 'fix' ? fixBriefForTicket(localStore, ticketId) : null;
+      // A send-back hand-off that never reached this core (a switch, a fresh
+      // launch, a resume after an undelivered hand-off) is still an unread host event.
+      const sendBack =
+        !options.seedPrompt
+          ? sendBackBriefForTicket(localStore, ticketId)
+          : null;
 
       // Seed composition (materialization is complete — entryInvocations available).
       // Aggregate the ticket context once; each seed composes from its halves.
@@ -6514,7 +6522,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Resume path: instructions are regenerated and re-attached; the
         // kickoff shrinks to the continue/fix brief under the invocation.
         const brief =
-          fixBrief ?? `Continue the in-progress work on ticket ${formatTicketRef(ticketId, t.key)}. Re-read live state if needed.`;
+          fixBrief ?? sendBack?.text ?? `Continue the in-progress work on ticket ${formatTicketRef(ticketId, t.key)}. Re-read live state if needed.`;
         const resumeOrFixInvocation =
           t.stageCurrent === 'fix' && materialized.entryInvocations?.['fix']
             ? materialized.entryInvocations['fix']
@@ -6536,6 +6544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all', inlineInstructions),
           ...(factsContext ? { factsContext } : {}),
           approachPrompt: approachPrompt ?? delegation,
+          ...(sendBack ? { leadBrief: sendBack.text } : {}),
           ...(entryLaunchInvocation
             ? { invocation: `${entryLaunchInvocation} ${t.key ?? ''}`.trim() }
             : {}),
@@ -6547,6 +6556,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           debug: (msg) => logger.debug(msg),
         });
       }
+      if (sendBack && !options.seedPrompt) markRead(localStore, sendBack.messageIds);
       // Write the instruction layer to disk and attach it to the session; the
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is

@@ -95,6 +95,13 @@ export interface BuildSessionSeedInput {
   guideInstruction?: string | null;
   /** The `## Services` block (`renderServersInstruction`) — instruction layer. */
   serversInstruction?: string | null;
+  /**
+   * A send-back brief whose hand-off never reached this core (a switch or fresh
+   * launch at `impl`). It leads the kickoff and replaces the workflow
+   * invocation, so the job is the failure, not a restart of the ticket; the
+   * ticket context stays because the new core has no history.
+   */
+  leadBrief?: string | null;
   /** Used by the approach-method truncation pointer. */
   ticketKey?: string;
   /**
@@ -115,7 +122,8 @@ export function buildSessionSeed(input: BuildSessionSeedInput): SessionSeed {
   let method = input.approachPrompt?.trim();
   const authored = input.authoredContext?.trim();
   const facts = input.factsContext?.trim();
-  const inv = input.invocation?.trim();
+  const lead = input.leadBrief?.trim();
+  const inv = lead ? undefined : input.invocation?.trim();
   const marker = input.markerInstruction?.trim();
   const guide = input.guideInstruction?.trim();
   const servers = input.serversInstruction?.trim();
@@ -141,13 +149,13 @@ export function buildSessionSeed(input: BuildSessionSeedInput): SessionSeed {
     // invocation, authored text, servers rule, approach, guide, marker.
     return {
       instructions: null,
-      kickoff: composeKickoff([inv, authored, servers, approachSection, guide, marker]),
+      kickoff: composeKickoff([lead, inv, authored, servers, approachSection, guide, marker]),
     };
   }
 
   return {
     instructions: composeInstructionsBody([facts, servers, guide, marker]),
-    kickoff: composeKickoff([inv, authored, approachSection]),
+    kickoff: composeKickoff([lead, inv, authored, approachSection]),
   };
 }
 
