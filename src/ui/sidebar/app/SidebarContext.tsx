@@ -28,6 +28,10 @@ export interface MenuItem {
   /** Draw a separator line before this entry. */
   readonly divider?: boolean;
   readonly title?: string;
+  /** A nested list opened from this entry (it posts nothing itself); `spec` is then unused. */
+  readonly submenu?: readonly MenuItem[];
+  /** A radio-style check on this entry (the current choice). */
+  readonly checked?: boolean;
 }
 
 /** The context window is open for `owner` (a ticket id or a Planning node id), anchored at `trigger`. */
@@ -174,6 +178,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
       // resolve-conflicts carries the conflicted repo so the host re-verifies it.
       if (spec.repo) payload.repo = spec.repo;
       if (spec.url) payload.url = spec.url;
+      if (spec.level) payload.level = spec.level;
       notes.current.note(type, requestId, spec.plan, stateRef.current.planning || ([] as PlanningRow[]));
       post(payload as unknown as OutboundMessage);
     },

@@ -412,7 +412,7 @@ describe('sidebar planning tree keyboard', () => {
     await h.receive({ type: 'state', state: stateOf('all-sections') });
     await h.key(draft(h, 501), 'F10', { shiftKey: true });
     const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
-    expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard', 'cloud-session-add']);
+    expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard', null, 'cloud-session-add']);
     expect(h.document.activeElement).toBe(items[0]);
     await h.click('#ctxMenu [data-act="plan-proposal-review"]');
     expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-proposal-review', proposalId: 501 }));
@@ -425,5 +425,67 @@ describe('sidebar planning tree keyboard', () => {
     await h.contextMenu(session(h, 89).querySelector('.pt-row')!);
     const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
     expect(items.map((i) => i.textContent!.trim())).toEqual(['Open terminal', 'Archive']);
+  });
+
+  describe('priority', () => {
+    const chip = (h: RenderedSidebar, id: number) => draft(h, id).querySelector<HTMLElement>('.k-pri');
+    const withPriority = (h: RenderedSidebar) => h.receive({ type: 'state', state: stateOf('priority') });
+
+    it('puts a chip after the id and before the title, with the level word as text', async () => {
+      const h = await renderSidebarApp();
+      await withPriority(h);
+      const label = draft(h, 101).querySelector('.pt-label')!;
+      expect(label.textContent!.replace(/\s+/g, ' ').trim()).toBe('D101 URG Urgent with a planner reason');
+      expect(chip(h, 102)!.textContent).toBe('HIGH');
+      expect(chip(h, 104)!.textContent).toBe('LOW');
+    });
+
+    it('shows no chip for normal or for no priority', async () => {
+      const h = await renderSidebarApp();
+      await withPriority(h);
+      expect(chip(h, 103)).toBeNull();
+      expect(chip(h, 105)).toBeNull();
+    });
+
+    it('names the level and its source in the tooltip and the accessible name', async () => {
+      const h = await renderSidebarApp();
+      await withPriority(h);
+      expect(chip(h, 101)!.getAttribute('title')).toBe('Urgent · planner: "Gate runs leak processes after a reload"');
+      expect(chip(h, 101)!.getAttribute('aria-label')).toBe('Urgent · planner: "Gate runs leak processes after a reload"');
+      expect(chip(h, 102)!.getAttribute('aria-label')).toBe('High · set by you');
+      expect(chip(h, 104)!.getAttribute('aria-label')).toBe('Low · planner');
+    });
+
+    it('lists Priority in the draft menu, opens four levels with a check and Clear, and posts a numeric id and a level', async () => {
+      const h = await renderSidebarApp();
+      await withPriority(h);
+      await h.key(draft(h, 102), 'F10', { shiftKey: true });
+      await h.click('#ctxMenu [aria-haspopup="menu"]');
+      const sub = h.queryAll('#ctxMenu .ctxsub [role="menuitemradio"]');
+      expect(sub.map((i) => i.textContent!.trim())).toEqual(['Urgent', 'High', 'Normal', 'Low', 'Clear']);
+      expect(sub.map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false', 'false']);
+      await h.click('#ctxMenu [data-level="low"]');
+      expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-proposal-priority', proposalId: 102, level: 'low' }));
+      expect(h.query('#ctxMenu.open')).toBeNull();
+    });
+
+    it('does not offer Priority on an accepted draft', async () => {
+      const h = await renderSidebarApp();
+      await h.receive({ type: 'state', state: stateOf('planning-deps') });
+      await h.click('[data-node="s17"] [data-accepted-toggle]');
+      await h.key(draft(h, 96), 'F10', { shiftKey: true });
+      expect(h.query('#ctxMenu [aria-haspopup="menu"]')).toBeNull();
+    });
+
+    it('shows the chip on a ticket at scope and posts set-priority from its menu', async () => {
+      const h = await renderSidebarApp();
+      await withPriority(h);
+      const rows = h.queryAll<HTMLElement>('.ticket');
+      expect(rows.map((r) => r.querySelector('.k-pri')?.textContent ?? null)).toEqual(['URG', 'HIGH', null, 'LOW']);
+      await h.click('.ticket [data-menu]');
+      await h.click('#ctxMenu [aria-haspopup="menu"]');
+      await h.click('#ctxMenu [data-level="clear"]');
+      expect(h.posted).toContainEqual(expect.objectContaining({ type: 'set-priority', ticketId: 900001, level: 'clear' }));
+    });
   });
 });

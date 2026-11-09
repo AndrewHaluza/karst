@@ -4,6 +4,8 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
+import { asPriorityLevel, type PriorityLevel } from '../../planning/proposal.js';
+import { PRIORITY_EDITABLE_STAGE } from '../../extension/ops/ticketPriorityOps.js';
 import { ticketActionFlags, type TicketActionFlags } from './ticketActions.js';
 import {
   listServersByTicket,
@@ -36,7 +38,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
-import { listVisibleProposals } from '../../store/planningProposals.js';
+import { listVisibleProposals, effectiveProposalPriority, type PlanningProposal } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 import { formatId } from '../../model/entityId.js';
 import { ticketGlyph } from '../../model/ticketGlyph.js';
@@ -79,7 +81,19 @@ export const RECENT_DONE_LIMIT = 3;
 export type { SidebarPr };
 
 /** One ticket row: the collapsed node fields plus its expanded-body detail. */
+/** A draft's priority as the chip reads it: the level, who set it, and the planner's one-line reason. */
+export interface PriorityView {
+  level: PriorityLevel;
+  /** `you` when the user overrode the planner; `planner` for a proposed level. */
+  source: 'you' | 'planner';
+  reason?: string;
+}
+
 export interface TicketRow extends TicketNode, TicketActionFlags {
+  /** The ticket's stored priority when it is one of the four levels; null (also for an unknown provider label) otherwise. */
+  priority: PriorityLevel | null;
+  /** True when the row menu may set the priority: a top-level, not archived ticket at `scope`. */
+  priorityEditable: boolean;
   /** The ticket's current stage key (null when stageless) — a source fact, not a label. */
   stageCurrent: TicketWithStages['stageCurrent'];
   /**
@@ -175,6 +189,8 @@ export interface PlanningProposalRow {
   /** `D<n>` of each entry in `droppedDepends`; absent when none. */
   droppedLabels?: string[];
   title: string;
+  /** The effective priority (your override, else the planner's); absent when none. */
+  priority?: PriorityView;
   status: 'pending' | 'accepted';
   ticketId: number | null;
   /** What this draft waits on, in file order: host proposal ids (`D<n>`) and `T<n>` ticket ids. */
@@ -346,6 +362,8 @@ export function buildSidebarState(
       return {
         ...node,
         stageCurrent: t.stageCurrent,
+        priority: asPriorityLevel(t.priority) ?? null,
+        priorityEditable: t.stageCurrent === PRIORITY_EDITABLE_STAGE && t.subtaskParentId === null,
         // Host-derived from the dashboard's own pure rules; the open-child count is a store read (never the
         // facet-scoped `subtaskChildCount`) and only runs for sub-tasks, the only rows Detach can apply to.
         ...ticketActionFlags(
@@ -550,6 +568,7 @@ function planningRows(
           return depStatus(store, target, d, cross ? formatId('plan', target.sessionId) : undefined);
         }),
         title: p.payload.title,
+        ...priorityViewOf(p),
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,
         dependsOn: p.payload.dependsOn ?? [],
@@ -559,4 +578,13 @@ function planningRows(
         ...(p.warnings.length > 0 ? { warnings: p.warnings } : {}),
       })),
     }));
+}
+
+/** The `priority` key of a draft row, or nothing when the draft has no priority. */
+function priorityViewOf(p: PlanningProposal): { priority?: PriorityView } {
+  const level = effectiveProposalPriority(p);
+  if (level === null) return {};
+  if (p.priorityOverride !== null) return { priority: { level, source: 'you' } };
+  const reason = p.payload.priorityReason;
+  return { priority: { level, source: 'planner', ...(reason ? { reason } : {}) } };
 }

@@ -23,11 +23,12 @@ export type SidebarScenario =
   | 'filtered'
   | 'subtasks'
   | 'planning-deps'
+  | 'priority'
   | 'hostile'
   | 'cloud-sessions';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'hostile', 'cloud-sessions',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'priority', 'hostile', 'cloud-sessions',
 ];
 
 export interface SidebarRenderFixture {
@@ -80,6 +81,8 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     autostart: null,
     collapsible: true as const,
     stageCurrent: 'impl',
+    priority: null,
+    priorityEditable: false,
     conflicted: false,
     ciFailing: false,
     servers: [],
@@ -342,6 +345,29 @@ function planningDepsState(): SidebarState {
   };
 }
 
+/** Priority chips: a draft at every level, a planner reason, a user override, and not-started tickets at every level. */
+function priorityState(): SidebarState {
+  const scoped = (index: number, priority: TicketRow['priority']): TicketRow =>
+    fixtureRow(index, { stageCurrent: 'scope', stageLabel: 'Not scoped', stageClass: 'stg-scope', stageChip: 'scope', priority, priorityEditable: true, glyph: 'gray' });
+  const draft = (id: number, title: string, priority?: PlanningProposalRow['priority']): PlanningProposalRow =>
+    fixtureDraft({ id, title, status: 'pending', ticketId: null, dependsOn: [], ...(priority ? { priority } : {}) });
+  return {
+    ...emptyState(),
+    counts: fixtureCounts({ all: 4 }),
+    sections: { current: [scoped(0, 'urgent'), scoped(1, 'high'), scoped(2, null), scoped(3, 'low')], awaitingReview: [], recentlyDone: [], olderDone: [] },
+    planning: [fixturePlanningRow(17, {
+      title: 'Prioritized drafts',
+      proposals: [
+        draft(101, 'Urgent with a planner reason', { level: 'urgent', source: 'planner', reason: 'Gate runs leak processes after a reload' }),
+        draft(102, 'High set by you', { level: 'high', source: 'you' }),
+        draft(103, 'Normal shows no chip', { level: 'normal', source: 'planner' }),
+        draft(104, 'Low from the planner', { level: 'low', source: 'planner' }),
+        draft(105, 'No priority'),
+      ],
+    })],
+  };
+}
+
 /** A ticket with several cloud sessions (D325 / D241). */
 function cloudSessionsState(): SidebarState {
   return {
@@ -388,6 +414,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   filtered: filteredState,
   subtasks: subtasksState,
   'planning-deps': planningDepsState,
+  priority: priorityState,
   hostile: hostileState,
   'cloud-sessions': cloudSessionsState,
 };

@@ -11,6 +11,14 @@ export const MAX_PROPOSAL_REPOS = 32;
 export const MAX_PROPOSAL_DEPENDS_ON = 32;
 export const MAX_PROPOSAL_CONSTRAINTS = 20;
 export const MAX_CONSTRAINT_LEN = 200;
+export const MAX_PRIORITY_REASON = 200;
+/** The levels a draft or ticket priority may take (the labels `tickets.priority` already stores). */
+export const PRIORITY_LEVELS = ['urgent', 'high', 'normal', 'low'] as const;
+export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
+/** Narrow an untrusted value to a priority level. */
+export function asPriorityLevel(v: unknown): PriorityLevel | undefined {
+  return PRIORITY_LEVELS.find((l) => l === v);
+}
 /** Code whose content shapes agent prompts; a draft touching it should cite a design rule. */
 export const PROMPT_SENSITIVE_PATHS: readonly string[] = [
   'src/agent/seed.ts',
@@ -49,6 +57,10 @@ export interface Proposal {
    * order kept. Absent reads as none.
    */
   constraints?: string[];
+  /** Optional proposed priority of the draft; the user may override it in the sidebar. */
+  priority?: PriorityLevel;
+  /** One-line reason for `priority` (at most 200 chars). Needs `priority`. */
+  priorityReason?: string;
 }
 
 export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason: string };
@@ -56,7 +68,7 @@ export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason
 import { parseId } from '../model/entityId.js';
 
 const REQUIRED_KEYS = ['description', 'repos', 'summary', 'title'];
-const OPTIONAL_KEYS = ['id', 'dependsOn', 'constraints'];
+const OPTIONAL_KEYS = ['id', 'dependsOn', 'constraints', 'priority', 'priorityReason'];
 const ALLOWED_KEYS = [...REQUIRED_KEYS, ...OPTIONAL_KEYS];
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
@@ -143,6 +155,21 @@ export function validateProposal(raw: unknown): ProposalResult {
     }
   }
 
+  const priority = 'priority' in rec ? asPriorityLevel(rec.priority) : undefined;
+  if ('priority' in rec && priority === undefined) {
+    return fail(`priority must be one of ${PRIORITY_LEVELS.join(', ')}`);
+  }
+  let priorityReason: string | undefined;
+  if ('priorityReason' in rec) {
+    if (priority === undefined) return fail('priorityReason needs a priority');
+    const r = rec.priorityReason;
+    if (typeof r !== 'string' || /[\r\n]/.test(r)) return fail('priorityReason must be a single-line string');
+    priorityReason = r.replace(ALL_CONTROLS, '').trim();
+    if (priorityReason === '' || priorityReason.length > MAX_PRIORITY_REASON) {
+      return fail(`priorityReason must be 1-${MAX_PRIORITY_REASON} characters`);
+    }
+  }
+
   if (id !== undefined && dependsOn?.includes(id)) {
     return fail('dependsOn may not contain the proposal\'s own id');
   }
@@ -166,5 +193,7 @@ export function validateProposal(raw: unknown): ProposalResult {
   if (id !== undefined) value.id = id;
   if (dependsOn !== undefined) value.dependsOn = dependsOn;
   if (constraints !== undefined) value.constraints = constraints;
+  if (priority !== undefined) value.priority = priority;
+  if (priorityReason !== undefined) value.priorityReason = priorityReason;
   return { ok: true, value };
 }

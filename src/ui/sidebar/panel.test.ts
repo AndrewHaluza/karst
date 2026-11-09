@@ -43,6 +43,8 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     planUnarchive: vi.fn(),
     planProposalReview: vi.fn(),
     planProposalDiscard: vi.fn(),
+    planProposalPriority: vi.fn(),
+    setPriority: vi.fn(),
     cloudSessionOpen: vi.fn(),
     cloudSessionLink: vi.fn(),
     cloudSessionUnlink: vi.fn(),

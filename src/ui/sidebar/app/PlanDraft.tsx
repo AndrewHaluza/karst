@@ -10,6 +10,7 @@ import { ActButton } from './action.js';
 import { GLYPH_WORD } from './format.js';
 import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
+import { PriorityChip } from './PriorityChip.js';
 import { acceptedTicketId, draftActions, type PlanAction } from './planModel.js';
 
 /** The control for one tree-item action: an icon button, or the accepted draft's ticket link. */
@@ -115,7 +116,7 @@ export function PlanDraft({ draft, tabIndex }: { readonly draft: PlanningProposa
     <div role="treeitem" aria-level={2} className="pt-l2" data-node={node} tabIndex={tabIndex} aria-label={label}>
       <div className="pt-row" title={label}>
         <Icon name="file-text" size={14} cls="pt-icon pt-c-attention" />
-        <span className="pt-label">{draft.idLabel} {draft.title}</span>
+        <span className="pt-label">{draft.idLabel}{draft.priority ? <> <PriorityChip level={draft.priority.level} source={draft.priority.source} reason={draft.priority.reason} /></> : null} {draft.title}</span>
         <Dropped draft={draft} />
         <Warnings draft={draft} />
         <span className="pt-actions">

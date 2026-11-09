@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queue UI Mockup</title>
+<style>
+:root{--page:#f3f2ee;--fg:#1f1f1d;--muted:#6f6d66;--line:#dad7ce;
+--sb:#f8f8f8;--sbfg:#3b3b3b;--sbmuted:#767676;--sbline:#e5e5e5;--hover:#e8e8e8;--sel:#dbe8f7;--menu:#fff;--menuline:#d4d4d4;
+--urgent:#d14343;--high:#d9822b;--low:#8b9096;--acc:#2f6fb0;--warn:#b7791f;
+--s17:#7b61c9;--s37:#d4842a;--s38:#2a9d8f;--s43:#c24d7a;--s45:#5c7cba;--s46:#8a9a2b;--ok:#2e8b57}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#121314;--fg:#e9e7e2;--muted:#9c998f;--line:#2e2f33;--sb:#181818;--sbfg:#cccccc;--sbmuted:#8b8b8b;--sbline:#2b2b2b;--hover:#2a2d2e;--sel:#04395e;--menu:#1f1f1f;--menuline:#454545;--acc:#4daafc;--low:#9aa0a6}}
+:root[data-theme="dark"]{--page:#121314;--fg:#e9e7e2;--muted:#9c998f;--line:#2e2f33;--sb:#181818;--sbfg:#cccccc;--sbmuted:#8b8b8b;--sbline:#2b2b2b;--hover:#2a2d2e;--sel:#04395e;--menu:#1f1f1f;--menuline:#454545;--acc:#4daafc;--low:#9aa0a6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:26px 16px 60px}
+h1{font-size:22px;margin:0}.sub{color:var(--muted);margin:2px 0 20px}
+h2{font-size:16px;margin:30px 0 10px}
+.row2{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}
+.cap{font-size:12px;color:var(--muted);margin:8px 2px 0;max-width:300px}
+.notes{flex:1;min-width:260px}
+.notes ol{padding-left:18px;margin:0}.notes li{margin:0 0 8px}
+.notes b{color:var(--acc)}
+/* sidebar */
+.sb{width:300px;background:var(--sb);color:var(--sbfg);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13px;position:relative}
+.sb.narrow{width:240px}
+.tb{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;font-size:11px;letter-spacing:.06em;color:var(--sbmuted);text-transform:uppercase}
+.tb span:last-child{letter-spacing:6px}
+.search{margin:2px 8px 6px;border:1px solid var(--sbline);border-radius:4px;padding:3px 8px;color:var(--sbmuted);font-size:12px}
+.ph{display:flex;align-items:center;gap:6px;padding:4px 8px;border-top:1px solid var(--sbline);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.ph .chev{width:12px;color:var(--sbmuted)}
+.ph .cnt{font-weight:400;color:var(--sbmuted)}
+.ph .act{margin-left:auto;color:var(--sbmuted);font-weight:400;letter-spacing:4px}
+.new{outline:2px solid var(--acc);outline-offset:-2px;border-radius:2px}
+.r{display:flex;align-items:center;gap:6px;height:24px;padding:0 8px;white-space:nowrap;overflow:hidden}
+.r:hover,.r.hov{background:var(--hover)}
+.r.sel{background:var(--sel)}
+.ind1{padding-left:22px}.ind2{padding-left:34px}
+.t{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.m{color:var(--sbmuted);font-size:11px;flex:none}
+.pos{width:16px;text-align:right;color:var(--sbmuted);font-size:11px;flex:none;font-variant-numeric:tabular-nums}
+.id{font-size:11px;padding:0 5px;border-radius:3px;border:1px solid var(--sbline);flex:none;font-variant-numeric:tabular-nums}
+.sx{font-size:10px;color:var(--sbmuted)}
+.p{flex:none;font-size:10px;font-weight:700;padding:0 5px;border-radius:3px;color:#fff;line-height:15px}
+.p.u{background:var(--urgent)}.p.h{background:var(--high)}.p.l{background:var(--low)}
+.why{flex:none;font-size:11px;color:var(--sbmuted)}
+.why.up{color:var(--urgent)}.why.uph{color:var(--high)}
+.dep{flex:none;font-size:10px;border:1px dashed var(--sbmuted);border-radius:3px;padding:0 4px;color:var(--sbmuted)}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.stage{flex:none;font-size:10px;border:1px solid var(--sbline);border-radius:3px;padding:0 4px;color:var(--sbmuted)}
+.more{padding:2px 8px 4px 30px;font-size:11px;color:var(--sbmuted)}
+.scroll{position:relative}
+.scroll:after{content:"";position:absolute;right:2px;top:4px;width:4px;height:60%;border-radius:2px;background:var(--sbline)}
+.empty{padding:8px 12px 10px;color:var(--sbmuted);font-size:12px}
+/* menu */
+.menu{position:absolute;background:var(--menu);border:1px solid var(--menuline);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.25);padding:4px 0;font-size:13px;min-width:170px;z-index:2}
+.menu div{padding:3px 14px;display:flex;justify-content:space-between;gap:16px}
+.menu .on{background:var(--acc);color:#fff}
+.menu hr{border:0;border-top:1px solid var(--menuline);margin:4px 0}
+.menu .k{color:var(--sbmuted)}
+.tip{position:absolute;background:var(--menu);border:1px solid var(--menuline);border-radius:4px;padding:4px 8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.2);max-width:230px;z-index:2}
+/* cli */
+pre{background:#1b1c1e;color:#d6d6d6;border-radius:8px;padding:12px 14px;font-size:12.5px;overflow-x:auto;line-height:1.5}
+pre .u{color:#ff6b6b}pre .h{color:#f0a24b}pre .d{color:#8a8a8a}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:99px;padding:0 7px;margin-left:6px;vertical-align:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Queue UI — mockup</h1>
+<p class="sub">Sidebar after D501 + D502 + D503 · real drafts and tickets from your store · blue outline = new</p>
+
+<h2>1 · The sidebar with the Queue pane open <span class="tag">D503</span></h2>
+<div class="row2">
+<div>
+<div class="sb">
+<div class="tb"><span>Karst</span><span>⧉ ◔ ⚙</span></div>
+<div class="search">Search tickets and drafts</div>
+
+<div class="ph"><span class="chev">▾</span>Planning <span class="cnt">6</span><span class="act">+ ⊟ ◎</span></div>
+<div class="r"><span class="chev m">▾</span><span class="t">P43 · Gates / reload</span><span class="m">7</span></div>
+<div class="r ind1"><span class="id">D498</span><span class="p u new">URG</span><span class="t">fix: an IDE reload leaves gate processes alive</span></div>
+<div class="r ind1"><span class="id">D497</span><span class="t">perf: a host-wide limit for gate runs</span></div>
+<div class="r"><span class="chev m">▾</span><span class="t">P17 · UAT host</span><span class="m">6</span></div>
+<div class="r ind1 hov"><span class="id">D452</span><span class="p h new">HIGH</span><span class="t">fix(ui): one ticket reference chip</span></div>
+<div class="r"><span class="chev m">▾</span><span class="t">P38 · Dashboard</span><span class="m">5</span></div>
+<div class="r ind1"><span class="id">D399</span><span class="p h new">HIGH</span><span class="t">PR merge readiness</span><span class="dep new">needs D452 · P17</span></div>
+<div class="more">▸ P37 · P45 · P46</div>
+
+<div class="ph new"><span class="chev">▾</span>Queue <span class="cnt">33</span></div>
+<div class="scroll new" data-region="queue">
+<div class="r"><span class="pos">1</span><span class="p u">URG</span><span class="id">D497 <span class="sx">· P43</span></span><span class="t">perf: a host-wide limit for gate runs</span><span class="why up">↑ D498</span></div>
+<div class="r"><span class="pos">2</span><span class="p u">URG</span><span class="id">D498 <span class="sx">· P43</span></span><span class="t">fix: an IDE reload leaves gate processes alive</span></div>
+<div class="r sel"><span class="pos">3</span><span class="p h">HIGH</span><span class="id">T997</span><span class="t">Autopilot: auto-fix CI on sandbox tickets</span></div>
+<div class="r"><span class="pos">4</span><span class="p h">HIGH</span><span class="id">D452 <span class="sx">· P17</span></span><span class="t">fix(ui): one ticket reference chip</span><span class="why uph">↑ D399</span></div>
+<div class="r"><span class="pos">5</span><span class="p h">HIGH</span><span class="id">D399 <span class="sx">· P38</span></span><span class="t">PR merge readiness</span><span class="why">waits D452</span></div>
+<div class="r"><span class="pos">6</span><span class="id">D475 <span class="sx">· P45</span></span><span class="t">perf: reduce the work of each refresh</span></div>
+<div class="r"><span class="pos">7</span><span class="id">D465 <span class="sx">· P37</span></span><span class="t">feat: a live token count in Inside</span><span class="why">waits D475</span></div>
+<div class="r"><span class="pos">8</span><span class="id">D446 <span class="sx">· P17</span></span><span class="t">feat(uat-host): probe steps drive the real UI</span></div>
+<div class="r"><span class="pos">…</span><span class="t m">25 more — scroll</span></div>
+</div>
+
+<div class="ph"><span class="chev">▾</span>Tickets <span class="cnt">11</span><span class="act">+ ⏚</span></div>
+<div class="r"><span class="dot" style="background:var(--acc)"></span><span class="id">T996</span><span class="t">Autopilot conflict rounds</span><span class="stage">IMPL</span></div>
+<div class="r"><span class="dot" style="background:var(--warn)"></span><span class="id">T994</span><span class="t">Review stall suggestion</span><span class="stage">REVIEW</span></div>
+<div class="r"><span class="dot" style="background:var(--sbmuted)"></span><span class="id">T997</span><span class="p h new">HIGH</span><span class="t">Autopilot: auto-fix CI on sandbox</span><span class="stage">SCOPE</span></div>
+<div class="more">…</div>
+</div>
+<p class="cap">300 px sidebar. Queue sits between Planning and Tickets, about 30% of the height while open, and scrolls on its own.</p>
+</div>
+
+<div class="notes">
+<ol>
+<li><b>Queue pane</b> (new, between Planning and Tickets). One list of all pending drafts and not-started tickets, from every session. Collapsed by default.</li>
+<li><b>Position</b> 1, 2, 3 … is the computed order: dependencies first, then priority, then age.</li>
+<li><b>Priority chip</b>: <span class="p u">URG</span> <span class="p h">HIGH</span> <span class="p l">LOW</span>. No chip for <i>normal</i>, so most rows stay quiet.</li>
+<li><b>Id chip with session</b>: <code>D452 · P17</code> for a draft, <code>T997</code> for a ticket.</li>
+<li><b>Why</b>, on the right: <span class="why up">↑ D498</span> = priority inherited from a draft that waits on this one. <span class="why">waits D452</span> = an open blocker comes first.</li>
+<li><b>Click</b> a draft row → Review form. Click a ticket row → its dashboard.</li>
+<li><b>Planning pane</b> (D502): the draft card gets the priority chip. (D501): a cross-session dependency shows as <span class="dep">needs D452 · P17</span>.</li>
+<li><b>Tickets pane</b>: a not-started ticket shows its priority chip too.</li>
+</ol>
+</div>
+</div>
+
+<h2>2 · Change a priority — row menu <span class="tag">D502</span></h2>
+<div class="row2">
+<div>
+<div class="sb" style="height:290px">
+<div class="ph"><span class="chev">▾</span>Queue <span class="cnt">33</span></div>
+<div class="r"><span class="pos">1</span><span class="p u">URG</span><span class="id">D497 <span class="sx">· P43</span></span><span class="t">perf: a host-wide limit…</span><span class="why up">↑ D498</span></div>
+<div class="r"><span class="pos">2</span><span class="p u">URG</span><span class="id">D498 <span class="sx">· P43</span></span><span class="t">fix: an IDE reload…</span></div>
+<div class="r hov"><span class="pos">3</span><span class="p h">HIGH</span><span class="id">T997</span><span class="t">Autopilot: auto-fix CI…</span><span class="m">⋯</span></div>
+<div class="r"><span class="pos">4</span><span class="p h">HIGH</span><span class="id">D452 <span class="sx">· P17</span></span><span class="t">fix(ui): one ticket…</span></div>
+<div class="menu" style="left:70px;top:96px">
+<div>Open dashboard</div><div>Start…</div><hr>
+<div class="on">Priority <span>▸</span></div><hr><div>Archive</div>
+</div>
+<div class="menu new" style="left:232px;top:150px;min-width:120px">
+<div>Urgent</div><div>✓ High</div><div>Normal</div><div>Low</div><hr><div class="k">Clear</div>
+</div>
+</div>
+<p class="cap">The same submenu is on a pending draft row in Planning and on a ticket at SCOPE in Tickets. Your choice wins over the planner's choice, and a planner revise never resets it.</p>
+</div>
+
+<div>
+<div class="sb" style="height:290px">
+<div class="ph"><span class="chev">▾</span>Planning <span class="cnt">6</span></div>
+<div class="r"><span class="chev m">▾</span><span class="t">P43 · Gates / reload</span><span class="m">7</span></div>
+<div class="r ind1 hov"><span class="id">D498</span><span class="p u">URG</span><span class="t">fix: an IDE reload leaves gate…</span><span class="m">✓ ✕</span></div>
+<div class="tip new" style="left:60px;top:76px"><b>Urgent</b> · planner: “gate processes from a closed window keep the CPU busy and block the next run”</div>
+<div class="r ind1" style="margin-top:58px"><span class="id">D497</span><span class="t">perf: a host-wide limit for gate…</span></div>
+<div class="r"><span class="chev m">▾</span><span class="t">P38 · Dashboard</span><span class="m">5</span></div>
+<div class="r ind1"><span class="id">D399</span><span class="p h">HIGH</span><span class="t">PR merge readiness</span><span class="dep">needs D452 · P17</span></div>
+</div>
+<p class="cap">Hover the chip: the planner's one-line reason. ✓ and ✕ are the existing Approve and Discard actions.</p>
+</div>
+</div>
+
+<h2>3 · Narrow sidebar and other states</h2>
+<div class="row2">
+<div>
+<div class="sb narrow">
+<div class="ph"><span class="chev">▾</span>Queue <span class="cnt">33</span></div>
+<div class="r"><span class="pos">1</span><span class="p u">URG</span><span class="id">D497</span><span class="t">perf: a host-wide limit for gate runs</span></div>
+<div class="r"><span class="pos">2</span><span class="p u">URG</span><span class="id">D498</span><span class="t">fix: an IDE reload leaves gate…</span></div>
+<div class="r"><span class="pos">3</span><span class="p h">HIGH</span><span class="id">T997</span><span class="t">Autopilot: auto-fix CI…</span></div>
+</div>
+<p class="cap">240 px (tight): the “why” and the session suffix drop first. The title keeps the rest. Rows stay one line.</p>
+</div>
+<div>
+<div class="sb narrow">
+<div class="ph"><span class="chev">▸</span>Queue <span class="cnt">33</span></div>
+<div class="ph"><span class="chev">▾</span>Tickets <span class="cnt">11</span></div>
+<div class="r"><span class="dot" style="background:var(--acc)"></span><span class="id">T996</span><span class="t">Autopilot conflict rounds</span></div>
+</div>
+<p class="cap">Collapsed (the default): only the header and the count. The height goes to the other panes.</p>
+</div>
+<div>
+<div class="sb narrow">
+<div class="ph"><span class="chev">▾</span>Queue <span class="cnt">0</span></div>
+<div class="empty">Nothing waits. New drafts and not-started tickets show here.</div>
+</div>
+<p class="cap">Empty.</p>
+</div>
+</div>
+
+<h2>4 · The same order for a planner — <code>karst queue</code> <span class="tag">D501 + D503</span></h2>
+<pre>$ karst queue
+ #  ID     SESSION  PRIO    TITLE                                              WHY
+ 1  D497   P43      <span class="u">urgent</span>  perf: a host-wide limit for gate runs              <span class="u">↑ from D498</span>
+ 2  D498   P43      <span class="u">urgent</span>  fix: an IDE reload leaves gate processes alive
+ 3  T997   -        <span class="h">high</span>    Autopilot: auto-fix CI on sandbox tickets
+ 4  D452   P17      <span class="h">high</span>    fix(ui): one ticket reference chip                 <span class="h">↑ from D399</span>
+ 5  D399   P38      <span class="h">high</span>    PR merge readiness                                 waits on D452
+ 6  D475   P45      <span class="d">normal</span>  perf: reduce the work of each refresh
+ 7  D465   P37      <span class="d">normal</span>  feat: a live token count in Inside                 waits on D475
+ …
+33 items · 30 drafts in 6 sessions · 3 tickets</pre>
+</main>
+</body>
+</html>

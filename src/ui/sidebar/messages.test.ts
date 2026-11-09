@@ -26,6 +26,18 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-proposal-discard', sessionId: 4 })).toBeNull();
   });
 
+  it('accepts a priority change only with a numeric id and a known level or clear', () => {
+    expect(parseSidebarMessage({ type: 'plan-proposal-priority', proposalId: 4, level: 'urgent' })).toEqual({ type: 'plan-proposal-priority', proposalId: 4, level: 'urgent' });
+    expect(parseSidebarMessage({ type: 'set-priority', ticketId: 5, level: 'clear' })).toEqual({ type: 'set-priority', ticketId: 5, level: 'clear' });
+    for (const bad of ['critical', '', null, 3, undefined]) {
+      expect(parseSidebarMessage({ type: 'plan-proposal-priority', proposalId: 4, level: bad })).toBeNull();
+      expect(parseSidebarMessage({ type: 'set-priority', ticketId: 5, level: bad })).toBeNull();
+    }
+    expect(parseSidebarMessage({ type: 'plan-proposal-priority', proposalId: '4', level: 'low' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-proposal-priority', ticketId: 4, level: 'low' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'set-priority', proposalId: 5, level: 'low' })).toBeNull();
+  });
+
   it('accepts cloud-session messages only with a non-empty url and exactly one link target', () => {
     const url = 'https://claude.ai/code/session_a';
     expect(parseSidebarMessage({ type: 'cloud-session-open', url })).toEqual({ type: 'cloud-session-open', url });
@@ -147,6 +159,8 @@ describe('routeSidebarAction', () => {
       planUnarchive: vi.fn(),
       planProposalReview: vi.fn(),
       planProposalDiscard: vi.fn(),
+      planProposalPriority: vi.fn(),
+      setPriority: vi.fn(),
       cloudSessionOpen: vi.fn(),
       cloudSessionLink: vi.fn(),
       cloudSessionUnlink: vi.fn(),
@@ -205,6 +219,18 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'plan-proposal-discard', proposalId: 8 }, a);
     expect(a.planProposalReview).toHaveBeenCalledWith(7);
     expect(a.planProposalDiscard).toHaveBeenCalledWith(8);
+  });
+
+  it('dispatches a priority change, mapping clear to null', () => {
+    const a = makeActions();
+    routeSidebarAction({ type: 'plan-proposal-priority', proposalId: 7, level: 'high' }, a);
+    routeSidebarAction({ type: 'plan-proposal-priority', proposalId: 7, level: 'clear' }, a);
+    routeSidebarAction({ type: 'set-priority', ticketId: 9, level: 'low' }, a);
+    routeSidebarAction({ type: 'set-priority', ticketId: 9, level: 'clear' }, a);
+    expect(a.planProposalPriority).toHaveBeenNthCalledWith(1, 7, 'high');
+    expect(a.planProposalPriority).toHaveBeenNthCalledWith(2, 7, null);
+    expect(a.setPriority).toHaveBeenNthCalledWith(1, 9, 'low');
+    expect(a.setPriority).toHaveBeenNthCalledWith(2, 9, null);
   });
 
   it('dispatches cloud-session messages', () => {

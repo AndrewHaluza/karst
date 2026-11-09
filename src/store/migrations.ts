@@ -2927,5 +2927,15 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 111) {
+    // v111: `planning_proposals.priority_override` — the priority the user set on a pending draft in
+    // the sidebar; it wins over the planner's `payload.priority`. Additive; NULL = no override
+    // (every pre-v111 row). No CHECK on the migrated column: SQLite cannot add one in an ALTER.
+    const cols111 = tableColumns(db, 'planning_proposals');
+    if (cols111.size > 0 && !cols111.has('priority_override')) {
+      db.exec('ALTER TABLE planning_proposals ADD COLUMN priority_override TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
