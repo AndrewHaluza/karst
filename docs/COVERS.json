@@ -138,6 +138,10 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/fakeCore.ts#FakeAdapter": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-02"
+  ],
   "src/agent/hookFailureLog.ts": [
     "arch:DIAG-00"
   ],
