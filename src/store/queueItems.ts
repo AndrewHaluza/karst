@@ -1,6 +1,6 @@
 import type { Store } from './db.js';
 import { formatId, parseId } from '../model/entityId.js';
-import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, type PriorityLevel } from '../model/priority.js';
+import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority, type PriorityLevel } from '../model/priority.js';
 import { orderQueue, type OrderedQueueItem, type QueueEdge, type QueueItem } from '../model/queueOrder.js';
 import { effectiveProposalPriority, listProjectProposals, type PlanningProposal } from './planningProposals.js';
 import { listOpenBlockersFor } from './ticketRelations.js';
@@ -53,6 +53,7 @@ interface TicketRow {
   priority: string | null;
   priority_override: string | null;
   source: string | null;
+  source_ref: string | null;
   created_at: string;
 }
 
@@ -87,8 +88,8 @@ function draftNode(p: PlanningProposal): Node {
   };
 }
 
-function ticketNode(t: TicketRow, waits: readonly string[]): Node {
-  const fields = { priority: t.priority, priorityOverride: t.priority_override };
+function ticketNode(t: TicketRow, waits: readonly string[], providerId: string | undefined): Node {
+  const fields = { priority: t.priority, priorityOverride: t.priority_override, source: t.source, sourceRef: t.source_ref };
   const priority = effectiveTicketPriority(fields);
   return {
     kind: 'ticket',
@@ -98,8 +99,8 @@ function ticketNode(t: TicketRow, waits: readonly string[]): Node {
     ownPriority: priority,
     priorityReason: null,
     prioritySource: ticketPrioritySource(fields),
-    providerPriority: asPriorityLevel(t.priority) ?? null,
-    providerLabel: ticketProviderLabel(t.source),
+    providerPriority: ticketProviderPriority(fields),
+    providerLabel: ticketProviderLabel(providerId),
     item: { id: formatId('ticket', t.id), priority, createdAt: t.created_at, externalWaits: waits },
   };
 }
@@ -136,7 +137,7 @@ function draftEdges(store: Store, p: PlanningProposal, inSet: ReadonlySet<string
 function readTickets(store: Store, projectId: number): TicketRow[] {
   return store.db
     .prepare(
-      `SELECT id, COALESCE(title, key, '') AS title, priority, priority_override, source, created_at FROM tickets
+      `SELECT id, COALESCE(title, key, '') AS title, priority, priority_override, source, source_ref, created_at FROM tickets
         WHERE project_id = ? AND archived_at IS NULL AND subtask_parent_id IS NULL
           AND stage_current = ?
         ORDER BY id`,
@@ -144,7 +145,8 @@ function readTickets(store: Store, projectId: number): TicketRow[] {
     .all(projectId, QUEUE_TICKET_STAGE) as TicketRow[];
 }
 
-export function readProjectQueue(store: Store, projectId: number): ProjectQueue {
+/** `providerId` is the project's ticketing provider (`clickup`); it names the system in a ticket's tooltip. */
+export function readProjectQueue(store: Store, projectId: number, providerId?: string): ProjectQueue {
   const proposals = listProjectProposals(store, projectId);
   const byProposal = new Map(proposals.map((p) => [p.id, p]));
   const pending = proposals.filter((p) => p.status === 'pending');
@@ -168,7 +170,7 @@ export function readProjectQueue(store: Store, projectId: number): ProjectQueue 
       if (to !== null && inSet.has(to)) edges.push({ from, to });
       else waits.push(to ?? b.label);
     }
-    nodes.push(ticketNode(t, waits));
+    nodes.push(ticketNode(t, waits, providerId));
   }
 
   const byId = new Map(nodes.map((n) => [n.item.id, n]));

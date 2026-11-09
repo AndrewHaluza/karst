@@ -74,6 +74,15 @@ describe('readProjectQueue', () => {
     expect(readProjectQueue(store, projectId).entries[0]).toMatchObject({ ownPriority: 'low', prioritySource: 'provider' });
   });
 
+  it('names the project provider beside a provider value, and the planner for a planner-written value', () => {
+    const fetched = ticket('FET', 'scope', ", priority = 'low', source_ref = 'abc'");
+    const planned = ticket('PLN', 'scope', ", priority = 'high', source = 'planning'");
+    const byId = (id: number) => readProjectQueue(store, projectId, 'clickup').entries.find((e) => e.id === `T${id}`);
+    expect(byId(fetched)).toMatchObject({ prioritySource: 'provider', providerPriority: 'low', providerLabel: 'ClickUp' });
+    expect(byId(planned)).toMatchObject({ prioritySource: 'planner', providerPriority: null });
+    expect(readProjectQueue(store, projectId).entries.find((e) => e.id === `T${fetched}`)?.providerLabel).toBe('provider');
+  });
+
   it('an override wins over the planner level and drops the reason', () => {
     const d = insertProposal(store, s1, { ...payload, priority: 'urgent', priorityReason: 'data loss' });
     expect(readProjectQueue(store, projectId).entries[0]).toMatchObject({ ownPriority: 'urgent', priorityReason: 'data loss' });

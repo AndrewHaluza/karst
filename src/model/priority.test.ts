@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel } from './priority.js';
+import { effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority } from './priority.js';
 
 describe('effectiveTicketPriority', () => {
   it.each([
@@ -16,15 +16,29 @@ describe('effectiveTicketPriority', () => {
   });
 });
 
+describe('planner-written ticket priority', () => {
+  const planned = { priority: 'high', priorityOverride: null, source: 'planning', sourceRef: null };
+  it('reads as planner while the ticket has no provider ref', () => {
+    expect(ticketPrioritySource(planned)).toBe('planner');
+    expect(ticketProviderPriority(planned)).toBeNull();
+  });
+  it('reads as provider once a fetch bound a source ref', () => {
+    const fetched = { ...planned, sourceRef: 'abc123' };
+    expect(ticketPrioritySource(fetched)).toBe('provider');
+    expect(ticketProviderPriority(fetched)).toBe('high');
+  });
+  it('keeps a user override as you', () => {
+    expect(ticketPrioritySource({ ...planned, priorityOverride: 'low' })).toBe('you');
+  });
+});
+
 describe('ticketProviderLabel', () => {
   it.each([
     ['clickup', 'ClickUp'],
-    ['jira', 'Jira'],
-    ['trello', 'Trello'],
-    ['planning', 'planner'],
     ['manual', 'provider'],
     [null, 'provider'],
-  ])('%s reads as %s', (source, label) => {
-    expect(ticketProviderLabel(source)).toBe(label);
+    [undefined, 'provider'],
+  ])('the project provider %s reads as %s', (provider, label) => {
+    expect(ticketProviderLabel(provider)).toBe(label);
   });
 });
