@@ -36,6 +36,14 @@ describe('openSandboxShellOp', () => {
     expect(n.error).toHaveBeenCalledWith(expect.stringContaining('No sandbox yet'));
   });
 
+  it('opens in the project root when the ticket has no worktree', async () => {
+    const openTerminal = vi.fn();
+    const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    const bare = { ticketId: 7, ticketLabel: 'T7', core: 'opencode', worktree: null };
+    await expect(openSandboxShellOp({ notify: notify(), projectRoot: '/p', dockerProc, openTerminal }, bare)).resolves.toBe(true);
+    expect(openTerminal.mock.calls[0]![0].cwd).toBe('/p');
+  });
+
   it('reports availability without opening a terminal', async () => {
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } });
     await expect(sandboxShellAvailability({ notify: notify(), projectRoot: '/p', dockerProc }, target('opencode'))).resolves.toEqual({ available: false, why: 'Sandbox is stopped' });
@@ -92,5 +100,66 @@ describe('createShellAvailabilityCache', () => {
     cache.read(1);
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(2));
     expect(cache.read(1)).toEqual({ available: true, why: null });
+  });
+  it('probes again exactly at the ttl, not before', async () => {
+    let t = 0;
+    const probe = vi.fn().mockResolvedValue({ available: true, why: null });
+    const cache = createShellAvailabilityCache({ probe, onChange: vi.fn(), now: () => t, ttlMs: 100 });
+    cache.read(1);
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    t = 99;
+    cache.read(1);
+    expect(probe).toHaveBeenCalledTimes(1);
+    t = 100;
+    cache.read(1);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a change when only one of available and why differs', async () => {
+    const onChange = vi.fn();
+    const probe = vi.fn()
+      .mockResolvedValueOnce({ available: false, why: 'a' })
+      .mockResolvedValueOnce({ available: false, why: 'b' })
+      .mockResolvedValueOnce({ available: true, why: 'b' });
+    const cache = createShellAvailabilityCache({ probe, onChange, now: () => 0 });
+    cache.read(1);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    cache.invalidate(1); cache.read(1);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
+    cache.invalidate(1); cache.read(1);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(3));
+  });
+
+  it('a failed probe with an old value stamps it fresh, so no probe repeats at once', async () => {
+    let t = 0;
+    const probe = vi.fn().mockResolvedValueOnce({ available: true, why: null }).mockRejectedValueOnce(new Error('x'));
+    const onChange = vi.fn();
+    const cache = createShellAvailabilityCache({ probe, onChange, now: () => t, ttlMs: 100 });
+    cache.read(1);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    t = 200;
+    cache.read(1);
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 0));
+    cache.read(1);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed first probe leaves no value: the next read is "checking" and probes again', async () => {
+    const probe = vi.fn().mockRejectedValue(new Error('x'));
+    const cache = createShellAvailabilityCache({ probe, onChange: vi.fn(), now: () => 0 });
+    cache.read(1);
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cache.read(1)).toEqual(SHELL_CHECKING);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidate of an unknown ticket stores nothing', () => {
+    const probe = vi.fn().mockResolvedValue({ available: true, why: null });
+    const cache = createShellAvailabilityCache({ probe, onChange: vi.fn(), now: () => 0 });
+    cache.invalidate(9);
+    expect(cache.read(9)).toEqual(SHELL_CHECKING);
   });
 });

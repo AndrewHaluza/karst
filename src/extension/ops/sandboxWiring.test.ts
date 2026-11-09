@@ -108,6 +108,51 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     expect(rms).toEqual([expect.stringContaining(sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }))]);
   });
 
+  it('shell: with no terminal binding it says so and opens nothing', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc });
+    await w.shell(a);
+    expect(notify.error).toHaveBeenCalledWith('Karst: cannot open a sandbox shell yet: no terminal is available.');
+  });
+
+  it('shell: a running sandbox opens a terminal named after the ticket key', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const openTerminal = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc, openTerminal });
+    await w.shell(a);
+    expect(openTerminal).toHaveBeenCalledTimes(1);
+    expect(openTerminal.mock.calls[0]![0]).toMatchObject({ name: 'Karst sandbox · A-1', cmd: expect.any(String) });
+  });
+
+  it('shellAvailability: "checking" first, then the probe answer, and onShellChange re-pushes once', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const onShellChange = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc, onShellChange });
+    expect(w.shellAvailability(a)).toEqual({ available: false, why: 'Checking sandbox' });
+    await vi.waitFor(() => expect(onShellChange).toHaveBeenCalledWith(a));
+    expect(w.shellAvailability(a).available).toBe(true);
+    expect(onShellChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop and remove mark the cached shell availability stale, so the next read probes again', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const onShellChange = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc, onShellChange });
+    w.shellAvailability(a);
+    await vi.waitFor(() => expect(onShellChange).toHaveBeenCalledTimes(1));
+    const lsCalls = () => proc.calls.filter((c) => c.args[0] === 'ls').length;
+    const before = lsCalls();
+    w.shellAvailability(a);
+    expect(lsCalls()).toBe(before);
+    await w.stop(a);
+    w.shellAvailability(a);
+    await vi.waitFor(() => expect(lsCalls()).toBeGreaterThan(before));
+    const afterStop = lsCalls();
+    await w.remove(a);
+    w.shellAvailability(a);
+    await vi.waitFor(() => expect(lsCalls()).toBeGreaterThan(afterStop));
+  });
+
   it('palette command target (F5): an argument passes through untouched', async () => {
     const { w } = wiring();
     await expect(w.commandTarget(42, 'sync')).resolves.toBe(42);
