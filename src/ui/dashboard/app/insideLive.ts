@@ -7,7 +7,7 @@
  */
 import type { InsideProgressEvent, LiveOperationView } from '../../../model/inside/progress.js';
 import type { InsideProcessView, InsideStageView } from '../../../model/inside/types.js';
-import type { LiveClocks } from '../liveTick.js';
+import type { LiveClocks, ProcessClocks } from '../liveTick.js';
 import type { DashboardState } from '../state.js';
 
 /** The transient overlays of one stage: the live header (`active`) and the row that replaces a snapshot's (`completed`). */
@@ -91,8 +91,23 @@ export function applyClocks(state: DashboardState, clocks: LiveClocks): Dashboar
       ...view,
       clock: c.clock,
       live: view.live && c.live !== undefined ? { ...view.live, duration: c.live } : view.live,
-      processes: view.processes.map((p) => (c.processes[p.id] ? { ...p, ...c.processes[p.id] } : p)),
+      processes: view.processes.map((p) => (c.processes[p.id] ? mergeProcessClocks(p, c.processes[p.id]!) : p)),
     };
   }
   return { ...state, insideViews: views as DashboardState['insideViews'] };
+}
+
+/** One running process with its own clocks, those of its evidence rows and the age of its graph nodes merged in, by index. */
+function mergeProcessClocks(p: InsideProcessView, c: ProcessClocks): InsideProcessView {
+  const { rows, nodes, ...own } = c;
+  const ev = p.evidence;
+  if (!ev || !('rows' in ev) || (!rows && !nodes)) return { ...p, ...own };
+  const merged = {
+    ...ev,
+    rows: rows ? ev.rows.map((r, i) => (rows[i] ? { ...r, ...rows[i] } : r)) : ev.rows,
+  };
+  if (ev.kind === 'rows' && ev.nodes && nodes) {
+    return { ...p, ...own, evidence: { ...merged, nodes: ev.nodes.map((n, i) => (nodes[i] ? { ...n, ...nodes[i] } : n)) } as typeof ev };
+  }
+  return { ...p, ...own, evidence: merged as typeof ev };
 }

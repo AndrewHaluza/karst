@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "command", "command": "karst.openDashboard", "args": [1] },
+    { "type": "read" },
+    { "type": "click", "target": { "act": "unpause-execution" }, "timeoutMs": 3000 }
+  ]
+}

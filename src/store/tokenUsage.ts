@@ -631,6 +631,73 @@ export function summarizeRecordedTokenUsageForProcess(
   return { total: row.total, cacheRead: row.cache_read, estimatedCalls: row.estimated_calls };
 }
 
+/** The ledger's spend of a chosen set of calls: measured and estimated rows stay apart. */
+export interface ScopedRecordedUsage extends ProcessRecordedUsage {
+  /** Sum of the ESTIMATED calls' tokens — never folded into `total`. */
+  estimatedTotal: number;
+}
+
+const SCOPED_SELECT = `SELECT COALESCE(SUM(CASE WHEN estimated = 0 THEN total_tokens ELSE 0 END), 0) AS total,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN cache_read_tokens ELSE 0 END), 0) AS cache_read,
+              COALESCE(SUM(CASE WHEN estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_calls,
+              COALESCE(SUM(CASE WHEN estimated = 1 THEN total_tokens ELSE 0 END), 0) AS estimated_total
+         FROM token_usage`;
+
+interface ScopedRow {
+  total: number;
+  cache_read: number;
+  estimated_calls: number;
+  estimated_total: number;
+}
+
+function scopedUsage(row: ScopedRow): ScopedRecordedUsage {
+  return {
+    total: row.total,
+    cacheRead: row.cache_read,
+    estimatedCalls: row.estimated_calls,
+    estimatedTotal: row.estimated_total,
+  };
+}
+
+/**
+ * Spend of exactly the given process runs (the attempt or round a row shows),
+ * so a pill agrees with the row's own time and duration. Read only; it never
+ * writes a ledger row.
+ */
+export function summarizeRecordedTokenUsageForRuns(
+  store: Store,
+  ticketId: number,
+  processRunIds: readonly number[],
+): ScopedRecordedUsage {
+  if (processRunIds.length === 0) return scopedUsage({ total: 0, cache_read: 0, estimated_calls: 0, estimated_total: 0 });
+  const marks = processRunIds.map(() => '?').join(', ');
+  const row = store.db
+    .prepare(`${SCOPED_SELECT} WHERE ticket_id = ? AND process_run_id IN (${marks})`)
+    .get(ticketId, ...processRunIds) as ScopedRow;
+  return scopedUsage(row);
+}
+
+/**
+ * Spend of one graph run: its planner runs and node runs. The graph runtime
+ * links spend by `approach_planner_run_id` and `approach_node_run_id`, never by
+ * `process_run_id`.
+ */
+export function summarizeRecordedTokenUsageForGraphRun(
+  store: Store,
+  ticketId: number,
+  graphRunId: number,
+): ScopedRecordedUsage {
+  const row = store.db
+    .prepare(
+      `${SCOPED_SELECT}
+        WHERE ticket_id = ?
+          AND (approach_planner_run_id IN (SELECT id FROM approach_planner_runs WHERE graph_run_id = ?)
+            OR approach_node_run_id IN (SELECT id FROM approach_node_runs WHERE graph_run_id = ?))`,
+    )
+    .get(ticketId, graphRunId, graphRunId) as ScopedRow;
+  return scopedUsage(row);
+}
+
 /** Measured spend of one ticket, grouped by the inside role that spent it. */
 export interface RecordedRoleUsage {
   /** `implementation` | `quality` | `ship` — the receipt's role breakdown. */

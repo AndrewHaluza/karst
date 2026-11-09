@@ -80,6 +80,8 @@ export interface InsideViewsInput {
   marks: readonly PhaseMark[];
   assignmentFor: (processId: 'session' | 'tester' | 'review') => SessionConfiguredInput | null;
   tokensFor: (processId: string) => SessionTokensInput | null;
+  /** The ledger read for the exact process runs a row shows (@arch:AC-14). Wins over `tokensFor` for the round-scoped rows. */
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
   attach: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
   gateRuns: QualityProcessesInput['gateRuns'];
   findings: QualityProcessesInput['findings'];
@@ -148,6 +150,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     marks,
     assignmentFor,
     tokensFor,
+    tokensForRuns,
     attach,
     gateRuns,
     findings,
@@ -183,7 +186,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     scope: stageView(
       'scope',
       cellOf('scope'),
-      scopeProcesses(cellOf('scope'), selectedRepos, worktrees, now, processRuns, tokensFor('prefill')),
+      scopeProcesses(cellOf('scope'), selectedRepos, worktrees, now, processRuns, tokensFor('prefill'), tokensForRuns),
       now,
     ),
     impl: stageView(
@@ -234,6 +237,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         now,
         configured: assignmentFor('tester'),
         tokens: tokensFor('tester'),
+        ...(tokensForRuns ? { tokensForRuns } : {}),
         attach,
         resolvedGates: resolvedGates?.uat ?? [],
         // The gate rows name the service the way Settings names it, never the
@@ -262,6 +266,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         now,
         configured: assignmentFor('review'),
         tokens: tokensFor('review'),
+        ...(tokensForRuns ? { tokensForRuns } : {}),
         attach,
         resolvedGates: resolvedGates?.review ?? [],
         repoNameFor,
@@ -290,6 +295,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         repoNameFor,
         processRuns,
         tokens: tokensFor('pr-description'),
+        ...(tokensForRuns ? { tokensForRuns } : {}),
         findings: shipFindings,
         findingsBlockingSeverity,
         autofix: autofix ?? null,
@@ -332,8 +338,9 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
  * running process, else the first waiting one. Nothing here is new information
  * — every field comes from a row already in the ledger below — which is what
  * makes it safe as the header's fallback when no ephemeral progress event has
- * arrived (a reopened panel, a window that missed the events). A settled stage
- * has no live line at all.
+ * arrived (a reopened panel, a window that missed the events). It carries no
+ * `detail`: the row below already shows that text, and the header must not
+ * become a second process row. A settled stage has no live line at all.
  */
 function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | undefined {
   const active =
@@ -342,7 +349,6 @@ function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | unde
   return {
     status: active.status === 'run' ? 'run' : 'wait',
     label: active.label,
-    ...(active.detail ? { detail: active.detail } : {}),
     ...(active.duration ? { duration: active.duration } : {}),
   };
 }

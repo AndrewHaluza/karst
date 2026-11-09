@@ -7,12 +7,30 @@ export type WaitCondition =
   | { webviewMessage: string }
   | { launch: { provider?: string } };
 
+/** `webview` is the Karst panel (the `vscode-webview` frames); `workbench` is the VS Code window itself (native prompts). */
+export type UiSurface = 'webview' | 'workbench';
+export type UiClickTarget =
+  | { act: string }
+  | { quickPick: string }
+  | { selector: string; surface: UiSurface };
+export type UiTypeTarget = { quickInput: true } | { selector: string; surface: UiSurface };
+
 export type Step =
   | { type: 'command'; command: string; args?: unknown[]; timeoutMs?: number }
   | { type: 'wait'; for: WaitCondition; timeoutMs?: number }
   | { type: 'snapshot'; label?: string }
   /** Deactivate + activate the extension in the same host, so boot sweeps run against the seeded state. */
-  | { type: 'restart'; timeoutMs?: number };
+  | { type: 'restart'; timeoutMs?: number }
+  /** UI steps: driven by the Playwright process over CDP (arch:UATHOST-02). Only a script with one opens the CDP port. */
+  | { type: 'click'; target: UiClickTarget; timeoutMs?: number }
+  | { type: 'type'; text: string; target: UiTypeTarget; submit?: boolean; timeoutMs?: number }
+  | { type: 'press'; key: string; timeoutMs?: number }
+  | { type: 'read'; timeoutMs?: number };
+
+export type UiStep = Extract<Step, { type: 'click' | 'type' | 'press' | 'read' }>;
+export const UI_STEP_TYPES: ReadonlyArray<Step['type']> = ['click', 'type', 'press', 'read'];
+
+export const isUiStep = (s: Step): s is UiStep => UI_STEP_TYPES.includes(s.type);
 
 export const DEFAULT_STEP_TIMEOUT_MS = 10_000;
 export const MAX_STEP_TIMEOUT_MS = 60_000;
@@ -57,6 +75,85 @@ function parseTimeout(raw: Record<string, unknown>, at: string, maxMs: number): 
   return Math.min(t, maxMs);
 }
 
+/** A `data-act` value and a key chord are plain tokens; anything else could escape the selector built from it. */
+const ACT_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+const KEY_PATTERN = /^[A-Za-z0-9]+(\+[A-Za-z0-9]+)*$/;
+
+function refuseUnknownKeys(raw: Record<string, unknown>, allowed: readonly string[], at: string): void {
+  const extra = Object.keys(raw).filter((k) => !allowed.includes(k));
+  if (extra.length > 0) throw new Error(`${at}: unknown field "${extra[0]}"`);
+}
+
+function nonEmptyString(v: unknown, what: string, at: string): string {
+  if (typeof v !== 'string' || v === '') throw new Error(`${at}: ${what} needs a non-empty string`);
+  return v;
+}
+
+function parseSurface(raw: Record<string, unknown>, at: string): UiSurface {
+  const surface = raw['surface'];
+  if (surface !== 'webview' && surface !== 'workbench') throw new Error(`${at}: selector target needs surface "webview" or "workbench"`);
+  return surface;
+}
+
+function parseClickTarget(v: unknown, at: string): UiClickTarget {
+  if (!isObj(v)) throw new Error(`${at}: "target" must be an object`);
+  if ('act' in v) {
+    refuseUnknownKeys(v, ['act'], `${at} target`);
+    const act = nonEmptyString(v['act'], 'target.act', at);
+    if (!ACT_PATTERN.test(act)) throw new Error(`${at}: target.act must be a plain data-act token`);
+    return { act };
+  }
+  if ('quickPick' in v) {
+    refuseUnknownKeys(v, ['quickPick'], `${at} target`);
+    return { quickPick: nonEmptyString(v['quickPick'], 'target.quickPick', at) };
+  }
+  if ('selector' in v) {
+    refuseUnknownKeys(v, ['selector', 'surface'], `${at} target`);
+    return { selector: nonEmptyString(v['selector'], 'target.selector', at), surface: parseSurface(v, at) };
+  }
+  throw new Error(`${at}: click target must be one of act, quickPick, selector`);
+}
+
+function parseTypeTarget(v: unknown, at: string): UiTypeTarget {
+  if (!isObj(v)) throw new Error(`${at}: "target" must be an object`);
+  if ('quickInput' in v) {
+    refuseUnknownKeys(v, ['quickInput'], `${at} target`);
+    if (v['quickInput'] !== true) throw new Error(`${at}: target.quickInput must be true`);
+    return { quickInput: true };
+  }
+  if ('selector' in v) {
+    refuseUnknownKeys(v, ['selector', 'surface'], `${at} target`);
+    return { selector: nonEmptyString(v['selector'], 'target.selector', at), surface: parseSurface(v, at) };
+  }
+  throw new Error(`${at}: type target must be one of quickInput, selector`);
+}
+
+function parseUiStep(type: UiStep['type'], raw: Record<string, unknown>, at: string, withTimeout: { timeoutMs?: number }): UiStep {
+  switch (type) {
+    case 'click':
+      refuseUnknownKeys(raw, ['type', 'target', 'timeoutMs'], at);
+      return { type, target: parseClickTarget(raw['target'], at), ...withTimeout };
+    case 'type': {
+      refuseUnknownKeys(raw, ['type', 'text', 'target', 'submit', 'timeoutMs'], at);
+      const submit = raw['submit'];
+      if (submit !== undefined && typeof submit !== 'boolean') throw new Error(`${at}: submit must be a boolean`);
+      return { type, text: nonEmptyString(raw['text'], 'text', at), target: parseTypeTarget(raw['target'], at), ...(submit === undefined ? {} : { submit }), ...withTimeout };
+    }
+    case 'press': {
+      refuseUnknownKeys(raw, ['type', 'key', 'timeoutMs'], at);
+      const key = nonEmptyString(raw['key'], 'key', at);
+      if (!KEY_PATTERN.test(key)) throw new Error(`${at}: key must be a key name or a chord like Control+Shift+P`);
+      return { type, key, ...withTimeout };
+    }
+    case 'read':
+      refuseUnknownKeys(raw, ['type', 'timeoutMs'], at);
+      return { type, ...withTimeout };
+  }
+}
+
+/** True when the script needs the Playwright driver (and so the CDP port). */
+export const hasUiStep = (steps: readonly Step[]): boolean => steps.some(isUiStep);
+
 /** Steps are data, never code: every field is validated and unknown step types are refused. */
 export function parseSteps(json: unknown, maxStepMs: number = MAX_STEP_TIMEOUT_MS): Step[] {
   const list = isObj(json) ? json['steps'] : json;
@@ -79,6 +176,11 @@ export function parseSteps(json: unknown, maxStepMs: number = MAX_STEP_TIMEOUT_M
         return { type: 'snapshot', ...(typeof raw['label'] === 'string' ? { label: raw['label'] } : {}) };
       case 'restart':
         return { type: 'restart', ...withTimeout };
+      case 'click':
+      case 'type':
+      case 'press':
+      case 'read':
+        return parseUiStep(raw['type'], raw, at, withTimeout);
       default:
         throw new Error(`${at}: unknown step type "${String(raw['type'])}"`);
     }

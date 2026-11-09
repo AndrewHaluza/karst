@@ -36,10 +36,15 @@ export function buildAttach(
   };
 }
 
-// Recorded token summaries per process and per role — a process whose calls
-// were all estimates reads as absent, never as a measured free call. The
-// estimate COUNT rides beside the measured total as a separate fact (a core
-// that fell back to estimates stays visible, never folded into the total).
+// Recorded token summary per PROCESS — the Session row's reading, and the
+// fallback for a row that has no run to scope to. The round-scoped rows
+// (Tester, Review, Fix, Graph, PR description, Ticket analysis) read the
+// ledger by the exact runs they show (`runsTokens`, @arch:AC-14), so they
+// follow the round tab. A process whose calls were all estimates still reads
+// as absent HERE, because this reading predates the estimate mark; the
+// scoped reads show it as a marked estimate (`~Σ`, title 'estimated').
+// The estimate COUNT rides beside the measured total as a separate fact (a
+// core that fell back to estimates stays visible, never folded into the total).
 // Gated on FRESH spend, not the raw tally: the pill headlines fresh (see
 // `tokenView`), so a process whose every recorded token was a cache READ has
 // a raw total > 0 but nothing fresh, and admitting it here renders a
@@ -139,6 +144,7 @@ export function serviceStatusViews(
     status: s.status === 'running' || s.status === 'failed' ? s.status : 'stopped',
     host: s.host,
     port: s.port,
+    startedAt: s.startedAt,
     ...(s.status === 'failed' && serviceFailureReason !== null
       ? { reason: serviceFailureReason }
       : {}),

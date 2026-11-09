@@ -46,6 +46,7 @@ function Deps({ draft }: { readonly draft: PlanningProposalRow }) {
           refView={x}
           linkTarget="chip"
           dataAct="open-dashboard"
+          showKey={false}
           onClick={(e) => {
             if (x.ticketId !== null) {
               fire({ act: 'open-dashboard', id: Number(x.ticketId) }, e.currentTarget, e);

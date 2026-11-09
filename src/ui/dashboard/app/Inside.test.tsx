@@ -62,6 +62,24 @@ describe('Inside — the shell', () => {
     expect(q('.vbar')).toBeNull();
   });
 
+  it('shows no viewing bar on the stage a fix round presents', () => {
+    mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'uat' }));
+    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(q('.vbar')).toBeNull();
+    cleanupInside();
+    mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'review' }));
+    expect(q('.vbar')).toBeNull();
+  });
+
+  it('names the presented stage in Back when a fix round shows another stage', () => {
+    mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'uat', views: { scope: view('scope', { title: 'Scope' }) } }), { persisted: { sel: 'scope' } });
+    expect(text(must('.vbar > span'))).toBe('Viewing Scope — not the current stage.');
+    expect(text(must('.vbar [data-back]'))).toBe('Back to UAT');
+    cleanupInside();
+    mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'review', views: { scope: view('scope', { title: 'Scope' }) } }), { persisted: { sel: 'scope' } });
+    expect(text(must('.vbar [data-back]'))).toBe('Back to Review');
+  });
+
   it('keeps the selection across a snapshot, a live repaint and a clocks repaint', () => {
     const h = mountInside(insideState({ stageCurrent: 'impl' }), { persisted: { sel: 'uat' } });
     h.emit({ type: 'state', state: insideState({ stageCurrent: 'impl' }) } as HostMessage);

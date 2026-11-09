@@ -91,6 +91,42 @@ describe('recoveryProcess', () => {
     );
   });
 
+  it('the Fix row carries the spend of the latest round\'s fix process run only (problem 2)', () => {
+    const early = fixRun({ id: 70 });
+    const late = fixRun({ id: 71 });
+    const seen: number[][] = [];
+    const view = recoveryProcess(
+      [round({ id: 1, fixProcessRunId: 70 }), round({ id: 2, fixProcessRunId: 71 })],
+      [early, late],
+      NOW,
+      undefined,
+      undefined,
+      (runs) => {
+        seen.push(runs.map((r) => r.id));
+        return { total: 2_500 };
+      },
+    );
+    expect(seen).toEqual([[71]]);
+    expect(view!.process.tokens).toMatchObject({ state: 'measured', total: '2.5k' });
+  });
+
+  it('a running fix with no count yet reads pending, and a round with no fix run has no pill', () => {
+    const running = fixRun({ id: 72, status: 'running', endedAt: null });
+    const pending = recoveryProcess(
+      [round({ id: 3, fixProcessRunId: 72 })],
+      [running],
+      NOW,
+      undefined,
+      undefined,
+      () => ({ total: 0, pending: true }),
+    );
+    expect(pending!.process.tokens).toMatchObject({ state: 'pending' });
+    const none = recoveryProcess([round({ id: 4, fixProcessRunId: null })], [], NOW, undefined, undefined, () => {
+      throw new Error('must not read the ledger for no run');
+    });
+    expect(none!.process.tokens).toBeUndefined();
+  });
+
   it('names the LATEST round as the trigger process', () => {
     const view = recoveryProcess(
       [
@@ -230,6 +266,13 @@ describe('recoveryProcess', () => {
     const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
     expect(view.process.duration).toBe('30.0s');
     expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
+  });
+
+  it('shows no duration for a stale fix run, and a growing one only while it runs', () => {
+    const stale = fixRun({ id: 7, status: 'stale', endedAt: null });
+    expect(recoveryProcess([round({ fixProcessRunId: 7 })], [stale], NOW)!.process.duration).toBeUndefined();
+    const live = fixRun({ id: 8, status: 'running', endedAt: null });
+    expect(recoveryProcess([round({ fixProcessRunId: 8 })], [live], NOW)!.process.duration).toBe('25m 0s');
   });
 
   it('shows the fix execution identity the round recorded', () => {

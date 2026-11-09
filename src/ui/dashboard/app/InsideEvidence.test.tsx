@@ -289,7 +289,7 @@ describe('Evidence — the delivery receipt', () => {
     expect(text(log!.querySelector('.ev-tail button'))).toBe('Open log');
     expect(log!.querySelector('.done-state')).toBeNull();
     expect(commit!.querySelector('.done-state')!.textContent).toBe('10:00 · passed');
-    expect(text(commit!.querySelector('.done-state .ev-time'))).toBe('10:00');
+    expect(text(commit!.querySelector('.done-state .ev-time'))).toBe('10:00 · ');
   });
 
   it('renders a receipt with no hero, blocks or timing as the plain line list behind Details', () => {
@@ -365,6 +365,16 @@ describe('Evidence — the session timeline', () => {
     expect(tails[0]!.querySelector('.token-stat')!.textContent).toBe('Σ1k tok');
     expect(tails[1]!.querySelector('.token-stat')!.textContent).toBe('Σ2k tok');
     expect(tails[2]!.querySelector('.token-stat')).toBeNull();
+  });
+
+  it('draws the bounded remainder as an overflow note below the rail, with its button, not as a rail row', () => {
+    const more = { status: 'note', label: 'more', detail: '+3 more', role: 'event', action: link('x:more', 'open-full-evidence') };
+    withEvidence({ kind: 'timeline', rows: [...rows, more] });
+    expect(all('.session-segments > .timeline-row').length).toBe(rows.length);
+    const note = must('.session-segments + .overflow-note');
+    expect(text(note.querySelector('span'))).toBe('+3 more');
+    expect(note.querySelector('[data-act="inside-action"]')).not.toBeNull();
+    expect(all('.session-segments .phase-row').map((r) => text(r.querySelector('.phase-name')))).toEqual(['Plan', 'Implement', 'Test']);
   });
 
   it('draws the same rail from the fixture corpus with every host string escaped', () => {

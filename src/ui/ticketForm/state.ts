@@ -1,6 +1,7 @@
 import type { TicketFormPrefill } from './panel.js';
 import type { Store } from '../../store/db.js';
-import { getTicket } from '../../store/tickets.js';
+import { getTicket, type Ticket } from '../../store/tickets.js';
+import { getProposalForTicket } from '../../store/planningProposals.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
 import { listAttachments } from '../../store/attachments.js';
 import { attachmentPath } from '../../attachments/paths.js';
@@ -140,6 +141,21 @@ export type BriefSource =
   | { kind: 'provider'; provider: string }
   | { kind: 'draft'; draftId: number }
   | { kind: 'manual' };
+
+/**
+ * Where a stored brief came from. A bound `sourceRef` alone does not mean the
+ * provider holds the brief: creating the provider task sends only the title
+ * and description, so only a fetch (`sourceFetchedAt`) makes it `provider`.
+ */
+function briefSourceOf(
+  store: Store,
+  ticket: Pick<Ticket, 'id' | 'sourceFetchedAt'>,
+  provider: TicketProvider,
+): BriefSource {
+  if (ticket.sourceFetchedAt !== null) return { kind: 'provider', provider };
+  const draft = getProposalForTicket(store, ticket.id);
+  return draft?.status === 'accepted' ? { kind: 'draft', draftId: draft.id } : { kind: 'manual' };
+}
 
 export interface TicketFormState {
   mode: 'create' | 'edit';
@@ -529,7 +545,7 @@ export function buildTicketFormState(
     description: ticket.description ?? '',
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
-    briefSource: ticket.sourceRef ? { kind: 'provider', provider } : { kind: 'manual' },
+    briefSource: briefSourceOf(store, ticket, provider),
     briefFetchedAt: ticket.sourceFetchedAt,
     intent: ticket.intent,
     codePointers: ticket.codePointers,

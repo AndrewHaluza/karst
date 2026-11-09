@@ -47,7 +47,7 @@ describe('ticket ids agents are shown resolve back', () => {
     const project = upsertProject(store, { slug: SLUG });
     createTicket(store, { key: 'RT-3', title: 'x', projectId: project.id });
     expect(() => resolveTicketByKey(store, 'D5', SLUG)).toThrow(/T<n>/);
-    const bad = validateProposal({ title: 'a', description: 'b', summary: 'c', repos: ['api'], dependsOn: ['T5'] });
+    const bad = validateProposal({ title: 'a', description: 'b', summary: 'c', repos: ['api'], dependsOn: ['P5'] });
     expect(bad.ok).toBe(false);
     expect(!bad.ok && bad.reason).toMatch(/D<n>/);
     expect(() => parseId('D5', 'ticket')).toThrow(/T<n>/);

@@ -66,6 +66,23 @@ export const STAGE_BLURBS: Readonly<Record<StageKey, string>> = {
     'Resolved outside karst: the reason was recorded by a person and nothing here was verified. Reopen to bring it back to implementation.',
 };
 
+/** Epoch ms of a persisted instant; a SQLite `YYYY-MM-DD HH:MM:SS` is UTC.
+ *  NaN when absent or unparseable. */
+export function instantMs(at: string | null): number {
+  if (!at) return NaN;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(at) ? `${at.replace(' ', 'T')}Z` : at;
+  return Date.parse(iso);
+}
+
+/**
+ * The end of a run for its duration: the recorded end, else `now` ONLY while the
+ * run is `running`. A stale or interrupted run with no end has no duration — a
+ * span growing toward `now` would state a fact nobody measured.
+ */
+export function runEnd(run: { status: string; endedAt: string | null }, now: string): string | null {
+  return run.endedAt ?? (run.status === 'running' ? now : null);
+}
+
 /**
  * A span as a person reads it. Sub-minute keeps a decimal because gate times
  * live there; above a minute the decimal is noise.
@@ -75,7 +92,7 @@ export function formatDuration(
   endedAt: string | null | undefined,
 ): string {
   if (!startedAt || !endedAt) return '';
-  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  const ms = instantMs(endedAt) - instantMs(startedAt);
   if (!Number.isFinite(ms) || ms < 0) return '';
   return formatSpanMs(ms);
 }
@@ -105,7 +122,7 @@ export function formatExactDuration(
   endedAt: string | null | undefined,
 ): string {
   if (!startedAt || !endedAt) return '';
-  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  const ms = instantMs(endedAt) - instantMs(startedAt);
   if (!Number.isFinite(ms) || ms < 0) return '';
   return `${(ms / 1000).toFixed(3)}s`;
 }
@@ -113,7 +130,7 @@ export function formatExactDuration(
 /** Time of day, in the reader's own locale. Empty for an unparseable stamp. */
 export function formatTime(at: string | null | undefined): string {
   if (!at) return '';
-  const d = new Date(at);
+  const d = new Date(instantMs(at));
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
 }
 
@@ -124,7 +141,7 @@ export function formatTime(at: string | null | undefined): string {
  */
 export function formatShortTime(at: string | null | undefined): string {
   if (!at) return '';
-  const d = new Date(at);
+  const d = new Date(instantMs(at));
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -348,8 +365,19 @@ export type InsideEvidenceTarget =
  * ordinary prompt caching. Absent `cacheRead` = nothing was served from cache.
  */
 export type TokenUsageView =
-  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
-  | { state: 'estimated'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
+  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string; title?: string }
+  | {
+      state: 'estimated';
+      total: string;
+      exact?: string;
+      cacheRead?: string;
+      cacheReadExact?: string;
+      /** Every counted call was an estimate: the pill draws the `~` mark. */
+      estimateOnly?: boolean;
+      title?: string;
+    }
+  /** A run is going and its count arrives at the end of the call — never "0 tok". */
+  | { state: 'pending'; label: string; title: string }
   | { state: 'unavailable'; title: string };
 
 /** One line inside a process's evidence block. */

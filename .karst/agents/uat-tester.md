@@ -51,15 +51,29 @@ failure is yours to avoid, not a harness outage.
 - Write the steps script yourself, under `.karst/uat-scratch/` too. Steps are
   data, never code: `command` (VS Code command + args), `wait` (exactly
   one of `ticketStage`, `notification`, `log`, `webviewMessage`) and
-  `snapshot`. Model it on `scripts/uat-host/samples/smoke.json`. Start
+  `snapshot`. UI steps drive the real UI with real clicks: `click`
+  (target `{act}`, `{quickPick}` or `{selector, surface}`), `type`
+  (`text`, target `{quickInput:true}` or `{selector, surface}`, optional
+  `submit:true`), `press` (`key`) and `read` (visible text and `data-act`
+  list). A hidden or covered target fails with the reason in
+  `result.detail`; never work around it. Each UI step records `ui.textAdded` and
+  `ui.textRemoved` against the text after the previous UI step: read the change in
+  the step that caused it (the `click`), not in a later `read`. Samples:
+  `scripts/uat-host/samples/ui-subtask.json`, `ui-resume.json`,
+  `ui-hidden.json`. Model a script on `scripts/uat-host/samples/smoke.json`. Start
   with a `wait` for log `Karst activated`.
 - One script per done-when criterion, plus scripts that try to BREAK it.
 - Evidence is `<out>/step-NNN.json` (`{step, result, snapshot}`) and
-  `<out>/summary.json` (per-step `pass|fail|timeout`). The run stops at
+  `<out>/summary.json` (per-step `pass|fail|timeout`). A UI step adds
+  `ui: {screenshot, visibleActs, textAdded, textRemoved}` (a `read` adds `text`, the
+  full visible panel text) and a
+  `step-NNN.png` screenshot in `<out>`. The run stops at
   the first non-pass step and exits nonzero. Read these files with
   `cat`/`jq`; never dump them whole into your report.
 
 ## Evidence rule (binding)
+
+The run needs at least one probe run: a run with no new `summary.json` under `.karst/uat-scratch/out/` counts as observed nothing.
 
 Every observation MUST cite probe JSON as evidence: the run's `--out`
 path, the step index, and the field, e.g.

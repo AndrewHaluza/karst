@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { setStage } from '../../store/stages.js';
 import { buildTicketFormState } from './state.js';
+import { upsertProject } from '../../store/projects.js';
+import { createPlanningSession } from '../../store/planningSessions.js';
+import { insertProposal, markProposalAccepted } from '../../store/planningProposals.js';
 import {
   createTicket,
   deleteTicket,
@@ -239,6 +242,24 @@ describe('buildTicketFormActions', () => {
     // busy on/off + brief posted
     expect(posted.find((m) => m.type === 'brief')).toBeTruthy();
     expect(getTicket(store, t.id).brief).toContain('Login modal');
+  });
+
+  it('fetchSource keeps the planning section of a ticket made from a draft, once, after each refetch', async () => {
+    const projectId = upsertProject(store, { slug: 'plan-p' }).id;
+    const sessionId = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const draftId = insertProposal(store, sessionId, { title: 't', description: 'd', summary: 'plan summary', repos: [] });
+    const t = createTicket(store, { key: 'P-2', title: 't', projectId });
+    markProposalAccepted(store, draftId, t.id);
+    const section = `## Planning brief\nplan summary\n\nPlanned in P${sessionId} as D${draftId}.`;
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+
+    await actions.fetchSource('CU-9');
+    await actions.fetchSource('CU-9');
+
+    const brief = getTicket(store, t.id).brief ?? '';
+    expect(brief).toContain('Login modal');
+    expect(brief.endsWith(`\n\n${section}`)).toBe(true);
+    expect(brief.split('## Planning brief').length).toBe(2);
   });
 
   describe('attachBriefAttachment', () => {

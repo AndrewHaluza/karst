@@ -550,6 +550,42 @@ describe('buildDashboardState', () => {
     });
   });
 
+  describe('round-scoped Inside pills (T1041)', () => {
+    function usage(runId: number, ticketId: number, total: number, estimated = false) {
+      recordTokenUsage(store, {
+        projectId: null, ticketId, processRunId: runId, callSite: 'uat-tester',
+        provider: 'claude', outcome: 'ok', recordedAt: '2026-08-01T10:01:00.000Z',
+        usage: { inputTokens: total, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0,
+                 cacheWriteTokens: 0, totalTokens: total, model: null, estimated },
+      });
+    }
+    const tester = (state: ReturnType<typeof buildDashboardState>) =>
+      state.insideViews.uat.processes.find((p) => p.id === 'tester')!;
+
+    it('a running tester run with no ledger row reads pending, never 0 tok', () => {
+      const t = createTicket(store, { key: 'TK-P1', title: 'running' });
+      openProcessRun(store, {
+        ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 0,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      expect(tester(buildDashboardState(store, t.id)).tokens).toMatchObject({
+        state: 'pending', label: 'Σ counted at end',
+      });
+    });
+
+    it('an estimate-only tester run shows the estimate, not an absent pill', () => {
+      const t = createTicket(store, { key: 'TK-P2', title: 'estimate' });
+      const run = openProcessRun(store, {
+        ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 0,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      usage(run.id, t.id, 3700, true);
+      expect(tester(buildDashboardState(store, t.id)).tokens).toMatchObject({
+        state: 'estimated', estimateOnly: true, total: '3.7k',
+      });
+    });
+  });
+
   it('shows the resolved agent core/model and enables switching', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
@@ -2092,6 +2128,31 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
     expect(uat.processes.find((p) => p.id === 'tester')!.status).toBe('run');
     expect(uat.live).toMatchObject({ status: 'run', label: 'Tester' });
+  });
+
+  it('the live header never copies the active row text (the row is the ledger of record)', () => {
+    const ticketId = ticketAt('uat');
+    setStage(store, ticketId, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    const gates = uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.detail).toBeTruthy();
+    expect(uat.live).toMatchObject({ status: 'run', label: 'Gates' });
+    expect(uat.live).not.toHaveProperty('detail');
   });
 
   it('omits the live line for a stage with nothing running or waiting', () => {

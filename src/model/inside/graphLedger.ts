@@ -267,14 +267,6 @@ export function nodeListView(
   };
 }
 
-/** Epoch ms of a persisted instant; a SQLite `YYYY-MM-DD HH:MM:SS` is UTC.
- *  NaN when absent or unparseable. */
-export function instantMs(at: string | null): number {
-  if (!at) return NaN;
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(at) ? `${at.replace(' ', 'T')}Z` : at;
-  return Date.parse(iso);
-}
-
 export interface LedgerEntry {
   at: string | null;
   row: GraphNodeListRow;

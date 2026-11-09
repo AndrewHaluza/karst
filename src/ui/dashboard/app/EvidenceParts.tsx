@@ -8,23 +8,19 @@
  * keeps the grid's column alignment.
  */
 import type { EvidenceRow } from '../../../model/inside/types.js';
+import { RowTimingCells } from './InsideClocks.js';
 import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
 export function EvGlyph({ r }: { readonly r: Pick<EvidenceRow, 'status'> }) {
-  return <span className="ev-glyph">{r.status ? <span className={`glyph ${r.status}`} aria-label={statusWord(r.status)} /> : null}</span>;
+  return <span className="ev-glyph">{r.status ? <span className={`glyph ${r.status}`} role="img" aria-label={statusWord(r.status)} /> : null}</span>;
 }
 
-export function EvTiming({ r, cls }: { readonly r: EvidenceRow; readonly cls: string }) {
-  // Two fixed columns, always both emitted (empty when absent), so every row of a level lines up (UI-R41).
+export function EvTiming({ r, cls, stage, id, index }: { readonly r: EvidenceRow; readonly cls: string; readonly stage: string; readonly id: string; readonly index: number }) {
+  // Two fixed columns, always both emitted (empty when absent), so every row of a level lines up (UI-R41). The clock text is a ticking leaf.
   return (
     <span className={r.status ? `${cls} ${r.status}` : cls}>
-      <span className="ev-time" title={r.status && r.time ? `started ${r.time}` : undefined}>
-        {r.status ? r.time || null : null}
-      </span>
-      <span className="ev-dur" title={(r.status && [r.durationExact, r.time ? `started ${r.time}` : ''].filter(Boolean).join(' · ')) || undefined}>
-        {r.status ? r.duration || null : null}
-      </span>
+      <RowTimingCells stage={stage} id={id} index={index} status={r.status} />
     </span>
   );
 }

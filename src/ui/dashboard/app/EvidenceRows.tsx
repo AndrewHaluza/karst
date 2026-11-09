@@ -17,7 +17,7 @@ const rowKey = (r: EvidenceRow): string => r.label;
 
 type Of<K extends ProcessEvidenceView['kind']> = Extract<ProcessEvidenceView, { kind: K }>;
 
-export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
+export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceView; readonly stage: string; readonly id: string }) {
   const shown = useDagShown();
   const rich = ev.kind === 'rows' ? ev : null;
   const hasDag = !!(rich?.dag && rich.dag.columns && rich.dag.columns.length);
@@ -26,10 +26,10 @@ export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
       {rich?.nodes && rich.nodes.length ? (
         <>
           {hasDag ? <GraphViewToggle /> : null}
-          {hasDag && shown && rich.dag ? <GraphDag dag={rich.dag} /> : <GraphNodeList nodes={rich.nodes} />}
+          {hasDag && shown && rich.dag ? <GraphDag dag={rich.dag} /> : <GraphNodeList nodes={rich.nodes} stage={stage} id={id} />}
         </>
       ) : null}
-      {withKeys(ev.rows, rowKey).map(([key, r]) => (
+      {withKeys(ev.rows, rowKey).map(([key, r], index) => (
         <div className="evidence-row" key={key}>
           <EvGlyph r={r} />
           <span className="ev-key">{r.label}</span>
@@ -38,7 +38,7 @@ export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
             <PrState state={r.prState} />
           </span>
           <EvAction r={r} />
-          <EvTiming r={r} cls="ev-state" />
+          <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />
         </div>
       ))}
     </>
@@ -46,19 +46,19 @@ export function EvidenceRows({ ev }: { readonly ev: ProcessEvidenceView }) {
 }
 
 /** The recorded repository is its own column. A body whose rows name none (pre-v21 gate rows) drops the column instead of drawing it empty. */
-export function EvidenceGates({ ev }: { readonly ev: Of<'gates'> }) {
+export function EvidenceGates({ ev, stage, id }: { readonly ev: Of<'gates'>; readonly stage: string; readonly id: string }) {
   const hasRepo = ev.rows.some((r) => !!r.repo);
   return (
     <>
     {ev.caption ? <p className="gates-caption">{ev.caption}</p> : null}
     <div className={`gates${hasRepo ? '' : ' no-repo'}`}>
-      {withKeys(ev.rows, (r) => `${r.repo ?? ''}/${r.label}`).map(([key, r]) => (
+      {withKeys(ev.rows, (r) => `${r.repo ?? ''}/${r.label}`).map(([key, r], index) => (
         <div className={`gate-row${r.status === 'run' ? ' active' : ''}`} key={key}>
           <EvGlyph r={r} />
           {hasRepo ? <span className="gate-repo">{r.repo || ''}</span> : null}
           <span className="gate-name">{r.label}</span>
           <span className="gate-detail">{r.detail || ''}</span>
-          <EvTiming r={r} cls="gate-state" />
+          <EvTiming r={r} cls="gate-state" stage={stage} id={id} index={index} />
         </div>
       ))}
     </div>

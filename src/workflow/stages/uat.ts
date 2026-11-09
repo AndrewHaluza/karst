@@ -957,6 +957,8 @@ export async function runUat(
           tokenBudget: opts.manifest?.uat?.tester?.tokenBudget,
           // Absent → 'pass': a skipped run is recorded and UAT passes on, as today.
           onSkip: testerOnSkip,
+          // Opt-in probe-evidence check; absent → no check.
+          requireEvidence: opts.manifest?.uat?.testerObservations?.requireEvidence,
         },
         { now },
       );

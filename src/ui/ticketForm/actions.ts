@@ -4,6 +4,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief, BriefAttachment } from '../../integrations/ticketing.js';
 import { renderBrief } from '../../integrations/briefMarkdown.js';
+import { planningBriefSection } from '../../store/planningProposals.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import {
@@ -883,7 +884,10 @@ export function buildTicketFormActions(
         // Spill oversized provider content to the attachment shelf at ingest
         // so every downstream read site sees bounded text.  `spillField`
         // writes the pointer directly; only pass fields it did NOT handle.
-        const renderedBrief = renderBrief(brief);
+        // A ticket made from a planning draft keeps its planning section: the
+        // provider never holds it, so a plain overwrite would lose it.
+        const planning = planningBriefSection(deps.store, ctx.ticketId!);
+        const renderedBrief = planning ? `${renderBrief(brief)}\n\n${planning}` : renderBrief(brief);
         const briefSpilled = await spillField(
           deps.store, ctx.ticketId!, 'brief', renderedBrief, deps.storageDir,
         );

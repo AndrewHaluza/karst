@@ -11,6 +11,7 @@ import type {
   UatRepositoryOverride,
   UatTesterConfig,
   UatTesterObservationsConfig,
+  UatTesterRequireEvidence,
 } from '../types.js';
 
 // Imported, not mirrored: the Settings React app renders the same defaults and
@@ -219,11 +220,39 @@ function validateTesterObservations(raw: unknown): UatTesterObservationsConfig |
     }
     blockingSeverity = raw.blockingSeverity as Severity | 'none';
   }
-  if (raw.onSkip === undefined) return { blockingSeverity };
-  if (typeof raw.onSkip !== 'string' || !ON_SKIP_VALUES.includes(raw.onSkip as OnSkipValue)) {
-    throw new ManifestError('uat.testerObservations.onSkip must be one of: pass, reask, reask-then-park');
+  const config: UatTesterObservationsConfig = { blockingSeverity };
+  if (raw.onSkip !== undefined) {
+    if (typeof raw.onSkip !== 'string' || !ON_SKIP_VALUES.includes(raw.onSkip as OnSkipValue)) {
+      throw new ManifestError('uat.testerObservations.onSkip must be one of: pass, reask, reask-then-park');
+    }
+    config.onSkip = raw.onSkip as OnSkipValue;
   }
-  return { blockingSeverity, onSkip: raw.onSkip as OnSkipValue };
+  const requireEvidence = validateRequireEvidence(raw.requireEvidence);
+  if (requireEvidence !== undefined) config.requireEvidence = requireEvidence;
+  return config;
+}
+
+/** A repo-relative glob: a non-empty string, not absolute, no `..` segment. */
+function validateRelativeGlob(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ManifestError(`${path} must be a non-empty string`);
+  }
+  if (value.startsWith('/') || value.split('/').includes('..')) {
+    throw new ManifestError(`${path} must be a repo-relative glob (no leading "/" and no ".." segment)`);
+  }
+  return value;
+}
+
+function validateRequireEvidence(raw: unknown): UatTesterRequireEvidence | undefined {
+  if (raw === undefined) return undefined;
+  const base = 'uat.testerObservations.requireEvidence';
+  if (!isObject(raw)) throw new ManifestError(`${base} must be a mapping`);
+  const file = validateRelativeGlob(raw.file, `${base}.file`);
+  if (!Array.isArray(raw.whenChanged) || raw.whenChanged.length === 0) {
+    throw new ManifestError(`${base}.whenChanged must be a non-empty list of globs`);
+  }
+  const whenChanged = raw.whenChanged.map((g, i) => validateRelativeGlob(g, `${base}.whenChanged[${i}]`));
+  return { file, whenChanged };
 }
 
 type OnSkipValue = NonNullable<UatTesterObservationsConfig['onSkip']>;

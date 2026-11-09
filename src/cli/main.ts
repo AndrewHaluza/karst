@@ -32,6 +32,7 @@ import { runPauseCommand } from './pauseCommand.js';
 import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
+import { parseQueueArgs, runQueueCommand } from './queueCommand.js';
 import { KARST_DB_READONLY_ENV, KARST_MANIFEST_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
 import { BLOCKING_SEVERITIES, reviewBlockingFloor } from '../manifest/qualityDefaults.js';
 import { getProjectById, getProjectBySlug } from '../store/projects.js';
@@ -65,7 +66,7 @@ function writeManifestDiagnostics(diagnostics: readonly string[]): void {
 }
 
 /** The verbs a planning session may run: reads, plus the `manifest` and `draft` parse paths. */
-const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocked', 'guide', 'schema', 'manifest', 'draft']);
+const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocked', 'queue', 'guide', 'schema', 'manifest', 'draft']);
 
 /**
  * A planning session may run only the read verbs, and `notes --repos` (the read
@@ -81,7 +82,7 @@ export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | 
   const mcpServe = verb === 'mcp' && rest[1] === 'serve';
   if (PLANNING_VERBS.has(verb) || notesRead || mcpServe) return;
   throw new Error(
-    `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, guide, schema, notes --repos)`,
+    `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, queue, guide, schema, notes --repos)`,
   );
 }
 
@@ -141,6 +142,7 @@ function loadProjectSlug(
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
  *   blocked:  `… blocked [--kind <kind>] [--json] --db <db>` (read-only; a planning session uses KARST_DB_READONLY)
+ *   queue:    `… queue [--json] --db <db>` (read-only; pending drafts + scope tickets of one project)
  *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--planning] [--json]`
  *             the orchestration effectiveness report (read-only, node:sqlite):
  *             first-pass rate, rework loops, gate kills, cycle time, spend, and
@@ -401,6 +403,22 @@ export function runCli(
         ...(projectId === undefined ? {} : { projectId }),
         ...(stallFloor === undefined ? {} : { stallFloor }),
       });
+    } finally {
+      store.close();
+    }
+  }
+
+  // `queue` is READ-ONLY like `blocked`, scoped to ONE project: the manifest's
+  // when `--manifest` is given, else the host's `KARST_PROJECT`.
+  if (subcommand === 'queue') {
+    if (!readDb) throw new Error('missing --db <path>');
+    const parsed = parseQueueArgs(effectiveRest);
+    const slug = loadProjectSlug(manifestPath, verbose);
+    const store = openReadonlyStore(readDb);
+    try {
+      const projectId = slug === undefined ? projectIdFromEnv(env) : getProjectBySlug(store, slug)?.id;
+      if (projectId === undefined) throw new Error('queue needs a project: pass --manifest or run it inside a planning session');
+      return runQueueCommand(store, parsed, { projectId });
     } finally {
       store.close();
     }
@@ -722,7 +740,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'queue', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 

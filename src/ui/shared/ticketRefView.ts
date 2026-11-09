@@ -13,6 +13,8 @@ export interface TicketRefDisplayTextParts {
   readonly key: string | null;
   /** Stage word when applicable, e.g. 'impl', 'done', 'closed', or null. */
   readonly stage: string | null;
+  /** Cross-session label (`P43`) for a planning dependency, or null. */
+  readonly session: string | null;
 }
 
 export interface TicketRefView {
@@ -43,6 +45,8 @@ export interface TicketRefInput {
   readonly glyph?: Glyph | null;
   readonly accessibleName?: string | null;
   readonly label?: string | null;
+  /** Cross-session label (`P43`) for a planning dependency, or null. */
+  readonly sessionLabel?: string | null;
 }
 
 function isTicketWithStages(val: unknown): val is TicketWithStages {
@@ -79,6 +83,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
       id: idLabel,
       key,
       stage,
+      session: opts.sessionLabel ?? null,
     };
     let accessibleName: string;
     if (opts.accessibleName) {
@@ -120,6 +125,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
       id: idLabel,
       key,
       stage,
+      session: opts.sessionLabel ?? null,
     };
     return {
       id: draftId ?? ticketId,
@@ -143,6 +149,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
       id: idLabel,
       key: null,
       stage: null,
+      session: opts.sessionLabel ?? null,
     };
     return {
       id: draftId,
@@ -165,6 +172,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
     id: rawRef,
     key: null,
     stage: null,
+    session: null,
   };
   return {
     id: null,
@@ -207,6 +215,7 @@ export function formatTicketRefText(view: TicketRefView, options: { prefix?: str
     view.displayTextParts.id,
     showKey && view.displayTextParts.key ? view.displayTextParts.key : null,
     view.displayTextParts.stage,
+    view.displayTextParts.session,
   ].filter(Boolean);
   return `${prefix}● ${parts.join(' · ')}`;
 }
@@ -226,6 +235,7 @@ export function renderTicketRefHtml(view: TicketRefView, options: TicketRefRende
   const idText = view.displayTextParts.id;
   const keyPart = showKey && view.displayTextParts.key ? ` · ${escapeHtml(view.displayTextParts.key)}` : '';
   const stagePart = view.displayTextParts.stage ? ` · ${escapeHtml(view.displayTextParts.stage)}` : '';
+  const sessionPart = view.displayTextParts.session ? ` · ${escapeHtml(view.displayTextParts.session)}` : '';
 
   let idHtml = escapeHtml(idText);
   if (link && view.ticketId !== null) {
@@ -234,5 +244,5 @@ export function renderTicketRefHtml(view: TicketRefView, options: TicketRefRende
 
   const titleAttr = tooltip ? ` title="${escapeHtml(tooltip)}"` : '';
   const prefixHtml = prefix ? `<span>${escapeHtml(prefix)}</span>` : '';
-  return `<span class="k-ticket-ref" aria-label="${escapeHtml(view.accessibleName)}"${titleAttr}>${prefixHtml}<span class="k-ticket-ref-dot g-${escapeHtml(view.glyph)}" aria-hidden="true"></span><span>${idHtml}${keyPart}${stagePart}</span></span>`;
+  return `<span class="k-ticket-ref" aria-label="${escapeHtml(view.accessibleName)}"${titleAttr}>${prefixHtml}<span class="k-ticket-ref-dot g-${escapeHtml(view.glyph)}" aria-hidden="true"></span><span>${idHtml}${keyPart}${stagePart}${sessionPart}</span></span>`;
 }

@@ -127,6 +127,26 @@ describe('liveClocks', () => {
     });
     expect(clocks.scope).toEqual({ clock: 'has not run yet', processes: {} });
   });
+
+  it('carries the clocks of a running process\'s evidence rows and graph nodes, by index, and nothing of a settled one', () => {
+    const rows = [{ label: 'a', status: 'run', duration: '2s', durationExact: '2.0s', time: '12:00:01' }, { label: 'b', status: 'pass', duration: '1s' }];
+    const nodes = [{ nodeId: 'n', age: '3m' }];
+    const state = stateWith({
+      impl: view({
+        processes: [
+          { id: 'graph', kind: 'graph', label: 'Graph', status: 'run', evidence: { kind: 'rows', rows, nodes } },
+          { id: 'gates', kind: 'gates', label: 'Gates', status: 'pass', evidence: { kind: 'gates', rows } },
+        ] as never,
+      }),
+    });
+    const clocks = liveClocks(state).impl!;
+    expect(Object.keys(clocks.processes)).toEqual(['graph']);
+    expect(clocks.processes.graph!.rows).toEqual([
+      { time: '12:00:01', duration: '2s', durationExact: '2.0s' },
+      { time: undefined, duration: '1s', durationExact: undefined },
+    ]);
+    expect(clocks.processes.graph!.nodes).toEqual([{ age: '3m' }]);
+  });
 });
 
 describe('changedPaths', () => {

@@ -8,6 +8,7 @@ import {
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
+  runEnd,
 } from './types.js';
 import { bounded } from './bounds.js';
 import { reviewProcesses, uatProcesses } from './gates.js';
@@ -100,9 +101,11 @@ function prefillProcess(
   runs: readonly ProcessRun[],
   tokens: SessionTokensInput | null | undefined,
   now: string,
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null,
 ): InsideProcessView | null {
   const run = latestPrefillRun(runs);
   if (!run) return null;
+  const shown = tokensForRuns ? tokensForRuns([run]) : tokens;
   const status: InsideStatus =
     run.status === 'passed'
       ? 'pass'
@@ -126,13 +129,13 @@ function prefillProcess(
             : 'analysis interrupted — no outcome',
     ...(run.startedAt
       ? {
-          duration: formatDuration(run.startedAt, run.endedAt ?? now),
-          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
+          ...(runEnd(run, now) ? { duration: formatDuration(run.startedAt, runEnd(run, now)), durationExact: formatExactDuration(run.startedAt, runEnd(run, now)) } : {}),
           time: formatTime(run.startedAt),
         }
       : {}),
     ...(run.provider ? { execution: executionView(run.provider, run.model) } : {}),
-    ...(tokens ? { tokens: tokenView(tokens) } : {}),
+    ...(shown ? { tokens: tokenView(shown) } : {}),
     evidence: { kind: 'rows', rows: [] },
   };
 }
@@ -155,6 +158,7 @@ export function scopeProcesses(
   now: string,
   processRuns?: readonly ProcessRun[],
   tokens?: SessionTokensInput | null,
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null,
 ): InsideProcessView[] {
   const count = selectedRepos.length;
   const ran = cell.status !== 'pending';
@@ -223,7 +227,7 @@ export function scopeProcesses(
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const prefill = prefillProcess(processRuns ?? [], tokens, now);
+  const prefill = prefillProcess(processRuns ?? [], tokens, now, tokensForRuns);
   return [
     ...(prefill ? [prefill] : []),
     hotSet,

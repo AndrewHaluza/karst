@@ -51,7 +51,8 @@ function legacyDepView(raw: Record<string, unknown>): TicketRefView | null {
   const accessibleName = stage && (stage === 'done' || stage === 'closed')
     ? `${draftLabel}, ticket ${ticketLabel ?? raw.ticketId} ${stage}`
     : `${draftLabel}, ticket ${ticketLabel ?? raw.ticketId} in ${stage || 'progress'}`;
-  return ticketRefView({ ticketId: raw.ticketId, draftId, draftLabel, idLabel: ticketLabel, stage, glyph, accessibleName });
+  const sessionLabel = typeof raw.sessionLabel === 'string' ? raw.sessionLabel : null;
+  return ticketRefView({ ticketId: raw.ticketId, draftId, draftLabel, idLabel: ticketLabel, stage, glyph, accessibleName, sessionLabel });
 }
 
 /**
@@ -89,6 +90,7 @@ export function TicketRefChip({
   const dot = <span className={`k-ticket-ref-dot g-${refView.glyph}`} aria-hidden="true" />;
   const keyPart = showKey && refView.displayTextParts.key ? ` · ${refView.displayTextParts.key}` : '';
   const stagePart = refView.displayTextParts.stage ? ` · ${refView.displayTextParts.stage}` : '';
+  const sessionPart = refView.displayTextParts.session ? ` · ${refView.displayTextParts.session}` : '';
   const idText = refView.displayTextParts.id;
 
   // Whole-chip link: the planning draft dependency reveals its draft card. Only
@@ -103,7 +105,7 @@ export function TicketRefChip({
       <button type="button" className={cls} tabIndex={-1} {...dataProps} aria-label={refView.accessibleName} title={tooltip} onClick={onClick}>
         {prefix ? <span>{prefix}</span> : null}
         {dot}
-        <span>{`${idText}${keyPart}${stagePart}`}</span>
+        <span>{`${idText}${keyPart}${stagePart}${sessionPart}`}</span>
       </button>
     );
   }
@@ -131,6 +133,7 @@ export function TicketRefChip({
         {idNode}
         {keyPart}
         {stagePart}
+        {sessionPart}
       </span>
     </span>
   );

@@ -77,6 +77,11 @@ export interface ShipProcessesInput {
   /** Recorded spend of the PR-description process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
   /**
+   * The ledger read for the `pr-description` run the row shows (the latest).
+   * Wins over `tokens` when given, so the pill agrees with the row's own run.
+   */
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
+  /**
    * The ticket's latest review-findings batch (`latestFindingBatch`). Read
    * here only to surface unresolved blocking severities as a warning row —
    * ship has no `failed` edge (graph.ts), so this is the human's only signal
@@ -690,7 +695,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     recorded,
   );
   const merged = current.filter(isMerged).length;
-  const open = current.length - merged;
+  const open = current.filter((p) => !isMerged(p) && p.status !== 'closed').length;
   // NO merged/open chip on this row. The Merge process directly beneath it
   // exists to answer "has this landed", and it already states `1/2 merged` —
   // two rows claiming the same landing count is the duplication being removed.
@@ -712,6 +717,11 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
           .join(' · ')
       : undefined;
   const describeRun = latestProcessRun(input.processRuns ?? [], 'pr-description');
+  const describeTokens = input.tokensForRuns
+    ? describeRun
+      ? input.tokensForRuns([describeRun])
+      : null
+    : input.tokens;
   return {
     id: 'pr',
     kind: 'pr',
@@ -723,7 +733,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     // The AI identity that wrote the descriptions — recorded at ship time,
     // never the current settings.
     ...(describeRun?.provider ? { execution: executionView(describeRun.provider, describeRun.model) } : {}),
-    ...(input.tokens ? { tokens: tokenView(input.tokens) } : {}),
+    ...(describeTokens ? { tokens: tokenView(describeTokens) } : {}),
     evidence: {
       kind: 'prs',
       rows,
@@ -792,6 +802,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
         ...row,
         label: `${name} · draft`,
         detail: number ? `${number} · draft — not merged yet` : 'draft — not merged yet',
+        ...(check?.checkedAt ? { time: formatTime(check.checkedAt) } : {}),
+      };
+    }
+    if (pr.status === 'closed') {
+      return {
+        ...row,
+        label: `${name} · closed`,
+        detail: number ? `${number} · closed without merging` : 'closed without merging',
         ...(check?.checkedAt ? { time: formatTime(check.checkedAt) } : {}),
       };
     }

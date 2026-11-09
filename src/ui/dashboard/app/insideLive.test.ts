@@ -95,6 +95,19 @@ describe('applyClocks', () => {
     expect(nv.processes[1]).toMatchObject({ time: 't1', duration: '9s', durationExact: '9.1s', status: 'run' });
   });
 
+  it('merges evidence row clocks and node ages by index into new objects, keeping every other field', () => {
+    const ev = { kind: 'rows', rows: [{ label: 'a', status: 'run', duration: '1s' }, { label: 'b', status: 'pass', duration: '2s' }], nodes: [{ nodeId: 'n', age: '1m', identity: 'x' }] };
+    const v = view({ processes: [{ id: 'tester', kind: 'graph', label: 'T', status: 'run', evidence: ev }] as never });
+    const c = { uat: { clock: '9s', processes: { tester: { rows: [{ duration: '7s' }], nodes: [{ age: '5m' }] } } } };
+    const next = applyClocks(stateOf(v), c as never);
+    const merged = viewsOf(next).uat!.processes[0]!.evidence as typeof ev;
+    expect(merged.rows[0]).toEqual({ label: 'a', status: 'run', duration: '7s' });
+    expect(merged.rows[1]).toBe(ev.rows[1]);
+    expect(merged.nodes[0]).toEqual({ nodeId: 'n', age: '5m', identity: 'x' });
+    expect(merged).not.toBe(ev);
+    expect(ev.rows[0]!.duration).toBe('1s');
+  });
+
   it('leaves a view without a live line, and stages the clocks do not name, alone', () => {
     const state = stateOf(view());
     const next = applyClocks(state, { review: { clock: 'x', processes: {} } } as never);

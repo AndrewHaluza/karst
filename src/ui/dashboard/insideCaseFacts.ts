@@ -3,7 +3,7 @@ import type { StageKey, StageStatus } from '../../model/types.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { ResolvedGate, ServiceStatusView } from '../../model/inside/gates.js';
-import type { SessionConfiguredInput } from '../../model/inside/agent.js';
+import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { StageRun } from '../../store/stageRuns.js';
@@ -28,6 +28,8 @@ export const CASE_WEB = '/wt/web';
 export const CASE_API = '/wt/api';
 
 export interface CaseFacts {
+  /** The ledger read for the runs a row shows; absent → no pill. */
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
   cells?: Partial<Record<StageKey, Partial<StepperCell>>>;
   stageCurrent?: StageKey;
   gateRuns?: readonly GateRun[];
@@ -188,6 +190,7 @@ export function buildCaseViews(facts: CaseFacts): Record<InsideStageKey, InsideS
     marks: [],
     assignmentFor: () => CASE_CONFIGURED,
     tokensFor: () => null,
+    ...(facts.tokensForRuns ? { tokensForRuns: facts.tokensForRuns } : {}),
     attach: () => undefined,
     gateRuns,
     findings: facts.findings ?? [],

@@ -258,6 +258,23 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
     expect(uatOf(probe).testerObservations).toEqual({ blockingSeverity: 'low', onSkip: 'reask-then-park' });
   });
 
+  const EVIDENCE = { file: 'out/**/summary.json', whenChanged: ['src/ui/**'] };
+
+  it('keeps requireEvidence when onSkip is edited', () => {
+    const { probe } = mountQuality(
+      stateWith({
+        uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none', requireEvidence: EVIDENCE } }),
+      }),
+    );
+    expect(document.querySelector('[name="uatTesterRequireEvidence"]')).toBeNull();
+    fireEvent.change(field('uatTesterOnSkip'), { target: { value: 'reask' } });
+    expect(uatOf(probe).testerObservations).toEqual({
+      blockingSeverity: 'none',
+      onSkip: 'reask',
+      requireEvidence: EVIDENCE,
+    });
+  });
+
   it('keeps the findings controls live when findings are off', () => {
     mountQuality();
     // Unlike the tester toggle, `f-findingsEnabled` hides nothing — the

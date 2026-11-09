@@ -1195,7 +1195,7 @@ describe('testerTargets running services', () => {
     status: string,
     host: string | null,
     port: number | null,
-  ): ServerView => ({ id: 1, ticketId: 1, service, host, port, status, logPath: '/log' });
+  ): ServerView => ({ id: 1, ticketId: 1, service, host, port, status, logPath: '/log', startedAt: null });
 
   it('lists the target repository RUNNING services as repo/service → url, from the server rows', () => {
     const [target] = testerTargets(

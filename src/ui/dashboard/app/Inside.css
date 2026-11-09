@@ -106,7 +106,7 @@
    one process row. Absent entirely whenever the host omits `view.attempts`
    or ships fewer than 2 (UI-R31: the host states the fact — nothing here
    recomputes attempt count). */
-#inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s1);flex-wrap:nowrap;overflow:hidden;min-height:var(--k-control-h-sm);
+#inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s1);flex-wrap:wrap;overflow:visible;min-height:var(--k-control-h-sm);
   padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border);
   background:var(--p-surface2)}
 /* A real <button role="tab">, not a styled <a> or <div> (UI-R09): it is
@@ -141,7 +141,7 @@
    composes no copy of its own), the selected round's caption, one line under the tabs. */
 #inside .attempt-note{padding:var(--p-s2) var(--p-s4);color:var(--p-attention);
   font-size:var(--p-sm);border-bottom:var(--k-border-w) solid var(--p-border);
-  background:var(--p-tint-wait);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  background:var(--p-tint-wait);white-space:normal;overflow-wrap:anywhere}
 
 /* Agent identity primitive */
 #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;

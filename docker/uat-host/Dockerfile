@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /work
 ENV UAT_VSCODE_CACHE=/vscode-cache
+ENV UAT_HOST_CONTAINER=1
 COPY docker/uat-host/entrypoint.sh /usr/local/bin/uat-entrypoint.sh
 # Source and node_modules are mounted/built at run time (see docker.mjs); the image holds only the OS layer.
 ENTRYPOINT ["bash", "-lc", "exec bash /usr/local/bin/uat-entrypoint.sh \"$@\"", "--"]

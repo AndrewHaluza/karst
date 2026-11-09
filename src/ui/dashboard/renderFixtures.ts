@@ -771,7 +771,7 @@ function uatView(n: RenderRepoCount): InsideStageView {
         id: 'services',
         kind: 'services',
         label: 'Services',
-        status: 'note',
+        status: 'pass',
         detail: repoNames(n).join(' · '),
       },
       {
@@ -851,8 +851,8 @@ export function gatesRunningMidListFixture(): InsideRenderFixture {
           kind: 'gates',
           label: 'Gates',
           status: 'run',
-          detail: '2/2 command gates passed so far',
-          count: '2/2',
+          detail: '2/4 command gates passed so far',
+          count: '2/4',
           evidence: {
             kind: 'gates',
             rows: [
@@ -1151,6 +1151,7 @@ function populatedServers(): ServerView[] {
       port: 5173,
       status: 'running',
       logPath: 'fixture:logs/web.log',
+      startedAt: '2026-07-20T12:00:05.000Z',
     },
     {
       id: 2,
@@ -1160,6 +1161,7 @@ function populatedServers(): ServerView[] {
       port: 4000,
       status: 'running',
       logPath: 'fixture:logs/api.log',
+      startedAt: '2026-07-20T12:00:05.000Z',
     },
   ];
 }

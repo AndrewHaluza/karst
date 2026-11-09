@@ -14,6 +14,7 @@ import {
   discardProposal,
   countPending,
   markProposalAccepted,
+  planningBriefSection,
   proposalPayloadEquals,
   setProposalWarnings,
   validateProposalDependsOn,
@@ -151,7 +152,7 @@ describe('planning proposals', () => {
       `CREATE TABLE planning_proposals (
          id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
          payload_json TEXT NOT NULL, base_shas TEXT NOT NULL DEFAULT '{}', depends_on TEXT NOT NULL DEFAULT '[]',
-         depends_dropped TEXT NOT NULL DEFAULT '[]',
+         depends_on_tickets TEXT NOT NULL DEFAULT '[]', depends_dropped TEXT NOT NULL DEFAULT '[]',
          status TEXT NOT NULL DEFAULT 'pending',
          ticket_id INTEGER, source_uuid TEXT NOT NULL DEFAULT '',
          created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -181,7 +182,7 @@ describe('planning proposals', () => {
     expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id, baseShas: { repoA: 'sha123' } });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.brief).toContain(`P${sessionId}`);
     expect(saved.brief).toContain(`D${id}`);
     expect(saved.source).toBe('planning');
@@ -189,21 +190,64 @@ describe('planning proposals', () => {
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
 
-  it('markProposalAccepted keeps a brief the ticket already has (but still records the origin)', () => {
+  it('wraps an existing brief as the planning section when the ticket was never fetched', () => {
     const id = insertProposal(store, sessionId, payload);
     const t = createTicket(store, { key: 'K-2', title: 'saved', projectId });
+    // What the review form's bind seeds: the proposal summary (plus constraints).
     updateTicketFields(store, t.id, { brief: 'user wrote this' });
     markProposalAccepted(store, id, t.id);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe(`user wrote this\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toBe(`## Planning brief\nuser wrote this\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.source).toBe('planning');
+  });
+
+  it('keeps a fetched provider brief first and puts only the summary under the heading', () => {
+    const id = insertProposal(store, sessionId, payload);
+    const t = createTicket(store, { key: 'K-2b', title: 'saved', projectId });
+    updateTicketFields(store, t.id, { brief: '# Provider\n\nbody', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+    markProposalAccepted(store, id, t.id);
+    expect(getTicket(store, t.id)!.brief).toBe(
+      `# Provider\n\nbody\n\n## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`,
+    );
   });
 
   it('markProposalAccepted gives an empty-summary draft a brief that is just the origin line', () => {
     const id = insertProposal(store, sessionId, { ...payload, summary: '  ' });
     const t = createTicket(store, { key: 'K-3', title: 'saved', projectId });
     markProposalAccepted(store, id, t.id);
-    expect(getTicket(store, t.id)!.brief).toBe(`Planned in P${sessionId} as D${id}.`);
+    expect(getTicket(store, t.id)!.brief).toBe(`## Planning brief\nPlanned in P${sessionId} as D${id}.`);
+  });
+
+  describe('planningBriefSection', () => {
+    it('returns the planning section of an accepted ticket, from its heading to the end', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-4', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: `# Provider\n\nbody\n\n## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.` });
+      expect(planningBriefSection(store, t.id)).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
+    });
+
+    it('wraps the whole brief of a never-fetched ticket accepted before the heading existed', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-5', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: `sum\n\nPlanned in P${sessionId} as D${id}.` });
+      expect(planningBriefSection(store, t.id)).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
+    });
+
+    it('returns null for a fetched brief with no planning heading', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-6', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: '# Provider only', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+      expect(planningBriefSection(store, t.id)).toBeNull();
+    });
+
+    it('returns null for a ticket made by hand', () => {
+      const t = createTicket(store, { key: 'K-7', title: 'hand', projectId });
+      updateTicketFields(store, t.id, { brief: 'typed' });
+      expect(planningBriefSection(store, t.id)).toBeNull();
+    });
   });
 
   it('stores dependsOn and replaces (or clears) it on revise', () => {
@@ -221,22 +265,120 @@ describe('planning proposals', () => {
     expect(proposalPayloadEquals({ ...payload, dependsOn: [1] }, { ...payload, dependsOn: [2] })).toBe(false);
   });
 
-  it('validateProposalDependsOn rejects unknown, foreign and discarded ids, and cycles', () => {
+  it('validateProposalDependsOn rejects unknown, other-project and discarded ids, and cycles', () => {
     const a = insertProposal(store, sessionId, payload);
     const other = createPlanningSession(store, { projectId, title: 'o2', core: 'claude', model: null }).id;
-    const foreign = insertProposal(store, other, payload);
+    const sibling = insertProposal(store, other, payload);
+    const otherProject = upsertProject(store, { slug: 'q' }).id;
+    const foreign = insertProposal(
+      store,
+      createPlanningSession(store, { projectId: otherProject, title: 'f', core: 'claude', model: null }).id,
+      payload,
+    );
     const gone = insertProposal(store, sessionId, payload);
     discardProposal(store, gone);
 
     expect(validateProposalDependsOn(store, sessionId, undefined, [a])).toBeUndefined();
-    expect(validateProposalDependsOn(store, sessionId, undefined, [999])).toMatch(/not a proposal of this session/);
-    expect(validateProposalDependsOn(store, sessionId, undefined, [foreign])).toMatch(/not a proposal of this session/);
+    // A draft of ANOTHER session of the same project is valid.
+    expect(validateProposalDependsOn(store, sessionId, undefined, [sibling])).toBeUndefined();
+    expect(validateProposalDependsOn(store, sessionId, undefined, [999])).toMatch(/not a proposal of this project/);
+    expect(validateProposalDependsOn(store, sessionId, undefined, [foreign])).toMatch(/not a proposal of this project/);
     expect(validateProposalDependsOn(store, sessionId, undefined, [gone])).toMatch(/discarded/);
 
     // b waits on a; revising a to wait on b would close a→b→a.
     const b = insertProposal(store, sessionId, { ...payload, dependsOn: [a] });
     expect(validateProposalDependsOn(store, sessionId, undefined, [b])).toBeUndefined();
     expect(validateProposalDependsOn(store, sessionId, a, [b])).toMatch(/cycle/);
+  });
+
+  describe('cross-session and ticket dependencies', () => {
+    let other: number;
+    beforeEach(() => {
+      other = createPlanningSession(store, { projectId, title: 'o', core: 'claude', model: null }).id;
+    });
+    const mk = (key: string, extra = ''): number => {
+      const id = createTicket(store, { key, title: key, projectId }).id;
+      if (extra) store.db.prepare(`UPDATE tickets SET ${extra} WHERE id = ?`).run(id);
+      return id;
+    };
+
+    it('stores T<n> entries in depends_on_tickets and merges them back after the draft ids', () => {
+      const t = mk('K1');
+      const d = insertProposal(store, other, payload);
+      const id = insertProposal(store, sessionId, { ...payload, dependsOn: [`T${t}`, d] });
+      const row = store.db.prepare('SELECT depends_on, depends_on_tickets FROM planning_proposals WHERE id = ?').get(id);
+      expect(row).toEqual({ depends_on: JSON.stringify([d]), depends_on_tickets: JSON.stringify([t]) });
+      expect(getProposal(store, id)!.payload.dependsOn).toEqual([d, `T${t}`]);
+      updateProposalPayload(store, id, { ...payload, dependsOn: [`T${t}`] });
+      expect(getProposal(store, id)!.payload.dependsOn).toEqual([`T${t}`]);
+      updateProposalPayload(store, id, { ...payload });
+      expect(getProposal(store, id)!.payload.dependsOn).toBeUndefined();
+    });
+
+    it('accepts a ticket of the project and refuses a missing, foreign, archived or done one', () => {
+      const open = mk('OPEN');
+      const done = mk('DONE', "stage_current = 'done'");
+      const archived = mk('ARC', "archived_at = datetime('now')");
+      const closed = mk('CLO', "stage_current = 'closed'");
+      const subtask = mk('SUB', `subtask_parent_id = ${open}`);
+      const foreignProject = upsertProject(store, { slug: 'q' }).id;
+      const foreign = createTicket(store, { key: 'F', title: 'f', projectId: foreignProject }).id;
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${open}`])).toBeUndefined();
+      expect(validateProposalDependsOn(store, sessionId, undefined, ['T999'])).toBe('dependsOn T999 is not a ticket of this project');
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${foreign}`])).toMatch(/not a ticket of this project/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${archived}`])).toMatch(/archived/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${done}`])).toMatch(/already done/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${closed}`])).toMatch(/already closed/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${subtask}`])).toMatch(/subtask/);
+    });
+
+    it('finds a cycle that runs through a ticket relation and through an accepted draft', () => {
+      // T waits on pending draft d; a new draft that d would wait on T closes d→T→d.
+      const d = insertProposal(store, other, payload);
+      const t = mk('K2');
+      markProposalAccepted(store, insertProposal(store, other, { ...payload, dependsOn: [d] }), t);
+      expect(validateProposalDependsOn(store, sessionId, d, [`T${t}`])).toMatch(/cycle/);
+      // Through an accepted draft: D9 became T, and T waits on d, so d waiting on D9 is a cycle.
+      const accepted = insertProposal(store, other, payload);
+      const t2 = mk('K3');
+      markProposalAccepted(store, accepted, t2);
+      const waiting = insertProposal(store, sessionId, { ...payload, dependsOn: [accepted] });
+      expect(validateProposalDependsOn(store, sessionId, accepted, [waiting])).toMatch(/cycle/);
+    });
+
+    it('accept turns a T<n> entry into a blocked-by row with source agent, and a cross-session draft into a link', () => {
+      const t = mk('K4');
+      const sibling = insertProposal(store, other, payload);
+      const p = insertProposal(store, sessionId, { ...payload, dependsOn: [sibling, `T${t}`] });
+      const mine = mk('K5');
+      markProposalAccepted(store, p, mine);
+      const rels = listRelations(store, mine).filter((r) => r.kind === 'blocked-by');
+      expect(rels).toHaveLength(2);
+      expect(rels).toContainEqual(expect.objectContaining({ targetProposalId: sibling, targetTicketId: null, source: 'agent' }));
+      expect(rels).toContainEqual(expect.objectContaining({ targetTicketId: t, source: 'agent' }));
+      // Accepting the sibling later converts the link, whatever the session.
+      const sibTicket = mk('K6');
+      markProposalAccepted(store, sibling, sibTicket);
+      expect(listRelations(store, mine).filter((r) => r.targetTicketId === sibTicket)).toHaveLength(1);
+    });
+
+    it('discard reaches dependents in OTHER sessions (pending warning, accepted prune, relation rows)', () => {
+      const target = insertProposal(store, sessionId, payload);
+      const pendingDependent = insertProposal(store, other, { ...payload, dependsOn: [target] });
+      const acceptedDependent = insertProposal(store, other, { ...payload, dependsOn: [target] });
+      const t = mk('K7');
+      markProposalAccepted(store, acceptedDependent, t);
+      const keepTicket = mk('K8');
+      const mixed = insertProposal(store, other, { ...payload, dependsOn: [target, `T${keepTicket}`] });
+
+      expect(discardProposal(store, target)).toEqual([pendingDependent, mixed]);
+      expect(getProposal(store, pendingDependent)!.droppedDepends).toEqual([target]);
+      expect(getProposal(store, pendingDependent)!.payload.dependsOn).toBeUndefined();
+      expect(getProposal(store, acceptedDependent)!.payload.dependsOn).toBeUndefined();
+      // The ticket entry survives the prune of a draft entry.
+      expect(getProposal(store, mixed)!.payload.dependsOn).toEqual([`T${keepTicket}`]);
+      expect(listRelations(store, t)).toEqual([]);
+    });
   });
 
   it('accept resolves a dependency to a proposal link regardless of accept order', () => {

@@ -9,7 +9,7 @@
  */
 import { useMemo } from 'react';
 import { TokenPill } from './InsideParts.js';
-import { liveDuration, pickDuration, pickTime, pickTokens, rowField, stageClock, timelineTokens } from './insideSlices.js';
+import { liveDuration, nodeAge, pickDuration, pickTime, pickTokens, rowField, rowTiming, stageClock, timelineTokens } from './insideSlices.js';
 import { useSlice } from './useSlice.js';
 
 /** The header's `started 12:23:06 · 51.7s`. */
@@ -57,4 +57,26 @@ export function RowTokens({ stage, id }: { readonly stage: string; readonly id: 
 export function TimelineTokens({ stage, id, index }: { readonly stage: string; readonly id: string; readonly index: number }) {
   const t = useSlice(useMemo(() => timelineTokens(stage, id, index), [stage, id, index]));
   return <TokenPill t={t?.tokens} live={t?.live ?? false} />;
+}
+
+/** The two timing cells of one evidence row (UI-R41: both always emitted, empty when absent). Only a row with a status shows them. */
+export function RowTimingCells({ stage, id, index, status }: { readonly stage: string; readonly id: string; readonly index: number; readonly status: string | undefined }) {
+  const t = useSlice(useMemo(() => rowTiming(stage, id, index), [stage, id, index]));
+  const started = status && t?.time ? `started ${t.time}` : undefined;
+  return (
+    <>
+      <span className="ev-time" title={started}>
+        {status ? t?.time || null : null}
+      </span>
+      <span className="ev-dur" title={(status && [t?.exact, t?.time ? `started ${t.time}` : ''].filter(Boolean).join(' · ')) || undefined}>
+        {status ? t?.duration || null : null}
+      </span>
+    </>
+  );
+}
+
+/** The age of one graph node. Whether the node has one at all is the leaf's call. */
+export function GraphNodeAge({ stage, id, index }: { readonly stage: string; readonly id: string; readonly index: number }) {
+  const age = useSlice(useMemo(() => nodeAge(stage, id, index), [stage, id, index]));
+  return age ? <span className="graph-node-age">{age}</span> : null;
 }

@@ -1295,6 +1295,7 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   payload_json TEXT NOT NULL,
   base_shas    TEXT NOT NULL DEFAULT '{}',
   depends_on   TEXT NOT NULL DEFAULT '[]',
+  depends_on_tickets TEXT NOT NULL DEFAULT '[]',
   depends_dropped TEXT NOT NULL DEFAULT '[]',
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
   ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,

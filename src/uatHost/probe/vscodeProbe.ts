@@ -6,6 +6,7 @@ import type { ProbeHost } from './runner.js';
 import { runProbeScript, type ProbeRunArgs } from './session.js';
 import { readTickets } from './storeEvidence.js';
 import { readLaunches } from './launchEvidence.js';
+import { createUiClient } from './uiClient.js';
 
 /** Eval runs outlast the 60s step / 120s script defaults; the caller opts in with these (ms) env vars. */
 const envMs = (name: string): number | undefined => {
@@ -109,6 +110,8 @@ export function registerProbeCommand(
 ): void {
   if (!rec) return;
   const host: ProbeHost = {
+    // UAT_UI_SOCKET is set by run.mjs only for a script that holds a UI step; Playwright lives in that separate process.
+    ...(process.env['UAT_UI_SOCKET'] ? { ui: createUiClient(process.env['UAT_UI_SOCKET']) } : {}),
     execute: async (command, args) => { await vscode.commands.executeCommand(command, ...args); },
     // deactivate() leaves context.subscriptions to VS Code; drain them here so activate() can re-register.
     restart: async () => {

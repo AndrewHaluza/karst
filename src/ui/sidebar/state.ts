@@ -1,5 +1,4 @@
 import { memoryWaitNotes } from '../../store/memoryQueue.js';
-import { isFinishedStage } from '../../model/types.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
@@ -39,8 +38,6 @@ import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 import { formatId } from '../../model/entityId.js';
-import { ticketGlyph } from '../../model/ticketGlyph.js';
-import type { Glyph } from '../../model/glyph.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
 import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
@@ -156,7 +153,7 @@ export interface PlanningProposalRow {
   idLabel: string;
   /** Host-built `T583` of the ticket this draft became; null while pending. */
   ticketIdLabel: string | null;
-  /** `D<n>` of each entry in `dependsOn`, same order. */
+  /** `D<n>` (or `T<n>`) of each entry in `dependsOn`, same order. */
   dependsOnLabels: string[];
   /** Live state of each dependency, same order as `dependsOn`; discarded targets are omitted. */
   dependsOnStatus: DepStatus[];
@@ -165,8 +162,8 @@ export interface PlanningProposalRow {
   title: string;
   status: 'pending' | 'accepted';
   ticketId: number | null;
-  /** Host proposal ids this draft waits on (`D<n>`), in file order. */
-  dependsOn: number[];
+  /** What this draft waits on, in file order: host proposal ids (`D<n>`) and `T<n>` ticket ids. */
+  dependsOn: (number | string)[];
   /**
    * Host proposal ids pruned from `dependsOn` because their target was discarded.
    * A pending draft's card renders these as a warning; absent/empty when none.
@@ -485,15 +482,31 @@ function unlinkedRows(cloud: ReturnType<typeof cloudSessionsForSidebar> | undefi
 
 const isId = (n: number): boolean => Number.isSafeInteger(n) && n >= 1;
 
+/** The ticket id of a `T<n>` dependsOn entry, or undefined for a draft id. */
+const ticketDepId = (d: number | string): number | undefined => {
+  if (typeof d !== 'string') return undefined;
+  const n = Number(d.slice(1));
+  return isId(n) ? n : undefined;
+};
+
+/** One `T<n>` dependency's live state: the ticket itself is the target, so it has no draft id. */
+function ticketDepStatus(store: Store, ticketId: number): DepStatus[] {
+  try {
+    return [ticketRefView({ ticket: getTicket(store, ticketId) })];
+  } catch {
+    return [];
+  }
+}
+
 /** One dependency's live state; `[]` when the target is gone (discarded edges render via `droppedLabels`). */
-function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number): DepStatus[] {
+function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number, sessionLabel?: string): DepStatus[] {
   if (!target) return [];
   const label = formatId('draft', id);
   if (target.status !== 'accepted' || target.ticketId === null) {
-    return [ticketRefView({ draftId: id, draftLabel: label })];
+    return [ticketRefView({ draftId: id, draftLabel: label, sessionLabel })];
   }
   const ticket = getTicket(store, target.ticketId);
-  return [ticketRefView({ ticket, draftId: id, draftLabel: label })];
+  return [ticketRefView({ ticket, draftId: id, draftLabel: label, sessionLabel })];
 }
 
 function planningRows(
@@ -531,8 +544,19 @@ function planningRows(
         id: p.id,
         idLabel: formatId('draft', p.id),
         ticketIdLabel: p.ticketId === null ? null : formatId('ticket', p.ticketId),
-        dependsOnLabels: (p.payload.dependsOn ?? []).filter(isId).map((n) => formatId('draft', n)),
-        dependsOnStatus: (p.payload.dependsOn ?? []).filter(isId).flatMap((n) => depStatus(store, byId.get(n), n)),
+        dependsOnLabels: (p.payload.dependsOn ?? []).flatMap((d) => {
+          const t = ticketDepId(d);
+          if (t !== undefined) return [formatId('ticket', t)];
+          return typeof d === 'number' && isId(d) ? [formatId('draft', d)] : [];
+        }),
+        dependsOnStatus: (p.payload.dependsOn ?? []).flatMap((d) => {
+          const t = ticketDepId(d);
+          if (t !== undefined) return ticketDepStatus(store, t);
+          if (typeof d !== 'number' || !isId(d)) return [];
+          const target = byId.get(d);
+          const cross = target !== undefined && target.sessionId !== p.sessionId;
+          return depStatus(store, target, d, cross ? formatId('plan', target.sessionId) : undefined);
+        }),
         title: p.payload.title,
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,

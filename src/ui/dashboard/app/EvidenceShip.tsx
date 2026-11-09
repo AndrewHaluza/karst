@@ -13,8 +13,8 @@ import { withKeys } from './insideText.js';
 
 type Of<K extends ProcessEvidenceView['kind']> = Extract<ProcessEvidenceView, { kind: K }>;
 
-export function EvidenceCommits({ ev }: { readonly ev: Of<'commits'> }) {
-  if (!ev.repos || !ev.repos.length) return <EvidenceRows ev={ev} />;
+export function EvidenceCommits({ ev, stage, id }: { readonly ev: Of<'commits'>; readonly stage: string; readonly id: string }) {
+  if (!ev.repos || !ev.repos.length) return <EvidenceRows ev={ev} stage={stage} id={id} />;
   return (
     <>
       <div className="commit-grid">
@@ -56,8 +56,8 @@ const Arrow = () => (
   </span>
 );
 
-export function EvidencePrs({ ev }: { readonly ev: Of<'prs'> }) {
-  if (!ev.branches || !ev.branches.length) return <EvidenceRows ev={ev} />;
+export function EvidencePrs({ ev, stage, id }: { readonly ev: Of<'prs'>; readonly stage: string; readonly id: string }) {
+  if (!ev.branches || !ev.branches.length) return <EvidenceRows ev={ev} stage={stage} id={id} />;
   return (
     <>
       <div className="pr-branches">

@@ -77,6 +77,13 @@ export interface SessionTokensInput {
   input?: number;
   /** Measured output tokens, when the record splits directions. */
   output?: number;
+  /**
+   * Sum of the ESTIMATED calls' tokens. Set only by the round-scoped read
+   * (`runsTokens`); its presence selects the estimate rules in `tokenView`.
+   */
+  estimatedTotal?: number;
+  /** A run is going and its count arrives at the end of the call. */
+  pending?: boolean;
 }
 
 /** The provider/model karst was configured to run, shown before any segment. */
@@ -268,11 +275,13 @@ function timelineEvents(
       (m.implementationRunId === null || m.implementationRunId === run.id),
   );
   const lastMark = mine.at(-1);
+  // When the derived `implement` row follows, it supersedes the last mark and alone carries the open status.
+  const derivesImplement = lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE);
   for (const mark of mine) {
     events.push({
       at: mark.markedAt,
       row: {
-        status: mark === lastMark ? openPhaseStatus(run) : 'pass',
+        status: mark === lastMark && !derivesImplement ? openPhaseStatus(run) : 'pass',
         label: mark.phaseName,
         // The prototype's acceptance copy: the phase name first, the report
         // stamp second. Ships pre-worded so the webview renders it verbatim.
@@ -291,7 +300,7 @@ function timelineEvents(
   // It is worded `derived · …` for exactly that reason, and it is skipped both
   // when the agent filed the phase itself and when the run reported no phases
   // at all: the derivation extends an existing log, it does not invent one.
-  if (lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE)) {
+  if (lastMark !== undefined && derivesImplement) {
     const status = openPhaseStatus(run);
     events.push({
       at: lastMark.markedAt,
@@ -339,6 +348,14 @@ function timelineEvents(
   return events;
 }
 
+const PENDING_TOKEN_LABEL = 'Σ counted at end';
+const PENDING_TOKEN_TITLE =
+  'The provider reports the token count at the end of the run. Karst shows the count when the run ends.';
+
+function callsOf(n: number): string {
+  return `${n} estimated ${n === 1 ? 'call' : 'calls'}`;
+}
+
 /** The title shown when a provider can never produce a per-session usage fact. */
 const UNAVAILABLE_TOKEN_TITLE = 'Token usage not available for this provider';
 
@@ -368,8 +385,32 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
   // Clamped at zero: the two facts come from different SUMs and a row measured
   // before the split can carry cache reads its total never counted — a
   // negative headline would be a claim nothing measured.
+  if (tokens.pending) return { state: 'pending', label: PENDING_TOKEN_LABEL, title: PENDING_TOKEN_TITLE };
   const cacheRead = tokens.cacheRead ?? 0;
   const fresh = Math.max(0, tokens.total - cacheRead);
+  const estimatedCalls = tokens.estimatedCalls ?? 0;
+  if (tokens.estimatedTotal !== undefined && estimatedCalls > 0) {
+    // Round-scoped read: an estimate is marked, and never read as a measurement.
+    if (fresh === 0) {
+      const exact = formatExactTokens(tokens.estimatedTotal);
+      return {
+        state: 'estimated',
+        estimateOnly: true,
+        total: formatTokens(tokens.estimatedTotal),
+        exact,
+        title: `${exact} tokens estimated — the provider reported no count (${callsOf(estimatedCalls)})`,
+      };
+    }
+    return {
+      state: 'measured',
+      total: formatTokens(fresh),
+      exact: formatExactTokens(fresh),
+      ...(cacheRead > 0
+        ? { cacheRead: formatTokens(cacheRead), cacheReadExact: formatExactTokens(cacheRead) }
+        : {}),
+      title: `${formatExactTokens(fresh)} fresh tokens measured · ${callsOf(estimatedCalls)} not counted`,
+    };
+  }
   return {
     state: (tokens.estimatedCalls ?? 0) > 0 ? 'estimated' : 'measured',
     total: formatTokens(fresh),

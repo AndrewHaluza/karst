@@ -43,6 +43,7 @@ describe('ticketRefView', () => {
       id: 'T963',
       key: 'FIX-101',
       stage: 'impl',
+      session: null,
     });
     expect(view.accessibleName).toBe('Ticket T963 in impl');
     expect(formatTicketRefText(view, { prefix: 'Blocked by ' })).toBe('Blocked by ● T963 · FIX-101 · impl');
@@ -63,6 +64,7 @@ describe('ticketRefView', () => {
       id: 'T970',
       key: 'FEAT-200',
       stage: 'done',
+      session: null,
     });
     expect(view.accessibleName).toBe('Ticket T970 done');
   });
@@ -81,6 +83,7 @@ describe('ticketRefView', () => {
       id: 'T971',
       key: 'FEAT-201',
       stage: 'closed',
+      session: null,
     });
     expect(view.accessibleName).toBe('Ticket T971 closed');
   });
@@ -98,6 +101,7 @@ describe('ticketRefView', () => {
       id: 'D445',
       key: null,
       stage: null,
+      session: null,
     });
     expect(view.accessibleName).toBe('D445, draft pending');
     expect(formatTicketRefText(view)).toBe('● D445');
@@ -116,6 +120,7 @@ describe('ticketRefView', () => {
       id: 'D445→T970',
       key: null,
       stage: 'review',
+      session: null,
     });
     expect(view.accessibleName).toBe('D445, ticket T970 in review');
     expect(formatTicketRefText(view)).toBe('● D445→T970 · review');
@@ -134,6 +139,7 @@ describe('ticketRefView', () => {
       id: 'D445→T970',
       key: null,
       stage: 'done',
+      session: null,
     });
     expect(view.accessibleName).toBe('D445, ticket T970 done');
     expect(formatTicketRefText(view)).toBe('● D445→T970 · done');
@@ -160,6 +166,23 @@ describe('ticketRefView', () => {
     expect(view.accessibleName).toBe('Ticket T973 done');
   });
 
+  it('shows a cross-session label on a pending draft dependency', () => {
+    const view = ticketRefView({ draftId: 498, draftLabel: 'D498', sessionLabel: 'P43' });
+
+    expect(view.kind).toBe('draft');
+    expect(view.displayTextParts).toEqual({ id: 'D498', key: null, stage: null, session: 'P43' });
+    expect(formatTicketRefText(view)).toBe('● D498 · P43');
+    expect(view.accessibleName).toBe('D498, draft pending');
+  });
+
+  it('appends a cross-session label after the stage of an accepted draft', () => {
+    const t = mockTicket({ id: 970, key: 'FEAT-200', stageCurrent: 'impl' });
+    const view = ticketRefView({ draftId: 445, draftLabel: 'D445', ticket: t, sessionLabel: 'P43' });
+
+    expect(view.displayTextParts.session).toBe('P43');
+    expect(formatTicketRefText(view)).toBe('● D445→T970 · impl · P43');
+  });
+
   it('builds view for a dangling provider ref (kind: ref)', () => {
     const view = ticketRefView({ ref: 'ABC-123' });
 
@@ -173,6 +196,7 @@ describe('ticketRefView', () => {
       id: 'ABC-123',
       key: null,
       stage: null,
+      session: null,
     });
     expect(view.accessibleName).toBe('ABC-123');
     expect(formatTicketRefText(view, { prefix: 'Blocked by ' })).toBe('Blocked by ● ABC-123');

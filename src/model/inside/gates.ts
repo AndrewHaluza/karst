@@ -24,6 +24,7 @@ import {
   batchForAttempt,
   latestAttemptKey,
   processRunForAttempt,
+  processRunsForAttempt,
   roundsForAttempt,
   attemptKey,
   type AttemptKey,
@@ -39,6 +40,7 @@ import {
   type InsideProcessView,
   type InsideStatus,
   type StageOp,
+  runEnd,
 } from './types.js';
 
 /**
@@ -285,6 +287,12 @@ export interface QualityProcessesInput {
   /** A RECORDED token summary for the stage's AI process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
   /**
+   * The token claim of the runs the row shows, read by the host from the
+   * ledger. The model picks WHICH runs (the shown attempt, all its targets);
+   * the host reads what they spent. Wins over `tokens` when given.
+   */
+  tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
+  /**
    * Mint an opaque action for an evidence row, or return undefined when the
    * caller attaches none. Absent → rows carry no actions.
    */
@@ -336,6 +344,15 @@ function processRunStatus(run: ProcessRun, failedResultKinds: readonly string[])
 }
 
 /** The shared spine of the Tester/Review process rows. */
+function shownTokens(
+  input: QualityProcessesInput,
+  eff: EffectiveAttempt,
+  processId: 'tester' | 'review',
+): SessionTokensInput | null | undefined {
+  if (input.tokensForRuns === undefined) return input.tokens;
+  return input.tokensForRuns(eff.empty ? [] : processRunsForAttempt(input.processRuns, processId, eff.key));
+}
+
 function aiProcessBase(
   cell: StepperCell,
   run: ProcessRun | undefined,
@@ -355,8 +372,8 @@ function aiProcessBase(
         : 'note',
     ...(run?.startedAt
       ? {
-          duration: formatDuration(run.startedAt, run.endedAt ?? now),
-          durationExact: formatExactDuration(run.startedAt, run.endedAt ?? now),
+          // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
+          ...(runEnd(run, now) ? { duration: formatDuration(run.startedAt, runEnd(run, now)), durationExact: formatExactDuration(run.startedAt, runEnd(run, now)) } : {}),
           time: formatTime(run.startedAt),
         }
       : {}),
@@ -552,8 +569,10 @@ function gatesProcess(
   const batchStageRunId = batch.length > 0 ? (batch[0]!.stageRunId ?? null) : null;
   const aiProcessId = stageKey === 'review' ? 'review' : 'tester';
   const aiRun = eff.empty ? undefined : processRunForAttempt(processRuns, aiProcessId, eff.key);
+  // A reused batch belongs to an earlier stage run, so the stage-run comparison below can never match it: the AI lane re-running alone means the gates are done.
   const gatesDone =
     settled ||
+    reusedFrom !== null ||
     (batchStageRunId !== null &&
       aiRun !== undefined &&
       aiRun.stageRunId === batchStageRunId &&
@@ -685,7 +704,15 @@ function gatesProcess(
   const enabledResolved = resolved.filter((g) => !g.disabled).length;
   let detail: string | undefined;
   let count: string | undefined;
-  if (batch.length > 0 && failed === 0 && answered > 0) {
+  // While gates are in flight and none failed, the total is every resolved gate
+  // (recorded rows plus the unrecorded ones, disabled included) so it stays
+  // stable for the whole run instead of growing as each row lands.
+  const inFlightTotal = batch.length + waitingRows.length;
+  const hasUnrecorded = waitingRows.length > 0 && (batch.length > 0 || enabledResolved > 0);
+  if (liveGates && failed === 0 && hasUnrecorded) {
+    detail = `${answered}/${inFlightTotal} command gates passed so far`;
+    count = `${answered}/${inFlightTotal}`;
+  } else if (batch.length > 0 && failed === 0 && answered > 0) {
     detail = `${answered}/${batch.length} command gates passed`;
     count = answered === batch.length ? String(batch.length) : `${answered}/${batch.length}`;
   } else if (failed > 0 && firstFailed) {
@@ -697,8 +724,6 @@ function gatesProcess(
     // run rather than as a promise of more gates.
     detail = `${answered}/${batch.length} command gates passed so far`;
     count = `${answered}/${batch.length}`;
-  } else if (liveGates && batch.length === 0 && enabledResolved > 0) {
-    detail = `0/${enabledResolved} command gates passed so far`;
   } else if (bypassed && batch.length > 0) {
     // A bypassed stage is never green: every gate was withdrawn by the user, so
     // the row states the skip plainly instead of the generic nothing-to-run.
@@ -795,20 +820,34 @@ export interface ServiceStatusView {
   port: number | null;
   /** Why a failed row failed (UAT's `boot-failed` reason), when the host has one. */
   reason?: string | null;
+  /** ISO time the server row started; compared with the UAT attempt start. */
+  startedAt: string | null;
+}
+
+/** True when the row started at or after the UAT attempt; an absent or unparseable time is false. */
+function inCurrentAttempt(s: ServiceStatusView, attemptStart: string | undefined): boolean {
+  if (!attemptStart || !s.startedAt) return false;
+  const attempt = Date.parse(attemptStart);
+  const started = Date.parse(s.startedAt);
+  return !Number.isNaN(attempt) && !Number.isNaN(started) && started >= attempt;
 }
 
 /**
  * The services process: host-known read-only context, read from the ticket's
- * server rows. It states what UAT started (a live URL), what failed (the health
- * reason), what was stopped after UAT, and — when the ticket has no rows at all
- * — that there is nothing to spin. It NEVER contributes a verdict: the process
- * status stays neutral whatever the rows say, because a service is an
- * environment, not a gate.
+ * server rows. A row is in the current attempt when its `startedAt` is at or
+ * after the cell's `startedAt`. Parent status, first match wins: a pending
+ * cell is `pending`; a failed row in the current attempt is `fail`; a running
+ * row, or any row in the current attempt, is `pass`; otherwise `note` (no rows,
+ * or only old rows). The status is display only: it never changes the stage
+ * verdict or the gate outcome. Child rows: running with a URL is `pass`; failed
+ * is `fail`; stopped in the current attempt is `pass` ("stopped after UAT");
+ * stopped before it is `note` ("stopped").
  */
 function servicesProcess(
   cell: StepperCell,
   services: readonly ServiceStatusView[],
 ): InsideProcessView {
+  const current = (s: ServiceStatusView): boolean => inCurrentAttempt(s, cell.startedAt);
   const rows: EvidenceRow[] = services.map((s) => {
     if (s.status === 'running' && s.host !== null && s.port !== null) {
       return { status: 'pass', label: s.service, detail: `http://${s.host}:${s.port}` };
@@ -817,13 +856,19 @@ function servicesProcess(
       const reason = s.reason?.trim() ?? '';
       return { status: 'fail', label: s.service, detail: reason === '' ? 'failed to start' : reason };
     }
-    return { status: 'note', label: s.service, detail: 'stopped after UAT' };
+    return current(s)
+      ? { status: 'pass', label: s.service, detail: 'stopped after UAT' }
+      : { status: 'note', label: s.service, detail: 'stopped' };
   });
+  let status: InsideProcessView['status'] = 'note';
+  if (cell.status === 'pending') status = 'pending';
+  else if (services.some((s) => s.status === 'failed' && current(s))) status = 'fail';
+  else if (services.some((s) => s.status === 'running' || current(s))) status = 'pass';
   return {
     id: 'services',
     kind: 'services',
     label: 'Services',
-    status: cell.status === 'pending' ? 'pending' : 'note',
+    status,
     detail:
       services.length > 0
         ? services.map((s) => s.service).join(' · ')
@@ -933,7 +978,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const base = aiProcessBase(input.cell, run, input.configured, input.tokens, input.now, {
+  const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'tester'), input.now, {
     id: 'tester',
     label: 'Tester',
     failedResultKinds: ['verification-failed', 'unreadable-output'],
@@ -1046,7 +1091,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
 
-  const base = aiProcessBase(input.cell, run, input.configured, input.tokens, input.now, {
+  const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'review'), input.now, {
     id: 'review',
     label: 'Review',
     failedResultKinds: ['blocking'],
@@ -1129,6 +1174,7 @@ function stageRecovery(
     input.now,
     input.configured,
     isLatest && displayStatus(input.cell) === 'passed',
+    input.tokensForRuns,
   );
 }
 

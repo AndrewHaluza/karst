@@ -132,7 +132,7 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     expect(refreshed).toContain(sessionId);
-    expect(getTicket(store, t.id)!.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${proposalId}.`);
+    expect(getTicket(store, t.id)!.brief).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${proposalId}.`);
   });
 
   it('a form-saved ticket is linked even if the draft was revised while the form was open, with a warning', async () => {
@@ -162,6 +162,17 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
     expect(getProposal(store, second)!.payload.dependsOn ?? []).toEqual([]);
     expect(warns.join(' ')).toContain(`D${dependent}, D${second} no longer wait on it`);
+  });
+
+  it('refreshes the index of another session whose draft a discard pruned', async () => {
+    const other = createPlanningSession(store, { projectId, title: 'Other', core: 'claude', model: null }).id;
+    const dependent = insertProposal(store, other, {
+      title: 'Dependent', description: 'd', summary: 's', repos: ['api'], dependsOn: [proposalId],
+    });
+    choice = 'discard';
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
+    expect([...refreshed].sort()).toEqual([sessionId, other].sort());
   });
 
   it('review passes constraints, doc names and host warnings to the form', async () => {

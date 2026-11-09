@@ -37,12 +37,12 @@ function LiveLine({ stage, live }: { readonly stage: string; readonly live: Fram
   const status = live.status || 'run';
   return (
     <>
-      <span className={`glyph ${status}`} aria-label={statusWord(status)} />
+      <span className={`glyph ${status}`} role="img" aria-label={statusWord(status)} />
       <strong>{live.label || ''}</strong>
       {live.detail ? (
         <>
           <span className="sep">·</span>
-          <span className="live-copy" title={live.detail} aria-label={live.detail}>{live.detail}</span>
+          <span className="live-copy" title={live.detail}>{live.detail}</span>
         </>
       ) : null}
       {/* The running operation's AI identity, so it does not appear only once the step finishes. */}
@@ -79,7 +79,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
             </span>
           </div>
         ) : null}
-        <div className={`inside-head${menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase ? ' has-actions' : ''}`} title={view.title || undefined}>
+        <div className={`inside-head${anyMenu ? ' has-actions' : ''}`} title={view.title || undefined}>
           <span className="inside-title" id="inside-title">{`Inside ${view.stageKey}`}</span>
           <span className={`inside-live ${lstatus}`}>
             <LiveLine stage={stage} live={frame.live} />
