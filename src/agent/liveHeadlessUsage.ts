@@ -36,6 +36,8 @@ interface Entry {
   reading: LiveUsageReading | null;
   /** Fingerprint of the last transcript read, so an unchanged file is not read again. */
   fingerprint: { mtimeMs: number; size: number } | null;
+  /** The last fault written to the debug log, so a steady fault logs once, not on every tick. */
+  fault: string | null;
 }
 
 /** A call that is being read now: the sweep's work item. */
@@ -53,7 +55,7 @@ export class LiveHeadlessUsage {
   register(runId: number, ticketId: number | null, session: LiveHeadlessSession): () => void {
     const calls = this.runs.get(runId) ?? new Map<string, Entry>();
     this.runs.set(runId, calls);
-    const entry: Entry = { ticketId, session, reading: null, fingerprint: null };
+    const entry: Entry = { ticketId, session, reading: null, fingerprint: null, fault: null };
     calls.set(session.sessionId, entry);
     return () => {
       const current = this.runs.get(runId);
@@ -107,6 +109,14 @@ export class LiveHeadlessUsage {
     );
   }
 
+  /** True when `fault` differs from the last one noted for the call (null clears it). */
+  noteFault(runId: number, sessionId: string, fault: string | null): boolean {
+    const entry = this.runs.get(runId)?.get(sessionId);
+    if (!entry || entry.fault === fault) return false;
+    entry.fault = fault;
+    return fault !== null;
+  }
+
   fingerprintOf(runId: number, sessionId: string): Entry['fingerprint'] {
     return this.runs.get(runId)?.get(sessionId)?.fingerprint ?? null;
   }
@@ -139,7 +149,8 @@ export async function sweepLiveHeadless(
     } catch (error) {
       // No transcript yet is normal at the start of a call.
       const code = (error as NodeJS.ErrnoException).code ?? 'error';
-      deps.debug(`[claude] live usage run ${runId}: transcript not readable: ${transcriptPath} (${code})`);
+      const fault = `not readable (${code})`;
+      if (usage.noteFault(runId, sessionId, fault)) deps.debug(`[claude] live usage run ${runId}: transcript ${fault}: ${transcriptPath}`);
       if (usage.update(runId, sessionId, null, null) && ticketId !== null) changed.add(ticketId);
       continue;
     }
@@ -151,9 +162,11 @@ export async function sweepLiveHeadless(
       const reading = parsed
         ? { input: parsed.input, output: parsed.output, cacheRead: parsed.cacheRead, cacheWrite: parsed.cacheWrite }
         : null;
+      usage.noteFault(runId, sessionId, null);
       if (usage.update(runId, sessionId, reading, fingerprint) && ticketId !== null) changed.add(ticketId);
     } catch (error) {
-      deps.debug(`[claude] live usage run ${runId}: transcript read failed: ${transcriptPath} (${String(error)})`);
+      const fault = `read failed (${String(error)})`;
+      if (usage.noteFault(runId, sessionId, fault)) deps.debug(`[claude] live usage run ${runId}: transcript ${fault}: ${transcriptPath}`);
       if (usage.update(runId, sessionId, null, null) && ticketId !== null) changed.add(ticketId);
     }
   }

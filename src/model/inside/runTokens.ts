@@ -43,12 +43,14 @@ export function runsTokens(
   // reading only ever ADDS to rows already recorded (another target of the same
   // round that ended), and the ledger row replaces it when the call ends.
   const liveUsage = running ? live?.(ids) ?? null : null;
-  return usageTokens(
+  const view = usageTokens(
     liveUsage
       ? { ...usage, total: usage.total + liveUsage.total, cacheRead: usage.cacheRead + liveUsage.cacheRead }
       : usage,
     running,
   );
+  // Marked live: the count is partial until the ledger row replaces it.
+  return view && liveUsage ? { ...view, live: true } : view;
 }
 
 /** The same rules for a spend that is not keyed by process run (the graph run's planner and node runs). */

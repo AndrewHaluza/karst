@@ -392,6 +392,13 @@ describe('implementationSessionProcess', () => {
     expect(process.tokens).toBeUndefined();
   });
 
+  it('tokenView titles a live reading as partial, so it never reads as a final count (@arch:AC-14)', () => {
+    const view = tokenView({ total: 1_000, cacheRead: 200, live: true });
+    expect(view).toMatchObject({ state: 'measured', total: '800', cacheRead: '200' });
+    expect(view.title).toMatch(/counted so far/);
+    expect(tokenView({ total: 1_000, cacheRead: 200 }).title).toBeUndefined();
+  });
+
   it('tokenView never claims a zero for a non-interactive provider', () => {
     expect(tokenView({ total: 12_435 }, false)).toEqual({
       state: 'unavailable',

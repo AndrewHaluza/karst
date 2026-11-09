@@ -100,7 +100,13 @@ describe('runsTokens live reading (@arch:AC-14)', () => {
       cacheRead: 9000,
       estimatedCalls: 0,
       estimatedTotal: 0,
+      live: true,
     });
+  });
+  it('a reading is marked live; a ledger-only row is not', () => {
+    expect(runsTokens([run(1, 'running')], () => none, live(500, 100))).toMatchObject({ live: true });
+    expect(runsTokens([run(1, 'running')], () => none, () => null)).not.toHaveProperty('live');
+    expect(runsTokens([run(1, 'passed')], () => ({ ...none, total: 10 }), live(500, 100))).not.toHaveProperty('live');
   });
   it('no reading keeps the placeholder', () => {
     expect(runsTokens([run(1, 'running')], () => none, () => null)).toEqual({ total: 0, pending: true });

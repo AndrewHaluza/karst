@@ -121,4 +121,18 @@ describe('LiveHeadlessUsage + sweep with a growing transcript', () => {
     expect(live.targets()).toHaveLength(1);
     again();
   });
+
+  it('writes a steady fault once, not on every tick; a recovery re-arms it', async () => {
+    const live = new LiveHeadlessUsage();
+    live.register(8, 1, { sessionId: 's2', transcriptPath: path });
+    await sweepLiveHeadless(live, deps());
+    await sweepLiveHeadless(live, deps());
+    await sweepLiveHeadless(live, deps());
+    expect(debug).toHaveBeenCalledTimes(1);
+    writeFileSync(path, line('u1', 'm1', U(1, 2, 3)));
+    await sweepLiveHeadless(live, deps());
+    rmSync(path);
+    await sweepLiveHeadless(live, deps());
+    expect(debug).toHaveBeenCalledTimes(2);
+  });
 });
