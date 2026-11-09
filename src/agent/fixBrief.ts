@@ -5,6 +5,7 @@ import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { lastFailedGate } from '../workflow/fixAttempts.js';
 import { isCoverageRecord } from '../model/coverageRecord.js';
+import { NON_GATE_RUNS } from '../model/artifacts.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
 export const PROTOTYPE_REGION_CHECKLIST_RULE =
@@ -79,13 +80,18 @@ export const FIX_GATE_LIST_HEADER =
 export const FIX_GATE_LIST_MAX = 12;
 
 /**
- * One line per non-skipped gate of the latest batch: the failed stage's own
- * batch, else the ticket's latest batch (a `review` failure records no gate
- * rows of its own; the UAT batch holds the commands the host runs).
+ * One line per runnable gate of the latest batch: the failed stage's own
+ * batch, else the ticket's latest batch. The fallback applies only when the
+ * stage recorded no batch of its own (for example, review failed before it
+ * recorded a gate row); the UAT batch then holds the commands the host runs.
+ * A skipped row, a non-gate evidence row (`NON_GATE_RUNS`) and a row with no
+ * command (before v21) are not listed: the agent cannot run them.
  */
 function gateCommandLines(stageKey: StageKey, runs: readonly GateRun[]): string[] {
   const own = latestBatchRows(runs, stageKey);
-  const batch = (own.length > 0 ? own : latestBatchRows(runs)).filter((r) => !r.skipped);
+  const batch = (own.length > 0 ? own : latestBatchRows(runs)).filter(
+    (r) => !r.skipped && !NON_GATE_RUNS.has(r.gateName) && (r.command ?? '') !== '',
+  );
   if (batch.length === 0) return [];
   const lines = batch.slice(0, FIX_GATE_LIST_MAX).map((r) => {
     const cmd = [r.command ?? '', ...(r.args ?? [])].filter((p) => p !== '').join(' ');
