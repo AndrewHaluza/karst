@@ -21,6 +21,9 @@ export const headerState = (over: Record<string, unknown> = {}): DashboardState 
     origin: null,
     parent: null,
     subtaskParent: null,
+    briefSource: { kind: 'manual' },
+    approach: null,
+    worktrees: [],
     blockers: [],
     canDetachSubtask: false,
     canClose: false,
@@ -61,7 +64,7 @@ function OpsProbe({ onOps, onOverlays }: { readonly onOps: (ops: PendingOps) => 
 }
 
 const SENDERS = [
-  'copyTicketKey', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'editTicket',
+  'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'editTicket',
   'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'switchAgent', 'shipTicket',
 ] as const;
 

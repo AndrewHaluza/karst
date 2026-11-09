@@ -42,6 +42,10 @@ karstTest.describe('full-page screenshots', () => {
           if (steps.cap !== undefined) await page.locator(`[data-ap-cap="${steps.cap}"]`).click();
           if (steps.model !== undefined) await page.locator(`[data-ap-model="${steps.model}"]`).click();
         }
+        if (v.ticketDetails !== undefined) {
+          await page.locator('#ticketDataBtn').click();
+          if (v.ticketDetails.tab !== undefined) await page.locator(`#tdTab-${v.ticketDetails.tab}`).click();
+        }
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -1,4 +1,5 @@
 import type { AutopilotSlice } from './stateAutofix.js';
+import type { BriefSource } from '../../model/briefSource.js';
 import type { DeliverFacts } from '../../model/inside/deliver.js';
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
@@ -339,6 +340,8 @@ export interface DashboardState {
   description: string | null;
   /** Synthesized context brief, shown in the header's ticket-data preview drawer; or null. */
   brief: string | null;
+  /** Where the brief came from (the ticket form's rule, `model/briefSource.ts`); drives the drawer's source label. */
+  briefSource: BriefSource;
   /**
    * The stage graph as it is drawn: one segmented track the ticket travels
    * through, each segment carrying its own status, whether the ticket is there,

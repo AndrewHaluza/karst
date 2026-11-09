@@ -293,6 +293,12 @@ const openStopConfirm = (h: RenderHandle): void => {
   if (open) clickEl(open);
 };
 
+/** The ticket details drawer opens locally from the doc icon (no host message). */
+const DRAWER_BRIEF = '# Seven\n\nBody text';
+const openTicketDrawer = (h: RenderHandle): void => {
+  if (!q(h, '#ticketDataDrawer.open')) clickEl(q(h, '#ticketDataBtn')!);
+};
+
 export const COVERED: readonly ParityCase[] = [
   // --- header --------------------------------------------------------------
   { act: 'copy-ticket-key', state: () => st('impl'), sel: act('copy-ticket-key'), posts: [{ type: 'copy-ticket-key' }], rid: true },
@@ -320,6 +326,14 @@ export const COVERED: readonly ParityCase[] = [
     sel: act('open-dependency'), posts: [{ type: 'open-dependency', ticketId: 42 }], rid: true,
   },
   { act: 'preview-ticket-data', state: () => st('impl'), sel: act('preview-ticket-data'), posts: [], pendingSel: false },
+  {
+    act: 'copy-ticket-markdown', state: () => st('impl', { brief: DRAWER_BRIEF }), prep: openTicketDrawer, sel: act('copy-ticket-markdown'),
+    posts: [{ type: 'copy-ticket-markdown', text: DRAWER_BRIEF }], rid: true,
+  },
+  {
+    act: 'open-ticket-markdown', state: () => st('impl', { brief: DRAWER_BRIEF }), prep: openTicketDrawer, sel: act('open-ticket-markdown'),
+    posts: [{ type: 'open-ticket-markdown', text: DRAWER_BRIEF }], rid: true,
+  },
   {
     act: 'refresh-ship-preview', state: () => shipPreviewStateFor('ready'), sel: act('refresh-ship-preview'),
     posts: [{ type: 'refresh-ship-preview' }], rid: false, pendingSel: act('refresh-ship-preview', '[aria-busy="true"]'),

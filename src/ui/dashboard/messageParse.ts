@@ -8,7 +8,7 @@ type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }
 import {
   isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isConsoleStage, storedPath, storedSha,
   MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES,
-  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS,
+  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS, MAX_TICKET_MARKDOWN_CHARS,
 } from './messageValidate.js';
 /**
  * Narrow an untrusted webview message to a `WebviewMessage`, validating BOTH the
@@ -199,6 +199,9 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     }
     case 'copy-ticket-key':
       return { type: 'copy-ticket-key' };
+    case 'copy-ticket-markdown':
+    case 'open-ticket-markdown':
+      return typeof m.text === 'string' && m.text.length <= MAX_TICKET_MARKDOWN_CHARS ? { type: m.type, text: m.text } : null;
     // Both fields are required and typed here, at the boundary — a missing or
     // malformed one drops the whole message rather than resuming with a
     // guessed ticket or an invalid stage.

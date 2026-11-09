@@ -64,6 +64,7 @@ describe('Header — identity', () => {
     const h = mountHeader(headerState({ brief: 'The brief' }));
     const seen: Array<string | undefined> = [];
     h.overlays().subscribe(() => seen.push(h.overlays().getSnapshot().drawer?.text));
+    expect($('#ticketDataBtn').getAttribute('aria-label')).toBe('Ticket details');
     fireEvent.click($('#ticketDataBtn'));
     expect(seen).toEqual(['The brief']);
     expect(Object.values(h.send).every((fn) => fn.mock.calls.length === 0)).toBe(true);

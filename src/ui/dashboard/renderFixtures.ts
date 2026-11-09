@@ -1100,6 +1100,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     priority: null,
     description: null,
     brief: null,
+    briefSource: { kind: 'manual' },
     rail: { main: [] },
     insideViews,
     autopilot: { override: 'inherit', projectDefault: false, effective: false, banner: null, log: [] },

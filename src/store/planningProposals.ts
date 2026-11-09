@@ -4,6 +4,7 @@ import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
+import { PLANNING_BRIEF_HEADING } from '../planning/planningBriefHeading.js';
 import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
 
 /**
@@ -212,8 +213,8 @@ export function getProposalForTicket(store: Store, ticketId: number): PlanningPr
   return row ? toProposal(row) : undefined;
 }
 
-/** Heading of the planning text that `markProposalAccepted` writes at the end of a brief. */
-export const PLANNING_BRIEF_HEADING = '## Planning brief';
+/** Heading of the planning text that `markProposalAccepted` writes at the end of a brief (defined in a pure module). */
+export { PLANNING_BRIEF_HEADING };
 
 /**
  * The planning section of a ticket's brief, so a provider refetch can add it

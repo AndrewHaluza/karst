@@ -67,6 +67,8 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Open resource monitor | `dashboard` | sidebar toolbar |
 | Open token usage stats | `chart-bar` | sidebar toolbar |
 | Edit ticket | `pencil` | |
+| Ticket details (dashboard doc icon) | `file-text` | icon-only button, label "Ticket details" |
+| Open as Markdown in the editor | `markdown` | ticket details drawer header |
 | Archive ticket | `archive` | |
 | Restore / unarchive | `history` | matches the command palette's `$(history)` |
 | Pin a role to an agent (Agents page) | `pin` | icon button, label "Pin" |

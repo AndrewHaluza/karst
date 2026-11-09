@@ -145,6 +145,10 @@ export interface DashboardActions {
   switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void | Promise<void>;
   /** Copy the ticket key to the clipboard. */
   copyTicketKey: () => void | Promise<void>;
+  /** Copy the ticket details Markdown to the clipboard. */
+  copyTicketMarkdown: (text: string) => void | Promise<void>;
+  /** Open the ticket details Markdown in an untitled editor document. */
+  openTicketMarkdown: (text: string) => void | Promise<void>;
   /**
    * Clear a stage's block and try to drive it forward. Takes the message's
    * `ticketId`/`stageKey` VERBATIM (not pre-validated) so the host can apply

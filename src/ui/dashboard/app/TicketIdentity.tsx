@@ -98,8 +98,8 @@ export const TicketIdentity = memo(function TicketIdentity() {
         type="button"
         className="k-iconbtn"
         data-act="preview-ticket-data"
-        aria-label="Preview ticket data"
-        title="Preview ticket data"
+        aria-label="Ticket details"
+        title="Ticket details"
         // Synchronous, like the class toggle it replaced: the drawer is open the moment the click returns.
         onClick={() => flushSync(overlays.openTicketData)}
       >

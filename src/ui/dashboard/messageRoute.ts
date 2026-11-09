@@ -135,6 +135,10 @@ export function routeAction(
       return actions.switchAgent(msg.provider, msg.model, msg.effort);
     case 'copy-ticket-key':
       return actions.copyTicketKey();
+    case 'copy-ticket-markdown':
+      return actions.copyTicketMarkdown(msg.text);
+    case 'open-ticket-markdown':
+      return actions.openTicketMarkdown(msg.text);
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
     case 'run-gate-on-host':

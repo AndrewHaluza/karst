@@ -72,6 +72,8 @@ function actions(): DashboardActions {
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
     copyTicketKey: vi.fn(),
+    copyTicketMarkdown: vi.fn(),
+    openTicketMarkdown: vi.fn(),
     resumeStage: vi.fn(),
     usageLimitPick: vi.fn(),
     usageLimitRetry: vi.fn(),
@@ -606,6 +608,20 @@ describe('routeAction', () => {
     expect(parseWebviewMessage({ type: 'copy-ticket-key' })).toEqual({ type: 'copy-ticket-key' });
     routeAction({ type: 'copy-ticket-key' }, a);
     expect(a.copyTicketKey).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches the ticket Markdown copy and open messages with their text', () => {
+    const a = actions();
+    for (const type of ['copy-ticket-markdown', 'open-ticket-markdown'] as const) {
+      expect(parseWebviewMessage({ type, text: '# T1\n\nbody' })).toEqual({ type, text: '# T1\n\nbody' });
+      expect(parseWebviewMessage({ type, text: 5 })).toBeNull();
+      expect(parseWebviewMessage({ type })).toBeNull();
+      expect(parseWebviewMessage({ type, text: 'x'.repeat(2_000_001) })).toBeNull();
+    }
+    routeAction({ type: 'copy-ticket-markdown', text: 'a' }, a);
+    routeAction({ type: 'open-ticket-markdown', text: 'b' }, a);
+    expect(a.copyTicketMarkdown).toHaveBeenCalledWith('a');
+    expect(a.openTicketMarkdown).toHaveBeenCalledWith('b');
   });
 
   it('parses a well-formed stage-resume and dispatches it with both fields', () => {

@@ -287,7 +287,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -369,7 +369,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
@@ -451,7 +451,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -535,7 +535,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
     <span#priorityChip.prio aria-label="Priority: urgent"> "urgent"
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" data-url="fixture:https://app.clickup.com/t/abc" href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -617,7 +617,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -699,7 +699,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
@@ -781,7 +781,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -863,7 +863,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -945,7 +945,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">
-    <button#ticketDataBtn.k-iconbtn aria-label="Preview ticket data" data-act="preview-ticket-data" title="Preview ticket data" type="button">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
   <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
@@ -2580,26 +2580,133 @@ exports[`dashboard region parity (DOM contract) > termView #termView · uat stag
 
 exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · closed > ticketData · closed 1`] = `
 "<aside#ticketDataDrawer.k-drawer.tdDrawer aria-hidden="true" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
-  <div.tdDrawerHead>
-    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
-    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
   <div#ticketDataBody.tdDrawerBody>"
 `;
 
 exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · open falling back to description > ticketData · open falling back to description 1`] = `
 "<aside#ticketDataDrawer.k-drawer.open.tdDrawer aria-hidden="false" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
   <div.tdDrawerHead>
-    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
-    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
-  <div#ticketDataBody.tdDrawerBody> "# FEAT-142 — Add per-repo base branch override to the worktree picker Do the thing.""
+    <div.tdHeadLine>
+      <span.tdId> "T942017"
+      <span.tdKey> "FEAT-142"
+      <button.k-iconbtn aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" title="Copy ticket key" type="button">
+        <svg.k-icon aria-hidden="true">
+      <span.k-chip.tdProvider> "karst ticket"
+      <span.tdHeadActions>
+        <button.k-iconbtn aria-label="Copy as Markdown" data-act="copy-ticket-markdown" title="Copy as Markdown" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.k-iconbtn aria-label="Open as Markdown in the editor" data-act="open-ticket-markdown" title="Open as Markdown in the editor" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.k-iconbtn aria-label="Edit ticket" data-act="edit-ticket" title="Edit ticket" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button#ticketDataClose.k-iconbtn aria-label="Close ticket details" title="Close ticket details" type="button">
+          <svg.k-icon aria-hidden="true">
+    <h3#ticketDataTitle.tdDrawerTitle> "Add per-repo base branch override to the worktree picker"
+  <div.tdTabRow>
+    <div.tdTabs aria-label="Ticket details" role="tablist">
+      <button#tdTab-brief.tdTab aria-controls="ticketDataBody" aria-selected="true" role="tab" tabindex="0" type="button"> "Description"
+      <button#tdTab-raw.tdTab aria-controls="ticketDataBody" aria-selected="false" role="tab" tabindex="-1" type="button"> "As sent to agent"
+  <div#ticketDataBody.tdDrawerBody>
+    <div.tdLayout>
+      <aside.tdFacts aria-label="Ticket facts">
+        <section.tdFactGroup aria-label="Karst">
+          <h4.tdFactTitle> "Karst"
+          <dl.tdFactRows>
+            <div.tdFactRow>
+              <dt> "From"
+              <dd> "from D88 (P17)"
+            <div.tdFactRow>
+              <dt> "Sub-task of"
+              <dd>
+                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
+                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
+                  <span> "T942001 · FEAT-100"
+            <div.tdFactRow>
+              <dt> "Repos"
+              <dd> "web, api"
+      <details.tdFactsFold>
+        <summary> "Details · status, people, relations, dates"
+        <section.tdFactGroup aria-label="Karst">
+          <h4.tdFactTitle> "Karst"
+          <dl.tdFactRows>
+            <div.tdFactRow>
+              <dt> "From"
+              <dd> "from D88 (P17)"
+            <div.tdFactRow>
+              <dt> "Sub-task of"
+              <dd>
+                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
+                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
+                  <span> "T942001 · FEAT-100"
+            <div.tdFactRow>
+              <dt> "Repos"
+              <dd> "web, api"
+      <div.tdMain aria-labelledby="tdTab-brief" role="tabpanel">
+        <div.mdView>
+          <p> "Do the thing.""
 `;
 
 exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer · open with brief > ticketData · open with brief 1`] = `
 "<aside#ticketDataDrawer.k-drawer.open.tdDrawer aria-hidden="false" aria-labelledby="ticketDataTitle" aria-modal="true" role="dialog">
   <div.tdDrawerHead>
-    <h3#ticketDataTitle.tdDrawerTitle> "Ticket data"
-    <button#ticketDataClose.k-iconbtn aria-label="Close ticket data preview" title="Close ticket data preview" type="button"> "✕"
-  <div#ticketDataBody.tdDrawerBody> "# FEAT-142 A brief.""
+    <div.tdHeadLine>
+      <span.tdId> "T942017"
+      <span.tdKey> "FEAT-142"
+      <button.k-iconbtn aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" title="Copy ticket key" type="button">
+        <svg.k-icon aria-hidden="true">
+      <span.k-chip.tdProvider> "karst ticket"
+      <span.tdHeadActions>
+        <button.k-iconbtn aria-label="Copy as Markdown" data-act="copy-ticket-markdown" title="Copy as Markdown" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.k-iconbtn aria-label="Open as Markdown in the editor" data-act="open-ticket-markdown" title="Open as Markdown in the editor" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.k-iconbtn aria-label="Edit ticket" data-act="edit-ticket" title="Edit ticket" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button#ticketDataClose.k-iconbtn aria-label="Close ticket details" title="Close ticket details" type="button">
+          <svg.k-icon aria-hidden="true">
+    <h3#ticketDataTitle.tdDrawerTitle> "Add per-repo base branch override to the worktree picker"
+  <div.tdTabRow>
+    <div.tdTabs aria-label="Ticket details" role="tablist">
+      <button#tdTab-brief.tdTab aria-controls="ticketDataBody" aria-selected="true" role="tab" tabindex="0" type="button"> "Brief"
+      <button#tdTab-raw.tdTab aria-controls="ticketDataBody" aria-selected="false" role="tab" tabindex="-1" type="button"> "As sent to agent"
+  <div#ticketDataBody.tdDrawerBody>
+    <div.tdLayout>
+      <aside.tdFacts aria-label="Ticket facts">
+        <section.tdFactGroup aria-label="Karst">
+          <h4.tdFactTitle> "Karst"
+          <dl.tdFactRows>
+            <div.tdFactRow>
+              <dt> "From"
+              <dd> "from D88 (P17)"
+            <div.tdFactRow>
+              <dt> "Sub-task of"
+              <dd>
+                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
+                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
+                  <span> "T942001 · FEAT-100"
+            <div.tdFactRow>
+              <dt> "Repos"
+              <dd> "web, api"
+      <details.tdFactsFold>
+        <summary> "Details · status, people, relations, dates"
+        <section.tdFactGroup aria-label="Karst">
+          <h4.tdFactTitle> "Karst"
+          <dl.tdFactRows>
+            <div.tdFactRow>
+              <dt> "From"
+              <dd> "from D88 (P17)"
+            <div.tdFactRow>
+              <dt> "Sub-task of"
+              <dd>
+                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
+                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
+                  <span> "T942001 · FEAT-100"
+            <div.tdFactRow>
+              <dt> "Repos"
+              <dd> "web, api"
+      <div.tdMain aria-labelledby="tdTab-brief" role="tabpanel">
+        <div.mdView>
+          <p> "A brief.""
 `;
 
 exports[`dashboard region parity (DOM contract) > worktrees #worktrees · none > worktrees · none 1`] = `
