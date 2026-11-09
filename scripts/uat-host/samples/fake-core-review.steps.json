@@ -15,12 +15,6 @@
       ]
     },
     {
-      "type": "click",
-      "target": {
-        "act": "stage-resume"
-      }
-    },
-    {
       "type": "wait",
       "for": {
         "log": "review"

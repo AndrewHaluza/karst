@@ -15,15 +15,11 @@
       ]
     },
     {
-      "type": "click",
-      "target": {
-        "act": "stage-resume"
-      }
-    },
-    {
       "type": "wait",
       "for": {
-        "log": "re-asking once for reformatting"
+        "ticketSettled": {
+          "key": "FIX-REFORMAT"
+        }
       },
       "timeoutMs": 30000
     },
