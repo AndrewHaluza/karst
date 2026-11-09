@@ -13,7 +13,7 @@ import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
 export function EvGlyph({ r }: { readonly r: Pick<EvidenceRow, 'status'> }) {
-  return <span className="ev-glyph">{r.status ? <span className={`glyph ${r.status}`} aria-label={statusWord(r.status)} /> : null}</span>;
+  return <span className="ev-glyph">{r.status ? <span className={`glyph ${r.status}`} role="img" aria-label={statusWord(r.status)} /> : null}</span>;
 }
 
 export function EvTiming({ r, cls, stage, id, index }: { readonly r: EvidenceRow; readonly cls: string; readonly stage: string; readonly id: string; readonly index: number }) {

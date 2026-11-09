@@ -35,7 +35,7 @@ describe('Inside — the stage menu', () => {
     expect(q('.stageMenuWrap')).toBeNull();
   });
 
-  it('closed: one icon button with aria-haspopup/expanded; has-actions follows send back, PR feedback, CI and rebase (not retry)', () => {
+  it('closed: one icon button with aria-haspopup/expanded; has-actions follows every menu action, retry included', () => {
     mountInside(menuState());
     expect(trigger().getAttribute('aria-label')).toBe('Stage actions');
     expect(trigger().getAttribute('aria-haspopup')).toBe('menu');
@@ -46,7 +46,7 @@ describe('Inside — the stage menu', () => {
     cleanupInside();
     mountInside(insideState({ stageCurrent: 'uat', rerunGate: { available: true, stage: 'uat' } }));
     expect(q('.stageMenuWrap')).not.toBeNull();
-    expect(must('.inside-head').classList.contains('has-actions')).toBe(false);
+    expect(must('.inside-head').classList.contains('has-actions')).toBe(true);
   });
 
   it('open: the ship items in order, each with its title and a wrapped label', () => {

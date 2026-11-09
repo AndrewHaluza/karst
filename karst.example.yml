@@ -631,6 +631,10 @@ uat:
   # `onSkip` decides a run that observed nothing (coverage SKIPPED / NOT RUN, 0 observations):
   # pass (shown as skipped) | reask (one re-ask, then pass) | reask-then-park (then ask me).
   testerObservations: { blockingSeverity: none, onSkip: pass }
+  # Opt-in `requireEvidence: { file: <glob>, whenChanged: [<globs>] }` (nested under testerObservations):
+  # when the ticket diff matches `whenChanged` and no file matching `file` in the worktree is
+  # newer than the Tester run start, the run counts as observed nothing and `onSkip` applies.
+  # It reads files and the diff only, never the agent's report. Absent = no check.
   # WIRED, manifest-only. The FRESH-token budget ONE Tester target may spend
   # before the lane stops the call and re-asks once for whatever the agent had
   # already observed. A run the budget stops records its findings as PARTIAL

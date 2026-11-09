@@ -6,6 +6,8 @@ import {
   listTokenUsage,
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
+  summarizeRecordedTokenUsageForRuns,
+  summarizeRecordedTokenUsageForGraphRun,
   summarizeRecordedTokenUsageByRole,
   listRecentlyUsedModels,
   EMPTY_USAGE_TOTALS,
@@ -818,5 +820,114 @@ describe('listRecentlyUsedModels', () => {
   it('returns an empty map when nothing has been used', () => {
     ticket(1, 'K-1', 'One');
     expect(listRecentlyUsedModels(store, 1)).toEqual({});
+  });
+});
+
+describe('round-scoped reads (the Inside pill)', () => {
+  const T = '2026-08-12T00:00:00.000Z';
+
+  function opened(processId: string): number {
+    return openProcessRun(store, {
+      ticketId: 1,
+      stageKey: 'uat',
+      processId,
+      attempt: 0,
+      startedAt: T,
+    }).id;
+  }
+
+  it('sums only the given runs and keeps estimated tokens apart from measured ones', () => {
+    ticket(1, 'K-1', 'One');
+    const a = opened('tester');
+    const b = opened('tester');
+    const other = opened('tester');
+    seed({ input: 100, output: 20, cacheRead: 30, processRunId: a });
+    seed({ input: 50, output: 10, processRunId: b });
+    seed({ input: 700, output: 300, estimated: true, processRunId: b });
+    seed({ input: 9_000, output: 1, processRunId: other });
+
+    expect(summarizeRecordedTokenUsageForRuns(store, 1, [a, b])).toEqual({
+      total: 210,
+      cacheRead: 30,
+      estimatedCalls: 1,
+      estimatedTotal: 1_000,
+    });
+  });
+
+  it('reads nothing for no run and ignores another ticket', () => {
+    ticket(1, 'K-1', 'One');
+    const a = opened('tester');
+    seed({ input: 5, output: 5, processRunId: a });
+    expect(summarizeRecordedTokenUsageForRuns(store, 1, [])).toEqual({
+      total: 0,
+      cacheRead: 0,
+      estimatedCalls: 0,
+      estimatedTotal: 0,
+    });
+    expect(summarizeRecordedTokenUsageForRuns(store, 2, [a]).total).toBe(0);
+  });
+
+  it('sums a graph run through its planner runs and node runs, not process runs', () => {
+    ticket(1, 'K-1', 'One');
+    const insertGraph = (id: number): void => {
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 1, 'impl', ?, 'graph', 'running', ?)`,
+        )
+        .run(id, id, T);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, ?, 1, 'graph: []', 'fp', 'active', ?)`,
+        )
+        .run(id, id, T);
+      store.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (id, graph_run_id, planner_run_number, kind, status)
+           VALUES (?, ?, 1, 'bootstrap', 'submitted')`,
+        )
+        .run(id, id);
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, ?, 'n', 'agent', 1, 'completed')`,
+        )
+        .run(id, id, id);
+    };
+    insertGraph(1);
+    insertGraph(2);
+    const rec = (o: { planner?: number; node?: number; total: number; estimated?: boolean }): void =>
+      recordTokenUsage(store, {
+        projectId: 1,
+        ticketId: 1,
+        approachPlannerRunId: o.planner ?? null,
+        approachNodeRunId: o.node ?? null,
+        callSite: o.node !== undefined ? 'graph-node' : 'graph-planner',
+        provider: 'codex',
+        outcome: 'ok',
+        recordedAt: T,
+        usage: {
+          inputTokens: o.total,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: o.total,
+          model: 'sol',
+          estimated: o.estimated ?? false,
+        },
+      });
+    rec({ planner: 1, total: 100 });
+    rec({ node: 1, total: 40 });
+    rec({ node: 1, total: 60, estimated: true });
+    rec({ planner: 2, total: 5_000 });
+
+    expect(summarizeRecordedTokenUsageForGraphRun(store, 1, 1)).toEqual({
+      total: 140,
+      cacheRead: 0,
+      estimatedCalls: 1,
+      estimatedTotal: 60,
+    });
   });
 });

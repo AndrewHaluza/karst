@@ -41,6 +41,7 @@ import type {
   InsideStatus,
   TypedInsideAction,
 } from './types.js';
+import { tokenView, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
 import { graphDagView, type GraphTopology } from './graphDag.js';
 import { sanitizeGraphText, GRAPH_TEXT_MAX } from './graphText.js';
@@ -194,6 +195,12 @@ export interface GraphInsideInput {
     stageAttempt: number;
     createdAt: string;
   } | null;
+  /**
+   * The graph run's spend — its planner runs and node runs, which the ledger
+   * links by `approach_planner_run_id` / `approach_node_run_id`, not by
+   * `process_run_id`. Read by the host; absent → no pill.
+   */
+  tokens?: SessionTokensInput | null;
   plannerRuns: GraphPlannerRunView[];
   nodeRuns: GraphNodeRunView[];
   /** Existing per-node overrides (Slice 4 Task 6), READ-ONLY — the projection
@@ -576,6 +583,7 @@ export function graphInsideProcess(
     status: graphRunStatus(input.graphRun.status),
     aggregate: sanitizeGraphText(graphRunStatusCopy(input.graphRun.status)),
     aggregateTitle: sanitizeGraphText(input.graphRun.status),
+    ...(input.tokens ? { tokens: tokenView(input.tokens) } : {}),
     evidence: {
       kind: 'rows',
       rows,

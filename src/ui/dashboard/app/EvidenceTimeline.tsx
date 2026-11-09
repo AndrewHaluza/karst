@@ -6,6 +6,7 @@
 import type { EvidenceRow } from '../../../model/inside/types.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { TimelineTokens } from './InsideClocks.js';
+import { Overflow } from './EvidenceParts.js';
 import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
@@ -75,7 +76,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
     return (
       <div className="timeline-row timeline-start">
         <span className="timeline-slot">
-          {r.status === 'pass' ? <span className="glyph phase-status pass" aria-label="passed" /> : <span className="timeline-node start" aria-hidden="true" />}
+          {r.status === 'pass' ? <span className="glyph phase-status pass" role="img" aria-label="passed" /> : <span className="timeline-node start" aria-hidden="true" />}
         </span>
         <span className="timeline-start-label">{r.label}</span>
         <IdentityCell r={r} />
@@ -88,7 +89,7 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
   return (
     <div className={`timeline-row phase-row${status === 'run' ? ' current' : ''}`}>
       <span className="timeline-slot phase-rail">
-        <span className={`glyph phase-status ${status}`} aria-label={statusWord(status)} />
+        <span className={`glyph phase-status ${status}`} role="img" aria-label={statusWord(status)} />
       </span>
       <span className="phase-name">{r.label}</span>
       <span className={`phase-detail ${status}`}>{r.detail || ''}</span>
@@ -100,12 +101,20 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
 }
 
 export function EvidenceTimeline({ rows, stage, id }: { readonly rows: readonly EvidenceRow[]; readonly stage: string; readonly id: string }) {
+  // The bounded remainder (`role: 'event'`) is not history: it is the control that reveals the withheld rows, drawn
+  // below the rail like the other bodies' remainder, so it stays reachable where `.timeline-tail` is hidden.
+  const more = rows.find((r) => r.role === 'event');
   return (
-    <div className="session-segments">
-      {rows.map((r, i) => (
-        // The rail is ordered history: a row keeps its place, so its position is part of its identity.
-        <Row key={`${i}:${r.label}`} r={r} stage={stage} id={id} index={i} />
-      ))}
-    </div>
+    <>
+      <div className="session-segments">
+        {rows.map((r, i) =>
+          r.role === 'event' ? null : (
+            // The rail is ordered history: a row keeps its place, so its position is part of its identity.
+            <Row key={`${i}:${r.label}`} r={r} stage={stage} id={id} index={i} />
+          ),
+        )}
+      </div>
+      <Overflow o={more} />
+    </>
   );
 }

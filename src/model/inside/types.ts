@@ -365,8 +365,19 @@ export type InsideEvidenceTarget =
  * ordinary prompt caching. Absent `cacheRead` = nothing was served from cache.
  */
 export type TokenUsageView =
-  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
-  | { state: 'estimated'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
+  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string; title?: string }
+  | {
+      state: 'estimated';
+      total: string;
+      exact?: string;
+      cacheRead?: string;
+      cacheReadExact?: string;
+      /** Every counted call was an estimate: the pill draws the `~` mark. */
+      estimateOnly?: boolean;
+      title?: string;
+    }
+  /** A run is going and its count arrives at the end of the call — never "0 tok". */
+  | { state: 'pending'; label: string; title: string }
   | { state: 'unavailable'; title: string };
 
 /** One line inside a process's evidence block. */

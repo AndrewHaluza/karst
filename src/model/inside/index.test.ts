@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { ProcessRun } from '../../store/processRuns.js';
 import { type StageStatus } from '../types.js';
 import type { StepperCell } from '../stepper.js';
 import { scopeProcesses, uatProcesses, reviewProcesses, shipProcesses, doneReceipt, implementationSessionProcess, type DoneReceiptView } from './index.js';
@@ -52,6 +53,48 @@ describe('scopeProcesses', () => {
   // one act, so a scope cell may carry an END and no START. Dating the rows off
   // `startedAt` alone dropped every scope timestamp on exactly the tickets that
   // took the ordinary path.
+  describe('Ticket analysis pill', () => {
+    const prefillRun = (id: number, status: 'passed' | 'running'): ProcessRun => ({
+      id,
+      ticketId: 1,
+      stageKey: 'scope',
+      processId: 'prefill',
+      attempt: 0,
+      stageRunId: null,
+      agentName: null,
+      provider: 'antigravity',
+      model: null,
+      pid: null,
+      childPid: null,
+      childStartedAt: null,
+      status,
+      resultKind: null,
+      artifactPath: null,
+      failureDetail: null,
+      promptTelemetry: null,
+      startedAt: '2026-07-20T12:00:00.000Z',
+      endedAt: status === 'running' ? null : '2026-07-20T12:01:00.000Z',
+    });
+
+    it('reads the latest analysis run only, and shows an estimate-only count with its mark', () => {
+      const seen: number[][] = [];
+      const [prefill] = scopeProcesses(
+        scopeCell('passed'),
+        ['api'],
+        [],
+        NOW,
+        [prefillRun(3, 'passed'), prefillRun(8, 'passed')],
+        undefined,
+        (runs) => {
+          seen.push(runs.map((r) => r.id));
+          return { total: 0, estimatedCalls: 1, estimatedTotal: 900 };
+        },
+      );
+      expect(seen).toEqual([[8]]);
+      expect(prefill!.tokens).toMatchObject({ state: 'estimated', estimateOnly: true, total: '900' });
+    });
+  });
+
   describe('dates its rows from the scope run even when only its end was stamped', () => {
     const endedOnly = scopeCell('passed', { endedAt: '2026-07-20T12:10:00.000Z' });
 

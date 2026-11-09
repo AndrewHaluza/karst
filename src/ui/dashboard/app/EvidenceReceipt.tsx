@@ -33,8 +33,7 @@ function Lines({ ev }: { readonly ev: Receipt }) {
                 <EvAction r={r} />
               ) : (
                 <span className="done-state">
-                  {r.time ? <span className="ev-time">{r.time}</span> : null}
-                  {r.time ? ' · ' : null}
+                  {r.time ? <span className="ev-time">{r.time}{' · '}</span> : null}
                   {r.duration || statusWord(r.status)}
                 </span>
               )}
@@ -53,7 +52,7 @@ export function EvidenceReceipt({ ev }: { readonly ev: Receipt }) {
     <div className="done-receipt">
       {ev.hero ? (
         <div className="done-hero">
-          <span className="done-check glyph pass" aria-label="delivered" />
+          <span className="done-check glyph pass" role="img" aria-label="delivered" />
           <span className="done-hero-main">{ev.hero.title}</span>
           <span className="done-hero-sub">{ev.hero.summary}</span>
           {ev.hero.time ? <span className="done-hero-time">{ev.hero.time}</span> : null}

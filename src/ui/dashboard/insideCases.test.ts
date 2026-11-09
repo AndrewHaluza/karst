@@ -33,4 +33,11 @@ describe('inside case registry (ui:VISUAL-VARIANTS)', () => {
       expect(v.attempts!.find((a) => a.key === v.selectedAttempt)?.latest).toBeFalsy();
     }
   });
+
+  it('has token-pill cases for the running placeholder and the estimate mark (T1041)', () => {
+    const tester = (id: string) =>
+      INSIDE_CASES.find((c) => c.stage === 'uat' && c.id === id)!.state().insideViews.uat.processes.find((p) => p.id === 'tester');
+    expect(tester('tokens-pending')?.tokens).toMatchObject({ state: 'pending', label: 'Σ counted at end' });
+    expect(tester('tokens-estimate')?.tokens).toMatchObject({ state: 'estimated', estimateOnly: true });
+  });
 });

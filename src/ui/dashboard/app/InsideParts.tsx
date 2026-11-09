@@ -109,9 +109,21 @@ export function Identity({ p }: { readonly p: InsideProcessView }) {
 export function TokenPill({ t, live }: { readonly t: TokenUsageView | undefined; readonly live: boolean }) {
   if (!t) return null;
   if (t.state === 'unavailable') return <span className="token-stat" title={t.title}>usage unavailable</span>;
+  // A running row whose count arrives only when the call ends: the reason is the text, never "0 tok".
+  if (t.state === 'pending') {
+    return (
+      <span className={`token-stat pending${live ? ' live' : ''}`} title={t.title}>
+        {t.label}
+      </span>
+    );
+  }
+  const estimateOnly = t.state === 'estimated' && t.estimateOnly === true;
   return (
-    <span className={`token-stat${live ? ' live' : ''}`} title={t.exact ? `${t.exact} fresh tokens` : undefined}>
-      <span className="sigma">Σ</span>
+    <span
+      className={`token-stat${live ? ' live' : ''}${estimateOnly ? ' estimate' : ''}`}
+      title={t.title ?? (t.exact ? `${t.exact} fresh tokens` : undefined)}
+    >
+      <span className="sigma">{estimateOnly ? '~Σ' : 'Σ'}</span>
       {`${t.total} tok`}
       {/* Cache reads ride BESIDE the headline, never inside it: context re-sent from the prompt cache is charged at a fraction of the fresh rate. */}
       {t.cacheRead ? (
