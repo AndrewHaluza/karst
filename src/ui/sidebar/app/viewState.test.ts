@@ -8,8 +8,9 @@ describe('restoreView', () => {
     expect(restoreView({})).toEqual(DEFAULT_VIEW);
   });
   it('restores saved flags and ignores non-boolean junk', () => {
-    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true });
-    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ collapsed: { planning: false, tickets: true }, showArchivedPlans: false });
+    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ collapsed: { planning: true, queue: true, tickets: false }, showArchivedPlans: true });
+    expect(restoreView({ collapsed: { queue: false } }).collapsed.queue).toBe(false);
+    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ collapsed: { planning: false, queue: true, tickets: true }, showArchivedPlans: false });
   });
 });
 

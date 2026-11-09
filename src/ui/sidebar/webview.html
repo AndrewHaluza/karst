@@ -69,6 +69,8 @@
   .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
   .pane[data-pane="tickets"]:not([data-collapsed="true"]){flex:1 1 0}
   .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
+  /* Queue pane: open it takes about 30% of the height and scrolls on its own; a collapsed pane hands its height to the others. */
+  .pane[data-pane="queue"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:30%}
   .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
   .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
     min-height:calc(var(--k-space-8) + var(--k-space-2))}
@@ -404,6 +406,23 @@
   .k-pri--urgent{color:var(--k-danger);background:color-mix(in srgb,var(--k-danger) 16%,transparent);border:var(--k-border-w) solid var(--k-danger)}
   .k-pri--high{color:var(--k-warning);background:color-mix(in srgb,var(--k-warning) 16%,transparent);border:var(--k-border-w) solid var(--k-warning)}
   .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
+  /* Queue rows: one line each. The region is the container, so the reason and the session drop at a narrow sidebar, the title keeps the rest. */
+  [data-region="queue"]{container-type:inline-size;container-name:queue}
+  .q-row{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
+  .q-row:hover{background:var(--vscode-list-hoverBackground)}
+  .q-main{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:var(--k-space-2);height:100%;padding:0;background:none;border:0;color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left;cursor:pointer}
+  .q-main:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
+  .q-pos{flex:none;min-width:2ch;text-align:right;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;color:var(--k-text-dim);font-size:var(--k-text-xs)}
+  .q-id{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap}
+  .q-sx{color:var(--k-text-faint)}
+  .q-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q-why{flex:none;font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
+  .q-why--raised.q-why--urgent{color:var(--k-danger)}
+  .q-why--raised.q-why--high{color:var(--k-warning)}
+  .q-why--cycle{color:var(--k-danger)}
+  .q-menu{flex:none;width:var(--k-space-8);height:var(--k-space-8);opacity:0}
+  .q-row:hover .q-menu,.q-row:focus-within .q-menu,.q-menu[aria-expanded="true"]{opacity:1}
+  @container queue (max-width: 20em){.q-why,.q-sx{display:none}}
   .ctxdivider{height:var(--k-border-w);margin:var(--k-space-2) 0;background:var(--k-border)}
   .ctxitem:hover{background:var(--k-surface-hover)}
   .ctxitem:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}

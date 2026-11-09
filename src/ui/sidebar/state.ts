@@ -5,6 +5,8 @@ import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
 import { asPriorityLevel, type PriorityLevel } from '../../planning/proposal.js';
 import { PRIORITY_EDITABLE_STAGE } from '../../extension/ops/ticketPriorityOps.js';
+import { readProjectQueue } from '../../store/queueItems.js';
+import { queueWhy } from '../../model/queueOrder.js';
 import { ticketActionFlags, type TicketActionFlags } from './ticketActions.js';
 import {
   listServersByTicket,
@@ -205,6 +207,70 @@ export interface PlanningRow {
   proposals: PlanningProposalRow[];
 }
 
+/** One place of the Queue pane: the host-computed order, with the reason already phrased. */
+export interface QueueRowView {
+  /** 1-based place. */
+  position: number;
+  kind: 'draft' | 'ticket';
+  /** The draft (proposal) id or the ticket id, per `kind`: what a click opens. */
+  id: number;
+  /** `D<n>` or `T<n>`. */
+  idLabel: string;
+  /** `P<n>` of a draft's session; null for a ticket. */
+  sessionLabel: string | null;
+  title: string;
+  /** The effective level; `normal` shows no chip. */
+  level: PriorityLevel;
+  /** The item that raised the level above its own, or null. */
+  inheritedFrom: string | null;
+  /** Open blockers, in-queue ones first. */
+  waitsOn: string[];
+  cycle: boolean;
+  /** The short reason (`↑ D498`, `waits D452`, `cycle`), or ''. */
+  why: string;
+  whyKind: 'raised' | 'waits' | 'cycle' | 'none';
+  /** The item's own level (the menu's checked entry); null when none. */
+  ownLevel: PriorityLevel | null;
+}
+
+/** The Queue pane's data: ONE computed order of the project's pending drafts and scope tickets. */
+export interface QueueView {
+  rows: QueueRowView[];
+  drafts: number;
+  sessions: number;
+  tickets: number;
+}
+
+export const EMPTY_QUEUE: QueueView = { rows: [], drafts: 0, sessions: 0, tickets: 0 };
+
+function queueView(store: Store, projectId: number | undefined): QueueView {
+  if (projectId === undefined) return EMPTY_QUEUE;
+  const q = readProjectQueue(store, projectId);
+  return {
+    drafts: q.drafts,
+    sessions: q.sessions,
+    tickets: q.tickets,
+    rows: q.entries.map((e) => {
+      const why = queueWhy(e);
+      return {
+        position: e.position,
+        kind: e.kind,
+        id: e.numId,
+        idLabel: e.id,
+        sessionLabel: e.session,
+        title: e.title,
+        level: e.priority,
+        inheritedFrom: e.inheritedFrom,
+        waitsOn: [...e.waitsOn],
+        cycle: e.cycle,
+        why: e.cycle ? 'cycle' : e.inheritedFrom !== null ? `↑ ${e.inheritedFrom}` : e.waitsOn.length ? `waits ${e.waitsOn[0]}${e.waitsOn.length > 1 ? ` +${e.waitsOn.length - 1}` : ''}` : '',
+        whyKind: e.cycle ? 'cycle' : e.inheritedFrom !== null ? 'raised' : why ? 'waits' : 'none',
+        ownLevel: e.ownPriority,
+      };
+    }),
+  };
+}
+
 export interface SidebarState {
   /**
    * Active facet selection — the lit chips. Multi-select: several status facets
@@ -234,6 +300,8 @@ export interface SidebarState {
   rows: TicketRow[];
   /** Planning sessions, newest first: live and archived (the Planning pane toggles archived), whatever the ticket facet. */
   planning: PlanningRow[];
+  /** The project queue (Queue pane): drafts and scope tickets in one computed order, whatever the ticket facet or search. */
+  queue: QueueView;
   /** Cloud sessions with no ticket, shown as rows in the tickets pane; empty without a project or a match. */
   unlinkedCloudSessions: UnlinkedCloudSession[];
 }
@@ -432,7 +500,7 @@ export function buildSidebarState(
   };
 
   const counts = facetCounts(active, archivedKeys.length);
-  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query) };
+  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query), queue: queueView(store, opts.projectId) };
 
   const isAll = facets.length === 1 && facets[0] === 'all';
   const isDone = facets.length === 1 && facets[0] === 'done';

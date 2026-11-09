@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,10 +65,39 @@ function isWithin(parent, child) {
  * checkout's `npm test` — never touch the shared addon again. The main
  * checkout itself resolves inside its own cwd and never materializes.
  */
+function refuseSharedInstall(path, why) {
+  console.error(
+    `Refused: ${path} ${why}. This script stopped so that it does not delete the shared install. ` +
+      'Fix: remove the symlink. A worktree resolves its dependencies from the main checkout by the normal Node walk-up, ' +
+      'and this script then copies only better-sqlite3 into a real node_modules folder.',
+  );
+  process.exit(1);
+}
+
+function isSymlink(path) {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Exit 1, with no change on disk, when a path to delete or fill leaves the checkout through a symlink. */
+function assertNoSymlinkEscape(cwd, path) {
+  if (!existsSync(path) && !isSymlink(path)) return;
+  if (isSymlink(path)) refuseSharedInstall(path, 'is a symlink');
+  if (!isWithin(realpathSync(cwd), realpathSync(path))) {
+    refuseSharedInstall(path, 'resolves outside this checkout');
+  }
+}
+
 function materializeLocalCopyIfNeeded() {
   const cwd = process.cwd();
   if (isWithin(cwd, installRoot)) return;
-  const localDir = join(cwd, 'node_modules', 'better-sqlite3');
+  const modulesDir = join(cwd, 'node_modules');
+  const localDir = join(modulesDir, 'better-sqlite3');
+  assertNoSymlinkEscape(cwd, modulesDir);
+  assertNoSymlinkEscape(cwd, localDir);
   rmSync(localDir, { recursive: true, force: true });
   mkdirSync(dirname(localDir), { recursive: true });
   const result = spawnSync('cp', ['-R', moduleDir, localDir], { stdio: 'inherit' });

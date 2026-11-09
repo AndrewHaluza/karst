@@ -3,8 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { upsertProject } from '../store/projects.js';
 import { createTicket } from '../store/tickets.js';
 import { createPlanningSession } from '../store/planningSessions.js';
-import { insertProposal, discardProposal, markProposalAccepted, setProposalPriorityOverride } from '../store/planningProposals.js';
-import { addRelation } from '../store/ticketRelations.js';
+import { insertProposal } from '../store/planningProposals.js';
 import { parseQueueArgs, collectQueue, runQueueCommand, QUEUE_TITLE_MAX } from './queueCommand.js';
 
 const payload = { title: 'A draft', description: 'd', summary: 's', repos: ['api'] };
@@ -20,7 +19,7 @@ describe('karst queue — parse', () => {
   });
 });
 
-describe('karst queue — rows', () => {
+describe('karst queue — output', () => {
   let store: Store;
   let projectId: number;
   let s1: number;
@@ -33,63 +32,32 @@ describe('karst queue — rows', () => {
   });
   afterEach(() => store.close());
 
-  const atScope = (key: string, extra = ''): number => {
-    const t = createTicket(store, { key, title: `title ${key}`, projectId });
-    store.db.prepare(`UPDATE tickets SET stage_current = 'scope'${extra} WHERE id = ?`).run(t.id);
-    return t.id;
-  };
+  it('says so when the queue is empty', () => {
+    expect(runQueueCommand(store, { json: false }, { projectId })).toMatch(/empty/);
+    expect(JSON.parse(runQueueCommand(store, { json: true }, { projectId }))).toEqual([]);
+  });
 
-  it('lists pending drafts of every session, then scope tickets, by id', () => {
-    const d1 = insertProposal(store, s1, { ...payload, title: 'first' });
-    const d2 = insertProposal(store, s2, { ...payload, title: 'second', dependsOn: [d1, 'T9'] });
-    const t = atScope('K1');
-    expect(collectQueue(store, { projectId })).toEqual([
-      { id: `D${d1}`, session: `P${s1}`, title: 'first', priority: null, priorityReason: null, dependsOn: [] },
-      { id: `D${d2}`, session: `P${s2}`, title: 'second', priority: null, priorityReason: null, dependsOn: [`D${d1}`, 'T9'] },
-      { id: `T${t}`, session: null, title: 'title K1', priority: null, priorityReason: null, dependsOn: [] },
+  it('prints the computed order as a table with the reason and a footer', () => {
+    const blocker = insertProposal(store, s1, { ...payload, title: 'blocker' });
+    const urgent = insertProposal(store, s2, { ...payload, title: 'urgent one', priority: 'urgent', dependsOn: [blocker] });
+    const t = createTicket(store, { key: 'K1', title: 'a ticket', projectId });
+    store.db.prepare("UPDATE tickets SET stage_current = 'scope' WHERE id = ?").run(t.id);
+    expect(runQueueCommand(store, { json: false }, { projectId }).split('\n')).toEqual([
+      '#  ID  SESSION  PRIO    TITLE       WHY',
+      `1  D${blocker}  P${s1}       urgent  blocker     ↑ from D${urgent}`,
+      `2  D${urgent}  P${s2}       urgent  urgent one  waits on D${blocker}`,
+      `3  T${t.id}  -        normal  a ticket`,
+      '3 items · 2 drafts in 2 sessions · 1 tickets',
     ]);
   });
 
-  it('carries a draft priority and reason, an override wins and drops the reason, and a ticket shows its own level', () => {
-    const planned = insertProposal(store, s1, { ...payload, title: 'planned', priority: 'urgent', priorityReason: 'data loss' });
-    const changed = insertProposal(store, s1, { ...payload, title: 'changed', priority: 'urgent', priorityReason: 'data loss' });
-    setProposalPriorityOverride(store, changed, 'low');
-    const t = atScope('K2', ", priority = 'high'");
-    const odd = atScope('K3', ", priority = 'Whenever'");
-    const rows = collectQueue(store, { projectId });
-    const by = (id: string) => rows.find((r) => r.id === id)!;
-    expect(by(`D${planned}`)).toMatchObject({ priority: 'urgent', priorityReason: 'data loss' });
-    expect(by(`D${changed}`)).toMatchObject({ priority: 'low', priorityReason: null });
-    expect(by(`T${t}`)).toMatchObject({ priority: 'high', priorityReason: null });
-    expect(by(`T${odd}`)).toMatchObject({ priority: null });
-    const text = runQueueCommand(store, { json: false }, { projectId });
-    expect(text).toContain(`D${planned}  P${s1}  urgent  planned  (data loss)`);
-    expect(text).toContain(`T${t}  high  title K2`);
-  });
-
-  it('leaves out discarded and accepted drafts, other projects, subtasks, archived and started tickets', () => {
-    const gone = insertProposal(store, s1, payload);
-    discardProposal(store, gone);
-    const taken = insertProposal(store, s1, payload);
-    const own = createTicket(store, { key: 'OWN', title: 'own', projectId }).id;
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(own);
-    markProposalAccepted(store, taken, own);
-    const other = upsertProject(store, { slug: 'q' }).id;
-    insertProposal(store, createPlanningSession(store, { projectId: other, title: 'o', core: 'claude', model: null }).id, payload);
-    const parent = atScope('PAR');
-    atScope('SUB', `, subtask_parent_id = ${parent}`);
-    atScope('ARC', ", archived_at = datetime('now')");
-    const started = createTicket(store, { key: 'ST', title: 'st', projectId }).id;
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(started);
-    expect(collectQueue(store, { projectId }).map((r) => r.id)).toEqual([`T${parent}`]);
-  });
-
-  it('shows the open blockers of a ticket', () => {
-    const blocker = createTicket(store, { key: 'BLK', title: 'blk', projectId }).id;
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(blocker);
-    const t = atScope('K2');
-    addRelation(store, { ticketId: t, kind: 'blocked-by', targetTicketId: blocker, source: 'user' });
-    expect(collectQueue(store, { projectId })[0]).toMatchObject({ id: `T${t}`, dependsOn: ['BLK'] });
+  it('prints the same rows with their reasons as JSON', () => {
+    const blocker = insertProposal(store, s1, { ...payload, priorityReason: undefined });
+    const urgent = insertProposal(store, s2, { ...payload, priority: 'urgent', priorityReason: 'data loss', dependsOn: [blocker] });
+    const rows = JSON.parse(runQueueCommand(store, { json: true }, { projectId }));
+    expect(rows).toEqual(collectQueue(store, { projectId }));
+    expect(rows[0]).toMatchObject({ position: 1, id: `D${blocker}`, session: `P${s1}`, priority: 'urgent', inheritedFrom: `D${urgent}`, waitsOn: [], cycle: false, why: `↑ from D${urgent}` });
+    expect(rows[1]).toMatchObject({ position: 2, priorityReason: 'data loss', waitsOn: [`D${blocker}`], why: `waits on D${blocker}` });
   });
 
   it('cuts a long title to 90 characters', () => {
@@ -97,12 +65,5 @@ describe('karst queue — rows', () => {
     const row = collectQueue(store, { projectId })[0]!;
     expect(row.title).toHaveLength(QUEUE_TITLE_MAX);
     expect(row.title.endsWith('…')).toBe(true);
-  });
-
-  it('prints text rows and the same rows as JSON, and says so when empty', () => {
-    expect(runQueueCommand(store, { json: false }, { projectId })).toMatch(/empty/);
-    const d = insertProposal(store, s1, { ...payload, dependsOn: ['T4'] });
-    expect(runQueueCommand(store, { json: false }, { projectId })).toBe(`D${d}  P${s1}  A draft  needs T4`);
-    expect(JSON.parse(runQueueCommand(store, { json: true }, { projectId }))).toEqual(collectQueue(store, { projectId }));
   });
 });

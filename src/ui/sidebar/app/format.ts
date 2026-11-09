@@ -47,6 +47,7 @@ export const EMPTY_STATE: SidebarState = {
   sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
   done: [],
   rows: [],
+  queue: { rows: [], drafts: 0, sessions: 0, tickets: 0 },
   planning: [],
   unlinkedCloudSessions: [],
 };

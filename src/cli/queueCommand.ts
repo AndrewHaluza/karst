@@ -1,39 +1,44 @@
 import type { Store } from '../store/db.js';
-import { formatId } from '../model/entityId.js';
-import { asPriorityLevel, type PriorityLevel } from '../planning/proposal.js';
-import { effectiveProposalPriority, listProjectProposals } from '../store/planningProposals.js';
-import { listOpenBlockers } from '../store/ticketRelations.js';
+import type { PriorityLevel } from '../model/priority.js';
+import { queueWhy } from '../model/queueOrder.js';
+import { readProjectQueue, type ProjectQueue } from '../store/queueItems.js';
 
 /**
- * `karst queue [--json]` — the project's pending drafts (every planning
- * session) and its top-level tickets still waiting at `scope`, so a planner can
- * find the ids to put in a draft's `dependsOn`.
+ * `karst queue [--json]` — the project's queue in its computed order: pending
+ * drafts (every planning session) and top-level tickets waiting at `scope`.
+ * A planner reads it to find the ids to put in a draft's `dependsOn`.
  *
  * READ-ONLY: SELECTs only, so a planning session may run it through
- * `KARST_DB_READONLY` (@arch:CLI-13). Order is by id, drafts first.
+ * `KARST_DB_READONLY` (@arch:CLI-13). The order comes from `readProjectQueue`
+ * (the one read path, shared with the sidebar); this file only formats it.
  */
 
 /** A title is cut to this many characters (the last one is an ellipsis). */
 export const QUEUE_TITLE_MAX = 90;
-/** Top-level tickets listed here are the ones that have not started. */
-const NOT_STARTED_STAGE = 'scope';
 
 export interface ParsedQueue {
   readonly json: boolean;
 }
 
 export interface QueueRow {
+  /** 1-based place in the computed order. */
+  readonly position: number;
   /** `D<n>` for a draft, `T<n>` for a ticket. */
   readonly id: string;
   /** `P<n>` of a draft's planning session; null for a ticket. */
   readonly session: string | null;
   readonly title: string;
-  /** The draft's effective priority (your override, else the planner's) or the ticket's own; null when none (reads as normal). */
-  readonly priority: PriorityLevel | null;
+  /** The effective level: the item's own, or the highest of the items that wait on it. */
+  readonly priority: PriorityLevel;
+  /** The item that raised the level above its own, or null. */
+  readonly inheritedFrom: string | null;
   /** A draft's one-line planner reason, when it has one and no override replaced it; null otherwise. */
   readonly priorityReason: string | null;
-  /** A draft's `dependsOn` entries, or a ticket's open blockers. */
-  readonly dependsOn: readonly string[];
+  /** Open blockers: pending drafts and tickets that come first, and open blockers outside the queue. */
+  readonly waitsOn: readonly string[];
+  readonly cycle: boolean;
+  /** The short reason for the place: `cycle`, `↑ from D498`, `waits on T12`, or ''. */
+  readonly why: string;
 }
 
 export interface QueueScope {
@@ -57,46 +62,42 @@ function cut(title: string): string {
   return one.length <= QUEUE_TITLE_MAX ? one : `${one.slice(0, QUEUE_TITLE_MAX - 1)}…`;
 }
 
-export function collectQueue(store: Store, scope: QueueScope): QueueRow[] {
-  const drafts: QueueRow[] = listProjectProposals(store, scope.projectId)
-    .filter((p) => p.status === 'pending')
-    .map((p) => ({
-      id: formatId('draft', p.id),
-      session: formatId('plan', p.sessionId),
-      title: cut(p.payload.title),
-      priority: effectiveProposalPriority(p),
-      priorityReason: p.priorityOverride === null ? (p.payload.priorityReason ?? null) : null,
-      dependsOn: (p.payload.dependsOn ?? []).map((d) => (typeof d === 'number' ? formatId('draft', d) : d)),
-    }));
-  const tickets = store.db
-    .prepare(
-      `SELECT id, COALESCE(title, key, '') AS title, priority FROM tickets
-        WHERE project_id = ? AND archived_at IS NULL AND subtask_parent_id IS NULL
-          AND stage_current = ?
-        ORDER BY id`,
-    )
-    .all(scope.projectId, NOT_STARTED_STAGE) as { id: number; title: string; priority: string | null }[];
-  const ticketRows: QueueRow[] = tickets.map((t) => ({
-    id: formatId('ticket', t.id),
-    session: null,
-    title: cut(t.title),
-    priority: asPriorityLevel(t.priority) ?? null,
-    priorityReason: null,
-    dependsOn: listOpenBlockers(store, t.id).map((b) => b.label),
+export function toQueueRows(queue: ProjectQueue): QueueRow[] {
+  return queue.entries.map((e) => ({
+    position: e.position,
+    id: e.id,
+    session: e.session,
+    title: cut(e.title),
+    priority: e.priority,
+    inheritedFrom: e.inheritedFrom,
+    priorityReason: e.priorityReason,
+    waitsOn: e.waitsOn,
+    cycle: e.cycle,
+    why: queueWhy(e),
   }));
-  return [...drafts, ...ticketRows];
 }
 
-function renderRow(r: QueueRow): string {
-  const session = r.session === null ? '' : `  ${r.session}`;
-  const waits = r.dependsOn.length === 0 ? '' : `  needs ${r.dependsOn.join(', ')}`;
-  const priority = r.priority === null ? '' : `  ${r.priority}`;
-  const why = r.priorityReason === null ? '' : `  (${r.priorityReason})`;
-  return `${r.id}${session}${priority}  ${r.title}${why}${waits}`;
+export function collectQueue(store: Store, scope: QueueScope): QueueRow[] {
+  return toQueueRows(readProjectQueue(store, scope.projectId));
+}
+
+const HEADERS = ['#', 'ID', 'SESSION', 'PRIO', 'TITLE', 'WHY'] as const;
+const NO_SESSION = '-';
+
+function table(rows: readonly (readonly string[])[]): string {
+  const widths = HEADERS.map((_, c) => Math.max(...rows.map((r) => r[c]!.length)));
+  // The last column is not padded, so a line never ends in spaces.
+  return rows.map((r) => r.map((cell, c) => (c === r.length - 1 ? cell : cell.padEnd(widths[c]!))).join('  ').trimEnd()).join('\n');
+}
+
+export function formatQueueText(queue: ProjectQueue): string {
+  if (queue.entries.length === 0) return 'The queue is empty: no pending draft and no ticket at scope.';
+  const body = toQueueRows(queue).map((r) => [String(r.position), r.id, r.session ?? NO_SESSION, r.priority, r.title, r.why]);
+  const footer = `${queue.entries.length} items · ${queue.drafts} drafts in ${queue.sessions} sessions · ${queue.tickets} tickets`;
+  return `${table([[...HEADERS], ...body])}\n${footer}`;
 }
 
 export function runQueueCommand(store: Store, parsed: ParsedQueue, scope: QueueScope): string {
-  const rows = collectQueue(store, scope);
-  if (parsed.json) return JSON.stringify(rows, null, 2);
-  return rows.length === 0 ? 'The queue is empty: no pending draft and no ticket at scope.' : rows.map(renderRow).join('\n');
+  const queue = readProjectQueue(store, scope.projectId);
+  return parsed.json ? JSON.stringify(toQueueRows(queue), null, 2) : formatQueueText(queue);
 }

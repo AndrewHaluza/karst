@@ -69,7 +69,7 @@ describe('pane headers', () => {
     expect(h.query('[data-pane="planning"] [role="tree"]')).toBeNull();
     expect(h.query('[data-pane="tickets"] .ticket')).not.toBeNull();
     expect(h.posted.length).toBe(before);
-    expect((h.handle.state as { view: { collapsed: Record<string, boolean> } }).view.collapsed).toEqual({ planning: true, tickets: false });
+    expect((h.handle.state as { view: { collapsed: Record<string, boolean> } }).view.collapsed).toEqual({ planning: true, queue: true, tickets: false });
     await h.click('[data-pane="tickets"] .pane-toggle');
     expect(h.query('[data-pane="tickets"] .ticket')).toBeNull();
     expect(h.query('[data-pane="tickets"] .pane-head [data-act="create"]')).not.toBeNull();
