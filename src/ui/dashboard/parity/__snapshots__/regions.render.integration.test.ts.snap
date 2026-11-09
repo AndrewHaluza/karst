@@ -302,23 +302,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -384,23 +367,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -466,23 +432,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -550,23 +499,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -632,23 +564,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.running>
-          <span#agentLiveText> "running"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -714,23 +629,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -796,23 +694,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -878,23 +759,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -960,23 +824,6 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
       <span.attentionMark aria-hidden="true"> "❚❚"
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
-    <div.agentWrap>
-      <button#agentButton.agentButton aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
-        <span#agentCore.k-agent-core>
-          <span.agentbadge>
-            <span.agenticon aria-hidden="true">
-              <svg>
-            <span.agentname> "Claude Code"
-        <span.agentSep aria-hidden="true"> "·"
-        <span#agentModel.agentMeta> "Agent default"
-        <span.agentLive>
-          <span#agentDot.agentLiveDot.none>
-          <span#agentLiveText> "none"
-        <svg.k-icon aria-hidden="true">
-      <div#agentPopover.agentPopover.hidden.popover aria-label="Switch active agent" role="dialog">
-        <div.agentForm>
-          <div#agentSwitchPicker>
-          <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
     <div.menuWrap>
       <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
         <svg.k-icon aria-hidden="true">
@@ -2083,166 +1930,595 @@ exports[`dashboard region parity (DOM contract) > rail #rail · uat parked on a 
         <span.nm> "done""
 `;
 
-exports[`dashboard region parity (DOM contract) > root #root · host project, no sandbox strip > root · host project, no sandbox strip 1`] = `
+exports[`dashboard region parity (DOM contract) > root #root · the empty app root > root · the empty app root 1`] = `
 "<div#root>
   <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">"
 `;
 
-exports[`dashboard region parity (DOM contract) > root #root · sandbox strip with carry > root · sandbox strip with carry 1`] = `
-"<div#root>
-  <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
-    <div.sandbox-strip aria-label="Sandbox" data-region="sandbox" data-testid="sandbox-strip" role="region">
-      <div.sandbox-strip-main>
-        <span.sandbox-strip-title>
-          <svg.k-icon aria-hidden="true">
-          <span> "Sandbox"
-        <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
-        <span.k-chip.sandbox-running-chip data-testid="sandbox-running-chip" title="2 servers running"> "2 running"
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
-          <span.agenticon-island>
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · agent locked during a fix recovery > runtime · agent locked during a fix recovery 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" disabled title="Cannot switch while a fix recovery is running" type="button">
+          <span.rs-badge>
             <span.agenticon aria-hidden="true">
               <svg>
-          <span.agentname> "Claude Code"
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.sandbox-badge aria-haspopup="true" aria-label="Filesystem Containment: Isolated Git Clone" data-testid="sandbox-workspace-badge" role="button" tabindex="0" title="workspace: clone">
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
           <svg.k-icon aria-hidden="true">
-          <span> "Isolated Git Clone"
-          <svg.k-icon.k-icon-chevron aria-hidden="true">
-          <div.sandbox-popover role="tooltip">
-            <div.sandbox-popover-header>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Filesystem Containment"
-            <div.sandbox-popover-title> "Isolation Boundary"
-            <div.sandbox-popover-body> "Runs in a private, standalone Git clone inside the container. Never mounts your host worktree or shared ."
-              <code> ".git"
-            <div.sandbox-popover-title> "Host Synchronization"
-            <div.sandbox-popover-body> "Agent edits and commits remain contained in the container until you click or the stage successfully finishes."
-              <strong> "Sync"
-            <div.sandbox-popover-footer>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Host workspace and git hooks are fully protected."
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.sandbox-badge aria-haspopup="true" aria-label="Network Allowlist Perimeter: Allowlist Proxy" data-testid="sandbox-network-badge" role="button" tabindex="0" title="network: sbx network policy (allowlist)">
+        <span.rs-lock> "fix recovery running"
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Allowlist Proxy"
-          <svg.k-icon.k-icon-chevron aria-hidden="true">
-          <div.sandbox-popover role="tooltip">
-            <div.sandbox-popover-header>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Network Allowlist Perimeter"
-            <div.sandbox-popover-title> "AI Model Endpoints"
-            <ul.sandbox-popover-domain-list>
-              <li.sandbox-popover-domain-tag> "api.anthropic.com"
-              <li.sandbox-popover-domain-tag> "api.openai.com"
-              <li.sandbox-popover-domain-tag> "opencode.ai"
-              <li.sandbox-popover-domain-tag> "openrouter.ai"
-            <div.sandbox-popover-title> "Package Registries"
-            <ul.sandbox-popover-domain-list>
-              <li.sandbox-popover-domain-tag> "registry.npmjs.org"
-              <li.sandbox-popover-domain-tag> "pypi.org"
-              <li.sandbox-popover-domain-tag> "crates.io"
-              <li.sandbox-popover-domain-tag> "proxy.golang.org"
-              <li.sandbox-popover-domain-tag> "rubygems.org"
-            <div.sandbox-popover-footer>
-              <svg.k-icon.k-icon-warning aria-hidden="true">
-              <span> "All other outbound and LAN traffic is blocked."
-      <div.sandbox-strip-actions>
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Sync sandbox commits into the worktree" data-act="sandbox-sync" title="Sync sandbox commits into the worktree" type="button">
+          <span.rs-name> "sbx"
+          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
-          <span> "Sync"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Show what a sync would bring in" data-act="sandbox-diff" title="Show what a sync would bring in" type="button">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "sbx"
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Isolated git clone"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "Allowlist proxy"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+      <div.rs-acts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Sync sandbox and host branches" data-act="sandbox-sync" title="Sync sandbox and host branches" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Diff"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stash uncommitted sandbox changes and update from the host" data-act="sandbox-stash-update" title="Stash uncommitted sandbox changes (kept in git stash) and update from the host" type="button">
+          <span.rs-ab-text> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Show sandbox changes" data-act="sandbox-diff" title="Show sandbox changes" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Stash & update"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stop the sandbox (kept for the next open)" data-act="sandbox-stop" title="Stop the sandbox (kept for the next open)" type="button">
-          <svg.k-icon aria-hidden="true">
-          <span> "Stop"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Carry sandbox commits onto host branch" data-act="sandbox-carry" title="Carry sandbox commits onto host branch" type="button">
-          <svg.k-icon aria-hidden="true">
-          <span> "Carry to host"
-        <button.k-btn.k-btn--danger.k-btn--sm aria-label="Remove the sandbox" data-act="sandbox-remove" title="Remove the sandbox" type="button">
-          <svg.k-icon aria-hidden="true">
-          <span> "Remove…""
+          <span.rs-ab-text> "Diff"
+        <div.rs-cell.rs-more>
+          <button.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="More sandbox actions" title="More sandbox actions" type="button">
+            <svg.k-icon aria-hidden="true">
+          <div.rs-pop.rs-pop--menu aria-label="Sandbox actions" role="menu">
+            <button.rs-item data-act="sandbox-stash-update" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stash & update"
+              <span.rs-item-hint> "keeps changes"
+            <button.rs-item data-act="sandbox-shell" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Open shell in sandbox"
+            <button.rs-item data-act="sandbox-stop" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stop sandbox"
+              <span.rs-item-hint> "resumable"
+            <div.rs-divider role="separator">
+            <button.danger.rs-item data-act="sandbox-remove" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Remove sandbox""
 `;
 
-exports[`dashboard region parity (DOM contract) > root #root · sbx sandbox strip > root · sbx sandbox strip 1`] = `
-"<div#root>
-  <div data-karst-dashboard-app="true" data-react-owned="true" data-testid="dashboard-app-root">
-    <div.sandbox-strip aria-label="Sandbox" data-region="sandbox" data-testid="sandbox-strip" role="region">
-      <div.sandbox-strip-main>
-        <span.sandbox-strip-title>
-          <svg.k-icon aria-hidden="true">
-          <span> "Sandbox"
-        <span.sandbox-backend-tag data-testid="sandbox-backend-tag"> "sbx"
-        <span.k-chip.sandbox-running-chip data-testid="sandbox-running-chip" title="2 servers running"> "2 running"
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.agentbadge data-testid="sandbox-core-identity" title="Agent core: Claude Code">
-          <span.agenticon-island>
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · host fallback note > runtime · host fallback note 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.has-note.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
             <span.agenticon aria-hidden="true">
               <svg>
-          <span.agentname> "Claude Code"
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.sandbox-badge aria-haspopup="true" aria-label="Filesystem Containment: Isolated Git Clone" data-testid="sandbox-workspace-badge" role="button" tabindex="0" title="workspace: clone">
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
           <svg.k-icon aria-hidden="true">
-          <span> "Isolated Git Clone"
-          <svg.k-icon.k-icon-chevron aria-hidden="true">
-          <div.sandbox-popover role="tooltip">
-            <div.sandbox-popover-header>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Filesystem Containment"
-            <div.sandbox-popover-title> "Isolation Boundary"
-            <div.sandbox-popover-body> "Runs in a private, standalone Git clone inside the container. Never mounts your host worktree or shared ."
-              <code> ".git"
-            <div.sandbox-popover-title> "Host Synchronization"
-            <div.sandbox-popover-body> "Agent edits and commits remain contained in the container until you click or the stage successfully finishes."
-              <strong> "Sync"
-            <div.sandbox-popover-footer>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Host workspace and git hooks are fully protected."
-        <span.sandbox-sep aria-hidden="true"> "·"
-        <span.sandbox-badge aria-haspopup="true" aria-label="Network Allowlist Perimeter: Allowlist Proxy" data-testid="sandbox-network-badge" role="button" tabindex="0" title="network: sbx network policy (allowlist)">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Allowlist Proxy"
-          <svg.k-icon.k-icon-chevron aria-hidden="true">
-          <div.sandbox-popover role="tooltip">
-            <div.sandbox-popover-header>
-              <svg.k-icon.k-icon-success aria-hidden="true">
-              <span> "Network Allowlist Perimeter"
-            <div.sandbox-popover-title> "AI Model Endpoints"
-            <ul.sandbox-popover-domain-list>
-              <li.sandbox-popover-domain-tag> "api.anthropic.com"
-              <li.sandbox-popover-domain-tag> "api.openai.com"
-              <li.sandbox-popover-domain-tag> "opencode.ai"
-              <li.sandbox-popover-domain-tag> "openrouter.ai"
-            <div.sandbox-popover-title> "Package Registries"
-            <ul.sandbox-popover-domain-list>
-              <li.sandbox-popover-domain-tag> "registry.npmjs.org"
-              <li.sandbox-popover-domain-tag> "pypi.org"
-              <li.sandbox-popover-domain-tag> "crates.io"
-              <li.sandbox-popover-domain-tag> "proxy.golang.org"
-              <li.sandbox-popover-domain-tag> "rubygems.org"
-            <div.sandbox-popover-footer>
-              <svg.k-icon.k-icon-warning aria-hidden="true">
-              <span> "All other outbound and LAN traffic is blocked."
-      <div.sandbox-strip-actions>
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Sync sandbox commits into the worktree" data-act="sandbox-sync" title="Sync sandbox commits into the worktree" type="button">
+          <span.rs-name> "Host"
+          <span.rs-sub.rs-sub--sandbox.rs-sub--warn> "unprotected · worktree"
           <svg.k-icon aria-hidden="true">
-          <span> "Sync"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Show what a sync would bring in" data-act="sandbox-diff" title="Show what a sync would bring in" type="button">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "Host"
+            <span.rs-chip.warn> "unprotected"
+              <svg.k-icon aria-hidden="true">
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Host git worktree"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "None (host)"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Protection"
+              <span.rs-row-v> "None — tool use is prompted"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+    <div.rs-note.rs-note--info data-testid="runtime-note">
+      <svg.k-icon aria-hidden="true">
+      <span.rs-note-text> "antigravity: sbx backend unsupported""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · host, core-native protection > runtime · host, core-native protection 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
           <svg.k-icon aria-hidden="true">
-          <span> "Diff"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stash uncommitted sandbox changes and update from the host" data-act="sandbox-stash-update" title="Stash uncommitted sandbox changes (kept in git stash) and update from the host" type="button">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — protected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Stash & update"
-        <button.k-btn.k-btn--secondary.k-btn--sm aria-label="Stop the sandbox (kept for the next open)" data-act="sandbox-stop" title="Stop the sandbox (kept for the next open)" type="button">
+          <span.rs-name> "Host"
+          <span.rs-sub.rs-sub--ok.rs-sub--sandbox> "protected · worktree"
           <svg.k-icon aria-hidden="true">
-          <span> "Stop"
-        <button.k-btn.k-btn--danger.k-btn--sm aria-label="Remove the sandbox" data-act="sandbox-remove" title="Remove the sandbox" type="button">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "Host"
+            <span.ok.rs-chip> "protected"
+              <svg.k-icon aria-hidden="true">
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Host git worktree"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "None (host)"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Protection"
+              <span.rs-row-v> "Core-native OS sandbox"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · host, prompted tool use > runtime · host, prompted tool use 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
           <svg.k-icon aria-hidden="true">
-          <span> "Remove…""
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-name> "Host"
+          <span.rs-sub.rs-sub--sandbox.rs-sub--warn> "unprotected · worktree"
+          <svg.k-icon aria-hidden="true">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "Host"
+            <span.rs-chip.warn> "unprotected"
+              <svg.k-icon aria-hidden="true">
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Host git worktree"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "None (host)"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Protection"
+              <span.rs-row-v> "None — tool use is prompted"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · running agent with effort > runtime · running agent with effort 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.rs-dot.running aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state.running> "running"
+          <span.rs-sub> "Agent default · high"
+          <svg.k-icon aria-hidden="true">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-name> "sbx"
+          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <svg.k-icon aria-hidden="true">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "sbx"
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Isolated git clone"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "Allowlist proxy"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+      <div.rs-acts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Sync sandbox and host branches" data-act="sandbox-sync" title="Sync sandbox and host branches" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Show sandbox changes" data-act="sandbox-diff" title="Show sandbox changes" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Diff"
+        <div.rs-cell.rs-more>
+          <button.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="More sandbox actions" title="More sandbox actions" type="button">
+            <svg.k-icon aria-hidden="true">
+          <div.rs-pop.rs-pop--menu aria-label="Sandbox actions" role="menu">
+            <button.rs-item data-act="sandbox-stash-update" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stash & update"
+              <span.rs-item-hint> "keeps changes"
+            <button.rs-item data-act="sandbox-shell" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Open shell in sandbox"
+            <button.rs-item data-act="sandbox-stop" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stop sandbox"
+              <span.rs-item-hint> "resumable"
+            <div.rs-divider role="separator">
+            <button.danger.rs-item data-act="sandbox-remove" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Remove sandbox""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · sandbox with carry > runtime · sandbox with carry 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.has-note.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
+          <svg.k-icon aria-hidden="true">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-name> "sbx"
+          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <svg.k-icon aria-hidden="true">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "sbx"
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Isolated git clone"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "Allowlist proxy"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+      <div.rs-acts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Sync sandbox and host branches" data-act="sandbox-sync" title="Sync sandbox and host branches" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Show sandbox changes" data-act="sandbox-diff" title="Show sandbox changes" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Diff"
+        <div.rs-cell.rs-more>
+          <button.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="More sandbox actions" title="More sandbox actions" type="button">
+            <svg.k-icon aria-hidden="true">
+          <div.rs-pop.rs-pop--menu aria-label="Sandbox actions" role="menu">
+            <button.rs-item data-act="sandbox-stash-update" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stash & update"
+              <span.rs-item-hint> "keeps changes"
+            <button.rs-item data-act="sandbox-shell" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Open shell in sandbox"
+            <button.rs-item data-act="sandbox-stop" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stop sandbox"
+              <span.rs-item-hint> "resumable"
+            <div.rs-divider role="separator">
+            <button.danger.rs-item data-act="sandbox-remove" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Remove sandbox"
+    <div.rs-note.rs-note--warn data-testid="runtime-note">
+      <svg.k-icon aria-hidden="true">
+      <span.rs-note-text> "Host branch was rewritten — sync refused. Sandbox commits are safe."
+      <button.k-btn.k-btn--secondary.k-btn--sm.rs-note-btn data-act="sandbox-carry" type="button">
+        <svg.k-icon aria-hidden="true">
+        <span> "Carry commits onto host""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · sbx sandbox with actions > runtime · sbx sandbox with actions 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
+          <svg.k-icon aria-hidden="true">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-name> "sbx"
+          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <svg.k-icon aria-hidden="true">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "sbx"
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Isolated git clone"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "Allowlist proxy"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+      <div.rs-acts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Sync sandbox and host branches" data-act="sandbox-sync" title="Sync sandbox and host branches" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Show sandbox changes" data-act="sandbox-diff" title="Show sandbox changes" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Diff"
+        <div.rs-cell.rs-more>
+          <button.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="More sandbox actions" title="More sandbox actions" type="button">
+            <svg.k-icon aria-hidden="true">
+          <div.rs-pop.rs-pop--menu aria-label="Sandbox actions" role="menu">
+            <button.rs-item data-act="sandbox-stash-update" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stash & update"
+              <span.rs-item-hint> "keeps changes"
+            <button.rs-item data-act="sandbox-shell" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Open shell in sandbox"
+            <button.rs-item data-act="sandbox-stop" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stop sandbox"
+              <span.rs-item-hint> "resumable"
+            <div.rs-divider role="separator">
+            <button.danger.rs-item data-act="sandbox-remove" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Remove sandbox""
+`;
+
+exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"] · sbx sandbox, shell unavailable > runtime · sbx sandbox, shell unavailable 1`] = `
+"<div#runtimeRoot data-region="runtime">
+  <div.rs-wrap aria-label="Runtime" data-testid="runtime-strip" role="region">
+    <div.rs>
+      <div.rs-cell>
+        <button#agentButton.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Switch the agent core and model" type="button">
+          <span.rs-badge>
+            <span.agenticon aria-hidden="true">
+              <svg>
+            <span.idle.rs-dot aria-hidden="true">
+          <span.rs-name> "Claude Code"
+          <span.rs-state> "idle"
+          <span.rs-sub> "Agent default"
+          <svg.k-icon aria-hidden="true">
+        <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
+          <div.agentForm>
+            <div#agentSwitchPicker>
+            <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
+      <span.rs-vsep aria-hidden="true">
+      <div.rs-cell>
+        <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-name> "sbx"
+          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <svg.k-icon aria-hidden="true">
+        <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
+          <div.rs-pop-h>
+            <svg.k-icon aria-hidden="true">
+            <span> "sbx"
+          <div.rs-pop-b>
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Workspace"
+              <span.rs-row-v> "Isolated git clone"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <svg.k-icon aria-hidden="true">
+              <span.rs-row-k> "Network"
+              <span.rs-row-v> "Allowlist proxy"
+            <div.rs-row>
+              <span.rs-row-ico>
+                <span.agenticon aria-hidden="true">
+                  <svg>
+              <span.rs-row-k> "Core"
+              <span.rs-row-v> "Claude Code"
+          <div.rs-pop-f>
+            <span.rs-help> "Backend is set per project"
+            <button.k-btn.k-btn--secondary.k-btn--sm data-act="open-settings" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Sandbox settings"
+      <div.rs-acts>
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Sync sandbox and host branches" data-act="sandbox-sync" title="Sync sandbox and host branches" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Sync"
+        <button.k-btn.k-btn--secondary.k-btn--sm.rs-ab aria-label="Show sandbox changes" data-act="sandbox-diff" title="Show sandbox changes" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span.rs-ab-text> "Diff"
+        <div.rs-cell.rs-more>
+          <button.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="More sandbox actions" title="More sandbox actions" type="button">
+            <svg.k-icon aria-hidden="true">
+          <div.rs-pop.rs-pop--menu aria-label="Sandbox actions" role="menu">
+            <button.rs-item data-act="sandbox-stash-update" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stash & update"
+              <span.rs-item-hint> "keeps changes"
+            <button.rs-item aria-disabled="true" data-act="sandbox-shell" role="menuitem" tabindex="-1" title="Sandbox is stopped" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Open shell in sandbox"
+              <span.rs-item-hint> "Sandbox is stopped"
+            <button.rs-item data-act="sandbox-stop" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Stop sandbox"
+              <span.rs-item-hint> "resumable"
+            <div.rs-divider role="separator">
+            <button.danger.rs-item data-act="sandbox-remove" role="menuitem" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span.rs-item-label> "Remove sandbox""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · none, nothing runnable > servers · none, nothing runnable 1`] = `

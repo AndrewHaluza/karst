@@ -186,6 +186,7 @@ export function buildSandbox(
     ticketOverride: ticket.agentBackend,
     core: sessionCore,
     rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
+    shell: agentContext.sandboxShell?.(ticket.id),
     agentSandbox: agentContext.agentSandbox,
     placement,
   });

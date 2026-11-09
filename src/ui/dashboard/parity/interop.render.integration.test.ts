@@ -46,9 +46,9 @@ describe('React island / vanilla delegator interop', () => {
   it('a click inside the Worktrees island closes the header popovers', async () => {
     const v = await open();
     v.click('#agentButton');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(true);
     await click(v, '[data-act="show-changes"]');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(false);
     v.click('#moreBtn');
     expect(v.query('#menuPopover')!.classList.contains('hidden')).toBe(false);
     await click(v, '.wt .wrepo');
@@ -171,9 +171,9 @@ describe('React Pull requests island / vanilla page interop', () => {
   it('a click inside the PR island closes the header popovers', async () => {
     const v = await openWith(mergeable());
     v.click('#agentButton');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(true);
     await click(v, '#prs .pst');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(false);
   });
 
   it('a Merge click posts exactly {type, repo} once, and the rail button goes busy with it', async () => {
@@ -291,9 +291,9 @@ describe('React Artifacts shelf and Captured artifacts islands / vanilla art vie
   it('a click inside the panel closes the header popovers', async () => {
     const v = await openShelf();
     v.click('#agentButton');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(true);
     await click(v, '#artViewAll');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(false);
   });
 
   it('Escape closes the overlay a panel opened, and the shelf is still there', async () => {

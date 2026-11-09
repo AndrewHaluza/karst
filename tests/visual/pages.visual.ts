@@ -42,6 +42,10 @@ karstTest.describe('full-page screenshots', () => {
           if (steps.cap !== undefined) await page.locator(`[data-ap-cap="${steps.cap}"]`).click();
           if (steps.model !== undefined) await page.locator(`[data-ap-model="${steps.model}"]`).click();
         }
+        if (v.runtimeOpen !== undefined) {
+          const trigger = v.runtimeOpen === 'sandbox' ? '[data-testid="runtime-strip"] .rs-dd[title^="Sandbox details"]' : '[aria-label="More sandbox actions"]';
+          await page.locator(trigger).click();
+        }
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

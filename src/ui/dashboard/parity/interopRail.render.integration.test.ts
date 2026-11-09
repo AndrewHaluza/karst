@@ -117,9 +117,9 @@ describe('React rail / vanilla page interop — outside clicks and Escape', () =
   it('a click inside the rail or the banner closes the header popovers', async () => {
     const v = await open(blockedAt({ kind: 'usage-limit' }));
     await click(v, '#agentButton');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(false);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(true);
     await click(v, '#rail .pick[data-stage="uat"]');
-    expect(v.query('#agentPopover')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#agentPopover')!.classList.contains('open')).toBe(false);
     await click(v, '#moreBtn');
     expect(v.query('#menuPopover')!.classList.contains('hidden')).toBe(false);
     await click(v, '#blocked .freason');

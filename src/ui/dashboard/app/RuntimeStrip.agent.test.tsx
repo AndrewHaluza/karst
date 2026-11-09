@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
+import { $, has, headerState, installHeaderDoubles, mountRuntime } from './fixtures/headerKit.js';
 
 installHeaderDoubles();
 
@@ -15,10 +15,10 @@ function installPicker() {
   return mounts;
 }
 
-describe('AgentPopover — the staged switch', () => {
+describe('RuntimeStrip — the staged agent switch', () => {
   it('mounts the shared picker into the empty container on each open, staged from the current session', () => {
     const mounts = installPicker();
-    mountHeader(headerState());
+    mountRuntime(headerState());
     expect(mounts).toHaveLength(0);
     fireEvent.click($('#agentButton'));
     expect(mounts).toHaveLength(1);
@@ -33,7 +33,7 @@ describe('AgentPopover — the staged switch', () => {
 
   it('hands the picker the inherit labels and the core they describe', () => {
     const mounts = installPicker();
-    mountHeader(headerState());
+    mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
     expect(mounts[0]!.opts.inherit).toEqual({
       model: expect.any(String),
@@ -45,7 +45,7 @@ describe('AgentPopover — the staged switch', () => {
   it('names the resolved default in the inherit row, not the running model', () => {
     const mounts = installPicker();
     const base = headerState();
-    mountHeader(headerState({
+    mountRuntime(headerState({
       agentSwitch: {
         ...base.agentSwitch,
         models: { claude: [{ model: null, label: 'Inherit (settings: Model Two)' }, { model: 'm1', label: 'Model One' }] },
@@ -59,7 +59,7 @@ describe('AgentPopover — the staged switch', () => {
     const mounts = installPicker();
     const scope = globalThis as unknown as Record<string, unknown>;
     delete scope.AP_ROUTES;
-    mountHeader(headerState());
+    mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
     expect(mounts[0]!.opts.routes).toEqual({});
     fireEvent.click($('#agentButton'));
@@ -72,36 +72,36 @@ describe('AgentPopover — the staged switch', () => {
 
   it('posts the committed draft once and closes', () => {
     const mounts = installPicker();
-    const h = mountHeader(headerState());
+    const h = mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
     expect(document.querySelector('#switchBtn')).toBeNull();
     fireEvent.click($('#agentPopover .fieldHelp')); // an inside click keeps the popover open
-    expect(has('#agentPopover', 'hidden')).toBe(false);
+    expect(has('#agentPopover', 'open')).toBe(true);
     act(() => mounts[0]!.opts.onCommit({ core: 'claude', model: 'm2', effort: '' }));
     expect(h.send.switchAgent).toHaveBeenCalledTimes(1);
     expect(h.send.switchAgent).toHaveBeenCalledWith('claude', 'm2', null);
-    expect(has('#agentPopover', 'hidden')).toBe(true);
+    expect(has('#agentPopover', 'open')).toBe(false);
   });
 
   it('closes without posting when the picker cancels', () => {
     const mounts = installPicker();
-    const h = mountHeader(headerState());
+    const h = mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
     act(() => mounts[0]!.opts.onCancel());
     expect(h.send.switchAgent).not.toHaveBeenCalled();
-    expect(has('#agentPopover', 'hidden')).toBe(true);
+    expect(has('#agentPopover', 'open')).toBe(false);
   });
 
   it('posts nothing when the popover is closed without switching', () => {
     installPicker();
-    const h = mountHeader(headerState());
+    const h = mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
-    fireEvent.click($('#title'));
+    fireEvent.click(document.body);
     expect(h.send.switchAgent).not.toHaveBeenCalled();
   });
 
   it('still renders the form when the picker runtime is absent', () => {
-    mountHeader(headerState());
+    mountRuntime(headerState());
     fireEvent.click($('#agentButton'));
     expect($('#agentPopover .fieldHelp').textContent).toMatch(/Closing this menu takes no action/);
   });
