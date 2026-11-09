@@ -45,6 +45,20 @@ const input = (over: Partial<Parameters<typeof checkProbeEvidence>[0]>) => ({
   ...over,
 });
 
+describe('checkProbeEvidence — test files', () => {
+  const rule = { ...RULE, whenChanged: ['src/workflow/**'] };
+  const stale = fakeFs({ [SUMMARY]: { mtimeMs: START - 1 } });
+  it('a diff that touches only a test file needs no evidence', async () => {
+    expect(await checkProbeEvidence(input({ rule, git: gitDiff(['src/workflow/x.test.ts']), fs: stale }))).toEqual({ kind: 'not-required' });
+    expect(await checkProbeEvidence(input({ rule, git: gitDiff(['src/workflow/x.spec.tsx']), fs: stale }))).toEqual({ kind: 'not-required' });
+  });
+  it('a diff with a source file and a test file is missing when no summary is fresh', async () => {
+    const res = await checkProbeEvidence(input({ rule, git: gitDiff(['src/workflow/x.test.ts', 'src/workflow/x.ts']), fs: stale }));
+    expect(res.kind).toBe('missing');
+    expect((res as { detail: string }).detail).toContain('src/workflow/x.ts');
+  });
+});
+
 describe('checkProbeEvidence', () => {
   it('a newer evidence file means present', async () => {
     expect(await checkProbeEvidence(input({}))).toEqual({ kind: 'present' });

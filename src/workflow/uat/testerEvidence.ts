@@ -45,6 +45,9 @@ export interface EvidenceCheckInput {
   fs?: EvidenceFs;
 }
 
+/** A test file (`x.test.ts`, `x.spec.tsx`): a probe run proves nothing about it, so it never triggers the rule. */
+const TEST_FILE = /\.(test|spec)\.[^/]*$/;
+
 const GLOB_CHARS = /[*?[{]/;
 /** The walk fails past this many entries, so a huge scratch directory cannot stall the run. */
 export const MAX_EVIDENCE_FILES = 5000;
@@ -134,7 +137,7 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   const changed = await changedPaths(input);
   if (changed === null) return { kind: 'not-required' };
   const triggers = rule.whenChanged.map(globToRegExp);
-  const trigger = changed.find((p) => triggers.some((re) => re.test(p)));
+  const trigger = changed.find((p) => !TEST_FILE.test(p) && triggers.some((re) => re.test(p)));
   if (trigger === undefined) return { kind: 'not-required' };
   const fs = input.fs ?? defaultEvidenceFs;
   const pattern = globToRegExp(rule.file);

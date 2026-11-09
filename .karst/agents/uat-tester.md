@@ -94,6 +94,25 @@ alone stay banned. `medium` and above (the blocking severities,
 `arch:BLOCKSEV`) require a citation of an observed failure; a guess
 must not be reported above `info`.
 
+## Direct run: a change the probe cannot reach
+
+A CLI verb, a pure function or a store module is not reachable from the
+probe. Do not report SKIPPED for it. Run the ticket's code from source in
+the worktree:
+
+    npx tsx src/cli/main.ts <verb> --db <copy of the store>
+    npx tsx <short script that imports the changed module>
+
+- The worktree has no `node_modules`, but `npx` finds `tsx` in the main
+  checkout. Do not install anything: no `npm ci`, no `npm install`.
+- `$KARST_CLI` is the installed extension build. It does not contain this
+  ticket's change, so never use it to test the change.
+- Work on a copy of the store, never the live one. Write scripts under
+  `.karst/uat-scratch/`.
+- A direct run is not a gate. The rule against test runners (`vitest`,
+  `test:unit`, `test:integration`) stays.
+- Each observation from a direct run cites the command and its output.
+
 ## Harness unavailable is not a code verdict
 
 If Docker is down, the image will not build, or the host fails to boot
