@@ -57,7 +57,7 @@ describe('sendBackToImplement reason', () => {
   it('posts the reason as a host event to the ticket in the same move', () => {
     sendBackToImplement(store, id, { reason: 'CI failed: build' });
     const msgs = listInbox(store, id, { unreadOnly: false });
-    expect(msgs.map((m) => [m.kind, m.fromTicketId, m.body])).toEqual([['event', null, 'CI failed: build']]);
+    expect(msgs.map((m) => [m.kind, m.fromTicketId, m.body])).toEqual([['event', null, 'Sent back to Implement: CI failed: build']]);
   });
   it('a refused send-back posts nothing', () => {
     sendBackToImplement(store, id);

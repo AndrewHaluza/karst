@@ -358,3 +358,35 @@ describe('seeds state the session own id once per route', () => {
     expect(count(seed.kickoff, `T${t.id}`)).toBe(1);
   });
 });
+
+describe('buildSessionSeed leadBrief (send-back hand-off never delivered)', () => {
+  const BRIEF = 'CI failed on the head.\nFix the failure, then call `stage`.';
+
+  it('opens the kickoff with the brief, keeps the context, and drops the start-task invocation', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      invocation: '/karst:start-task PROJ-9',
+      leadBrief: BRIEF,
+    });
+    expect(seed.kickoff.startsWith(BRIEF)).toBe(true);
+    expect(seed.kickoff).toContain('Users bounce to /login');
+    expect(seed.kickoff).not.toContain('/karst:start-task');
+  });
+
+  it('does the same on an inline launch', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      invocation: '/karst:start-task PROJ-9',
+      leadBrief: BRIEF,
+      inlineInstructions: true,
+    });
+    expect(seed.kickoff.startsWith(BRIEF)).toBe(true);
+    expect(seed.kickoff).not.toContain('/karst:start-task');
+  });
+
+  it('leaves the seed unchanged without a brief', () => {
+    const seed = buildSessionSeed({ authoredContext: AUTHORED, invocation: '/karst:start-task PROJ-9' });
+    expect(seed.kickoff.startsWith('/karst:start-task PROJ-9')).toBe(true);
+  });
+});
