@@ -24,7 +24,7 @@ describe('dashboard app source guards', () => {
     // posts a message of that name (any posting happens in the overlay stack, as `stage-log-request` for the console).
     const LOCAL = new Set([
       'console',
-      'preview-ticket-data', 'toggle-base-form', 'toggle-rebase-switch', 'artifact-findings-repo', 'toggle-graph-view',
+      'preview-ticket-data', 'toggle-base-form', 'toggle-pr-info', 'toggle-rebase-switch', 'artifact-findings-repo', 'toggle-graph-view',
       'baseline-view', 'baseline-reject-open', 'baseline-reject-cancel',
       'server-logs-request', 'env-overrides-open', 'push-diverged-fix',
       // The Stop buttons post the `autopilot-stop` message (mode after-round | now); the confirm step is local.

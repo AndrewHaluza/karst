@@ -1,8 +1,6 @@
 /**
- * The dashboard's Servers panel, rendered by React into the page's existing containers
- * (`#srvCount`, `#srvOps`, `#servers`) through three `RegionPortal`s. The panel root and its
- * "Servers" caption stay static in `webview.html`. Same DOM as the vanilla renderer it replaced
- * (`renderServers`, `panelOps`, `serversEmpty`).
+ * The dashboard's Servers panel: a `Section` (title, count, summary, ticket-scoped actions) over rows on the
+ * shared Row pattern, rendered by React into the page's `.panel` root (`data-region="servers"`).
  *
  * The services filter is component state: it starts from the persisted value and every change is handed to
  * `ViewPersistence`, which writes it with the rest of the view state. The header's Logs and Env buttons open the overlay views
@@ -11,11 +9,13 @@
 import { memo, useCallback, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend, useOverlays, usePersistence } from './DashboardAppContext.js';
-import { Icon } from './Icon.js';
+import { EmptyState } from './EmptyState.js';
 import { RegionPortal } from './RegionPortal.js';
 import { LocalAction, PostAction } from './ServerActions.js';
-import { GroupHead, isOnline, ServerRow, SharedRow, type OwnServer, type SharedServer } from './ServerRows.js';
+import { isOnline, isSharedFault, ServerRow, SharedRow, type OwnServer, type SharedServer } from './ServerRows.js';
+import { GroupHeader, Section } from './Section.js';
 import { useSlice } from './useSlice.js';
+import './Section.css';
 import './ServersPanel.css';
 
 interface ServersSlice {
@@ -74,26 +74,38 @@ const ServerOps = memo(function ServerOps({ slice }: { readonly slice: ServersSl
 /** The two empty states stay distinct: a PROMPT (nothing runs, the header's Start fixes that) versus a STATEMENT (nothing here can run). */
 function Empty({ runnable }: { readonly runnable: boolean }) {
   return runnable ? (
-    <div className="estate">
-      <span className="emark">
-        <Icon name="server-2" />
-      </span>
-      <div>
-        <div className="ehead">No servers running</div>
-        <div className="esub">Start the services in scope to get their local addresses here.</div>
-      </div>
-    </div>
+    <EmptyState icon="server-2" heading="No servers running." sub="Start the services in scope to get their local addresses here." />
   ) : (
-    <div className="estate dead">
-      <span className="emark">
-        <Icon name="circle-x" />
-      </span>
-      <div>
-        <div className="ehead">No runnable services in scope</div>
-        <div className="esub">This ticket scopes only repositories without a service block, so there is nothing here to run.</div>
-      </div>
-    </div>
+    <EmptyState
+      icon="circle-x"
+      tone="dead"
+      heading="No runnable services in scope."
+      sub="This ticket scopes only repositories without a service block, so there is nothing here to run."
+    />
   );
+}
+
+/**
+ * The header's one line: the ticket part and the shared part never mix their counts (arch:SHARED-VIEW).
+ * Ticket: `all running`, or the non-zero parts of `N running · N failed · N offline`. Shared: `shared: ok` or `shared: N failing`.
+ */
+export function serversSummary(servers: readonly OwnServer[], shared: readonly SharedServer[]): string {
+  const parts: string[] = [];
+  if (servers.length > 0) {
+    const running = servers.filter(isOnline).length;
+    const failed = servers.filter((s) => s.status === 'failed').length;
+    const offline = servers.length - running - failed;
+    parts.push(
+      running === servers.length
+        ? 'all running'
+        : [`${running} running`, failed > 0 ? `${failed} failed` : '', offline > 0 ? `${offline} offline` : ''].filter(Boolean).join(' · '),
+    );
+  }
+  if (shared.length > 0) {
+    const failing = shared.filter(isSharedFault).length;
+    parts.push(failing === 0 ? 'shared: ok' : `shared: ${failing} failing`);
+  }
+  return parts.join(' · ');
 }
 
 function ServersBody({ slice }: { readonly slice: ServersSlice }) {
@@ -110,6 +122,8 @@ function ServersBody({ slice }: { readonly slice: ServersSlice }) {
   const ticketShown = servers.filter(hit);
   const sharedShown = shared.filter(hit);
   const noMatch = filterable && needle !== '' && ticketShown.length === 0 && sharedShown.length === 0;
+  // A group header earns its place only when there are two groups to tell apart.
+  const grouped = shared.length > 0;
   return (
     <>
       {filterable ? (
@@ -132,59 +146,34 @@ function ServersBody({ slice }: { readonly slice: ServersSlice }) {
         </div>
       ) : null}
       <div className="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">
-                <span className="sr">Status</span>
-              </th>
-              <th scope="col">Service</th>
-              {/* The address-ops column sits UNDER the Address header: Open is part of the address. */}
-              <th scope="col" colSpan={2}>
-                Address
-              </th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {noMatch ? (
-              <tr>
-                <td colSpan={5}>
-                  <div className="nomatch">{`No service matches “${filter}”.`}</div>
-                </td>
-              </tr>
-            ) : (
+        {noMatch ? (
+          <div className="nomatch">{`No service matches “${filter}”.`}</div>
+        ) : (
+          <>
+            {ticketShown.length > 0 ? (
               <>
-                {ticketShown.length > 0 ? (
-                  <>
-                    <GroupHead label="Ticket services" count={ticketShown.length} note="run from this ticket's worktrees" />
-                    {ticketShown.map((s) => (
-                      <ServerRow key={s.id} s={s} send={send} />
-                    ))}
-                  </>
-                ) : servers.length === 0 ? (
-                  // A shared half alone is a truthful stack: it must not fall back to "No servers running".
-                  <>
-                    <GroupHead label="Ticket services" count={0} note="run from this ticket's worktrees" />
-                    <tr>
-                      <td colSpan={5}>
-                        <span className="srvnone">No ticket services</span>
-                      </td>
-                    </tr>
-                  </>
-                ) : null}
-                {sharedShown.length > 0 ? (
-                  <>
-                    <GroupHead label="Shared services" count={sharedShown.length} note="one copy per repository, from the base branch" />
-                    {sharedShown.map((s) => (
-                      <SharedRow key={s.service} s={s} send={send} />
-                    ))}
-                  </>
-                ) : null}
+                {grouped ? <GroupHeader label="Ticket services" count={ticketShown.length} note="run from this ticket's worktrees" /> : null}
+                {ticketShown.map((s) => (
+                  <ServerRow key={s.id} s={s} send={send} />
+                ))}
               </>
-            )}
-          </tbody>
-        </table>
+            ) : servers.length === 0 ? (
+              // A shared half alone is a truthful stack: it must not fall back to "No servers running".
+              <>
+                <GroupHeader label="Ticket services" count={0} note="run from this ticket's worktrees" />
+                <div className="srvnone">No ticket services — only shared ones are in scope.</div>
+              </>
+            ) : null}
+            {sharedShown.length > 0 ? (
+              <>
+                <GroupHeader label="Shared services" count={sharedShown.length} note="reused across tickets · not touched by header actions" />
+                {sharedShown.map((s) => (
+                  <SharedRow key={s.service} s={s} send={send} />
+                ))}
+              </>
+            ) : null}
+          </>
+        )}
       </div>
     </>
   );
@@ -193,11 +182,19 @@ function ServersBody({ slice }: { readonly slice: ServersSlice }) {
 export const ServersPanel = memo(function ServersPanel() {
   const slice = useSlice(selectServers);
   const total = slice ? slice.servers.length + slice.shared.length : 0;
+  const summary = slice ? serversSummary(slice.servers, slice.shared) : '';
   return (
-    <>
-      <RegionPortal id="srvCount">{total ? String(total) : null}</RegionPortal>
-      <RegionPortal id="srvOps">{slice ? <ServerOps slice={slice} /> : null}</RegionPortal>
-      <RegionPortal id="servers">{slice ? <ServersBody slice={slice} /> : null}</RegionPortal>
-    </>
+    <RegionPortal region="servers">
+      <Section
+        title="Servers"
+        count={total}
+        summary={summary}
+        summaryTitle={summary}
+        actions={slice ? <ServerOps slice={slice} /> : null}
+        bodyId="servers"
+      >
+        {slice ? <ServersBody slice={slice} /> : null}
+      </Section>
+    </RegionPortal>
   );
 });

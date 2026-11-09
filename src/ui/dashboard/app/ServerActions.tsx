@@ -96,3 +96,14 @@ export function LocalAction({ run, ...shape }: IconActionProps & { readonly run:
   const onClick = useCallback(() => run(), [run]);
   return <IconAction {...shape} onClick={onClick} />;
 }
+
+/** A running service's address as a link-styled button: the address IS the open control (UI-R09c), beside its copy action. */
+export function AddressLink({ 'data-act': act, id, text, short, title, post }: { readonly 'data-act': string; readonly id: number; readonly text: string; readonly short: string; readonly title: string; readonly post: (requestId: string) => void }) {
+  const onClick = usePendingAction(post);
+  return (
+    <button type="button" className="srvaddr" data-act={act} data-id={id} title={title} aria-label={`Open ${text} in browser`} onClick={onClick}>
+      <span className="full">{text}</span>
+      <span className="short">{short}</span>
+    </button>
+  );
+}

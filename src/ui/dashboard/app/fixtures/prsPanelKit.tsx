@@ -87,7 +87,7 @@ function OpsProbe({ onOps }: { readonly onOps: (ops: PendingOps) => void }) {
 }
 
 const SCAFFOLD =
-  '<div class="panel span prpanel"><div class="phead">Pull requests<span class="count" id="prCount"></span><span class="pops" id="prOps"></span></div><div class="pbody" id="prs"></div></div>';
+  '<div class="panel span prpanel" data-region="prs"></div>';
 
 export function mount(initial: DashboardState | null, onRender?: () => void): Harness {
   document.body.innerHTML = SCAFFOLD;

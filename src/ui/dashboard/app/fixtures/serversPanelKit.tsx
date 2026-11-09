@@ -54,7 +54,7 @@ function OverlayProbe({ onOverlays }: { readonly onOverlays: (overlays: OverlayS
 
 export function mount(initial: DashboardState | null, persisted: unknown = null, onRender?: () => void): Harness {
   document.body.innerHTML =
-    '<div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>';
+    '<div class="panel svpanel" data-region="servers"></div>';
   let listener: ((message: HostMessage) => void) | null = null;
   const setState = vi.fn();
   const send = {
@@ -127,5 +127,5 @@ export const one = (name: string, extra = ''): HTMLButtonElement => {
 };
 export const text = (sel: string): string => document.querySelector(sel)?.textContent ?? '';
 export const filterBox = (): HTMLInputElement => document.querySelector<HTMLInputElement>('#srvFilter')!;
-export const names = (): string[] => [...document.querySelectorAll('td.c-name')].map((e) => e.getAttribute('title') ?? e.querySelector('.srvname')!.getAttribute('title')!);
+export const names = (): string[] => [...document.querySelectorAll('.srvname')].map((e) => e.getAttribute('title')!);
 

@@ -97,6 +97,6 @@ describe('ServersPanel — slice selection (migration plan A4)', () => {
 
     h.emit({ type: 'state', state: stateWith([srv(1, 'web'), srv(2, 'api')]), live: true });
     expect(onRender.mock.calls.length).toBeGreaterThan(before);
-    expect(document.querySelectorAll('td.c-name')).toHaveLength(2);
+    expect(document.querySelectorAll('.srvname')).toHaveLength(2);
   });
 });

@@ -109,8 +109,25 @@ describe('WorktreesPanel — rendering', () => {
 
   it('shows the empty state and disables the changes button when the ticket has no worktrees', () => {
     mount(stateWith([]));
-    expect(document.querySelector('#worktrees .k-empty-title')!.textContent).toBe('No worktrees.');
+    expect(document.querySelector('#worktrees .ehead')!.textContent).toBe('No worktrees.');
+    expect(document.querySelector('#worktrees .esub')!.textContent).toBe('Implement creates one per repository in scope.');
     expect(one('show-changes').disabled).toBe(true);
+  });
+
+  it('shows a branch every row shares once in the header, with a copy button, and not on the rows', () => {
+    const h = mount(stateWith([wt('a', { branch: 'feat/x' }), wt('b', { branch: 'feat/x' })]));
+    const sum = document.querySelector('.phead .sec-sum') as HTMLElement;
+    expect(sum.textContent).toBe('feat/x');
+    expect(sum.title).toBe('feat/x');
+    expect(document.querySelectorAll('.wtwrap .wbr')).toHaveLength(0);
+    act(() => (sum.querySelector('[data-act="copy-worktree-branch"]') as HTMLElement).click());
+    expect(h.send.copyWorktreeBranch).toHaveBeenCalledWith('feat/x', expect.anything());
+  });
+
+  it('shows the branch on each row when the branches differ, and nothing in the header', () => {
+    mount(stateWith([wt('a', { branch: 'feat/x' }), wt('b', { branch: 'feat/y' })]));
+    expect(document.querySelector('.phead .sec-sum')).toBeNull();
+    expect([...document.querySelectorAll('.wtwrap .wbr')].map((n) => n.textContent)).toEqual(['feat/x', 'feat/y']);
   });
 
   it('gives the icon-only controls a matching aria-label and title', () => {

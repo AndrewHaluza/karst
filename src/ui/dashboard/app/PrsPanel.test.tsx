@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, fireEvent } from '@testing-library/react';
 import type { DashboardState } from '../state.js';
 import { failing, installRuntimeDoubles, mc, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
@@ -12,21 +12,22 @@ const row = (n = 0): HTMLElement => document.querySelectorAll<HTMLElement>('#prs
 describe('PrsPanel — header and empty states', () => {
   it('renders nothing in the body before the first snapshot, but keeps the refresh control', () => {
     mount(null);
-    expect(text('#prCount')).toBe('');
+    expect(text('.phead .count')).toBe('');
     expect(document.querySelector('#prs')!.childElementCount).toBe(0);
     expect(refreshBtn().disabled).toBe(false);
   });
 
   it('says there are none, shows no count, and keeps the refresh live', () => {
     mount(stateWith([]));
-    expect(text('#prCount')).toBe('');
-    expect(text('#prs .k-empty .k-empty-title')).toBe('No pull requests.');
+    expect(text('.phead .count')).toBe('');
+    expect(text('#prs .ehead')).toBe('No pull requests.');
+    expect(text('#prs .esub')).toBe('Ship opens one per repository with changes.');
     expect(refreshBtn().disabled).toBe(false);
   });
 
   it('counts the rows', () => {
     mount(stateWith([pr(), pr({ repo: '/repos/api', repoDisplay: 'api' })]));
-    expect(text('#prCount')).toBe('2');
+    expect(text('.phead .count')).toBe('2');
     expect(document.querySelectorAll('#prs .prrow')).toHaveLength(2);
   });
 
@@ -43,10 +44,14 @@ describe('PrsPanel — header and empty states', () => {
 });
 
 describe('PrsPanel — the PR line', () => {
-  it('lays out status, repo name, copy control, number link and actions in order', () => {
-    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', canDismiss: true })]));
+  it('lays out lead icon, repo, number, copy, details, chips, stamp and branch, with the actions in the trail', () => {
+    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', canDismiss: true, checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [] } })]));
     const line = row().querySelector('.pr')!;
-    expect([...line.children].map((c) => c.className)).toEqual(['k-chip pst pst-open', 'prepo', 'ptitle url-copy', 'pnum', 'pacts']);
+    expect([...line.querySelector('.krow-main')!.children].map((c) => c.className)).toEqual([
+      'prepo', 'pnum', 'k-iconbtn ib t-copy url-copy', 'k-iconbtn ib pinfo-btn', 'k-chip pst pst-open', 'k-chip pck pck-passing', 'pstamp', 'pbranch',
+    ]);
+    expect(line.querySelector('.pr-lead')!.getAttribute('data-status')).toBe('open');
+    expect([...line.querySelectorAll('.krow-trail button')].map((c) => c.textContent)).toEqual(['Dismiss', 'Merge']);
     expect(line.querySelector('.prepo')!.textContent).toBe('web');
     expect(line.querySelector('.prepo')!.getAttribute('title')).toBe(REPO);
     const a = line.querySelector('.pnum a')!;
@@ -57,14 +62,14 @@ describe('PrsPanel — the PR line', () => {
     expect(a.getAttribute('data-act')).toBe('open-pr');
   });
 
-  it('shows the URL as the copy control with a hover glyph and the data-copy hook', () => {
+  it('shows the copy control as a labelled icon button with the data-copy hook', () => {
     mount(stateWith([pr()]));
     const copy = one('copy-pr-url');
     expect(copy.getAttribute('data-copy')).toBe('');
     expect(copy.getAttribute('data-url')).toBe(URL);
     expect(copy.title).toBe('Copy pull request URL');
-    expect(copy.querySelector('.u')!.textContent).toBe(URL);
-    expect(copy.querySelector('.glyph svg.k-icon')).not.toBeNull();
+    expect(copy.getAttribute('aria-label')).toBe('Copy pull request URL');
+    expect(copy.querySelector('svg.k-icon')).not.toBeNull();
   });
 
   it('with no recorded URL has no copy control and the number is plain text', () => {
@@ -121,10 +126,11 @@ describe('PrsPanel — the PR line', () => {
     expect(document.querySelector('.pblock')).toBeNull();
   });
 
-  it('shows the dismissal stamp ahead of the actions', () => {
+  it('shows the dismissal stamp on the line, dims the row, and offers Undo dismiss', () => {
     mount(stateWith([pr({ status: 'closed', dismissed: true, dismissedLabel: 'dismissed Aug 11' })]));
-    expect([...document.querySelector('.pacts')!.children].map((c) => c.textContent)).toEqual(['dismissed Aug 11', 'Undo dismiss', 'Merge']);
-    expect(document.querySelector('.pacts .pstamp')).not.toBeNull();
+    expect(text('.krow-main .pstamp')).toBe('dismissed Aug 11');
+    expect([...document.querySelectorAll('.pacts button')].map((c) => c.textContent)).toEqual(['Undo dismiss', 'Merge']);
+    expect(document.querySelector('.prrow.dismissed')).not.toBeNull();
   });
 });
 
@@ -162,7 +168,7 @@ describe('PrsPanel — merge and dismiss controls (host verdicts)', () => {
   it('offers Dismiss only when the host says so', () => {
     mount(stateWith([pr({ canDismiss: true })]));
     const b = one('dismiss-pr');
-    expect(b.className).toBe('k-btn k-btn--secondary k-btn--sm mgbtn');
+    expect(b.className).toBe('k-btn k-btn--ghost k-btn--sm mgbtn');
     expect(b.dataset.repo).toBe(REPO);
     expect(b.title).toBe('Stop waiting on this pull request — it will never land');
     cleanup();
@@ -180,27 +186,32 @@ describe('PrsPanel — merge and dismiss controls (host verdicts)', () => {
 });
 
 describe('PrsPanel — metadata, checks and comments', () => {
-  it('renders branch and stamps, each stamp behind its own separator, with titles only when known', () => {
-    mount(stateWith([pr({ status: 'merged', merged: 'merged 1 day ago', mergedTitle: '', openedTitle: 'opened Aug 11' })]));
-    expect(text('.pmeta .pbranch')).toBe('feat/x → main');
-    expect(document.querySelector('.pbranch')!.getAttribute('title')).toBe('feat/x → main');
-    const stamps = document.querySelector('.pstamps')!;
-    expect([...stamps.children].map((c) => c.className)).toEqual(['psep', 'pstamp', 'psep', 'pstamp pmerged']);
-    expect(stamps.children[1]!.getAttribute('title')).toBe('opened Aug 11');
-    expect(stamps.children[3]!.hasAttribute('title')).toBe(false);
+  it('shows the line stamp with its full text in the title, preferring dismissed, then merged, then opened', () => {
+    mount(stateWith([pr({ status: 'merged', merged: 'merged 1 day ago', mergedTitle: 'merged Aug 12', openedTitle: 'opened Aug 11' })]));
+    expect(text('.pr .pstamp')).toBe('merged 1 day ago');
+    expect(document.querySelector('.pr .pstamp')!.getAttribute('title')).toBe('merged Aug 12');
+    cleanup();
+    mount(stateWith([pr()]));
+    expect(text('.pr .pstamp')).toBe('opened 2 days ago');
+    expect(document.querySelector('.pr .pstamp')!.getAttribute('title')).toBe('opened Aug 11');
   });
 
-  it('renders the branch alone, the stamps alone, or no meta line at all', () => {
-    mount(stateWith([pr({ opened: '', openedTitle: '' })]));
-    expect(document.querySelector('.pstamps')).toBeNull();
-    expect(document.querySelector('.pbranch')).not.toBeNull();
+  it('shows the branches only when the head differs from the Worktrees header branch', () => {
+    mount(stateWith([pr()]));
+    expect(text('.pr .pbranch')).toBe('feat/x → main');
+    expect(document.querySelector('.pr .pbranch')!.getAttribute('title')).toBe('feat/x → main');
     cleanup();
-    mount(stateWith([pr({ branches: '' })]));
-    expect(document.querySelector('.pbranch')).toBeNull();
-    expect(document.querySelector('.pstamps')).not.toBeNull();
+    mount({ ...stateWith([pr()]), worktrees: [{ repo: REPO, branch: 'feat/x' }] } as never);
+    expect(document.querySelector('.pr .pbranch')).toBeNull();
     cleanup();
-    mount(stateWith([pr({ branches: '', opened: '' })]));
-    expect(document.querySelector('.pmeta')).toBeNull();
+    mount({ ...stateWith([pr()]), worktrees: [{ repo: REPO, branch: 'feat/other' }] } as never);
+    expect(document.querySelector('.pr .pbranch')).not.toBeNull();
+  });
+
+  it('renders no stamp or branch when the host sent neither', () => {
+    mount(stateWith([pr({ branches: '', opened: '', openedTitle: '' })]));
+    expect(document.querySelector('.pr .pstamp')).toBeNull();
+    expect(document.querySelector('.pr .pbranch')).toBeNull();
   });
 
   it('lists comments behind a collapsed disclosure, naming an anonymous author and omitting an unknown time', () => {
@@ -248,9 +259,10 @@ describe('PrsPanel — metadata, checks and comments', () => {
 });
 
 describe('PrsPanel — the CI line', () => {
-  it('says CI is running for a pending rollup, with no action', () => {
+  it('leaves the pending line out: the checks chip already says it', () => {
     mount(stateWith([pr({ checks: { state: 'pending', label: '1 pending', title: '', detailsLabel: '', failing: [] } })]));
-    expect(html('.mg-ci .mgtext')).toBe('CI running');
+    expect(document.querySelector('.mg-ci')).toBeNull();
+    expect(text('.pck-pending')).toBe('1 pending');
     expect(byAct('send-ci-failure')).toHaveLength(0);
     expect(document.querySelector('.mg-ci-failing')).toBeNull();
   });
@@ -398,5 +410,53 @@ describe('PrsPanel — slice selection (migration plan A4)', () => {
     const first = row(0);
     h.emit({ type: 'state', state: stateWith([pr(), pr({ repo: '/repos/api', repoDisplay: 'api', status: 'closed' })]) });
     expect(row(0)).toBe(first);
+  });
+});
+
+describe('PrsPanel — summary, the details popover and the blocked reason', () => {
+  it('summarises ready, blocked and dismissed PRs, non-zero parts only, with the full text in the title', () => {
+    mount(stateWith([
+      pr({ canMerge: true }),
+      pr({ repo: '/repos/b', canMerge: false }),
+      pr({ repo: '/repos/c', status: 'closed', dismissed: true, dismissedLabel: 'dismissed Aug 11' }),
+    ]));
+    const sum = document.querySelector('.phead .sec-sum')!;
+    expect(sum.textContent).toBe('1 ready · 1 blocked · 1 dismissed');
+    expect(sum.getAttribute('title')).toBe('1 ready · 1 blocked · 1 dismissed');
+    cleanup();
+    mount(stateWith([pr({ canMerge: true })]));
+    expect(text('.phead .sec-sum')).toBe('1 ready');
+  });
+
+  it('shows the host reason a Merge is disabled in the row, not only in its title', () => {
+    mount(stateWith([pr({ canMerge: false, mergeBlockedReason: 'awaiting review' })]));
+    expect(text('.pwhy')).toBe('awaiting review');
+  });
+
+  it('opens a details dialog from the ⓘ toggle and closes it on Escape, returning focus', () => {
+    mount(stateWith([pr({ checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [] } })]));
+    const info = one('toggle-pr-info');
+    expect(info.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(info.getAttribute('aria-label')).toBe('Pull request details');
+    expect(document.querySelector('.pinfo-pop')).toBeNull();
+    fireEvent.click(info);
+    const pop = document.querySelector('.pinfo-pop')!;
+    expect(pop.getAttribute('role')).toBe('dialog');
+    expect(pop.textContent).toContain('feat/x → main');
+    expect(pop.textContent).toContain('opened Aug 11');
+    expect(pop.textContent).toContain('all green');
+    expect(pop.textContent).toContain('awaiting review');
+    expect(pop.querySelector('[data-act="open-pr"]')!.textContent).toBe('Open on GitHub');
+    expect(pop.querySelector('[data-act="copy-pr-url"]')!.textContent).toBe('Copy URL');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.querySelector('.pinfo-pop')).toBeNull();
+    expect(document.activeElement).toBe(info);
+  });
+
+  it('closes the details dialog on a click outside it', () => {
+    mount(stateWith([pr()]));
+    fireEvent.click(one('toggle-pr-info'));
+    fireEvent.click(document.body);
+    expect(document.querySelector('.pinfo-pop')).toBeNull();
   });
 });

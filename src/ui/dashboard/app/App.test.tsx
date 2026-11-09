@@ -13,9 +13,9 @@ describe('Dashboard App (Phase 1 Shell)', () => {
       + '<div id="viewsRoot" class="viewsroot hidden" data-region="views"></div>'
       + '<div class="railwrap" id="rail"></div><div id="inside"></div><div class="fault blocked hidden" id="blocked"></div>'
       + '<div class="panel span hidden" id="subtaskPanel"><div class="phead">Sub-tasks<span id="subtaskCount"></span></div><div id="subtasks"></div></div>'
-      + '<div class="panel svpanel"><div class="phead">Servers<span id="srvCount"></span><span id="srvOps"></span></div><div id="servers"></div></div>'
+      + '<div class="panel svpanel" data-region="servers"></div>'
       + '<div class="panel" data-region="worktrees" data-react-owned="true"></div>'
-      + '<div class="panel span prpanel"><div class="phead">Pull requests<span id="prCount"></span><span id="prOps"></span></div><div id="prs"></div></div>'
+      + '<div class="panel span prpanel" data-region="prs"></div>'
       + '<div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div id="artifacts"></div></div>'
       + '<div id="ticketDataHost" class="tdHost"></div><div id="artView" class="artview hidden" tabindex="-1"></div>'
       + '<div id="termView" class="termview hidden" tabindex="-1"></div><div id="envView" class="envview hidden" tabindex="-1"></div>';
