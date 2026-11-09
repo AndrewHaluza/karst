@@ -993,6 +993,9 @@
   "src/workflow/review/findings.ts": [
     "arch:PM-00"
   ],
+  "src/workflow/review/requirements.ts#reconcileRequirementFindings": [
+    "arch:APP-12"
+  ],
   "src/workflow/reviewStallRead.ts#reviewStallAttempts": [
     "arch:REVIEW-STALL"
   ],
