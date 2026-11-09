@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, getTicket, listTickets, updateTicketFields } from '../../store/tickets.js';
+import { upsertProject } from '../../store/projects.js';
+import { createPlanningSession } from '../../store/planningSessions.js';
+import { insertProposal, markProposalAccepted, planningBriefSection } from '../../store/planningProposals.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { TicketFormManager } from './panel.js';
 import type { TicketFormPanel, TicketFormPanelHost, TicketFormActionsCtx } from './panel.js';
@@ -742,6 +745,28 @@ describe('TicketFormManager — create prefill (planning proposal review)', () =
     mgr.openCreate({ title: 'T', description: '', summary: '', repos: [], onCreated: () => {}, constraints: ['#1'] });
     seen[0]!.bindTicket(ticket.id);
     expect(getTicket(store, ticket.id)!.brief).toBe('## Design constraints\n- #1');
+  });
+
+  it('accepting the prefill keeps the seeded summary and constraints inside the planning section', () => {
+    const projectId = upsertProject(store, { slug: 'plan-brief' }).id;
+    const sessionId = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const draftId = insertProposal(store, sessionId, { title: 'T', description: '', summary: 'Plan S', repos: [] });
+    const { host } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({
+      title: 'T', description: '', summary: 'Plan S', repos: [], draftId, constraints: ['@arch:RESIDENT'],
+      onCreated: (id) => markProposalAccepted(store, draftId, id),
+    });
+    // The save path: create the ticket, bind it (the panel seeds the brief),
+    // then commit the prefill (the accept). The accept must not push the
+    // summary above the heading, or a refetch would drop it.
+    const t = createTicket(store, { key: 'T-1', title: 'T' });
+    seen[0]!.bindTicket(t.id);
+    seen[0]!.commitPrefill();
+    const section = `## Planning brief\nPlan S\n\n## Design constraints\n- @arch:RESIDENT\n\nPlanned in P${sessionId} as D${draftId}.`;
+    expect(getTicket(store, t.id)!.brief).toBe(section);
+    expect(planningBriefSection(store, t.id)).toBe(section);
   });
 
   it('pushes the read-only constraints block (with doc names and warnings), before and after bind', () => {

@@ -14,6 +14,7 @@ import {
   discardProposal,
   countPending,
   markProposalAccepted,
+  planningBriefSection,
   proposalPayloadEquals,
   setProposalWarnings,
   validateProposalDependsOn,
@@ -181,7 +182,7 @@ describe('planning proposals', () => {
     expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id, baseShas: { repoA: 'sha123' } });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.brief).toContain(`P${sessionId}`);
     expect(saved.brief).toContain(`D${id}`);
     expect(saved.source).toBe('planning');
@@ -189,21 +190,64 @@ describe('planning proposals', () => {
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
 
-  it('markProposalAccepted keeps a brief the ticket already has (but still records the origin)', () => {
+  it('wraps an existing brief as the planning section when the ticket was never fetched', () => {
     const id = insertProposal(store, sessionId, payload);
     const t = createTicket(store, { key: 'K-2', title: 'saved', projectId });
+    // What the review form's bind seeds: the proposal summary (plus constraints).
     updateTicketFields(store, t.id, { brief: 'user wrote this' });
     markProposalAccepted(store, id, t.id);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe(`user wrote this\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toBe(`## Planning brief\nuser wrote this\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.source).toBe('planning');
+  });
+
+  it('keeps a fetched provider brief first and puts only the summary under the heading', () => {
+    const id = insertProposal(store, sessionId, payload);
+    const t = createTicket(store, { key: 'K-2b', title: 'saved', projectId });
+    updateTicketFields(store, t.id, { brief: '# Provider\n\nbody', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+    markProposalAccepted(store, id, t.id);
+    expect(getTicket(store, t.id)!.brief).toBe(
+      `# Provider\n\nbody\n\n## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`,
+    );
   });
 
   it('markProposalAccepted gives an empty-summary draft a brief that is just the origin line', () => {
     const id = insertProposal(store, sessionId, { ...payload, summary: '  ' });
     const t = createTicket(store, { key: 'K-3', title: 'saved', projectId });
     markProposalAccepted(store, id, t.id);
-    expect(getTicket(store, t.id)!.brief).toBe(`Planned in P${sessionId} as D${id}.`);
+    expect(getTicket(store, t.id)!.brief).toBe(`## Planning brief\nPlanned in P${sessionId} as D${id}.`);
+  });
+
+  describe('planningBriefSection', () => {
+    it('returns the planning section of an accepted ticket, from its heading to the end', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-4', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: `# Provider\n\nbody\n\n## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.` });
+      expect(planningBriefSection(store, t.id)).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
+    });
+
+    it('wraps the whole brief of a never-fetched ticket accepted before the heading existed', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-5', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: `sum\n\nPlanned in P${sessionId} as D${id}.` });
+      expect(planningBriefSection(store, t.id)).toBe(`## Planning brief\nsum\n\nPlanned in P${sessionId} as D${id}.`);
+    });
+
+    it('returns null for a fetched brief with no planning heading', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K-6', title: 'saved', projectId });
+      markProposalAccepted(store, id, t.id);
+      updateTicketFields(store, t.id, { brief: '# Provider only', sourceFetchedAt: '2026-01-01T00:00:00.000Z' });
+      expect(planningBriefSection(store, t.id)).toBeNull();
+    });
+
+    it('returns null for a ticket made by hand', () => {
+      const t = createTicket(store, { key: 'K-7', title: 'hand', projectId });
+      updateTicketFields(store, t.id, { brief: 'typed' });
+      expect(planningBriefSection(store, t.id)).toBeNull();
+    });
   });
 
   it('stores dependsOn and replaces (or clears) it on revise', () => {
