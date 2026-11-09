@@ -487,3 +487,65 @@ describe('instrumentAdapter guardResume (host headless refuses a sandbox session
     expect(guard).toHaveBeenCalledWith(expect.objectContaining({ resume: 'ses_1' }));
   });
 });
+
+describe('instrumentAdapter live usage (@arch:AC-14)', () => {
+  const session = { sessionId: 'sid-1', transcriptPath: '/t/sid-1.jsonl' };
+
+  it('binds the call tracking, writes ONE ledger row, and releases the reading only after that row', async () => {
+    const s = sink();
+    const order: string[] = [];
+    const adapter = instrumentAdapter(
+      fakeAdapter({
+        runHeadless: async (opts): Promise<HeadlessResult> => {
+          opts.onLiveSession?.(session);
+          return { sessionId: 's1', verdict: null, raw: 'a', usage: { ...CLAUDE_ENVELOPE_USAGE } };
+        },
+      }),
+      {
+        sink: { record: (e) => { order.push('record'); s.record(e); } },
+        onLiveSession: (sess, tracking) => {
+          order.push(`register:${tracking?.processRunId}`);
+          return () => void order.push('release');
+        },
+      },
+    );
+    await adapter.runHeadless({ prompt: 'p', cwd: '/w', tracking: { callSite: 'uat-tester', processRunId: 7 } });
+    expect(s.entries).toHaveLength(1);
+    expect(order).toEqual(['register:7', 'record', 'release']);
+  });
+
+  it('releases the reading after a failed call too (the error row is still the only row)', async () => {
+    const s = sink();
+    const released: string[] = [];
+    const adapter = instrumentAdapter(
+      fakeAdapter({
+        runHeadless: async (opts): Promise<HeadlessResult> => {
+          opts.onLiveSession?.(session);
+          throw new Error('429');
+        },
+      }),
+      { sink: s, onLiveSession: () => () => void released.push('x') },
+    );
+    await expect(adapter.runHeadless({ prompt: 'p', cwd: '/w' })).rejects.toThrow('429');
+    expect(s.entries).toHaveLength(1);
+    expect(released).toEqual(['x']);
+  });
+
+  it('a release that throws never fails the call', async () => {
+    const adapter = instrumentAdapter(
+      fakeAdapter({
+        runHeadless: async (opts): Promise<HeadlessResult> => {
+          opts.onLiveSession?.(session);
+          return { sessionId: 's', verdict: null, raw: 'a' };
+        },
+      }),
+      {
+        sink: sink(),
+        onLiveSession: () => () => {
+          throw new Error('x');
+        },
+      },
+    );
+    await expect(adapter.runHeadless({ prompt: 'p', cwd: '/w' })).resolves.toMatchObject({ raw: 'a' });
+  });
+});

@@ -407,6 +407,31 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'depends_on_tickets')).toHaveLength(1);
   });
 
+  it('migrates a pre-v111 database by adding planning_proposals.priority_override, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE planning_proposals (id INTEGER PRIMARY KEY)');
+    legacy.exec('INSERT INTO planning_proposals (id) VALUES (1)');
+    legacy.pragma('user_version = 110');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('planning_proposals')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('priority_override');
+    expect(
+      (migrated.db.prepare('SELECT priority_override AS d FROM planning_proposals WHERE id = 1').get() as { d: string }).d,
+    ).toBeNull();
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'priority_override')).toHaveLength(1);
+  });
+
   it('migrates a pre-v63 tickets table by adding the sub-task columns and index, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

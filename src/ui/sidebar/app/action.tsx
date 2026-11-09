@@ -20,6 +20,8 @@ export interface ActionSpec {
   readonly repo?: string;
   /** A cloud session's URL (cloud-session-* messages); the host re-validates it. */
   readonly url?: string;
+  /** A priority level or `clear` (priority messages); the host re-validates it. */
+  readonly level?: string;
 }
 
 /** The `data-*` attribute set a spec stamps on its control (test and styling hooks, and the menu's source). */
@@ -32,6 +34,7 @@ export function specAttrs(spec: ActionSpec): Record<string, string | number> {
   if (spec.proposal !== undefined) out['data-proposal'] = spec.proposal;
   if (spec.repo !== undefined) out['data-repo'] = spec.repo;
   if (spec.url !== undefined) out['data-url'] = spec.url;
+  if (spec.level !== undefined) out['data-level'] = spec.level;
   return out;
 }
 

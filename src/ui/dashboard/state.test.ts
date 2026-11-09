@@ -573,6 +573,39 @@ describe('buildDashboardState', () => {
       });
     });
 
+    it('a running tester run shows the live reading, writes no ledger row, and the ledger row replaces it (@arch:AC-14)', () => {
+      const t = createTicket(store, { key: 'TK-L1', title: 'live' });
+      const run = openProcessRun(store, {
+        ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 0,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      let reading: { total: number; cacheRead: number } | null = { total: 161_379 + 1_000, cacheRead: 161_379 };
+      const ctx = { liveRunUsage: (ids: readonly number[]) => (ids.includes(run.id) ? reading : null) };
+      const rows = () => (store.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get() as { n: number }).n;
+      const build = () => buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', ctx);
+
+      expect(tester(build()).tokens).toMatchObject({ state: 'measured', total: '1k', cacheRead: '161.4k' });
+      expect(rows()).toBe(0); // the read path never writes the ledger
+
+      // The call ends: the seam writes the one row, then drops the reading.
+      usage(run.id, t.id, 1_500);
+      reading = null;
+      expect(rows()).toBe(1);
+      expect(tester(build()).tokens).toMatchObject({ state: 'measured', total: '1.5k' });
+    });
+
+    it('a running row whose reading is absent keeps the placeholder', () => {
+      const t = createTicket(store, { key: 'TK-L2', title: 'no live' });
+      openProcessRun(store, {
+        ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 0,
+        startedAt: '2026-08-01T10:00:00.000Z',
+      });
+      const state = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', {
+        liveRunUsage: () => null,
+      });
+      expect(tester(state).tokens).toMatchObject({ state: 'pending' });
+    });
+
     it('an estimate-only tester run shows the estimate, not an absent pill', () => {
       const t = createTicket(store, { key: 'TK-P2', title: 'estimate' });
       const run = openProcessRun(store, {

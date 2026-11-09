@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_PROPOSAL_BYTES, PROMPT_SENSITIVE_PATHS, validateProposal } from './proposal.js';
+import { MAX_PRIORITY_REASON, MAX_PROPOSAL_BYTES, PRIORITY_LEVELS, PROMPT_SENSITIVE_PATHS, validateProposal } from './proposal.js';
 
 const ok = { title: 'Add auth', description: 'Do it\n\tnow', summary: 'Decided X', repos: ['api', 'web.v2'] };
 
@@ -144,5 +144,34 @@ describe('validateProposal', () => {
   it('exports the prompt-sensitive path list', () => {
     expect(PROMPT_SENSITIVE_PATHS).toContain('src/agent/seed.ts');
     expect(PROMPT_SENSITIVE_PATHS).toHaveLength(5);
+  });
+});
+
+describe('priority', () => {
+  it('lists exactly the four levels', () => {
+    expect([...PRIORITY_LEVELS]).toEqual(['urgent', 'high', 'normal', 'low']);
+  });
+  it('accepts a level with a reason and strips controls from the reason', () => {
+    const r = validateProposal({ ...ok, priority: 'high', priorityReason: ' breaks\u0007 login ' });
+    expect(r).toEqual({ ok: true, value: { ...ok, priority: 'high', priorityReason: 'breaks login' } });
+  });
+  it('accepts a level alone and leaves both keys absent otherwise', () => {
+    expect(validateProposal({ ...ok, priority: 'low' })).toEqual({ ok: true, value: { ...ok, priority: 'low' } });
+    const r = validateProposal(ok);
+    expect(r.ok && ('priority' in r.value || 'priorityReason' in r.value)).toBe(false);
+  });
+  it('rejects an unknown level', () => {
+    const r = validateProposal({ ...ok, priority: 'critical' });
+    expect(r.ok === false && r.reason).toContain('urgent, high, normal, low');
+  });
+  it('rejects a reason without a level', () => {
+    const r = validateProposal({ ...ok, priorityReason: 'why' });
+    expect(r.ok === false && r.reason).toContain('priorityReason');
+  });
+  it('rejects a multi-line, empty or too long reason', () => {
+    for (const reason of ['a\nb', '  ', 'x'.repeat(MAX_PRIORITY_REASON + 1), 5]) {
+      expect(validateProposal({ ...ok, priority: 'high', priorityReason: reason }).ok).toBe(false);
+    }
+    expect(validateProposal({ ...ok, priority: 'high', priorityReason: 'x'.repeat(MAX_PRIORITY_REASON) }).ok).toBe(true);
   });
 });

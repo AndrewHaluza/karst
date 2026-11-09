@@ -96,6 +96,8 @@ export interface DashboardAgentContext {
    * sub-label (e.g. "not installed"). Plain data; a core absent here is offered.
    */
   unavailableCores?: Partial<Record<AgentProvider, string>>;
+  /** Live token reading of running headless calls (in memory, never a ledger row; @arch:AC-14). */
+  liveRunUsage?: (runIds: readonly number[]) => { total: number; cacheRead: number } | null;
 }
 
 /**

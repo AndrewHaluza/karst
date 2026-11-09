@@ -5,10 +5,12 @@ import {
   getProposal,
   markProposalAccepted,
   proposalPayloadEquals,
+  setProposalPriorityOverride,
   type PlanningProposal,
   type ProposalStatus,
 } from '../../store/planningProposals.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
+import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
 import type { Notify } from './notify.js';
 
@@ -50,6 +52,8 @@ export interface PlanningProposalOps {
    */
   outcomeFor(id: number): { status: ProposalStatus; ticketId: number | null } | undefined;
   discard(id: number): Promise<void>;
+  /** Set (or clear with `null`) the user's priority on a pending draft of this project. */
+  setPriority(id: number, level: PriorityLevel | null): Promise<void>;
 }
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -147,6 +151,15 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
           if (other) sessions.add(other.sessionId);
         }
         for (const sessionId of sessions) refresh(sessionId);
+      });
+    },
+
+    async setPriority(id, level) {
+      const p = await pending(id);
+      if (!p) return;
+      await guarded('set the priority of', id, () => {
+        setProposalPriorityOverride(deps.store, id, level);
+        refresh(p.sessionId);
       });
     },
   };

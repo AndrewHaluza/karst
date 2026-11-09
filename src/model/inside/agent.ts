@@ -73,6 +73,11 @@ export interface SessionTokensInput {
    * out of the headline (see `TokenUsageView`) and shown as its own figure.
    */
   cacheRead?: number;
+  /**
+   * The count is an in-memory reading of a call that still runs (@arch:AC-14). It is
+   * partial: the ledger row written when the call ends replaces it.
+   */
+  live?: boolean;
   /** Measured input tokens, when the record splits directions. */
   input?: number;
   /** Measured output tokens, when the record splits directions. */
@@ -348,6 +353,9 @@ function timelineEvents(
   return events;
 }
 
+/** Appended to the title of a count read while the call still runs. */
+const LIVE_TOKEN_NOTE = 'counted so far · the final count is recorded when the call ends';
+
 const PENDING_TOKEN_LABEL = 'Σ counted at end';
 const PENDING_TOKEN_TITLE =
   'The provider reports the token count at the end of the run. Karst shows the count when the run ends.';
@@ -415,6 +423,7 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
     state: (tokens.estimatedCalls ?? 0) > 0 ? 'estimated' : 'measured',
     total: formatTokens(fresh),
     exact: formatExactTokens(fresh),
+    ...(tokens.live ? { title: `${formatExactTokens(fresh)} fresh tokens ${LIVE_TOKEN_NOTE}` } : {}),
     ...(cacheRead > 0
       ? { cacheRead: formatTokens(cacheRead), cacheReadExact: formatExactTokens(cacheRead) }
       : {}),

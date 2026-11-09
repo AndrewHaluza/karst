@@ -91,6 +91,15 @@ export function draftActions(d: PlanningProposalRow): PlanAction[] {
   ];
 }
 
+/** The draft row with this proposal id in any session, or undefined when it is gone. */
+export function draftOf(id: number, plans: readonly PlanningRow[]): PlanningProposalRow | undefined {
+  for (const p of plans) {
+    const d = (p.proposals || []).find((x) => Number(x.id) === id);
+    if (d) return d;
+  }
+  return undefined;
+}
+
 /** The actions of a tree node (`s<sessionId>` / `d<proposalId>`), or [] when it is gone. */
 export function actionsForNode(node: string, plans: readonly PlanningRow[]): PlanAction[] {
   const id = Number(node.slice(1));
@@ -98,9 +107,6 @@ export function actionsForNode(node: string, plans: readonly PlanningRow[]): Pla
     const p = plans.find((x) => x.sessionId === id);
     return p ? sessionActions(p) : [];
   }
-  for (const p of plans) {
-    const d = (p.proposals || []).find((x) => Number(x.id) === id);
-    if (d) return draftActions(d);
-  }
-  return [];
+  const d = draftOf(id, plans);
+  return d ? draftActions(d) : [];
 }

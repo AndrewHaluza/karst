@@ -456,6 +456,9 @@
   "src/extension/ops/storedArtifactOps.ts#makeStoredArtifactsLoader": [
     "arch:APP-11"
   ],
+  "src/extension/ops/ticketPriorityOps.ts#setTicketPriorityOp": [
+    "arch:PLANNING-PRIORITY"
+  ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
   ],
@@ -536,7 +539,8 @@
   ],
   "src/planning/proposal.ts#validateProposal": [
     "arch:CLI-13",
-    "arch:DRAFT-CONSTRAINTS"
+    "arch:DRAFT-CONSTRAINTS",
+    "arch:PLANNING-PRIORITY"
   ],
   "src/project/bind.ts#bindProject": [
     "arch:PROJECTS"
@@ -756,6 +760,12 @@
   "src/store/planningProposals.ts": [
     "arch:PLANNING",
     "arch:PLANNING-DEPS"
+  ],
+  "src/store/planningProposals.ts#effectiveProposalPriority": [
+    "arch:PLANNING-PRIORITY"
+  ],
+  "src/store/planningProposals.ts#markProposalAccepted": [
+    "arch:PLANNING-PRIORITY"
   ],
   "src/store/planningSessions.ts": [
     "arch:PLANNING"
@@ -992,6 +1002,9 @@
   ],
   "src/workflow/review/findings.ts": [
     "arch:PM-00"
+  ],
+  "src/workflow/review/requirements.ts#reconcileRequirementFindings": [
+    "arch:APP-12"
   ],
   "src/workflow/reviewStallRead.ts#reviewStallAttempts": [
     "arch:REVIEW-STALL"

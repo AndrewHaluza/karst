@@ -221,6 +221,7 @@ export function planningInstructions(input: PreambleInput): string {
     `first, read its ${draftN}, then list it in the dependent draft's "dependsOn"; if you only learn an id`,
     'later, revise the dependent with both "id" and "dependsOn".',
     `"dependsOn" may also name a draft of another session or an open ticket ("T<n>"): list them with \`node ${cli} queue\`.`,
+    'Give each draft a "priority" (urgent|high|normal|low) and a one-line "priorityReason"; the full rule is in `guide`.',
     'The host rejects an unknown id, a discarded draft, a closed ticket, or an ordering cycle.',
     '',
     `Each propose prints the draft's id and ref, e.g. {"ok":true,"id":3,"ref":"${draft3}"}. Cite drafts to the user as ${draftN}.`,

@@ -5,10 +5,10 @@
  * context menu. An outside click closes it; Escape closes it returning focus to
  * the trigger.
  */
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActButton } from './action.js';
 import { Icon } from './Icon.js';
-import { useSidebar } from './SidebarContext.js';
+import { useSidebar, type MenuItem } from './SidebarContext.js';
 
 /** Position the window at the trigger (flipping above when it would overflow the bottom). */
 function placeAt(menu: HTMLElement, trigger: HTMLElement): void {
@@ -20,14 +20,61 @@ function placeAt(menu: HTMLElement, trigger: HTMLElement): void {
   menu.style.top = `${bottom > 240 ? r.bottom + 4 : Math.max(8, r.top - menu.offsetHeight - 4)}px`;
 }
 
+/** An entry that opens a nested list (e.g. "Priority ▸"); Right opens it and Left folds it back; it expands inline because the window scrolls and would clip a flyout. */
+function SubMenu({ item, open, onToggle, onPick }: {
+  readonly item: MenuItem;
+  readonly open: boolean;
+  readonly onToggle: (open: boolean) => void;
+  readonly onPick: () => void;
+}) {
+  return (
+    <div className="ctxsub-wrap">
+      <button
+        type="button"
+        className="ctxitem"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={item.title}
+        onClick={() => onToggle(!open)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowRight') onToggle(true);
+          else if (e.key === 'ArrowLeft' && open) {
+            e.stopPropagation();
+            onToggle(false);
+          }
+        }}
+      >
+        {item.icon ? <Icon name={item.icon} /> : null} {item.label}
+        <span className="ctxsub-arrow" aria-hidden="true"><Icon name="chevron-right" /></span>
+      </button>
+      {open ? (
+        <div className="ctxsub" role="menu" aria-label={item.label}>
+          {(item.submenu ?? []).map((sub) => (
+            <Fragment key={sub.key}>
+              {sub.divider ? <div className="ctxdivider" role="separator" /> : null}
+              <ActButton spec={sub.spec} className="ctxitem" role="menuitemradio" aria-checked={sub.checked === true} title={sub.title} beforeFire={onPick}>
+                {sub.label}
+              </ActButton>
+            </Fragment>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ContextMenu() {
   const { menu, closeMenu } = useSidebar();
   const ref = useRef<HTMLDivElement | null>(null);
+  // The entry whose nested list is open (view state only; it resets on every open).
+  const [sub, setSub] = useState<string | null>(null);
 
   // Hand focus to the first item once the window is placed.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!menu || !el) return;
+    setSub(null);
     placeAt(el, menu.trigger);
     const first = el.querySelector<HTMLElement>('.ctxitem');
     if (first && typeof first.focus === 'function') first.focus();
@@ -57,6 +104,9 @@ export function ContextMenu() {
       {menu?.items.map((item) => (
         <Fragment key={item.key}>
           {item.divider ? <div className="ctxdivider" role="separator" /> : null}
+          {item.submenu ? (
+            <SubMenu item={item} open={sub === item.key} onToggle={(o) => setSub(o ? item.key : null)} onPick={() => closeMenu(false)} />
+          ) : (
           <ActButton
             spec={item.spec}
             className={item.danger ? 'ctxitem danger' : 'ctxitem'}
@@ -66,6 +116,7 @@ export function ContextMenu() {
           >
             {item.icon ? <Icon name={item.icon} /> : null} {item.label}
           </ActButton>
+          )}
         </Fragment>
       ))}
     </div>

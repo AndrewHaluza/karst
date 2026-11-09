@@ -2,6 +2,7 @@ import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { SidebarState } from './state.js';
 import type { SidebarEdge } from './edge.js';
 import { FACETS, type FacetKey } from './facets.js';
+import { asPriorityLevel, type PriorityLevel } from '../../planning/proposal.js';
 
 /**
  * Message protocol for the sidebar ticket-list webview. The webview is a trust
@@ -43,6 +44,9 @@ export type SidebarWebviewMessage =
   // A pending planning proposal carries its own `proposalId`.
   | { type: 'plan-proposal-review'; proposalId: number }
   | { type: 'plan-proposal-discard'; proposalId: number }
+  // A priority change carries an id and a level only (`clear` removes it); the host re-validates both.
+  | { type: 'plan-proposal-priority'; proposalId: number; level: PriorityLevel | 'clear' }
+  | { type: 'set-priority'; ticketId: number; level: PriorityLevel | 'clear' }
   // Cloud agent sessions are addressed by URL (arch:CLOUD-01); the host re-validates it.
   | { type: 'cloud-session-open'; url: string }
   | { type: 'cloud-session-unlink'; url: string }
@@ -106,6 +110,8 @@ export interface SidebarActions {
   planArchive(sessionId: number): void | Promise<void>;
   planProposalReview(proposalId: number): void | Promise<void>;
   planProposalDiscard(proposalId: number): void | Promise<void>;
+  planProposalPriority(proposalId: number, level: PriorityLevel | null): void | Promise<void>;
+  setPriority(ticketId: number, level: PriorityLevel | null): void | Promise<void>;
   planUnarchive(sessionId: number): void | Promise<void>;
   cloudSessionOpen(url: string): void | Promise<void>;
   cloudSessionLink(url: string, target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
@@ -121,6 +127,11 @@ const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
  * `query` a string — before it reaches an action. Returns null for anything
  * malformed so the router can drop it safely.
  */
+/** A wire level: one of the four priorities or `clear`; anything else is undefined. */
+function parseLevel(v: unknown): PriorityLevel | 'clear' | undefined {
+  return v === 'clear' ? 'clear' : asPriorityLevel(v);
+}
+
 export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
@@ -145,6 +156,16 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
       return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId)
         ? { type: m.type, proposalId: m.proposalId }
         : null;
+    case 'plan-proposal-priority': {
+      const level = parseLevel(m.level);
+      return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId) && level !== undefined
+        ? { type: 'plan-proposal-priority', proposalId: m.proposalId, level }
+        : null;
+    }
+    case 'set-priority': {
+      const level = parseLevel(m.level);
+      return id && level !== undefined ? { type: 'set-priority', ticketId: m.ticketId as number, level } : null;
+    }
     case 'cloud-session-open':
     case 'cloud-session-unlink':
       return typeof m.url === 'string' && m.url !== '' ? { type: m.type, url: m.url } : null;
@@ -265,6 +286,10 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planProposalReview(msg.proposalId);
     case 'plan-proposal-discard':
       return actions.planProposalDiscard(msg.proposalId);
+    case 'plan-proposal-priority':
+      return actions.planProposalPriority(msg.proposalId, msg.level === 'clear' ? null : msg.level);
+    case 'set-priority':
+      return actions.setPriority(msg.ticketId, msg.level === 'clear' ? null : msg.level);
     case 'cloud-session-open':
       return actions.cloudSessionOpen(msg.url);
     case 'cloud-session-unlink':
