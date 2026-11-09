@@ -5,6 +5,7 @@ import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
+import { listPrFeedback, type PrFeedbackRow } from '../../store/prFeedback.js';
 
 /**
  * The host action "Send CI failure to agent" — command logic behind the
@@ -19,6 +20,9 @@ import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 
 /** Per-file cap across all checks of one PR (each check is already capped by buildExcerpt). */
 export const MAX_CI_LOG_BYTES = 48 * 1024;
+
+/** Per-alert cap on the body text written to the log. */
+const MAX_ALERT_BODY = 4000;
 
 export interface CiFailureOpsDeps {
   readonly store: Store;
@@ -64,11 +68,56 @@ function section(log: CheckLog): { text: string; line: string } {
   }
 }
 
+const HEADING_MARKS = /^[#\s]+/;
+
+/** Open, current review threads that a bot posted for the named check (heading starts with the check name). */
+function alertThreads(deps: CiFailureOpsDeps, pr: CiFailurePr, checkName: string): PrFeedbackRow[] {
+  const name = checkName.toLowerCase();
+  return listPrFeedback(deps.store, deps.ticketId).filter(
+    (r) =>
+      r.kind === 'thread' &&
+      r.repo === pr.repo &&
+      r.prUrl === pr.url &&
+      !r.isResolved &&
+      !r.isOutdated &&
+      r.author.typeName === 'Bot' &&
+      r.body.replace(HEADING_MARKS, '').toLowerCase().startsWith(name),
+  );
+}
+
+const alertLocation = (t: PrFeedbackRow): string => (t.path === null ? '(no path)' : `${t.path}${t.line === null ? '' : `:${t.line}`}`);
+
+/** The alert title: the first body line without heading marks, the check name and its separator. */
+function alertTitle(t: PrFeedbackRow, checkName: string): string {
+  const first = t.body.replace(HEADING_MARKS, '').split('\n')[0] ?? '';
+  return first.slice(checkName.length).replace(/^[\s/:-]+/, '').trim();
+}
+
+/** An external check with open alert threads: their text, as data. Null when none match. */
+function alertSection(deps: CiFailureOpsDeps, pr: CiFailurePr, name: string): { text: string; lines: string[] } | null {
+  const threads = alertThreads(deps, pr, name);
+  if (threads.length === 0) return null;
+  const count = `${threads.length} open alert${threads.length === 1 ? '' : 's'}`;
+  const lines = threads.map((t, i) => {
+    const detail = `${alertLocation(t)} ${alertTitle(t, name)}`.trim();
+    return i === 0 ? `${name}: ${count} — ${detail}` : detail;
+  });
+  const items = threads.map((t) => `-- ${alertLocation(t)}\n${t.body.slice(0, MAX_ALERT_BODY)}`);
+  return { text: `== ${name}: ${count} (external check, text from the pull request review threads)\n${items.join('\n\n')}\n`, lines };
+}
+
 async function reportFor(deps: CiFailureOpsDeps, pr: CiFailurePr): Promise<PrReport> {
   const parts: string[] = [];
   const summary: string[] = [];
   for (const check of pr.failing) {
-    const s = section(await fetchCheckLog(deps.gh, pr.cwd, check));
+    const log = await fetchCheckLog(deps.gh, pr.cwd, check);
+    const alerts = log.kind === 'external' ? alertSection(deps, pr, check.name) : null;
+    if (alerts !== null) {
+      parts.push(alerts.text);
+      summary.push(...alerts.lines);
+      continue;
+    }
+    const s = section(log);
     parts.push(s.text);
     summary.push(s.line);
   }
