@@ -4,7 +4,7 @@ import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
-import { asPriorityLevel, type PriorityLevel } from '../planning/proposal.js';
+import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
