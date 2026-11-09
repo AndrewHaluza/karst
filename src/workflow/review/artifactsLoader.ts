@@ -7,6 +7,7 @@ import type { ArtifactStore } from '../../artifacts/store.js';
 import { readLastAlignmentReport } from '../artifacts/alignmentReport.js';
 import { loadChainEntries } from '../artifacts/loadChain.js';
 import { buildReviewArtifacts, type ReviewArtifacts } from './conformance.js';
+import type { OperatorManifestInfo } from './manifestBlock.js';
 
 export interface ReviewArtifactsLoaderDeps {
   intentOf: (ticketId: number) => string | null;
@@ -15,6 +16,8 @@ export interface ReviewArtifactsLoaderDeps {
   /** Edges the ticket's approach verifies itself. */
   checksOf: (ticketId: number) => ReadonlySet<ChainEdge>;
   /** Null when the ticket has no artifact store (no project). */
+  /** The operator manifest (outside the git diff); null when none is known. Absent → no manifest section. */
+  manifestOf?: (ticketId: number) => Promise<OperatorManifestInfo | null> | OperatorManifestInfo | null;
   storeFor: (ticketId: number) => Pick<ArtifactStore, 'listArtifacts' | 'history' | 'show'> | null;
 }
 
@@ -26,13 +29,17 @@ export function makeReviewArtifactsLoader(
     const entries = store ? await loadChainEntries(store, ticketId) : [];
     const intent = deps.intentOf(ticketId);
     const description = intent?.trim() ? null : (deps.descriptionOf?.(ticketId)?.trim() ?? null);
-    if (!intent?.trim() && entries.length === 0 && !description) return undefined;
+    const operatorManifest = await deps.manifestOf?.(ticketId);
+    const manifestPart = operatorManifest?.changed ? { operatorManifest } : {};
+    if (!intent?.trim() && entries.length === 0 && !description) {
+      return operatorManifest?.changed ? { intent: null, spec: null, plan: null, ...manifestPart } : undefined;
+    }
     const artifacts = buildReviewArtifacts({
       intent,
       entries,
       checks: deps.checksOf(ticketId),
       lastIntentSpecReport: store ? await readLastAlignmentReport(store, ticketId, 'intent-spec') : null,
     });
-    return description ? { ...artifacts, description } : artifacts;
+    return { ...artifacts, ...(description ? { description } : {}), ...manifestPart };
   };
 }

@@ -13,6 +13,7 @@ import {
   type ArtifactChain,
   type ChainEntry,
 } from '../artifacts/chain.js';
+import type { OperatorManifestInfo } from './manifestBlock.js';
 
 export interface ReviewArtifacts {
   intent: string | null;
@@ -24,6 +25,8 @@ export interface ReviewArtifacts {
   paths?: { spec?: string[]; plan?: string[] };
   /** The ticket's repo targets — each target's prompt names the others. */
   targets?: readonly string[];
+  /** The operator manifest, outside the git diff; rendered only when it changed. */
+  operatorManifest?: OperatorManifestInfo;
 }
 
 export interface AlignmentSnapshot {
