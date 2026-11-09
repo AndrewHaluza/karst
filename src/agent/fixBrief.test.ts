@@ -453,6 +453,36 @@ describe('renderFixBrief', () => {
       expect(brief).not.toContain('- off:');
     });
 
+    it('does not list the non-gate changes row', () => {
+      const runs = [
+        gate({ id: 1, stageKey: 'review', gateName: 'changes', exitCode: 0, command: 'git', args: ['diff'] }),
+        gate({ id: 2, stageKey: 'review', gateName: 'lint', exitCode: 0 }),
+      ];
+      const brief = renderFixBrief('P-1', [{ stageKey: 'review', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain('- lint:');
+      expect(brief).not.toContain('- changes:');
+    });
+
+    it('does not list a row with no command', () => {
+      const runs = uatBatch([
+        { gateName: 'legacy', exitCode: 0, command: null, args: null },
+        { gateName: 'on', exitCode: 0 },
+      ]);
+      const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain('- on:');
+      expect(brief).not.toContain('- legacy:');
+    });
+
+    it('lists the review batch, not the UAT batch, for a review-failed brief with review rows', () => {
+      const runs = [
+        gate({ id: 1, stageKey: 'uat', runAt: '2026-08-01T11:00:00.000Z', gateName: 'uat-gate', exitCode: 0 }),
+        gate({ id: 2, stageKey: 'review', runAt: '2026-08-01T10:00:00.000Z', gateName: 'review-gate', exitCode: 0 }),
+      ];
+      const brief = renderFixBrief('P-1', [{ stageKey: 'review', status: 'failed' }], [], runs) ?? '';
+      expect(brief).toContain('- review-gate:');
+      expect(brief).not.toContain('- uat-gate:');
+    });
+
     it('omits the section when no gate run exists', () => {
       const brief = renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }]);
       expect(brief).not.toContain(FIX_GATE_LIST_HEADER);
