@@ -82,6 +82,8 @@ export interface TicketSeed {
   archived?: boolean;
   /** Give the ticket a worktree row (the checkout itself is not created). */
   worktree?: boolean;
+  /** Record the ticket's placement. Autopilot parks a ticket with no placement ('placement unknown'). Only `host` runs in the container. */
+  placement?: 'host';
   rows?: Partial<RowSeeds>;
 }
 /** A gate in the scratch manifest: argv-based, no shell. Only these two names are allowed. */

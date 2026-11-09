@@ -1,3 +1,4 @@
+import { getPlacement } from '../store/placement.js';
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../store/db.js';
 import { getTicketByKey } from '../store/tickets.js';
@@ -120,6 +121,17 @@ describe('seedStore engine rows', () => {
       .toEqual({ number: 5, status: 'open', base_ref: 'develop', merge_block: 'dirty' });
     expect(getMergeCheck(store, id!, 'app')).toMatchObject({ state: 'conflicted', files: ['a.ts'], headSha: 'h', baseSha: 'b' });
     expect(listFindings(store, id!)).toHaveLength(1);
+  });
+
+  it('records a host placement, and none when the seed names none', () => {
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({ tickets: [
+      { key: 'T-P', title: 'p', stageCurrent: 'ship', placement: 'host' },
+      { key: 'T-N', title: 'n', stageCurrent: 'ship' },
+    ] });
+    const [placed, bare] = seedStore(store, spec);
+    expect(getPlacement(store, placed!)).toEqual({ backend: 'host', core: null, sandboxName: null, reason: null });
+    expect(getPlacement(store, bare!)).toBeNull();
   });
 });
 

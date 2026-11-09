@@ -73,7 +73,8 @@
             "baseRef": "main"
           }
         ]
-      }
+      },
+      "placement": "host"
     },
     {
       "key": "FIX-REVIEW",

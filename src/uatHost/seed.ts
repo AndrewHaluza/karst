@@ -1,3 +1,4 @@
+import { recordPlacement } from '../store/placement.js';
 import type { Store } from '../store/db.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { finishProcessRun, openProcessRun } from '../store/processRuns.js';
@@ -66,6 +67,7 @@ export function seedStore(store: Store, spec: FixtureSpec, defaults?: { repoPath
     setStageCurrent(store, ticket.id, seed.stageCurrent);
     if (seed.selectedRepos) updateTicketFields(store, ticket.id, { selectedRepos: seed.selectedRepos });
     for (const s of seed.stages) setStage(store, ticket.id, s.stageKey, s.patch);
+    if (seed.placement) recordPlacement(store, ticket.id, { backend: seed.placement, core: null, sandboxName: null, reason: null }, null);
     if (seed.worktree) {
       const binding = seed.repo ?? fallback;
       store.db

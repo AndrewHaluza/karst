@@ -218,3 +218,11 @@ describe('parseFixtureFile engine-state rows', () => {
   });
 });
 
+
+describe('ticket placement', () => {
+  const ticket = (extra: Record<string, unknown>) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', ...extra }] });
+  it('accepts host and refuses another backend', () => {
+    expect(parseFixtureFile(ticket({ placement: 'host' })).tickets[0]!.placement).toBe('host');
+    expect(() => parseFixtureFile(ticket({ placement: 'docker' }))).toThrow(/placement must be one of host/);
+  });
+});
