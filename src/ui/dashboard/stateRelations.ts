@@ -104,6 +104,9 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
   // A keyless target's label already IS `T<n>` (buildBlockerLabel), so the id is
   // only added when the label doesn't lead with it.
   const blockers = listOpenBlockers(store, ticketId).map((b) => {
+    if (b.targetProposalId !== null) {
+      return ticketRefView({ draftId: b.targetProposalId });
+    }
     if (b.targetTicketId !== null) {
       try {
         const target = getTicket(store, b.targetTicketId);

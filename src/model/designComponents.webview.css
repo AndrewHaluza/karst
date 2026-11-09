@@ -161,7 +161,11 @@ button.k-chip{cursor:pointer}
   background:transparent;overflow-wrap:anywhere;text-align:left;
   transition:background var(--k-dur-fast) var(--k-ease-standard)}
 button.k-ticket-ref,a.k-ticket-ref{cursor:pointer}
-button.k-ticket-ref:hover,a.k-ticket-ref:hover{background:var(--k-surface-hover);color:var(--k-text)}
+/* The wrapper span is the chip; the link is only its id part. Hover and
+   focus-within must match on the wrapper too, or the dashboard and ticket-form
+   surfaces (span + inner <a>) never show the documented chip state. */
+.k-ticket-ref:hover,button.k-ticket-ref:hover,a.k-ticket-ref:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.k-ticket-ref:focus-within{color:var(--k-text)}
 button.k-ticket-ref:focus-visible,a.k-ticket-ref:focus-visible{
   color:var(--k-text);outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 .k-ticket-ref a{color:inherit;text-decoration:none}
@@ -243,7 +247,7 @@ button.k-ticket-ref:focus-visible,a.k-ticket-ref:focus-visible{
 .k-empty-title{font-size:var(--k-text-md);color:var(--k-text);margin-bottom:var(--k-space-2)}
 .k-empty-hint{font-size:var(--k-text-sm)}
 @media (prefers-reduced-motion: reduce){
-  .k-btn,.k-iconbtn,.k-input,.k-chip,.k-switch,.k-switch-track,
+  .k-btn,.k-iconbtn,.k-input,.k-chip,.k-ticket-ref,.k-switch,.k-switch-track,
   .k-switch-track::after,.k-drawer,.k-toast{transition:none}
   .k-spinner,.k-btn.is-spinning::before,.k-iconbtn.is-spinning::after,
   [data-region].is-loading::before,.k-toast{animation:none}

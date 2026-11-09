@@ -593,7 +593,9 @@ export function buildTicketFormState(
       const stored = listRelations(store, r.derived && r.targetTicketId !== null ? r.targetTicketId : ticketId).find((x) => x.id === r.id);
       const refView = targetTicket
         ? ticketRefView({ ticket: targetTicket })
-        : ticketRefView({ ref: label });
+        : r.targetProposalId !== null
+          ? ticketRefView({ draftId: r.targetProposalId })
+          : ticketRefView({ ref: label });
       const kindLabel = RELATION_LABEL[r.kind] ?? r.kind;
       return {
         id: r.id,

@@ -975,22 +975,13 @@
     const rels = state.relations || [];
     const depsCard = el('dependenciesCard');
     depsCard.hidden = rels.length === 0;
-    const RELATION_LABEL = {
-      'blocked-by': 'Blocked by',
-      'blocks': 'Blocks',
-      'parent': 'Parent',
-      'child': 'Child',
-      'related-to': 'Related',
-      'parent-of': 'Parent of',
-      'child-of': 'Child of',
-      'duplicate-of': 'Duplicate of',
-      'duplicated-by': 'Duplicated by',
-    };
     const list = el('dependenciesList');
     list.textContent = '';
     for (const r of rels) {
       const row = document.createElement('div');
-      const kind = r.kindLabel || RELATION_LABEL[r.kind] || r.kind;
+      // The host owns the readable label and always sends `kindLabel`; keeping a
+      // second map here would be an unpinned mirror (@ui:MIRRORED-CONSTANTS).
+      const kind = r.kindLabel || r.kind;
       row.appendChild(document.createTextNode(`${kind}: `));
 
       if (r.refView) {

@@ -8,6 +8,7 @@ import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 import { upsertProject } from '../../store/projects.js';
 import { markProposalAccepted, insertProposal, discardProposal } from '../../store/planningProposals.js';
 import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
+import { addRelation } from '../../store/ticketRelations.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
 function markDone(store: Store, id: number, doneAt: string): void {
@@ -827,5 +828,18 @@ describe('buildSidebarState — planning sessions', () => {
 
   it('shows no planning sessions before a project is bound', () => {
     expect(buildSidebarState(store, { facets: ['all'], filter: '' }).planning).toEqual([]);
+  });
+
+  it('renders a proposal-only blocker as a draft chip (D<n>, neutral dot, no stage)', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
+    const draft = insertProposal(store, session.id, { title: 'Draft', description: 'd', summary: 's', repos: [] });
+    const t = createTicket(store, { key: 'BLK-1', title: 'blocked', projectId });
+    addRelation(store, { ticketId: t.id, kind: 'blocked-by', targetProposalId: draft, source: 'user' });
+
+    const row = buildSidebarState(store, { facets: ['all'], filter: '', projectId }).sections.current.find((r) => r.ticketId === t.id)!;
+    const chip = row.blockedBy![0]!;
+    expect(chip).toMatchObject({ kind: 'draft', glyph: 'gray', stage: null });
+    expect(chip.displayTextParts.id).toBe(`D${draft}`);
   });
 });

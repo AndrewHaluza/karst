@@ -268,7 +268,9 @@ function subtasksState(): SidebarState {
           subtaskChildCount: 1,
           subtaskIsLast: true,
           subtaskGuides: [true],
-          blockedBy: [ticketRefView({ ref: 'BLOCK-7' })],
+          // Two blockers so the narrow layout tiers exercise banner wrapping
+          // instead of only the one-chip case.
+          blockedBy: [ticketRefView({ ref: 'BLOCK-7' }), ticketRefView({ ref: 'BLOCK-8' })],
         }),
         fixtureRow(2, {
           label: 'FEAT-100-s1-s1',

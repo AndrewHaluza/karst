@@ -5,6 +5,9 @@ import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { addRelation } from '../../store/ticketRelations.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
+import { upsertProject } from '../../store/projects.js';
+import { createPlanningSession } from '../../store/planningSessions.js';
+import { insertProposal } from '../../store/planningProposals.js';
 import { applyPrefill, buildTicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import {
@@ -772,5 +775,18 @@ describe('applyPrefill — approved-draft base picks', () => {
     const blockerState = buildTicketFormState(store, MANIFEST, () => [], () => [], blocker.id);
     const blocksRel = blockerState.relations?.find((r) => r.kind === 'blocks');
     expect(blocksRel?.kindLabel).toBe('Blocks');
+  });
+
+  it('renders a proposal-only relation as a draft chip (D<n>, neutral dot, no stage)', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
+    const draft = insertProposal(store, session.id, { title: 'Draft', description: 'd', summary: 's', repos: [] });
+    const t = createTicket(store, { key: 'BLK-1', title: 'blocked', projectId });
+    addRelation(store, { ticketId: t.id, kind: 'blocked-by', targetProposalId: draft, source: 'user' });
+
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
+    const rel = state.relations!.find((r) => r.kind === 'blocked-by')!;
+    expect(rel.refView).toMatchObject({ kind: 'draft', glyph: 'gray', stage: null });
+    expect(rel.refView!.displayTextParts.id).toBe(`D${draft}`);
   });
 });

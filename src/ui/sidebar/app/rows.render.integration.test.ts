@@ -89,6 +89,14 @@ describe('ticket row', () => {
     expect(h.query('.ticket')!.classList.contains('active')).toBe(true);
   });
 
+  it('wraps multiple blocker chips onto a new line instead of shrinking them (UI-R43, UI-R44)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })] })] }));
+    const css = h.document.querySelector('style')!.textContent!;
+    expect(css).toMatch(/\.rowopen\{[^}]*flex-wrap:wrap/);
+    expect(css).toMatch(/\.rowopen \.k-ticket-ref\{[^}]*flex:0 0 auto/);
+    expect(h.queryAll('.ticket .k-ticket-ref')).toHaveLength(2);
+  });
+
   it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', async () => {
     const h = await mount(base);
     const warns = h.queryAll('.nextact.warn');

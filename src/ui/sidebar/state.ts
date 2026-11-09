@@ -315,6 +315,9 @@ export function buildSidebarState(
       blockersByTicket.set(
         tid,
         list.map((b) => {
+          if (b.targetProposalId !== null) {
+            return ticketRefView({ draftId: b.targetProposalId });
+          }
           if (b.targetTicketId !== null) {
             try {
               const target = getTicket(store, b.targetTicketId);

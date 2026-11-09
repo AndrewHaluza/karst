@@ -482,6 +482,8 @@ export interface BlockerView {
   relationId: number;
   /** The resolved target ticket id, or null when unresolved or proposal-only. */
   targetTicketId: number | null;
+  /** The planning draft id for a proposal-only blocker, else null (the chip shows `D<n>`). */
+  targetProposalId: number | null;
   /** Display label: 'key / ref' for resolved, 'ref' for dangling, 'proposal #N' for proposal-only. */
   label: string;
 }
@@ -547,6 +549,7 @@ export function listOpenBlockersFor(
       blockers.push({
         relationId: row.relationId,
         targetTicketId: row.targetTicketId,
+        targetProposalId: row.targetProposalId,
         label: buildBlockerLabel(row.targetTicketId, row.targetKey, row.targetRef, row.targetProposalId),
       });
     }

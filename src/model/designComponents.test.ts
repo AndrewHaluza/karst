@@ -64,6 +64,17 @@ describe('design system components', () => {
     const reduced = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(reduced).toContain('animation:none');
     expect(reduced).toContain('transition:none');
+    // Every animated primitive belongs to the list, so a new chip cannot keep
+    // a hover transition under reduced motion (UI-R30).
+    expect(reduced).toMatch(/\.k-ticket-ref[,\{]/);
+  });
+
+  it('applies the ticket-reference hover/focus state on the wrapper span, not only on a button/link chip', () => {
+    // Three of the four surfaces render `<span class="k-ticket-ref">` with the
+    // link only on the id part; a `button.k-ticket-ref:hover` selector alone
+    // leaves them without the documented hover state.
+    expect(CSS).toMatch(/\.k-ticket-ref:hover/);
+    expect(CSS).toContain('.k-ticket-ref:focus-within');
   });
 
   it('gives the danger variant its own look so destructive never reads as benign (UI-R10b)', () => {

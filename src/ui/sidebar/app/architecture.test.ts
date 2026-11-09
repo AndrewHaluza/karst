@@ -35,8 +35,11 @@ describe('sidebar app architecture', () => {
   it('imports no host module at runtime — type-only imports from the host side are fine', () => {
     const offenders: string[] = [];
     for (const path of sources()) {
+      // The shared directory also holds host-only modules (`simplePanelHost.ts`
+      // imports `vscode`), so exempt only the browser-safe shared modules.
+      const webviewSafe = new Set(['../../shared/TicketRefChip.js', '../../shared/ticketRefView.js']);
       for (const m of code(path).matchAll(/^import\s+(?!type\b)[^;]*?from\s+'(\.\.\/[^']+|vscode|node:[^']+)'/gm)) {
-        if (m[1]?.startsWith('../../shared/')) continue;
+        if (m[1] !== undefined && webviewSafe.has(m[1])) continue;
         offenders.push(`${name(path)} → ${m[1]}`);
       }
     }
