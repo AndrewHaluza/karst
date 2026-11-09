@@ -9,6 +9,7 @@ import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { createPlanningSession } from '../../store/planningSessions.js';
 import { insertProposal, markProposalAccepted } from '../../store/planningProposals.js';
+import { addRelation } from '../../store/ticketRelations.js';
 import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
@@ -2708,5 +2709,17 @@ describe('inside: the re-entry window with two or more recorded attempts (Findin
     const state = buildDashboardState(store, ticketId);
     const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
     expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
+  });
+
+  it('renders a proposal-only blocker as a draft chip (D<n>, neutral dot, no stage)', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
+    const draft = insertProposal(store, session.id, { title: 'Draft', description: 'd', summary: 's', repos: [] });
+    const t = createTicket(store, { key: 'BLK-1', title: 'blocked', projectId });
+    addRelation(store, { ticketId: t.id, kind: 'blocked-by', targetProposalId: draft, source: 'user' });
+
+    const chip = buildDashboardState(store, t.id).blockers[0]!;
+    expect(chip).toMatchObject({ kind: 'draft', glyph: 'gray', stage: null });
+    expect(chip.displayTextParts.id).toBe(`D${draft}`);
   });
 });

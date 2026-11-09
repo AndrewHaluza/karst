@@ -611,7 +611,7 @@
   </div>
 
   <div class="setblock" id="dependenciesCard" hidden>
-    <h2>Blocked by</h2>
+    <h2>Relations</h2>
     <div id="dependenciesList" class="chips"></div>
   </div>
 </aside>
@@ -782,6 +782,53 @@
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
 
+  // Builds the shared `.k-ticket-ref` chip with DOM nodes only — the state
+  // crosses postMessage, so no HTML from it is ever parsed. The text, classes
+  // and accessible name mirror TicketRefChip / renderTicketRefHtml, so the
+  // ticket form shows the same ticket reference as every other surface.
+  function renderTicketRefNode(view, opts) {
+    opts = opts || {};
+    const prefix = opts.prefix || '';
+    const link = opts.link !== false;
+    const showKey = opts.showKey !== false;
+    const dataAct = opts.dataAct || 'open-dependency';
+    const dataIdAttr = opts.dataIdAttr || 'data-ticket';
+    const parts = view.displayTextParts || { id: '', key: null, stage: null };
+    const tooltip = !showKey && view.keyOrRef ? view.keyOrRef : null;
+
+    const chip = document.createElement('span');
+    chip.className = 'k-ticket-ref';
+    chip.setAttribute('aria-label', view.accessibleName);
+    if (tooltip) chip.setAttribute('title', tooltip);
+
+    if (prefix) {
+      const p = document.createElement('span');
+      p.textContent = prefix;
+      chip.appendChild(p);
+    }
+
+    const dot = document.createElement('span');
+    dot.className = 'k-ticket-ref-dot g-' + view.glyph;
+    dot.setAttribute('aria-hidden', 'true');
+    chip.appendChild(dot);
+
+    const body = document.createElement('span');
+    if (link && view.ticketId !== null && view.ticketId !== undefined) {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.setAttribute('data-act', dataAct);
+      a.setAttribute(dataIdAttr, String(view.ticketId));
+      a.textContent = parts.id;
+      body.appendChild(a);
+    } else {
+      body.appendChild(document.createTextNode(parts.id));
+    }
+    if (showKey && parts.key) body.appendChild(document.createTextNode(' · ' + parts.key));
+    if (parts.stage) body.appendChild(document.createTextNode(' · ' + parts.stage));
+    chip.appendChild(body);
+    return chip;
+  }
+
   // Mirrors MAX_PASTE_BYTES in attachments/ingest.ts. The host re-checks it —
   // this copy exists so the user is told before a large paste crosses
   // postMessage, not after the host silently drops it. webview.test.ts pins the
@@ -928,7 +975,45 @@
     const rels = state.relations || [];
     const depsCard = el('dependenciesCard');
     depsCard.hidden = rels.length === 0;
-    el('dependenciesList').innerHTML = rels.map((r) => `<div class="chip">${esc(r.kind)}: ${r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${esc(r.ticketId)}">${esc(r.label)}</a>` : esc(r.label)}${r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${esc(r.id)}">Retry</button>` : ''}</div>`).join('');
+    const list = el('dependenciesList');
+    list.textContent = '';
+    for (const r of rels) {
+      const row = document.createElement('div');
+      // The host owns the readable label and always sends `kindLabel`; keeping a
+      // second map here would be an unpinned mirror (@ui:MIRRORED-CONSTANTS).
+      const kind = r.kindLabel || r.kind;
+      row.appendChild(document.createTextNode(`${kind}: `));
+
+      if (r.refView) {
+        row.appendChild(renderTicketRefNode(r.refView, { dataAct: 'open-dependency', dataIdAttr: 'data-id' }));
+      } else if (r.ticketId) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.setAttribute('data-act', 'open-dependency');
+        a.setAttribute('data-id', String(r.ticketId));
+        a.textContent = r.label;
+        row.appendChild(a);
+      } else {
+        row.appendChild(document.createTextNode(r.label));
+      }
+
+      if (r.writebackError) {
+        const errSpan = document.createElement('span');
+        errSpan.className = 'error';
+        errSpan.textContent = r.writebackError;
+        row.appendChild(errSpan);
+
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'k-btn k-btn--ghost k-btn--sm';
+        retryBtn.setAttribute('data-act', 'retry-writeback');
+        retryBtn.setAttribute('data-id', String(r.id));
+        retryBtn.textContent = 'Retry';
+        row.appendChild(retryBtn);
+      }
+
+      list.appendChild(row);
+    }
 
     const dc = state.designConstraints;
     el('designConstraintsCard').hidden = !dc;
@@ -2415,7 +2500,7 @@
     if (!target) return;
     e.preventDefault();
     if (target.dataset.act === 'retry-writeback') post({ type: 'retry-relation-writeback', relationId: Number(target.dataset.id) });
-    if (target.dataset.act === 'open-dependency') post({ type: 'open-dependency', ticketId: Number(target.dataset.id) });
+    if (target.dataset.act === 'open-dependency') post({ type: 'open-dependency', ticketId: Number(target.dataset.id || target.dataset.ticket) });
   });
 
   function postPastedFile(file) {

@@ -4,6 +4,7 @@ import type { TicketPeek } from './peek.js';
 import type { FacetKey } from './facets.js';
 import { FACETS } from './facets.js';
 import type { Glyph } from '../../model/glyph.js';
+import { ticketRefView } from '../shared/ticketRefView.js';
 
 /**
  * The checked-in render fixture corpus for the sidebar webview.
@@ -270,7 +271,9 @@ function subtasksState(): SidebarState {
           subtaskChildCount: 1,
           subtaskIsLast: true,
           subtaskGuides: [true],
-          blockedBy: ['BLOCK-7'],
+          // Two blockers so the narrow layout tiers exercise banner wrapping
+          // instead of only the one-chip case.
+          blockedBy: [ticketRefView({ ref: 'BLOCK-7' }), ticketRefView({ ref: 'BLOCK-8' })],
         }),
         fixtureRow(2, {
           label: 'FEAT-100-s1-s1',
@@ -320,16 +323,25 @@ function hostileState(): SidebarState {
 
 /** One session whose last draft depends on a pending draft, a live ticket and a done ticket. */
 function planningDepsState(): SidebarState {
-  const dep = (id: number, kind: DepStatus['kind'], ticketId: number | null, stage: string | null, glyph: DepStatus['glyph']): DepStatus => ({
-    id, label: `D${id}`, kind, ticketId, ticketLabel: ticketId === null ? null : `T${ticketId}`, stage, glyph,
-  });
   const dependsOnStatus = [
-    dep(94, 'draft', null, null, 'gray'),
-    dep(92, 'ticket', 605, 'impl', 'blue'),
-    dep(91, 'done', 604, null, 'green'),
+    ticketRefView({ draftId: 94, draftLabel: 'D94' }),
+    ticketRefView({
+      draftId: 92,
+      draftLabel: 'D92',
+      ticket: { id: 605, key: 'DEP-1', stageCurrent: 'impl', stages: [{ stageKey: 'impl', status: 'running' }] } as any,
+      glyph: 'blue',
+    }),
+    ticketRefView({
+      draftId: 91,
+      draftLabel: 'D91',
+      ticket: { id: 604, key: 'DEP-2', stageCurrent: 'done', stages: [{ stageKey: 'done', status: 'passed' }] } as any,
+      glyph: 'green',
+    }),
   ];
-  const crossSession: DepStatus = { ...dep(498, 'draft', null, null, 'gray'), sessionLabel: 'P43' };
-  const directTicket: DepStatus = { ...dep(610, 'ticket', 610, 'impl', 'blue'), label: 'T610' };
+  const crossSession: DepStatus = ticketRefView({ draftId: 498, draftLabel: 'D498', sessionLabel: 'P43' });
+  const directTicket: DepStatus = ticketRefView({
+    ticket: { id: 610, key: 'DEP-3', stageCurrent: 'impl', stages: [{ stageKey: 'impl', status: 'running' }] } as any,
+  });
   return {
     ...emptyState(),
     sections: { current: [fixtureRow(0, { glyph: 'blue' })], awaitingReview: [], recentlyDone: [], olderDone: [] },

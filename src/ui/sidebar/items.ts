@@ -11,7 +11,7 @@ import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
-import type { BlockerView } from '../../store/ticketRelations.js';
+import type { TicketRefView } from '../shared/ticketRefView.js';
 
 /** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
 export interface SidebarPr {
@@ -138,7 +138,7 @@ export interface TicketNode {
    * "Queued" / "Starting" in place of the stage chip.
    */
   autostart: SubtaskAutostartPhase | null;
-  blockedBy?: string[];
+  blockedBy?: TicketRefView[];
   collapsible: true;
 }
 
@@ -156,7 +156,7 @@ export function buildTicketNodes(
    * keeps its argument positions. Absent → the legacy `defaultProvider`.
    */
   agentDefaults?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults,
-  blockersByTicket: Map<number, BlockerView[]> = new Map(),
+  blockersByTicket: Map<number, TicketRefView[]> = new Map(),
   /** Tickets waiting in the host-memory queue → 'Waiting for memory (free X GB, needs Y GB)', shown in place of the stage text. */
   memoryWaits: ReadonlyMap<number, string> = new Map(),
 ): TicketNode[] {
@@ -194,7 +194,7 @@ export function buildTicketNodes(
       subtaskIsLast: false,
       subtaskGuides: [],
       autostart: subtaskAutostartPhase(t),
-      blockedBy: (blockersByTicket.get(t.id) ?? []).map((b) => b.label),
+      blockedBy: blockersByTicket.get(t.id) ?? [],
       collapsible: true,
     };
   });

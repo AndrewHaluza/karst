@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { OPEN_BLOCKER_SQL } from './ticketRelations.js';
 
 /**
  * Sub-task autostart state machine (plan §A, v64). `tickets.autostart_pending`:
@@ -89,7 +90,7 @@ export function claimAutostart(store: Store, ticketId: number, caps: AutostartCa
             SELECT 1 FROM ticket_relations r
             LEFT JOIN tickets t ON t.id = r.target_ticket_id
             WHERE r.ticket_id = @id AND r.kind = 'blocked-by'
-              AND (r.target_ticket_id IS NULL OR (t.stage_current IS NOT 'done' AND t.archived_at IS NULL))
+              AND (${OPEN_BLOCKER_SQL})
           )
           AND (@perParent <= 0 OR (SELECT COUNT(*) FROM tickets s
                 WHERE s.subtask_parent_id = tickets.subtask_parent_id AND ${HOLDS_SLOT_SQL}) < @perParent)

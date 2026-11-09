@@ -1,5 +1,4 @@
 import { memoryWaitNotes } from '../../store/memoryQueue.js';
-import { isFinishedStage } from '../../model/types.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
@@ -41,10 +40,9 @@ import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals, effectiveProposalPriority, type PlanningProposal } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 import { formatId } from '../../model/entityId.js';
-import { ticketGlyph } from '../../model/ticketGlyph.js';
-import type { Glyph } from '../../model/glyph.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
+import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 
 export type { CloudSessionChip };
 
@@ -161,20 +159,7 @@ export interface SidebarSections {
  * Live state of one draft dependency. Facts only (UI-R31): the webview picks
  * markup and the shared status marker from `kind` + `glyph`.
  */
-export interface DepStatus {
-  id: number;
-  /** Host-built `D94`. */
-  label: string;
-  kind: 'draft' | 'ticket' | 'done';
-  ticketId: number | null;
-  /** Host-built `T605`; null while the dependency is still a pending draft. */
-  ticketLabel: string | null;
-  /** The ticket's current stage while `kind === 'ticket'`; null otherwise. */
-  stage: string | null;
-  glyph: Glyph | null;
-  /** Host-built `P43` of the target draft's planning session; set only when it is NOT the card's own session. */
-  sessionLabel?: string;
-}
+export type DepStatus = TicketRefView;
 
 export interface PlanningProposalRow {
   id: number;
@@ -332,18 +317,54 @@ export function buildSidebarState(
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
 
+  // Tickets already read for this build. An open blocker's target is never
+  // archived (OPEN_BLOCKER_SQL), so the active list resolves it without a
+  // per-blocker read — and the result is cached across facet passes.
+  const ticketById = new Map<number, TicketWithStages>();
+  for (const t of [...active, ...archived]) ticketById.set(t.id, t);
+  const blockerViews = new Map<number, TicketRefView[]>();
+  const blockersFor = (ticketIds: readonly number[]): Map<number, TicketRefView[]> => {
+    const missing = ticketIds.filter((id) => !blockerViews.has(id));
+    if (missing.length > 0) {
+      for (const [tid, list] of listOpenBlockersFor(store, missing)) {
+        blockerViews.set(
+          tid,
+          list.map((b) => {
+            if (b.targetProposalId !== null) {
+              return ticketRefView({ draftId: b.targetProposalId });
+            }
+            if (b.targetTicketId !== null) {
+              const target = ticketById.get(b.targetTicketId);
+              if (target) return ticketRefView({ ticket: target });
+              try {
+                return ticketRefView({ ticket: getTicket(store, b.targetTicketId) });
+              } catch {
+                return ticketRefView({ ref: b.label });
+              }
+            }
+            return ticketRefView({ ref: b.label });
+          }),
+        );
+      }
+    }
+    const result = new Map<number, TicketRefView[]>();
+    for (const id of ticketIds) result.set(id, blockerViews.get(id) ?? []);
+    return result;
+  };
+
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
     const agentDefaults = opts.manifest
       ? (ticketPreset: string | null, ticketProvider: AgentProvider | null) =>
           resolvePresetDefaults(opts.manifest!, 'implementation', { ticketPreset, explicitProvider: ticketProvider })
       : undefined;
+    const blockersByTicket = blockersFor(tickets.map((t) => t.id));
     const nodes = buildTicketNodes(
       tickets,
       opts.labelTemplate,
       opts.defaultProvider,
       parentKeys,
       agentDefaults,
-      listOpenBlockersFor(store, tickets.map((t) => t.id)),
+      blockersByTicket,
       memoryWaitNotes(store),
     );
     const rows = tickets.map((t, i) => {
@@ -486,37 +507,24 @@ const ticketDepId = (d: number | string): number | undefined => {
   return isId(n) ? n : undefined;
 };
 
-/** One `T<n>` dependency's live state: the ticket itself is the target, so `label` and `ticketLabel` match. */
+/** One `T<n>` dependency's live state: the ticket itself is the target, so it has no draft id. */
 function ticketDepStatus(store: Store, ticketId: number): DepStatus[] {
-  let ticket;
   try {
-    ticket = getTicket(store, ticketId);
+    return [ticketRefView({ ticket: getTicket(store, ticketId) })];
   } catch {
     return [];
   }
-  const label = formatId('ticket', ticketId);
-  if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
-    const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
-    return [{ id: ticketId, label, kind: 'done', ticketId, ticketLabel: label, stage: null, glyph }];
-  }
-  return [{ id: ticketId, label, kind: 'ticket', ticketId, ticketLabel: label, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
 }
 
 /** One dependency's live state; `[]` when the target is gone (discarded edges render via `droppedLabels`). */
 function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number, sessionLabel?: string): DepStatus[] {
   if (!target) return [];
-  const tag = sessionLabel === undefined ? {} : { sessionLabel };
   const label = formatId('draft', id);
   if (target.status !== 'accepted' || target.ticketId === null) {
-    return [{ id, label, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray', ...tag }];
+    return [ticketRefView({ draftId: id, draftLabel: label, sessionLabel })];
   }
   const ticket = getTicket(store, target.ticketId);
-  const ticketLabel = formatId('ticket', ticket.id);
-  if (isFinishedStage(ticket.stageCurrent) || ticket.archivedAt != null) {
-    const glyph = ticket.stageCurrent === 'closed' ? 'gray' : 'green';
-    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph, ...tag }];
-  }
-  return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket), ...tag }];
+  return [ticketRefView({ ticket, draftId: id, draftLabel: label, sessionLabel })];
 }
 
 function planningRows(

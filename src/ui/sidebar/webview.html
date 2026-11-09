@@ -171,8 +171,14 @@
      on hover — not nested inside this button. Built on `.k-btn--link` (zero
      chrome already) with only layout + colour overridden locally (UI-R07 does
      not restrict colour). */
-  .rowopen{min-height:var(--k-hit-min);display:flex;align-items:center;gap:var(--k-space-4);flex:1;min-width:0;
+  /* Wrapping: a second blocked-by chip moves to a new line at narrow widths
+     instead of being flex-shrunk into a vertical character column. The chip
+     itself never shrinks below its content (`flex:0 0 auto`) and the id keeps
+     its full width (UI-R43, UI-R44). */
+  .rowopen{min-height:var(--k-hit-min);display:flex;align-items:center;flex-wrap:wrap;
+    gap:var(--k-space-1) var(--k-space-4);flex:1;min-width:0;
     text-align:left;color:inherit}
+  .rowopen .k-ticket-ref{flex:0 0 auto}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
   /* The row marker is the karst logo tinted by the status glyph: the mark is
@@ -198,7 +204,13 @@
   .g-green{color:var(--k-passed)}
   .g-gray{color:var(--k-pending)}
 
+  /* An ordinary row keeps `flex:1` (basis 0), so the stage chip stays on the
+     title's line. Only a row that actually carries reference chips swaps to an
+     `auto` basis: the wrap line then reserves the title's content width before
+     it hands the rest to the chips, so two chips wrap instead of crushing the
+     title (UI-R43, UI-R44). */
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
+  .rowopen.has-refs .name{flex:1 1 auto}
   /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
      width. Capped at a share of the row with its own ellipsis — a long parent
      key must trim itself (full key stays in the tooltip), never starve the
@@ -440,15 +452,6 @@
   .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);min-width:0;
     padding:var(--k-space-1) var(--k-space-1) var(--k-space-2) calc(var(--k-space-1) + var(--k-space-7) * 2);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pt-dep{min-height:var(--k-hit-min);display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
-    padding:var(--k-space-1) var(--k-space-3);font:inherit;line-height:var(--k-leading-tight);
-    color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
-    background:transparent;cursor:pointer;overflow-wrap:anywhere;text-align:left;
-    transition:background var(--k-dur-fast) var(--k-ease-standard)}
-  .pt-dep:hover{background:var(--k-surface-hover);color:var(--k-text)}
-  .pt-dep:focus-visible{color:var(--k-text);outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .pt-dep-dot{flex:none;width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:currentColor}
-  .pt-dep-dot.g-gray{background:transparent;border:calc(var(--k-border-w) * 1.5) solid currentColor}
   .pt-actions{display:none;flex:none;align-items:center;gap:var(--k-space-1)}
   .pt-actions .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   .pt-row:hover .pt-actions,.pt-row:focus-within .pt-actions,

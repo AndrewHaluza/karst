@@ -4,7 +4,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import {
-  AUTOPILOT_OVERRIDES, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
+  AUTOPILOT_OVERRIDES, getAutopilotTicket, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
 import { approveOneMore, clearParkBlock, stopAutopilot } from './autopilotOps.js';
 
@@ -43,12 +43,20 @@ function noteFor(d: AutopilotCommandDeps, ticketId: number) {
   };
 }
 
-/** Set the per-ticket override (inherit|on|off). A change also clears a paused or spent state, so the next sweep re-evaluates. */
+/**
+ * Set the per-ticket override (inherit|on|off). A change also clears a paused or spent state, so the next sweep re-evaluates.
+ * The stored mode again is no change: no note, no park clear, no conflict-round drop. Retry is the way to clear a park.
+ */
 export async function setOverrideCommand(d: AutopilotCommandDeps, ticketId?: number, mode?: AutopilotOverride): Promise<void> {
   const id = await resolveTicket(d, ticketId, 'Set auto-fix mode for which ticket?');
   if (id === undefined) return;
   const chosen = mode ?? await d.pick(AUTOPILOT_OVERRIDES, 'Auto-fix mode');
   if (chosen === undefined || !AUTOPILOT_OVERRIDES.includes(chosen)) return;
+  if (getAutopilotTicket(d.store, id).mode === chosen) {
+    d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} override ${chosen} unchanged`);
+    d.say(`Auto-fix mode for ${keyOf(d.store, id)}: ${chosen}.`);
+    return;
+  }
   setAutopilotOverride(d.store, id, chosen);
   if (chosen === 'off') { d.dropConflictRound(id); clearConflictRound(d.store, id); }
   clearParkBlock(d.store, id);

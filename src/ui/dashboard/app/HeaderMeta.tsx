@@ -10,6 +10,7 @@ import { RegionPortal } from './RegionPortal.js';
 import { selectMeta, type MetaSlice } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
+import { TicketRefChip } from '../../shared/TicketRefChip.js';
 
 type Blocker = MetaSlice['blockers'][number];
 
@@ -18,26 +19,19 @@ function BlockerChip({ blocker }: { readonly blocker: Blocker }) {
   const onPending = usePendingAction((requestId) => {
     if (blocker.ticketId !== null) send.openDependency(blocker.ticketId, requestId);
   });
-  const label = blocker.idLabel ? `${blocker.idLabel} · ${blocker.label}` : blocker.label;
   return (
-    <span className="k-chip">
-      Blocked by{' '}
-      {blocker.ticketId !== null ? (
-        <a
-          href="#"
-          data-act="open-dependency"
-          data-ticket={blocker.ticketId}
-          onClick={(e) => {
-            e.preventDefault();
-            onPending(e);
-          }}
-        >
-          {label}
-        </a>
-      ) : (
-        blocker.label
-      )}
-    </span>
+    <TicketRefChip
+      refView={blocker}
+      prefix="Blocked by "
+      showKey={true}
+      link={true}
+      dataAct="open-dependency"
+      /* data-act="open-dependency" */
+      onClick={(e) => {
+        e.preventDefault();
+        onPending(e);
+      }}
+    />
   );
 }
 

@@ -35,6 +35,7 @@ export const PRIMITIVES = [
   '.k-field',
   '.k-switch',
   '.k-chip',
+  '.k-ticket-ref',
   '.k-dot',
   '.k-modal',
   '.k-drawer',
