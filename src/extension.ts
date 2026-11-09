@@ -3620,6 +3620,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             registry: localStore,
             artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
             manifest: currentManifest,
+            manifestPath: () => cliEntryAndManifest(context).manifestPath,
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,

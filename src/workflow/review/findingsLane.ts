@@ -35,6 +35,7 @@ import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from '.
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
+import { buildManifestBlock } from './manifestBlock.js';
 import { buildConformanceBlock, hasForcedHighRule, type ReviewArtifacts } from './conformance.js';
 import {
   isEmptyDiffObservation,
@@ -259,6 +260,7 @@ export function buildFindingsPrompt(
     ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef, worktreePath }),
     // Never replaced by `instructions`, like the scope block above.
     ...conformance,
+    ...(artifacts?.operatorManifest ? buildManifestBlock(artifacts.operatorManifest) : []),
     ``,
     GATE_ISOLATION_RULE,
     // Outside `strategy`, so `instructions` cannot remove them.

@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openRecoveryRound } from '../store/recoveryRoundsWrite.js';
+import { recordFixRoundManifest } from '../store/fixRoundHeads.js';
 import { describe, it, expect } from 'vitest';
 import type { Manifest } from '../manifest/types.js';
 import { openStore, type Store } from '../store/db.js';
@@ -94,5 +100,63 @@ describe('makeReviewArtifactsBinding', () => {
       const a = await makeReviewArtifactsBinding({ registry, artifactsRoot: '/r', manifest, fallbackProjectId: () => 1, createStore })(id);
       expect(a?.spec).toContain('SPECBODY');
     }
+  });
+});
+
+describe('makeReviewArtifactsBinding — operator manifest', () => {
+  const setup = (round: string | null, current: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+    const path = join(dir, 'karst.yml');
+    writeFileSync(path, current);
+    const registry = openStore(':memory:');
+    const id = ticket(registry, { intent: 'I' });
+    if (round !== null) {
+      const r = openRecoveryRound(registry, { ticketId: id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 't', maxRounds: 10, startedAt: '2026-01-01T00:00:00Z' });
+      recordFixRoundManifest(registry, r.id, path, createHash('sha256').update(round).digest('hex'));
+    }
+    const b = makeReviewArtifactsBinding({
+      registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined,
+      manifestPath: () => path, createStore: fakeFactory({}).createStore,
+    });
+    return { b, id, path };
+  };
+  it('carries path and content when the sha differs from the first fix round', async () => {
+    const { b, id, path } = setup('old: 1', 'onSkip: reask');
+    const a = await b(id);
+    expect(a?.operatorManifest).toEqual({ path, content: 'onSkip: reask', changed: true });
+  });
+  it('is not changed when the sha equals the recorded one, or no round recorded one', async () => {
+    const same = setup('same: 1', 'same: 1');
+    expect((await same.b(same.id))?.operatorManifest).toBeUndefined();
+    const none = setup(null, 'x: 1');
+    expect((await none.b(none.id))?.operatorManifest).toBeUndefined();
+  });
+  it('still returns the manifest for a ticket with no intent, spec or plan', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+    const path = join(dir, 'karst.yml');
+    writeFileSync(path, 'k: 2');
+    const registry = openStore(':memory:');
+    const id = ticket(registry);
+    const r = openRecoveryRound(registry, { ticketId: id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 't', maxRounds: 10, startedAt: '2026-01-01T00:00:00Z' });
+    recordFixRoundManifest(registry, r.id, path, 'other-sha');
+    const b = makeReviewArtifactsBinding({ registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath: () => path, createStore: fakeFactory({}).createStore });
+    expect(await b(id)).toEqual({ intent: null, spec: null, plan: null, operatorManifest: { path, content: 'k: 2', changed: true } });
+  });
+  it('gives no manifest for no path, an unreadable path, or a mismatching round without a sha', async () => {
+    const registry = openStore(':memory:');
+    const id = ticket(registry, { intent: 'I' });
+    const mk = (manifestPath?: () => string | null) =>
+      makeReviewArtifactsBinding({ registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath, createStore: fakeFactory({}).createStore });
+    expect(await mk()(id)).not.toHaveProperty('operatorManifest');
+    expect(await mk(() => '')(id)).not.toHaveProperty('operatorManifest');
+    expect(await mk(() => '/nonexistent/karst.yml')(id)).not.toHaveProperty('operatorManifest');
+    // a first round without a recorded sha is skipped; the later round's sha is the base
+    const open = () => openRecoveryRound(registry, { ticketId: id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 't', maxRounds: 10, startedAt: '2026-01-01T00:00:00Z' });
+    open();
+    const dir = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+    const path = join(dir, 'karst.yml');
+    writeFileSync(path, 'z: 1');
+    recordFixRoundManifest(registry, open().id, path, 'old');
+    expect((await mk(() => path)(id))?.operatorManifest?.changed).toBe(true);
   });
 });
