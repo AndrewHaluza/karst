@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
 import { buildSandboxView } from './sandboxView.js';
+import { buildSandbox } from './stateAgent.js';
 
 describe('buildSandboxView', () => {
   it('a host project (or none) still gets a host view, protected by the core OS sandbox only when opted in and supported', () => {
@@ -122,5 +124,23 @@ describe('buildSandboxView', () => {
     expect(buildSandboxView({ project: 'host', ticketOverride: null, core: 'claude', shell })).toMatchObject({ shell: { available: false, why: 'No sandbox yet' } });
     expect(buildSandboxView({ project: 'docker', ticketOverride: null, core: 'opencode2', shell: { available: false, why: 'Sandbox is stopped' } }))
       .toMatchObject({ shell: { available: false, why: 'Sandbox is stopped' } });
+  });
+});
+
+describe('buildSandbox shell probe', () => {
+  const ok = { available: true, why: null };
+  it('probes only for a ticket that resolves to a sandbox backend', () => {
+    const sandboxShell = vi.fn().mockReturnValue(ok);
+    const ctx = { agentBackends: { claude: 'sbx' } as never, sandboxShell };
+    expect(buildSandbox(ctx, { id: 1 }, 'claude')).toMatchObject({ backend: 'sbx', shell: ok });
+    expect(sandboxShell).toHaveBeenCalledWith(1);
+  });
+  it('never probes for a host project, a ticket opt-out or a host placement', () => {
+    const sandboxShell = vi.fn().mockReturnValue(ok);
+    const sbxCtx = { agentBackends: { claude: 'sbx' } as never, sandboxShell };
+    expect(buildSandbox({ sandboxShell }, { id: 1 }, 'claude')).toMatchObject({ backend: 'host', shell: { available: false } });
+    buildSandbox(sbxCtx, { id: 2, agentBackend: 'host' }, 'claude');
+    buildSandbox(sbxCtx, { id: 3 }, 'claude', { backend: 'host' } as never);
+    expect(sandboxShell).not.toHaveBeenCalled();
   });
 });
