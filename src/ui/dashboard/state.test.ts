@@ -173,6 +173,7 @@ describe('buildDashboardState', () => {
       actions: false,
       carry: false,
       hostProtection: 'prompted',
+      shell: { available: false, why: 'No sandbox yet' },
     });
     expect(hostState.agentSession.provider).toBe('claude');
 
@@ -187,6 +188,7 @@ describe('buildDashboardState', () => {
       actions: false,
       carry: false,
       hostProtection: 'prompted',
+      shell: { available: false, why: 'No sandbox yet' },
     });
     expect(noPlacementState.agentSession.provider).toBe('claude');
 
@@ -201,6 +203,7 @@ describe('buildDashboardState', () => {
       network: 'allowlist proxy on an internal network',
       actions: true,
       carry: false,
+      shell: { available: false, why: 'No sandbox yet' },
     });
 
     // 4. Recorded host placement with no core: shows host layout with core resolved as in no-placement case

@@ -1188,7 +1188,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sbxMemory: () => hostSbxMemory(currentManifest()?.sandboxMemory?.sbxMemory), store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), gateRunning: (id) => driver.isRunning(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
-    projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'), bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
+    projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'),
+    onShellChange: (id) => dashboard.pushState(id), openTerminal: (spec) => { const term = vscode.window.createTerminal({ name: spec.name, cwd: spec.cwd, shellPath: spec.cmd, shellArgs: [...spec.args] }); term.show(); }, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
     // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
@@ -3065,7 +3066,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
       liveRunUsage: liveHeadless.read,
-      modelCatalog, agentBackends: currentManifest()?.agentBackends, agentSandbox: currentManifest()?.agentSandbox, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
+      modelCatalog, agentBackends: currentManifest()?.agentBackends, agentSandbox: currentManifest()?.agentSandbox, sandboxRewritten: (id) => sandboxLife.isRewritten(id), sandboxShell: (id) => sandboxLife.shellAvailability(id), undelivered: (id) => undelivered.get(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually

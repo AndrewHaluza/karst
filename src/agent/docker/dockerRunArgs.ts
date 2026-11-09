@@ -236,6 +236,11 @@ export function headlessExecArgs(
   ];
 }
 
+/** An interactive login shell in the ticket's running container, in the clone; the container's network policy applies. */
+export function shellExecArgs(container: string): string[] {
+  return ['exec', '--interactive', '--tty', '--workdir', CONTAINER_REPO, container, 'sh', '-l'];
+}
+
 export function headlessKillArgs(container: string, runId: string): string[] {
   return ['exec', container, 'sh', '-c', KILL_SCRIPT, 'karst-kill', checkRunId(runId)];
 }

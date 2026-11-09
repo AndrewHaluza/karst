@@ -17,6 +17,8 @@ export interface DashboardSandboxView {
   readonly note?: string;
   /** Host runs only: the core's built-in OS sandbox is active (AC-31) or tool use is prompted. */
   readonly hostProtection?: 'core-native' | 'prompted';
+  /** "Open shell in sandbox": enabled only when `available`; `why` is the visible hint of the disabled item. */
+  readonly shell: { readonly available: boolean; readonly why: string | null };
 }
 
 export interface SandboxViewInput {
@@ -29,10 +31,15 @@ export interface SandboxViewInput {
   readonly agentSandbox?: boolean;
   /** The recorded placement (D245/T772). When present, backend and core come from it. */
   readonly placement?: TicketPlacement | null;
+  /** The host's cached shell probe; absent = no sandbox to open a shell in. */
+  readonly shell?: { readonly available: boolean; readonly why: string | null } | undefined;
 }
 
 /** Cores whose adapter declares `surfaces.sandboxInteractive` (claude seatbelt/bubblewrap, codex workspace-write). */
 const NATIVE_SANDBOX_CORES: readonly string[] = ['claude', 'codex'];
+
+/** The `shell` of a view with no sandbox (or no probe yet). */
+const NO_SHELL = { available: false, why: 'No sandbox yet' } as const;
 
 const NETWORK: Readonly<Record<AgentBackend, string>> = {
   host: 'none (host)',
@@ -49,8 +56,11 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   const placement = input.placement;
   const core = placement?.core ?? input.core;
   const hostProtection = input.agentSandbox === true && NATIVE_SANDBOX_CORES.includes(core) ? 'core-native' : 'prompted';
+  const shell = input.shell ?? NO_SHELL;
   const onHost = (actions: boolean, note?: string): DashboardSandboxView => ({
     backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, carry: false, hostProtection,
+    // A host run without sandbox actions has no sandbox to open a shell in, whatever a stale probe says.
+    shell: actions ? shell : NO_SHELL,
     ...(note === undefined ? {} : { note }),
   });
 
@@ -66,6 +76,7 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
       network: NETWORK[placement.backend],
       actions: true,
       carry: input.rewritten === true,
+      shell,
     };
   }
 
@@ -75,5 +86,5 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
   if (!cores.includes(core)) return onHost(false, `${core}: ${project} backend unsupported`);
-  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true };
+  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true, shell };
 }

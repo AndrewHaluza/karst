@@ -79,7 +79,8 @@ const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
  * Usage: measured after host sends state message (no longer special).
  */
 const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number; inputsProbe?: 'focusable' }> = {
-  dashboard: { inputs: 1, buttons: 17 },
+  // T1057: the servers "N running" chip left the strip, so the measured count fell from 17 to 16.
+  dashboard: { inputs: 1, buttons: 16 },
   diffs: { inputs: 1, buttons: 3 },
   // gettingStarted: no form inputs; measured focusables 3
   gettingStarted: { inputs: 3, buttons: 3, inputsProbe: 'focusable' },

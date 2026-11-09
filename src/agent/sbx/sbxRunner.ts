@@ -22,6 +22,7 @@ import { transcriptLinkCommand } from './sbxTranscriptLink.js';
 import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, THIN_BUNDLE_EXCLUDE, classifyCloneRelation, fetchSandboxBundleArgs, hostBundleHaves, resolveSandboxHead, sandboxHeadRef } from '../cloneSyncClass.js';
 import { SBX_BIN } from './sbxPreflight.js';
+import { SHELL_NO_SANDBOX, SHELL_STOPPED } from '../sandboxShell.js';
 import { GUEST_MEMORY_RECHECK_MS, guestMemoryScript } from './sbxGuestMemory.js';
 import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKilledProcess } from './sbxOom.js';
 import { listSbx } from './sbxList.js';
@@ -282,6 +283,15 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     hasSandbox: listed,
     probeSandbox: probe,
+    // Not an agent launch: no launch queue, no session. `sbx exec` attaches to the running sandbox, so its network policy applies.
+    shellCommand: async () => {
+      const ls = await listSbx(opts.proc);
+      if (ls.code !== 0) return { ok: false, reason: `\`sbx ls\` exited ${ls.code}: ${ls.stderr.trim()}` };
+      const entry = ls.entries.find((e) => e.name === opts.name);
+      if (!entry) return { ok: false, reason: SHELL_NO_SANDBOX };
+      if (!entry.running) return { ok: false, reason: SHELL_STOPPED };
+      return { ok: true, cmd: SBX_BIN, args: ['exec', '--interactive', '--tty', opts.name, '--', 'sh', '-l'], ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) };
+    },
     // `sbx exec` starts a stopped sandbox, so an existing one can host a service.
     canHostServices: listed,
     publishPort: async (m) => {

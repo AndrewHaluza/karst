@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { runProcess } from '../../workflow/gates/run.js';
+import { SHELL_NO_SANDBOX, SHELL_STOPPED } from '../sandboxShell.js';
 import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxProbe, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV, SANDBOX_ENV } from '../sbx/sbxRunner.js';
 import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult.js';
@@ -18,6 +19,7 @@ import {
   serviceContainerName,
   headlessExecArgs,
   headlessKillArgs,
+  shellExecArgs,
   interactiveRunArgs,
   type LinuxUser,
   rewritePaths,
@@ -165,6 +167,13 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     // The clone volume is the sandbox: it outlives the interactive container.
     hasSandbox: async () => (await probeVolume(opts.proc, opts.names.repoVolume)).state === 'present',
     probeSandbox: () => probeVolume(opts.proc, opts.names.repoVolume),
+    shellCommand: async () => {
+      const probe = await probeVolume(opts.proc, opts.names.repoVolume);
+      if (probe.state === 'unknown') return { ok: false, reason: probe.reason };
+      if (probe.state === 'absent') return { ok: false, reason: SHELL_NO_SANDBOX };
+      if (!(await containerRunning(opts.proc, opts.names.container))) return { ok: false, reason: SHELL_STOPPED };
+      return { ok: true, cmd: DOCKER_BIN, args: shellExecArgs(opts.names.container) };
+    },
     publishPort: (m) => publishRelay(opts.proc, opts.names, m),
     unpublishPort: (m) => unpublishRelay(opts.proc, opts.names, m),
     listPorts: () => listRelayPorts(opts.proc, opts.names),

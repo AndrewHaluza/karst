@@ -18,6 +18,7 @@ import {
   shipPreviewStateFor,
 } from '../renderFixtures.js';
 import type { DashboardState } from '../state.js';
+import type { DashboardSandboxView } from '../sandboxView.js';
 import { ticketRefView } from '../../shared/ticketRefView.js';
 
 // ---------------------------------------------------------------------------
@@ -200,10 +201,22 @@ const BLOCKED: Case[] = [
   })],
 ];
 
+const SBX: DashboardSandboxView = { backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true, carry: false, shell: { available: true, why: null } };
+const HOST: DashboardSandboxView = { backend: 'host', core: 'claude', workspace: 'worktree', network: 'none (host)', actions: false, carry: false, shell: { available: false, why: 'No sandbox yet' } };
+
 const ROOT: Case[] = [
-  ['root', '#root', 'host project, no sandbox strip', () => populated()],
-  ['root', '#root', 'sbx sandbox strip', () => ({ ...populated(), sandbox: { backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true, carry: false } })],
-  ['root', '#root', 'sandbox strip with carry', () => ({ ...populated(), sandbox: { backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true, carry: true } })],
+  ['root', '#root', 'the empty app root', () => populated()],
+];
+
+const RUNTIME: Case[] = [
+  ['runtime', '[data-region="runtime"]', 'host, prompted tool use', () => ({ ...populated(), sandbox: { ...HOST, hostProtection: 'prompted' } })],
+  ['runtime', '[data-region="runtime"]', 'host, core-native protection', () => ({ ...populated(), sandbox: { ...HOST, hostProtection: 'core-native' } })],
+  ['runtime', '[data-region="runtime"]', 'host fallback note', () => ({ ...populated(), sandbox: { ...HOST, hostProtection: 'prompted', note: 'antigravity: sbx backend unsupported' } })],
+  ['runtime', '[data-region="runtime"]', 'sbx sandbox with actions', () => ({ ...populated(), sandbox: SBX })],
+  ['runtime', '[data-region="runtime"]', 'sbx sandbox, shell unavailable', () => ({ ...populated(), sandbox: { ...SBX, shell: { available: false, why: 'Sandbox is stopped' } } })],
+  ['runtime', '[data-region="runtime"]', 'sandbox with carry', () => ({ ...populated(), sandbox: { ...SBX, carry: true } })],
+  ['runtime', '[data-region="runtime"]', 'running agent with effort', () => ({ ...populated(), agentState: 'running', agentSession: { ...populated().agentSession, effort: 'high' }, sandbox: SBX })],
+  ['runtime', '[data-region="runtime"]', 'agent locked during a fix recovery', () => ({ ...populated(), agentSession: { ...populated().agentSession, canSwitch: false }, sandbox: SBX })],
 ];
 
 const GRID: Case[] = [
@@ -241,7 +254,7 @@ const OVERLAY: Case[] = [
 ];
 
 describe('dashboard region parity (DOM contract)', () => {
-  for (const [region, selector, name, build, drive] of [...HEADER, ...RAIL, ...INSIDE, ...BLOCKED, ...ROOT, ...GRID, ...OVERLAY]) {
+  for (const [region, selector, name, build, drive] of [...HEADER, ...RAIL, ...INSIDE, ...BLOCKED, ...ROOT, ...RUNTIME, ...GRID, ...OVERLAY]) {
     it(`${region} ${selector} · ${name}`, async () => {
       const v = await mount(build(), drive);
       expect(sign(v, selector)).toMatchSnapshot(`${region} · ${name}`);

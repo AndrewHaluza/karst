@@ -22,20 +22,8 @@
 .capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
 .capChip .capModel{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--k-font-mono)}
 .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:0 1 auto;min-width:0;margin-left:auto}
-.agentWrap,.menuWrap{position:relative}
-.agentWrap{min-width:0;display:flex}
-.agentButton{overflow:hidden}
+.menuWrap{position:relative}
 .menuWrap{flex:none}
-.agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
-.agentButton:hover:not(:disabled){background:var(--k-surface-hover);border-color:var(--k-border)}
-.agentButton:disabled{opacity:.72;cursor:default}
-.agentButton .agentSep{color:var(--k-text-faint);flex:none}
-.agentMeta{min-width:0;max-width:calc(var(--k-space-8) * 9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
-.agentLive{display:inline-flex;align-items:center;gap:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap;flex:none}
-.agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
-.agentLiveDot.running{background:var(--k-running)}
-.agentLiveDot.waiting{background:var(--k-attention)}
-.agentLiveDot.not-started{background:var(--k-attention)}
 /* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
    svg carries no intrinsic size — the shared `.k-icon` rule applies only
    the stroke treatment — so an unsized one renders at the browser's default
@@ -52,7 +40,6 @@
 /* 26 control-heights: model ids are long, and at 20 every model row
    ellipsised. Still composed from control tokens (UI-R04), still clamped to
    the viewport so a narrow editor column never overflows. */
-.agentPopover{width:calc(var(--k-control-h-lg) * 26);max-width:calc(100vw - var(--k-space-8));padding:0}
 .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
 .agentForm{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--k-space-3);padding:var(--k-space-4)}
 /* The label column is max-content, never a fixed step: "Agent core" is wider
@@ -137,8 +124,6 @@
 .shipWait > .k-btn{margin-left:var(--k-space-2)}
 /* Narrow tier: the picker keeps core + live dot; the model label (one click away in the popover) and the state word give their room to the title and the ⋯. */
 /* Mid and narrow tiers: the right-anchored popover would clip off the left edge; pin it between the viewport gutters. */
-@media (max-width:999px){.agentPopover{position:fixed;left:var(--k-space-4);right:var(--k-space-4);width:auto;max-width:none;top:var(--k-space-4);max-height:calc(100vh - var(--k-space-8));overflow-y:auto}}
-@media (max-width:560px){.agentButton .agentSep,.agentButton .agentMeta{display:none}.agentLive #agentLiveText{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
 /* T871 ticket-head width ladder (UI-R49, RD-LADDERS): the id and status chip never drop; key then title give way. */
 .dhead{container-type:inline-size;container-name:ticket-head}
 .ticketStatus{flex:none}

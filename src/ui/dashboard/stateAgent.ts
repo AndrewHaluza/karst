@@ -181,11 +181,15 @@ export function buildSandbox(
   sessionCore: AgentProvider,
   placement?: TicketPlacement | null,
 ): DashboardState['sandbox'] {
+  const project = placement ? placement.backend : backendForCore(agentContext.agentBackends, sessionCore);
+  // The shell probe lists sandboxes, so a host run (project or ticket opt-out) never triggers it.
+  const sandboxed = project !== 'host' && ticket.agentBackend !== 'host';
   return buildSandboxView({
-    project: placement ? placement.backend : backendForCore(agentContext.agentBackends, sessionCore),
+    project,
     ticketOverride: ticket.agentBackend,
     core: sessionCore,
     rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
+    shell: sandboxed ? agentContext.sandboxShell?.(ticket.id) : undefined,
     agentSandbox: agentContext.agentSandbox,
     placement,
   });

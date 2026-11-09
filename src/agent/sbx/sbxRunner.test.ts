@@ -568,3 +568,40 @@ describe('createSbxSessionRunner guest memory', () => {
     expect(gmCalls(proc).length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('createSbxSessionRunner.shellCommand', () => {
+  const ticketRef = { hostWorktreePath: '/wt/a', branch: 'feat/x' };
+  const ls = (stdout: string, code = 0) => fakeSbxProcess({ 'sbx ls --json': { stdout, code, stderr: code === 0 ? '' : 'boom' } });
+
+  it('execs a login shell in the running sandbox, in its clone dir', async () => {
+    const proc = ls(JSON.stringify([{ name: NAME, status: 'running' }]));
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/clones/x' });
+    await expect(runner.shellCommand!(ticketRef)).resolves.toEqual({
+      ok: true, cmd: 'sbx', args: ['exec', '--interactive', '--tty', NAME, '--', 'sh', '-l'], cwd: '/clones/x',
+    });
+  });
+
+  it('is not an agent launch: it never runs `sbx run`', async () => {
+    const proc = ls(JSON.stringify([{ name: NAME, status: 'running' }]));
+    await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).shellCommand!(ticketRef);
+    expect(proc.calls.every((c) => c.args[0] !== 'run')).toBe(true);
+  });
+
+  it('says "Sandbox is stopped" for a listed, stopped sandbox', async () => {
+    const proc = ls(JSON.stringify([{ name: NAME, status: 'stopped' }]));
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.shellCommand!(ticketRef)).resolves.toEqual({ ok: false, reason: 'Sandbox is stopped' });
+  });
+
+  it('says "No sandbox yet" when it is not listed', async () => {
+    const runner = createSbxSessionRunner({ proc: ls('[]'), core: 'claude', name: NAME, existing: [] });
+    await expect(runner.shellCommand!(ticketRef)).resolves.toEqual({ ok: false, reason: 'No sandbox yet' });
+  });
+
+  it('reports a failing `sbx ls`, never "no sandbox"', async () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess({ 'sbx ls': { code: 2, stderr: 'boom' } }), core: 'claude', name: NAME, existing: [] });
+    const out = await runner.shellCommand!(ticketRef);
+    expect(out).toMatchObject({ ok: false });
+    expect(out.ok === false && out.reason).toContain('sbx ls');
+  });
+});

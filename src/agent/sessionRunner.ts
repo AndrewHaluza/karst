@@ -93,6 +93,14 @@ export type PublishResult =
   /** `portTaken`: the host port is busy, so a reallocation may succeed. */
   | { readonly ok: false; readonly reason: string; readonly portTaken: boolean };
 
+/**
+ * An interactive shell inside a RUNNING sandbox (not an agent launch: it never touches the session or the sbx launch queue).
+ * `ok: false` carries the reason the dashboard shows (`Sandbox is stopped`, `No sandbox yet`).
+ */
+export type ShellCommandResult =
+  | { readonly ok: true; readonly cmd: string; readonly args: string[]; readonly cwd?: string }
+  | { readonly ok: false; readonly reason: string };
+
 export type StepOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 export type { GateProcessRunner };
@@ -134,6 +142,8 @@ export interface SessionRunner {
   fetchClone?(ticket: SandboxTicketRef): Promise<StepOutcome>;
   /** Sandbox runners only: `git diff <host branch>...<sandbox branch>` after fetching; changes nothing on the host branch. */
   diff?(ticket: SandboxTicketRef): Promise<DiffResult>;
+  /** Sandbox runners only: the argv of a login shell in the running sandbox; it inherits the sandbox's network policy (arch:AC-53). */
+  shellCommand?(ticket: SandboxTicketRef): Promise<ShellCommandResult>;
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
   stop?(): Promise<void>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */

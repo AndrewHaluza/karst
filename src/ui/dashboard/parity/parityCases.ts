@@ -284,6 +284,17 @@ const headerMenu = (item: string) => (h: RenderHandle) => {
   if (q(h, item) && !isShown(q(h, item)!)) clickEl(q(h, '#moreBtn')!);
 };
 
+/** The runtime strip's sandbox dropdown: open its details popover when the settings button is hidden. */
+const sandboxDetails = (h: RenderHandle) => {
+  const btn = q(h, act('open-settings'));
+  if (btn && !isShown(btn)) clickEl(q(h, '[data-region="runtime"] .rs-dd[aria-haspopup="dialog"]:not(#agentButton)')!);
+};
+
+const SANDBOX_VIEW = {
+  backend: 'docker', core: 'claude', workspace: 'clone', network: 'allowlist proxy', actions: true, carry: true,
+  shell: { available: true, why: null },
+};
+
 export const act = (a: string, extra = ''): string => `[data-act="${a}"]${extra}`;
 const forRepo = (a: string): string => act(a, `[data-repo="${REPO}"]`);
 
@@ -318,6 +329,11 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'open-dependency', state: () => st('impl', { blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] }),
     sel: act('open-dependency'), posts: [{ type: 'open-dependency', ticketId: 42 }], rid: true,
+  },
+  { act: 'sandbox-carry', state: () => st('impl', { sandbox: SANDBOX_VIEW }), sel: act('sandbox-carry'), posts: [{ type: 'sandbox-carry' }], rid: true },
+  {
+    act: 'open-settings', state: () => st('impl', { sandbox: SANDBOX_VIEW }), prep: sandboxDetails, sel: act('open-settings'),
+    posts: [{ type: 'open-settings' }], rid: false, pendingSel: false,
   },
   { act: 'preview-ticket-data', state: () => st('impl'), sel: act('preview-ticket-data'), posts: [], pendingSel: false },
   {
