@@ -396,7 +396,8 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
   );
 }
 
-const DONE_STAGE = 'done';
+/** Stages a ticket never leaves: nothing can unblock a draft that waits on one of them. */
+const FINISHED_STAGES: readonly string[] = ['done', 'closed'];
 
 const nodeOfDraft = (id: number): string => `D${id}`;
 const nodeOfTicket = (id: number): string => `T${id}`;
@@ -407,12 +408,15 @@ const NEW_NODE = 'new';
 /** A ticket dependency problem, or undefined when the ticket is an open one of the project. */
 function ticketDepProblem(store: Store, projectId: number, ticketId: number): string | undefined {
   const row = store.db
-    .prepare('SELECT project_id, archived_at, stage_current FROM tickets WHERE id = ?')
-    .get(ticketId) as { project_id: number | null; archived_at: string | null; stage_current: string | null } | undefined;
+    .prepare('SELECT project_id, archived_at, stage_current, subtask_parent_id FROM tickets WHERE id = ?')
+    .get(ticketId) as { project_id: number | null; archived_at: string | null; stage_current: string | null; subtask_parent_id: number | null } | undefined;
   const name = formatId('ticket', ticketId);
   if (!row || row.project_id !== projectId) return `dependsOn ${name} is not a ticket of this project`;
   if (row.archived_at !== null) return `dependsOn ${name} is archived`;
-  if (row.stage_current === DONE_STAGE) return `dependsOn ${name} is already done`;
+  if (row.subtask_parent_id !== null) return `dependsOn ${name} is a subtask, not a top-level ticket`;
+  if (row.stage_current !== null && FINISHED_STAGES.includes(row.stage_current)) {
+    return `dependsOn ${name} is already ${row.stage_current}`;
+  }
   return undefined;
 }
 

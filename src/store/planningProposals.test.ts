@@ -275,6 +275,8 @@ describe('planning proposals', () => {
       const open = mk('OPEN');
       const done = mk('DONE', "stage_current = 'done'");
       const archived = mk('ARC', "archived_at = datetime('now')");
+      const closed = mk('CLO', "stage_current = 'closed'");
+      const subtask = mk('SUB', `subtask_parent_id = ${open}`);
       const foreignProject = upsertProject(store, { slug: 'q' }).id;
       const foreign = createTicket(store, { key: 'F', title: 'f', projectId: foreignProject }).id;
       expect(validateProposalDependsOn(store, sessionId, undefined, [`T${open}`])).toBeUndefined();
@@ -282,6 +284,8 @@ describe('planning proposals', () => {
       expect(validateProposalDependsOn(store, sessionId, undefined, [`T${foreign}`])).toMatch(/not a ticket of this project/);
       expect(validateProposalDependsOn(store, sessionId, undefined, [`T${archived}`])).toMatch(/archived/);
       expect(validateProposalDependsOn(store, sessionId, undefined, [`T${done}`])).toMatch(/already done/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${closed}`])).toMatch(/already closed/);
+      expect(validateProposalDependsOn(store, sessionId, undefined, [`T${subtask}`])).toMatch(/subtask/);
     });
 
     it('finds a cycle that runs through a ticket relation and through an accepted draft', () => {
