@@ -47,22 +47,53 @@ function prFeedbackLocation(f: PrFeedbackRow): string {
 }
 
 /**
- * The FAILING gates of a stage's LATEST recorded batch — the rows whose output
- * excerpt the fix session must act on. Chosen by greatest `runAt`, never by
- * array position (the store's ordering is not a contract), mirroring
- * `model/inside/gates.ts`'s `latestBatch` without importing it. A skipped gate
- * or one that answered nothing is not a failure and carries nothing to fix.
+ * The rows of a stage's LATEST recorded batch. Chosen by greatest `runAt`, never
+ * by array position (the store's ordering is not a contract), mirroring
+ * `model/inside/gates.ts`'s `latestBatch` without importing it. With no
+ * `stageKey` it spans the whole ticket.
  */
-function latestFailingGates(stageKey: StageKey, runs: readonly GateRun[]): GateRun[] {
-  const mine = runs.filter((r) => r.stageKey === stageKey);
+function latestBatchRows(runs: readonly GateRun[], stageKey?: StageKey): GateRun[] {
+  const mine = stageKey === undefined ? runs : runs.filter((r) => r.stageKey === stageKey);
   const latest = mine.reduce<string | null>(
     (max, r) => (max === null || r.runAt > max ? r.runAt : max),
     null,
   );
   if (latest === null) return [];
-  return mine.filter(
-    (r) => r.runAt === latest && !r.skipped && r.exitCode !== null && r.exitCode !== 0,
+  return mine.filter((r) => r.runAt === latest);
+}
+
+/**
+ * The FAILING gates of a stage's LATEST recorded batch — the rows whose output
+ * excerpt the fix session must act on. A skipped gate or one that answered
+ * nothing is not a failure and carries nothing to fix.
+ */
+function latestFailingGates(stageKey: StageKey, runs: readonly GateRun[]): GateRun[] {
+  return latestBatchRows(runs, stageKey).filter(
+    (r) => !r.skipped && r.exitCode !== null && r.exitCode !== 0,
   );
+}
+
+export const FIX_GATE_LIST_HEADER =
+  'Before the marker, run each gate below whose files your fix changes:';
+/** Most gate lines a fix brief lists; the rest are counted, not shown. */
+export const FIX_GATE_LIST_MAX = 12;
+
+/**
+ * One line per non-skipped gate of the latest batch: the failed stage's own
+ * batch, else the ticket's latest batch (a `review` failure records no gate
+ * rows of its own; the UAT batch holds the commands the host runs).
+ */
+function gateCommandLines(stageKey: StageKey, runs: readonly GateRun[]): string[] {
+  const own = latestBatchRows(runs, stageKey);
+  const batch = (own.length > 0 ? own : latestBatchRows(runs)).filter((r) => !r.skipped);
+  if (batch.length === 0) return [];
+  const lines = batch.slice(0, FIX_GATE_LIST_MAX).map((r) => {
+    const cmd = [r.command ?? '', ...(r.args ?? [])].filter((p) => p !== '').join(' ');
+    return `- ${r.gateName}: ${cmd}`;
+  });
+  const cut = batch.length - lines.length;
+  if (cut > 0) lines.push(`(${cut} more gates not shown)`);
+  return ['', FIX_GATE_LIST_HEADER, ...lines];
 }
 
 /** Said once in a gate-failure brief: a refused marker the host re-run cannot clear is a valid stop. */
@@ -166,6 +197,7 @@ export function renderFixBrief(
   if (failures.some((f) => f.summary && DOCS_GATE_BLOCK.test(f.summary)) || (gate.verdict && DOCS_GATE_BLOCK.test(gate.verdict))) {
     lines.push('', DOCS_GATE_CITE_RULE);
   }
+  if (!isPrFeedback) lines.push(...gateCommandLines(gate.stageKey, gateRuns));
   if (gate.artifactPath) lines.push('', `Its full output is at ${gate.artifactPath} — read it first.`);
   // The advisory coverage record is evidence of what review covered, not a defect to fix.
   const fixable = findings.filter((f) => !isCoverageRecord(f));
