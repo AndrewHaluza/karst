@@ -9,6 +9,10 @@ export interface TicketEvidence {
   title: string;
   stage: string;
   stages: Array<{ stage: string; status: string; blockedKind: string | null }>;
+  gateRuns?: Array<{ stage: string; attempt: number; gate: string; exitCode: number | null }>;
+  processRuns?: Array<{ stage: string; process: string; attempt: number; status: string }>;
+  reviewFindings?: Array<{ attempt: number; severity: string; repo: string; file: string | null; line: number | null; title: string }>;
+  mergeChecks?: Array<{ repo: string; state: string; files: string[]; headSha: string | null; baseSha: string | null; baseRef: string | null }>;
 }
 export interface Snapshot {
   tickets: TicketEvidence[];

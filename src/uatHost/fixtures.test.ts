@@ -60,3 +60,18 @@ describe('eval overlay policy (@arch:UATHOST-04)', () => {
     expect(overlayRaisesUserGate(text)).toBe(false);
   });
 });
+
+describe('manifestText autopilot block', () => {
+  it('omits the block by default and writes it as flow YAML when given', () => {
+    expect(manifestText('/r')).not.toContain('autopilot');
+    const text = manifestText('/r', 'claude', { enabled: true, ci: { maxAttempts: 2 } });
+    expect(text).toContain('autopilot: {"enabled":true,"ci":{"maxAttempts":2}}');
+  });
+});
+
+describe('manifestText autopilot loads', () => {
+  it('the written block passes the real manifest parser', () => {
+    const { manifest: m } = parseManifestText(manifestText('/r', 'claude', { enabled: true, ci: { policy: 'auto', maxAttempts: 2, checks: ['build'] }, conflicts: { maxRounds: 1 } }));
+    expect(m.autopilot).toMatchObject({ enabled: true, ci: { maxAttempts: 2, checks: ['build'] }, conflicts: { maxRounds: 1 } });
+  });
+});

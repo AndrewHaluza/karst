@@ -4,7 +4,7 @@ import { KNOWN_AGENT_PROVIDERS } from '../model/agentProviders.js';
 import type { FakeAnswer, FakeCoreScript, FakeHeadlessRule } from '../agent/fakeCore.js';
 import type { TokenUsage } from '../agent/tokenUsage.js';
 import type {
-  FixtureSpec, GateRunSeed, RepoBinding, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
+  AutopilotSeed, FixtureSpec, GateRunSeed, MergeCheckSeed, PrSeed, ReviewFindingSeed, RepoBinding, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
 } from './fixtures.js';
 
 type Obj = Record<string, unknown>;
@@ -20,6 +20,12 @@ const ROUND_TRIGGERS = [
   'gate-failure', 'tester-verifier-failure', 'blocking-tester-observations',
   'blocking-review-findings', 'upstream-changes-requested', 'usage-limit-dismissed',
 ] as const;
+const PR_STATUSES = ['open', 'draft', 'closed', 'merged'] as const;
+const MERGE_BLOCKS = ['clean', 'blocked', 'behind', 'dirty', 'unstable', 'draft', 'has_hooks'] as const;
+const MERGE_STATES = ['clean', 'conflicted', 'unknown'] as const;
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+const FINDING_SOURCES = ['agent', 'human'] as const;
+const POLICIES = ['auto', 'ask'] as const;
 const STARTED = '2026-01-01T00:00:00.000Z';
 
 /** Refuses unknown keys, so a typo or an attempt at raw SQL fails loud instead of being ignored. */
@@ -135,9 +141,61 @@ function parseRound(raw: unknown, at: string): RecoveryRoundSeed {
   };
 }
 
+/** A string key that may be absent or null (a nullable column). */
+function optStr(o: Obj, k: string, at: string): string | null {
+  return o[k] === undefined || o[k] === null ? null : str(o, k, at);
+}
+
+function parsePr(raw: unknown, at: string): PrSeed {
+  const o = obj(raw, at);
+  checkKeys(o, ['repo', 'number', 'url', 'status', 'headRef', 'baseRef', 'mergeBlock'], at);
+  const headRef = optStr(o, 'headRef', at);
+  const baseRef = optStr(o, 'baseRef', at);
+  return {
+    repo: str(o, 'repo', at),
+    number: int(o, 'number', at),
+    url: str(o, 'url', at),
+    status: oneOf(o, 'status', PR_STATUSES, at),
+    ...(headRef ? { headRef } : {}),
+    ...(baseRef ? { baseRef } : {}),
+    ...(o['mergeBlock'] === undefined ? {} : { mergeBlock: oneOf(o, 'mergeBlock', MERGE_BLOCKS, at) }),
+  };
+}
+
+function parseMergeCheck(raw: unknown, at: string): MergeCheckSeed {
+  const o = obj(raw, at);
+  checkKeys(o, ['repo', 'state', 'files', 'reason', 'headSha', 'baseSha', 'baseRef'], at);
+  const files = o['files'] === undefined ? [] : list(o, 'files', at);
+  if (!files.every((f) => typeof f === 'string' && f !== '')) throw new Error(`${at}: files must be non-empty strings`);
+  return {
+    repo: str(o, 'repo', at),
+    state: oneOf(o, 'state', MERGE_STATES, at),
+    files: files as string[],
+    reason: optStr(o, 'reason', at),
+    headSha: optStr(o, 'headSha', at),
+    baseSha: optStr(o, 'baseSha', at),
+    baseRef: optStr(o, 'baseRef', at),
+  };
+}
+
+function parseFinding(raw: unknown, at: string): ReviewFindingSeed {
+  const o = obj(raw, at);
+  checkKeys(o, ['attempt', 'severity', 'repo', 'file', 'line', 'title', 'detail', 'source'], at);
+  return {
+    attempt: int(o, 'attempt', at, 1),
+    severity: oneOf(o, 'severity', SEVERITIES, at),
+    repo: str(o, 'repo', at),
+    file: optStr(o, 'file', at),
+    line: o['line'] === undefined || o['line'] === null ? null : int(o, 'line', at),
+    title: str(o, 'title', at),
+    detail: str(o, 'detail', at),
+    source: o['source'] === undefined ? 'agent' : oneOf(o, 'source', FINDING_SOURCES, at),
+  };
+}
+
 function parseRows(raw: unknown, at: string): Partial<RowSeeds> {
   const o = obj(raw, at);
-  checkKeys(o, ['stage_runs', 'process_runs', 'gate_runs', 'recovery_rounds'], at);
+  checkKeys(o, ['stage_runs', 'process_runs', 'gate_runs', 'recovery_rounds', 'prs', 'merge_checks', 'review_findings'], at);
   const each = <T>(k: string, parse: (r: unknown, a: string) => T): T[] | undefined =>
     o[k] === undefined ? undefined : list(o, k, at).map((r, i) => parse(r, `${at}.${k}[${i}]`));
   const stageRuns = each('stage_runs', parseStageRun);
@@ -145,11 +203,46 @@ function parseRows(raw: unknown, at: string): Partial<RowSeeds> {
   const processRuns = each('process_runs', (r, a) => parseProcessRun(r, a, count));
   const gateRuns = each('gate_runs', (r, a) => parseGateRun(r, a, count));
   const recoveryRounds = each('recovery_rounds', parseRound);
+  const prs = each('prs', parsePr);
+  const mergeChecks = each('merge_checks', parseMergeCheck);
+  const reviewFindings = each('review_findings', parseFinding);
   return {
+    ...(prs ? { prs } : {}),
+    ...(mergeChecks ? { mergeChecks } : {}),
+    ...(reviewFindings ? { reviewFindings } : {}),
     ...(stageRuns ? { stageRuns } : {}),
     ...(processRuns ? { processRuns } : {}),
     ...(gateRuns ? { gateRuns } : {}),
     ...(recoveryRounds ? { recoveryRounds } : {}),
+  };
+}
+
+function policy(o: Obj, at: string): 'auto' | 'ask' | undefined {
+  return o['policy'] === undefined ? undefined : oneOf(o, 'policy', POLICIES, at);
+}
+function optInt(o: Obj, k: string, at: string): number | undefined {
+  return o[k] === undefined ? undefined : int(o, k, at);
+}
+
+/** Mirrors the manifest's `autopilot:` keys; the manifest loader still has the last word at boot. */
+function parseAutopilot(raw: unknown, at: string): AutopilotSeed {
+  const o = obj(raw, at);
+  checkKeys(o, ['enabled', 'ci', 'conflicts'], at);
+  if (typeof o['enabled'] !== 'boolean') throw new Error(`${at}: enabled must be a boolean`);
+  const ci = o['ci'] === undefined ? undefined : obj(o['ci'], `${at}.ci`);
+  const conflicts = o['conflicts'] === undefined ? undefined : obj(o['conflicts'], `${at}.conflicts`);
+  if (ci) checkKeys(ci, ['policy', 'maxAttempts', 'checks'], `${at}.ci`);
+  if (conflicts) checkKeys(conflicts, ['policy', 'maxRounds'], `${at}.conflicts`);
+  const checks = ci?.['checks'] === undefined ? undefined : list(ci, 'checks', `${at}.ci`);
+  if (checks && !checks.every((c) => typeof c === 'string' && c !== '')) throw new Error(`${at}.ci: checks must be non-empty strings`);
+  const ciPolicy = ci && policy(ci, `${at}.ci`);
+  const ciAttempts = ci && optInt(ci, 'maxAttempts', `${at}.ci`);
+  const cfPolicy = conflicts && policy(conflicts, `${at}.conflicts`);
+  const cfRounds = conflicts && optInt(conflicts, 'maxRounds', `${at}.conflicts`);
+  return {
+    enabled: o['enabled'],
+    ...(ci ? { ci: { ...(ciPolicy ? { policy: ciPolicy } : {}), ...(ciAttempts ? { maxAttempts: ciAttempts } : {}), ...(checks ? { checks: checks as string[] } : {}) } } : {}),
+    ...(conflicts ? { conflicts: { ...(cfPolicy ? { policy: cfPolicy } : {}), ...(cfRounds ? { maxRounds: cfRounds } : {}) } } : {}),
   };
 }
 
@@ -247,12 +340,13 @@ function parseFakeCore(raw: unknown, at: string): FakeCoreScript {
 /** A fixture file is data, never code: every field is validated and unknown keys are refused. */
 export function parseFixtureFile(json: unknown, name = 'fixture-file'): FixtureSpec {
   const o = obj(json, 'fixture file');
-  checkKeys(o, ['tickets', 'provider', 'taskRepo', 'fakeCore'], 'fixture file');
+  checkKeys(o, ['tickets', 'provider', 'taskRepo', 'fakeCore', 'autopilot'], 'fixture file');
   const tickets = list(o, 'tickets', 'fixture file').map((t, i) => parseTicket(t, `ticket ${i}`));
   const keys = tickets.map((t) => t.key);
   if (new Set(keys).size !== keys.length) throw new Error('fixture file: ticket keys must be unique');
   const provider = o['provider'] === undefined ? undefined : oneOf(o, 'provider', KNOWN_AGENT_PROVIDERS, 'fixture file');
   const taskRepo = o['taskRepo'] === undefined ? undefined : parseTaskRepo(o['taskRepo'], 'taskRepo');
+  const autopilot = o['autopilot'] === undefined ? undefined : parseAutopilot(o['autopilot'], 'autopilot');
   const fakeCore = o['fakeCore'] === undefined ? undefined : parseFakeCore(o['fakeCore'], 'fakeCore');
-  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}), ...(fakeCore ? { fakeCore } : {}) };
+  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}), ...(autopilot ? { autopilot } : {}), ...(fakeCore ? { fakeCore } : {}) };
 }

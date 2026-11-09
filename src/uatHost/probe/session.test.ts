@@ -7,6 +7,7 @@ import { seedStore } from '../seed.js';
 import { openStore } from '../../store/db.js';
 import { ProbeRecorder } from './recorder.js';
 import { runProbeScript } from './session.js';
+import { parseFixtureFile } from '../fixtureFile.js';
 import { readTickets } from './storeEvidence.js';
 import type { ProbeHost } from './runner.js';
 
@@ -67,3 +68,44 @@ describe('readTickets', () => {
     expect(t?.stages.filter((x) => x.blockedKind)).toHaveLength(1);
   });
 });
+
+describe('readTickets engine state', () => {
+  it('shows gate runs, process runs, review findings and merge checks, byte-stable', () => {
+    const spec = parseFixtureFile({
+      tickets: [{
+        key: 'T-E', title: 'e', stageCurrent: 'ship',
+        rows: {
+          stage_runs: [{ stageKey: 'review', status: 'finished', outcome: 'blocked' }],
+          process_runs: [{ stageKey: 'review', processId: 'review', status: 'failed', stageRun: 0 }],
+          gate_runs: [{ stageKey: 'review', gateName: 'test', exitCode: 1, stageRun: 0 }],
+          prs: [{ repo: 'app', number: 9, url: 'https://x/pull/9', status: 'open' }],
+          merge_checks: [{ repo: 'app', state: 'conflicted', files: ['b.ts', 'a.ts'], headSha: 'h', baseSha: 'b', baseRef: 'develop' }],
+          review_findings: [
+            { attempt: 1, severity: 'high', repo: 'app', file: 'src/a.ts', line: 3, title: 'first', detail: 'd' },
+            { attempt: 2, severity: 'medium', repo: 'app', title: 'second', detail: 'd' },
+          ],
+        },
+      }],
+    });
+    const read = () => {
+      const store = openStore(':memory:');
+      seedStore(store, spec);
+      return readTickets(store);
+    };
+    const [t] = read();
+    expect(t?.gateRuns).toEqual([{ stage: 'review', attempt: 1, gate: 'test', exitCode: 1 }]);
+    expect(t?.processRuns).toEqual([{ stage: 'review', process: 'review', attempt: 1, status: 'failed' }]);
+    expect(t?.mergeChecks).toEqual([{ repo: 'app', state: 'conflicted', files: ['b.ts', 'a.ts'], headSha: 'h', baseSha: 'b', baseRef: 'develop' }]);
+    expect(t?.reviewFindings).toEqual([
+      { attempt: 1, severity: 'high', repo: 'app', file: 'src/a.ts', line: 3, title: 'first' },
+      { attempt: 2, severity: 'medium', repo: 'app', file: null, line: null, title: 'second' },
+    ]);
+    expect(JSON.stringify(read())).toBe(JSON.stringify(read()));
+  });
+  it('reports empty lists for a ticket with no engine rows', () => {
+    const store = openStore(':memory:');
+    seedStore(store, fixtureSpec('blocked'));
+    expect(readTickets(store)[0]).toMatchObject({ gateRuns: [], processRuns: [], reviewFindings: [], mergeChecks: [] });
+  });
+});
+
