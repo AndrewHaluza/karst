@@ -1,4 +1,3 @@
-import { markSendBackDelivered } from './sendBackBriefForTicket.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../../store/stageBlocks.js';
@@ -63,8 +62,7 @@ export function decidePushDiverged(deps: PushDivergedDeps, request: PushDiverged
   deps.redrive(ticketId);
   // The driver starts gate stages only: the Implement session needs the hand-off.
   const refusal = deps.handOff(`${integrateReason(head.ref)}\nCall the karst MCP tool \`stage\` with { stage: "impl" } when done.`);
-  if (refusal === null) markSendBackDelivered(store, ticketId);
-  else deps.notify.warn(`${label} moved back to Implement. No session was started: ${refusal}`);
+  if (refusal !== null) deps.notify.warn(`${label} moved back to Implement. No session was started: ${refusal}`);
   return 'integrate';
 }
 

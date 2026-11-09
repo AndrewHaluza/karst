@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
+import { setStage } from '../../store/stages.js';
 import { createTicket, setStageCurrent } from '../../store/tickets.js';
 import { postMessage, listInbox } from '../../store/ticketMessages.js';
 import { SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
-import { sendBackBriefForTicket, markSendBackDelivered, SEND_BACK_DONE_MARKER } from './sendBackBriefForTicket.js';
+import { sendBackBriefForTicket, SEND_BACK_DONE_MARKER } from './sendBackBriefForTicket.js';
 
 describe('sendBackBriefForTicket', () => {
   let store: Store;
@@ -46,18 +47,10 @@ describe('sendBackBriefForTicket', () => {
     expect(sendBackBriefForTicket(store, id)).toBeNull();
   });
 
-  it('markSendBackDelivered marks only the send-back events read', () => {
+  it('returns null once the agent marked impl done since the send-back', () => {
     post(null, 'event', `${SEND_BACK_EVENT_PREFIX}CI failed`);
-    post(peer, 'message', 'keep me unread');
-    markSendBackDelivered(store, id);
-    const unread = listInbox(store, id, { unreadOnly: true });
-    expect(unread.map((m) => m.body)).toEqual(['keep me unread']);
-  });
-
-  it('markSendBackDelivered with no brief marks nothing', () => {
-    post(peer, 'message', 'hello');
-    markSendBackDelivered(store, id);
-    expect(listInbox(store, id, { unreadOnly: true })).toHaveLength(1);
+    setStage(store, id, 'impl', { status: 'passed' });
+    expect(sendBackBriefForTicket(store, id)).toBeNull();
   });
 
   it('returns null at the fix stage, which keeps its own brief', () => {

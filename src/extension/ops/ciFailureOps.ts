@@ -3,7 +3,6 @@ import type { GhRunner } from '../../integrations/github.js';
 import { fetchCheckLog, type CheckLog } from '../../integrations/ciLog.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
-import { markSendBackDelivered } from './sendBackBriefForTicket.js';
 import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 
@@ -131,7 +130,6 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
     deps.drive();
     const refusal = deps.handOff(handOffPrompt(reason));
-    if (refusal === null) markSendBackDelivered(deps.store, deps.ticketId);
     deps.info(
       refusal === null
         ? `CI failure sent to the agent; ticket moved back to Implement from ${result.from}.`

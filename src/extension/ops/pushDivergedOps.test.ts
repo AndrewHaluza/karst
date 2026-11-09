@@ -54,14 +54,8 @@ describe('push-diverged actions', () => {
     expect(p.handOff.mock.calls[0]![0]).toContain('merge origin/');
     expect(p.notify.warn).not.toHaveBeenCalled();
   });
-  it('Integrate marks the send-back event read once the hand-off is delivered', () => {
+  it('Integrate keeps the send-back event unread after a delivered hand-off', () => {
     const p = parked();
-    decidePushDiverged(p.deps, 'integrate');
-    expect(listInbox(p.store, p.id, { unreadOnly: true })).toHaveLength(0);
-  });
-  it('Integrate keeps the send-back event unread when the hand-off refuses', () => {
-    const p = parked();
-    p.handOff.mockReturnValue('the ticket is paused.');
     decidePushDiverged(p.deps, 'integrate');
     expect(listInbox(p.store, p.id, { unreadOnly: true })).toHaveLength(1);
   });
