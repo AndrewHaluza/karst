@@ -5,7 +5,7 @@ import { openStore } from '../store/db.js';
 import { parseFixtureFile } from './fixtureFile.js';
 import { fixtureSpec, isFixtureName, type FixtureSpec } from './fixtures.js';
 import { seedStore } from './seed.js';
-import { buildWorkspace } from './workspace.js';
+import { addTicketWorktree, buildWorkspace } from './workspace.js';
 
 function flag(name: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -48,6 +48,8 @@ const dbPath = flag('db');
 const ws = buildWorkspace(flag('root'), provider, spec.taskRepo);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
-const ids = seedStore(store, spec);
+const ids = seedStore(store, spec, { repoPath: ws.repoDir });
+// A default worktree row needs a real checkout, or a stage that reads the diff has nothing to read.
+for (const t of spec.tickets) if (t.worktree && !t.repo) addTicketWorktree(ws.repoDir, t.key);
 store.db.close();
 console.log(JSON.stringify({ workspaceDir: ws.workspaceDir, tickets: ids.length }));

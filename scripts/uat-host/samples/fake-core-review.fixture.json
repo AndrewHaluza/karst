@@ -1,0 +1,25 @@
+{
+  "tickets": [
+    {
+      "key": "FIX-REVIEW",
+      "title": "Fixture: review with a scripted findings answer",
+      "stageCurrent": "review",
+      "worktree": true,
+      "stages": [
+        {
+          "stageKey": "review",
+          "status": "running",
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "fakeCore": {
+    "headless": [
+      {
+        "promptIncludes": "Report findings about the DIFF",
+        "raw": "[{\"severity\": \"high\", \"title\": \"Scripted finding: the fake core answered\", \"detail\": \"This finding comes from the fakeCore script, not from an LLM.\", \"file\": \"README.md\", \"line\": 1}]"
+      }
+    ]
+  }
+}

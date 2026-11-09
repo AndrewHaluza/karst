@@ -31,3 +31,13 @@ export function buildWorkspace(root: string, provider?: string, taskRepo?: TaskR
   writeFileSync(manifestPath, taskRepo ? taskManifestText(taskRepo, provider) : manifestText(repoDir, provider));
   return { workspaceDir, repoDir, remoteDir, manifestPath };
 }
+
+/** A real git worktree on `karst/<key>` with one commit past `main`, so a stage that reads the diff has one. */
+export function addTicketWorktree(repoDir: string, key: string): string {
+  const path = join(repoDir, '.karst', 'worktrees', key);
+  git(['worktree', 'add', '-b', `karst/${key}`, path, 'main'], repoDir);
+  writeFileSync(join(path, `${key}.txt`), `change for ${key}\n`);
+  git(['add', '.'], path);
+  git(['commit', '-m', `change for ${key}`], path);
+  return path;
+}

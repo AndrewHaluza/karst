@@ -13,6 +13,10 @@ import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
 import { FakeAdapter } from './fakeCore.js';
+import { clearFakeCoreHits, readFakeCoreHits } from './fakeCoreLedger.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('resolveAdapter', () => {
   it('resolves claude to a ClaudeAdapter instance', () => {
@@ -143,3 +147,51 @@ describe('KARST_FAKE_CORE', () => {
     expect(resolveAdapter('claude')).toBeInstanceOf(ClaudeAdapter);
   });
 });
+
+describe('KARST_FAKE_CORE_SCRIPT', () => {
+  afterEach(() => { vi.unstubAllEnvs(); clearFakeCoreHits(); });
+  const scriptFile = (fakeCore: unknown): string => {
+    const f = join(mkdtempSync(join(tmpdir(), 'fake-core-')), 'fixture.json');
+    writeFileSync(f, JSON.stringify({ tickets: [], fakeCore }));
+    return f;
+  };
+  const rule = { headless: [{ promptIncludes: 'REVIEW', answers: [{ raw: 'one' }, { raw: 'two' }] }] };
+
+  it('plays the script of the named fixture file under KARST_FAKE_CORE=1', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile(rule));
+    expect((await resolveAdapter('claude').runHeadless({ prompt: 'REVIEW', cwd: '/' })).raw).toBe('one');
+  });
+  it('keeps the answer position across resolveAdapter calls, as callers resolve once per call', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile(rule));
+    const raws = [];
+    for (const p of ['claude', 'codex'] as const) raws.push((await resolveAdapter(p).runHeadless({ prompt: 'REVIEW', cwd: '/' })).raw);
+    expect(raws).toEqual(['one', 'two']);
+  });
+  it('records each scripted answer in the hit ledger', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile(rule));
+    await resolveAdapter('claude').runHeadless({ prompt: 'REVIEW', cwd: '/' });
+    expect(readFakeCoreHits()).toEqual([{ rule: 0, answer: 0 }]);
+  });
+  it('ignores the script when KARST_FAKE_CORE is not 1', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', 'launch');
+    vi.stubEnv('KARST_UAT_STUB_AGENT', '/d/stubAgent.js');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile(rule));
+    expect((await resolveAdapter('claude').runHeadless({ prompt: 'REVIEW', cwd: '/' })).raw).toContain('fake core: no LLM call');
+  });
+  it('answers as before when the file holds no fakeCore', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile(undefined));
+    expect((await resolveAdapter('claude').runHeadless({ prompt: 'REVIEW', cwd: '/' })).raw).toBe('fake core: no LLM call');
+  });
+  it('fails loud on a script file that cannot be read or is invalid', () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', scriptFile({ headless: [], extra: 1 }));
+    expect(() => resolveAdapter('claude')).toThrow(/KARST_FAKE_CORE_SCRIPT/);
+    vi.stubEnv('KARST_FAKE_CORE_SCRIPT', '/no/such/file.json');
+    expect(() => resolveAdapter('claude')).toThrow(/KARST_FAKE_CORE_SCRIPT/);
+  });
+});
+

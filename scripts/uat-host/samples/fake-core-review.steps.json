@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {
+      "type": "wait",
+      "for": {
+        "log": "Karst activated"
+      },
+      "timeoutMs": 20000
+    },
+    {
+      "type": "command",
+      "command": "karst.openDashboard",
+      "args": [
+        1
+      ]
+    },
+    {
+      "type": "wait",
+      "for": {
+        "ticketStage": {
+          "key": "FIX-REVIEW",
+          "stage": "fix"
+        }
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "type": "wait",
+      "for": {
+        "webviewMessage": "Scripted finding: the fake core answered"
+      },
+      "timeoutMs": 15000
+    },
+    {
+      "type": "read"
+    },
+    {
+      "type": "snapshot",
+      "label": "after-review"
+    }
+  ]
+}

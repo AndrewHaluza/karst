@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs module without types
 import { overlayRaisesUserGate } from '../../scripts/uat-host/evalPolicy.mjs';
+import { parseManifestText } from '../manifest/load.js';
 import { FIXTURE_NAMES, fixtureSpec, isFixtureName, manifestText, taskManifestText } from './fixtures.js';
 
 describe('fixtures', () => {
@@ -31,6 +32,12 @@ describe('fixtures', () => {
   });
   it('manifestText takes a provider', () => {
     expect(manifestText('/w/repo', 'opencode')).toContain('agentProvider: opencode');
+  });
+  it('manifestText declares a no-op command gate for review and uat, so a stage has something to run', () => {
+    const { manifest } = parseManifestText(manifestText('/w/repo'));
+    for (const gates of [manifest.review?.gates, manifest.uat?.gates]) {
+      expect(gates).toEqual([expect.objectContaining({ kind: 'command', command: 'node' })]);
+    }
   });
   it('taskManifestText points at the task repo and declares only the given gates', () => {
     const text = taskManifestText({

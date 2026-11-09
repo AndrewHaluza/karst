@@ -4,7 +4,7 @@ import { ProbeRecorder, normalizeLogLine } from './recorder.js';
 import { conditionMet, runSteps, type ProbeHost, type Snapshot, type SnapshotScope } from './runner.js';
 import { hasUiStep, isUiStep, parseSteps } from './steps.js';
 
-const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [] });
+const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [], fakeCoreHits: [] });
 
 describe('probeEnabled', () => {
   it('is on only for KARST_UAT_PROBE=1', () => {
@@ -247,7 +247,7 @@ describe('runSteps', () => {
 describe('ticketSettled wait and raised step cap (eval runs)', () => {
   const snap = (stage: string, blockedKind: string | null) => ({
     tickets: [{ key: 'A', title: 't', stage, stages: [{ stage, status: 'running', blockedKind }] }],
-    sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [],
+    sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [], fakeCoreHits: [],
   });
   it('is met on ship or on a blocked current stage, not on a running one', () => {
     const c = { ticketSettled: { key: 'A' } };

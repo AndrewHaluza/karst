@@ -138,6 +138,10 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/fakeCore.ts#FakeAdapter": [
+    "arch:UATHOST-00",
+    "arch:UATHOST-07"
+  ],
   "src/agent/hookFailureLog.ts": [
     "arch:DIAG-00"
   ],
@@ -857,7 +861,7 @@
     "arch:UATHOST-00"
   ],
   "src/uatHost/fixtureFile.ts#parseFixtureFile": [
-    "arch:UATHOST-02"
+    "arch:UATHOST-07"
   ],
   "src/uatHost/fixtures.ts#taskManifestText": [
     "arch:UATHOST-03",

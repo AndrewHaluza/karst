@@ -105,6 +105,43 @@ describe('parseFixtureFile eval fields', () => {
   });
 });
 
+describe('parseFixtureFile fakeCore', () => {
+  const headless = (rules: unknown[]) => ({ tickets: [ticket], fakeCore: { headless: rules } });
+  it('has no fakeCore by default', () => {
+    expect(parseFixtureFile({ tickets: [ticket] }).fakeCore).toBeUndefined();
+  });
+  it('parses a single raw answer into a one-entry answer list', () => {
+    const spec = parseFixtureFile(headless([{ promptIncludes: 'p', raw: '[]', verdict: 'v' }]));
+    expect(spec.fakeCore).toEqual({ headless: [{ promptIncludes: 'p', answers: [{ raw: '[]', verdict: 'v' }] }] });
+  });
+  it('parses an answer list and an empty raw answer', () => {
+    const spec = parseFixtureFile(headless([{ promptIncludes: 'p', answers: [{ raw: '' }, { raw: 'x' }] }]));
+    expect(spec.fakeCore!.headless[0]!.answers.map((a) => a.raw)).toEqual(['', 'x']);
+  });
+  it('fills the unreported usage counters with zero', () => {
+    const spec = parseFixtureFile(headless([{ promptIncludes: 'p', raw: 'x', usage: { inputTokens: 3, outputTokens: 4 } }]));
+    expect(spec.fakeCore!.headless[0]!.answers[0]!.usage).toEqual({
+      inputTokens: 3, outputTokens: 4, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 7, model: null, estimated: false,
+    });
+  });
+  it.each([
+    ['unknown fakeCore key', { tickets: [ticket], fakeCore: { headless: [], interactive: [] } }],
+    ['missing headless', { tickets: [ticket], fakeCore: {} }],
+    ['non-array headless', { tickets: [ticket], fakeCore: { headless: {} } }],
+    ['unknown rule key', headless([{ promptIncludes: 'p', raw: 'x', regex: 'y' }])],
+    ['empty promptIncludes', headless([{ promptIncludes: '', raw: 'x' }])],
+    ['rule without an answer', headless([{ promptIncludes: 'p' }])],
+    ['raw and answers together', headless([{ promptIncludes: 'p', raw: 'x', answers: [{ raw: 'y' }] }])],
+    ['empty answers list', headless([{ promptIncludes: 'p', answers: [] }])],
+    ['non-string raw', headless([{ promptIncludes: 'p', raw: 1 }])],
+    ['unknown answer key', headless([{ promptIncludes: 'p', answers: [{ raw: 'x', extra: 1 }] }])],
+    ['bad usage key', headless([{ promptIncludes: 'p', raw: 'x', usage: { inputTokens: 1, outputTokens: 1, cost: 2 } }])],
+    ['negative usage', headless([{ promptIncludes: 'p', raw: 'x', usage: { inputTokens: -1, outputTokens: 1 } }])],
+  ])('refuses %s', (_n, input) => {
+    expect(() => parseFixtureFile(input)).toThrow();
+  });
+});
+
 describe('shipped samples', () => {
   const sample = (f: string): unknown => JSON.parse(readFileSync(join(process.cwd(), 'scripts', 'uat-host', 'samples', f), 'utf8'));
   it('stranded-uat fixture is a valid fixture file: uat running, no run rows', () => {
@@ -114,5 +151,28 @@ describe('shipped samples', () => {
   });
   it('stranded-uat steps parse and include a restart', () => {
     expect(parseSteps(sample('stranded-uat.steps.json')).map((s) => s.type)).toContain('restart');
+  });
+  it('fake-core samples are valid fixture files with the scripted answers they name', () => {
+    const review = parseFixtureFile(sample('fake-core-review.fixture.json'));
+    expect(review.tickets[0]).toMatchObject({ stageCurrent: 'review', worktree: true });
+    expect(JSON.parse(review.fakeCore!.headless[0]!.answers[0]!.raw)[0]).toMatchObject({ severity: 'high' });
+    const reformat = parseFixtureFile(sample('fake-core-reformat.fixture.json')).fakeCore!.headless[0]!;
+    expect(reformat.promptIncludes).toBe('Put any probe scripts or scratch files under');
+    expect(reformat.answers).toHaveLength(2);
+    expect(() => JSON.parse(reformat.answers[0]!.raw)).toThrow();
+    expect(() => JSON.parse(reformat.answers[1]!.raw)).not.toThrow();
+  });
+  it('fake-core forms sample holds a clean, a fenced, a narrated and an empty answer', () => {
+    const rules = parseFixtureFile(sample('fake-core-forms.fixture.json')).fakeCore!.headless;
+    const raws = rules.map((r) => r.answers[0]!.raw);
+    expect(raws[0]!.startsWith('[')).toBe(true);
+    expect(raws[1]!.startsWith('```json')).toBe(true);
+    expect(raws[2]!.startsWith('[')).toBe(false);
+    expect(raws[2]!).toContain('[{');
+    expect(raws[3]).toBe('');
+  });
+  it('fake-core steps samples parse', () => {
+    expect(parseSteps(sample('fake-core-review.steps.json')).map((s) => s.type)).toContain('read');
+    expect(parseSteps(sample('fake-core-reformat.steps.json')).map((s) => s.type)).toContain('snapshot');
   });
 });

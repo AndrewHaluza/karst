@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "type": "wait",
+      "for": {
+        "log": "Karst activated"
+      },
+      "timeoutMs": 20000
+    },
+    {
+      "type": "command",
+      "command": "karst.openDashboard",
+      "args": [
+        1
+      ]
+    },
+    {
+      "type": "wait",
+      "for": {
+        "ticketSettled": {
+          "key": "FIX-REFORMAT"
+        }
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "type": "snapshot",
+      "label": "two-rule-hits"
+    }
+  ]
+}

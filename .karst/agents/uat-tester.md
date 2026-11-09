@@ -42,6 +42,17 @@ failure is yours to avoid, not a harness outage.
   (`arch:UATHOST-02`). To run a boot sweep against that state, add a
   `{"type":"restart"}` step. "Harness unavailable" is still not a verdict:
   report what you could not reach, never a pass.
+- To see a headless lane result (a review finding, a tester reformat, an
+  unparsable answer), add `fakeCore.headless` to the fixture file: rules
+  `{promptIncludes, raw, verdict?, usage?}`, or `answers: [...]` to give each
+  call its own answer (the last repeats). The first rule whose
+  `promptIncludes` is in the prompt answers; `raw` is verbatim. It runs only
+  in a harness run. Seed the ticket at `review` or `uat` with
+  `worktree: true`: implement and fix keep the stub. Read the evidence
+  `fakeCoreHits` in `step-NNN.json` to see which rule answered each call.
+  A scripted answer proves the parser and UI path, not that a real core
+  emits that form. Models: `scripts/uat-host/samples/fake-core-*.json`
+  (`arch:UATHOST-02`).
 - `--out` MUST be a relative path inside the checkout, under the
   karst-owned scratch dir (e.g. `.karst/uat-scratch/out/<criterion>`;
   files elsewhere dirty the checkout and block host gates). The container bind-mounts only the repo root,

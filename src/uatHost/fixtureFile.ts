@@ -1,6 +1,8 @@
 import { STAGE_KEYS } from '../model/types.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 import { KNOWN_AGENT_PROVIDERS } from '../model/agentProviders.js';
+import type { FakeAnswer, FakeCoreScript, FakeHeadlessRule } from '../agent/fakeCore.js';
+import type { TokenUsage } from '../agent/tokenUsage.js';
 import type {
   FixtureSpec, GateRunSeed, RepoBinding, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
 } from './fixtures.js';
@@ -197,14 +199,60 @@ function parseTicket(raw: unknown, at: string): TicketSeed {
   };
 }
 
+function count(o: Obj, k: string, at: string): number {
+  const v = o[k] ?? 0;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new Error(`${at}: ${k} must be a non-negative integer`);
+  return v;
+}
+
+function parseUsage(raw: unknown, at: string): TokenUsage {
+  const o = obj(raw, at);
+  checkKeys(o, ['inputTokens', 'outputTokens', 'reasoningTokens', 'cacheReadTokens', 'cacheWriteTokens'], at);
+  const [inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens] =
+    ['inputTokens', 'outputTokens', 'reasoningTokens', 'cacheReadTokens', 'cacheWriteTokens'].map((k) => count(o, k, at)) as [number, number, number, number, number];
+  const totalTokens = inputTokens + outputTokens + reasoningTokens + cacheReadTokens + cacheWriteTokens;
+  return { inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, totalTokens, model: null, estimated: false };
+}
+
+/** `raw` is verbatim and may be empty (an empty core answer is a case to script). */
+function parseAnswer(raw: unknown, at: string, extra: readonly string[] = []): FakeAnswer {
+  const o = obj(raw, at);
+  checkKeys(o, ['raw', 'verdict', 'usage', ...extra], at);
+  if (typeof o['raw'] !== 'string') throw new Error(`${at}: raw must be a string`);
+  return {
+    raw: o['raw'],
+    ...(o['verdict'] === undefined ? {} : { verdict: o['verdict'] }),
+    ...(o['usage'] === undefined ? {} : { usage: parseUsage(o['usage'], `${at}.usage`) }),
+  };
+}
+
+function parseHeadlessRule(raw: unknown, at: string): FakeHeadlessRule {
+  const o = obj(raw, at);
+  checkKeys(o, ['promptIncludes', 'raw', 'verdict', 'usage', 'answers'], at);
+  const promptIncludes = str(o, 'promptIncludes', at);
+  if ((o['raw'] === undefined) === (o['answers'] === undefined)) throw new Error(`${at}: give either raw or answers`);
+  if (o['answers'] === undefined) return { promptIncludes, answers: [parseAnswer(o, at, ['promptIncludes'])] };
+  if (o['verdict'] !== undefined || o['usage'] !== undefined) throw new Error(`${at}: verdict and usage belong in each answer`);
+  const answers = list(o, 'answers', at).map((a, i) => parseAnswer(a, `${at}.answers[${i}]`));
+  if (answers.length === 0) throw new Error(`${at}: answers must not be empty`);
+  return { promptIncludes, answers };
+}
+
+function parseFakeCore(raw: unknown, at: string): FakeCoreScript {
+  const o = obj(raw, at);
+  checkKeys(o, ['headless'], at);
+  return { headless: list(o, 'headless', at).map((r, i) => parseHeadlessRule(r, `${at}.headless[${i}]`)) };
+}
+
 /** A fixture file is data, never code: every field is validated and unknown keys are refused. */
 export function parseFixtureFile(json: unknown, name = 'fixture-file'): FixtureSpec {
   const o = obj(json, 'fixture file');
-  checkKeys(o, ['tickets', 'provider', 'taskRepo'], 'fixture file');
+  checkKeys(o, ['tickets', 'provider', 'taskRepo', 'fakeCore'], 'fixture file');
   const tickets = list(o, 'tickets', 'fixture file').map((t, i) => parseTicket(t, `ticket ${i}`));
   const keys = tickets.map((t) => t.key);
   if (new Set(keys).size !== keys.length) throw new Error('fixture file: ticket keys must be unique');
   const provider = o['provider'] === undefined ? undefined : oneOf(o, 'provider', KNOWN_AGENT_PROVIDERS, 'fixture file');
   const taskRepo = o['taskRepo'] === undefined ? undefined : parseTaskRepo(o['taskRepo'], 'taskRepo');
-  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}) };
+  const fakeCore = o['fakeCore'] === undefined ? undefined : parseFakeCore(o['fakeCore'], 'fakeCore');
+  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}), ...(fakeCore ? { fakeCore } : {}) };
 }

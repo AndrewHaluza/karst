@@ -92,4 +92,10 @@ describe('seedStore', () => {
     expect(store.db.prepare('SELECT repo, path, base_ref FROM worktrees WHERE ticket_id = ?').get(id))
       .toEqual({ repo: '/fixture/repo', path: '/fixture/repo/.karst/worktrees/D-1', base_ref: 'main' });
   });
+  it('binds a default worktree to the given manifest repo path, so stages map it to a repository', () => {
+    const store = openStore(':memory:');
+    const [id] = seedStore(store, parseFixtureFile({ tickets: [{ key: 'D-2', title: 'd', stageCurrent: 'review', worktree: true }] }), { repoPath: '/ws/repo' });
+    const row = store.db.prepare('SELECT repo, path, base_ref FROM worktrees WHERE ticket_id = ?').get(id) as { repo: string; path: string; base_ref: string };
+    expect(row).toEqual({ repo: '/ws/repo', path: '/ws/repo/.karst/worktrees/D-2', base_ref: 'main' });
+  });
 });

@@ -38,14 +38,15 @@ function seedRows(store: Store, ticketId: number, rows: Partial<RowSeeds>): void
 }
 
 /** Seeds through the store APIs (never raw SQL) so the schema's own rules hold. */
-export function seedStore(store: Store, spec: FixtureSpec): number[] {
+export function seedStore(store: Store, spec: FixtureSpec, defaults?: { repoPath: string }): number[] {
+  const fallback: RepoBinding = { ...DEFAULT_BINDING, ...(defaults ?? {}) };
   return spec.tickets.map((seed) => {
     const ticket = createTicket(store, { key: seed.key, title: seed.title, ...(seed.description === undefined ? {} : { description: seed.description }) });
     setStageCurrent(store, ticket.id, seed.stageCurrent);
     if (seed.selectedRepos) updateTicketFields(store, ticket.id, { selectedRepos: seed.selectedRepos });
     for (const s of seed.stages) setStage(store, ticket.id, s.stageKey, s.patch);
     if (seed.worktree) {
-      const binding = seed.repo ?? DEFAULT_BINDING;
+      const binding = seed.repo ?? fallback;
       store.db
         .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
         .run(ticket.id, binding.repoPath, binding.worktreePath || `${binding.repoPath}/.karst/worktrees/${seed.key}`, `karst/${seed.key}`, binding.baseRef);

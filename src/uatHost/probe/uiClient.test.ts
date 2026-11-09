@@ -49,7 +49,7 @@ describe('createUiClient', () => {
 });
 
 describe('runSteps with UI steps', () => {
-  const snap = () => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [] });
+  const snap = () => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [], fakeCoreHits: [] });
   const run = (host: Partial<ProbeHost>) => {
     const ev: unknown[] = [];
     return runSteps(parseSteps([{ type: 'read' }]), { host: { execute: async () => undefined, restart: async () => undefined, snapshot: snap, ...host }, writeEvidence: (_i, e) => { ev.push(e); } })
