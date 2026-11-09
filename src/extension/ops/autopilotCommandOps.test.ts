@@ -83,6 +83,41 @@ describe('setOverrideCommand', () => {
   });
 });
 
+describe('override set to the stored mode', () => {
+  const park = (): void => parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: ci 3/3', runAt: 'x', gates: [] });
+  it('same mode twice: one note and one park clear; the second call keeps a park set between the calls', async () => {
+    const d = deps();
+    await setOverrideCommand(d, id, 'on');
+    park();
+    await setOverrideCommand(d, id, 'on');
+    expect(notes()).toEqual(['Autopilot: override set']);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci 3/3');
+    expect(d.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 override on unchanged');
+  });
+  it('off twice: the conflict round is dropped once', async () => {
+    const d = deps();
+    await setOverrideCommand(d, id, 'off');
+    await setOverrideCommand(d, id, 'off');
+    expect(d.dropConflictRound).toHaveBeenCalledTimes(1);
+  });
+  it('a change off to on still writes the note and clears the park', async () => {
+    const d = deps();
+    await setOverrideCommand(d, id, 'off');
+    park();
+    await setOverrideCommand(d, id, 'on');
+    expect(notes()).toEqual(['Autopilot: override set', 'Autopilot: override set']);
+    expect(stageBlock(store, id, 'ship')?.reason).not.toMatch(/^auto-fix/);
+  });
+  it('an unchanged mode keeps the stored pause and still says the mode to the person', async () => {
+    const d = deps();
+    await setOverrideCommand(d, id, 'on');
+    setAutopilotPaused(store, id, 'sandbox paused');
+    await setOverrideCommand(d, id, 'on');
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('sandbox paused');
+    expect(d.said).toEqual(['Auto-fix mode for AP-1: on.', 'Auto-fix mode for AP-1: on.']);
+  });
+});
+
 describe('override and park block', () => {
   it('an override change drops the auto-fix park block, a cancelled mode pick changes nothing', async () => {
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: ci 3/3', runAt: 'x', gates: [] });

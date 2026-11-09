@@ -836,6 +836,23 @@ describe('DashboardManager', () => {
     });
   });
 
+  describe('autopilot override message', () => {
+    it('settles the pending marker with an action-result, also when the mode is the stored one', async () => {
+      const t = createTicket(store, { key: 'AO1', title: 'override' });
+      const { host, panels } = fakeHost();
+      const autopilotOverride = vi.fn();
+      const mgr = new DashboardManager(store, host, () => ({ autopilotOverride }) as never);
+      mgr.openDashboard(t.id);
+      panels[0]!.posted.length = 0;
+      panels[0]!.emit({ type: 'autopilot-override', mode: 'inherit', requestId: 'r7' });
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted.find((m: any) => m.type === 'action-result')).toBeDefined(),
+      );
+      expect(autopilotOverride).toHaveBeenCalledWith('inherit');
+      expect(panels[0]!.posted.find((m: any) => m.type === 'action-result')).toMatchObject({ requestId: 'r7', ok: true });
+    });
+  });
+
   describe('worktree stats', () => {
     const addWorktree = (ticketId: number): void => {
       store.db
