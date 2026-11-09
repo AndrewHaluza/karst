@@ -67,7 +67,7 @@ export interface RestoreTargets<R extends RawPanel> {
   gettingStarted: { adopt(restored: RestoredPanel<unknown>): unknown };
   gettingStartedHost: Host<R, unknown>;
   doctor: { restore(raw: R): Promise<void> };
-  usage: { adopt(restored: RestoredPanel<unknown>): unknown };
+  usage: { adopt(restored: RestoredPanel<unknown>, state?: unknown): unknown };
   usageHost: Host<R, unknown>;
   resources: { adopt(restored: RestoredPanel<unknown>): unknown };
   resourcesHost: Host<R, unknown>;
@@ -101,7 +101,7 @@ export function makeRestorers<R extends RawPanel>(t: RestoreTargets<R>): Restore
     'karst.settings': async (raw) => void (await t.settings.adopt(t.settingsHost.restore(raw as R))),
     'karst.gettingStarted': (raw) => void t.gettingStarted.adopt(t.gettingStartedHost.restore(raw as R)),
     karstDoctor: (raw) => t.doctor.restore(raw as R),
-    'karst.tokenUsage': (raw) => void t.usage.adopt(t.usageHost.restore(raw as R)),
+    'karst.tokenUsage': (raw, state) => void t.usage.adopt(t.usageHost.restore(raw as R), state),
     'karst.resources': (raw) => void t.resources.adopt(t.resourcesHost.restore(raw as R)),
   };
 }

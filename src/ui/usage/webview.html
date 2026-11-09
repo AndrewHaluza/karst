@@ -390,7 +390,15 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') render(msg.state);
+    if (msg.type === 'state') {
+      render(msg.state);
+      // Reload carrier for the selected tab; the host stays the owner and reads it back on restore.
+      try {
+        vscode.setState({ tab: msg.state.tab });
+      } catch {
+        /* state persistence is best-effort */
+      }
+    }
     else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
   });
 

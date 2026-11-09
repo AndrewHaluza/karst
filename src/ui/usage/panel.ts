@@ -5,6 +5,7 @@ import { buildUsageState, type UsageState, type UsageTab } from './state.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import {
+  isUsageTab,
   parseUsageMessage,
   routeUsageAction,
   type UsageActions,
@@ -82,12 +83,18 @@ export class UsagePanelManager {
     this.start(this.host.createPanel('Token usage'));
   }
 
-  /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
-  adopt(restored: RestoredPanel<UsagePanel>): boolean {
+  /**
+   * Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals.
+   * The webview state is the reload carrier for the selected tab; anything but a
+   * known tab id gives 'spend'. The tab is set before start(), so the first push has it.
+   */
+  adopt(restored: RestoredPanel<UsagePanel>, state?: unknown): boolean {
     if (this.panel) {
       restored.dispose();
       return false;
     }
+    const tab = typeof state === 'object' && state !== null ? (state as { tab?: unknown }).tab : undefined;
+    this.tab = isUsageTab(tab) ? tab : 'spend';
     this.start(restored.wrap());
     return true;
   }

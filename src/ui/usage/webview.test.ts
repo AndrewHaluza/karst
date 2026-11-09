@@ -30,6 +30,12 @@ function scriptBlock(): string {
  * number formatted locally, an empty state that renders as zero spend.
  */
 describe('token-usage webview.html', () => {
+  it("persists the selected tab with vscode.setState on each 'state' message, guarded by try/catch", () => {
+    const script = scriptBlock();
+    const branch = script.slice(script.indexOf("msg.type === 'state'"));
+    expect(branch).toMatch(/try\s*\{[^}]*vscode\.setState\(\{\s*tab:\s*msg\.state\.tab\s*\}\)[^}]*\}\s*catch/);
+  });
+
   it('keeps the CSP marker — without it the page ships with no policy', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
   });
