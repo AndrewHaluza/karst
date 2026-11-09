@@ -1,6 +1,7 @@
 import { createHostSessionRunner } from './sessionRunner.js';
 import { accountForLaunch, accountLaunchFor, accountReaderEnv, accountSpawnEnv } from './accounts/registry.js';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
@@ -758,8 +759,12 @@ export class ClaudeAdapter implements AgentAdapter {
           : [];
     const minimal = minimalFlags.length > 0;
     const baseArgs = args.slice();
-    const buildArgs = (withMinimal: boolean): string[] => [
+    // A NEW run names its own session, so its transcript path is known while the
+    // call runs (@arch:AC-14 live reading). A `--resume` lane keeps its id: that
+    // transcript holds earlier turns, so no live reading is offered for it.
+    const buildArgs = (withMinimal: boolean, sessionId?: string): string[] => [
       ...baseArgs,
+      ...(sessionId ? ['--session-id', sessionId] : []),
       ...(withMinimal ? minimalFlags : []),
       // `--` ends option parsing so the prompt is always a positional, even when
       // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —
@@ -768,7 +773,27 @@ export class ClaudeAdapter implements AgentAdapter {
       '--',
       opts.prompt,
     ];
-    let args2 = buildArgs(minimal);
+    const acct = accountLaunchFor('claude', CLAUDE_BIN, accountForLaunch('claude', opts.resume, opts.account));
+    // Each attempt takes a FRESH id: the CLI refuses an id already in use, and
+    // the retry below may follow an attempt that already created its session.
+    let releaseLive: (() => void) | void;
+    const startAttempt = (): string | undefined => {
+      releaseLive?.();
+      releaseLive = undefined;
+      if (opts.resume) return undefined;
+      const sessionId = randomUUID();
+      try {
+        const projects = resolveClaudeProjectsDir(
+          accountReaderEnv(process.env, (() => { const a = accountForLaunch('claude', undefined, opts.account); return a ? { claude: a } : {}; })()),
+        );
+        releaseLive = opts.onLiveSession?.({ sessionId, transcriptPath: transcriptPathFor(projects, opts.cwd, sessionId) });
+      } catch (error) {
+        // A live-reading fault never fails the run.
+        opts.debug?.(`[agent:claude] live usage: not registered (${String(error)})`);
+      }
+      return sessionId;
+    };
+    let args2 = buildArgs(minimal, startAttempt());
 
     // The prompt is ticket prose — never logged in full. The debug line names
     // the invocation and redacts the prompt to its length (§ debug logging).
@@ -795,7 +820,6 @@ export class ClaudeAdapter implements AgentAdapter {
     // before an abort, timeout or extension-host restart.
     const consoleOutput = opts.onOutput;
     let streamedStderr = false;
-    const acct = accountLaunchFor('claude', CLAUDE_BIN, accountForLaunch('claude', opts.resume, opts.account));
     const spawn = (a: string[]) =>
       this.spawnHeadless(acct.binary, [...acct.args, ...a], opts.cwd, {
         ...accountSpawnEnv(acct),
@@ -820,7 +844,7 @@ export class ClaudeAdapter implements AgentAdapter {
       opts.debug?.(
         `[agent:claude] minimal context: the CLI rejected ${minimalFlags.join(' ')} as an unknown option — retrying once without them`,
       );
-      args2 = buildArgs(false);
+      args2 = buildArgs(false, startAttempt());
       logSpawn(args2);
       r = await spawn(args2);
     }

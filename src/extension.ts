@@ -177,6 +177,7 @@ import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWa
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
+import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
 import { createStallBinding } from './extension/stallBinding.js';
@@ -869,6 +870,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // path, message uuid, and file fingerprint. Ephemeral — rebuilt from the file
   // on every sweep, cleared when the terminal closes.
   const claudeTranscriptStates = new Map<number, ClaudeWatchState>();
+  // Live token reading of running headless Claude calls (@arch:AC-14); read on the watch tick.
+  const liveHeadless = createLiveHeadlessBinding({
+    debug: (m) => logger.debug(m),
+    onChanged: (ticketId) => { provider.refresh(); dashboard.pushState(ticketId); },
+  });
   const ownershipWriter = new SerializedStateWriter<number[]>(
     (snapshot) =>
       context.workspaceState.update(OWNED_SESSION_TICKETS_KEY, snapshot),
@@ -1265,6 +1271,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Live-pid registry hook, injected at the same seam: every agent process
       // this window spawns is registered the moment it exists and unregistered
       // wherever the run settles, attributed to the call that spawned it.
+      onLiveSession: liveHeadless.onLiveSession, // same seam; released after the call's ledger row
       onSpawned: (pid, tracking) => {
         recordSpawnedChild(localStore, tracking, pid, logError); // T1012: lets a later host reap it
         return resourceMonitor?.registerPid({
@@ -3051,6 +3058,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
+      liveRunUsage: liveHeadless.read,
       modelCatalog, agentBackends: currentManifest()?.agentBackends, agentSandbox: currentManifest()?.agentSandbox, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
@@ -5984,6 +5992,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (claudeTranscriptWatchRunning) return;
     claudeTranscriptWatchRunning = true;
     try {
+      await liveHeadless.tick(); // same tick, no second timer; a read fault is a debug line
       const terminals = [...vscode.window.terminals];
       logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {

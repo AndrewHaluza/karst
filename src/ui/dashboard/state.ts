@@ -313,6 +313,7 @@ export function buildDashboardState(
 
   const autofixReading = readAutofix(store, ticketId, autopilotConfig);
   const { insideViews, presentedStage, serverRows } = buildInsideSection(store, {
+    ...(agentContext.liveRunUsage ? { liveRunUsage: agentContext.liveRunUsage } : {}),
     ticket,
     stepper,
     currentStage,

@@ -1133,6 +1133,80 @@ describe('ClaudeAdapter.runHeadless', () => {
     }
   });
 
+  describe('live usage session (@arch:AC-14)', () => {
+    const OK = JSON.stringify({ session_id: 's', result: 'x' });
+    const UNKNOWN = "error: unknown option '--disable-slash-commands'";
+    const idOf = (args: string[]): string => args[args.indexOf('--session-id') + 1]!;
+
+    it('names a new run, keeps --output-format json, and reports the id and transcript path', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const sessions: Array<{ sessionId: string; transcriptPath: string }> = [];
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', onLiveSession: (s) => void sessions.push(s) });
+      const args = seen[0]!;
+      expect(args[args.indexOf('--output-format') + 1]).toBe('json');
+      expect(args).not.toContain('stream-json');
+      expect(args.indexOf('--session-id')).toBeLessThan(args.indexOf('--'));
+      expect(sessions).toEqual([{ sessionId: idOf(args), transcriptPath: expect.stringMatching(/-wt\/[^/]+\.jsonl$/) }]);
+      expect(sessions[0]!.transcriptPath).toContain(idOf(args));
+    });
+
+    it('a --resume lane passes no --session-id and reports no session (the transcript holds earlier turns)', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const onLiveSession = vi.fn();
+      await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt', resume: 'prev', onLiveSession });
+      expect(seen[0]).not.toContain('--session-id');
+      expect(onLiveSession).not.toHaveBeenCalled();
+    });
+
+    it('the retry without minimal-context flags takes a FRESH id, and releases the first attempt', async () => {
+      const seen: string[][] = [];
+      const spawn: SpawnHeadless = async (_c, args) => {
+        seen.push(args);
+        return args.includes('--tools')
+          ? { stdout: '', stderr: UNKNOWN, exitCode: 1 }
+          : { stdout: OK, stderr: '', exitCode: 0 };
+      };
+      const released: string[] = [];
+      const started: string[] = [];
+      await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        minimalContext: true,
+        onLiveSession: (s) => {
+          started.push(s.sessionId);
+          return () => void released.push(s.sessionId);
+        },
+      });
+      expect(seen).toHaveLength(2);
+      expect(idOf(seen[0]!)).not.toBe(idOf(seen[1]!)); // the CLI refuses an id already in use
+      expect(started).toEqual([idOf(seen[0]!), idOf(seen[1]!)]);
+      expect(released).toEqual([idOf(seen[0]!)]); // the live attempt stays until the seam releases it
+    });
+
+    it('a hook that throws never fails the run, and writes a debug line', async () => {
+      const spawn: SpawnHeadless = async () => ({ stdout: OK, stderr: '', exitCode: 0 });
+      const debug = vi.fn();
+      const r = await new ClaudeAdapter(spawn).runHeadless({
+        prompt: 'go',
+        cwd: '/wt',
+        debug,
+        onLiveSession: () => {
+          throw new Error('boom');
+        },
+      });
+      expect(r.raw).toBe('x');
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('live usage: not registered'));
+    });
+  });
+
   describe('minimalContext', () => {
     const OK = JSON.stringify({ session_id: 's', result: 'x' });
     it('adds --disable-slash-commands and an empty --tools only when asked', async () => {
