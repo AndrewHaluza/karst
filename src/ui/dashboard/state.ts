@@ -6,6 +6,7 @@ import { getPlacement } from '../../store/placement.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, ReviewStallDetection, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
+import { effectiveTicketPriority } from '../../model/priority.js';
 import { buildStepper, markPausedCells, type StepperCell } from '../../model/stepper.js';
 import { listStageRuns } from '../../store/stageRuns.js';
 import { buildShipSlot } from '../../model/shipSlot.js';
@@ -379,7 +380,7 @@ export function buildDashboardState(
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
-    priority: ticket.priority,
+    priority: effectiveTicketPriority(ticket) ?? ticket.priority,
     description: ticket.description,
     brief: ticket.brief,
     rail: buildRail({

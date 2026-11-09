@@ -1,6 +1,6 @@
 import type { Store } from './db.js';
 import { formatId, parseId } from '../model/entityId.js';
-import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
+import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, type PriorityLevel } from '../model/priority.js';
 import { orderQueue, type OrderedQueueItem, type QueueEdge, type QueueItem } from '../model/queueOrder.js';
 import { effectiveProposalPriority, listProjectProposals, type PlanningProposal } from './planningProposals.js';
 import { listOpenBlockersFor } from './ticketRelations.js';
@@ -29,7 +29,14 @@ export interface QueueEntry extends OrderedQueueItem {
   readonly ownPriority: PriorityLevel | null;
   /** A draft's one-line planner reason while no override replaced it; null otherwise. */
   readonly priorityReason: string | null;
+  /** Who set `ownPriority`: the user, the ticketing provider or the planner; null when none. */
+  readonly prioritySource: PrioritySource | null;
+  /** A ticket's provider-written level (`tickets.priority`) and the label of its system; null for a draft. */
+  readonly providerPriority: PriorityLevel | null;
+  readonly providerLabel: string | null;
 }
+
+export type PrioritySource = 'you' | 'provider' | 'planner';
 
 export interface ProjectQueue {
   /** In computed order. */
@@ -44,6 +51,8 @@ interface TicketRow {
   id: number;
   title: string;
   priority: string | null;
+  priority_override: string | null;
+  source: string | null;
   created_at: string;
 }
 
@@ -55,6 +64,9 @@ interface Node {
   readonly title: string;
   readonly ownPriority: PriorityLevel | null;
   readonly priorityReason: string | null;
+  readonly prioritySource: PrioritySource | null;
+  readonly providerPriority: PriorityLevel | null;
+  readonly providerLabel: string | null;
 }
 
 const CLOSED_STAGES: ReadonlySet<string> = new Set(['done', 'closed']);
@@ -68,12 +80,16 @@ function draftNode(p: PlanningProposal): Node {
     title: p.payload.title,
     ownPriority: effectiveProposalPriority(p),
     priorityReason: p.priorityOverride === null ? (p.payload.priorityReason ?? null) : null,
+    prioritySource: p.priorityOverride !== null ? 'you' : p.payload.priority ? 'planner' : null,
+    providerPriority: null,
+    providerLabel: null,
     item: { id, priority: effectiveProposalPriority(p), createdAt: p.createdAt },
   };
 }
 
 function ticketNode(t: TicketRow, waits: readonly string[]): Node {
-  const priority = asPriorityLevel(t.priority) ?? null;
+  const fields = { priority: t.priority, priorityOverride: t.priority_override };
+  const priority = effectiveTicketPriority(fields);
   return {
     kind: 'ticket',
     numId: t.id,
@@ -81,6 +97,9 @@ function ticketNode(t: TicketRow, waits: readonly string[]): Node {
     title: t.title,
     ownPriority: priority,
     priorityReason: null,
+    prioritySource: ticketPrioritySource(fields),
+    providerPriority: asPriorityLevel(t.priority) ?? null,
+    providerLabel: ticketProviderLabel(t.source),
     item: { id: formatId('ticket', t.id), priority, createdAt: t.created_at, externalWaits: waits },
   };
 }
@@ -117,7 +136,7 @@ function draftEdges(store: Store, p: PlanningProposal, inSet: ReadonlySet<string
 function readTickets(store: Store, projectId: number): TicketRow[] {
   return store.db
     .prepare(
-      `SELECT id, COALESCE(title, key, '') AS title, priority, created_at FROM tickets
+      `SELECT id, COALESCE(title, key, '') AS title, priority, priority_override, source, created_at FROM tickets
         WHERE project_id = ? AND archived_at IS NULL AND subtask_parent_id IS NULL
           AND stage_current = ?
         ORDER BY id`,
@@ -156,7 +175,7 @@ export function readProjectQueue(store: Store, projectId: number): ProjectQueue 
   const ordered = orderQueue(nodes.map((n) => n.item), edges);
   const entries = ordered.map((o): QueueEntry => {
     const n = byId.get(o.id)!;
-    return { ...o, kind: n.kind, numId: n.numId, session: n.session, title: n.title, ownPriority: n.ownPriority, priorityReason: n.priorityReason };
+    return { ...o, kind: n.kind, numId: n.numId, session: n.session, title: n.title, ownPriority: n.ownPriority, priorityReason: n.priorityReason, prioritySource: n.prioritySource, providerPriority: n.providerPriority, providerLabel: n.providerLabel };
   });
   return {
     entries,

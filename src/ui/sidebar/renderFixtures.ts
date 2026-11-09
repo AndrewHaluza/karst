@@ -87,6 +87,9 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     collapsible: true as const,
     stageCurrent: 'impl',
     priority: null,
+    prioritySource: null,
+    providerPriority: null,
+    providerLabel: 'ClickUp',
     priorityEditable: false,
     conflicted: false,
     ciFailing: false,
@@ -372,14 +375,28 @@ function planningDepsState(): SidebarState {
 
 /** Priority chips: a draft at every level, a planner reason, a user override, and not-started tickets at every level. */
 function priorityState(): SidebarState {
-  const scoped = (index: number, priority: TicketRow['priority']): TicketRow =>
-    fixtureRow(index, { stageCurrent: 'scope', stageLabel: 'Not scoped', stageClass: 'stg-scope', stageChip: 'scope', priority, priorityEditable: true, glyph: 'gray' });
+  // A ticket's chip: the effective level, who set it, and the provider's own level beside a user value.
+  const scoped = (
+    index: number,
+    priority: TicketRow['priority'],
+    prioritySource: TicketRow['prioritySource'] = priority === null ? null : 'provider',
+    providerPriority: TicketRow['providerPriority'] = prioritySource === 'provider' ? priority : null,
+  ): TicketRow =>
+    fixtureRow(index, { stageCurrent: 'scope', stageLabel: 'Not scoped', stageClass: 'stg-scope', stageChip: 'scope', priority, prioritySource, providerPriority, priorityEditable: true, glyph: 'gray' });
   const draft = (id: number, title: string, priority?: PlanningProposalRow['priority']): PlanningProposalRow =>
     fixtureDraft({ id, title, status: 'pending', ticketId: null, dependsOn: [], ...(priority ? { priority } : {}) });
   return {
     ...emptyState(),
-    counts: fixtureCounts({ all: 4 }),
-    sections: { current: [scoped(0, 'urgent'), scoped(1, 'high'), scoped(2, null), scoped(3, 'low')], awaitingReview: [], recentlyDone: [], olderDone: [] },
+    counts: fixtureCounts({ all: 5 }),
+    sections: {
+      current: [
+        scoped(0, 'urgent'), // provider only
+        scoped(1, 'high', 'you'), // user only
+        scoped(2, null), // no priority
+        scoped(3, 'low'), // provider only (cleared override falls back to this)
+        scoped(4, 'high', 'you', 'low'), // user and provider differ: `High · set by you (ClickUp: Low)`
+      ],
+      awaitingReview: [], recentlyDone: [], olderDone: [] },
     queue: EMPTY_QUEUE,
     planning: [fixturePlanningRow(17, {
       title: 'Prioritized drafts',
@@ -436,6 +453,7 @@ export function fixtureQueueRow(position: number, overrides: Partial<QueueRowVie
   return {
     position, kind: 'draft', id, idLabel: `D${id}`, sessionLabel: 'P17', title: `Queue item ${position}`,
     level: 'normal', inheritedFrom: null, waitsOn: [], cycle: false, why: '', whyKind: 'none', ownLevel: null,
+    prioritySource: null, providerPriority: null, providerLabel: null,
     ...overrides,
   };
 }

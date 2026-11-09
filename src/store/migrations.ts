@@ -2944,5 +2944,12 @@ function migrateLocked(db: Database): void {
     if (cols112.size > 0 && !cols112.has('host_rerun_requested_at')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_requested_at TEXT');
   }
 
+  if (current < 113) {
+    // v113: `tickets.priority_override` — the priority the user set on a ticket in karst (@arch:PLANNING-PRIORITY).
+    // A provider fetch never writes it. Additive; NULL = none (no backfill). No CHECK on the migrated column.
+    const cols113 = tableColumns(db, 'tickets');
+    if (cols113.size > 0 && !cols113.has('priority_override')) db.exec('ALTER TABLE tickets ADD COLUMN priority_override TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

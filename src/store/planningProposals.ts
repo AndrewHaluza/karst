@@ -594,9 +594,12 @@ export function markProposalAccepted(
     const origin = `Planned in ${formatId('plan', p.sessionId)} as ${formatId('draft', id)}.`;
     const section = (body: string): string =>
       `${PLANNING_BRIEF_HEADING}\n${body ? `${body}\n\n` : ''}${origin}`;
-    // The priority lands on the ticket only when the provider gave none; the reason line rides in
-    // the brief (no ticket column for it).
-    const priority = ticket.priority ? null : effectiveProposalPriority(p);
+    // A user override lands in `tickets.priority_override`, so a later fetch keeps it. A planner-only
+    // priority lands in `tickets.priority` only when the provider gave none, so a fetch replaces it.
+    // The reason line rides in the brief (no ticket column for it).
+    const override = p.priorityOverride;
+    const planner = override === null && !ticket.priority ? effectiveProposalPriority(p) : null;
+    const priority = override ?? planner;
     const priorityLine = priority ? `${priorityBriefLine(p, priority)}\n` : '';
     const brief = ticket.sourceFetchedAt === null
       ? section(`${priorityLine}${existing || summary}`)
@@ -604,7 +607,8 @@ export function markProposalAccepted(
     updateTicketFields(store, ticketId, {
       source: 'planning',
       brief,
-      ...(priority ? { priority } : {}),
+      ...(override ? { priorityOverride: override } : {}),
+      ...(planner ? { priority: planner } : {}),
       baseShas: p.baseShas,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);

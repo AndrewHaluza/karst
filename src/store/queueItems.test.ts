@@ -46,6 +46,34 @@ describe('readProjectQueue', () => {
     expect(q.entries[0]).toMatchObject({ kind: 'ticket', session: null, title: 'title K1' });
   });
 
+  it('orders a ticket by its effective priority and names the source of every row', () => {
+    const provider = ticket('K1', 'scope', ", priority = 'normal'");
+    const you = ticket('K2', 'scope', ", priority = 'low', priority_override = 'urgent'");
+    const planner = insertProposal(store, s1, { ...payload, priority: 'high' });
+    const mine = insertProposal(store, s1, { ...payload, priority: 'urgent' });
+    setProposalPriorityOverride(store, mine, 'low');
+    const q = readProjectQueue(store, projectId);
+    expect(q.entries.map((e) => [e.id, e.ownPriority, e.prioritySource])).toEqual([
+      [`T${you}`, 'urgent', 'you'],
+      [`D${planner}`, 'high', 'planner'],
+      [`T${provider}`, 'normal', 'provider'],
+      [`D${mine}`, 'low', 'you'],
+    ]);
+  });
+
+  it('a ticket and a draft without a priority have no source', () => {
+    ticket('K1', 'scope');
+    insertProposal(store, s1, payload);
+    expect(readProjectQueue(store, projectId).entries.map((e) => [e.ownPriority, e.prioritySource])).toEqual([[null, null], [null, null]]);
+  });
+
+  it('a Clear of the override lets the provider value order the ticket again', () => {
+    const t = ticket('K1', 'scope', ", priority = 'low', priority_override = 'urgent'");
+    expect(readProjectQueue(store, projectId).entries[0]).toMatchObject({ ownPriority: 'urgent', prioritySource: 'you' });
+    store.db.prepare('UPDATE tickets SET priority_override = NULL WHERE id = ?').run(t);
+    expect(readProjectQueue(store, projectId).entries[0]).toMatchObject({ ownPriority: 'low', prioritySource: 'provider' });
+  });
+
   it('an override wins over the planner level and drops the reason', () => {
     const d = insertProposal(store, s1, { ...payload, priority: 'urgent', priorityReason: 'data loss' });
     expect(readProjectQueue(store, projectId).entries[0]).toMatchObject({ ownPriority: 'urgent', priorityReason: 'data loss' });

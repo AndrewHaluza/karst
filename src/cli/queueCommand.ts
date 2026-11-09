@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { PriorityLevel } from '../model/priority.js';
 import { queueWhy } from '../model/queueOrder.js';
-import { readProjectQueue, type ProjectQueue } from '../store/queueItems.js';
+import { readProjectQueue, type PrioritySource, type ProjectQueue } from '../store/queueItems.js';
 
 /**
  * `karst queue [--json]` — the project's queue in its computed order: pending
@@ -34,6 +34,8 @@ export interface QueueRow {
   readonly inheritedFrom: string | null;
   /** A draft's one-line planner reason, when it has one and no override replaced it; null otherwise. */
   readonly priorityReason: string | null;
+  /** Who set the item's own priority: `you`, `provider` or `planner`; null when it has none. */
+  readonly prioritySource: PrioritySource | null;
   /** Open blockers: pending drafts and tickets that come first, and open blockers outside the queue. */
   readonly waitsOn: readonly string[];
   readonly cycle: boolean;
@@ -71,6 +73,7 @@ export function toQueueRows(queue: ProjectQueue): QueueRow[] {
     priority: e.priority,
     inheritedFrom: e.inheritedFrom,
     priorityReason: e.priorityReason,
+    prioritySource: e.prioritySource,
     waitsOn: e.waitsOn,
     cycle: e.cycle,
     why: queueWhy(e),

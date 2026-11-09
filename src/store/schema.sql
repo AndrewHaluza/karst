@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
+  priority_override TEXT CHECK (priority_override IN ('urgent', 'high', 'normal', 'low')), -- v113: the priority the user set in karst; a fetch never writes it; NULL = none
   -- v55 per-ticket env overrides (kept in sync with migrations.ts v55 ALTER):
   env_overrides     TEXT,                 -- JSON {"*":{"K":"v"},"api":{"K":"v"}}; NULL = nothing overridden
   -- v52 task pause timestamp (kept in sync with migrations.ts v52 ALTER):
