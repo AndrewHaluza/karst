@@ -21,8 +21,12 @@ export interface Shard {
   readonly unchecked: boolean;
 }
 
+/** A bind-mounted shard dir can still receive a write while it is removed (ENOTEMPTY): retry. */
+const RM_MAX_RETRIES = 5;
+const RM_RETRY_DELAY_MS = 100;
+
 export function resetShards(): void {
-  rmSync(SHARD_DIR, { recursive: true, force: true });
+  rmSync(SHARD_DIR, { recursive: true, force: true, maxRetries: RM_MAX_RETRIES, retryDelay: RM_RETRY_DELAY_MS });
   mkdirSync(SHARD_DIR, { recursive: true });
 }
 

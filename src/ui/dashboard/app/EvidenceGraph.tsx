@@ -19,7 +19,7 @@ export function GraphNodeList({ nodes, stage, id }: { readonly nodes: readonly G
         <div className="graph-entry" key={key}>
           <div className="graph-node">
             {/* The status word rides the glyph's accessible name; the raw node-run status is the row's own verdict text and stays visible as meta. */}
-            <span className={`glyph ${n.displayStatus}`} aria-label={statusWord(n.displayStatus)} />
+            <span className={`glyph ${n.displayStatus}`} role="img" aria-label={statusWord(n.displayStatus)} />
             <span className="graph-node-name">{n.nodeId}</span>
             <span className="graph-node-meta">{`${n.nodeKind} · ${n.status}`}</span>
             <span className="graph-node-detail">
@@ -52,7 +52,7 @@ export function GraphDag({ dag }: { readonly dag: GraphDagView }) {
           <div className="graph-dag-col" key={`col-${col.map((c) => c.id).join(',')}`}>
             {col.map((c) => (
               <div className={`graph-dag-chip ${c.displayStatus}`} key={c.id}>
-                <span className={`glyph ${c.displayStatus}`} aria-label={statusWord(c.displayStatus)} />
+                <span className={`glyph ${c.displayStatus}`} role="img" aria-label={statusWord(c.displayStatus)} />
                 <span className="graph-dag-id">{c.label}</span>
                 <span className="graph-dag-state">{c.state}</span>
               </div>

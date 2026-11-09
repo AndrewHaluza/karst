@@ -1053,7 +1053,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
     <div.ledger>
       <details.live.op.run data-proc-id="impl:session">
         <summary>
-          <span.glyph.run aria-label="running">
+          <span.glyph.run aria-label="running" role="img">
           <span.op-name title="Session">
             <span.op-name-text> "Session"
             <span.ai-mark> "AI"
@@ -1117,7 +1117,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.segment-window.tl-dur>
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.note.phase-status aria-label="note">
+                <span.glyph.note.phase-status aria-label="note" role="img">
               <span.phase-name> "research"
               <span.note.phase-detail> "<clock>"
               <span.phase-tail>
@@ -1125,7 +1125,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.phase-time.tl-dur>
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.note.phase-status aria-label="note">
+                <span.glyph.note.phase-status aria-label="note" role="img">
               <span.phase-name> "plan"
               <span.note.phase-detail> "<clock>"
               <span.phase-tail>
@@ -1143,7 +1143,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
     <div.ledger>
       <details.op.pass data-proc-id="impl:session">
         <summary>
-          <span.glyph.pass aria-label="Completed">
+          <span.glyph.pass aria-label="Completed" role="img">
           <span.op-name title="Session">
             <span.op-name-text> "Session"
             <span.ai-mark> "AI"
@@ -1179,7 +1179,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.segment-window.tl-dur> "10:03–10:09"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.pass.phase-status aria-label="passed">
+                <span.glyph.pass.phase-status aria-label="passed" role="img">
               <span.phase-name> "Understand"
               <span.pass.phase-detail> "reported · <clock>"
               <span.phase-tail>
@@ -1187,7 +1187,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.phase-time.tl-dur> "10:06"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.pass.phase-status aria-label="passed">
+                <span.glyph.pass.phase-status aria-label="passed" role="img">
               <span.phase-name> "Plan"
               <span.pass.phase-detail> "reported · <clock>"
               <span.phase-tail>
@@ -1211,7 +1211,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.segment-window.tl-dur> "<clock>"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.pass.phase-status aria-label="passed">
+                <span.glyph.pass.phase-status aria-label="passed" role="img">
               <span.phase-name> "Implement"
               <span.pass.phase-detail> "reported · <clock>"
               <span.phase-tail>
@@ -1235,7 +1235,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.segment-window.tl-dur> "<clock>"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.pass.phase-status aria-label="passed">
+                <span.glyph.pass.phase-status aria-label="passed" role="img">
               <span.phase-name> "Tests"
               <span.pass.phase-detail> "reported · <clock>"
               <span.phase-tail>
@@ -1243,7 +1243,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.phase-time.tl-dur> "10:20"
             <div.phase-row.timeline-row>
               <span.phase-rail.timeline-slot>
-                <span.glyph.pass.phase-status aria-label="passed">
+                <span.glyph.pass.phase-status aria-label="passed" role="img">
               <span.phase-name> "Done"
               <span.pass.phase-detail> "done marker · <clock>"
               <span.phase-tail>
@@ -1292,7 +1292,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
@@ -1332,7 +1332,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.commit-message> "chore(api): tidy up"
       <details.op.pass data-proc-id="ship:push">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
             <span.op-name-text> "Push"
           <span.op-detail.pass>
@@ -1343,7 +1343,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1352,7 +1352,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1361,7 +1361,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
@@ -1401,7 +1401,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
-          <span.glyph.wait aria-label="waiting">
+          <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
             <span.op-name-text> "Merge"
           <span.op-detail.wait>
@@ -1413,7 +1413,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
@@ -1422,7 +1422,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>
@@ -1469,7 +1469,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
@@ -1509,7 +1509,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.commit-message> "chore(api): tidy up"
       <details.op.pass data-proc-id="ship:push">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
             <span.op-name-text> "Push"
           <span.op-detail.pass>
@@ -1520,7 +1520,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1529,7 +1529,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1538,7 +1538,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
@@ -1578,7 +1578,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
-          <span.glyph.wait aria-label="waiting">
+          <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
             <span.op-name-text> "Merge"
           <span.op-detail.wait>
@@ -1590,7 +1590,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
@@ -1599,7 +1599,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>
@@ -1671,7 +1671,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
             <span.op-name-text> "Commit"
           <span.op-detail.pass>
@@ -1711,7 +1711,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
                   <span.commit-message> "chore(api): tidy up"
       <details.op.pass data-proc-id="ship:push">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
             <span.op-name-text> "Push"
           <span.op-detail.pass>
@@ -1722,7 +1722,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1731,7 +1731,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed">
+              <span.glyph.pass aria-label="passed" role="img">
             <span.ev-key> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
@@ -1740,7 +1740,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
       <details.op.pass data-proc-id="ship:pr">
         <summary>
-          <span.glyph.pass aria-label="passed">
+          <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
             <span.op-name-text> "Pull request"
           <span.op-detail.pass>
@@ -1780,7 +1780,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <div.pr-branch-note> "PR #121 was created in this ship run."
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
-          <span.glyph.wait aria-label="waiting">
+          <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
             <span.op-name-text> "Merge"
           <span.op-detail.wait>
@@ -1792,7 +1792,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
@@ -1801,7 +1801,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.wait aria-label="waiting">
+              <span.glyph.wait aria-label="waiting" role="img">
             <span.ev-key> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>

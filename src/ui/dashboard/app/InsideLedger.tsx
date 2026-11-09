@@ -96,7 +96,7 @@ const ProcessRow = memo(
       [memory, key, open],
     );
     const running = p.autofix?.state === 'running';
-    const glyph = <span className={`glyph ${p.status}`} {...(running ? { role: 'img' } : {})} aria-label={p.statusLabel || statusWord(p.status)} />;
+    const glyph = <span className={`glyph ${p.status}`} role="img" aria-label={p.statusLabel || statusWord(p.status)} />;
     const name = (
       <span className="op-name" title={p.label}>
         <span className="op-name-text">{p.label}</span>
