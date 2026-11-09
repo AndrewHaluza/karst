@@ -6,6 +6,7 @@ import type { ProbeHost } from './runner.js';
 import { runProbeScript, type ProbeRunArgs } from './session.js';
 import { readTickets } from './storeEvidence.js';
 import { readLaunches } from './launchEvidence.js';
+import { readFakeCoreHits } from '../../agent/fakeCoreLedger.js';
 import { createUiClient } from './uiClient.js';
 
 /** Eval runs outlast the 60s step / 120s script defaults; the caller opts in with these (ms) env vars. */
@@ -129,6 +130,7 @@ export function registerProbeCommand(
         tickets: scope?.tickets === false ? [] : readTickets(getStore()),
         sidebar: { lastMessage: sidebar?.lastMessage ?? null },
         launches: scope?.launches === false ? [] : readLaunches(),
+        fakeCoreHits: readFakeCoreHits(),
         ...view,
       };
     },

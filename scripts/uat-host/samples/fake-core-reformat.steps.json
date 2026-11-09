@@ -1,0 +1,35 @@
+{
+  "steps": [
+    {
+      "type": "wait",
+      "for": {
+        "log": "Karst activated"
+      },
+      "timeoutMs": 20000
+    },
+    {
+      "type": "command",
+      "command": "karst.openDashboard",
+      "args": [
+        1
+      ]
+    },
+    {
+      "type": "click",
+      "target": {
+        "act": "stage-resume"
+      }
+    },
+    {
+      "type": "wait",
+      "for": {
+        "log": "re-asking once for reformatting"
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "type": "snapshot",
+      "label": "two-rule-hits"
+    }
+  ]
+}

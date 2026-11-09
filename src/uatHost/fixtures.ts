@@ -1,3 +1,4 @@
+import type { FakeCoreScript } from '../agent/fakeCore.js';
 import type { StageKey } from '../model/types.js';
 import type { StagePatch } from '../store/stages.js';
 import type { RecoveryTriggerKind } from '../store/recoveryRoundsRead.js';
@@ -63,6 +64,8 @@ export interface FixtureSpec {
   tickets: TicketSeed[];
   /** Manifest `agentProvider`; defaults to claude. */
   provider?: string;
+  /** Scripted headless answers for the fake core (played only under `KARST_FAKE_CORE=1`). */
+  fakeCore?: FakeCoreScript;
 }
 
 const STARTED = '2026-01-01T00:00:00.000Z';

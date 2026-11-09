@@ -201,6 +201,8 @@ try {
     extensionTestsPath: join(here, 'testRunner.cjs'),
     extensionTestsEnv: {
       KARST_FAKE_CORE: launchMode ? 'launch' : '1',
+      // The fixture file's `fakeCore` script; its path passed the containment check above and the host ignores it unless KARST_FAKE_CORE=1.
+      ...(fixtureFilePath ? { KARST_FAKE_CORE_SCRIPT: fixtureFilePath } : {}),
       ...(evalCore ? evalTestsEnv({ pathValue: process.env.PATH ?? '', proxyUrl: process.env.EVAL_PROXY_URL }) : {}),
       ...(launchMode
         ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' }

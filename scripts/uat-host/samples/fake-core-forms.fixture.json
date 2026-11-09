@@ -1,0 +1,37 @@
+{
+  "tickets": [
+    {
+      "key": "FIX-FORMS",
+      "title": "Fixture: every core output form",
+      "stageCurrent": "review",
+      "worktree": true,
+      "stages": [
+        {
+          "stageKey": "review",
+          "status": "running",
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "fakeCore": {
+    "headless": [
+      {
+        "promptIncludes": "FORM-CLEAN",
+        "raw": "[{\"severity\": \"low\", \"title\": \"Clean container\", \"detail\": \"Whole-document JSON array.\"}]"
+      },
+      {
+        "promptIncludes": "FORM-FENCED",
+        "raw": "```json\n[{\"severity\": \"low\", \"title\": \"Fenced answer\", \"detail\": \"A fenced block.\"}]\n```"
+      },
+      {
+        "promptIncludes": "FORM-NARRATION",
+        "raw": "Let me look at the diff first.\n[{\"severity\": \"low\", \"title\": \"After narration\", \"detail\": \"JSON after prose.\"}]"
+      },
+      {
+        "promptIncludes": "FORM-EMPTY",
+        "raw": ""
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "tickets": [
+    {
+      "key": "FIX-REFORMAT",
+      "title": "Fixture: tester reformat path",
+      "stageCurrent": "uat",
+      "worktree": true,
+      "stages": [
+        {
+          "stageKey": "uat",
+          "status": "running",
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "fakeCore": {
+    "headless": [
+      {
+        "promptIncludes": "Put any probe scripts or scratch files under",
+        "answers": [
+          {
+            "raw": "I tested the change and it looks fine, here is what I saw: no problems."
+          },
+          {
+            "raw": "[{\"severity\": \"info\", \"title\": \"Scripted observation after a reformat\", \"detail\": \"The second answer is clean JSON.\"}]"
+          }
+        ]
+      }
+    ]
+  }
+}

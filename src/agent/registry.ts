@@ -7,7 +7,9 @@ import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
 import { withHeadlessLedger } from './accounts/headlessLedger.js';
-import { FAKE_CORE_ENV, FakeAdapter } from './fakeCore.js';
+import { FAKE_CORE_ENV, FAKE_CORE_SCRIPT_ENV, FakeAdapter } from './fakeCore.js';
+import { recordFakeCoreHit } from './fakeCoreLedger.js';
+import { loadFakeCoreScript } from '../uatHost/fakeCoreScript.js';
 import { STUB_AGENT_ENV, wrapLaunchStub } from './launchStub.js';
 
 // Pure provider facts live in `provider.ts` so read-only consumers can use the
@@ -34,6 +36,24 @@ function warnFakeCoreOnce(mode: string): void {
   console.warn(`karst: ${FAKE_CORE_ENV}=${mode}, fake agent core is active (no real agent runs).`);
 }
 
+// Callers resolve an adapter per call, so a scripted core must outlive one resolve to count its answers.
+let scripted: { path: string; adapter: FakeAdapter } | undefined;
+
+function fakeAdapter(): FakeAdapter {
+  const path = process.env[FAKE_CORE_SCRIPT_ENV];
+  if (!path) return new FakeAdapter();
+  if (scripted?.path === path) return scripted.adapter;
+  let script;
+  try {
+    script = loadFakeCoreScript(path);
+  } catch (err) {
+    throw new Error(`${FAKE_CORE_SCRIPT_ENV}: cannot use ${path}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const adapter = new FakeAdapter(script, recordFakeCoreHit);
+  scripted = { path, adapter };
+  return adapter;
+}
+
 /**
  * Resolve the adapter for a validated provider.
  */
@@ -41,7 +61,7 @@ export function resolveAdapter(provider: AgentProvider): AgentAdapter {
   const mode = process.env[FAKE_CORE_ENV];
   if (mode === '1') {
     warnFakeCoreOnce(mode);
-    return new FakeAdapter();
+    return fakeAdapter();
   }
   const stub = process.env[STUB_AGENT_ENV];
   if (mode === 'launch' && stub) {

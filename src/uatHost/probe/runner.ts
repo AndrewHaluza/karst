@@ -2,6 +2,7 @@ import type { Step, UiStep, WaitCondition } from './steps.js';
 import { DEFAULT_STEP_TIMEOUT_MS, isUiStep } from './steps.js';
 import { UI_GRACE_MS, type UiDriver, type UiEvidence } from './uiClient.js';
 import type { LaunchRecord } from '../launchRecord.js';
+import type { FakeCoreHit } from '../../agent/fakeCore.js';
 
 export interface TicketEvidence {
   key: string;
@@ -16,6 +17,8 @@ export interface Snapshot {
   notifications: Array<{ level: string; message: string }>;
   logTail: string[];
   launches: LaunchRecord[];
+  /** Which scripted fake-core rule answered each headless call, in call order. Indexes only, no prompt text. */
+  fakeCoreHits: FakeCoreHit[];
 }
 /** A wait that cannot change from a ticket/stage row must not read the store every poll. */
 export interface SnapshotScope {

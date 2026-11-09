@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "type": "wait",
+      "for": {
+        "log": "Karst activated"
+      },
+      "timeoutMs": 20000
+    },
+    {
+      "type": "command",
+      "command": "karst.openDashboard",
+      "args": [
+        1
+      ]
+    },
+    {
+      "type": "click",
+      "target": {
+        "act": "stage-resume"
+      }
+    },
+    {
+      "type": "wait",
+      "for": {
+        "log": "review"
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "type": "read"
+    },
+    {
+      "type": "snapshot",
+      "label": "after-review"
+    }
+  ]
+}
