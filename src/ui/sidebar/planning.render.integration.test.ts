@@ -241,7 +241,7 @@ describe('sidebar planning drafts', () => {
   });
 
   describe('dependency status chips', () => {
-    const chips = (h: RenderedSidebar, id: number) => Array.from(draft(h, id).querySelectorAll<HTMLButtonElement>('.pt-deps-row .pt-dep'));
+    const chips = (h: RenderedSidebar, id: number) => Array.from(draft(h, id).querySelectorAll<HTMLButtonElement>('.pt-deps-row .k-ticket-ref'));
     const withDeps = (h: RenderedSidebar) => h.receive({ type: 'state', state: stateOf('planning-deps') });
 
     it('renders nothing for a draft with no deps', async () => {
@@ -256,7 +256,7 @@ describe('sidebar planning drafts', () => {
       const row = draft(h, 95).querySelector('.pt-deps-row')!;
       expect(row.firstElementChild!.textContent).toBe('needs');
       expect(chips(h, 95).map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON', 'BUTTON']);
-      expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605 · impl', 'D91→T604']);
+      expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605 · impl', 'D91→T604 · done']);
     });
 
     it('shows the session of a cross-session draft and a T<n> ticket chip with one id', async () => {
@@ -264,7 +264,7 @@ describe('sidebar planning drafts', () => {
       await withDeps(h);
       expect(chips(h, 97).map((c) => c.textContent!.trim())).toEqual(['D498 · P43', 'T610 · impl']);
       expect(chips(h, 97).map((c) => c.getAttribute('aria-label'))).toEqual([
-        'D498, draft pending', 'ticket T610 in impl',
+        'D498, draft pending', 'Ticket T610 in impl',
       ]);
     });
 
@@ -288,7 +288,7 @@ describe('sidebar planning drafts', () => {
       expect(ticket!.dataset.id).toBe('605');
       expect(done!.dataset.id).toBe('604');
       expect(chips(h, 96)).toHaveLength(2);
-      await h.click('[data-node="d96"] .pt-dep[data-id="605"]');
+      await h.click('[data-node="d96"] .k-ticket-ref[data-id="605"]');
       expect(h.posted).toContainEqual(expect.objectContaining({ type: 'open-dashboard', ticketId: 605 }));
     });
 
@@ -298,7 +298,7 @@ describe('sidebar planning drafts', () => {
       await h.click('.pt-twistie[data-plan-toggle="17"]');
       expect(draft(h, 95)).toBeNull();
       await h.click('.pt-twistie[data-plan-toggle="17"]');
-      await h.click('[data-node="d95"] .pt-dep[data-dep-draft="94"]');
+      await h.click('[data-node="d95"] .k-ticket-ref[data-dep-draft="94"]');
       expect(h.document.activeElement).toBe(draft(h, 94));
       expect((h.posted as { type: string }[]).filter((m) => m.type === 'open-dashboard')).toEqual([]);
     });
@@ -308,8 +308,8 @@ describe('sidebar planning drafts', () => {
       await withDeps(h);
       const css = h.document.querySelector('style')!.textContent!;
       expect(css).toMatch(/\.pt-deps-row\{[^}]*flex-wrap:wrap/);
-      expect(css).toMatch(/\.pt-dep\{[^}]*overflow-wrap:anywhere/);
-      expect(css).not.toMatch(/\.pt-dep\{[^}]*text-overflow/);
+      expect(css).toMatch(/\.k-ticket-ref\{[^}]*overflow-wrap:anywhere/);
+      expect(css).not.toMatch(/\.k-ticket-ref\{[^}]*text-overflow/);
     });
   });
 

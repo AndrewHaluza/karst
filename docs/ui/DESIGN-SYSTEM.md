@@ -1062,6 +1062,23 @@ END_DOC_BLOCK: [@ui:11.20]
 
 ---
 
+## [@ui:11.21] Ticket reference chip — `.k-ticket-ref`
+
+A compact reference chip for displaying dependencies, blockers, and ticket links.
+Replaces informal `.k-chip` uses for informational relations (@ui:11.10).
+
+Applicable states:
+- default
+- hover
+- focus
+- active
+
+Displays a status dot (`.k-ticket-ref-dot`), ticket/draft identifier, optional key, and stage word.
+Can render as an interactive link or button, or as plain text when nested inside another interactive control (UI-R09).
+END_DOC_BLOCK: [@ui:11.21]
+
+---
+
 ## [@ui:LAYOUT-PRIMITIVES] Layout primitives
 
 Layout vocabulary for UI-RULES group L. Names only existing classes and tokens;

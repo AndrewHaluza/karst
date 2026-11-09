@@ -19,6 +19,7 @@ const ROOT = join(SRC, '..');
 const DASHBOARD_APP = join(SRC, 'ui', 'dashboard', 'app');
 const RESOURCES_APP = join(SRC, 'ui', 'resources', 'app');
 const SIDEBAR_APP = join(SRC, 'ui', 'sidebar', 'app');
+const SHARED_APP = join(SRC, 'ui', 'shared');
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -38,7 +39,8 @@ const isUnderReactApp = (file: string): boolean =>
   file.startsWith(HERE + sep) ||
   file.startsWith(DASHBOARD_APP + sep) ||
   file.startsWith(RESOURCES_APP + sep) ||
-  file.startsWith(SIDEBAR_APP + sep);
+  file.startsWith(SIDEBAR_APP + sep) ||
+  file.startsWith(SHARED_APP + sep);
 
 const APP_SOURCE = walk(HERE).filter((file) => !isTest(file));
 const APP_OUTSIDE_PRIMITIVES = APP_SOURCE.filter((file) => !file.includes(`${sep}primitives${sep}`));

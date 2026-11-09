@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { sidebarRenderFixtures } from '../renderFixtures.js';
 import type { SidebarState, TicketRow } from '../state.js';
 import { closeSidebarRealm, renderSidebarApp, type RenderedSidebar } from './renderSidebarApp.js';
+import { ticketRefView } from '../../shared/ticketRefView.js';
 
 afterAll(closeSidebarRealm);
 
@@ -81,10 +82,40 @@ describe('ticket row', () => {
   });
 
   it('shows a Blocked-by chip, a follow-up marker and the active-row mark', async () => {
-    const h = await mount(stateWith({ current: [row(1, { blockedBy: ['A-1', 'B-2'], parentKey: 'PAR-1', isActive: true })] }));
-    expect(text(h.query('.ticket .k-chip'))).toBe('Blocked by A-1, B-2');
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })], parentKey: 'PAR-1', isActive: true })] }));
+    const chips = h.queryAll('.ticket .k-ticket-ref');
+    expect(chips.map(text)).toEqual(['Blocked by A-1', 'Blocked by B-2']);
     expect(text(h.query('.parentref'))).toBe('↳ PAR-1');
     expect(h.query('.ticket')!.classList.contains('active')).toBe(true);
+  });
+
+  it('wraps multiple blocker chips onto a new line instead of shrinking them (UI-R43, UI-R44)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })] })] }));
+    const css = h.document.querySelector('style')!.textContent!;
+    expect(css).toMatch(/\.rowopen\{[^}]*flex-wrap:wrap/);
+    expect(css).toMatch(/\.rowopen \.k-ticket-ref\{[^}]*flex:0 0 auto/);
+    expect(css).toMatch(/\.name\{[^}]*flex:1;/);
+    expect(css).toMatch(/\.rowopen\.has-refs \.name\{[^}]*flex:1 1 auto/);
+    expect(h.queryAll('.ticket .k-ticket-ref')).toHaveLength(2);
+  });
+
+  it('marks only rows that carry reference chips, so an ordinary row keeps its stage on the title line', async () => {
+    const h = await mount(
+      stateWith({
+        current: [row(1), row(2, { blockedBy: [ticketRefView({ ref: 'A-1' })] })],
+      }),
+    );
+    const rows = h.queryAll('.ticket .rowopen');
+    expect(rows[0]!.classList.contains('has-refs')).toBe(false);
+    expect(rows[1]!.classList.contains('has-refs')).toBe(true);
+  });
+
+  it('renders a proposal-only blocker as plain text inside the row target, never a nested button (UI-R09)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ draftId: 94 })] })] }));
+    const chip = h.query('.ticket .k-ticket-ref')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.querySelector('button')).toBeNull();
+    expect(text(chip)).toBe('Blocked by D94');
   });
 
   it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', async () => {

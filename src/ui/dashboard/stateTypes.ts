@@ -24,6 +24,9 @@ import type { SendBackState } from '../../workflow/sendBack.js';
 import type { RetryGateState } from '../../workflow/retryGate.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
+import type { TicketRefView } from '../shared/ticketRefView.js';
+
+export type DashboardBlocker = TicketRefView;
 import type { Glyph } from '../../model/glyph.js';
 import type { StallOption } from '../../model/stallSuggestion.js';
 import type { SubtaskAutostartPhase, SubtaskProgress } from '../../model/subtask.js';
@@ -185,7 +188,7 @@ export interface DashboardState {
    */
   subtasks: DashboardSubtaskRow[];
   /** Open or unresolved blocked-by targets, shown as dependency chips. */
-  blockers: { ticketId: number | null; idLabel: string | null; label: string; done?: boolean }[];
+  blockers: DashboardBlocker[];
   /**
    * `n/m done` over `subtasks`, by their stored `stage_current` (design §8).
    * `0/0` when there are none — rendered as absence, not "0".

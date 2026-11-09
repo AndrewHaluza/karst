@@ -482,14 +482,16 @@ export interface BlockerView {
   relationId: number;
   /** The resolved target ticket id, or null when unresolved or proposal-only. */
   targetTicketId: number | null;
+  /** The planning draft id for a proposal-only blocker, else null (the chip shows `D<n>`). */
+  targetProposalId: number | null;
   /** Display label: 'key / ref' for resolved, 'ref' for dangling, 'proposal #N' for proposal-only. */
   label: string;
 }
 
-/** The SQL predicate to identify an open blocker: unresolved or stage not done. NULL-safe. */
-const OPEN_BLOCKER_SQL = `
+/** The SQL predicate to identify an open blocker: unresolved or stage not done/closed. NULL-safe. */
+export const OPEN_BLOCKER_SQL = `
   r.target_ticket_id IS NULL
-  OR (t.stage_current IS NOT 'done' AND t.archived_at IS NULL)
+  OR (t.stage_current IS NOT 'done' AND t.stage_current IS NOT 'closed' AND t.archived_at IS NULL)
 `;
 
 /**
@@ -498,33 +500,7 @@ const OPEN_BLOCKER_SQL = `
  * the same open predicate as `isBlocked`.
  */
 export function listOpenBlockers(store: Store, ticketId: number): BlockerView[] {
-  const rows = store.db
-    .prepare(
-      `SELECT
-        r.id AS relationId,
-        r.target_ticket_id AS targetTicketId,
-        COALESCE(t.key, '') AS targetKey,
-        r.target_ref AS targetRef,
-        r.target_proposal_id AS targetProposalId
-       FROM ticket_relations r
-       LEFT JOIN tickets t ON t.id = r.target_ticket_id
-       WHERE r.ticket_id = ? AND r.kind = 'blocked-by'
-         AND (${OPEN_BLOCKER_SQL})
-       ORDER BY r.id`,
-    )
-    .all(ticketId) as Array<{
-    relationId: number;
-    targetTicketId: number | null;
-    targetKey: string;
-    targetRef: string | null;
-    targetProposalId: number | null;
-  }>;
-
-  return rows.map((row) => ({
-    relationId: row.relationId,
-    targetTicketId: row.targetTicketId,
-    label: buildBlockerLabel(row.targetTicketId, row.targetKey, row.targetRef, row.targetProposalId),
-  }));
+  return listOpenBlockersFor(store, [ticketId]).get(ticketId) ?? [];
 }
 
 /**
@@ -573,6 +549,7 @@ export function listOpenBlockersFor(
       blockers.push({
         relationId: row.relationId,
         targetTicketId: row.targetTicketId,
+        targetProposalId: row.targetProposalId,
         label: buildBlockerLabel(row.targetTicketId, row.targetKey, row.targetRef, row.targetProposalId),
       });
     }
@@ -651,7 +628,7 @@ export function list(store: Store, ticketId: number): RelationView[] {
 /**
  * The single blocked gate for a ticket (#65's launch guard). True when any
  * `blocked-by` target is unresolved (ref/proposal only — no `target_ticket_id`)
- * or still open. Open is NULL-safe: `stage_current IS NOT 'done'` (a NULL stage
+ * or still open. Open is NULL-safe: `stage_current` not in ('done', 'closed') (a NULL stage
  * is open) AND `archived_at IS NULL`. A deleted target degrades to a ref and
  * therefore still blocks.
  */

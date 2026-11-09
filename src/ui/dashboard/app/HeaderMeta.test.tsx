@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import { $, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
+import { ticketRefView } from '../../shared/ticketRefView.js';
 
 installHeaderDoubles();
 
@@ -27,7 +28,7 @@ describe('HeaderMeta — relations', () => {
       headerState({ origin: 'from D88', blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-1' }, { ticketId: null, idLabel: null, label: 'external' }] }),
     );
     expect($('#parentRef').textContent).toBe('from D88 · Blocked by T42 · CU-1 · Blocked by external');
-    const chips = document.querySelectorAll('#parentRef .k-chip');
+    const chips = document.querySelectorAll('#parentRef .k-ticket-ref');
     expect(chips).toHaveLength(2);
     expect(chips[1]!.querySelector('a')).toBeNull();
     const link = $('#parentRef a[data-act="open-dependency"]');
@@ -36,6 +37,15 @@ describe('HeaderMeta — relations', () => {
     fireEvent.click(link);
     expect(h.send.openDependency).toHaveBeenCalledTimes(1);
     expect(h.send.openDependency).toHaveBeenCalledWith(42, 'req-1');
+  });
+
+  it('renders a proposal-only blocker as an inline plain chip, not a whole-chip button', () => {
+    mountHeader(headerState({ blockers: [ticketRefView({ draftId: 94 })] }));
+    const chip = $('#parentRef .k-ticket-ref')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.textContent).toBe('Blocked by D94');
+    expect(document.querySelector('#parentRef button')).toBeNull();
+    expect(chip.querySelector('a')).toBeNull();
   });
 });
 
