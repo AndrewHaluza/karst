@@ -7,6 +7,13 @@ import type { GitRunner } from '../integrations/git.js';
 import { nowIso } from '../model/time.js';
 import { failedGatesOf, hostRerunFailedGates, type HostRerunDeps, type HostRerunOutcome } from './fixHostRerun.js';
 
+/**
+ * Set by the bridge's marker runner on the CLI it spawns. The bridge re-runs the failed gates
+ * itself (`recoverRefusal`), so the CLI must not also request a sweep re-run: both would aim at
+ * one claim and the loser would park the round.
+ */
+export const MARKER_VIA_BRIDGE_ENV = 'KARST_MARKER_VIA_BRIDGE';
+
 /** The refusal text the host CLI gives when it handed the round to the extension. */
 export const HOST_RERUN_REQUESTED_REPLY =
   `cannot mark this stage done: ${NO_NEW_COMMIT_REASON}. The host re-runs the failed gates now and reports the result. Stop now: do not make an empty commit and do not fire the marker again`;
@@ -42,11 +49,13 @@ export async function assertFixHasNewCommitOrRequestRerun(
   ticketId: number,
   git: GitRunner,
   now: () => string = nowIso,
+  options: { viaBridge?: boolean } = {},
 ): Promise<void> {
   try {
     await assertFixHasNewCommit(store, ticketId, git);
   } catch (err) {
     if (!(err instanceof Error) || !err.message.includes(NO_NEW_COMMIT_REASON)) throw err;
+    if (options.viaBridge === true) throw err;
     const request = requestHostRerun(store, ticketId, now());
     if (request.kind === 'requested') throw new Error(request.message);
     throw err;

@@ -168,6 +168,14 @@ describe('host CLI fix marker guard with the re-run request', () => {
     await expect(second).rejects.not.toThrow(/host re-runs/);
   });
 
+  it('requests nothing when the bridge runs the marker, which re-runs the gates itself', async () => {
+    await setup('gate-failure', true);
+    const p = assertFixHasNewCommitOrRequestRerun(store, ticketId, gitAt({ '/wt/web': 'w1' }), () => AT, { viaBridge: true });
+    await expect(p).rejects.toThrow(NO_NEW_COMMIT_REASON);
+    await expect(p).rejects.not.toThrow(/host re-runs/);
+    expect(ticketsWithRequestedHostRerun(store, PROJECT)).toEqual([]);
+  });
+
   it('keeps today\'s text for a round that is not a gate failure', async () => {
     await setup('blocking-review-findings', true);
     const p = assertFixHasNewCommitOrRequestRerun(store, ticketId, gitAt({ '/wt/web': 'w1' }), () => AT);

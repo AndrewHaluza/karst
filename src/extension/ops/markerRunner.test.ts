@@ -11,6 +11,7 @@ describe('createMarkerRunner', () => {
       '/bin/node',
       ['/ext/cli.js', 'stage', 'impl', 'pass', '--db', '/g/karst.db', '--manifest', '/r/karst.yml', '--ticket', 'KAR-7'],
       '/wt/t7',
+      { KARST_MARKER_VIA_BRIDGE: '1' },
     );
     expect(result).toEqual({ code: 0, stderr: '' });
   });
