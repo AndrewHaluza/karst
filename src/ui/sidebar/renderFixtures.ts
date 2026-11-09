@@ -387,14 +387,14 @@ function priorityState(): SidebarState {
     fixtureDraft({ id, title, status: 'pending', ticketId: null, dependsOn: [], ...(priority ? { priority } : {}) });
   return {
     ...emptyState(),
-    counts: fixtureCounts({ all: 5 }),
+    counts: fixtureCounts({ all: 4 }),
     sections: {
+      // Four rows keep the screenshot unchanged: only the tooltip and aria text carry the source.
       current: [
-        scoped(0, 'urgent'), // provider only
+        scoped(0, 'urgent'), // provider only (a cleared override falls back to this)
         scoped(1, 'high', 'you'), // user only
         scoped(2, null), // no priority
-        scoped(3, 'low'), // provider only (cleared override falls back to this)
-        scoped(4, 'high', 'you', 'low'), // user and provider differ: `High · set by you (ClickUp: Low)`
+        scoped(3, 'low', 'you', 'high'), // user and provider differ: `Low · set by you (ClickUp: High)`
       ],
       awaitingReview: [], recentlyDone: [], olderDone: [] },
     queue: EMPTY_QUEUE,

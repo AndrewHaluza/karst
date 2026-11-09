@@ -41,8 +41,7 @@ describe('ticket row priority chip', () => {
     expect(chips.map((c) => c.getAttribute('title'))).toEqual([
       'Urgent · ClickUp',
       'High · set by you',
-      'Low · ClickUp',
-      'High · set by you (ClickUp: Low)',
+      'Low · set by you (ClickUp: High)',
     ]);
     expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(chips.map((c) => c.getAttribute('title')));
   });

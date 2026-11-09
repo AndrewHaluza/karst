@@ -481,7 +481,7 @@ describe('sidebar planning tree keyboard', () => {
       const h = await renderSidebarApp();
       await withPriority(h);
       const rows = h.queryAll<HTMLElement>('.ticket');
-      expect(rows.map((r) => r.querySelector('.k-pri')?.textContent ?? null)).toEqual(['URG', 'HIGH', null, 'LOW', 'HIGH']);
+      expect(rows.map((r) => r.querySelector('.k-pri')?.textContent ?? null)).toEqual(['URG', 'HIGH', null, 'LOW']);
       await h.click('.ticket [data-menu]');
       await h.click('#ctxMenu [aria-haspopup="menu"]');
       await h.click('#ctxMenu [data-level="clear"]');
