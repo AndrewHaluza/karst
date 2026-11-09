@@ -86,13 +86,33 @@ failure is yours to avoid, not a harness outage.
 
 The run needs at least one probe run: a run with no new `summary.json` under `.karst/uat-scratch/out/` counts as observed nothing.
 
-Every observation MUST cite probe JSON as evidence: the run's `--out`
-path, the step index, and the field, e.g.
-`out/blocked/step-003.json snapshot.tickets[0].stage`. An observation
-without such a citation is not reported. Findings from code reading
+Every observation MUST cite evidence. A probe observation cites probe
+JSON: the run's `--out` path, the step index, and the field, e.g.
+`out/blocked/step-003.json snapshot.tickets[0].stage`. A direct-run
+observation (see Direct run) cites the command and its output. An
+observation without one of these citations is not reported. Findings from code reading
 alone stay banned. `medium` and above (the blocking severities,
 `arch:BLOCKSEV`) require a citation of an observed failure; a guess
 must not be reported above `info`.
+
+## Direct run: a change the probe cannot reach
+
+A CLI verb, a pure function or a store module is not reachable from the
+probe. Do not report SKIPPED for it. Run the ticket's code from source in
+the worktree:
+
+    npx tsx src/cli/main.ts <verb> --db <copy of the store>
+    npx tsx <short script that imports the changed module>
+
+- The worktree has no `node_modules`, but `npx` finds `tsx` in the main
+  checkout. Do not install anything: no `npm ci`, no `npm install`.
+- `$KARST_CLI` is the installed extension build. It does not contain this
+  ticket's change, so never use it to test the change.
+- Work on a copy of the store, never the live one. Write scripts under
+  `.karst/uat-scratch/`.
+- A direct run is not a gate. The rule against test runners (`vitest`,
+  `test:unit`, `test:integration`) stays.
+- Each observation from a direct run cites the command and its output.
 
 ## Harness unavailable is not a code verdict
 

@@ -60,8 +60,15 @@ describe('testerSkip helpers', () => {
   it('quotes the previous coverage title in the exact re-ask text', () => {
     expect(reaskPrefix('T')).toBe(
       'Your previous UAT run on this ticket observed nothing. You reported: "T".\n' +
-        "Before you report SKIPPED again, try to exercise the change another way: install what is missing in the worktree, or run the project's own test or UAT command (or run it inside a container). Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.",
+        'Before you report SKIPPED again, try to exercise the change another way: use the probe, or run the changed code from source with `npx tsx` (a CLI verb or a short script that imports the changed module). Do not run a test runner. Report SKIPPED again only if that also cannot exercise the change, and name the command you ran and its result.',
     );
+  });
+
+  it('names the direct run and never tells the tester to install', () => {
+    const text = reaskPrefix('T');
+    expect(text).toContain('npx tsx');
+    expect(text.toLowerCase()).not.toContain('install');
+    expect(text).not.toContain('own test or UAT command');
   });
 
   it('keeps the re-ask text project-neutral and caps a long quoted title to one line', () => {
