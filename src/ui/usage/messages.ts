@@ -47,6 +47,11 @@ export interface UsageActions {
 const SORT_IDS = new Set<string>(USAGE_SORTS);
 const TAB_IDS = new Set<string>(['spend', 'quota']);
 
+/** True for a tab id the panel knows; the guard for untrusted webview and restored state. */
+export function isUsageTab(value: unknown): value is UsageTab {
+  return typeof value === 'string' && TAB_IDS.has(value);
+}
+
 /** Narrow an untrusted webview message; null for anything malformed. */
 export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -55,9 +60,7 @@ export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
     case 'request-state':
       return { type: 'request-state' };
     case 'set-tab':
-      return typeof m.tab === 'string' && TAB_IDS.has(m.tab)
-        ? { type: 'set-tab', tab: m.tab as UsageTab }
-        : null;
+      return isUsageTab(m.tab) ? { type: 'set-tab', tab: m.tab } : null;
     case 'set-sort':
       return typeof m.sort === 'string' && SORT_IDS.has(m.sort)
         ? { type: 'set-sort', sort: m.sort as UsageSort }

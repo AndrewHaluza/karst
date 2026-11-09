@@ -269,4 +269,29 @@ describe('UsagePanelManager.adopt', () => {
     expect(mgr.adopt(restored(host.createPanel('y') as FakePanel))).toBe(false);
     expect(log).toEqual(['wrap', 'dispose']);
   });
+
+  describe('restored tab', () => {
+    const restoredOf = (panel: FakePanel) => ({ wrap: () => panel, dispose: () => undefined });
+    const adoptWith = (state: unknown): string => {
+      const host = fakeHost();
+      const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+      mgr.adopt(restoredOf(host.createPanel('x') as FakePanel), state);
+      return lastState(host.panels[0]!).tab;
+    };
+
+    it('pushes the restored quota tab as the first state', () => {
+      expect(adoptWith({ tab: 'quota' })).toBe('quota');
+    });
+
+    it.each([
+      ['missing state', undefined],
+      ['null state', null],
+      ['non-object state', 'quota'],
+      ['missing tab', {}],
+      ['malformed tab', { tab: 7 }],
+      ['unknown tab', { tab: 'nope' }],
+    ])('falls back to spend for %s', (_name, state) => {
+      expect(adoptWith(state)).toBe('spend');
+    });
+  });
 });

@@ -107,6 +107,12 @@ describe('makeRestorers', () => {
     expect(on.adopted[0]![4]).toBe(on.outcome);
   });
 
+  it('forwards the restored webview state to usage.adopt', async () => {
+    const { restorers, calls } = setup();
+    await restorers['karst.tokenUsage']!(raw, { tab: 'quota' });
+    expect(calls).toEqual([['usage.adopt', { name: 'usageHost', r: raw }, { tab: 'quota' }]]);
+  });
+
   it('adopts each singleton and the doctor with the raw panel', async () => {
     const { restorers, calls } = setup();
     await restorers['karst.settings']!(raw, null);
@@ -118,7 +124,7 @@ describe('makeRestorers', () => {
       ['settings.adopt', { name: 'settingsHost', r: raw }],
       ['gs.adopt', { name: 'gsHost', r: raw }],
       ['doctor', raw],
-      ['usage.adopt', { name: 'usageHost', r: raw }],
+      ['usage.adopt', { name: 'usageHost', r: raw }, null],
       ['resources.adopt', { name: 'resourcesHost', r: raw }],
     ]);
   });
