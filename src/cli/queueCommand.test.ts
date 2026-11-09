@@ -3,7 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { upsertProject } from '../store/projects.js';
 import { createTicket } from '../store/tickets.js';
 import { createPlanningSession } from '../store/planningSessions.js';
-import { insertProposal, discardProposal, markProposalAccepted } from '../store/planningProposals.js';
+import { insertProposal, discardProposal, markProposalAccepted, setProposalPriorityOverride } from '../store/planningProposals.js';
 import { addRelation } from '../store/ticketRelations.js';
 import { parseQueueArgs, collectQueue, runQueueCommand, QUEUE_TITLE_MAX } from './queueCommand.js';
 
@@ -44,10 +44,27 @@ describe('karst queue — rows', () => {
     const d2 = insertProposal(store, s2, { ...payload, title: 'second', dependsOn: [d1, 'T9'] });
     const t = atScope('K1');
     expect(collectQueue(store, { projectId })).toEqual([
-      { id: `D${d1}`, session: `P${s1}`, title: 'first', dependsOn: [] },
-      { id: `D${d2}`, session: `P${s2}`, title: 'second', dependsOn: [`D${d1}`, 'T9'] },
-      { id: `T${t}`, session: null, title: 'title K1', dependsOn: [] },
+      { id: `D${d1}`, session: `P${s1}`, title: 'first', priority: null, priorityReason: null, dependsOn: [] },
+      { id: `D${d2}`, session: `P${s2}`, title: 'second', priority: null, priorityReason: null, dependsOn: [`D${d1}`, 'T9'] },
+      { id: `T${t}`, session: null, title: 'title K1', priority: null, priorityReason: null, dependsOn: [] },
     ]);
+  });
+
+  it('carries a draft priority and reason, an override wins and drops the reason, and a ticket shows its own level', () => {
+    const planned = insertProposal(store, s1, { ...payload, title: 'planned', priority: 'urgent', priorityReason: 'data loss' });
+    const changed = insertProposal(store, s1, { ...payload, title: 'changed', priority: 'urgent', priorityReason: 'data loss' });
+    setProposalPriorityOverride(store, changed, 'low');
+    const t = atScope('K2', ", priority = 'high'");
+    const odd = atScope('K3', ", priority = 'Whenever'");
+    const rows = collectQueue(store, { projectId });
+    const by = (id: string) => rows.find((r) => r.id === id)!;
+    expect(by(`D${planned}`)).toMatchObject({ priority: 'urgent', priorityReason: 'data loss' });
+    expect(by(`D${changed}`)).toMatchObject({ priority: 'low', priorityReason: null });
+    expect(by(`T${t}`)).toMatchObject({ priority: 'high', priorityReason: null });
+    expect(by(`T${odd}`)).toMatchObject({ priority: null });
+    const text = runQueueCommand(store, { json: false }, { projectId });
+    expect(text).toContain(`D${planned}  P${s1}  urgent  planned  (data loss)`);
+    expect(text).toContain(`T${t}  high  title K2`);
   });
 
   it('leaves out discarded and accepted drafts, other projects, subtasks, archived and started tickets', () => {

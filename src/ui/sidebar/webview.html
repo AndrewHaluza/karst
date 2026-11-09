@@ -394,6 +394,16 @@
   .ctxitem{display:flex;width:100%;align-items:center;gap:var(--k-space-3);text-align:left;
     padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer;
     font:inherit;font-size:var(--k-text-base);background:transparent;color:var(--k-text);border:none}
+  .ctxsub-wrap{display:block}
+  .ctxsub{padding-left:var(--k-space-6)}
+  .ctxsub-arrow{margin-left:auto;display:inline-flex;color:var(--k-text-dim)}
+  .ctxsub [role="menuitemradio"]{position:relative;padding-left:var(--k-space-8)}
+  .ctxsub [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
+  /* Priority chip: the level word is the text. Urgent is the filled danger pair; high and low are tinted, because only danger/success own a filled foreground pair (UI-R29). */
+  .k-pri{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);line-height:var(--k-text-base);padding:0 var(--k-space-2);border-radius:var(--k-radius-sm);letter-spacing:.04em;white-space:nowrap;vertical-align:baseline}
+  .k-pri--urgent{color:var(--k-danger);background:color-mix(in srgb,var(--k-danger) 16%,transparent);border:var(--k-border-w) solid var(--k-danger)}
+  .k-pri--high{color:var(--k-warning);background:color-mix(in srgb,var(--k-warning) 16%,transparent);border:var(--k-border-w) solid var(--k-warning)}
+  .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
   .ctxdivider{height:var(--k-border-w);margin:var(--k-space-2) 0;background:var(--k-border)}
   .ctxitem:hover{background:var(--k-surface-hover)}
   .ctxitem:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}

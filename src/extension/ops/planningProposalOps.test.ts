@@ -58,8 +58,8 @@ describe('planningProposalOps', () => {
     };
   }
 
-  it('exposes only announce/review/discard — no read-only view and no direct create', () => {
-    expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'outcomeFor', 'prefillFor', 'review']);
+  it('exposes only announce/review/discard/setPriority — no read-only view and no direct create', () => {
+    expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'outcomeFor', 'prefillFor', 'review', 'setPriority']);
   });
 
   it('announce names the plan, the draft, the title and the sizes', async () => {
@@ -280,5 +280,31 @@ describe('planningProposalOps', () => {
     forms[0]!.onCreated(t.id);
     await flush();
     expect(errors).toEqual([`Couldn't link draft D${proposalId}: db down`]);
+  });
+
+  describe('setPriority', () => {
+    it('sets and clears the override on a pending draft of this project, then repaints', async () => {
+      await ops().setPriority(proposalId, 'urgent');
+      expect(getProposal(store, proposalId)!.priorityOverride).toBe('urgent');
+      await ops().setPriority(proposalId, null);
+      expect(getProposal(store, proposalId)!.priorityOverride).toBeNull();
+      expect(changes).toBe(2);
+      expect(errors).toEqual([]);
+    });
+
+    it('refuses an unknown id, a foreign project and a non-pending draft without writing', async () => {
+      await ops().setPriority(proposalId + 999, 'low');
+      await ops({ projectId: () => projectId + 1 }).setPriority(proposalId, 'low');
+      choice = 'discard';
+      await ops().announce(getProposal(store, proposalId)!);
+      await ops().setPriority(proposalId, 'low');
+      expect(getProposal(store, proposalId)!.priorityOverride).toBeNull();
+      expect(errors).toHaveLength(3);
+    });
+
+    it('refreshes the index of the draft session after a change', async () => {
+      await ops().setPriority(proposalId, 'high');
+      expect(refreshed).toEqual([sessionId]);
+    });
   });
 });

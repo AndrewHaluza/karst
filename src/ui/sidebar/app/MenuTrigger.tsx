@@ -9,6 +9,7 @@
 import type { TicketRow } from '../state.js';
 import { unlinkItems } from './CloudSessions.js';
 import { Icon } from './Icon.js';
+import { priorityMenuItem } from './priority.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
 
 export function ticketMenuItems(row: TicketRow): MenuItem[] {
@@ -19,6 +20,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
     row.paused
       ? { key: 'resume', spec: { act: 'unpause-ticket', id }, label: 'Resume execution', icon: 'player-play', title: 'Resume execution' }
       : { key: 'pause', spec: { act: 'pause-ticket', id }, label: 'Pause execution', icon: 'player-pause', title: 'Pause execution' },
+    ...(row.priorityEditable ? [priorityMenuItem({ ticket: id }, row.priority)] : []),
     { key: 'follow', spec: { act: 'create-follow-up', id }, label: 'Create follow-up', icon: 'corner-down-right', title: 'Create a follow-up ticket' },
     ...(row.canDetach
       ? [{ key: 'detach', spec: { act: 'detach-subtask', id }, label: 'Detach from parent…', icon: 'unlink', title: 'Detach this sub-task from its parent and rebase it onto the root base' }]

@@ -185,6 +185,7 @@ import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
 import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
+import { setTicketPriorityOp } from './extension/ops/ticketPriorityOps.js';
 import { listPendingProposals } from './store/planningProposals.js';
 import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
 import {
@@ -787,6 +788,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
+    planProposalPriority: (id, level) => proposalOps.setPriority(id, level),
+    setPriority: (id, level) => setTicketPriorityOp({ store: localStore, projectId: () => currentProject()?.id, notify, onChange: () => mgr.refresh() }, id, level),
     ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), promptUrl: () => vscode.window.showInputBox({ prompt: 'Cloud session URL', placeHolder: 'https://claude.ai/code/session_…', ignoreFocusOut: true }), refresh: () => mgr.refresh() }),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,

@@ -4,6 +4,7 @@ import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
+import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
@@ -36,6 +37,9 @@ export interface ProposalPayload {
   dependsOn?: ProposalDependency[];
   /** Design rules / prior work the draft cites (see `Proposal.constraints`). Absent when none. */
   constraints?: string[];
+  /** The planner's proposed priority and its one-line reason (agent content; see `Proposal`). */
+  priority?: PriorityLevel;
+  priorityReason?: string;
 }
 
 export type ProposalStatus = 'pending' | 'accepted' | 'discarded';
@@ -54,6 +58,11 @@ export interface PlanningProposal {
    * card so a broken ordering edge is not lost silently. Cleared on revise.
    */
   droppedDepends: number[];
+  /**
+   * The priority the user set in the sidebar (v111 `priority_override`). Host-owned, never agent
+   * input: it wins over `payload.priority` and a planner revise never clears it.
+   */
+  priorityOverride: PriorityLevel | null;
   /**
    * Host-owned check results (unknown design key/commit, sensitive code with no
    * rule). Stored under the reserved `hostWarnings` key of `payload_json` — no
@@ -78,6 +87,7 @@ interface ProposalRow {
   depends_on: string;
   depends_on_tickets?: string | null;
   depends_dropped: string;
+  priority_override?: string | null;
   status: ProposalStatus;
   ticket_id: number | null;
   source_uuid: string;
@@ -89,7 +99,7 @@ interface ProposalRow {
 }
 
 const COLUMNS =
-  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_on_tickets, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_on_tickets, p.depends_dropped, p.priority_override, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
 
 /** A JSON column holding a positive-integer id array, decoded defensively —
  *  a corrupt or non-array value reads as none. */
@@ -153,6 +163,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     ticketId: r.ticket_id,
     baseShas: parseBaseShas(r.base_shas),
     droppedDepends: parseIdArray(r.depends_dropped),
+    priorityOverride: asPriorityLevel(r.priority_override) ?? null,
     warnings,
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
@@ -324,6 +335,17 @@ export function updateProposalPayload(
       "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .run(body, shasJson, dependsOn, dependsOnTickets, sourceUuid, id);
+}
+
+/** The priority a draft shows and ships with: the user's override, else the planner's proposal, else none. */
+export function effectiveProposalPriority(p: Pick<PlanningProposal, 'payload' | 'priorityOverride'>): PriorityLevel | null {
+  return p.priorityOverride ?? p.payload.priority ?? null;
+}
+
+/** Set (or clear with `null`) the user's priority override on a PENDING draft. */
+export function setProposalPriorityOverride(store: Store, id: number, level: PriorityLevel | null): void {
+  requirePending(store, id);
+  store.db.prepare('UPDATE planning_proposals SET priority_override = ? WHERE id = ?').run(level, id);
 }
 
 /** Replace only a pending proposal's host warnings (a late async check result). */
@@ -572,12 +594,17 @@ export function markProposalAccepted(
     const origin = `Planned in ${formatId('plan', p.sessionId)} as ${formatId('draft', id)}.`;
     const section = (body: string): string =>
       `${PLANNING_BRIEF_HEADING}\n${body ? `${body}\n\n` : ''}${origin}`;
+    // The priority lands on the ticket only when the provider gave none; the reason line rides in
+    // the brief (no ticket column for it).
+    const priority = ticket.priority ? null : effectiveProposalPriority(p);
+    const priorityLine = priority ? `${priorityBriefLine(p, priority)}\n` : '';
     const brief = ticket.sourceFetchedAt === null
-      ? section(existing || summary)
-      : existing ? `${existing}\n\n${section(summary)}` : section(summary);
+      ? section(`${priorityLine}${existing || summary}`)
+      : existing ? `${existing}\n\n${section(`${priorityLine}${summary}`)}` : section(`${priorityLine}${summary}`);
     updateTicketFields(store, ticketId, {
       source: 'planning',
       brief,
+      ...(priority ? { priority } : {}),
       baseShas: p.baseShas,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
@@ -588,6 +615,13 @@ export function markProposalAccepted(
       )
       .run(ticketId, id);
   })();
+}
+
+/** One brief line naming the priority and where it came from. */
+function priorityBriefLine(p: Pick<PlanningProposal, 'payload' | 'priorityOverride'>, level: PriorityLevel): string {
+  if (p.priorityOverride) return `Priority: ${level} (set by you)`;
+  const reason = p.payload.priorityReason?.trim();
+  return reason ? `Priority: ${level} (planner: ${reason})` : `Priority: ${level} (planner)`;
 }
 
 /** Add `depId` to a proposal's `depends_dropped` (idempotent). */

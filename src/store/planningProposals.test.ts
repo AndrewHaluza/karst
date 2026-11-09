@@ -17,6 +17,8 @@ import {
   planningBriefSection,
   proposalPayloadEquals,
   setProposalWarnings,
+  setProposalPriorityOverride,
+  effectiveProposalPriority,
   validateProposalDependsOn,
   type ProposalPayload,
 } from './planningProposals.js';
@@ -153,6 +155,7 @@ describe('planning proposals', () => {
          id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
          payload_json TEXT NOT NULL, base_shas TEXT NOT NULL DEFAULT '{}', depends_on TEXT NOT NULL DEFAULT '[]',
          depends_on_tickets TEXT NOT NULL DEFAULT '[]', depends_dropped TEXT NOT NULL DEFAULT '[]',
+         priority_override TEXT,
          status TEXT NOT NULL DEFAULT 'pending',
          ticket_id INTEGER, source_uuid TEXT NOT NULL DEFAULT '',
          created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -540,6 +543,77 @@ describe('planning proposals', () => {
         .run(t2.id, d1.id);
       deleteTicket(store, d1.ticketId);
       expect(listRelations(store, t2.id)).toEqual([]);
+    });
+  });
+
+  describe('priority', () => {
+    const withPrio: ProposalPayload = { ...payload, priority: 'high', priorityReason: 'blocks login' };
+
+    it('keeps the planner priority in the payload and no override by default', () => {
+      const id = insertProposal(store, sessionId, withPrio);
+      const p = getProposal(store, id)!;
+      expect(p.payload).toMatchObject({ priority: 'high', priorityReason: 'blocks login' });
+      expect(p.priorityOverride).toBeNull();
+      expect(effectiveProposalPriority(p)).toBe('high');
+    });
+
+    it('an override wins, a clear falls back to the planner, and only a pending draft takes one', () => {
+      const id = insertProposal(store, sessionId, withPrio);
+      setProposalPriorityOverride(store, id, 'low');
+      expect(effectiveProposalPriority(getProposal(store, id)!)).toBe('low');
+      setProposalPriorityOverride(store, id, null);
+      expect(getProposal(store, id)!.priorityOverride).toBeNull();
+      expect(effectiveProposalPriority(getProposal(store, id)!)).toBe('high');
+      discardProposal(store, id);
+      expect(() => setProposalPriorityOverride(store, id, 'low')).toThrow();
+    });
+
+    it('a planner revise never clears the override', () => {
+      const id = insertProposal(store, sessionId, withPrio);
+      setProposalPriorityOverride(store, id, 'urgent');
+      updateProposalPayload(store, id, { ...withPrio, priority: 'low' });
+      expect(getProposal(store, id)).toMatchObject({ priorityOverride: 'urgent' });
+      expect(effectiveProposalPriority(getProposal(store, id)!)).toBe('urgent');
+    });
+
+    it('a draft with neither reads as none', () => {
+      const id = insertProposal(store, sessionId, payload);
+      expect(effectiveProposalPriority(getProposal(store, id)!)).toBeNull();
+    });
+
+    it('accept writes the effective priority to a ticket without one and puts the reason in the brief', () => {
+      const id = insertProposal(store, sessionId, withPrio);
+      setProposalPriorityOverride(store, id, 'urgent');
+      const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+      markProposalAccepted(store, id, t.id);
+      const after = getTicket(store, t.id);
+      expect(after.priority).toBe('urgent');
+      expect(after.brief).toContain('Priority: urgent (set by you)');
+    });
+
+    it('accept without an override names the planner reason in the brief', () => {
+      const id = insertProposal(store, sessionId, withPrio);
+      const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+      markProposalAccepted(store, id, t.id);
+      expect(getTicket(store, t.id).priority).toBe('high');
+      expect(getTicket(store, t.id).brief).toContain('Priority: high (planner: blocks login)');
+    });
+
+    it('accept keeps a provider priority and names a user override as the reason source', () => {
+      const id = insertProposal(store, sessionId, payload);
+      setProposalPriorityOverride(store, id, 'low');
+      const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+      updateTicketFields(store, t.id, { priority: 'high' });
+      markProposalAccepted(store, id, t.id);
+      expect(getTicket(store, t.id).priority).toBe('high');
+      expect(getTicket(store, t.id).brief).not.toContain('Priority:');
+    });
+
+    it('accept with no priority leaves tickets.priority NULL', () => {
+      const id = insertProposal(store, sessionId, payload);
+      const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+      markProposalAccepted(store, id, t.id);
+      expect(getTicket(store, t.id).priority).toBeNull();
     });
   });
 });

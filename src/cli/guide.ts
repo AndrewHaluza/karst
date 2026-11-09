@@ -139,7 +139,12 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     ticket and a cycle. You may only revise your OWN drafts: add the edge
     from your draft to the other one, never the reverse. The ordering
     becomes blocked-by links when those drafts become tickets. Do NOT describe
-    ordering in prose. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
+    ordering in prose. Add \`"priority":"urgent|high|normal|low"\` and a one-line
+    \`"priorityReason":"…"\` (≤200 chars, one line; a reason needs a priority) to every
+    draft: the user sees both and may change the level. Use \`urgent\` ONLY for a
+    broken workflow or data loss; \`normal\` is the default, and a missing
+    priority reads as \`normal\`. A revise keeps a level the user already
+    set. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
     \`@arch:KEY\`, a commit hash, a \`D<n>\`/\`T<n>\` ref, or free text) to cite the design rules
     and prior work the draft builds on; the user sees them on review, they are
     appended to the ticket brief, and the host warns on unknown keys/commits. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
@@ -151,7 +156,7 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     drafts to the user as \`#N\`.
  - \`queue [--json]\` — read-only. Lists the project's pending drafts (every
     planning session) and its top-level tickets waiting at \`scope\`: id
-    (\`D<n>\`/\`T<n>\`), session (\`P<n>\`, drafts only), title (90 chars), and
+    (\`D<n>\`/\`T<n>\`), session (\`P<n>\`, drafts only), \`priority\` (a draft's reason as \`priorityReason\` in \`--json\`), title (90 chars), and
     what each one waits on (\`dependsOn\` / open blockers). Use it to find the
     ids to put in a draft's \`dependsOn\`. A planning session reads it through
     \`KARST_DB_READONLY\`, scoped by \`KARST_PROJECT\`.

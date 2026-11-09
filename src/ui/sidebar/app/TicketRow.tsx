@@ -13,6 +13,7 @@ import { CloudLinks } from './CloudSessions.js';
 import { Icon, KarstMark } from './Icon.js';
 import { IconAct } from './IconAct.js';
 import { MenuTrigger } from './MenuTrigger.js';
+import { PriorityChip } from './PriorityChip.js';
 import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
@@ -119,6 +120,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         </span>
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
+      {row.priorityEditable ? <PriorityChip level={row.priority} source="ticket" /> : null}
       <span className="name">{row.label}</span>
       {blockedBy.map((refView, i) => (
         <TicketRefChip

@@ -7,11 +7,12 @@
  */
 import { useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
 import type { PlanningRow } from '../state.js';
+import { priorityMenuItem } from './priority.js';
 import { Icon } from './Icon.js';
 import { PlanControl, PlanDraft } from './PlanDraft.js';
-import { acceptedOf, actionsForNode, planIsOpen, planStatus, searchRevealsAccepted, sessionActions, shownDrafts } from './planModel.js';
+import { acceptedOf, actionsForNode, draftOf, planIsOpen, planStatus, searchRevealsAccepted, sessionActions, shownDrafts } from './planModel.js';
 import { ds } from './runtime.js';
-import { useSidebar } from './SidebarContext.js';
+import { useSidebar, type MenuItem } from './SidebarContext.js';
 
 const itemsOf = (root: HTMLElement): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('[role="treeitem"]')];
 const ownRow = (item: HTMLElement): Element | null => item.querySelector(':scope > .pt-row');
@@ -122,7 +123,10 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
   // The context menu lists every action of the item, in row order, reusing the shared context window.
   const openPlanMenu = (item: HTMLElement): void => {
     const node = item.dataset.node ?? '';
-    const items = actionsForNode(node, plans).map((a) => ({ key: a.key, spec: a.spec, label: a.label, icon: a.icon }));
+    const items: MenuItem[] = actionsForNode(node, plans).map((a) => ({ key: a.key, spec: a.spec, label: a.label, icon: a.icon }));
+    const draft = node.startsWith('d') ? draftOf(Number(node.slice(1)), plans) : undefined;
+    // Only a pending draft takes a priority; an accepted one is a ticket now.
+    if (draft?.status === 'pending') items.splice(items.length - 1, 0, priorityMenuItem({ proposal: Number(draft.id) }, draft.priority?.level ?? null));
     if (items.length) openMenu(item, node, items);
   };
 
