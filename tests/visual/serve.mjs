@@ -7,11 +7,21 @@ import {
   WEBVIEW_BUNDLE_ENTRIES,
   buildWebviewBundles,
 } from '../../scripts/build-webview-send.mjs';
+import { FIXTURE_TIMEOUT_MS, formatStepTiming } from './serveLimits.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PORT = 4317;
 const ROOT = join(__dirname, '.tmp');
+const START = performance.now();
+let stepStart = START;
+
+// Prints the duration of the step that just ended, so a gate log shows which step was slow.
+function logStep(step) {
+  const now = performance.now();
+  console.log(formatStepTiming(step, now - stepStart));
+  stepStart = now;
+}
 
 // The webview sender bundles (esbuild output of *.webviewSend.entry.ts /
 // app/main.tsx) are gitignored build products.  vitest's globalSetup rebuilds
@@ -28,6 +38,7 @@ console.log(
 );
 try {
   await buildWebviewBundles();
+  logStep('bundles');
 } catch (err) {
   console.error('Failed to build webview bundles:', err);
   process.exit(1);
@@ -43,8 +54,9 @@ try {
     stdio: 'inherit',
     // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
     env: { ...process.env, TMPDIR: '/tmp' },
-    timeout: 60_000,
+    timeout: FIXTURE_TIMEOUT_MS,
   });
+  logStep('fixtures');
 } catch (err) {
   console.error('Failed to generate fixtures:', err);
   process.exit(1);
@@ -99,5 +111,6 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
+  logStep('listen');
   console.log(`visual sweep server on http://127.0.0.1:${PORT}`);
 });
