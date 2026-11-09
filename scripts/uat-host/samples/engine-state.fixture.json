@@ -9,7 +9,7 @@
       ]
     },
     "conflicts": {
-      "policy": "ask",
+      "policy": "auto",
       "maxRounds": 1
     }
   },
@@ -42,8 +42,10 @@
         },
         {
           "stageKey": "ship",
-          "status": "running",
-          "attempt": 1
+          "status": "passed",
+          "attempt": 1,
+          "blockedKind": "awaiting-merge",
+          "blockedReason": "awaiting merge"
         }
       ],
       "rows": {
