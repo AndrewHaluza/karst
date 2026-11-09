@@ -140,7 +140,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
           const verb = pruned.length === 1 ? 'no longer waits' : 'no longer wait';
           deps.notify.warn(`Draft ${formatId('draft', id)} was discarded; ${list} ${verb} on it.`);
         }
-        refresh(p.sessionId);
+        // A pruned dependent may sit in another session: refresh each session once.
+        const sessions = new Set([p.sessionId]);
+        for (const n of pruned) {
+          const other = getProposal(deps.store, n);
+          if (other) sessions.add(other.sessionId);
+        }
+        for (const sessionId of sessions) refresh(sessionId);
       });
     },
   };
