@@ -19,6 +19,7 @@ describe('reconcileRequirementFindings', () => {
           { repo: 'web', findings: [] },
         ],
         ['api', 'web'],
+        true,
       ),
     ).toEqual([]);
   });
@@ -29,6 +30,7 @@ describe('reconcileRequirementFindings', () => {
         { repo: 'web', findings: [conformance('web', 'Scenario 2', 'medium')] },
       ],
       ['web'],
+      true,
     );
     expect(out).toHaveLength(1);
     expect(out[0]!.severity).toBe('high');
@@ -41,13 +43,14 @@ describe('reconcileRequirementFindings', () => {
         { repo: 'api', findings: [conformance('api', ' scenario  2 ')] },
       ],
       ['api', 'web'],
+      true,
     );
     expect(out).toHaveLength(1);
     expect(out[0]!.repo).toBe('api');
   });
   it('single voter → kept', () => {
     const a = conformance('api', 'S2');
-    expect(reconcileRequirementFindings([{ repo: 'api', findings: [a] }], ['api'])).toEqual([a]);
+    expect(reconcileRequirementFindings([{ repo: 'api', findings: [a] }], ['api'], true)).toEqual([a]);
   });
   it('a non-voter never cancels a gap another voter reported', () => {
     expect(
@@ -57,6 +60,7 @@ describe('reconcileRequirementFindings', () => {
           { repo: 'web', findings: [] },
         ],
         ['api'],
+        true,
       ),
     ).toEqual([conformance('api', 'S1')]);
   });
@@ -70,6 +74,7 @@ describe('reconcileRequirementFindings', () => {
           { repo: 'web', findings: [plain] },
         ],
         ['api', 'web'],
+        true,
       ),
     ).toEqual([fileAnchored, plain]);
   });
@@ -78,8 +83,53 @@ describe('reconcileRequirementFindings', () => {
     const out = reconcileRequirementFindings(
       [{ repo: 'api', findings: [note, conformance('api', 'S1', 'low')] }],
       ['api'],
+      true,
     );
     expect(out.map((f) => f.severity)).toEqual(['low', 'high']);
+  });
+});
+
+describe('reconcileRequirementFindings, description-only review (no forced high)', () => {
+  it.each(['low', 'info'])('keeps the reviewer severity %s', (sev) => {
+    const out = reconcileRequirementFindings(
+      [{ repo: 'api', findings: [conformance('api', 'PR body timing', sev)] }],
+      ['api'],
+      false,
+    );
+    expect(out.map((f) => f.severity)).toEqual([sev]);
+  });
+  it('intent or spec mode still forces high on a low finding', () => {
+    const out = reconcileRequirementFindings(
+      [{ repo: 'api', findings: [conformance('api', 'S1', 'low')] }],
+      ['api'],
+      true,
+    );
+    expect(out.map((f) => f.severity)).toEqual(['high']);
+  });
+  it('multi-repo: the voter rule still drops a gap not every voter reported', () => {
+    expect(
+      reconcileRequirementFindings(
+        [
+          { repo: 'api', findings: [conformance('api', 'D1', 'low')] },
+          { repo: 'web', findings: [] },
+        ],
+        ['api', 'web'],
+        false,
+      ),
+    ).toEqual([]);
+  });
+  it('multi-repo: a gap every voter reported keeps its severity and the first sorted repo', () => {
+    const out = reconcileRequirementFindings(
+      [
+        { repo: 'web', findings: [conformance('web', 'D1', 'low')] },
+        { repo: 'api', findings: [conformance('api', 'D1', 'low')] },
+      ],
+      ['api', 'web'],
+      false,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.repo).toBe('api');
+    expect(out[0]!.severity).toBe('low');
   });
 });
 

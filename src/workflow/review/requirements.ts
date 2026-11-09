@@ -23,13 +23,16 @@ export function isRequirementFinding(f: Finding): boolean {
  * its silence is not a vote that the requirement was delivered — a non-voter
  * never cancels a gap (dropping a real gap on a non-answer is the unsafe
  * direction). With <=1 voter there is nothing to cancel against, so every
- * reported requirement is kept. A kept requirement is forced "high" (a missing
- * intent/spec requirement is always high) and attributed to the first sorted
+ * reported requirement is kept. A kept requirement is forced "high" only when
+ * `forceHigh` is set (an intent or spec rule applied: a missing intent/spec
+ * requirement is always high); a description-only review keeps the reviewer's
+ * own severity. A kept requirement is attributed to the first sorted
  * repo AMONG THOSE THAT REPORTED it. Other findings pass through untouched.
  */
 export function reconcileRequirementFindings(
   perTarget: readonly { repo: string; findings: readonly Finding[] }[],
   voters: readonly string[],
+  forceHigh: boolean,
 ): Finding[] {
   const reportedBy = new Map<string, Set<string>>();
   for (const t of perTarget) {
@@ -57,7 +60,8 @@ export function reconcileRequirementFindings(
       if (!kept.has(key) || emitted.has(key)) continue;
       emitted.add(key);
       const reporters = reportedBy.get(key);
-      out.push({ ...f, severity: 'high', repo: reporters ? [...reporters].sort()[0]! : t.repo });
+      const repo = reporters ? [...reporters].sort()[0]! : t.repo;
+      out.push(forceHigh ? { ...f, severity: 'high', repo } : { ...f, repo });
     }
   }
   return out;

@@ -11,6 +11,7 @@ import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import type { GitRunner } from '../../integrations/git.js';
+import type { ReviewArtifacts } from './conformance.js';
 import * as reviewSnapshot from '../reviewSnapshot.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
@@ -1313,6 +1314,34 @@ describe('cross-repo requirement reconcile (lane level)', () => {
   });
   it('two readable voters both report it → persisted once', async () => {
     expect(await run({ '/wt/api': S1, '/wt/web': S1 }, both)).toEqual(['S1']);
+  });
+});
+
+describe('requirement finding severity by review mode (lane level)', () => {
+  const target = { repo: 'api', worktreePath: '/wt/api', baseRef: 'main', branch: 'karst/api' };
+  const LOW = JSON.stringify([
+    { severity: 'low', title: 'PR body numbers missing', detail: '', requirement: 'PR body timing' },
+  ]);
+  const laneRun = async (artifacts: ReviewArtifacts): Promise<string[]> => {
+    const persisted: { severity: string; requirement?: string | null }[] = [];
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(LOW),
+      targets: [target],
+      ticketId: 1,
+      artifacts,
+      persistFindings: (f) => persisted.push(...f),
+    });
+    return persisted.filter((f) => f.requirement).map((f) => f.severity);
+  };
+  it('a description-only review keeps the reviewer severity', async () => {
+    expect(await laneRun({ intent: null, spec: null, plan: null, description: 'Add timing numbers to the PR body.' })).toEqual(['low']);
+  });
+  it('an intent review forces high', async () => {
+    expect(await laneRun({ intent: 'Scenario 1: timing', spec: null, plan: null })).toEqual(['high']);
+  });
+  it('a spec review forces high', async () => {
+    expect(await laneRun({ intent: null, spec: 'REQ-1', plan: null, description: 'd' })).toEqual(['high']);
   });
 });
 

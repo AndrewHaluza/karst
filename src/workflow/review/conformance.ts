@@ -60,6 +60,14 @@ export function isIntentSpecVerified(d: {
   );
 }
 
+/**
+ * Does the review carry an ALWAYS "high" rule (an intent or a spec)? One
+ * condition for the prompt (`buildConformanceBlock`) and the host reconcile.
+ */
+export function hasForcedHighRule(a: ReviewArtifacts | undefined): boolean {
+  return !!a?.intent || !!a?.spec;
+}
+
 export function buildConformanceBlock(a: ReviewArtifacts, repo?: string): string[] {
   const description = !a.intent && a.description?.trim() ? a.description : null;
   if (!a.intent && !a.spec && !a.plan && !description) return [];
