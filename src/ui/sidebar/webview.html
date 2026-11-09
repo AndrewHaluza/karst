@@ -204,10 +204,13 @@
   .g-green{color:var(--k-passed)}
   .g-gray{color:var(--k-pending)}
 
-  /* `auto` basis (not 0): the wrap line reserves the title's content width
-     before it hands the rest to the blocker chips, so a two-chip row wraps the
-     chips instead of crushing the title (UI-R43, UI-R44). */
-  .name{flex:1 1 auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
+  /* An ordinary row keeps `flex:1` (basis 0), so the stage chip stays on the
+     title's line. Only a row that actually carries reference chips swaps to an
+     `auto` basis: the wrap line then reserves the title's content width before
+     it hands the rest to the chips, so two chips wrap instead of crushing the
+     title (UI-R43, UI-R44). */
+  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
+  .rowopen.has-refs .name{flex:1 1 auto}
   /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
      width. Capped at a share of the row with its own ellipsis — a long parent
      key must trim itself (full key stays in the tooltip), never starve the

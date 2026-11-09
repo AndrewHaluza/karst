@@ -66,9 +66,13 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
     const ticketId = t.id;
     const ticketLabel = formatId('ticket', ticketId);
     const idLabel = draftLabel !== null ? `${draftLabel}→${ticketLabel}` : ticketLabel;
-    const finished = isFinishedStage(t.stageCurrent) || t.archivedAt != null;
+    const finishedStage = isFinishedStage(t.stageCurrent);
+    const finished = finishedStage || t.archivedAt != null;
     const kind: TicketRefKind = finished ? 'finished' : 'ticket';
-    const stage = opts.stage ?? (finished ? (t.stageCurrent === 'closed' ? 'closed' : 'done') : (t.stageCurrent ?? null));
+    // The word and the dot must describe the same state: never relabel an
+    // archived in-progress ticket "done" while `ticketGlyph` keeps painting
+    // its live stage colour. Only the real stage is shown.
+    const stage = opts.stage ?? (t.stageCurrent ?? null);
     const glyph: Glyph = opts.glyph ?? ticketGlyph(t);
     const key = draftLabel !== null ? null : (t.key ?? null);
     const displayTextParts: TicketRefDisplayTextParts = {
@@ -80,11 +84,11 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
     if (opts.accessibleName) {
       accessibleName = opts.accessibleName;
     } else if (draftLabel !== null) {
-      accessibleName = finished
+      accessibleName = finishedStage
         ? `${draftLabel}, ticket ${ticketLabel} ${stage}`
         : `${draftLabel}, ticket ${ticketLabel} in ${stage || 'progress'}`;
     } else {
-      accessibleName = finished
+      accessibleName = finishedStage
         ? `Ticket ${ticketLabel} ${stage}`
         : `Ticket ${ticketLabel} in ${stage || 'progress'}`;
     }

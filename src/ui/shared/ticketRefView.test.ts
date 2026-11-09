@@ -139,6 +139,27 @@ describe('ticketRefView', () => {
     expect(formatTicketRefText(view)).toBe('● D445→T970 · done');
   });
 
+  it('shows an archived in-progress ticket at its real stage with the matching dot colour', () => {
+    const t = mockTicket({ id: 972, key: 'FEAT-202', stageCurrent: 'impl', archivedAt: '2026-11-01T00:00:00.000Z' });
+    const view = ticketRefView(t);
+
+    expect(view.kind).toBe('finished');
+    expect(view.stage).toBe('impl');
+    expect(view.glyph).toBe('blue');
+    expect(view.displayTextParts.stage).toBe('impl');
+    expect(view.accessibleName).toBe('Ticket T972 in impl');
+  });
+
+  it('shows an archived done ticket as done with the finished dot', () => {
+    const t = mockTicket({ id: 973, key: 'FEAT-203', stageCurrent: 'done', archivedAt: '2026-11-01T00:00:00.000Z' });
+    const view = ticketRefView(t);
+
+    expect(view.kind).toBe('finished');
+    expect(view.stage).toBe('done');
+    expect(view.glyph).toBe('green');
+    expect(view.accessibleName).toBe('Ticket T973 done');
+  });
+
   it('builds view for a dangling provider ref (kind: ref)', () => {
     const view = ticketRefView({ ref: 'ABC-123' });
 

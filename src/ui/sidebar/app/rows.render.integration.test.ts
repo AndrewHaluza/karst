@@ -94,7 +94,20 @@ describe('ticket row', () => {
     const css = h.document.querySelector('style')!.textContent!;
     expect(css).toMatch(/\.rowopen\{[^}]*flex-wrap:wrap/);
     expect(css).toMatch(/\.rowopen \.k-ticket-ref\{[^}]*flex:0 0 auto/);
+    expect(css).toMatch(/\.name\{[^}]*flex:1;/);
+    expect(css).toMatch(/\.rowopen\.has-refs \.name\{[^}]*flex:1 1 auto/);
     expect(h.queryAll('.ticket .k-ticket-ref')).toHaveLength(2);
+  });
+
+  it('marks only rows that carry reference chips, so an ordinary row keeps its stage on the title line', async () => {
+    const h = await mount(
+      stateWith({
+        current: [row(1), row(2, { blockedBy: [ticketRefView({ ref: 'A-1' })] })],
+      }),
+    );
+    const rows = h.queryAll('.ticket .rowopen');
+    expect(rows[0]!.classList.contains('has-refs')).toBe(false);
+    expect(rows[1]!.classList.contains('has-refs')).toBe(true);
   });
 
   it('renders a proposal-only blocker as plain text inside the row target, never a nested button (UI-R09)', async () => {

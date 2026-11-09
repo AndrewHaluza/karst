@@ -112,6 +112,41 @@ describe('TicketRefChip', () => {
     expect(chip.textContent).toBe('Blocked by BLOCK-7');
   });
 
+  describe('pre-upgrade planning dependencies', () => {
+    it('keeps the draft id and the draft-card action for a pending dep', () => {
+      const legacy = {
+        id: 94, label: 'D94', kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray',
+      } as unknown as ReturnType<typeof ticketRefView>;
+      const { container } = render(<TicketRefChip refView={legacy} linkTarget="chip" dataAct="open-dashboard" />);
+
+      const btn = container.querySelector('button.k-ticket-ref')!;
+      expect(btn.getAttribute('data-dep-draft')).toBe('94');
+      expect(btn.textContent).toBe('D94');
+    });
+
+    it('keeps the D<n>→T<n> id for an accepted dep', () => {
+      const legacy = {
+        id: 92, label: 'D92', kind: 'ticket', ticketId: 605, ticketLabel: 'T605', stage: 'impl', glyph: 'blue',
+      } as unknown as ReturnType<typeof ticketRefView>;
+      const { container } = render(<TicketRefChip refView={legacy} linkTarget="chip" dataAct="open-dashboard" />);
+
+      const btn = container.querySelector('button.k-ticket-ref')!;
+      expect(btn.textContent).toBe('D92→T605 · impl');
+      expect(btn.getAttribute('data-id')).toBe('605');
+    });
+
+    it('restores a done accepted dep with the done word', () => {
+      const legacy = {
+        id: 91, label: 'D91', kind: 'done', ticketId: 604, ticketLabel: 'T604', stage: null, glyph: 'green',
+      } as unknown as ReturnType<typeof ticketRefView>;
+      const { container } = render(<TicketRefChip refView={legacy} linkTarget="chip" dataAct="open-dashboard" />);
+
+      const btn = container.querySelector('button.k-ticket-ref')!;
+      expect(btn.textContent).toBe('D91→T604 · done');
+      expect(btn.getAttribute('aria-label')).toBe('D91, ticket T604 done');
+    });
+  });
+
   describe('parity between React and HTML string output for each kind (Requirement D)', () => {
     const cases: Array<{ kind: TicketRefKind; name: string; view: ReturnType<typeof ticketRefView> }> = [
       {

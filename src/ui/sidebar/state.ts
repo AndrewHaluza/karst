@@ -304,32 +304,47 @@ export function buildSidebarState(
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
 
+  // Tickets already read for this build. An open blocker's target is never
+  // archived (OPEN_BLOCKER_SQL), so the active list resolves it without a
+  // per-blocker read — and the result is cached across facet passes.
+  const ticketById = new Map<number, TicketWithStages>();
+  for (const t of [...active, ...archived]) ticketById.set(t.id, t);
+  const blockerViews = new Map<number, TicketRefView[]>();
+  const blockersFor = (ticketIds: readonly number[]): Map<number, TicketRefView[]> => {
+    const missing = ticketIds.filter((id) => !blockerViews.has(id));
+    if (missing.length > 0) {
+      for (const [tid, list] of listOpenBlockersFor(store, missing)) {
+        blockerViews.set(
+          tid,
+          list.map((b) => {
+            if (b.targetProposalId !== null) {
+              return ticketRefView({ draftId: b.targetProposalId });
+            }
+            if (b.targetTicketId !== null) {
+              const target = ticketById.get(b.targetTicketId);
+              if (target) return ticketRefView({ ticket: target });
+              try {
+                return ticketRefView({ ticket: getTicket(store, b.targetTicketId) });
+              } catch {
+                return ticketRefView({ ref: b.label });
+              }
+            }
+            return ticketRefView({ ref: b.label });
+          }),
+        );
+      }
+    }
+    const result = new Map<number, TicketRefView[]>();
+    for (const id of ticketIds) result.set(id, blockerViews.get(id) ?? []);
+    return result;
+  };
+
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
     const agentDefaults = opts.manifest
       ? (ticketPreset: string | null, ticketProvider: AgentProvider | null) =>
           resolvePresetDefaults(opts.manifest!, 'implementation', { ticketPreset, explicitProvider: ticketProvider })
       : undefined;
-    const rawBlockers = listOpenBlockersFor(store, tickets.map((t) => t.id));
-    const blockersByTicket = new Map<number, TicketRefView[]>();
-    for (const [tid, list] of rawBlockers) {
-      blockersByTicket.set(
-        tid,
-        list.map((b) => {
-          if (b.targetProposalId !== null) {
-            return ticketRefView({ draftId: b.targetProposalId });
-          }
-          if (b.targetTicketId !== null) {
-            try {
-              const target = getTicket(store, b.targetTicketId);
-              return ticketRefView({ ticket: target });
-            } catch {
-              return ticketRefView({ ref: b.label });
-            }
-          }
-          return ticketRefView({ ref: b.label });
-        }),
-      );
-    }
+    const blockersByTicket = blockersFor(tickets.map((t) => t.id));
     const nodes = buildTicketNodes(
       tickets,
       opts.labelTemplate,

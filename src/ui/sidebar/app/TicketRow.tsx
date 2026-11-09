@@ -99,6 +99,9 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
   const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
   const blockedBy = row.blockedBy || [];
+  // Only a row that actually carries reference chips may reserve the title's
+  // full width; an ordinary row keeps the stage on its first line.
+  const refsClass = blockedBy.length ? ' has-refs' : '';
 
   // Decorative content of the row's main click target — never another interactive
   // control (UI-R09). Completed rows swap the karst mark + status dot for a
@@ -159,9 +162,9 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         </button>
         {/* Archived tickets have no dashboard action, so the wrapper is a plain, non-interactive span. */}
         {row.archived ? (
-          <span className="rowopen">{content}</span>
+          <span className={`rowopen${refsClass}`}>{content}</span>
         ) : (
-          <ActButton spec={{ open: row.ticketId }} className="k-btn k-btn--link k-btn--row rowopen" title="Open ticket dashboard">
+          <ActButton spec={{ open: row.ticketId }} className={`k-btn k-btn--link k-btn--row rowopen${refsClass}`} title="Open ticket dashboard">
             {content}
           </ActButton>
         )}

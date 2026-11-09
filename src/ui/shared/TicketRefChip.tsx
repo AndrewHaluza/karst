@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
+import type { Glyph } from '../../model/glyph.js';
 import { ticketRefView, type TicketRefView } from './ticketRefView.js';
 
 export interface TicketRefChipProps {
@@ -31,6 +32,29 @@ export interface TicketRefChipProps {
 }
 
 /**
+ * A planning dependency persisted by the pre-upgrade build: `{ id, label, kind,
+ * ticketId, ticketLabel, stage, glyph }`. The old chip read the draft id from
+ * `label`; passing the object to `ticketRefView` as an input would render the
+ * bare ticket label (wrong id) and lose the draft action, so rebuild the view
+ * from the fields it carries.
+ */
+function legacyDepView(raw: Record<string, unknown>): TicketRefView | null {
+  if (typeof raw.id !== 'number' || typeof raw.label !== 'string' || !('kind' in raw)) return null;
+  const draftId = raw.id;
+  const draftLabel = raw.label;
+  if (typeof raw.ticketId !== 'number') return ticketRefView({ draftId, draftLabel });
+  const ticketLabel = typeof raw.ticketLabel === 'string' ? raw.ticketLabel : null;
+  const glyph = typeof raw.glyph === 'string' ? (raw.glyph as Glyph) : null;
+  let stage = typeof raw.stage === 'string' ? raw.stage : null;
+  // A `done` dep stored no stage; its dot carried the finished colour.
+  if (raw.kind === 'done') stage = glyph === 'gray' ? 'closed' : 'done';
+  const accessibleName = stage && (stage === 'done' || stage === 'closed')
+    ? `${draftLabel}, ticket ${ticketLabel ?? raw.ticketId} ${stage}`
+    : `${draftLabel}, ticket ${ticketLabel ?? raw.ticketId} in ${stage || 'progress'}`;
+  return ticketRefView({ ticketId: raw.ticketId, draftId, draftLabel, idLabel: ticketLabel, stage, glyph, accessibleName });
+}
+
+/**
  * Coerce the runtime value to a view. A restored pre-upgrade snapshot stored
  * blockers as plain strings, and `in` throws on a primitive, so guard the type
  * before probing it (a snapshot must never crash a render).
@@ -38,7 +62,8 @@ export interface TicketRefChipProps {
 function toRefView(raw: TicketRefChipProps['refView']): TicketRefView | null {
   if (typeof raw === 'string') return ticketRefView({ ref: raw });
   if (typeof raw !== 'object' || raw === null) return null;
-  return 'displayTextParts' in raw ? raw : ticketRefView(raw);
+  if ('displayTextParts' in raw) return raw;
+  return legacyDepView(raw) ?? ticketRefView(raw);
 }
 
 /**
@@ -75,7 +100,7 @@ export function TicketRefChip({
       ? { 'data-dep-draft': Number(refView.draftId) }
       : { 'data-act': dataAct, 'data-id': Number(refView.ticketId) };
     return (
-      <button type="button" className={cls} tabIndex={-1} aria-label={refView.accessibleName} title={tooltip} onClick={onClick} {...dataProps}>
+      <button type="button" className={cls} tabIndex={-1} {...dataProps} aria-label={refView.accessibleName} title={tooltip} onClick={onClick}>
         {prefix ? <span>{prefix}</span> : null}
         {dot}
         <span>{`${idText}${keyPart}${stagePart}`}</span>
