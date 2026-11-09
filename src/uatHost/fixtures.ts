@@ -131,6 +131,9 @@ export function taskManifestText(task: TaskRepo, provider = 'claude'): string {
   return [...lines, ''].join('\n');
 }
 
+/** A command gate that always passes: the harness checks the UI and the fake core, not a real test run. */
+const NOOP_GATE = JSON.stringify({ name: 'noop', kind: 'command', command: 'node', args: ['-e', '0'] });
+
 export function manifestText(repoPath: string, provider = 'claude'): string {
   return [
     'host: 127.0.0.1',
@@ -142,6 +145,8 @@ export function manifestText(repoPath: string, provider = 'claude'): string {
     `    repoPath: ${repoPath}`,
     '    hasMigrations: false',
     '    signals: [app]',
+    // The scratch repo has no package.json, so without a declared gate review and uat block at `nothing-to-run`.
+    ...['review', 'uat'].flatMap((stage) => [`${stage}:`, '  gates:', `    - ${NOOP_GATE}`]),
     '',
   ].join('\n');
 }
