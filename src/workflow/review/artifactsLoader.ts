@@ -17,7 +17,7 @@ export interface ReviewArtifactsLoaderDeps {
   checksOf: (ticketId: number) => ReadonlySet<ChainEdge>;
   /** Null when the ticket has no artifact store (no project). */
   /** The operator manifest (outside the git diff); null when none is known. Absent → no manifest section. */
-  manifestOf?: (ticketId: number) => OperatorManifestInfo | null;
+  manifestOf?: (ticketId: number) => Promise<OperatorManifestInfo | null> | OperatorManifestInfo | null;
   storeFor: (ticketId: number) => Pick<ArtifactStore, 'listArtifacts' | 'history' | 'show'> | null;
 }
 
@@ -29,7 +29,7 @@ export function makeReviewArtifactsLoader(
     const entries = store ? await loadChainEntries(store, ticketId) : [];
     const intent = deps.intentOf(ticketId);
     const description = intent?.trim() ? null : (deps.descriptionOf?.(ticketId)?.trim() ?? null);
-    const operatorManifest = deps.manifestOf?.(ticketId);
+    const operatorManifest = await deps.manifestOf?.(ticketId);
     const manifestPart = operatorManifest?.changed ? { operatorManifest } : {};
     if (!intent?.trim() && entries.length === 0 && !description) {
       return operatorManifest?.changed ? { intent: null, spec: null, plan: null, ...manifestPart } : undefined;

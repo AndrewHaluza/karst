@@ -3,12 +3,27 @@ import type { Manifest } from '../manifest/types.js';
 import { effectiveChecks } from '../approaches/checks.js';
 import { createArtifactStore, type ArtifactStore, type ArtifactStoreOptions } from '../artifacts/store.js';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { fixRoundManifest } from '../store/fixRoundHeads.js';
 import { listRecoveryRounds } from '../store/recoveryRoundsRead.js';
 import type { OperatorManifestInfo } from '../workflow/review/manifestBlock.js';
 import { getTicket } from '../store/tickets.js';
 import { makeReviewArtifactsLoader } from '../workflow/review/artifactsLoader.js';
+
+/**
+ * A fix round records the manifest sha when it opens; a difference from it is a change. An impl-stage
+ * change precedes every round, so with no recorded sha the file counts as changed when it was
+ * modified after the ticket was created.
+ */
+function manifestChanged(registry: Store, ticketId: number, sha: string, mtimeMs: number): boolean {
+  for (const r of listRecoveryRounds(registry, ticketId)) {
+    const base = fixRoundManifest(registry, r.id)?.sha ?? null;
+    if (base !== null) return base !== sha;
+  }
+  const row = registry.db.prepare('SELECT created_at FROM tickets WHERE id = ?').get(ticketId) as { created_at: string } | undefined;
+  const createdMs = row ? Date.parse(`${row.created_at.replace(' ', 'T')}Z`) : Number.NaN;
+  return Number.isFinite(createdMs) && mtimeMs > createdMs;
+}
 
 /** Binds the review artifacts loader to the registry, the artifact store root and the live manifest. */
 export function makeReviewArtifactsBinding(deps: {
@@ -22,23 +37,18 @@ export function makeReviewArtifactsBinding(deps: {
   createStore?: (opts: ArtifactStoreOptions) => Pick<ArtifactStore, 'listArtifacts' | 'history' | 'show'>;
 }) {
   const createStore = deps.createStore ?? createArtifactStore;
-  const manifestOf = (id: number): OperatorManifestInfo | null => {
+  const manifestOf = async (id: number): Promise<OperatorManifestInfo | null> => {
     const path = deps.manifestPath?.();
     if (!path) return null;
     let bytes: Buffer;
+    let mtimeMs: number;
     try {
-      bytes = readFileSync(path);
+      [bytes, mtimeMs] = await Promise.all([readFile(path), stat(path).then((s) => s.mtimeMs)]);
     } catch {
       return null; // unreadable → no section, the review runs as before
     }
-    // The sha the first fix round recorded is the review base; a later difference is a manifest change.
-    let base: string | null = null;
-    for (const r of listRecoveryRounds(deps.registry, id)) {
-      base = fixRoundManifest(deps.registry, r.id)?.sha ?? null;
-      if (base !== null) break;
-    }
     const sha = createHash('sha256').update(bytes).digest('hex');
-    return { path, content: bytes.toString('utf8'), changed: base !== null && base !== sha };
+    return { path, content: bytes.toString('utf8'), changed: manifestChanged(deps.registry, id, sha, mtimeMs) };
   };
   return makeReviewArtifactsLoader({
     manifestOf,

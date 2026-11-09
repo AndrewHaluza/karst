@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openRecoveryRound } from '../store/recoveryRoundsWrite.js';
@@ -125,10 +125,11 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
     const a = await b(id);
     expect(a?.operatorManifest).toEqual({ path, content: 'onSkip: reask', changed: true });
   });
-  it('is not changed when the sha equals the recorded one, or no round recorded one', async () => {
+  it('is not changed when the sha equals the recorded one, or no round recorded one and the file predates the ticket', async () => {
     const same = setup('same: 1', 'same: 1');
     expect((await same.b(same.id))?.operatorManifest).toBeUndefined();
     const none = setup(null, 'x: 1');
+    utimesSync(none.path, new Date('2000-01-01'), new Date('2000-01-01'));
     expect((await none.b(none.id))?.operatorManifest).toBeUndefined();
   });
   it('still returns the manifest for a ticket with no intent, spec or plan', async () => {
@@ -158,5 +159,9 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
     writeFileSync(path, 'z: 1');
     recordFixRoundManifest(registry, open().id, path, 'old');
     expect((await mk(() => path)(id))?.operatorManifest?.changed).toBe(true);
+  });
+  it('counts an impl-stage change (no round yet) when the file is newer than the ticket', async () => {
+    const { b, id, path } = setup(null, 'new: 1');
+    expect((await b(id))?.operatorManifest).toEqual({ path, content: 'new: 1', changed: true });
   });
 });
