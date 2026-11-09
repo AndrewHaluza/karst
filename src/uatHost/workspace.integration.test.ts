@@ -36,5 +36,17 @@ describe('addTicketWorktree', () => {
     const ahead = execFileSync('git', ['-C', path, 'rev-list', '--count', 'main..HEAD']).toString().trim();
     expect(ahead).toBe('1');
   });
-});
 
+  it('with conflict, main changes the same file so a merge of the branch conflicts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'karst-ws-'));
+    dirs.push(root);
+    const ws = buildWorkspace(root);
+    const path = addTicketWorktree(ws.repoDir, 'FIX-2', true);
+    const out = (() => {
+      try { execFileSync('git', ['-C', path, 'merge', '--no-commit', 'main'], { stdio: 'pipe' }); return ''; } catch (e) { return String((e as { stdout?: Buffer }).stdout ?? ''); }
+    })();
+    expect(out).toContain('CONFLICT');
+    const remoteHead = execFileSync('git', ['-C', ws.remoteDir, 'rev-parse', 'main']).toString().trim();
+    expect(remoteHead).toBe(execFileSync('git', ['-C', ws.repoDir, 'rev-parse', 'main']).toString().trim());
+  });
+});

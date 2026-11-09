@@ -226,3 +226,19 @@ describe('ticket placement', () => {
     expect(() => parseFixtureFile(ticket({ placement: 'docker' }))).toThrow(/placement must be one of host/);
   });
 });
+
+describe('worktreeRepo', () => {
+  it('accepts a string and refuses another type', () => {
+    const t = (v: unknown) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', worktree: true, worktreeRepo: v }] });
+    expect(parseFixtureFile(t('app')).tickets[0]!.worktreeRepo).toBe('app');
+    expect(() => parseFixtureFile(t(5))).toThrow(/worktreeRepo/);
+  });
+});
+
+describe('worktreeConflict', () => {
+  it('accepts a boolean and refuses another type', () => {
+    const t = (v: unknown) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', worktree: true, worktreeConflict: v }] });
+    expect(parseFixtureFile(t(true)).tickets[0]!.worktreeConflict).toBe(true);
+    expect(() => parseFixtureFile(t('yes'))).toThrow(/worktreeConflict/);
+  });
+});

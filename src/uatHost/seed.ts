@@ -72,7 +72,7 @@ export function seedStore(store: Store, spec: FixtureSpec, defaults?: { repoPath
       const binding = seed.repo ?? fallback;
       store.db
         .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
-        .run(ticket.id, binding.repoPath, binding.worktreePath || `${binding.repoPath}/.karst/worktrees/${seed.key}`, `karst/${seed.key}`, binding.baseRef);
+        .run(ticket.id, seed.worktreeRepo ?? binding.repoPath, binding.worktreePath || `${binding.repoPath}/.karst/worktrees/${seed.key}`, `karst/${seed.key}`, binding.baseRef);
     }
     if (seed.rows) seedRows(store, ticket.id, seed.rows);
     if (seed.archived) archiveTicket(store, ticket.id);

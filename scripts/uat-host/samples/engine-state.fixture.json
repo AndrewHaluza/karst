@@ -74,7 +74,9 @@
           }
         ]
       },
-      "placement": "host"
+      "placement": "host",
+      "worktreeRepo": "app",
+      "worktreeConflict": true
     },
     {
       "key": "FIX-REVIEW",

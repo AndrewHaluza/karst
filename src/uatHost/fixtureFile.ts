@@ -275,7 +275,7 @@ function parseTaskRepo(raw: unknown, at: string): TaskRepo {
 
 function parseTicket(raw: unknown, at: string): TicketSeed {
   const o = obj(raw, at);
-  checkKeys(o, ['key', 'title', 'description', 'repo', 'stageCurrent', 'stages', 'archived', 'worktree', 'placement', 'rows'], at);
+  checkKeys(o, ['key', 'title', 'description', 'repo', 'stageCurrent', 'stages', 'archived', 'worktree', 'worktreeRepo', 'worktreeConflict', 'placement', 'rows'], at);
   const stages = o['stages'] === undefined ? [] : list(o, 'stages', at).map((s, i) => parseStage(s, `${at}.stages[${i}]`));
   const archived = bool(o, 'archived', at);
   const worktree = bool(o, 'worktree', at);
@@ -288,6 +288,8 @@ function parseTicket(raw: unknown, at: string): TicketSeed {
     stages,
     ...(archived ? { archived } : {}),
     ...(worktree ? { worktree } : {}),
+    ...(o['worktreeRepo'] === undefined ? {} : { worktreeRepo: str(o, 'worktreeRepo', at) }),
+    ...(bool(o, 'worktreeConflict', at) === undefined ? {} : { worktreeConflict: bool(o, 'worktreeConflict', at)! }),
     ...(o['placement'] === undefined ? {} : { placement: oneOf(o, 'placement', ['host'] as const, at) }),
     ...(o['rows'] === undefined ? {} : { rows: parseRows(o['rows'], `${at}.rows`) }),
   };

@@ -123,6 +123,12 @@ describe('seedStore engine rows', () => {
     expect(listFindings(store, id!)).toHaveLength(1);
   });
 
+  it('names the worktree row after the manifest repo when worktreeRepo is set', () => {
+    const store = openStore(':memory:');
+    const [id] = seedStore(store, parseFixtureFile({ tickets: [{ key: 'T-W', title: 'w', stageCurrent: 'ship', worktree: true, worktreeRepo: 'app' }] }));
+    expect(store.db.prepare('SELECT repo FROM worktrees WHERE ticket_id = ?').get(id)).toEqual({ repo: 'app' });
+  });
+
   it('records a host placement, and none when the seed names none', () => {
     const store = openStore(':memory:');
     const spec = parseFixtureFile({ tickets: [

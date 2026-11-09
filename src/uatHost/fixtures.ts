@@ -82,6 +82,10 @@ export interface TicketSeed {
   archived?: boolean;
   /** Give the ticket a worktree row (the checkout itself is not created). */
   worktree?: boolean;
+  /** The manifest repo name the worktree row carries (default: the repo path). The conflict brief matches merge checks to worktrees by this name. */
+  worktreeRepo?: string;
+  /** Make the default worktree branch conflict with `main` (a real git conflict, so the recomputed merge check stays `conflicted`). */
+  worktreeConflict?: boolean;
   /** Record the ticket's placement. Autopilot parks a ticket with no placement ('placement unknown'). Only `host` runs in the container. */
   placement?: 'host';
   rows?: Partial<RowSeeds>;
