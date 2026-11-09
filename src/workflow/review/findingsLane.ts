@@ -35,7 +35,7 @@ import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from '.
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
-import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
+import { buildConformanceBlock, hasForcedHighRule, type ReviewArtifacts } from './conformance.js';
 import {
   isEmptyDiffObservation,
   isRequirementFinding,
@@ -598,7 +598,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         })),
       );
       const voters = probed.filter((p) => p.changes === true).map((p) => p.repo);
-      const reconciled = reconcileRequirementFindings(perTarget, voters);
+      const reconciled = reconcileRequirementFindings(
+        perTarget,
+        voters,
+        hasForcedHighRule(opts.artifacts),
+      );
       if (reconciled.length > 0) opts.persistFindings?.(reconciled, processRun?.id ?? null);
       findings.push(...reconciled);
     }
