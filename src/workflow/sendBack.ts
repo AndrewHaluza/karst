@@ -8,6 +8,13 @@ import { nowIso } from '../model/time.js';
 import { postMessage } from '../store/ticketMessages.js';
 
 /**
+ * Leads the body of the host event `sendBackToImplement` posts. Other host
+ * events share `kind 'event'`; this prefix is how a later launch finds the
+ * send-back reason (`sendBackBriefForTicket`).
+ */
+export const SEND_BACK_EVENT_PREFIX = 'Sent back to Implement: ';
+
+/**
  * The unified "Send back to Implement" recovery action (869ehkkzp).
  *
  * One exceptional escape hatch for "the implementation is not what I expected"
@@ -175,7 +182,7 @@ export function sendBackToImplement(
         fromTicketId: null,
         toTicketId: ticketId,
         kind: 'event',
-        body: opts.reason,
+        body: `${SEND_BACK_EVENT_PREFIX}${opts.reason}`,
       });
     }
   });

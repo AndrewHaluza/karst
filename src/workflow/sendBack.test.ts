@@ -219,7 +219,7 @@ describe('sendBackToImplement', () => {
     expect(getTicket(store, id).stageCurrent).toBe('impl');
     for (const key of ['uat', 'review', 'ship'] as const) expect(getStage(store, id, key)!.status).toBe('pending');
     const inbox = listInbox(store, id, { unreadOnly: false });
-    expect(inbox.map((m) => [m.kind, m.body])).toEqual([['event', 'CI failed: lint (see ci-failure-7.log)']]);
+    expect(inbox.map((m) => [m.kind, m.body])).toEqual([['event', 'Sent back to Implement: CI failed: lint (see ci-failure-7.log)']]);
     expect(markImplementDone(store, id)).toBe('uat');
   });
 

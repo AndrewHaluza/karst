@@ -3,7 +3,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import { fetchCheckLog, type CheckLog } from '../../integrations/ciLog.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
-import { sendBackToImplement } from '../../workflow/sendBack.js';
+import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 
 /**
@@ -94,7 +94,8 @@ function reasonText(reports: readonly PrReport[], paths: readonly string[]): str
     lines.push(`${r.pr.repo} #${r.pr.number ?? '?'}: ${r.summary.join(' | ')}`, `log: ${paths[i]}`);
   });
   const text = lines.join('\n');
-  return text.length > MAX_MESSAGE_BODY ? `${text.slice(0, MAX_MESSAGE_BODY - 3)}...` : text;
+  const cap = MAX_MESSAGE_BODY - SEND_BACK_EVENT_PREFIX.length; // the stored event body leads with the prefix
+  return text.length > cap ? `${text.slice(0, cap - 3)}...` : text;
 }
 
 /** The text the Implement session receives: the stored reason plus the done marker. */

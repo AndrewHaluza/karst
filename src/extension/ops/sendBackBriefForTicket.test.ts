@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, setStageCurrent } from '../../store/tickets.js';
 import { postMessage, listInbox } from '../../store/ticketMessages.js';
+import { SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { sendBackBriefForTicket, SEND_BACK_DONE_MARKER } from './sendBackBriefForTicket.js';
 
 describe('sendBackBriefForTicket', () => {
@@ -21,8 +22,8 @@ describe('sendBackBriefForTicket', () => {
   };
 
   it('returns the latest unread host event plus the done marker', () => {
-    post(null, 'event', 'old reason');
-    post(null, 'event', 'CI failed');
+    post(null, 'event', `${SEND_BACK_EVENT_PREFIX}old reason`);
+    post(null, 'event', `${SEND_BACK_EVENT_PREFIX}CI failed`);
     const brief = sendBackBriefForTicket(store, id);
     expect(brief?.text).toBe(`CI failed\n${SEND_BACK_DONE_MARKER}`);
     expect(brief?.messageIds).toHaveLength(2);
@@ -35,17 +36,18 @@ describe('sendBackBriefForTicket', () => {
   it('ignores a peer-ticket message and a read event', () => {
     post(peer, 'message', 'hello from a peer');
     post(null, 'message', 'not an event');
+    post(null, 'event', 'Stage moved to impl (a different host event)');
     expect(sendBackBriefForTicket(store, id)).toBeNull();
   });
 
   it('returns null at the fix stage, which keeps its own brief', () => {
-    post(null, 'event', 'CI failed');
+    post(null, 'event', `${SEND_BACK_EVENT_PREFIX}CI failed`);
     setStageCurrent(store, id, 'fix');
     expect(sendBackBriefForTicket(store, id)).toBeNull();
   });
 
   it('ignores an already read event', () => {
-    post(null, 'event', 'done');
+    post(null, 'event', `${SEND_BACK_EVENT_PREFIX}done`);
     const used = sendBackBriefForTicket(store, id)!;
     store.db.prepare("UPDATE ticket_messages SET read_at = 'x' WHERE id = ?").run(used.messageIds[0]);
     expect(sendBackBriefForTicket(store, id)).toBeNull();

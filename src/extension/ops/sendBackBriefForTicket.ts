@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
+import { SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { listInbox } from '../../store/ticketMessages.js';
 
 /** The done-marker sentence that ends every send-back brief. */
@@ -22,9 +23,9 @@ export function sendBackBriefForTicket(store: Store, ticketId: number): SendBack
   // Only `impl` takes this brief; `fix` keeps `fixBriefForTicket`.
   if (getTicket(store, ticketId).stageCurrent !== 'impl') return null;
   const events = listInbox(store, ticketId, { unreadOnly: true }).filter(
-    (m) => m.kind === 'event' && m.fromTicketId === null,
+    (m) => m.kind === 'event' && m.fromTicketId === null && m.body.startsWith(SEND_BACK_EVENT_PREFIX),
   );
   const latest = events[events.length - 1];
   if (latest === undefined) return null;
-  return { text: `${latest.body}\n${SEND_BACK_DONE_MARKER}`, messageIds: events.map((m) => m.id) };
+  return { text: `${latest.body.slice(SEND_BACK_EVENT_PREFIX.length)}\n${SEND_BACK_DONE_MARKER}`, messageIds: events.map((m) => m.id) };
 }

@@ -6556,7 +6556,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           debug: (msg) => logger.debug(msg),
         });
       }
-      if (sendBack && !options.seedPrompt) markRead(localStore, sendBack.messageIds);
       // Write the instruction layer to disk and attach it to the session; the
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is
@@ -6662,7 +6661,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); // AC-32 re-verify
         }
         showStatusFor(ticketId);
-        return sessions.isOpen(ticketId) ? { kind: 'launched' } : { kind: 'failed', reason: 'no session open after launch' };
+        if (!sessions.isOpen(ticketId)) return { kind: 'failed', reason: 'no session open after launch' };
+        // The brief is consumed only once the session is open, so a failed launch can retry it.
+        if (sendBack) markRead(localStore, sendBack.messageIds);
+        return { kind: 'launched' };
       },
     ),
     vscode.commands.registerCommand('karst.spinTicket', async (arg: unknown) => {
