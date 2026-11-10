@@ -1700,130 +1700,145 @@ exports[`dashboard region parity (DOM contract) > logsView #logsView · open > l
 exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge, conflict, dismissed > prs · multi-repo: merge, conflict, dismissed 1`] = `
 "<div#prs.pbody>
   <div.prrow>
-    <div.pr>
-      <span.k-chip.pst.pst-open> "open"
-      <span.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
-      <span.prepo title="fixture:/repos/web"> "web"
-      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
-        <span.u> "fixture:https://github.com/fixture-org/web/pull/421"
-        <span.glyph>
+    <div.krow.pr>
+      <span.krow-lead>
+        <span.ok.pr-lead data-status="open">
           <svg.k-icon aria-hidden="true">
-      <span.pnum>
-        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
-      <span.pacts>
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/web" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
-        <button.k-btn.k-btn--primary.k-btn--sm.mgbtn data-act="merge-pr" data-repo="fixture:/repos/web" title="Merge PR #421 into main — cannot be undone" type="button"> "Merge"
-    <div.pmeta>
-      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
-      <span.pstamps>
-        <span.psep> "·"
+      <div.krow-main>
+        <span.prepo title="fixture:/repos/web"> "web"
+        <span.pnum>
+          <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
+        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
+          <svg.k-icon aria-hidden="true">
+        <span.k-chip.pst.pst-open> "open"
+        <span.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
+          <svg.k-icon aria-hidden="true">
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
-    <details.pcms>
-      <summary> "2 comments"
-      <div.pcm>
-        <span.pcmwho> "octoreviewer"
-        <span.pcmwhen> "1 day ago"
-        <div.pcmbody> "Looks right — one nit on the combobox label."
-      <div.pcm>
-        <span.pcmwho> "fixture-author"
-        <span.pcmwhen> "20 hours ago"
-        <div.pcmbody> "Fixed, PTAL."
+      <span.krow-trail>
+        <span.pacts>
+          <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/web" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
+          <button.k-btn.k-btn--primary.k-btn--sm.mgbtn data-act="merge-pr" data-repo="fixture:/repos/web" title="Merge PR #421 into main — cannot be undone" type="button"> "Merge"
+      <div.krow-sub>
+        <details.pcms>
+          <summary> "2 comments"
+          <div.pcm>
+            <span.pcmwho> "octoreviewer"
+            <span.pcmwhen> "1 day ago"
+            <div.pcmbody> "Looks right — one nit on the combobox label."
+          <div.pcm>
+            <span.pcmwho> "fixture-author"
+            <span.pcmwhen> "20 hours ago"
+            <div.pcmbody> "Fixed, PTAL."
   <div.prrow>
-    <div.pr>
-      <span.k-chip.pst.pst-open> "open"
-      <span.k-chip.pck.pck-failing title="1 failing"> "1 failing"
-      <span.k-chip.pblock title="merge conflicts"> "conflicts"
-      <span.prepo title="fixture:/repos/api"> "api"
-      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/api/pull/88" title="Copy pull request URL" type="button">
-        <span.u> "fixture:https://github.com/fixture-org/api/pull/88"
-        <span.glyph>
+    <div.krow.pr>
+      <span.krow-lead>
+        <span.ok.pr-lead data-status="open">
           <svg.k-icon aria-hidden="true">
-      <span.pnum>
-        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/api/pull/88" href="#" title="Open this pull request"> "#88"
-      <span.pacts>
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="merge conflicts" type="button"> "Merge"
-    <div.pmeta>
-      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
-      <span.pstamps>
-        <span.psep> "·"
+      <div.krow-main>
+        <span.prepo title="fixture:/repos/api"> "api"
+        <span.pnum>
+          <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/api/pull/88" href="#" title="Open this pull request"> "#88"
+        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/api/pull/88" title="Copy pull request URL" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/api" title="Pull request details" type="button">
+          <svg.k-icon aria-hidden="true">
+        <span.k-chip.pst.pst-open> "open"
+        <span.k-chip.pck.pck-failing title="1 failing"> "1 failing"
+          <svg.k-icon aria-hidden="true">
+        <span.k-chip.pblock title="merge conflicts"> "conflicts"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
-    <details.pcks>
-      <summary> "1 failing check"
-      <div.pck-row>
-        <span> "unit"
-    <div.mg-ci.mg-ci-failing.mgwrap>
-      <div.mg>
-        <span.mgdot aria-hidden="true">
-        <span.mgtext> "CI failing — 1 check"
-      <div.pck-row>
-        <span> "unit"
-    <div.mg-conflicted.mgwrap>
-      <div.mg>
-        <span.mgdot aria-hidden="true">
-        <span.mgtext title="checked checked Aug 11, 2026, 2:05 PM"> "conflicted · 2 files · vs main"
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="resolve-conflicts" data-repo="fixture:/repos/api" title="Hand this repo's conflict to an agent session" type="button"> "Resolve conflicts"
-      <details.mgd data-repo="fixture:/repos/api">
-        <summary> "2 conflicting files"
-        <div.mgdbody>
-          <div.mgfile> "src/a.ts"
-          <div.mgfile> "src/b.ts"
-  <div.prrow>
-    <div.pr>
-      <span.k-chip.pst.pst-closed> "closed"
-      <span.prepo title="fixture:/repos/docs"> "docs"
-      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/docs/pull/7" title="Copy pull request URL" type="button">
-        <span.u> "fixture:https://github.com/fixture-org/docs/pull/7"
-        <span.glyph>
+      <span.krow-trail>
+        <span.pacts>
+          <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="merge conflicts" type="button"> "Merge"
+      <div.krow-sub>
+        <div.pwhy> "merge conflicts"
+        <details.pcks>
+          <summary> "1 failing check"
+          <div.pck-row>
+            <span> "unit"
+        <div.mg-ci.mg-ci-failing.mgwrap>
+          <div.mg>
+            <span.mgdot aria-hidden="true">
+            <span.mgtext> "CI failing — 1 check"
+          <div.pck-row>
+            <span> "unit"
+        <div.mg-conflicted.mgwrap>
+          <div.mg>
+            <span.mgdot aria-hidden="true">
+            <span.mgtext title="checked checked Aug 11, 2026, 2:05 PM"> "conflicted · 2 files · vs main"
+            <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="resolve-conflicts" data-repo="fixture:/repos/api" title="Hand this repo's conflict to an agent session" type="button"> "Resolve conflicts"
+          <details.mgd data-repo="fixture:/repos/api">
+            <summary> "2 conflicting files"
+            <div.mgdbody>
+              <div.mgfile> "src/a.ts"
+              <div.mgfile> "src/b.ts"
+  <div.dismissed.prrow>
+    <div.krow.pr>
+      <span.krow-lead>
+        <span.bad.pr-lead data-status="closed">
           <svg.k-icon aria-hidden="true">
-      <span.pnum>
-        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/docs/pull/7" href="#" title="Open this pull request"> "#7"
-      <span.pacts>
-        <span.pstamp> "dismissed Aug 11, 2026, 2:10 PM"
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
-    <div.pmeta>
-      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
-      <span.pstamps>
-        <span.psep> "·"
-        <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago""
+      <div.krow-main>
+        <span.prepo title="fixture:/repos/docs"> "docs"
+        <span.pnum>
+          <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/docs/pull/7" href="#" title="Open this pull request"> "#7"
+        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/docs/pull/7" title="Copy pull request URL" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/docs" title="Pull request details" type="button">
+          <svg.k-icon aria-hidden="true">
+        <span.k-chip.pst.pst-closed> "closed"
+        <span.pstamp title="dismissed Aug 11, 2026, 2:10 PM"> "dismissed Aug 11, 2026, 2:10 PM"
+      <span.krow-trail>
+        <span.pacts>
+          <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+      <div.krow-sub>"
 `;
 
 exports[`dashboard region parity (DOM contract) > prs #prs · none > prs · none 1`] = `
 "<div#prs.pbody>
-  <div.k-empty>
-    <div.k-empty-title> "No pull requests.""
+  <div.estate>
+    <span.emark>
+      <svg.k-icon aria-hidden="true">
+    <div>
+      <div.ehead> "No pull requests."
+      <div.esub> "Ship opens one per repository with changes.""
 `;
 
 exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiting review > prs · one open PR awaiting review 1`] = `
 "<div#prs.pbody>
   <div.prrow>
-    <div.pr>
-      <span.k-chip.pst.pst-open> "open"
-      <span.prepo title="fixture:/repos/web"> "web"
-      <button.ptitle.url-copy data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
-        <span.u> "fixture:https://github.com/fixture-org/web/pull/421"
-        <span.glyph>
+    <div.krow.pr>
+      <span.krow-lead>
+        <span.ok.pr-lead data-status="open">
           <svg.k-icon aria-hidden="true">
-      <span.pnum>
-        <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
-      <span.pacts>
-        <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
-    <div.pmeta>
-      <span.pbranch title="feat/FEAT-142-base-branch-override → main"> "feat/FEAT-142-base-branch-override → main"
-      <span.pstamps>
-        <span.psep> "·"
+      <div.krow-main>
+        <span.prepo title="fixture:/repos/web"> "web"
+        <span.pnum>
+          <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
+        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
+          <svg.k-icon aria-hidden="true">
+        <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
+          <svg.k-icon aria-hidden="true">
+        <span.k-chip.pst.pst-open> "open"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
-    <details.pcms>
-      <summary> "2 comments"
-      <div.pcm>
-        <span.pcmwho> "octoreviewer"
-        <span.pcmwhen> "1 day ago"
-        <div.pcmbody> "Looks right — one nit on the combobox label."
-      <div.pcm>
-        <span.pcmwho> "fixture-author"
-        <span.pcmwhen> "20 hours ago"
-        <div.pcmbody> "Fixed, PTAL.""
+      <span.krow-trail>
+        <span.pacts>
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+      <div.krow-sub>
+        <div.pwhy> "awaiting review"
+        <details.pcms>
+          <summary> "2 comments"
+          <div.pcm>
+            <span.pcmwho> "octoreviewer"
+            <span.pcmwhen> "1 day ago"
+            <div.pcmbody> "Looks right — one nit on the combobox label."
+          <div.pcm>
+            <span.pcmwho> "fixture-author"
+            <span.pcmwhen> "20 hours ago"
+            <div.pcmbody> "Fixed, PTAL.""
 `;
 
 exports[`dashboard region parity (DOM contract) > rail #rail · empty ticket > rail · empty ticket 1`] = `
@@ -2522,24 +2537,26 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · none, nothing runnable > servers · none, nothing runnable 1`] = `
-"<div.panel.svpanel>
-  <div.phead> "Servers"
-    <span#srvCount.count>
-    <span#srvOps.pops>
+"<div.panel.svpanel data-region="servers">
+  <div.phead>
+    <span.sec-title> "Servers"
+    <span.pops>
   <div#servers.pbody>
     <div.dead.estate>
       <span.emark>
         <svg.k-icon aria-hidden="true">
       <div>
-        <div.ehead> "No runnable services in scope"
+        <div.ehead> "No runnable services in scope."
         <div.esub> "This ticket scopes only repositories without a service block, so there is nothing here to run.""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · own and shared services > servers · own and shared services 1`] = `
-"<div.panel.svpanel>
-  <div.phead> "Servers"
-    <span#srvCount.count> "4"
-    <span#srvOps.pops>
+"<div.panel.svpanel data-region="servers">
+  <div.phead>
+    <span.sec-title> "Servers"
+    <span.count> "4"
+    <span.sec-sum aria-label="all running · shared: ok" title="all running · shared: ok"> "all running · shared: ok"
+    <span.pops>
       <button.ib.k-iconbtn.t-start aria-label="Every ticket service is already running" data-act="spin-servers" disabled title="Every ticket service is already running" type="button">
         <svg.k-icon aria-hidden="true">
       <button.ib.k-iconbtn.t-restart aria-label="Restart all ticket services" data-act="restart-servers" title="Restart all ticket services" type="button">
@@ -2552,109 +2569,79 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · own and sh
         <svg.k-icon aria-hidden="true">
   <div#servers.pbody>
     <div.scroll>
-      <table>
-        <thead>
-          <tr>
-            <th>
-              <span.sr> "Status"
-            <th> "Service"
-            <th> "Address"
-            <th> "Actions"
-        <tbody>
-          <tr.srvgroup>
-            <th>
-              <div.gwrap>
-                <span.gname> "Ticket services"
-                <span.gcount> "2"
-                <span.gnote> "run from this ticket's worktrees"
-          <tr>
-            <td.c-dot>
-              <span.glyph.on aria-label="running" role="img" title="running">
-            <td.c-name title="web"> "web"
-            <td.c-addr title="localhost:5173">
-              <span.full> "localhost:5173"
-              <span.short> ":5173"
-            <td.c-addrops>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="1" title="Open in browser" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
-                  <svg.k-icon aria-hidden="true">
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
-                  <svg.k-icon aria-hidden="true">
-          <tr>
-            <td.c-dot>
-              <span.glyph.on aria-label="running" role="img" title="running">
-            <td.c-name title="api"> "api"
-            <td.c-addr title="localhost:4000">
-              <span.full> "localhost:4000"
-              <span.short> ":4000"
-            <td.c-addrops>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="2" title="Open in browser" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
-                  <svg.k-icon aria-hidden="true">
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
-                  <svg.k-icon aria-hidden="true">
-          <tr.srvgroup>
-            <th>
-              <div.gwrap>
-                <span.gname> "Shared services"
-                <span.gcount> "2"
-                <span.gnote> "one copy per repository, from the base branch"
-          <tr>
-            <td.c-dot>
-              <span.glyph.on aria-label="running" role="img" title="running">
-            <td.c-name>
-              <span.srvname title="api"> "api"
-              <span.srvmeta>
-                <span.k-chip.srvbranch> "develop"
-                <span.srvnote> "shared with T942018, T942019"
-            <td.c-addr title="localhost:4000">
-              <span.full> "localhost:4000"
-              <span.short> ":4000"
-            <td.c-addrops>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="942101" title="Open in browser" type="button">
-                  <svg.k-icon aria-hidden="true">
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
-                  <svg.k-icon aria-hidden="true">
-          <tr>
-            <td.c-dot>
-              <span.glyph.off aria-label="stopped" role="img" title="stopped">
-            <td.c-name>
-              <span.srvname title="web"> "web"
-              <span.srvmeta>
-                <span.k-chip.srvbranch> "main"
-                <span.srvnote> "no other live tickets"
-            <td.c-addr.off title="stopped — no address"> "—"
-              <span.offword> "stopped"
-            <td.c-addrops>
-              <span.g>
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
-                  <svg.k-icon aria-hidden="true">"
+      <div.sec-group role="presentation">
+        <span.gname> "Ticket services"
+        <span.gcount> "2"
+        <span.gnote> "run from this ticket's worktrees"
+      <div.krow data-row="srv-1">
+        <span.krow-lead>
+          <span.glyph.on aria-label="running" role="img" title="running">
+        <div.krow-main>
+          <span.srvname title="web"> "web"
+          <button.srvaddr aria-label="Open localhost:5173 in browser" data-act="open-server" data-id="1" title="Open localhost:5173 in the browser" type="button">
+            <span.full> "localhost:5173"
+            <span.short> ":5173"
+          <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
+            <svg.k-icon aria-hidden="true">
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
+            <svg.k-icon aria-hidden="true">
+          <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
+            <svg.k-icon aria-hidden="true">
+      <div.krow data-row="srv-2">
+        <span.krow-lead>
+          <span.glyph.on aria-label="running" role="img" title="running">
+        <div.krow-main>
+          <span.srvname title="api"> "api"
+          <button.srvaddr aria-label="Open localhost:4000 in browser" data-act="open-server" data-id="2" title="Open localhost:4000 in the browser" type="button">
+            <span.full> "localhost:4000"
+            <span.short> ":4000"
+          <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
+            <svg.k-icon aria-hidden="true">
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
+            <svg.k-icon aria-hidden="true">
+          <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
+            <svg.k-icon aria-hidden="true">
+      <div.sec-group role="presentation">
+        <span.gname> "Shared services"
+        <span.gcount> "2"
+        <span.gnote> "reused across tickets · not touched by header actions"
+      <div.krow data-row="shared-api">
+        <span.krow-lead>
+          <span.glyph.on aria-label="running" role="img" title="running">
+        <div.krow-main>
+          <span.srvname title="api"> "api"
+          <span.k-chip.srvbranch> "develop"
+          <button.srvaddr aria-label="Open localhost:4000 in browser" data-act="open-server" data-id="942101" title="Open localhost:4000 in the browser" type="button">
+            <span.full> "localhost:4000"
+            <span.short> ":4000"
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-open aria-label="View server logs" data-act="server-logs-request" title="View server logs" type="button">
+            <svg.k-icon aria-hidden="true">
+          <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
+            <svg.k-icon aria-hidden="true">
+        <div.krow-sub>
+          <span.srvnote> "shared with T942018, T942019"
+      <div.krow data-row="shared-web">
+        <span.krow-lead>
+          <span.glyph.off aria-label="stopped" role="img" title="stopped">
+        <div.krow-main>
+          <span.srvname title="web"> "web"
+          <span.k-chip.srvbranch> "main"
+          <span.off.srvword> "stopped"
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-open aria-label="Manage shared services" data-act="open-resources" title="Manage shared services" type="button">
+            <svg.k-icon aria-hidden="true">
+        <div.krow-sub>
+          <span.srvnote> "no other live tickets""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · runnable but stopped (no rows) > servers · runnable but stopped (no rows) 1`] = `
-"<div.panel.svpanel>
-  <div.phead> "Servers"
-    <span#srvCount.count>
-    <span#srvOps.pops>
+"<div.panel.svpanel data-region="servers">
+  <div.phead>
+    <span.sec-title> "Servers"
+    <span.pops>
       <button.ib.k-iconbtn.t-start aria-label="Start all ticket services" data-act="spin-servers" title="Start all ticket services" type="button">
         <svg.k-icon aria-hidden="true">
       <button.ib.k-iconbtn.t-restart aria-label="No ticket services to restart" data-act="restart-servers" disabled title="No ticket services to restart" type="button">
@@ -2670,15 +2657,17 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · runnable b
       <span.emark>
         <svg.k-icon aria-hidden="true">
       <div>
-        <div.ehead> "No servers running"
+        <div.ehead> "No servers running."
         <div.esub> "Start the services in scope to get their local addresses here.""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · two running services > servers · two running services 1`] = `
-"<div.panel.svpanel>
-  <div.phead> "Servers"
-    <span#srvCount.count> "2"
-    <span#srvOps.pops>
+"<div.panel.svpanel data-region="servers">
+  <div.phead>
+    <span.sec-title> "Servers"
+    <span.count> "2"
+    <span.sec-sum aria-label="all running" title="all running"> "all running"
+    <span.pops>
       <button.ib.k-iconbtn.t-start aria-label="Every ticket service is already running" data-act="spin-servers" disabled title="Every ticket service is already running" type="button">
         <svg.k-icon aria-hidden="true">
       <button.ib.k-iconbtn.t-restart aria-label="Restart all ticket services" data-act="restart-servers" title="Restart all ticket services" type="button">
@@ -2691,59 +2680,36 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · two runnin
         <svg.k-icon aria-hidden="true">
   <div#servers.pbody>
     <div.scroll>
-      <table>
-        <thead>
-          <tr>
-            <th>
-              <span.sr> "Status"
-            <th> "Service"
-            <th> "Address"
-            <th> "Actions"
-        <tbody>
-          <tr.srvgroup>
-            <th>
-              <div.gwrap>
-                <span.gname> "Ticket services"
-                <span.gcount> "2"
-                <span.gnote> "run from this ticket's worktrees"
-          <tr>
-            <td.c-dot>
-              <span.glyph.on aria-label="running" role="img" title="running">
-            <td.c-name title="web"> "web"
-            <td.c-addr title="localhost:5173">
-              <span.full> "localhost:5173"
-              <span.short> ":5173"
-            <td.c-addrops>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="1" title="Open in browser" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
-                  <svg.k-icon aria-hidden="true">
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
-                  <svg.k-icon aria-hidden="true">
-          <tr>
-            <td.c-dot>
-              <span.glyph.on aria-label="running" role="img" title="running">
-            <td.c-name title="api"> "api"
-            <td.c-addr title="localhost:4000">
-              <span.full> "localhost:4000"
-              <span.short> ":4000"
-            <td.c-addrops>
-              <span.g>
-                <button.ib.k-iconbtn.t-open aria-label="Open in browser" data-act="open-server" data-id="2" title="Open in browser" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
-                  <svg.k-icon aria-hidden="true">
-            <td.c-acts>
-              <span.g>
-                <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
-                  <svg.k-icon aria-hidden="true">
-                <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
-                  <svg.k-icon aria-hidden="true">"
+      <div.krow data-row="srv-1">
+        <span.krow-lead>
+          <span.glyph.on aria-label="running" role="img" title="running">
+        <div.krow-main>
+          <span.srvname title="web"> "web"
+          <button.srvaddr aria-label="Open localhost:5173 in browser" data-act="open-server" data-id="1" title="Open localhost:5173 in the browser" type="button">
+            <span.full> "localhost:5173"
+            <span.short> ":5173"
+          <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="1" title="Copy URL" type="button">
+            <svg.k-icon aria-hidden="true">
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="1" title="Restart" type="button">
+            <svg.k-icon aria-hidden="true">
+          <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="1" title="Stop" type="button">
+            <svg.k-icon aria-hidden="true">
+      <div.krow data-row="srv-2">
+        <span.krow-lead>
+          <span.glyph.on aria-label="running" role="img" title="running">
+        <div.krow-main>
+          <span.srvname title="api"> "api"
+          <button.srvaddr aria-label="Open localhost:4000 in browser" data-act="open-server" data-id="2" title="Open localhost:4000 in the browser" type="button">
+            <span.full> "localhost:4000"
+            <span.short> ":4000"
+          <button.ib.k-iconbtn.t-copy aria-label="Copy URL" data-act="copy-server-url" data-copy data-id="2" title="Copy URL" type="button">
+            <svg.k-icon aria-hidden="true">
+        <span.krow-trail>
+          <button.ib.k-iconbtn.t-restart aria-label="Restart" data-act="restart-server" data-id="2" title="Restart" type="button">
+            <svg.k-icon aria-hidden="true">
+          <button.ib.k-iconbtn.t-stop aria-label="Stop" data-act="stop-server" data-id="2" title="Stop" type="button">
+            <svg.k-icon aria-hidden="true">"
 `;
 
 exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none and cannot add (hidden) > subtasks · none and cannot add (hidden) 1`] = `
@@ -2987,42 +2953,44 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
 
 exports[`dashboard region parity (DOM contract) > worktrees #worktrees · none > worktrees · none 1`] = `
 "<div#worktrees.pbody>
-  <div.k-empty>
-    <div.k-empty-title> "No worktrees.""
+  <div.estate>
+    <span.emark>
+      <svg.k-icon aria-hidden="true">
+    <div>
+      <div.ehead> "No worktrees."
+      <div.esub> "Implement creates one per repository in scope.""
 `;
 
 exports[`dashboard region parity (DOM contract) > worktrees #worktrees · two repos > worktrees · two repos 1`] = `
 "<div#worktrees.pbody>
   <div.wtwrap data-wtwrap="fixture:/repos/web">
-    <div.wt>
-      <span.wrepo title="web"> "web"
-      <span.wbase>
-        <svg>
-        <span.wbasebr> "main"
-        <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/web" title="Change base branch" type="button"> "✎"
-      <span.wbranch>
-        <span.wbr aria-label="feat/FEAT-142-base-branch-override" title="feat/FEAT-142-base-branch-override"> "feat/FEAT-142-base-branch-override"
-        <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
-          <svg.k-icon aria-hidden="true">
-      <span.wsep>
-      <span.wacts>
+    <div.krow.wt>
+      <span.krow-lead>
+        <svg.k-icon aria-hidden="true">
+      <div.krow-main>
+        <span.wrepo title="web"> "web"
+        <span.wbase>
+          <svg>
+          <span.wbasebr> "main"
+          <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/web" title="Change base branch" type="button">
+            <svg.k-icon aria-hidden="true">
+      <span.krow-trail>
         <button.ib.k-iconbtn.t-open aria-label="Open terminal" data-act="open-worktree-terminal" data-path="fixture:/worktrees/FEAT-142/web" title="Open a terminal in this worktree" type="button">
           <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.t-copy aria-label="Reveal in file explorer" data-act="open-worktree-folder" data-path="fixture:/worktrees/FEAT-142/web" title="Reveal this worktree in the file explorer" type="button">
           <svg.k-icon aria-hidden="true">
   <div.wtwrap data-wtwrap="fixture:/repos/api">
-    <div.wt>
-      <span.wrepo title="api"> "api"
-      <span.wbase>
-        <svg>
-        <span.wbasebr> "main"
-        <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/api" title="Change base branch" type="button"> "✎"
-      <span.wbranch>
-        <span.wbr aria-label="feat/FEAT-142-base-branch-override" title="feat/FEAT-142-base-branch-override"> "feat/FEAT-142-base-branch-override"
-        <button.ib.k-iconbtn.t-copy aria-label="Copy branch name" data-act="copy-worktree-branch" data-branch="feat/FEAT-142-base-branch-override" data-copy title="Copy branch name" type="button">
-          <svg.k-icon aria-hidden="true">
-      <span.wsep>
-      <span.wacts>
+    <div.krow.wt>
+      <span.krow-lead>
+        <svg.k-icon aria-hidden="true">
+      <div.krow-main>
+        <span.wrepo title="api"> "api"
+        <span.wbase>
+          <svg>
+          <span.wbasebr> "main"
+          <button.k-iconbtn.wbase-edit aria-label="Change base branch" data-act="toggle-base-form" data-repo="fixture:/repos/api" title="Change base branch" type="button">
+            <svg.k-icon aria-hidden="true">
+      <span.krow-trail>
         <button.ib.k-iconbtn.t-open aria-label="Open terminal" data-act="open-worktree-terminal" data-path="fixture:/worktrees/FEAT-142/api" title="Open a terminal in this worktree" type="button">
           <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.t-copy aria-label="Reveal in file explorer" data-act="open-worktree-folder" data-path="fixture:/worktrees/FEAT-142/api" title="Reveal this worktree in the file explorer" type="button">

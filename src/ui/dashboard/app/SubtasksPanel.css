@@ -53,13 +53,16 @@
 .subtask .stage{flex:0 0 auto}
 .subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}
 
-/* Compaction ladder: each tier only removes; the dot, lock, agent icon, PR chip and pill never shrink or hide. */
+/* Compaction ladder: each tier only removes or wraps; the dot, lock, agent icon, PR chip and pill never shrink or hide. */
 @container (max-width: 720px){
   .subtask .subtask-agent-model{display:none}
 }
 @container (max-width: 600px){
   .subtask .subtask-agent-name{display:none}
-  .subtask .k-id{display:none}
+  /* The T-id is never hidden or shortened: the row wraps instead, and the title drops to its own line. */
+  .subtask{flex-wrap:wrap;row-gap:var(--k-space-2)}
+  .subtask .k-id{flex:none;white-space:nowrap}
+  .subtask .subtask-title{flex:1 1 100%}
 }
 @container (max-width: 460px){
   .phead .k-btn-label,.subtask-progress,.subtask .subtask-pr-state{display:none}

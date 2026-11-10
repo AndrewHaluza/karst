@@ -31,6 +31,7 @@ import { WEBVIEW_NAMES, type WebviewName } from '../../src/model/webviewChains.j
 import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute.js';
 import type { SettingsSection } from '../../src/ui/settings/sections.js';
 import { settingsRoutes } from './settingsRoutes.js';
+import { PANEL_TIERS, PANEL_VARIANTS } from './panelVariants.js';
 import {
   EMPTY_SETTINGS,
   LONG_BODY_PROFILE,
@@ -77,6 +78,8 @@ export interface Variant {
   readonly ticketDetails?: TicketDetailsSteps;
   /** Dashboard runtime strip: open this popover after load (the sandbox details or the ⋯ menu). */
   readonly runtimeOpen?: RuntimeOpen;
+  /** Dashboard panels: a selector clicked after load (a popover trigger). */
+  readonly click?: string;
 }
 
 /** The interaction steps of a ticket-details drawer variant: open it from the doc icon, then pick a tab. */
@@ -108,6 +111,7 @@ function variant(
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
     runtimeOpen?: RuntimeOpen;
+    click?: string;
   } = {},
 ): Variant {
   return {
@@ -121,6 +125,7 @@ function variant(
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
     ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
+    ...(opts.click === undefined ? {} : { click: opts.click }),
   };
 }
 
@@ -364,6 +369,20 @@ const runtimeStripVariants = (): Variant[] => [
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({ ...s, sandbox: SBX_VIEW }))),
 ];
 
+/** T1063: every Servers / Worktrees / Pull requests state at wide, mid and narrow, plus the narrow sub-task row. */
+const panelStateVariants = (): Variant[] => [
+  ...PANEL_VARIANTS.flatMap((v) =>
+    PANEL_TIERS.map(([tier, width]) =>
+      variant('dashboard', `panel-${v.id}-${tier}`, dashboardScenario('running', 2, v.patch), {
+        skipLayout: true,
+        width,
+        ...(v.click === undefined ? {} : { click: v.click }),
+      }),
+    ),
+  ),
+  variant('dashboard', 'subtask-narrow', dashboardScenario('running', 2), { skipLayout: true, width: 400 }),
+];
+
 const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
@@ -412,6 +431,7 @@ const dashboardVariants = (): Variant[] => [
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
   variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
   ...runtimeStripVariants(),
+  ...panelStateVariants(),
   // D203: the Servers panel's read-only shared half — one running from the base
   // branch, one stopped — beside the ticket's own rows.
   variant('dashboard', 'shared-services', dashboardScenario('running', 2, (s) => ({

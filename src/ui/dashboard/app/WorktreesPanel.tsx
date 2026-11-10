@@ -14,7 +14,12 @@ import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend, useHostMessage } from './DashboardAppContext.js';
 import { useSlice } from './useSlice.js';
 import { usePendingAction } from './usePendingAction.js';
-import { WorktreeRow } from './WorktreeRow.js';
+import { CopyBranchButton, WorktreeRow } from './WorktreeRow.js';
+import { EmptyState } from './EmptyState.js';
+import { Icon } from './Icon.js';
+import type { DashboardSender } from './hostBridge.js';
+import { Section } from './Section.js';
+import './Section.css';
 import './WorktreesPanel.css';
 
 interface WorktreesSlice {
@@ -35,6 +40,22 @@ function eventWithin(e: Event, selector: string): boolean {
   const target = e.target as Element | null;
   if (target?.closest?.(selector)) return true;
   return e.composedPath().some((node) => node instanceof Element && node.matches(selector));
+}
+
+/** The branch every worktree shares, or null when they differ (or one has none): the header then shows it once. */
+export function sharedBranch(worktrees: readonly DashboardWorktreeView[] | null): string | null {
+  if (!worktrees || worktrees.length === 0) return null;
+  const first = worktrees[0]!.branch;
+  return first && worktrees.every((w) => w.branch === first) ? first : null;
+}
+
+function HeaderBranch({ branch, send }: { readonly branch: string; readonly send: DashboardSender }) {
+  return (
+    <>
+      <span className="wsum-br">{branch}</span>
+      <CopyBranchButton branch={branch} send={send} />
+    </>
+  );
 }
 
 const firstOpen = (open: Record<string, boolean>): string | undefined => Object.keys(open).find((repo) => open[repo]);
@@ -96,10 +117,17 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
 
   const showChanges = usePendingAction(useCallback((requestId: string) => send.showChanges(requestId), [send]));
 
+  const headerBranch = sharedBranch(worktrees);
+  const rows = worktrees ?? [];
   return (
-    <>
-      <div className="phead">
-        Worktrees
+    <Section
+      title="Worktrees"
+      count={rows.length}
+      summary={headerBranch ? <HeaderBranch branch={headerBranch} send={send} /> : null}
+      summaryTitle={headerBranch ?? undefined}
+      summaryMono
+      bodyId="worktrees"
+      actions={
         <button
           id="wtChanges"
           className="k-iconbtn iconbtn"
@@ -110,37 +138,28 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
           disabled={worktrees !== null && worktrees.length === 0}
           onClick={showChanges}
         >
-          <svg className="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-            <path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-            <path d="M11 6h5a2 2 0 0 1 2 2v8" />
-            <path d="M14 9l-3 -3l3 -3" />
-            <path d="M13 18h-5a2 2 0 0 1 -2 -2v-8" />
-            <path d="M10 15l3 3l-3 3" />
-          </svg>
+          <Icon name="git-compare" size={13} />
         </button>
-      </div>
-      <div className="pbody" id="worktrees">
-        {worktrees === null ? null : worktrees.length === 0 ? (
-          <div className="k-empty">
-            <div className="k-empty-title">No worktrees.</div>
-          </div>
-        ) : (
-          worktrees.map((w) => (
-            <WorktreeRow
-              key={w.repo}
-              w={w}
-              stats={stats[w.repo]}
-              send={send}
-              formOpen={open[w.repo] === true}
-              rebaseOn={rebase[w.repo] !== false}
-              onToggleForm={toggleForm}
-              onToggleRebase={toggleRebase}
-              onChangeRequested={trackRequest}
-            />
-          ))
-        )}
-      </div>
-    </>
+      }
+    >
+      {worktrees === null ? null : worktrees.length === 0 ? (
+        <EmptyState icon="folder" heading="No worktrees." sub="Implement creates one per repository in scope." />
+      ) : (
+        worktrees.map((w) => (
+          <WorktreeRow
+            key={w.repo}
+            w={w}
+            stats={stats[w.repo]}
+            headerBranch={headerBranch}
+            send={send}
+            formOpen={open[w.repo] === true}
+            rebaseOn={rebase[w.repo] !== false}
+            onToggleForm={toggleForm}
+            onToggleRebase={toggleRebase}
+            onChangeRequested={trackRequest}
+          />
+        ))
+      )}
+    </Section>
   );
 });

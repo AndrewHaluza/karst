@@ -1,5 +1,5 @@
 /**
- * One worktree row of the Worktrees panel: the repo label, the base-branch pill and its
+ * One worktree row of the Worktrees panel, on the shared Row pattern: the repo label, the base-branch pill and its
  * popover form, the branch with its copy button, the live totals and the row actions.
  * Same DOM, classes, `data-*` hooks and ARIA as the vanilla renderer it replaced.
  */
@@ -8,6 +8,7 @@ import type { DashboardWorktreeView } from '../stateTypes.js';
 import type { WorktreeStats } from '../worktreeStats.js';
 import type { DashboardSender } from './hostBridge.js';
 import { Icon } from './Icon.js';
+import { Row } from './Row.js';
 import { placeBelow } from './placeBelow.js';
 import { usePendingAction } from './usePendingAction.js';
 
@@ -17,7 +18,7 @@ const POPOVER_WIDTH = 280;
 const COPIED_MS = 1200;
 
 /** Optimistic (UI-R15): the host does the clipboard write and cannot fail in a way the user must act on. */
-function CopyBranchButton({ branch, send }: { readonly branch: string; readonly send: DashboardSender }) {
+export function CopyBranchButton({ branch, send }: { readonly branch: string; readonly send: DashboardSender }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return undefined;
@@ -148,6 +149,8 @@ function BasePopover({ w, rebaseOn, send, popRef, onToggleForm, onToggleRebase, 
 export interface WorktreeRowProps {
   readonly w: DashboardWorktreeView;
   readonly stats: WorktreeStats | undefined;
+  /** The branch the header already shows once (every row has it): a row repeats a branch only when it differs. */
+  readonly headerBranch: string | null;
   readonly send: DashboardSender;
   readonly formOpen: boolean;
   readonly rebaseOn: boolean;
@@ -156,7 +159,7 @@ export interface WorktreeRowProps {
   readonly onChangeRequested: (requestId: string, repo: string) => void;
 }
 
-export function WorktreeRow({ w, stats, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested }: WorktreeRowProps) {
+export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested }: WorktreeRowProps) {
   const editRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -172,9 +175,53 @@ export function WorktreeRow({ w, stats, send, formOpen, rebaseOn, onToggleForm, 
   const current = w.baseRef || w.baseDefault || '';
   const repoLabel = w.serviceName || w.repoDisplay || w.repo;
   const repoTitle = w.serviceName ? w.repoDisplay || w.repo : '';
+  const branch = w.branch && w.branch !== headerBranch ? w.branch : null;
   return (
     <div className="wtwrap" data-wtwrap={w.repo}>
-      <div className="wt">
+      <Row
+        className="wt"
+        lead={<Icon name="folder" />}
+        trail={
+          <>
+            {/* Only karst-extension checkouts can become a dev host (the host probes `launchable`); a foreign repo gets no dead control. */}
+            {w.launchable ? (
+              <button
+                type="button"
+                className="k-iconbtn ib t-start"
+                data-act="launch-worktree-extension"
+                data-path={w.path}
+                aria-label="Launch dev host"
+                title="Build this worktree and open its extension in a new dev window"
+                onClick={launchExtension}
+              >
+                <Icon name="play-bug" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="k-iconbtn ib t-open"
+              data-act="open-worktree-terminal"
+              data-path={w.path}
+              aria-label="Open terminal"
+              title="Open a terminal in this worktree"
+              onClick={openTerminal}
+            >
+              <Icon name="terminal-2" />
+            </button>
+            <button
+              type="button"
+              className="k-iconbtn ib t-copy"
+              data-act="open-worktree-folder"
+              data-path={w.path}
+              aria-label="Reveal in file explorer"
+              title="Reveal this worktree in the file explorer"
+              onClick={openFolder}
+            >
+              <Icon name="folder" />
+            </button>
+          </>
+        }
+      >
         <span className="wrepo" title={repoTitle || undefined}>
           {repoLabel}
         </span>
@@ -193,13 +240,13 @@ export function WorktreeRow({ w, stats, send, formOpen, rebaseOn, onToggleForm, 
             title="Change base branch"
             onClick={() => onToggleForm(w.repo)}
           >
-            ✎
+            <Icon name="pencil" size={12} />
           </button>
         </span>
-        {w.branch ? (
+        {branch ? (
           <span className="wbranch">
-            <span className="wbr" title={w.branch} aria-label={w.branch}>{w.branch}</span>
-            <CopyBranchButton branch={w.branch} send={send} />
+            <span className="wbr" title={branch} aria-label={branch}>{branch}</span>
+            <CopyBranchButton branch={branch} send={send} />
           </span>
         ) : null}
         {stats ? (
@@ -207,46 +254,7 @@ export function WorktreeRow({ w, stats, send, formOpen, rebaseOn, onToggleForm, 
             <span className="wadd">{`+${stats.additions}`}</span> <span className="wdel">{`−${stats.deletions}`}</span>
           </span>
         ) : null}
-        <span className="wsep" />
-        <span className="wacts">
-          <button
-            type="button"
-            className="k-iconbtn ib t-open"
-            data-act="open-worktree-terminal"
-            data-path={w.path}
-            aria-label="Open terminal"
-            title="Open a terminal in this worktree"
-            onClick={openTerminal}
-          >
-            <Icon name="terminal-2" />
-          </button>
-          <button
-            type="button"
-            className="k-iconbtn ib t-copy"
-            data-act="open-worktree-folder"
-            data-path={w.path}
-            aria-label="Reveal in file explorer"
-            title="Reveal this worktree in the file explorer"
-            onClick={openFolder}
-          >
-            <Icon name="folder" />
-          </button>
-          {/* Only karst-extension checkouts can become a dev host (the host probes `launchable`); a foreign repo gets no dead control. */}
-          {w.launchable ? (
-            <button
-              type="button"
-              className="k-iconbtn ib t-start"
-              data-act="launch-worktree-extension"
-              data-path={w.path}
-              aria-label="Launch dev host"
-              title="Build this worktree and open its extension in a new dev window"
-              onClick={launchExtension}
-            >
-              <Icon name="play-bug" />
-            </button>
-          ) : null}
-        </span>
-      </div>
+      </Row>
       {formOpen ? (
         <BasePopover
           w={w}

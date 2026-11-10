@@ -107,7 +107,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
   it('the Servers header Logs button opens the shared logs surface once; its own Close tells the host once', async () => {
     const v = await open();
     const before = v.posted.length;
-    await click(v, '#srvOps [data-act="server-logs-request"]');
+    await click(v, '[data-region="servers"] .pops [data-act="server-logs-request"]');
     expect(surfaces(v)).toEqual(['logs']);
     expect(v.document.body.classList.contains('log-nav')).toBe(true);
     expect(types(v, before)).toEqual(['server-logs-request']);
@@ -119,7 +119,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     expect(surfaces(v)).toEqual([]);
     expect(types(v, before)).toEqual(['server-logs-request', 'server-logs-close']);
     // A second open reuses the surface and asks again.
-    await click(v, '#srvOps [data-act="server-logs-request"]');
+    await click(v, '[data-region="servers"] .pops [data-act="server-logs-request"]');
     expect(surfaces(v)).toEqual(['logs']);
     expect(types(v, before)).toEqual(['server-logs-request', 'server-logs-close', 'server-logs-request']);
     expect(v.errors).toEqual([]);
@@ -128,7 +128,7 @@ describe('overlay openers — each opens its overlay exactly once', () => {
   it('the Servers header Env button opens the editor once and posts nothing', async () => {
     const v = await open();
     const before = v.posted.length;
-    await click(v, '#srvOps [data-act="env-overrides-open"]');
+    await click(v, '[data-region="servers"] .pops [data-act="env-overrides-open"]');
     expect(surfaces(v)).toEqual(['env']);
     expect(v.document.body.classList.contains('env-nav')).toBe(true);
     expect(v.queryAll('#envView .envscope')).toHaveLength(3);
@@ -140,8 +140,8 @@ describe('overlay stack — the ordered Escape chain', () => {
   it('closes the drawer, console, logs, env editor and artifact view in that order, one press each', async () => {
     const v = await open();
     await click(v, '#artViewAll');
-    await click(v, '#srvOps [data-act="env-overrides-open"]');
-    await click(v, '#srvOps [data-act="server-logs-request"]');
+    await click(v, '[data-region="servers"] .pops [data-act="env-overrides-open"]');
+    await click(v, '[data-region="servers"] .pops [data-act="server-logs-request"]');
     await click(v, '#inside [data-act="console"][data-console="uat"]:not([data-console-proc])');
     await click(v, '#ticketDataBtn');
     expect(surfaces(v)).toEqual(['drawer', 'console']);
@@ -314,7 +314,7 @@ describe('console — the terminal, in the real page', () => {
 describe('env editor — an unsaved edit survives a push', () => {
   it('keeps the draft, the field and its caret through a state push and a live repaint', async () => {
     const v = await open();
-    await click(v, '#srvOps [data-act="env-overrides-open"]');
+    await click(v, '[data-region="servers"] .pops [data-act="env-overrides-open"]');
     const area = v.query<HTMLTextAreaElement>('[data-env-scope="web"]')!;
     area.focus();
     const setter = Object.getOwnPropertyDescriptor(v.window.HTMLTextAreaElement.prototype, 'value')!.set!;
@@ -335,7 +335,7 @@ describe('env editor — an unsaved edit survives a push', () => {
 
   it('Save posts the scope and the typed body once, and the host’s accepted answer drops the draft', async () => {
     const v = await open();
-    await click(v, '#srvOps [data-act="env-overrides-open"]');
+    await click(v, '[data-region="servers"] .pops [data-act="env-overrides-open"]');
     const area = v.query<HTMLTextAreaElement>('[data-env-scope="api"]')!;
     Object.getOwnPropertyDescriptor(v.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(area, 'A=1');
     area.dispatchEvent(new v.window.Event('input', { bubbles: true }));

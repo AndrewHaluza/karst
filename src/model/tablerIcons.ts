@@ -238,6 +238,32 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M7 8l0 8"/>' +
     '<path d="M9 18h6a2 2 0 0 0 2 -2v-5"/>' +
     '<path d="M14 14l3 -3l3 3"/>',
+  'git-pull-request':
+    '<path d="M6 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M18 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 8l0 8"/>' +
+    '<path d="M11 6h5a2 2 0 0 1 2 2v8"/>' +
+    '<path d="M14 9l-3 -3l3 -3"/>',
+  'git-pull-request-closed':
+    '<path d="M6 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M18 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 8v8"/>' +
+    '<path d="M18 11v5"/>' +
+    '<path d="M16 4l4 4m0 -4l-4 4"/>',
+  'git-pull-request-draft':
+    '<path d="M6 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M18 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
+    '<path d="M6 8v8"/>' +
+    '<path d="M18 11h.01"/>' +
+    '<path d="M18 6h.01"/>',
+  'arrow-back-up':
+    '<path d="M9 14l-4 -4l4 -4"/>' +
+    '<path d="M5 10h11a4 4 0 1 1 0 8h-1"/>',
+  'loader-2':
+    '<path d="M12 3a9 9 0 1 0 9 9"/>',
   'git-merge':
     '<path d="M7 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +
     '<path d="M7 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/>' +

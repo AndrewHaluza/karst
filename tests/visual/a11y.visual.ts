@@ -129,11 +129,11 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span.g': { ratio: 2.61, gap: 'G5' },
   'light:span.nm': { ratio: 2.61, gap: 'G5' },
   'light:span.inside-meta': { ratio: 2.61, gap: 'G5' },
-  'light:span#srvCount.count': { ratio: 2.36, gap: 'G5' },
+  // T1063: the Section header's count has no id now; the same dim `.count` G5 measure as the old #srvCount / #prCount keys (same ratio, no new colour).
+  'light:span.count': { ratio: 2.36, gap: 'G5' },
   'light:span.sr': { ratio: 2.36, gap: 'G5' },
   'light:th': { ratio: 2.36, gap: 'G5' },
   'light:span.wbasebr': { ratio: 2.36, gap: 'G5' },
-  'light:span#prCount.count': { ratio: 2.36, gap: 'G5' },
   'light:span.psep': { ratio: 2.36, gap: 'G5' },
   'light:span.pcmwhen': { ratio: 2.36, gap: 'G5' },
   'light:div.n': { ratio: 2.36, gap: 'G5' },

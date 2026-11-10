@@ -28,7 +28,7 @@ export const MAX_ANNOTATIONS = 10;
 
 const UNDETECTED = new Set(['Survived', 'NoCoverage']);
 
-function normalizePath(value) {
+export function normalizePath(value) {
   return String(value ?? '')
     .trim()
     .replace(/^\.\//, '');

@@ -13,6 +13,7 @@ import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
+import { isShipAwaitingMerge, readShipCi, reportShipCiFailure, type ShipCi } from './shipCi.js';
 import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
 import { formatId } from '../model/entityId.js';
 import { asPriorityLevel, PRIORITY_LEVELS, type PriorityLevel } from '../model/priority.js';
@@ -137,6 +138,11 @@ export function isServersOnDoneState(val: unknown): val is ServersOnDoneState {
 
 export interface TicketWithStages extends Ticket {
   stages: Stage[];
+  /**
+   * Derived at read time, never stored (@arch:BLOCKED): `'running'` while the
+   * mandatory CI of a shipped, awaiting-merge ticket still runs. Absent = null.
+   */
+  shipCi?: ShipCi;
 }
 
 interface TicketRow {
@@ -448,7 +454,7 @@ export function generateTicketKey(
 export function getTicket(store: Store, id: number): TicketWithStages {
   const ticket = getBareTicket(store, id);
   const stages = loadStages(store, id);
-  return { ...ticket, stages };
+  return withShipCi(store, { ...ticket, stages });
 }
 
 function loadStages(store: Store, id: number): Stage[] {
@@ -1123,7 +1129,23 @@ function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[
       byTicket.set(sr.ticket_id, list);
     }
   }
-  return rows.map((r) => ({ ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }));
+  return rows.map((r) =>
+    withShipCi(store, { ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }),
+  );
+}
+
+/** Attach the derived `shipCi` reading; only a ship/awaiting-merge ticket costs a query. */
+function withShipCi(store: Store, t: TicketWithStages): TicketWithStages {
+  if (!isShipAwaitingMerge(t)) return t;
+  try {
+    return { ...t, shipCi: readShipCi(store, t.id) };
+  } catch (err) {
+    reportShipCiFailure(t.id, err);
+    // The reading is display-only: a table that cannot be read (for example a
+    // dropped merge_checks) must not fail a ticket load. Null is the safe
+    // answer: the ticket keeps its amber "Needs you" reading.
+    return { ...t, shipCi: null };
+  }
 }
 
 /** List only archived tickets (the Archived facet view), ordered by created_at descending with id desc tiebreaker. */

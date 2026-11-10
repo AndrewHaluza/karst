@@ -97,7 +97,9 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const stageClass = row.stageClass || 'stg-unknown';
   // The session button states which of the two it does — "Continue" or "Start".
   const sessVerb = row.sessionAction?.label || 'Start';
-  const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
+  // A blue glyph read "Running"; while ship's PR CI runs the badge label is the
+  // more exact name (@ui:STATUS-ICON-ONLY: no new visible status word).
+  const glyphWord = row.stageLabel === 'CI running' ? 'CI running' : GLYPH_WORD[row.glyph] || 'Unknown';
   const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
   const blockedBy = row.blockedBy || [];
   // Only a row that actually carries reference chips may reserve the title's

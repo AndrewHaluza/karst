@@ -1,0 +1,40 @@
+/* The Section / Row / Empty pattern shared by Servers, Worktrees and Pull requests (ui:LAYOUT-PRIMITIVES). */
+.phead .sec-title{flex:none}
+/* One dim line that truncates; the full text is the title attribute (UI-R44). */
+.phead .sec-sum{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--k-text-sm);font-weight:var(--k-weight-normal);color:var(--k-text-dim)}
+.phead .sec-sum.mono{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.phead .pops{margin-left:auto;display:flex;gap:var(--k-space-1);flex:none}
+.phead .sec-sum + .pops{margin-left:0}
+
+/* Row: lead | main | trail, with a sub-line under main + trail. */
+.krow{display:grid;grid-template-columns:calc(var(--k-space-6) + var(--k-space-3)) minmax(0,1fr) auto;align-items:center;
+  column-gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-5);min-width:0}
+.krow:hover,.krow:focus-within{background:var(--k-surface-hover)}
+.krow-lead{display:flex;align-items:center;justify-content:center;color:var(--k-text-dim)}
+.krow-main{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2) var(--k-space-4);min-width:0}
+.krow-trail{display:flex;align-items:center;gap:var(--k-space-1);justify-content:flex-end}
+.krow-trail > *{opacity:.55;transition:opacity var(--k-dur-fast) var(--k-ease-standard)}
+.krow:hover .krow-trail > *,.krow:focus-within .krow-trail > *{opacity:1}
+.krow-sub{grid-column:2 / -1;font-size:var(--k-text-sm);color:var(--k-text-dim);line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.krow.dim .krow-main{color:var(--k-text-dim)}
+
+/* Group header inside a body. */
+.sec-group{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-5);
+  background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border);
+  border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
+  text-transform:uppercase;color:var(--k-text-dim)}
+.sec-group .gcount{font-variant-numeric:tabular-nums}
+.sec-group .gnote{font-weight:var(--k-weight-normal);text-transform:none}
+
+/* Empty: mark + heading on one line, the reason under it, no button. */
+.estate{display:flex;align-items:flex-start;gap:var(--k-space-5);
+  padding:calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1) + var(--k-border-w))}
+.estate .emark{display:flex;align-items:center;justify-content:center;
+  width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);flex:none;margin-top:calc(var(--k-border-w) * -1);
+  background:var(--k-surface-hover);color:var(--k-text-faint)}
+.estate .emark svg{width:var(--k-text-base);height:var(--k-text-base);display:block}
+.estate .ehead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-text)}
+.estate .esub{font-size:var(--k-text-sm);color:var(--k-text-dim);line-height:1.45;margin-top:var(--k-space-1)}
+/* A dead end gets no action anywhere, so it gets no emphasis either: a statement, not a prompt. */
+.estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
