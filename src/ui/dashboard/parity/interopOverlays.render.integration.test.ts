@@ -63,7 +63,8 @@ describe('overlay openers — each opens its overlay exactly once', () => {
     const before = v.posted.length;
     await click(v, '#ticketDataBtn');
     expect(surfaces(v)).toEqual(['drawer']);
-    expect(v.query('#ticketDataBody')!.textContent).toBe('# FEAT-142\n\nA brief.');
+    expect(v.query('#ticketDataBody')!.textContent).toContain('A brief.');
+    expect(v.query('#ticketDataTitle')!.textContent).toBeTruthy();
     expect(v.posted.length).toBe(before);
     expect(v.queryAll('#ticketDataDrawer')).toHaveLength(1);
     expect(heard).toEqual([]);

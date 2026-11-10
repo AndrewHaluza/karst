@@ -131,6 +131,10 @@ describe('dashboard webviewSend', () => {
     });
     sender.copyTicketKey();
     expect(posted.at(-1)).toEqual({ type: 'copy-ticket-key' });
+    sender.copyTicketMarkdown('# md');
+    expect(posted.at(-1)).toEqual({ type: 'copy-ticket-markdown', text: '# md' });
+    sender.openTicketMarkdown('# md');
+    expect(posted.at(-1)).toEqual({ type: 'open-ticket-markdown', text: '# md' });
 
     sender.stageResume(42, 'review');
     expect(posted.at(-1)).toEqual({ type: 'stage-resume', ticketId: 42, stageKey: 'review' });
@@ -201,7 +205,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(68);
+    expect(posted).toHaveLength(70);
   });
 
   it('rejects a wrong argument type at compile time', () => {

@@ -143,6 +143,8 @@ export function createSender(api: WebviewApi) {
       requestId?: string,
     ) => send({ type: 'switch-agent', provider, model, effort }, requestId),
     copyTicketKey: (requestId?: string) => send({ type: 'copy-ticket-key' }, requestId),
+    copyTicketMarkdown: (text: Msg<'copy-ticket-markdown'>['text'], requestId?: string) => send({ type: 'copy-ticket-markdown', text }, requestId),
+    openTicketMarkdown: (text: Msg<'open-ticket-markdown'>['text'], requestId?: string) => send({ type: 'open-ticket-markdown', text }, requestId),
     stageResume: (
       ticketId: Msg<'stage-resume'>['ticketId'],
       stageKey: Msg<'stage-resume'>['stageKey'],

@@ -176,6 +176,10 @@ export type WebviewMessage =
   | { type: 'switch-agent'; provider: AgentProvider; model: string | null; effort: string | null }
   /** Copy this ticket's key through the host clipboard (the closure owns the ticket). */
   | { type: 'copy-ticket-key' }
+  /** Copy the ticket details drawer's Markdown (`ticketDataText`) through the host clipboard; the webview flashes its own optimistic feedback. */
+  | { type: 'copy-ticket-markdown'; text: string }
+  /** Open that same Markdown in an untitled editor document (language markdown). */
+  | { type: 'open-ticket-markdown'; text: string }
   /**
    * Resume a parked gate stage (§ blocked state visible). Carries the ticket
    * AND the stage it believes is blocked — the host still validates both

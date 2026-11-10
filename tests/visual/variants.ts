@@ -18,6 +18,7 @@ import {
   type RenderRepoCount,
   type RenderScenario,
 } from '../../src/ui/dashboard/renderFixtures.js';
+import { renderBrief } from '../../src/integrations/briefMarkdown.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
 import { INSIDE_CASES } from '../../src/ui/dashboard/insideCases.js';
 import { stallFixtureState, type StallFixtureKind } from '../../src/ui/dashboard/stallFixtures.js';
@@ -73,10 +74,17 @@ export interface Variant {
   readonly pills?: readonly string[];
   /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
   readonly agentPopover?: AgentPopoverSteps;
+  /** Dashboard ticket details drawer: open it from the doc icon after load, then pick a tab. */
+  readonly ticketDetails?: TicketDetailsSteps;
   /** Dashboard runtime strip: open this popover after load (the sandbox details or the ⋯ menu). */
   readonly runtimeOpen?: RuntimeOpen;
   /** Dashboard panels: a selector clicked after load (a popover trigger). */
   readonly click?: string;
+}
+
+/** The interaction steps of a ticket-details drawer variant: open it from the doc icon, then pick a tab. */
+export interface TicketDetailsSteps {
+  readonly tab?: 'desc' | 'raw';
 }
 
 export type RuntimeOpen = 'sandbox' | 'more';
@@ -101,6 +109,7 @@ function variant(
     width?: number;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
+    ticketDetails?: TicketDetailsSteps;
     runtimeOpen?: RuntimeOpen;
     click?: string;
   } = {},
@@ -114,6 +123,7 @@ function variant(
     ...(opts.width === undefined ? {} : { width: opts.width }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
+    ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
     ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
     ...(opts.click === undefined ? {} : { click: opts.click }),
   };
@@ -264,6 +274,47 @@ const agentPopoverVariants = (): Variant[] => [
   agentPopoverVariant('opencode-narrow', { core: 'opencode', q: 'pickle' }, 400),
 ];
 
+// ---------------------------------------------------------------- ticket details drawer
+
+const DETAILS_RICH_BRIEF = renderBrief({
+  title: 'Add per-repo base branch override', description: 'The picker needs a **base branch** per repository.\n\n- Read `karst.yml`\n- Show the override\n\nSee [the spec](https://example.test/spec).',
+  tags: ['worktrees', 'picker'], status: 'in review', priority: 'high', milestone: 'Sprint 42', url: 'https://example.test/browse/FEAT-142',
+  people: [{ role: 'assignee', name: 'Ada Lovelace' }, { role: 'reporter', name: 'Grace Hopper' }],
+  relations: [{ kind: 'blocked-by', ref: 'FEAT-100', title: 'Manifest loader', status: 'done' }, { kind: 'related', ref: 'FEAT-150' }],
+  timestamps: { created: '2026-10-01', updated: '2026-11-02', due: '2026-11-20' }, links: ['https://example.test/design'],
+  comments: [{ author: 'Ada', text: 'Looks right to me.', date: '' }, { author: 'Grace', text: 'Ship it after the picker lands.', date: '' }],
+  attachments: [{ name: 'mock.png', size: '48 KB', url: 'https://example.test/mock.png' } as never],
+});
+const DETAILS_DRAFT_BRIEF = [
+  '## Planning brief', 'Priority: normal (planner: readability of the ticket brief.)', 'Decisions:',
+  '- Replace the raw drawer with a structured one.', '', '## Design constraints', '- @ui:UI-R39', '- @arch:SHELF', '- 0b5696078a6', '- D400',
+].join('\n');
+
+const detailsState = (patch: Partial<DashboardState>) => (s: DashboardState): DashboardState => ({ ...s, ...patch });
+const DETAILS_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
+  ['rich', detailsState({ brief: DETAILS_RICH_BRIEF, description: 'Original description from the tracker.', provider: 'jira', ticketUrl: 'https://example.test/browse/FEAT-142', briefSource: { kind: 'provider', provider: 'jira' }, priority: 'high' } as Partial<DashboardState>)],
+  ['draft', detailsState({ brief: DETAILS_DRAFT_BRIEF, description: '', provider: null, ticketUrl: null, briefSource: { kind: 'draft', draftId: 400 } } as Partial<DashboardState>)],
+  ['plain', detailsState({ brief: '', description: 'Fix the login modal so it traps focus.', provider: 'github', ticketUrl: 'https://example.test/issues/9', briefSource: { kind: 'manual' } } as Partial<DashboardState>)],
+  ['empty', detailsState({ brief: '', description: '', provider: null, ticketUrl: null, briefSource: { kind: 'manual' } } as Partial<DashboardState>)],
+];
+const DETAILS_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
+const DETAILS_TABS: Readonly<Record<string, readonly (TicketDetailsSteps['tab'] | undefined)[]>> = {
+  rich: [undefined, 'desc', 'raw'], draft: [undefined, 'raw'], plain: [undefined, 'raw'], empty: [undefined],
+};
+
+/** T1060: the four states x their tabs at wide, mid and narrow. The drawer is a fixed overlay: no layout run of its own. */
+const ticketDetailsVariants = (): Variant[] =>
+  DETAILS_STATES.flatMap(([name, patch]) =>
+    (DETAILS_TABS[name] ?? []).flatMap((tab) =>
+      DETAILS_TIERS.map(([tier, width]) =>
+        variant('dashboard', `ticket-details-${name}${tab ? `-${tab}` : ''}-${tier}`, dashboardScenario('running', 2, patch), {
+          skipLayout: true,
+          width,
+          ticketDetails: tab ? { tab } : {},
+        }),
+      ),
+    ),
+  );
 
 type SandboxView = NonNullable<DashboardState['sandbox']>;
 const SBX_VIEW: SandboxView = {
@@ -390,6 +441,7 @@ const dashboardVariants = (): Variant[] => [
   ...insideCaseVariants(),
   ...deliverAutoTierVariants(),
   ...agentPopoverVariants(),
+  ...ticketDetailsVariants(),
   ...drillDownVariants(),
   // D283: one-shot edge ring pulse when revealed, framed statically in reduced-motion state.
   variant('dashboard', 'attention', () => ({
