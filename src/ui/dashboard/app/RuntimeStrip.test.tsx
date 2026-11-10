@@ -59,6 +59,13 @@ describe('RuntimeStrip — layout', () => {
     expect($('#agentButton .rs-dot').className).toContain('running');
   });
 
+  it('keeps a waiting agent waiting during an auto-fix round: the suffix does not turn it into running', () => {
+    strip(view(), { agentState: 'waiting', autopilot: ROUND(true) });
+    expect($('#agentButton .rs-state').textContent).toBe('waiting · auto-fix');
+    expect($('#agentButton .rs-state').className).not.toContain('running');
+    expect($('#agentButton .rs-dot').className).not.toContain('running');
+  });
+
   it('adds no suffix when no round is active', () => {
     strip(view(), { agentState: 'running', autopilot: ROUND(false) });
     expect($('#agentButton .rs-state').textContent).toBe('running');

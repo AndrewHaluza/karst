@@ -111,9 +111,9 @@
   #inside .pr-branch{display:flex;flex-wrap:wrap}
   #inside{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
   #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
-  /* The tail wraps under the name and detail instead of squeezing them; the duration and chevron keep row one. */
-  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,110px) minmax(0,1fr) var(--inside-dur-w) 16px}
-  #inside .op-tail{grid-row:2;grid-column:2/4;justify-content:flex-start;flex-wrap:wrap;white-space:normal;padding-bottom:var(--p-s1)}
+  /* The agent identity drops first, so a row keeps one line: the tail (count, action, Σ pill) stays in its own track before the duration and chevron. */
+  #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,110px) minmax(0,1fr) auto var(--inside-dur-w) 16px}
+  #inside .op-tail .agent-id,#inside .op-tail .identity-note{display:none}
 }
 /* At 430px the commit head stacks again: it overrides the 520px tracks above (UI-R41). */
 @container (max-width: 430px){
