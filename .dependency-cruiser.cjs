@@ -30,7 +30,7 @@ module.exports = {
       to: {
         path: '^src/model/',
         pathNot:
-          '^src/model/(blockerNotify|bulletinRelevance|entityId|followUp|messageText|prChecks|prComments|prReview|priority|queueOrder|time|types)\\.ts$',
+          '^src/model/(blockerNotify|bulletinRelevance|entityId|followUp|messageText|planningBriefHeading|prChecks|prComments|prReview|priority|queueOrder|time|types)\\.ts$',
         dependencyTypesNot: ['type-only'],
       },
     },

@@ -195,6 +195,11 @@ jobs:
       group: mutation-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     continue-on-error: ${{ github.event_name == 'push' }}
+    # actions: read lets the "Find develop's mutation report" step list develop's
+    # runs and artifacts; without it the lookup 403s and rule 3a never applies.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -258,13 +263,64 @@ jobs:
         if: steps.filter.outputs.skip != 'true'
         run: npm run rebuild:node
 
-      # Blocking gate (CI-MAKE-MUTATION-SCORE-JOB): the score is global
-      # across src/extension/**, but it is a contract. No `continue-on-error`
-      # here — a run below thresholds.break (85) exits 1 and fails the job.
+      # Delta gate (CI-THE-MUTATION-SCORE-JOB-FAILS): a PR fails only for
+      # mutants it adds (scripts/mutationGate.mjs), never for the global score,
+      # so a develop below thresholds.break cannot lock out unrelated PRs.
+      # Stryker itself must not decide pass/fail on a PR: its break exit is
+      # tolerated there (continue-on-error on the Stryker step), and a crashed
+      # run leaves no report, which the gate fails closed.
       # Incremental: Stryker re-tests only mutants whose source or covering
       # tests changed since the cached run, and reuses the rest. Reused results
       # still count, so the score stays global. Restore the newest cache from
       # any run (restore-keys); save a fresh one per commit.
+      # On a PR: fetch develop's mutation report (mutation.json, uploaded as
+      # `mutation-develop` by every develop push run). Same search as the visual
+      # job's "Find develop's red set": the run for the PR's base sha, else the
+      # closest completed develop run NEWER than the base (never an older one:
+      # it would blame the PR for drops already on develop). Any failure leaves
+      # the report absent and the gate applies the new-file rule to every
+      # changed file; a missing artifact never fails here.
+      - name: Find develop's mutation report
+        id: develop-mutation
+        if: github.event_name == 'pull_request' && steps.filter.outputs.skip != 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const base = context.payload.pull_request.base.sha;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'ci.yml', branch: 'develop',
+              event: 'push', status: 'completed', per_page: 30,
+            });
+            // Newest first. Only the run for the base sha or a DESCENDANT of it
+            // is usable. Of the descendants take the oldest (closest to base).
+            // Once a run is older than base, all later are.
+            let nearest;
+            for (const run of data.workflow_runs) {
+              const { data: arts } = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: run.id, name: 'mutation-develop',
+              });
+              if (arts.artifacts.length === 0 || arts.artifacts[0].expired) continue;
+              if (run.head_sha === base) { nearest = run.id; break; }
+              const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+                ...context.repo, basehead: `${base}...${run.head_sha}`,
+              });
+              if (cmp.status !== 'ahead') break;
+              nearest = run.id;
+            }
+            if (nearest) core.setOutput('run-id', nearest);
+
+      - name: Download develop's mutation report
+        id: develop-mutation-download
+        if: github.event_name == 'pull_request' && steps.develop-mutation.outputs.run-id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: mutation-develop
+          path: develop-mutation
+          run-id: ${{ steps.develop-mutation.outputs.run-id }}
+          github-token: ${{ github.token }}
+
       - name: Restore the Stryker incremental cache
         if: steps.filter.outputs.skip != 'true'
         uses: actions/cache@v4
@@ -276,6 +332,8 @@ jobs:
       - name: Run Stryker
         id: stryker
         if: steps.filter.outputs.skip != 'true'
+        # On a PR the gate step below decides; on develop the job is advisory anyway.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         # Local config is silent (html+json only); CI wants the per-file table in the log.
         run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json --incremental --incrementalFile reports/stryker-incremental.json
 
@@ -290,14 +348,31 @@ jobs:
       # Replaces the old "exit code 1 and nothing else" publish step: turn the
       # JSON reporter's output into a run-summary table and inline warnings on
       # the PR's touched lines. The script exits 0 even when the report is
-      # missing, so this step never masks the Stryker verdict — the job's
-      # pass/fail is the Stryker step alone, and a failing run still shows the
-      # report here.
+      # missing: it never decides pass/fail (the gate step below does on a PR,
+      # the Stryker step on develop), and a failing run still shows the report.
       - name: Publish the mutation mini report
         if: always() && steps.filter.outputs.skip != 'true'
         run: |
           node scripts/mutationSummary.mjs \
             --report reports/mutation/mutation.json \
+            --config stryker.config.json \
+            --changed changed-files.txt \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      # The PR verdict (rules in scripts/mutationGate.mjs): fails only for a
+      # changed mutate-set file with more undetected mutants than develop's
+      # report, or a new file below thresholds.break. A global score below the
+      # break is a warning. Fails closed on a missing or malformed PR report.
+      - name: Mutation delta gate
+        if: github.event_name == 'pull_request' && steps.filter.outputs.skip != 'true'
+        run: |
+          DEVELOP_REPORT=""
+          if [ -f develop-mutation/mutation.json ]; then
+            DEVELOP_REPORT=develop-mutation/mutation.json
+          fi
+          node scripts/mutationGate.mjs \
+            --report reports/mutation/mutation.json \
+            --develop-report "$DEVELOP_REPORT" \
             --config stryker.config.json \
             --changed changed-files.txt \
             --summary "$GITHUB_STEP_SUMMARY"
@@ -320,6 +395,16 @@ jobs:
             echo
             echo "⚠️ Mutation score on develop is below thresholds.break (85)."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Develop's mutation report, consumed by PR runs (see "Find develop's mutation report").
+      - name: Upload develop's mutation report
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-develop
+          path: reports/mutation/mutation.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Upload the HTML report
         if: always() && steps.filter.outputs.skip != 'true'

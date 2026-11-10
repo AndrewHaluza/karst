@@ -50,7 +50,7 @@ export function artifactFixtures(): ArtifactSummary[] {
 }
 
 export function stateWithArtifacts(over: Record<string, unknown> = {}): DashboardState {
-  return { ticketId: 7, key: 'FEAT-7', title: 'Seven', artifacts: artifactFixtures(), ...over } as unknown as DashboardState;
+  return { ticketId: 7, key: 'FEAT-7', title: 'Seven', idLabel: 'T7', provider: null, ticketUrl: null, briefSource: { kind: 'manual' }, origin: null, subtaskParent: null, priority: null, approach: null, worktrees: [], artifacts: artifactFixtures(), ...over } as unknown as DashboardState;
 }
 
 export const SHA1 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

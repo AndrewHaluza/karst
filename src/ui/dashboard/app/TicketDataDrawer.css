@@ -1,15 +1,66 @@
-/* The ticket-data preview drawer (moved from webview.html with the drawer). UI-R04: composed from tokens, no raw
-   dimensions; width uses the same token step as the ticket form's drawer. `.k-scrim`/`.k-drawer` supply the surface,
-   shadow and z-index; the open transform and the scrim's opacity fade stay local, like the ticket form. */
+/* The ticket details drawer (moved from webview.html with the drawer). UI-R04: composed from tokens, no raw
+   dimensions; `.k-scrim`/`.k-drawer` supply the surface, shadow and z-index; the open transform and the scrim's
+   opacity fade stay local, like the ticket form. The body is a container: the facts sidebar shows at >=620px
+   (31 x space-8) and folds into a <details> below it (ui:RD-TIERS). */
 /* The wrapper takes the place the static scrim and aside held: it draws nothing of its own. */
 .tdHost{display:contents}
 .tdScrim{opacity:0;pointer-events:none;transition:opacity var(--k-dur-base) var(--k-ease-standard)}
 .tdScrim.open{opacity:1;pointer-events:auto}
-.tdDrawer{width:min(calc(var(--k-space-8) * 23),86vw);display:flex;flex-direction:column;transform:translateX(100%)}
+.tdDrawer{width:min(calc(var(--k-space-8) * 41),94vw);display:flex;flex-direction:column;transform:translateX(100%)}
 .tdDrawer.open{transform:translateX(0)}
-.tdDrawerHead{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-7) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
-.tdDrawerHead h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);flex:1;min-width:0}
-.tdDrawerBody{flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6) var(--k-space-7);overflow:auto;white-space:pre-wrap;font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
+.tdDrawerHead{display:flex;flex-direction:column;gap:var(--k-space-3);padding:var(--k-space-6) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
+.tdHeadLine{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;min-width:0}
+.tdId,.tdKey{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+.tdId{color:var(--k-text-dim)}
+.tdHeadActions{margin-left:auto;display:inline-flex;align-items:center;gap:var(--k-space-2)}
+.tdDrawerHead h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);min-width:0;overflow-wrap:anywhere}
+.tdTabRow{display:flex;align-items:center;gap:var(--k-space-5);flex-wrap:wrap;padding:var(--k-space-3) var(--k-space-7);border-bottom:var(--k-border-w) solid var(--k-border)}
+.tdTabs{display:flex;gap:var(--k-space-2);flex-wrap:wrap}
+.tdTab{height:var(--k-control-h-sm);padding:var(--k-space-0) var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-sm);white-space:nowrap;cursor:pointer}
+.tdTab:hover{background:var(--k-hover);color:var(--k-text)}
+/* Selected is border + weight + underline, not colour alone (UI-R28). */
+.tdTab[aria-selected="true"]{border-color:var(--k-border);color:var(--k-text);font-weight:var(--k-weight-semibold);box-shadow:inset 0 calc(var(--k-border-w) * -2) 0 var(--k-text)}
+.tdTab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.tdSource,.tdHint,.tdDim{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+.tdHint{margin-left:auto}
+.tdDrawerBody{flex:1 1 auto;min-height:var(--k-space-0);overflow:auto;padding:var(--k-space-6) var(--k-space-7);container-type:inline-size;color:var(--k-text);font-size:var(--k-text-md);line-height:var(--k-leading-normal)}
+.tdEmpty{margin:var(--k-space-0);color:var(--k-text-dim)}
+.tdLayout{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 11.5);gap:var(--k-space-7);align-items:start}
+.tdLayout>.tdMain{grid-column:1;grid-row:1;min-width:0}
+.tdFacts{grid-column:2;grid-row:1;position:sticky;top:var(--k-space-0);display:flex;flex-direction:column;gap:var(--k-space-5)}
+.tdFactsFold{display:none}
+.tdFactGroup{display:flex;flex-direction:column;gap:var(--k-space-2)}
+.tdFactTitle{margin:var(--k-space-0);color:var(--k-text-dim);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);text-transform:uppercase}
+.tdFactRows{display:flex;flex-direction:column;gap:var(--k-space-2);margin:var(--k-space-0)}
+.tdFactRow{display:flex;flex-direction:column;min-width:0}
+.tdFactRow dt{color:var(--k-text-dim);font-size:var(--k-text-xs)}
+.tdFactRow dd{margin:var(--k-space-0);overflow-wrap:anywhere;font-size:var(--k-text-sm)}
+.tdTags{display:flex;flex-wrap:wrap;gap:var(--k-space-2);margin:var(--k-space-0);padding:var(--k-space-0);list-style:none}
+.tdSection{margin-top:var(--k-space-7)}
+.tdSectionTitle{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+.tdComments,.tdAttachments{display:flex;flex-direction:column;gap:var(--k-space-4);margin:var(--k-space-0);padding:var(--k-space-0);list-style:none}
+.tdCommentText{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+.tdAttachments li{display:flex;align-items:center;gap:var(--k-space-3);min-width:0;overflow-wrap:anywhere}
+.tdRaw{margin:var(--k-space-0);white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal)}
+/* The rendered Markdown (MarkdownView). */
+.mdView{overflow-wrap:anywhere}
+.mdView>:first-child{margin-top:var(--k-space-0)}
+.mdView p,.mdView ul,.mdView ol,.mdView pre{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+.mdView h4,.mdView h5,.mdView h6{margin:var(--k-space-6) var(--k-space-0) var(--k-space-3);line-height:var(--k-leading-normal)}
+.mdView h4{font-size:var(--k-text-lg)}
+.mdView h5,.mdView h6{font-size:var(--k-text-md)}
+.mdView ul,.mdView ol{padding-left:var(--k-space-8)}
+.mdView code{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+.mdCode{padding:var(--k-space-4);overflow:auto;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);white-space:pre}
+.mdView .mdChips{display:flex;flex-wrap:wrap;gap:var(--k-space-2);padding:var(--k-space-0);list-style:none}
+.mdChip{font-family:var(--k-font-mono)}
+@container (max-width: 619px){
+  .tdLayout{grid-template-columns:minmax(0,1fr)}
+  .tdLayout>.tdMain{grid-row:2}
+  .tdFacts{display:none}
+  .tdFactsFold{display:block;grid-column:1;grid-row:1;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-3) var(--k-space-4)}
+  .tdFactsFold>summary{cursor:pointer;font-size:var(--k-text-sm);color:var(--k-text-dim)}
+}
 @media (prefers-reduced-motion:reduce){
   .tdScrim,.tdDrawer{transition:none}
 }
