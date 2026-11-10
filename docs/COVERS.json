@@ -421,6 +421,9 @@
   "src/extension/ops/conflictResolveOps.ts": [
     "arch:AP-01"
   ],
+  "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
+    "arch:GH-09"
+  ],
   "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
     "arch:DRAFT-CONSTRAINTS"
   ],
@@ -484,6 +487,9 @@
   "src/integrations/prChecks.ts": [
     "arch:GH-00"
   ],
+  "src/integrations/prChecks.ts#applyRequiredChecks": [
+    "arch:GH-03"
+  ],
   "src/logging/logger.ts#makeBoundedLogBuffer": [
     "arch:DBG-02"
   ],
@@ -530,6 +536,9 @@
     "arch:AP-02"
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
+    "arch:GH-03"
+  ],
+  "src/model/prMergeReadiness.ts#prMergeReadiness": [
     "arch:GH-03"
   ],
   "src/model/priority.ts#effectiveTicketPriority": [
@@ -996,8 +1005,14 @@
   "src/workflow/mergeGate.ts#mergeGateState": [
     "arch:GH-06"
   ],
+  "src/workflow/mergePr.ts#mergeAllPrs": [
+    "arch:GH-09"
+  ],
   "src/workflow/mergePr.ts#mergeTicketPr": [
     "arch:GH-04"
+  ],
+  "src/workflow/mergePr.ts#planMergeAll": [
+    "arch:GH-09"
   ],
   "src/workflow/mergeSync.ts#syncMergeChecks": [
     "arch:GH-05"
