@@ -78,10 +78,6 @@ export function needsUser(t: TicketWithStages): boolean {
   // only its needs-you READING yields while the agent works, and returns
   // once the session ends (SessionEnd → idle).
   if (((t.agentState ?? 'none') as AgentState) === 'running') return false;
-  // Mandatory CI of a shipped ticket still runs: the merge cannot be clicked
-  // yet, so nothing waits on the user. A derived reading (`shipCi`), not a
-  // BlockerKind — the awaiting-merge block stays stored (@arch:BLOCKED).
-  if (shipCiRunning(t)) return false;
   // `not-started` (v68) is the launch-delivery guard's needs-you: the launch
   // never confirmed, so the agent never received its brief and only a human can
   // get the session going.
@@ -90,6 +86,13 @@ export function needsUser(t: TicketWithStages): boolean {
   // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
   if (waitingWhileShipRuns(t)) return false;
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return true;
+
+  // Mandatory CI of a shipped ticket still runs: the merge cannot be clicked
+  // yet, so nothing waits on the user. A derived reading (`shipCi`), not a
+  // BlockerKind — the awaiting-merge block stays stored (@arch:BLOCKED). Placed
+  // AFTER the agent-state branches: an agent that asks a question (`waiting`,
+  // `not-started`) still needs the user whatever CI does.
+  if (shipCiRunning(t)) return false;
 
   // `stageCurrent` is a stored string: a row from an older schema (or a stage
   // since removed from the graph) is not a StageKey and must not be treated as

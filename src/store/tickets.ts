@@ -451,10 +451,14 @@ export function generateTicketKey(
 }
 
 /** Load a ticket with all its stage rows. Throws if the id is unknown. */
-export function getTicket(store: Store, id: number): TicketWithStages {
+export function getTicket(
+  store: Store,
+  id: number,
+  debug?: (message: string) => void,
+): TicketWithStages {
   const ticket = getBareTicket(store, id);
   const stages = loadStages(store, id);
-  return withShipCi(store, { ...ticket, stages });
+  return withShipCi(store, { ...ticket, stages }, debug);
 }
 
 function loadStages(store: Store, id: number): Stage[] {
@@ -1097,14 +1101,14 @@ export function deleteTicket(
  */
 export function listTickets(
   store: Store,
-  opts: { includeArchived?: boolean } & ProjectScope = {},
+  opts: { includeArchived?: boolean; debug?: (message: string) => void } & ProjectScope = {},
 ): TicketWithStages[] {
   const { sql, params } = scopeClause(opts);
   const where = whereClause(opts.includeArchived ? '' : 'archived_at IS NULL', sql);
   const rows = store.db
     .prepare(`SELECT * FROM tickets ${where} ORDER BY created_at DESC, id DESC`)
     .all(...params) as TicketRow[];
-  return withStages(store, rows);
+  return withStages(store, rows, opts.debug);
 }
 
 /** Ids per `IN (...)` stage batch, well under SQLite's bound-variable limit. */
@@ -1115,7 +1119,11 @@ const STAGE_BATCH_SIZE = 500;
  * ticket: a project with hundreds of archived tickets otherwise costs hundreds
  * of statements on every sidebar refresh.
  */
-function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[] {
+function withStages(
+  store: Store,
+  rows: readonly TicketRow[],
+  debug?: (message: string) => void,
+): TicketWithStages[] {
   const byTicket = new Map<number, Stage[]>();
   for (let i = 0; i < rows.length; i += STAGE_BATCH_SIZE) {
     const ids = rows.slice(i, i + STAGE_BATCH_SIZE).map((r) => r.id);
@@ -1130,16 +1138,21 @@ function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[
     }
   }
   return rows.map((r) =>
-    withShipCi(store, { ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }),
+    withShipCi(store, { ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }, debug),
   );
 }
 
 /** Attach the derived `shipCi` reading; only a ship/awaiting-merge ticket costs a query. */
-function withShipCi(store: Store, t: TicketWithStages): TicketWithStages {
+function withShipCi(
+  store: Store,
+  t: TicketWithStages,
+  debug?: (message: string) => void,
+): TicketWithStages {
   if (!isShipAwaitingMerge(t)) return t;
   try {
     return { ...t, shipCi: readShipCi(store, t.id) };
-  } catch {
+  } catch (err) {
+    debug?.(`[merge] shipCi read failed for ticket ${t.id}: ${err instanceof Error ? err.message : String(err)}`);
     // The reading is display-only: a table that cannot be read (for example a
     // dropped merge_checks) must not fail a ticket load. Null is the safe
     // answer: the ticket keeps its amber "Needs you" reading.

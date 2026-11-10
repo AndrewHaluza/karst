@@ -105,6 +105,8 @@ describe('a failing read', () => {
     setStageCurrent(store, id, 'ship');
     setStage(store, id, 'ship', { status: 'passed', blockedKind: 'awaiting-merge', blockedReason: 'x' });
     store.db.exec('DROP TABLE merge_checks');
-    expect(getTicket(store, id).shipCi).toBeNull();
+    const seen: string[] = [];
+    expect(getTicket(store, id, (m) => seen.push(m)).shipCi).toBeNull();
+    expect(seen[0]).toContain('[merge] shipCi read failed');
   });
 });

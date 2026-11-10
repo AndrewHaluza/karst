@@ -203,3 +203,11 @@ describe('stageBadge CI running', () => {
     expect(stageBadge(shipBlocked({ shipCi: 'running', pausedAt: 'x' })).label).toBe('Paused');
   });
 });
+
+describe('stageBadge CI running vs a waiting agent', () => {
+  it('a waiting agent still reads Needs you while CI runs', () => {
+    const t = ticket('ship', 'passed', { shipCi: 'running', agentState: 'waiting' });
+    t.stages[0]!.blockedKind = 'awaiting-merge';
+    expect(stageBadge(t)).toMatchObject({ label: 'Needs you', glyph: 'amber' });
+  });
+});
