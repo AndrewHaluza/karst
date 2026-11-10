@@ -15,6 +15,7 @@ import { formatId } from '../../../model/entityId.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import type { DashboardSender } from './hostBridge.js';
+import { buildTicketDetails, type TicketDetailsView } from './ticketDetails.js';
 import { initialXtermState, runXtermBundle, settledXtermState, type XtermState } from './xtermLoader.js';
 
 /** null = the ticket dashboard; a detail remembers where Back answers (the ticket, or the index it came from). */
@@ -49,8 +50,8 @@ export interface OverlayView {
 }
 
 export interface OverlaySnapshot {
-  /** The ticket-data drawer: the text composed when it opened (the drawer never refreshes it). */
-  readonly drawer: { readonly text: string } | null;
+  /** The ticket details drawer: the agent text and the view composed when it opened (the drawer never refreshes them). */
+  readonly drawer: { readonly text: string; readonly view: TicketDetailsView } | null;
   readonly stageMenu: boolean;
   readonly console: ConsoleTarget | null;
   readonly logs: boolean;
@@ -91,7 +92,7 @@ const sameView = (a: OverlayView, b: OverlayView): boolean =>
 
 export const DASHBOARD: OverlayView = { console: null, logs: false, env: false, art: null };
 
-/** The drawer's body: the fetched brief verbatim, else the ticket's own heading and prompt (a manual ticket has no brief). */
+/** The drawer's "As sent to agent" text: the fetched brief verbatim, else the ticket's own heading and prompt (a manual ticket has no brief). */
 export function ticketDataText(state: DashboardState): string {
   const brief = (state.brief || '').trim();
   if (brief) return brief;
@@ -164,7 +165,8 @@ export class OverlayStack {
     const state = this.deps.getState();
     if (!state) return;
     this.trigger = document.activeElement;
-    this.set({ drawer: { text: ticketDataText(state) } });
+    const text = ticketDataText(state);
+    this.set({ drawer: { text, view: buildTicketDetails(state, text) } });
   };
 
   readonly closeTicketData = (): void => {

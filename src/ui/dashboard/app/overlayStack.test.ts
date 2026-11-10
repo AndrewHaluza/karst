@@ -5,7 +5,7 @@ import type { DashboardState } from '../state.js';
 import { MAX_HISTORY, OverlayStack, restoreArt, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
 
 const DASH = { console: null, logs: false, env: false, art: null };
-const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', ...over }) as unknown as DashboardState;
+const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', idLabel: 'T7', provider: null, ticketUrl: null, briefSource: { kind: 'manual' }, origin: null, subtaskParent: null, priority: null, approach: null, worktrees: [], ...over }) as unknown as DashboardState;
 
 function make(opts: { state?: DashboardState | null; art?: ArtView | null; scrolls?: ArtScrolls; top?: number } = {}) {
   let top = opts.top ?? 0;
@@ -28,7 +28,8 @@ describe('OverlayStack — ticket-data drawer', () => {
   it('opens with the fetched brief verbatim and posts nothing', () => {
     const { stack, send } = make({ state: state({ brief: '  # T\n\n## Details  ' }) });
     stack.openTicketData();
-    expect(stack.getSnapshot().drawer).toEqual({ text: '# T\n\n## Details' });
+    expect(stack.getSnapshot().drawer?.text).toBe('# T\n\n## Details');
+    expect(stack.getSnapshot().drawer?.view.text).toBe('# T\n\n## Details');
     expect(Object.values(send).every((fn) => fn.mock.calls.length === 0)).toBe(true);
   });
 

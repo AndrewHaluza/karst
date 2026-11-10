@@ -34,6 +34,8 @@ export const MAX_GATE_NAME_CHARS = 128;
  * ceiling well above any honest use.
  */
 export const MAX_ENV_TEXT_CHARS = 16_384;
+/** The ticket details Markdown (brief, comments, attachments) the drawer copies or opens in the editor. */
+export const MAX_TICKET_MARKDOWN_CHARS = 2_000_000;
 
 /** Longest inside action id accepted from a webview. Ids are `snapshot-<n>:action-<n>`. */
 export const MAX_ACTION_ID_CHARS = 96;

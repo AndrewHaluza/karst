@@ -1,4 +1,5 @@
 import type { TicketFormPrefill } from './panel.js';
+import { deriveBriefSource, type BriefSource } from '../../model/briefSource.js';
 import type { Store } from '../../store/db.js';
 import { getTicket, type Ticket } from '../../store/tickets.js';
 import { getProposalForTicket } from '../../store/planningProposals.js';
@@ -136,25 +137,16 @@ export interface DesignConstraintsView {
   warnings: string[];
 }
 
-/** Origin of the brief shown in the form (host-decided, never inferred from the project's provider). */
-export type BriefSource =
-  | { kind: 'provider'; provider: string }
-  | { kind: 'draft'; draftId: number }
-  | { kind: 'manual' };
+export type { BriefSource };
 
-/**
- * Where a stored brief came from. A bound `sourceRef` alone does not mean the
- * provider holds the brief: creating the provider task sends only the title
- * and description, so only a fetch (`sourceFetchedAt`) makes it `provider`.
- */
+/** Where a stored brief came from (the rule lives in `model/briefSource.ts`, shared with the dashboard drawer). */
 function briefSourceOf(
   store: Store,
   ticket: Pick<Ticket, 'id' | 'sourceFetchedAt'>,
   provider: TicketProvider,
 ): BriefSource {
-  if (ticket.sourceFetchedAt !== null) return { kind: 'provider', provider };
   const draft = getProposalForTicket(store, ticket.id);
-  return draft?.status === 'accepted' ? { kind: 'draft', draftId: draft.id } : { kind: 'manual' };
+  return deriveBriefSource(ticket, provider, draft?.status === 'accepted' ? draft.id : null);
 }
 
 export interface TicketFormState {

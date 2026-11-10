@@ -255,6 +255,11 @@ export function makeDashboardActions(
       const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
       void vscode.env.clipboard.writeText(key);
     },
+    copyTicketMarkdown: (text) => void vscode.env.clipboard.writeText(text),
+    openTicketMarkdown: async (text) => {
+      const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: text });
+      await vscode.window.showTextDocument(doc);
+    },
     sandboxSync: () => sandbox.life().sync(ticketId), sandboxDiff: () => sandbox.life().diff(ticketId), // AC-32 Sandbox card
     sandboxStop: () => sandbox.life().stop(ticketId), sandboxRemove: () => sandbox.life().remove(ticketId), sandboxCarry: () => sandbox.life().carry(ticketId), sandboxStashUpdate: () => sandbox.life().stashUpdate(ticketId), sandboxShell: () => sandbox.life().shell(ticketId),
     ...worktreeActions,

@@ -1,6 +1,8 @@
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { readAutofix } from './stateAutofix.js';
 import type { Store } from '../../store/db.js';
+import { deriveBriefSource } from '../../model/briefSource.js';
+import { getProposalForTicket } from '../../store/planningProposals.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement } from '../../store/placement.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
@@ -347,6 +349,9 @@ export function buildDashboardState(
     autofix: autofixReading.row,
   });
 
+  const draft = getProposalForTicket(store, ticket.id);
+  const acceptedDraftId = draft?.status === 'accepted' ? draft.id : null;
+
   return {
     ticketId: ticket.id,
     idLabel: formatId('ticket', ticket.id),
@@ -392,6 +397,7 @@ export function buildDashboardState(
     priority: effectiveTicketPriority(ticket) ?? ticket.priority,
     description: ticket.description,
     brief: ticket.brief,
+    briefSource: deriveBriefSource(ticket, ticketing?.provider ?? null, acceptedDraftId),
     rail: buildRail({
       ticket,
       stepper,
