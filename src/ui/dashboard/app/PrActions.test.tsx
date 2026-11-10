@@ -51,8 +51,7 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
     expect(h.send.copyPrUrl).toHaveBeenCalledTimes(1);
     expect(h.send.copyPrUrl).toHaveBeenCalledWith(URL, 'req-1');
     expect(b.hasAttribute('data-copied')).toBe(true);
-    expect(b.querySelector('.u')!.textContent).toBe('Copied ✓');
-    keepsClass(b, cls);
+        keepsClass(b, cls);
     expect(b.getAttribute('aria-busy')).toBe('true');
     fireEvent.click(b);
     expect(h.send.copyPrUrl).toHaveBeenCalledTimes(1);
@@ -60,7 +59,6 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
       vi.advanceTimersByTime(1300);
     });
     expect(b.hasAttribute('data-copied')).toBe(false);
-    expect(b.querySelector('.u')!.textContent).toBe(URL);
   });
 
   it('resolve-conflicts posts the repo with a request id exactly once and goes pending', () => {
@@ -179,7 +177,7 @@ describe('PrsPanel — dismiss-pr / undismiss-pr (pending until the next settlin
     expect(b.title).toBe('Confirm in the dialog');
     expect(b.textContent).toBe('Dismiss');
     expect(b.hasAttribute('data-act')).toBe(false);
-    keepsClass(b, 'k-btn k-btn--secondary k-btn--sm mgbtn');
+    keepsClass(b, 'k-btn k-btn--ghost k-btn--sm mgbtn');
     fireEvent.click(b);
     expect(h.send.dismissPr).toHaveBeenCalledTimes(1);
   });

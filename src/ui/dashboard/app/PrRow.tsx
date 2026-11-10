@@ -9,6 +9,9 @@ import { memo, type ReactNode } from 'react';
 import type { MergeCheckPanelRow } from '../../../model/mergeCheckPanel.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CiButton, CopyUrl, DismissButton, MergeButton, OpenLink, ResolveButton } from './PrActionButtons.js';
+import { Icon } from './Icon.js';
+import { PrInfo } from './PrInfo.js';
+import { Row } from './Row.js';
 import type { PrPendingApi } from './usePrPending.js';
 import { structurallyEqual } from './useSlice.js';
 
@@ -53,40 +56,29 @@ function Dot({ children }: { readonly children: ReactNode }) {
   );
 }
 
-/** Branch (truncates; the full value rides in title) and the stamps (one group, so they wrap intact). */
-function Meta({ p }: { readonly p: PrPanelRow }) {
-  const stamps: ReactNode[] = [];
-  if (p.opened) {
-    stamps.push(
-      <span className="psep" key="so">
-        ·
-      </span>,
-      <span className="pstamp" key="o" title={p.openedTitle || undefined}>
-        {p.opened}
-      </span>,
-    );
-  }
-  if (p.merged) {
-    stamps.push(
-      <span className="psep" key="sm">
-        ·
-      </span>,
-      <span className="pstamp pmerged" key="m" title={p.mergedTitle || undefined}>
-        {p.merged}
-      </span>,
-    );
-  }
-  if (!p.branches && stamps.length === 0) return null;
-  return (
-    <div className="pmeta">
-      {p.branches ? (
-        <span className="pbranch" title={p.branches}>
-          {p.branches}
-        </span>
-      ) : null}
-      {stamps.length > 0 ? <span className="pstamps">{stamps}</span> : null}
-    </div>
-  );
+/** The lead status icon: shape carries the status, the tone class only adds colour (UI-R28). */
+const STATUS_ICON: Readonly<Record<string, { readonly icon: string; readonly tone: string }>> = {
+  open: { icon: 'git-pull-request', tone: 'ok' },
+  draft: { icon: 'git-pull-request-draft', tone: 'dim' },
+  closed: { icon: 'git-pull-request-closed', tone: 'bad' },
+  merged: { icon: 'git-merge', tone: 'merged' },
+};
+const STATUS_ICON_FALLBACK = { icon: 'git-pull-request', tone: 'dim' };
+
+const CHECK_ICON: Readonly<Record<string, string>> = { passing: 'check', failing: 'circle-x', pending: 'loader-2' };
+
+/** The one stamp the line shows: dismissed wins over merged, merged over opened; its full text rides in the title. */
+function lineStamp(p: PrPanelRow): { readonly text: string; readonly title: string } | null {
+  if (p.dismissedLabel) return { text: p.dismissedLabel, title: p.dismissedLabel };
+  if (p.merged) return { text: p.merged, title: p.mergedTitle || p.merged };
+  if (p.opened) return { text: p.opened, title: p.openedTitle || p.opened };
+  return null;
+}
+
+/** The head of `head → base`, or '' when the host knew only one side or none. */
+export function prHead(branches: string): string {
+  const parts = branches.split(' → ');
+  return parts.length === 2 ? parts[0]! : '';
 }
 
 function Comments({ p }: { readonly p: PrPanelRow }) {
@@ -116,18 +108,9 @@ function ChecksDetails({ p }: { readonly p: PrPanelRow }) {
   );
 }
 
-/** Pending reads "CI running"; failing names the failures, with the host's availability deciding the button; anything else renders nothing. */
+/** Failing names the failures, with the host's availability deciding the button; anything else renders nothing (the checks chip already says pending). */
 function CiLine({ p, offer, busy }: { readonly p: PrPanelRow; readonly offer: boolean; readonly busy: boolean }) {
   if (!p.checks || p.status === 'merged') return null;
-  if (p.checks.state === 'pending') {
-    return (
-      <div className="mgwrap mg-ci">
-        <Dot>
-          <span className="mgtext">CI running</span>
-        </Dot>
-      </div>
-    );
-  }
   if (p.checks.state !== 'failing') return null;
   const n = p.checks.failing.length;
   return (
@@ -181,39 +164,59 @@ function MergeLine({ m, open, onToggle }: MergeLineProps) {
 export interface PrRowProps {
   readonly p: PrPanelRow;
   readonly m: MergeCheckPanelRow | undefined;
+  /** The branch the Worktrees header shows once: a PR repeats its branches only when its head differs. */
+  readonly headerBranch: string | null;
   /** The host lists this repo as one whose failing CI can be sent to the agent. */
   readonly ciOffer: boolean;
   readonly mergeBusy: boolean;
   readonly dismissBusy: boolean;
   readonly ciBusy: boolean;
   readonly mergeOpen: boolean;
+  readonly infoOpen: boolean;
   readonly onMergeToggle: (repo: string, open: boolean) => void;
+  readonly onInfoToggle: (repo: string, open: boolean) => void;
   readonly api: PrPendingApi;
 }
 
-export const PrRow = memo(function PrRow({ p, m, ciOffer, mergeBusy, dismissBusy, ciBusy, mergeOpen, onMergeToggle, api }: PrRowProps) {
+export const PrRow = memo(function PrRow({ p, m, headerBranch, ciOffer, mergeBusy, dismissBusy, ciBusy, mergeOpen, infoOpen, onMergeToggle, onInfoToggle, api }: PrRowProps) {
   const repoLabel = p.repoDisplay || p.repo;
   // Suppressed on a merged PR: it landed, and a stale rollup beside `merged` would state a question that is closed.
   const live = p.status !== 'merged';
+  const status = STATUS_ICON[p.status] ?? STATUS_ICON_FALLBACK;
+  const stamp = lineStamp(p);
+  const head = prHead(p.branches);
+  const showBranches = p.branches !== '' && (head === '' || head !== headerBranch);
+  const whyBlocked = live && !p.canMerge && !p.dismissed ? p.mergeBlockedReason : '';
+  const sub = (
+    <>
+      {whyBlocked ? <div className="pwhy">{whyBlocked}</div> : null}
+      <ChecksDetails p={p} />
+      <CiLine p={p} offer={ciOffer} busy={ciBusy} />
+      {m ? <MergeLine m={m} open={mergeOpen} onToggle={onMergeToggle} /> : null}
+      <Comments p={p} />
+    </>
+  );
   return (
-    <div className="prrow">
-      <div className="pr">
-        <span className={`k-chip pst pst-${p.status || 'unknown'}`}>{p.status || ''}</span>
-        {live && p.checks && p.checks.label ? (
-          <span className={`k-chip pck pck-${p.checks.state}`} title={p.checks.title}>
-            {p.checks.label}
+    <div className={`prrow${p.dismissed ? ' dismissed' : ''}`}>
+      <Row
+        className="pr"
+        lead={
+          <span className={`pr-lead ${status.tone}`} data-status={p.status || 'unknown'}>
+            <Icon name={status.icon} size={14} />
           </span>
-        ) : null}
-        {live && p.mergeBlockLabel ? (
-          <span className="k-chip pblock" title={p.mergeBlockedReason}>
-            {p.mergeBlockLabel}
+        }
+        trail={
+          <span className="pacts">
+            <DismissButton p={p} api={api} busy={dismissBusy} />
+            <MergeButton p={p} busy={mergeBusy} />
           </span>
-        ) : null}
+        }
+        sub={sub}
+      >
         {/* The manifest NAME when one resolves; the path (the row's identity) rides in the tooltip. */}
         <span className="prepo" title={repoLabel !== p.repo ? p.repo : undefined}>
           {repoLabel}
         </span>
-        {p.url ? <CopyUrl url={p.url} /> : null}
         <span className="pnum">
           {p.url ? (
             <OpenLink url={p.url} title="Open this pull request">
@@ -223,26 +226,43 @@ export const PrRow = memo(function PrRow({ p, m, ciOffer, mergeBusy, dismissBusy
             `#${p.number}`
           ) : null}
         </span>
-        <span className="pacts">
-          {p.dismissedLabel ? <span className="pstamp">{p.dismissedLabel}</span> : null}
-          <DismissButton p={p} api={api} busy={dismissBusy} />
-          <MergeButton p={p} busy={mergeBusy} />
-        </span>
-      </div>
-      <Meta p={p} />
-      <ChecksDetails p={p} />
-      <CiLine p={p} offer={ciOffer} busy={ciBusy} />
-      {m ? <MergeLine m={m} open={mergeOpen} onToggle={onMergeToggle} /> : null}
-      <Comments p={p} />
+        {p.url ? <CopyUrl url={p.url} /> : null}
+        <PrInfo p={p} open={infoOpen} onToggle={onInfoToggle} />
+        <span className={`k-chip pst pst-${p.status || 'unknown'}`}>{p.status || ''}</span>
+        {live && p.checks && p.checks.label ? (
+          <span className={`k-chip pck pck-${p.checks.state}`} title={p.checks.title}>
+            <Icon name={CHECK_ICON[p.checks.state] ?? 'check'} size={11} />
+            {p.checks.label}
+          </span>
+        ) : null}
+        {live && p.mergeBlockLabel ? (
+          <span className="k-chip pblock" title={p.mergeBlockedReason}>
+            {p.mergeBlockLabel}
+          </span>
+        ) : null}
+        {stamp ? (
+          <span className="pstamp" title={stamp.title}>
+            {stamp.text}
+          </span>
+        ) : null}
+        {showBranches ? (
+          <span className="pbranch" title={p.branches}>
+            {p.branches}
+          </span>
+        ) : null}
+      </Row>
     </div>
   );
 }, (a, b) =>
   a.api === b.api &&
   a.onMergeToggle === b.onMergeToggle &&
+  a.onInfoToggle === b.onInfoToggle &&
+  a.headerBranch === b.headerBranch &&
   a.ciOffer === b.ciOffer &&
   a.mergeBusy === b.mergeBusy &&
   a.dismissBusy === b.dismissBusy &&
   a.ciBusy === b.ciBusy &&
   a.mergeOpen === b.mergeOpen &&
+  a.infoOpen === b.infoOpen &&
   structurallyEqual(a.p, b.p) &&
   structurallyEqual(a.m, b.m));

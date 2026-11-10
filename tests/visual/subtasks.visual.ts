@@ -44,7 +44,7 @@ karstTest.describe('T820: Sub-tasks panel compaction ladder', () => {
       expect(shown.keep, 'dot, lock, PR chip, agent icon and pill never hide').toBe(true);
       expect(shown.model).toBe(width > 720);
       expect(shown.name).toBe(width > 600);
-      expect(shown.id).toBe(width > 600);
+      expect(shown.id, 'the T-id wraps, never hides (T1063)').toBe(true);
       expect(shown.prState).toBe(width > 460);
       expect(shown.progress).toBe(width > 460);
       expect(shown.label).toBe(width > 460);

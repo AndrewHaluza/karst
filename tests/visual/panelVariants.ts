@@ -1,0 +1,95 @@
+/**
+ * T1063: the Servers, Worktrees and Pull requests panel states (ui:UI-R57), each at wide, mid and narrow.
+ * Screenshot-only (`skipLayout`): the layout gate already opens the populated dashboard route.
+ */
+import type { PrPanelRow } from '../../src/model/prPanelView.js';
+import type { DashboardState } from '../../src/ui/dashboard/state.js';
+import { sharedServerFixtures } from '../../src/ui/dashboard/renderFixtures.js';
+
+export interface PanelVariantSpec {
+  readonly id: string;
+  readonly patch: (s: DashboardState) => DashboardState;
+  /** A selector clicked after load (opens a popover). */
+  readonly click?: string;
+}
+
+export const PANEL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
+
+type Servers = NonNullable<DashboardState['servers']>;
+const server = (id: number, service: string, status: string, port: number | null): Servers[number] => ({
+  id,
+  ticketId: 1,
+  service,
+  host: port === null ? null : 'localhost',
+  port,
+  status,
+  logPath: status === 'stopped' ? null : `fixture:logs/${service}.log`,
+  startedAt: '2026-07-20T12:00:05.000Z',
+});
+
+const checks = (state: 'passing' | 'failing' | 'pending', label: string): PrPanelRow['checks'] => ({
+  state,
+  label,
+  title: `${label} (fixture)`,
+  detailsLabel: '',
+  failing: [],
+});
+
+const pr = (over: Partial<PrPanelRow> & Pick<PrPanelRow, 'repo' | 'repoDisplay' | 'number' | 'status'>): PrPanelRow => ({
+  url: `fixture:https://github.com/fixture-org/${over.repoDisplay}/pull/${over.number}`,
+  branches: 'feat/FEAT-142-base-branch-override → main',
+  baseRef: 'main',
+  opened: 'opened 2d ago',
+  openedTitle: 'opened Aug 11, 2026, 2:04 PM',
+  merged: '',
+  mergedTitle: '',
+  commentsLabel: '',
+  comments: [],
+  checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+  mergeBlockLabel: '',
+  canMerge: false,
+  mergeBlockedReason: '',
+  dismissed: false,
+  dismissedLabel: '',
+  canDismiss: true,
+  ...over,
+});
+
+const READY = pr({ repo: 'fixture:/repos/web', repoDisplay: 'web', number: 421, status: 'open', canMerge: true, checks: checks('passing', '3 passed') });
+const BLOCKED = pr({
+  repo: 'fixture:/repos/api', repoDisplay: 'api', number: 88, status: 'open', checks: checks('failing', '1 failing · 2 passed'),
+  mergeBlockLabel: 'blocked', mergeBlockedReason: 'Required reviews are missing.',
+});
+const MERGED = pr({
+  repo: 'fixture:/repos/web', repoDisplay: 'web', number: 421, status: 'merged', canDismiss: false,
+  merged: 'merged 1h ago', mergedTitle: 'merged Aug 13, 2026, 9:00 AM',
+});
+const DISMISSED = pr({
+  repo: 'fixture:/repos/docs', repoDisplay: 'docs', number: 12, status: 'closed', dismissed: true,
+  dismissedLabel: 'dismissed 3h ago', canDismiss: false,
+});
+
+const withServers = (servers: Servers) => (s: DashboardState): DashboardState => ({ ...s, servers });
+const withPrs = (prs: PrPanelRow[]) => (s: DashboardState): DashboardState => ({ ...s, prs });
+const withWorktrees = (f: (w: NonNullable<DashboardState['worktrees']>) => NonNullable<DashboardState['worktrees']>) =>
+  (s: DashboardState): DashboardState => ({ ...s, worktrees: f(s.worktrees ?? []) });
+
+export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
+  { id: 'srv-running', patch: withServers([server(1, 'web', 'running', 5173), server(2, 'api', 'running', 4000)]) },
+  {
+    id: 'srv-mixed',
+    patch: (s) => ({ ...withServers([server(1, 'web', 'running', 5173), server(2, 'api', 'failed', null), server(3, 'worker', 'stopped', null)])(s), sharedServers: sharedServerFixtures() }),
+  },
+  { id: 'srv-fault', patch: withServers([server(1, 'web', 'failed', null), server(2, 'api', 'failed', null)]) },
+  { id: 'srv-stopped', patch: withServers([server(1, 'web', 'stopped', null), server(2, 'api', 'stopped', null)]) },
+  { id: 'srv-none', patch: withServers([]) },
+  { id: 'wt-normal', patch: (s) => s },
+  { id: 'wt-base', patch: (s) => s, click: '[data-act="toggle-base-form"]' },
+  { id: 'wt-ext', patch: withWorktrees((w) => w.map((x, i) => ({ ...x, launchable: true, branch: i === 0 ? x.branch : 'feat/other-branch' }))) },
+  { id: 'wt-empty', patch: withWorktrees(() => []) },
+  { id: 'pr-mixed', patch: withPrs([READY, BLOCKED, DISMISSED]) },
+  { id: 'pr-ready', patch: withPrs([READY]) },
+  { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]' },
+  { id: 'pr-merged', patch: withPrs([MERGED]) },
+  { id: 'pr-empty', patch: withPrs([]) },
+];

@@ -9,7 +9,7 @@ const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'PrsPanel
 describe('PrsPanel.css — guards moved with the rules', () => {
   it('resolves the merged badge and timestamp to the shared series token', () => {
     expect(CSS).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
-    expect(CSS).toMatch(/\.pmeta \.pmerged\{color:var\(--k-series-2\)/);
+    expect(CSS).toMatch(/\.pr-lead\.merged\{color:var\(--k-series-2\)/);
   });
 
   it('gives every native <summary> disclosure its own focus-visible ring', () => {
@@ -19,11 +19,11 @@ describe('PrsPanel.css — guards moved with the rules', () => {
   });
 
   it('flashes the copy through a data attribute, never a class the runtime could wipe', () => {
-    expect(CSS).toMatch(/\.pr \.url-copy\[data-copied\] \.u\{color:var\(--k-success\)\}/);
+    expect(CSS).toMatch(/\.pr \.url-copy\[data-copied\]\{color:var\(--k-success\)\}/);
     expect(CSS).not.toMatch(/url-copy\.ok/);
   });
 
-  it('keeps the refresh pushed right by its header wrapper', () => {
-    expect(CSS).toMatch(/\.prpanel \.phead \.pops\{margin-left:auto/);
+  it('wraps the trail under the main line at narrow widths', () => {
+    expect(CSS).toMatch(/@container \(max-width:520px\)\{\.pr\{/);
   });
 });

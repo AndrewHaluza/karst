@@ -12,6 +12,7 @@ import type { PrPendingApi } from './usePrPending.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
 
 const SECONDARY = 'k-btn k-btn--secondary k-btn--sm mgbtn';
+const GHOST = 'k-btn k-btn--ghost k-btn--sm mgbtn';
 const PRIMARY = 'k-btn k-btn--primary k-btn--sm mgbtn';
 
 /** How long the optimistic copy confirmation holds. */
@@ -36,8 +37,11 @@ export function OpenLink({ url, title, children }: { readonly url: string; reado
   );
 }
 
-/** The PR URL as inline text: clicking copies it. The host does the clipboard write, so the confirmation is optimistic (UI-R15). */
-export function CopyUrl({ url }: { readonly url: string }) {
+/**
+ * Copies the PR URL: an icon button by default, a text button when `label` is given (the popover footer).
+ * The host does the clipboard write, so the confirmation is optimistic (UI-R15).
+ */
+export function CopyUrl({ url, label }: { readonly url: string; readonly label?: string }) {
   const send = useDashboardSend();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -54,21 +58,20 @@ export function CopyUrl({ url }: { readonly url: string }) {
       [send, url],
     ),
   );
+  const name = 'Copy pull request URL';
   return (
     <button
       type="button"
-      className="ptitle url-copy"
+      className={label ? `${GHOST} url-copy` : 'k-iconbtn ib t-copy url-copy'}
       data-act="copy-pr-url"
       data-url={url}
       data-copy=""
       data-copied={copied ? '' : undefined}
-      title="Copy pull request URL"
+      aria-label={label ? undefined : name}
+      title={name}
       onClick={onClick}
     >
-      <span className="u">{copied ? COPIED_TEXT : url}</span>
-      <span className="glyph">
-        <Icon name="copy" />
-      </span>
+      {label ? <span className="u">{copied ? COPIED_TEXT : label}</span> : <Icon name="copy" size={13} />}
     </button>
   );
 }
@@ -153,21 +156,21 @@ export const DismissButton = memo(function DismissButton({ p, api, busy }: Penda
   );
   if (busy) {
     return (
-      <button type="button" className={SECONDARY} aria-busy="true" disabled title="Confirm in the dialog">
+      <button type="button" className={GHOST} aria-busy="true" disabled title="Confirm in the dialog">
         {undo ? 'Undo' : 'Dismiss'}
       </button>
     );
   }
   if (undo) {
     return (
-      <button type="button" className={SECONDARY} data-act="undismiss-pr" data-repo={repo} title="Wait on this pull request again" onClick={onClick}>
+      <button type="button" className={GHOST} data-act="undismiss-pr" data-repo={repo} title="Wait on this pull request again" onClick={onClick}>
         Undo dismiss
       </button>
     );
   }
   if (!p.canDismiss) return null;
   return (
-    <button type="button" className={SECONDARY} data-act="dismiss-pr" data-repo={repo} title="Stop waiting on this pull request — it will never land" onClick={onClick}>
+    <button type="button" className={GHOST} data-act="dismiss-pr" data-repo={repo} title="Stop waiting on this pull request — it will never land" onClick={onClick}>
       Dismiss
     </button>
   );

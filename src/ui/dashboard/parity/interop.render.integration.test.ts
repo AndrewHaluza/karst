@@ -77,7 +77,7 @@ describe('React island / vanilla delegator interop', () => {
     await typeInto(v, input, 'svc-2');
     expect(v.query('#srvFilter')).toBe(input);
     expect(v.document.activeElement).toBe(input);
-    expect(v.queryAll('#servers td.c-name')).toHaveLength(1);
+    expect(v.queryAll('#servers .srvname')).toHaveLength(1);
     // React never writes vscode.setState: the vanilla seam listener persisted the filter.
     expect((v.state as { srvFilter?: string }).srvFilter).toBe('svc-2');
     await typeInto(v, input, 'svc-23');
@@ -108,11 +108,11 @@ describe('React island / vanilla delegator interop', () => {
   it('the header Logs and Env buttons open their vanilla surfaces once', async () => {
     const v = await open();
     const before = v.posted.length;
-    await click(v, '#srvOps [data-act="env-overrides-open"]');
+    await click(v, '[data-region="servers"] .pops [data-act="env-overrides-open"]');
     expect(v.document.body.classList.contains('env-nav')).toBe(true);
     expect(v.posted.length).toBe(before);
     await escape(v);
-    await click(v, '#srvOps [data-act="server-logs-request"]');
+    await click(v, '[data-region="servers"] .pops [data-act="server-logs-request"]');
     const sent = v.posted.slice(before) as Array<{ type: string }>;
     expect(sent.map((m) => m.type)).toEqual(['server-logs-request']);
   });

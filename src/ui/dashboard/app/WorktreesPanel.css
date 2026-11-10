@@ -1,27 +1,16 @@
 /* Worktrees panel rows (moved from webview.html with the panel). The PR row keeps its
    own half of the rules that were shared with it (`.pr`, `.pr .pacts`) in webview.html.
    Worktrees wrap only the branch at narrow widths. */
-.wt{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
-.wt:hover{background:var(--k-surface-hover)}
-/* 74px has no scale match — set by the longest repo label karst has shown in
-   practice, not a spacing value. */
+/* A worktree row is a Row (Section.css): the grid and the dimmed trail come from there. */
 .wt .wrepo{font-size:var(--k-text-md);min-width:74px;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wt .wacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
-.wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
+.wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0}
 .wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
+.wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0;margin-left:auto}
 .wt .wadd{color:var(--k-passed)}
 .wt .wdel{color:var(--k-failed)}
-/* Separator between stats and actions */
-.wt .wsep{width:var(--k-border-w);height:12px;background:var(--k-border);flex-shrink:0}
-/* Narrow fallback — only the branch wraps to line 2. 380px is a literal by construction:
-   an @media condition cannot read a custom property. */
-@media (max-width:380px){
-  .wt{flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-3)}
-  .wt .wbranch{flex-basis:100%}
-  .wt .wstats{margin-left:auto}
-  .wt .wsep{display:none}
-}
+/* The branch the header shows once. */
+.phead .sec-sum .wsum-br{margin-right:var(--k-space-2)}
+.phead .sec-sum [data-act="copy-worktree-branch"]{vertical-align:middle}
 /* Base branch — inline label inside the row */
 .wt .wbase{display:inline-flex;align-items:center;gap:var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);white-space:nowrap;flex-shrink:0}
 .wt .wbase .wbasebr{font-family:var(--k-font-mono);color:var(--k-text-faint)}

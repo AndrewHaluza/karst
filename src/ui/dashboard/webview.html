@@ -182,14 +182,13 @@
     <div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span></div>
     <div class="pbody" id="subtasks"></div>
   </div>
-  <!-- Servers: app/ServersPanel.tsx renders into #srvCount, #srvOps and #servers through RegionPortals; the root and
-       its caption are static. -->
-  <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
+  <!-- Servers: app/ServersPanel.tsx renders its Section (header + #servers body) into this root through a RegionPortal. -->
+  <div class="panel svpanel" data-region="servers"></div>
   <!-- Worktrees (header + body): app/WorktreesPanel.tsx renders into this container through a RegionPortal. -->
   <div class="panel" data-region="worktrees"></div>
-  <!-- Pull requests: app/PrsPanel.tsx renders the count, the refresh control and the body into #prCount, #prOps and
-       #prs through RegionPortals. -->
-  <div class="panel span prpanel"><div class="phead">Pull requests<span class="count" id="prCount"></span><span class="pops" id="prOps"></span></div><div class="pbody" id="prs"></div></div>
+  <!-- Pull requests: app/PrsPanel.tsx renders the whole Section (count, summary, refresh, rows) into this
+       region through a RegionPortal. -->
+  <div class="panel span prpanel" data-region="prs"></div>
   <!-- The artifacts shelf (docs/design/artifacts): app/ArtifactsShelf.tsx puts the "View all N" button into this
        header and renders the previews into #artifacts. It shows only while the ticket has at least one artifact
        (the zero state is ABSENCE, never an empty section, §4.1): React toggles .hidden on this root. The panel
