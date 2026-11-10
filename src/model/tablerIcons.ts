@@ -82,6 +82,7 @@ export const TABLER_ICONS: Record<string, string> = {
   check: '<path d="M5 12l5 5l10 -10"/>',
   'chevrons-up': '<path d="M7 11l5 -5l5 5"/><path d="M7 17l5 -5l5 5"/>',
   'chevron-down': '<path d="M6 9l6 6l6 -6"/>',
+  'chevron-left': '<path d="M15 6l-6 6l6 6"/>',
   'chevron-right': '<path d="M9 6l6 6l-6 6"/>',
   'circle-check':
     '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M9 12l2 2l4 -4"/>',
