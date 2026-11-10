@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { blockedWith, failing, installRuntimeDoubles, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
+import { blockedWith, installRuntimeDoubles, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
