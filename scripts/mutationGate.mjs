@@ -177,10 +177,20 @@ export function run({
       );
   }
 
+  // The filter step writes this list from `git diff`. An empty list on a run
+  // that reached the gate means the fetch or diff failed: fail closed.
+  const changedFiles = loadChangedFiles(changedPath);
+  if (changedFiles.length === 0) {
+    const reason = 'The changed-file list is missing or empty, so the changed files are unknown.';
+    const markdown = ['## Mutation score', '', `❌ ${reason} The gate fails closed.`].join('\n');
+    write(markdown);
+    return { exitCode: 1, markdown, annotations: [`::error::${reason}`] };
+  }
+
   const rows = evaluate({
     prFiles: prSide.files,
     developFiles,
-    changedFiles: loadChangedFiles(changedPath),
+    changedFiles,
     threshold,
   });
   const globalScore = overallMetrics(prSide.files).score;

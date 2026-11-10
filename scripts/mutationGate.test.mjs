@@ -281,6 +281,20 @@ describe('a missing or malformed PR report', () => {
   });
 });
 
+describe('an unknown changed-file list', () => {
+  it('fails closed when the list is empty', () => {
+    const paths = setup({ pr: report({ [A]: file({ Killed: 10 }) }), changed: [] });
+    const result = run(paths);
+    expect(result.exitCode).toBe(1);
+    expect(result.annotations[0]).toMatch(/^::error::The changed-file list is missing or empty/);
+  });
+
+  it('fails closed when the list file is missing', () => {
+    const paths = setup({ pr: report({ [A]: file({ Killed: 10 }) }), changed: [A] });
+    expect(run({ ...paths, changedPath: undefined }).exitCode).toBe(1);
+  });
+});
+
 describe('rule 5: global score', () => {
   const lowGlobal = () =>
     setup({

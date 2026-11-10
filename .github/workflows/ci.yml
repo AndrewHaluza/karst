@@ -195,6 +195,11 @@ jobs:
       group: mutation-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     continue-on-error: ${{ github.event_name == 'push' }}
+    # actions: read lets the "Find develop's mutation report" step list develop's
+    # runs and artifacts; without it the lookup 403s and rule 3a never applies.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
