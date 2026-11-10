@@ -276,8 +276,10 @@ export function prMergeReadiness(
     reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
   }
 
-  if (pr.canMerge && pr.mergeBlock !== 'clean') {
-    // GitHub did not say "clean" (it answered unknown, unstable or has_hooks): never claim it, never count it ready.
+  const problem = reasons.some((r) => isBad(r) || r.state === 'run');
+  if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem) {
+    // GitHub did not say "clean" (it answered unknown, unstable or has_hooks) and nothing else explains it:
+    // never claim it, never count it ready.
     return {
       ready: false,
       headline: 'Merge not confirmed',
@@ -285,7 +287,7 @@ export function prMergeReadiness(
       reasons: [],
     };
   }
-  if (pr.canMerge) {
+  if (pr.canMerge && pr.mergeBlock === 'clean') {
     const passed = pr.checks && pr.checks.state === 'passing' ? ` · ${plural(pr.checks.passed, 'check')} passed` : '';
     const approved = pr.reviewDecision === 'APPROVED' ? 'approved' : 'no review required';
     const clean =
@@ -300,7 +302,6 @@ export function prMergeReadiness(
     };
   }
   // ok-state reasons are shown only beside a problem; a lone "Checks passed" explains nothing.
-  const problem = reasons.some((r) => isBad(r) || r.state === 'run');
   return {
     ready: false,
     headline: 'Merge blocked',

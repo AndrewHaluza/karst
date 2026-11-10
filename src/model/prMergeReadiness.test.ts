@@ -98,6 +98,16 @@ describe('prMergeReadiness', () => {
     expect(r.detail).toBe('1 optional check failing');
   });
 
+  it('keeps the reasons and actions when GitHub says behind or unstable while canMerge', () => {
+    const behind = read(pr({ canMerge: true, mergeBlock: 'behind' }), check(), { ...NO_OFFERS, rebaseAvailable: true });
+    expect(behind.ready).toBe(false);
+    expect(behind.reasons.map((r) => r.kind)).toContain('behind');
+    expect(behind.reasons.find((r) => r.kind === 'behind')!.action).toMatchObject({ act: 'rebase-on-base' });
+    const unstable = read(pr({ canMerge: true, mergeBlock: 'unstable', checks: failing }));
+    expect(unstable.ready).toBe(false);
+    expect(unstable.reasons.some((r) => r.kind === 'checks' && r.state === 'bad')).toBe(true);
+  });
+
   it('omits the karst clause without a clean check', () => {
     expect(read(pr({ canMerge: true, mergeBlock: 'clean', reviewDecision: 'APPROVED' })).facts).toBe('approved · 4 checks passed · GitHub: clean');
     expect(read(pr({ canMerge: true, mergeBlock: 'clean' }), check({ state: 'unknown' })).facts).toBe('no review required · 4 checks passed · GitHub: clean');
