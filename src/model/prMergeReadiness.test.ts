@@ -77,16 +77,23 @@ describe('prMergeReadiness', () => {
   });
 
   it('is ready when canMerge, with the facts line', () => {
-    const r = read(pr({ canMerge: true, reviewDecision: 'APPROVED' }), check());
+    const r = read(pr({ canMerge: true, mergeBlock: 'clean', reviewDecision: 'APPROVED' }), check());
     expect(r.ready).toBe(true);
     expect(r.headline).toBe('Ready to merge');
     expect(r.facts).toBe('approved · 4 checks passed · GitHub: clean · karst: no conflicts vs develop, checked 1h ago');
     expect(r.reasons).toEqual([]);
   });
 
+  it.each(['unknown', 'unstable', 'has_hooks'] as const)('never claims GitHub clean or ready when GitHub answered %s', (mergeBlock) => {
+    const r = read(pr({ canMerge: true, mergeBlock }), check());
+    expect(r.ready).toBe(false);
+    expect(r.headline).toBe('Merge not confirmed');
+    expect(r.facts).not.toContain('clean');
+  });
+
   it('omits the karst clause without a clean check', () => {
-    expect(read(pr({ canMerge: true, reviewDecision: 'APPROVED' })).facts).toBe('approved · 4 checks passed · GitHub: clean');
-    expect(read(pr({ canMerge: true }), check({ state: 'unknown' })).facts).toBe('no review required · 4 checks passed · GitHub: clean');
+    expect(read(pr({ canMerge: true, mergeBlock: 'clean', reviewDecision: 'APPROVED' })).facts).toBe('approved · 4 checks passed · GitHub: clean');
+    expect(read(pr({ canMerge: true, mergeBlock: 'clean' }), check({ state: 'unknown' })).facts).toBe('no review required · 4 checks passed · GitHub: clean');
   });
 
   it('draft is a bad reason with an Open action', () => {

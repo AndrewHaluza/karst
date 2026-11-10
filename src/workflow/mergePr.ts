@@ -259,6 +259,8 @@ export async function mergeAllPrs(store: Store, deps: MergeAllDeps): Promise<Mer
     const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now());
     if (plan.ready.length === 0) return { kind: 'refused', reason: MERGE_ALL_NONE_READY };
     if (!(await deps.confirm(plan))) return { kind: 'cancelled' };
+    // The modal can stay open for minutes; a round may have started meanwhile.
+    if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
     const merge = deps.merge ?? ((repo: string) => mergeTicketPr(store, { ticketId, repo, method: MERGE_ALL_METHOD, ...(deps.debug ? { debug: deps.debug } : {}) }));
     const merged: MergeAllItem[] = [];
     let completedTicket = false;

@@ -271,6 +271,15 @@ export function prMergeReadiness(
     reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
   }
 
+  if (pr.canMerge && pr.mergeBlock !== 'clean') {
+    // GitHub did not say "clean" (it answered unknown, unstable or has_hooks): never claim it, never count it ready.
+    return {
+      ready: false,
+      headline: 'Merge not confirmed',
+      facts: `GitHub: ${pr.mergeBlock === 'unknown' ? 'no answer yet' : pr.mergeBlock}`,
+      reasons: [],
+    };
+  }
   if (pr.canMerge) {
     const passed = pr.checks && pr.checks.state === 'passing' ? ` · ${plural(pr.checks.passed, 'check')} passed` : '';
     const approved = pr.reviewDecision === 'APPROVED' ? 'approved' : 'no review required';

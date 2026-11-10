@@ -312,6 +312,13 @@ describe('mergeAllPrs', () => {
     expect(order).toEqual(['refresh']);
   });
 
+  it('is refused when a round starts while the modal is open', async () => {
+    let calls = 0;
+    const { deps, order } = setup({ autofixRunning: () => ++calls > 2 });
+    expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'refused', reason: 'An auto-fix round is running' });
+    expect(order).toEqual(['refresh', 'confirm']);
+  });
+
   it('is refused when no PR is ready', async () => {
     const t = createTicket(store, { key: 'B', title: 'b' });
     seed(t.id, 'web', 1, 'blocked');
