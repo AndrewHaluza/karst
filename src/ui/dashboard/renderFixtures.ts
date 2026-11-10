@@ -267,8 +267,8 @@ function implView(_n: RenderRepoCount): InsideStageView {
         kind: 'session',
         label: 'Session',
         status: 'run',
-        // The host's `sessionDetail` wording; the model is the identity cell's job and the session id sits in the footer.
-        detail: 'agent session running',
+        // B7: the session row detail keeps only the session id (the identity cell shows the core and model).
+        detail: 'session k-9f2e',
         duration: '4m 12s',
         execution: { ...CLAUDE_EXECUTION },
         tokens: { ...MEASURED_TOKENS },

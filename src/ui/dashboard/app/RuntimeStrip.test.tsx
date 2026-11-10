@@ -52,11 +52,11 @@ describe('RuntimeStrip — layout', () => {
     expect($('#agentButton .rs-dot').className).toContain('running');
   });
 
-  it('keeps the true state with the suffix when a round is active and no agent runs', () => {
+  it('says "running · auto-fix" while an auto-fix round is active even with an idle agent', () => {
     strip(view(), { agentState: 'idle', autopilot: ROUND(true) });
-    expect($('#agentButton .rs-state').textContent).toBe('idle · auto-fix');
-    expect($('#agentButton .rs-state').className).not.toContain('running');
-    expect($('#agentButton .rs-dot').className).not.toContain('running');
+    expect($('#agentButton .rs-state').textContent).toBe('running · auto-fix');
+    expect($('#agentButton .rs-state').className).toContain('running');
+    expect($('#agentButton .rs-dot').className).toContain('running');
   });
 
   it('adds no suffix when no round is active', () => {

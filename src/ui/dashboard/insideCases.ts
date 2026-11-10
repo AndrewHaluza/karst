@@ -97,8 +97,6 @@ function autofixShip(
     const cell = s.currentStage ?? caseCell('ship', 'running');
     return {
       ...s,
-      // An auto-fix round that runs hands the ticket to its agent, so the strip reads the true state: running.
-      ...(row?.state === 'running' ? { agentState: 'running' } : {}),
       autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: row?.state === 'running', ...slice },
       insideViews: { ...s.insideViews, ship: { ...v, processes } },
       currentStage: park

@@ -911,7 +911,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
             <span.op-name-text> "Session"
             <span.ai-mark> "AI"
           <span.op-detail.run>
-            <span.op-detail-text> "agent session running"
+            <span.op-detail-text> "session k-9f2e"
           <span.op-tail>
             <span.agent-id>
               <span.agenticon aria-hidden="true">

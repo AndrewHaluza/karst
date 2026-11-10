@@ -232,10 +232,9 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
   if (!agent && !sandbox) return null;
   const session = agent?.session;
   const canSwitch = session ? session.canSwitch : true;
-  const running = (agent?.agentState ?? 'idle') === 'running';
-  // The strip owns the agent state. During an auto-fix round it keeps the true word and names the round.
-  const baseWord = running ? 'running' : 'idle';
-  const stateWord = agent?.autofixRound ? `${baseWord} · auto-fix` : baseWord;
+  const running = (agent?.agentState ?? 'idle') === 'running' || agent?.autofixRound === true;
+  // The strip owns the agent state. During an auto-fix round it shows running and names the round.
+  const stateWord = agent?.autofixRound ? 'running · auto-fix' : (running ? 'running' : 'idle');
   const secondary = sandbox ? secondaryText(sandbox) : null;
   const host = sandbox?.backend === 'host';
   const shell = sandbox?.shell ?? { available: false, why: 'No sandbox yet' };
