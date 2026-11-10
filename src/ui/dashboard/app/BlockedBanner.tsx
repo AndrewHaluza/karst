@@ -13,7 +13,8 @@
  *    but the user's to resolve, so the banner carries the reason and the three park actions (the vanilla
  *    page's recorded exception, re-homed here per A5): Pick agent/model…, Retry same, Dismiss.
  *  - `review-stalled` (T845, T1001): non-resumable; the strip carries the written suggestion, its options and one Apply (`StallPanel.tsx`).
- *  - `baseline-review`: non-resumable, only the user's decision clears it (`BaselineReview.tsx`).
+ *  - `baseline-review`: non-resumable, only the user's decision clears it. The banner is one amber line with Review and
+ *    Approve all (`BaselineBanner.tsx`); the decisions are made in the review overlay (`BaselineOverlay.tsx`).
  *
  * `awaiting-merge` renders NOTHING (except an autopilot park, whose reason starts with `auto-fix`: the banner shows it): it is a normal wait, already surfaced by the header's chip and the Inside
  * ship view's merge rows, so a third surface would be the legacy blocked banner this fault chain removed.
@@ -24,7 +25,7 @@
  */
 import { memo, useCallback, useLayoutEffect, useState } from 'react';
 import type { BaselineReviewRow } from '../baselineRows.js';
-import { BaselineReview, useBaselineDrafts, type BaselineDrafts } from './BaselineReview.js';
+import { BaselineBanner } from './BaselineBanner.js';
 import type { StallView } from '../stateTypes.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend } from './DashboardAppContext.js';
@@ -248,7 +249,7 @@ function Resume({ ticketId, stageKey }: ActionProps) {
   );
 }
 
-function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts: BaselineDrafts }) {
+function Body({ slice }: { readonly slice: BannerSlice }) {
   const { ticketId, stageKey, kind, reason } = slice;
   if (kind === 'usage-limit') {
     return (
@@ -291,7 +292,7 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
       </>
     );
   }
-  if (kind === 'baseline-review') return <BaselineReview entries={slice.baselines} reason={reason} drafts={drafts} />;
+  if (kind === 'baseline-review') return <BaselineBanner entries={slice.baselines} />;
   // An autopilot park (T973) is an awaiting-merge wait: Resume cannot act on it, so the banner shows the reason only.
   if (kind === 'awaiting-merge' && slice.autofix) {
     return (
@@ -311,11 +312,9 @@ function Body({ slice, drafts }: { readonly slice: BannerSlice; readonly drafts:
 
 export const BlockedBanner = memo(function BlockedBanner() {
   const slice = useSlice(selectBanner, sameIgnoringLive);
-  // The drafts of an open reject form live here, in the always-mounted banner, so they outlive the review surface.
-  const drafts = useBaselineDrafts();
   const shown = slice !== null;
   useLayoutEffect(() => {
     document.getElementById('blocked')?.classList.toggle('hidden', !shown);
   }, [shown]);
-  return <RegionPortal id="blocked">{slice ? <Body slice={slice} drafts={drafts} /> : null}</RegionPortal>;
+  return <RegionPortal id="blocked">{slice ? <Body slice={slice} /> : null}</RegionPortal>;
 });

@@ -741,7 +741,18 @@ CREATE TABLE IF NOT EXISTS prs (
   -- probed" — GitHub computes mergeability lazily and answers UNKNOWN at
   -- first, and an unknown must never read as a verdict.
   checks        TEXT,
-  merge_block   TEXT
+  merge_block   TEXT,
+  -- v114: PR facts from GitHub, current state refreshed by every probe (arch:GH-03).
+  -- NULL = never stated. `review_requests` is a JSON array of reviewer names.
+  title           TEXT,
+  author          TEXT,
+  additions       INTEGER,
+  deletions       INTEGER,
+  changed_files   INTEGER,
+  commit_count    INTEGER,
+  review_decision TEXT,
+  approvals       INTEGER,
+  review_requests TEXT
 );
 
 -- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and

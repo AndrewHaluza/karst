@@ -1,6 +1,20 @@
 import type { PrView } from '../store/dashboard.js';
+import { DAY, formatAge } from './age.js';
 import type { MergeBlock } from './prChecks.js';
 import { buildPrChecksView, mergeBlockNotice, type PrChecksView } from './prChecksView.js';
+import type { MergeCheckRow } from '../store/mergeChecks.js';
+import type { PrReviewDecision } from './prReview.js';
+import {
+  blockingReasonsTitle,
+  NO_AUTOFIX,
+  NO_OFFERS,
+  prMergeReadiness,
+  type AutofixInput,
+  type PrMergeReadiness,
+  type ReadinessOffers,
+} from './prMergeReadiness.js';
+
+export { formatAge };
 
 /**
  * How one pull request reads in the ship stage: its metadata already worded, and
@@ -64,6 +78,16 @@ export interface PrPanelRow {
   canMerge: boolean;
   /** Why it is not offered — shown on the disabled control; '' when it is. */
   mergeBlockedReason: string;
+  /** The PR title from GitHub, or '' when never stated. */
+  title: string;
+  /** The author login, or '' when never stated. */
+  author: string;
+  /** `+a −d · f files · c commits` facts, or null when GitHub never stated them. */
+  changes: { additions: number; deletions: number; files: number; commits: number } | null;
+  /** The review facts. `required` is null: karst does not fetch it. */
+  review: { decision: PrReviewDecision; approvals: number; required: number | null; requested: string[] };
+  /** Why the PR can or cannot merge, one reason per cause (`model/prMergeReadiness.ts`). */
+  readiness: PrMergeReadiness;
   /**
    * Whether a human has declared this PR will never land, so the merge gate
    * stops waiting on it (v56).
@@ -149,29 +173,8 @@ function mergability(
   }
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
 /** Fresh is relative; beyond a week a stamp becomes an absolute date. */
 const WEEK = 7 * DAY;
-
-/**
- * Age in coarse buckets — the dashboard's ONE relative-age vocabulary, shared by
- * the PR stamps and the merge-verdict lines (buildMergeCheckPanelRows).
- *
- * Deliberately coarser than `formatDuration`: the label only refreshes when the
- * host pushes state, so `4m 12s ago` would claim a precision the value does not
- * have. An unreadable stamp, or one in the future (clock skew), yields '' — the
- * row states no age rather than a wrong one.
- */
-export function formatAge(at: string, now: string): string {
-  const ms = Date.parse(now) - Date.parse(at);
-  if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < MINUTE) return 'just now';
-  if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m ago`;
-  if (ms < DAY) return `${Math.floor(ms / HOUR)}h ago`;
-  return `${Math.floor(ms / DAY)}d ago`;
-}
 
 /** One PR stamp as it reads on the row. */
 interface StampView {
@@ -201,6 +204,21 @@ function stampView(at: string | null, now: string): StampView {
   };
 }
 
+/** What the readiness reasons read beyond the PR itself: karst's merge checks, the offered actions and Autopilot. */
+export interface PrReadinessContext {
+  readonly mergeChecks: readonly MergeCheckRow[];
+  readonly offers: ReadinessOffers;
+  readonly autofix: AutofixInput;
+}
+
+const NO_READINESS_CONTEXT: PrReadinessContext = { mergeChecks: [], offers: NO_OFFERS, autofix: NO_AUTOFIX };
+
+function changesOf(pr: PrView): PrPanelRow['changes'] {
+  const { additions, deletions, changedFiles, commitCount } = pr;
+  if (additions === null && deletions === null && changedFiles === null && commitCount === null) return null;
+  return { additions: additions ?? 0, deletions: deletions ?? 0, files: changedFiles ?? 0, commits: commitCount ?? 0 };
+}
+
 /** One panel row per PR, in the order given. `now` is injected (no clock here). */
 export function buildPrPanelRows(
   prs: readonly PrView[],
@@ -211,6 +229,7 @@ export function buildPrPanelRows(
    * path stands.
    */
   repoNameFor?: (repo: string) => string | undefined,
+  context: PrReadinessContext = NO_READINESS_CONTEXT,
 ): PrPanelRow[] {
   return prs.map((pr) => {
     const status = pr.status ?? 'unknown';
@@ -220,6 +239,26 @@ export function buildPrPanelRows(
     const opened = stampView(pr.createdAt, now);
     const merged = stampView(pr.mergedAt, now);
     const count = pr.comments.length;
+    const readiness = prMergeReadiness(
+      {
+        repo: pr.repo,
+        url: pr.url,
+        status,
+        baseRef: pr.baseRef,
+        canMerge,
+        mergeBlock: pr.mergeBlock,
+        checks: pr.checks,
+        reviewDecision: pr.reviewDecision,
+        approvals: pr.approvals,
+        requiredApprovals: null,
+        reviewRequests: pr.reviewRequests,
+      },
+      context.mergeChecks.find((m) => m.repo === pr.repo),
+      context.offers,
+      context.autofix,
+      now,
+    );
+    const blocking = blockingReasonsTitle(readiness);
     return {
       repo: pr.repo,
       repoDisplay: repoNameFor?.(pr.repo) ?? (pr.repoDisplay || pr.repo),
@@ -241,7 +280,12 @@ export function buildPrPanelRows(
       checks: buildPrChecksView(pr.checks),
       mergeBlockLabel: mergeBlockNotice(pr.mergeBlock).label,
       canMerge,
-      mergeBlockedReason: reason,
+      mergeBlockedReason: blocking || reason,
+      title: pr.title ?? '',
+      author: pr.author ?? '',
+      changes: changesOf(pr),
+      review: { decision: pr.reviewDecision, approvals: pr.approvals ?? 0, required: null, requested: [...pr.reviewRequests] },
+      readiness,
       dismissed,
       dismissedLabel: dismissedStamp ? `dismissed ${dismissedStamp}` : dismissed ? 'dismissed' : '',
       // Offered for anything that has not landed and has not already been

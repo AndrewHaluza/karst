@@ -188,3 +188,53 @@ export function normalizeMergeBlock(mergeable: unknown, mergeStateStatus: unknow
   }
   return mergeable === 'CONFLICTING' ? 'dirty' : 'unknown';
 }
+
+/** One entry of `gh pr checks --required --json name,bucket,link`. */
+interface RequiredEntry {
+  name: string;
+  bucket: string;
+}
+
+function requiredEntries(raw: unknown): RequiredEntry[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: RequiredEntry[] = [];
+  for (const node of raw) {
+    if (!isObject(node)) return null;
+    out.push({
+      name: typeof node.name === 'string' ? node.name.trim().slice(0, MAX_CHECK_NAME) : '',
+      bucket: typeof node.bucket === 'string' ? node.bucket : '',
+    });
+  }
+  return out;
+}
+
+/**
+ * Fold `gh pr checks --required` into the rollup: the required counts and a
+ * `required` flag on each failing check.
+ *
+ * `raw` is the parsed JSON of that call, or anything else when it failed or is
+ * unsupported. Anything that is not an array leaves `required: null` — the split
+ * is never guessed (arch:GH-03). An empty array also stays null: gh answers it
+ * both for "no required checks" and for "branch protection not readable".
+ * An unrecognised bucket counts as pending, never as a pass.
+ */
+export function applyRequiredChecks(checks: PrChecks | null, raw: unknown): PrChecks | null {
+  if (checks === null) return null;
+  const entries = requiredEntries(raw);
+  if (entries === null || entries.length === 0) {
+    return { ...checks, required: null, failing: checks.failing.map((f) => ({ ...f, required: null })) };
+  }
+  let failed = 0;
+  let pending = 0;
+  const names = new Set<string>();
+  for (const e of entries) {
+    names.add(e.name);
+    if (e.bucket === 'fail' || e.bucket === 'cancel') failed += 1;
+    else if (e.bucket !== 'pass' && e.bucket !== 'skipping') pending += 1;
+  }
+  return {
+    ...checks,
+    required: { total: entries.length, failed, pending },
+    failing: checks.failing.map((f) => ({ ...f, required: names.has(f.name) })),
+  };
+}

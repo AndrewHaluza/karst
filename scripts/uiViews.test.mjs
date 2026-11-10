@@ -23,6 +23,13 @@ describe('selectViews', () => {
 
   it('maps baseline changes to their owning view', () => {
     expect(selectViews(['tests/visual/__baselines__/dark/usage.png'])).toEqual({ all: false, views: ['usage'] });
+    expect(selectViews(['tests/visual/__baselines__/dark/dashboard-failed.png'])).toEqual({ all: false, views: ['dashboard', 'status'] });
+    expect(selectViews(['tests/visual/__baselines__/dark/status-primitives.png'])).toEqual({ all: false, views: ['status'] });
+    expect(selectViews(['tests/visual/__baselines__/dark/agents-profile.png'])).toEqual({ all: false, views: ['settings'] });
+  });
+
+  it('maps view-specific visual test files to their owning view', () => {
+    expect(selectViews(['tests/visual/panelVariants.ts'])).toEqual({ all: false, views: ['dashboard', 'status'] });
   });
 
   it('selects every view when the layout ledger changed, so each edited entry is judged', () => {

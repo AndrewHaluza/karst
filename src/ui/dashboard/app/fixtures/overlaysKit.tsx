@@ -20,9 +20,10 @@ const ROOTS =
   '<div id="artView" class="artview hidden" tabindex="-1"></div>' +
   '<div id="termView" class="termview hidden" tabindex="-1"></div>' +
   '<div id="logsView" class="logsview hidden" tabindex="-1"></div>' +
-  '<div id="envView" class="envview hidden" tabindex="-1"></div>';
+  '<div id="envView" class="envview hidden" tabindex="-1"></div>' +
+  '<div id="baselineView" class="blroot hidden" tabindex="-1"></div>';
 
-const SENDERS = ['xtermRequest', 'stageLogRequest', 'agentLogRequest', 'serverLogsRequest', 'serverLogsClose', 'serverLogsDetach', 'envOverridesSave', 'openPr', 'insideAction', 'artifactOpenResource', 'storedArtifactOpen', 'storedArtifactDiff', 'storedArtifactLive', 'storedArtifactReveal', 'storedArtifactPurge', 'copyTicketMarkdown', 'openTicketMarkdown', 'editTicket'] as const;
+const SENDERS = ['xtermRequest', 'stageLogRequest', 'agentLogRequest', 'serverLogsRequest', 'serverLogsClose', 'serverLogsDetach', 'envOverridesSave', 'openPr', 'insideAction', 'artifactOpenResource', 'storedArtifactOpen', 'storedArtifactDiff', 'storedArtifactLive', 'storedArtifactReveal', 'storedArtifactPurge', 'copyTicketMarkdown', 'openTicketMarkdown', 'editTicket', 'baselineApprove', 'baselineReject'] as const;
 
 export interface OverlayHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;

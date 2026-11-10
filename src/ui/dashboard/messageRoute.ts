@@ -125,6 +125,8 @@ export function routeAction(
       return actions.resolveConflicts(msg.repo);
     case 'merge-pr':
       return actions.mergePr(msg.repo);
+    case 'merge-all-prs':
+      return actions.mergeAllPrs();
     case 'dismiss-pr':
       return actions.dismissPr(msg.repo);
     case 'undismiss-pr':

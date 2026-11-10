@@ -257,6 +257,19 @@ export function buildDashboardState(
   const now = nowIso();
 
   const {
+    mergeGate,
+    sendBack,
+    rerunGate,
+    resetStage,
+    prFeedbackFix,
+    ciFailure,
+    rebase,
+    undelivered,
+    deliverAuto,
+    openPrFeedback,
+  } = readActionStates(store, ticketId, agentContext);
+  const autofixReading = readAutofix(store, ticketId, autopilotConfig);
+  const {
     worktrees,
     prs,
     prRows,
@@ -276,21 +289,18 @@ export function buildDashboardState(
     baseBranchCandidatesFor,
     repoNameFor,
     serviceKeys: serviceNames(ticketId),
+    readiness: {
+      offers: {
+        ciRepos: ciFailure.available ? ciFailure.prs.map((p) => p.repo) : [],
+        ciAvailable: ciFailure.available,
+        rebaseAvailable: rebase.available,
+        feedbackAvailable: prFeedbackFix.available,
+      },
+      autofix: autofixReading.input,
+    },
   });
   const phases = approachPhases(ticket.approach);
 
-  const {
-    mergeGate,
-    sendBack,
-    rerunGate,
-    resetStage,
-    prFeedbackFix,
-    ciFailure,
-    rebase,
-    undelivered,
-    deliverAuto,
-    openPrFeedback,
-  } = readActionStates(store, ticketId, agentContext);
   const evidence = readEvidence(store, ticketId);
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence } = evidence;
   // The needs-you derivation every other surface already honours. Consulted, not
@@ -314,7 +324,6 @@ export function buildDashboardState(
       ? resolvedGates.runOrder
       : resolvedGates;
 
-  const autofixReading = readAutofix(store, ticketId, autopilotConfig);
   const { insideViews, presentedStage, serverRows } = buildInsideSection(store, {
     ...(agentContext.liveRunUsage ? { liveRunUsage: agentContext.liveRunUsage } : {}),
     ticket,

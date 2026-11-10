@@ -42,7 +42,7 @@ const withMenu = (state: DashboardState, stage: string): DashboardState =>
   ({ ...state, sendBack: { available: true, stage }, ciFailure: { available: true, repos: [REPO] } }) as DashboardState;
 const failingCi = (): DashboardState => {
   const s = populatedStateFor('ship');
-  return withMenu({ ...s, prs: [{ ...s.prs[0]!, checks: { state: 'failing', label: 'f', title: '', detailsLabel: '1', failing: [{ name: 'lint', url: '' }] } }] } as DashboardState, 'ship');
+  return withMenu({ ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }] } as DashboardState, 'ship');
 };
 
 describe('React Inside / vanilla page — selection and persistence', () => {
@@ -91,7 +91,7 @@ describe('React Inside / vanilla page — selection and persistence', () => {
     }
     await click(v, '#rail .pick[data-stage="uat"]');
     await click(v, '#inside [data-back]');
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     expect(heard).toEqual([]);
   });
 });
@@ -172,16 +172,16 @@ describe('React Inside / React panels — shared operations, never two dialogs',
     let before = v.posted.length;
     await click(v, '[data-stage-menu="ship"]');
     await click(v, '.stageMenu [data-act="send-ci-failure"]');
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     expect(types(v, before)).toEqual(['send-ci-failure']);
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(true);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(true);
     await push(v, failingCi());
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(false);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(false);
 
     v.close();
     v = await open(failingCi());
     before = v.posted.length;
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     await click(v, '[data-stage-menu="ship"]');
     await click(v, '.stageMenu [data-act="send-ci-failure"]');
     expect(types(v, before)).toEqual(['send-ci-failure']);
@@ -189,11 +189,11 @@ describe('React Inside / React panels — shared operations, never two dialogs',
 
   it('keeps the request across a live push, and settles it on the next settling one', async () => {
     const v = await open(failingCi());
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     await push(v, failingCi(), { live: true, settlesActions: false });
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(true);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(true);
     await push(v, failingCi());
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(false);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(false);
   });
 });
 

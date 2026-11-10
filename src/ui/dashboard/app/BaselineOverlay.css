@@ -1,0 +1,88 @@
+/* The baseline review overlay (BaselineOverlay.tsx, ui:UI-R39; layout reference docs/ui/prototypes/baseline-review.html).
+   The same full-body swap as the env editor (body.baseline-nav hides the stepper and the grid). The overlay is ONE
+   fixed-height grid: the list and the viewer scroll or fit inside it, so the entry count never grows the page.
+   Width tiers (@ui:RD-TIERS) follow the overlay's own width, not the window's: >=700 list + viewer side by side,
+   400-699 the list is a picker above the viewer, <=399 one column. Approve and Reject keep their labels (@ui:RD-NEVER). */
+body.baseline-nav .stepper,body.baseline-nav .grid{display:none}
+#baselineView{min-width:0}
+#baselineView.hidden{display:none}
+.blview{container-type:inline-size;height:calc(100vh - var(--k-drill-chrome, 140px));min-height:320px;
+  display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;background:var(--k-bg);color:var(--k-text);outline:none}
+.blsub{padding:var(--k-space-2) var(--k-space-4);font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
+.blchips{display:flex;flex-wrap:wrap;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+.blchip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-height:var(--k-hit-min);padding:0 var(--k-space-4);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill, 999px);background:transparent;
+  color:var(--k-text-dim);cursor:pointer;font-size:var(--k-text-xs)}
+.blchip[aria-pressed="true"]{border-color:var(--k-running);color:var(--k-text)}
+.blchip:focus-visible,.blentry:focus-visible,.blseg button:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.blcount{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text)}
+
+.blmain{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:0}
+.bllist{border-right:var(--k-border-w) solid var(--k-border);overflow:auto;min-height:0}
+.blpicker{display:none;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+.blpicker select{flex:1;min-width:0}
+.blgroup{border-bottom:var(--k-border-w) solid var(--k-border)}
+.blgroup-head{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+  font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text)}
+.blgroup-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blentry{display:flex;align-items:center;gap:var(--k-space-3);width:100%;min-height:var(--k-hit-min);padding:0 var(--k-space-4);
+  border:0;border-left:var(--k-border-w) solid transparent;background:transparent;color:var(--k-text);cursor:pointer;text-align:left;
+  font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.blgroup-head + .blentry,.blgroup-head ~ .blentry{padding-left:var(--k-space-8, 28px)}
+.blentry:hover{background:var(--k-surface-hover)}
+.blentry[aria-current="true"]{background:var(--k-surface-hover);border-left-color:var(--k-running)}
+.blentry-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl-status{font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-sans, inherit)}
+
+.blviewer{display:flex;flex-direction:column;min-height:0;min-width:0}
+.blpath{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4)}
+.blpath-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+.bltools{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;padding:0 var(--k-space-4) var(--k-space-3)}
+.blzoom{display:inline-flex;align-items:center;gap:var(--k-space-2);margin-left:auto}
+.blseg{display:inline-flex}
+.blseg button{min-height:var(--k-hit-min);padding:0 var(--k-space-3);background:transparent;border:var(--k-border-w) solid var(--k-border);
+  color:var(--k-text-dim);cursor:pointer;font-size:var(--k-text-xs)}
+.blseg button + button{margin-left:calc(-1 * var(--k-border-w))}
+.blseg button:first-child{border-radius:var(--k-radius-sm) 0 0 var(--k-radius-sm)}
+.blseg button:last-child{border-radius:0 var(--k-radius-sm) var(--k-radius-sm) 0}
+.blseg button[aria-pressed="true"]{color:var(--k-text);background:var(--k-surface-hover);border-color:var(--k-running);position:relative}
+.blnote{font-size:var(--k-text-sm);color:var(--k-text-dim);padding:var(--k-space-4)}
+
+/* The stage: fit = the image contains itself in the area the viewer has left; zoom = natural size, scrolled here. */
+.blstage{flex:1;min-height:0;overflow:hidden;display:grid;place-items:center;background:var(--k-bg-sunken, var(--k-bg));padding:var(--k-space-3)}
+.blstage > img{width:100%;height:100%;object-fit:contain;display:block}
+.bldiff{position:relative;width:100%;height:100%;isolation:isolate}
+.bldiff img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.bldiff img + img{mix-blend-mode:difference}
+.blsbs{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-4);width:100%;height:100%;min-height:0}
+.blsbs figure{margin:0;display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;min-width:0}
+.blsbs figcaption{font-size:var(--k-text-xs);color:var(--k-text-dim);padding-bottom:var(--k-space-2)}
+.blsbs img{width:100%;height:100%;object-fit:contain;min-height:0}
+.blstage.zoom{display:block;overflow:auto}
+.blstage.zoom > img,.blstage.zoom .blsbs img{width:auto;height:auto;max-width:none;max-height:none}
+.blstage.zoom .bldiff{display:inline-block;width:auto;height:auto}
+.blstage.zoom .bldiff img:first-child{position:static;width:auto;height:auto}
+.blstage.zoom .blsbs{width:max-content;height:auto}
+
+.blact{border-top:var(--k-border-w) solid var(--k-border);background:var(--k-bg)}
+.blactrow{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap;padding:var(--k-space-3) var(--k-space-4)}
+.blnav{display:flex;align-items:center;gap:var(--k-space-3)}
+.blpos{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+.blactions{display:flex;gap:var(--k-space-3);flex-wrap:wrap;margin-left:auto}
+.blact .k-btn{display:inline-flex;align-items:center;gap:var(--k-space-2)}
+.blreject{padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);background:var(--k-surface)}
+.blreject textarea{width:100%;box-sizing:border-box}
+
+@container (max-width: 699px){
+  .blmain{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .bllist{display:none}
+  .blpicker{display:flex}
+  .blsbs{grid-template-columns:minmax(0,1fr);grid-template-rows:1fr 1fr}
+}
+@container (max-width: 399px){
+  .bltools{flex-direction:column;align-items:stretch}
+  .blseg{display:flex}
+  .blseg button{flex:1}
+  .blzoom{margin-left:0;align-self:flex-start}
+  .blactrow{gap:var(--k-space-3)}
+}

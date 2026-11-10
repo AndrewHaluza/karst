@@ -128,6 +128,7 @@ export function createSender(api: WebviewApi) {
       send({ type: 'resolve-conflicts', repo }, requestId),
     mergePr: (repo: Msg<'merge-pr'>['repo'], requestId?: string) =>
       send({ type: 'merge-pr', repo }, requestId),
+    mergeAllPrs: (requestId?: string) => send({ type: 'merge-all-prs' }, requestId),
     dismissPr: (repo: Msg<'dismiss-pr'>['repo'], requestId?: string) =>
       send({ type: 'dismiss-pr', repo }, requestId),
     undismissPr: (repo: Msg<'undismiss-pr'>['repo'], requestId?: string) =>

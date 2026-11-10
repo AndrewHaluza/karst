@@ -142,16 +142,22 @@ describe('React rail / vanilla page interop — outside clicks and Escape', () =
     expect(v.query('[data-act="send-back-to-implement"]')).toBeNull();
   });
 
-  it('Escape leaves an open baseline reject form, and its draft, alone', async () => {
+  it('Escape closes the open baseline reject form first, and keeps its draft', async () => {
     const rows = [{ index: 0, path: 'a.png', label: 'a.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null }];
     const v = await open(blockedAt({ kind: 'baseline-review' }, { baselineReview: rows }));
+    await click(v, '[data-act="baseline-open"]');
     await click(v, '[data-act="baseline-reject-open"]');
     const ta = v.query<HTMLTextAreaElement>('#blreason-0')!;
     ta.value = 'draft';
     ta.dispatchEvent(new v.window.Event('input', { bubbles: true }));
     await escape(v);
-    expect(v.query('#blreason-0')).toBe(ta);
-    expect(ta.value).toBe('draft');
+    expect(v.query('#blreason-0')).toBeNull();
+    expect(v.query('#baselineView [data-region="baseline-review"]')).not.toBeNull();
+    await click(v, '[data-act="baseline-reject-open"]');
+    expect(v.query<HTMLTextAreaElement>('#blreason-0')!.value).toBe('draft');
+    await escape(v);
+    await escape(v);
+    expect(v.query('#baselineView [data-region="baseline-review"]')).toBeNull();
   });
 });
 
@@ -253,12 +259,12 @@ describe('React rail and banner — one post per click, one request per operatio
 
   it('Send CI failure is one operation with the Inside stage menu’s item: the Inside block is React now, so no seam carries it', async () => {
     const s = populatedStateFor('ship');
-    const failing = { ...s, prs: [{ ...s.prs[0]!, checks: { state: 'failing', label: 'f', title: '', detailsLabel: '1', failing: [{ name: 'lint', url: '' }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
+    const failing = { ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
     const v = await open(failing);
     const heard: unknown[] = [];
     v.window.addEventListener('karst:prBegin', (e) => heard.push((e as CustomEvent).detail));
     const before = v.posted.length;
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     await click(v, '[data-stage-menu="ship"]');
     await click(v, '.stageMenu [data-act="send-ci-failure"]');
     expect(types(v, before)).toEqual(['send-ci-failure']);

@@ -66,7 +66,7 @@ describe('ArtifactView — captured files in the one index', () => {
   });
 });
 
-const DASH = { console: null, logs: false, env: false, art: null };
+const DASH = { console: null, logs: false, env: false, baselines: false, art: null };
 
 describe('ArtifactView — scroll memory and persistence', () => {
   const setTop = (n: number): void => {

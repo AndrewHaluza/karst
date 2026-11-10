@@ -30,8 +30,13 @@ const UI_PATH = [/^src\/ui\//, /^tests\/visual\//, /^playwright\.config\.ts$/, /
 /** A unit test never renders. */
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 
+/** Files under tests/visual/ with a single owning view (e.g. panel variant definitions). */
+export const VIEW_FILES = {
+  'tests/visual/panelVariants.ts': 'dashboard',
+};
+
 const VIEW_DIR_PATH = /^src\/ui\/([^/]+)\/(.+)$/;
-const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+)(?:--.*)?\.png$/;
+const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+?)(?:--|-.*)?\.png$/;
 
 /** Whether a changed path can alter a render: the paths `selectViews` counts as UI. */
 export const isUiPath = (path) => UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path);
@@ -48,8 +53,10 @@ export function selectViews(changedPaths) {
     sawUi = true;
     // A path with no owning view selects every view. That includes the layout ledger:
     // an edited entry can name any route, and only the full chain judges each entry.
-    const match = VIEW_DIR_PATH.exec(path) ?? BASELINE_PATH.exec(path);
-    const viewName = match ? match[1] : undefined;
+    const fileOwned = VIEW_FILES[path];
+    const match = fileOwned ? null : VIEW_DIR_PATH.exec(path) ?? BASELINE_PATH.exec(path);
+    const rawName = fileOwned ?? (match ? match[1] : undefined);
+    const viewName = rawName === 'agents' ? 'settings' : rawName;
     const owned = viewName ? (VIEW_DIRS[viewName] ?? (ALL_VIEWS.includes(viewName) ? [viewName] : undefined)) : undefined;
     if (owned === undefined) return { all: true, views: ALL_VIEWS };
     for (const view of owned) views.add(view);
