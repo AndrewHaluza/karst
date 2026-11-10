@@ -160,20 +160,25 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
   const waits = autofix.effective && autofix.unknownCi ? AUTOFIX_WAIT : undefined;
   if (c.state === 'failing') {
     const optionalPending = split ? Math.max(c.pending - split.pending, 0) : c.pending;
-    const detail = split
+    // Only a split that counts a failed required check may say "required"; otherwise the failures are optional or unsplit.
+    const requiredFailing = split !== null && split.failed > 0;
+    const label = requiredFailing ? 'Required checks failing' : split ? 'Optional checks failing' : 'Checks failing';
+    const detail = requiredFailing
       ? `${split.failed} of ${split.total} required failing${optionalPending > 0 ? ` · ${optionalPending} optional pending` : ''}`
-      : `${plural(c.failed, 'check')} failing`;
+      : split
+        ? `${plural(c.failed, 'optional check')} failing`
+        : `${plural(c.failed, 'check')} failing`;
     const list = c.failing.map((f) => ({ text: f.name, ...(f.url ? { url: f.url } : {}) }));
     const note = c.failedShown < c.failed ? `— first ${c.failedShown} of ${c.failed} shown` : undefined;
     if (fix.running !== null) {
-      return { kind: 'checks', state: 'run', label: 'Required checks failing', detail: fix.running, list, ...(note ? { listNote: note } : {}) };
+      return { kind: 'checks', state: 'run', label, detail: fix.running, list, ...(note ? { listNote: note } : {}) };
     }
     const canSend = offers.ciAvailable && offers.ciRepos.includes(pr.repo);
     const extra = fix.parked ?? waits;
     return {
       kind: 'checks',
       state: 'bad',
-      label: split ? 'Required checks failing' : 'Checks failing',
+      label,
       detail,
       ...(extra ? { extra } : {}),
       ...(canSend ? { action: { act: 'send-ci-failure', label: 'Send CI failure' } satisfies ReasonAction } : {}),

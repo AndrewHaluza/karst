@@ -91,6 +91,13 @@ describe('prMergeReadiness', () => {
     expect(r.facts).not.toContain('clean');
   });
 
+  it('names optional checks when the required split has no failed required check', () => {
+    const c = { ...failing, failed: 1, failing: [{ name: 'lint', url: null, required: false }], failedShown: 1, required: { total: 3, failed: 0, pending: 0 } };
+    const r = read(pr({ checks: c })).reasons.find((x) => x.kind === 'checks')!;
+    expect(r.label).toBe('Optional checks failing');
+    expect(r.detail).toBe('1 optional check failing');
+  });
+
   it('omits the karst clause without a clean check', () => {
     expect(read(pr({ canMerge: true, mergeBlock: 'clean', reviewDecision: 'APPROVED' })).facts).toBe('approved · 4 checks passed · GitHub: clean');
     expect(read(pr({ canMerge: true, mergeBlock: 'clean' }), check({ state: 'unknown' })).facts).toBe('no review required · 4 checks passed · GitHub: clean');

@@ -31,7 +31,7 @@ function line(item: MergeAllItem): string {
 export function mergeAllModal(plan: MergeAllPlan): MergeAllModal {
   const parts = [plan.ready.map(line).join('\n')];
   if (plan.skipped.length > 0) parts.push(`Skipped (blocked): ${plan.skipped.map(label).join(', ')}`);
-  parts.push('Each merges into its own base, one after another. If one fails, the rest stop and the failure is shown on its row.');
+  parts.push('Each is squash-merged into its own base, one after another. If one fails, the rest stop and the failure is shown on its row.');
   return { title: `Merge ${plural(plan.ready.length)}?`, detail: parts.join('\n\n'), confirm: `Merge ${plan.ready.length}` };
 }
 

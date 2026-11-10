@@ -15,7 +15,7 @@ describe('mergeAllModal', () => {
       detail: [
         'api #7 → main\nweb #9 → develop',
         'Skipped (blocked): docs #3',
-        'Each merges into its own base, one after another. If one fails, the rest stop and the failure is shown on its row.',
+        'Each is squash-merged into its own base, one after another. If one fails, the rest stop and the failure is shown on its row.',
       ].join('\n\n'),
     });
   });
@@ -24,7 +24,7 @@ describe('mergeAllModal', () => {
     const m = mergeAllModal({ ready: [item('api', null, null)], skipped: [] });
     expect(m.title).toBe('Merge 1 pull request?');
     expect(m.confirm).toBe('Merge 1');
-    expect(m.detail.startsWith('api\n\nEach merges')).toBe(true);
+    expect(m.detail.startsWith('api\n\nEach is squash-merged')).toBe(true);
     expect(m.detail).not.toContain('Skipped');
   });
 });
