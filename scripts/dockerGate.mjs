@@ -24,7 +24,7 @@ import { basename } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { baseRerunArgv, classifyFailures, failingScreenshots, planBaseCheck, reportLines } from './baseDrift.mjs';
+import { baseRerunArgv, classifyFailures, classifyHeadRerun, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
 import { gitDirOf, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
@@ -411,6 +411,36 @@ function ownBaselines(cwd, sha) {
 }
 
 /**
+ * The flake check: re-run the failing screenshots once at the ticket head, in the slot this process holds.
+ * Ones that pass are flaky (noticed, not failed); a ticket-recorded baseline that passes stays failed.
+ * Returns { done: true, status } when the gate is decided, else { done: false, failing } for the base check.
+ */
+async function judgeAtHead({ status, rawArgv, name, volume, run, results, failing, own }) {
+  const plan = planHeadRerun(failing);
+  if (plan.kind === 'skip') {
+    if (plan.reason) console.error(plan.reason);
+    return { done: false, failing };
+  }
+  console.error(`re-running ${failing.screenshots.length} failing screenshot(s) at the ticket head`);
+  const cwd = process.cwd();
+  rmSync(results, { force: true });
+  const headStatus = await run(baseRunArgv(rawArgv, cwd, failing.screenshots, `${name}-head`, volume), {
+    ...process.env,
+    KARST_UI_GREP: '',
+  });
+  const headReport = readReport(results);
+  if (headReport === null) {
+    console.error(`flake re-run skipped: the re-run left no report (exit ${headStatus})`);
+    return { done: false, failing };
+  }
+  const verdict = classifyHeadRerun(failing.screenshots, headReport, own);
+  for (const line of headRerunLines(verdict)) console.error(line);
+  if (verdict.unstable.length > 0) return { done: true, status };
+  if (verdict.again.length === 0) return { done: true, status: 0 };
+  return { done: false, failing: { screenshots: verdict.again, others: [] } };
+}
+
+/**
  * A failed sweep, re-judged: re-run only the failing screenshots in a detached
  * worktree of the merge base, inside the slot this process already holds. Ones
  * that fail there too are develop's drift (reported, not failed). Returns the
@@ -421,10 +451,13 @@ async function judgeAgainstBase({ status, rawArgv, name, volume, run, results })
   const cwd = process.cwd();
   const report = readReport(results);
   if (report === null) return status;
-  const failing = failingScreenshots(report, cwd);
   const sha = mergeBaseSha(cwd);
   if (sha === null) return status;
-  const plan = planBaseCheck(failing, ownBaselines(cwd, sha));
+  const own = ownBaselines(cwd, sha);
+  const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: failingScreenshots(report, cwd), own });
+  if (head.done) return head.status;
+  const failing = head.failing;
+  const plan = planBaseCheck(failing, own);
   if (plan.kind === 'skip') return status;
   if (plan.kind === 'fail') {
     console.error(`base check skipped: ${plan.reason}`);

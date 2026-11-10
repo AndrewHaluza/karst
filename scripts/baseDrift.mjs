@@ -133,3 +133,53 @@ export function reportLines({ drift, breaks }) {
   }
   return lines;
 }
+
+/**
+ * Whether a failed sweep gets one re-run at the ticket head before the base check (flake rule, like the vitest gate).
+ * A non-screenshot failure is never excused. A skip with a `reason` prints it.
+ */
+export function planHeadRerun({ screenshots, others }, env = process.env) {
+  if (screenshots.length === 0 || others.length > 0) return { kind: 'skip' };
+  if (env.GITHUB_ACTIONS === 'true') {
+    return { kind: 'skip', reason: 'flake re-run skipped: GitHub Actions never excuses a failure as a flake' };
+  }
+  if (screenshots.length > BASE_RERUN_CAP) {
+    return {
+      kind: 'skip',
+      reason: `flake re-run skipped: ${screenshots.length} screenshots fail (cap ${BASE_RERUN_CAP}), a real break`,
+    };
+  }
+  return { kind: 'run' };
+}
+
+/**
+ * Split the failing screenshots by the head re-run report. One that passes is flaky, except a baseline the ticket
+ * recorded: that is unstable and still fails. One that fails again, or is absent from the report, goes on to the base check.
+ */
+export function classifyHeadRerun(screenshots, headReport, ownBaselines) {
+  const passed = new Set(
+    [...specsOf(headReport, undefined)].filter((s) => s.status === 'expected').map((s) => `${s.project}\0${s.title}`),
+  );
+  const flaky = [];
+  const unstable = [];
+  const again = [];
+  for (const s of screenshots) {
+    if (!passed.has(`${s.project}\0${s.title}`)) again.push(s);
+    else (ownBaselines.has(s.baseline) ? unstable : flaky).push(s);
+  }
+  return { flaky, unstable, again };
+}
+
+/** The one-line flake notice. */
+export const flakyNotice = (screenshots) => `NOTICE: flaky: ${screenshots.map(label).join('; ')} (passed when re-run)`;
+
+const unstableLine = (s) =>
+  `unstable baseline: ${s.baseline} (passed when re-run; CI rejects a baseline that does not match its own screenshot — make the layout settle, then re-record)`;
+
+/** The gate-output lines for a head re-run classification. */
+export function headRerunLines({ flaky, unstable }) {
+  const lines = [];
+  if (flaky.length > 0) lines.push(flakyNotice(flaky));
+  for (const s of unstable) lines.push(unstableLine(s));
+  return lines;
+}
