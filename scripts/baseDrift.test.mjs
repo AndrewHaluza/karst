@@ -7,6 +7,10 @@ import {
   failingScreenshots,
   collapseList,
   planBaseCheck,
+  planHeadRerun,
+  classifyHeadRerun,
+  flakyNotice,
+  headRerunLines,
   reportLines,
 } from './baseDrift.mjs';
 
@@ -164,5 +168,72 @@ describe('collapseList', () => {
     const text = reportLines({ drift: f, breaks: [] }).join('\n');
     expect(text).toContain('and 20 more (30 total)');
     expect(text).not.toContain('s29');
+  });
+});
+
+const own = new Set(['b/own.png']);
+const s1 = { project: 'hc', title: 'a', baseline: 'b/a.png' };
+const s2 = { project: 'hc', title: 'o', baseline: 'b/own.png' };
+const passing = (...shots) => report(...shots.map((s) => ({ title: s.title, tests: [{ projectName: s.project, status: 'expected', results: [] }] })));
+
+describe('planHeadRerun', () => {
+  it('runs the head re-run for screenshot failures', () => {
+    expect(planHeadRerun({ screenshots: [s1], others: [] }, {})).toEqual({ kind: 'run' });
+  });
+  it('skips on GitHub Actions with the printed reason', () => {
+    expect(planHeadRerun({ screenshots: [s1], others: [] }, { GITHUB_ACTIONS: 'true' })).toEqual({
+      kind: 'skip',
+      reason: 'flake re-run skipped: GitHub Actions never excuses a failure as a flake',
+    });
+  });
+  it('skips above the cap as a real break', () => {
+    const many = Array.from({ length: BASE_RERUN_CAP + 1 }, (_, i) => ({ ...s1, title: `t${i}` }));
+    expect(planHeadRerun({ screenshots: many, others: [] }, {})).toEqual({
+      kind: 'skip',
+      reason: `flake re-run skipped: ${BASE_RERUN_CAP + 1} screenshots fail (cap ${BASE_RERUN_CAP}), a real break`,
+    });
+  });
+  it('runs at the cap', () => {
+    const many = Array.from({ length: BASE_RERUN_CAP }, (_, i) => ({ ...s1, title: `t${i}` }));
+    expect(planHeadRerun({ screenshots: many, others: [] }, {}).kind).toBe('run');
+  });
+  it('never excuses a non-screenshot failure', () => {
+    expect(planHeadRerun({ screenshots: [s1], others: [{ project: 'hc', title: 'x', message: '' }] }, {})).toEqual({ kind: 'skip' });
+  });
+  it('skips when nothing failed', () => {
+    expect(planHeadRerun({ screenshots: [], others: [] }, {})).toEqual({ kind: 'skip' });
+  });
+});
+
+describe('classifyHeadRerun', () => {
+  it('calls a screenshot that passes on the re-run flaky', () => {
+    expect(classifyHeadRerun([s1], passing(s1), own)).toEqual({ flaky: [s1], unstable: [], again: [] });
+  });
+  it('keeps a ticket-recorded baseline that passes on the re-run as unstable', () => {
+    expect(classifyHeadRerun([s2], passing(s2), own)).toEqual({ flaky: [], unstable: [s2], again: [] });
+  });
+  it('sends a screenshot that fails again to the base check', () => {
+    const again = report(shot('hc', 'a', '/r/b/a.png'));
+    expect(classifyHeadRerun([s1], again, own)).toEqual({ flaky: [], unstable: [], again: [s1] });
+  });
+  it('treats a screenshot missing from the re-run report as failed again', () => {
+    expect(classifyHeadRerun([s1], report(), own).again).toEqual([s1]);
+  });
+  it('matches by project and title', () => {
+    expect(classifyHeadRerun([s1], passing({ ...s1, project: 'dark' }), own).again).toEqual([s1]);
+  });
+});
+
+describe('head re-run lines', () => {
+  it('prints the flaky notice in the vitest shape', () => {
+    expect(flakyNotice([s1, { ...s1, project: 'dark' }])).toBe('NOTICE: flaky: hc: a; dark: a (passed when re-run)');
+  });
+  it('prints the unstable baseline label', () => {
+    expect(headRerunLines({ flaky: [], unstable: [s2], again: [] })).toEqual([
+      'unstable baseline: b/own.png (passed when re-run; CI rejects a baseline that does not match its own screenshot — make the layout settle, then re-record)',
+    ]);
+  });
+  it('prints nothing when nothing passed', () => {
+    expect(headRerunLines({ flaky: [], unstable: [], again: [s1] })).toEqual([]);
   });
 });
