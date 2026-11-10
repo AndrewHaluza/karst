@@ -199,7 +199,6 @@ flowchart LR
   hooks --> workflow
   init --> runtime
   integrations --> model
-  integrations --> planning
   integrations --> runtime
   integrations --> workflow
   logging --> diagnostics
@@ -240,7 +239,6 @@ flowchart LR
   store --> agent
   store --> manifest
   store --> model
-  store --> planning
   store --> runtime
   store --> runtimeAssetsRoot_ts
   store --> template

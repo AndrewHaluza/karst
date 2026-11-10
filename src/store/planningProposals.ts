@@ -4,7 +4,7 @@ import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
-import { PLANNING_BRIEF_HEADING } from '../planning/planningBriefHeading.js';
+import { PLANNING_BRIEF_HEADING } from '../model/planningBriefHeading.js';
 import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
 
 /**

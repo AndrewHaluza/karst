@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderBrief, parseBriefSections } from './briefMarkdown.js';
-import { PLANNING_BRIEF_HEADING } from '../planning/planningBriefHeading.js';
+import { PLANNING_BRIEF_HEADING } from '../model/planningBriefHeading.js';
 import type { ContextBrief } from './ticketing.js';
 
 const bare = (over: Partial<ContextBrief> = {}): ContextBrief => ({

@@ -1,6 +1,6 @@
 import type { ContextBrief, BriefPerson, BriefRelation } from './ticketing.js';
 import { renderAttachmentSection, escapeInline, safeUrl } from './attachmentMarkdown.js';
-import { PLANNING_BRIEF_HEADING } from '../planning/planningBriefHeading.js';
+import { PLANNING_BRIEF_HEADING } from '../model/planningBriefHeading.js';
 
 /**
  * The ONE place a fetched `ContextBrief` becomes the plain-markdown string that
