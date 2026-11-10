@@ -97,3 +97,14 @@ describe('shipCiReading', () => {
     expect(shipCiReading([{ checks: 'pending', mergeBlock: 'unknown' }], false)).toBe('running');
   });
 });
+
+describe('a failing read', () => {
+  it('a dropped merge_checks table reads null and does not throw', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'K-9', title: 't' }).id;
+    setStageCurrent(store, id, 'ship');
+    setStage(store, id, 'ship', { status: 'passed', blockedKind: 'awaiting-merge', blockedReason: 'x' });
+    store.db.exec('DROP TABLE merge_checks');
+    expect(getTicket(store, id).shipCi).toBeNull();
+  });
+});

@@ -1136,7 +1136,15 @@ function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[
 
 /** Attach the derived `shipCi` reading; only a ship/awaiting-merge ticket costs a query. */
 function withShipCi(store: Store, t: TicketWithStages): TicketWithStages {
-  return isShipAwaitingMerge(t) ? { ...t, shipCi: readShipCi(store, t.id) } : t;
+  if (!isShipAwaitingMerge(t)) return t;
+  try {
+    return { ...t, shipCi: readShipCi(store, t.id) };
+  } catch {
+    // The reading is display-only: a table that cannot be read (for example a
+    // dropped merge_checks) must not fail a ticket load. Null is the safe
+    // answer: the ticket keeps its amber "Needs you" reading.
+    return { ...t, shipCi: null };
+  }
 }
 
 /** List only archived tickets (the Archived facet view), ordered by created_at descending with id desc tiebreaker. */
