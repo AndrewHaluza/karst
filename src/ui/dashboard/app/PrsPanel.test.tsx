@@ -6,7 +6,6 @@ import { failing, installRuntimeDoubles, mc, mount, one, byAct, pr, refreshBtn, 
 
 installRuntimeDoubles();
 
-const html = (sel: string): string => document.querySelector(sel)?.innerHTML ?? '';
 const row = (n = 0): HTMLElement => document.querySelectorAll<HTMLElement>('#prs .prrow')[n]!;
 
 describe('PrsPanel — header and empty states', () => {
